@@ -60,8 +60,8 @@ targets:
       path: AIVoiceWatch/Info.plist
       properties:
         NSMicrophoneUsageDescription: "AI Voice needs microphone access to record your messages"
-        WKApplication:
-          WKCompanionAppBundleIdentifier: com.johnny5.aivoice
+        WKApplication: true
+        WKCompanionAppBundleIdentifier: com.johnny5.aivoice
         UILaunchScreen: {}
     dependencies:
       - target: AIVoice
