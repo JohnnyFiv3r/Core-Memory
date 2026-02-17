@@ -17,3 +17,15 @@ enum ConnectivityKeys {
     static let timestamp = "timestamp"
     static let responseText = "responseText"
 }
+
+enum ConnectivityError: Error, LocalizedError {
+    case notActivated
+    case transferFailed(String)
+    
+    var errorDescription: String? {
+        switch self {
+        case .notActivated: return "Watch connectivity not activated"
+        case .transferFailed(let msg): return "Transfer failed: \(msg)"
+        }
+    }
+}
