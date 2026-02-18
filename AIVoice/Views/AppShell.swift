@@ -42,9 +42,11 @@ struct AppShell: View {
             }
 
             // Agent avatar
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 28))
-                .foregroundColor(ShellPhoneTheme.accent)
+            Image("AgentAvatar")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 28, height: 28)
+                .clipShape(Circle())
 
             Spacer()
 

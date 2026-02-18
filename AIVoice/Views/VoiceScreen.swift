@@ -98,9 +98,11 @@ struct VoiceScreen: View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 10) {
                 // Agent avatar
-                Image(systemName: "person.crop.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(ShellPhoneTheme.accent)
+                Image("AgentAvatar")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 24, height: 24)
+                    .clipShape(Circle())
                     .padding(.top, 2)
                 
                 Text(text)
@@ -195,9 +197,11 @@ struct VoiceScreen: View {
     
     private var thinkingIndicator: some View {
         HStack(spacing: 10) {
-            Image(systemName: "person.crop.circle.fill")
-                .font(.system(size: 20))
-                .foregroundColor(ShellPhoneTheme.accent)
+            Image("AgentAvatar")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 20, height: 20)
+                .clipShape(Circle())
             
             TranscribingDots()
         }
