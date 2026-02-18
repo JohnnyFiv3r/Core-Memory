@@ -16,6 +16,7 @@ class AppCoordinator {
     var agentResponse: String?
     var isTranscribing = false
     var isWaitingForAgent = false
+    var lastSentText: String?
     var userTranscriptTimestamp: Date?
     var agentResponseTimestamp: Date?
 
@@ -27,13 +28,20 @@ class AppCoordinator {
             Task { await self?.handleVoiceMessage(audioURL) }
         }
     }
+    
+    /// Reload agent config (call after saving new credentials)
+    func reloadAgent() {
+        agentManager.loadDefaults()
+    }
 
     /// Called by VoiceScreen after countdown or manual send
     func sendTranscript(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        transcribedText = trimmed
-        userTranscriptTimestamp = Date()
+        
+        lastSentText = trimmed
+        transcribedText = nil  // Clear transcript, we're sending now
+        lastError = nil
 
         Task { await sendToAgent(trimmed) }
     }
@@ -42,6 +50,7 @@ class AppCoordinator {
         isProcessing = true
         isTranscribing = true
         lastError = nil
+        agentResponse = nil  // Clear previous response when new audio arrives
 
         do {
             let text = try await voicePipeline.processIncoming(audioURL: audioURL)
@@ -50,7 +59,7 @@ class AppCoordinator {
                 transcribedText = text
                 userTranscriptTimestamp = Date()
             }
-            // Countdown / auto-send is handled by VoiceScreen
+            // Countdown and auto-send handled by VoiceScreen
         } catch {
             await MainActor.run {
                 isTranscribing = false
@@ -72,9 +81,11 @@ class AppCoordinator {
             }
             let response = try await agent.send(message: text)
 
+            // TTS and send back to watch
             let ttsURL = try await voicePipeline.processResponse(text: response)
             connectivity.sendTTSAudio(fileURL: ttsURL, responseText: response)
 
+            // Store in chat history
             chatManager.recordSentMessage(text: text)
             chatManager.recordReceivedMessage(text: response)
 
@@ -83,7 +94,7 @@ class AppCoordinator {
                 agentResponseTimestamp = Date()
                 isWaitingForAgent = false
                 isProcessing = false
-                transcribedText = nil
+                lastSentText = nil
             }
         } catch {
             await MainActor.run {
@@ -91,6 +102,7 @@ class AppCoordinator {
                 isWaitingForAgent = false
                 isProcessing = false
             }
+            // Try to send error audio back to watch
             if let errorAudio = try? await voicePipeline.processResponse(
                 text: "Sorry, I couldn't process that. \(error.localizedDescription)"
             ) {

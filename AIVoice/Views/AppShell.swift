@@ -1,4 +1,4 @@
-// AppShell.swift — Main shell replacing MainTabView with hamburger navigation
+// AppShell.swift — Main shell with hamburger nav and top bar
 import SwiftUI
 
 struct AppShell: View {
@@ -11,44 +11,55 @@ struct AppShell: View {
             ShellPhoneTheme.background.ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Top bar
-                HStack(spacing: 12) {
-                    Button { withAnimation { drawerOpen.toggle() } } label: {
-                        Image(systemName: "line.3.horizontal")
-                            .font(.title2)
-                            .foregroundColor(.white)
-                    }
-
-                    Image(systemName: "person.crop.circle.fill")
-                        .font(.system(size: 32))
-                        .foregroundColor(ShellPhoneTheme.accent)
-
-                    Spacer()
-
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(Color.green)
-                            .frame(width: 8, height: 8)
-                        Text("Online")
-                            .font(.subheadline)
-                            .foregroundColor(.green)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
-                .background(ShellPhoneTheme.cardBackground)
-
+                topBar
+                
                 // Content
-                switch selectedItem {
-                case .chat:
-                    VoiceScreen()
-                case .settings:
-                    SettingsView()
+                Group {
+                    switch selectedItem {
+                    case .chat:
+                        VoiceScreen()
+                    case .settings:
+                        SettingsView()
+                    }
                 }
+                .frame(maxHeight: .infinity)
             }
 
             NavigationDrawer(isOpen: $drawerOpen, selectedItem: $selectedItem)
         }
         .preferredColorScheme(.dark)
+    }
+    
+    private var topBar: some View {
+        HStack(spacing: 12) {
+            // Hamburger
+            Button {
+                withAnimation(.easeOut(duration: 0.2)) { drawerOpen.toggle() }
+            } label: {
+                Image(systemName: "line.3.horizontal")
+                    .font(.title3)
+                    .foregroundColor(.white)
+            }
+
+            // Agent avatar
+            Image(systemName: "person.crop.circle.fill")
+                .font(.system(size: 28))
+                .foregroundColor(ShellPhoneTheme.accent)
+
+            Spacer()
+
+            // Connection status
+            HStack(spacing: 6) {
+                Circle()
+                    .fill(coordinator.connectivity.isWatchReachable ? ShellPhoneTheme.online : .orange)
+                    .frame(width: 8, height: 8)
+                Text(coordinator.connectivity.isWatchReachable ? "Online" : "Watch not connected")
+                    .font(.caption)
+                    .foregroundColor(coordinator.connectivity.isWatchReachable ? ShellPhoneTheme.online : .orange)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(ShellPhoneTheme.topBarBackground)
     }
 }

@@ -1,110 +1,234 @@
-// SettingsView.swift — App settings with dark theme matching Figma spec
+// SettingsView.swift — ShellPhone settings
 import SwiftUI
 
 struct SettingsView: View {
+    @Environment(AppCoordinator.self) private var coordinator
+    
     @State private var botToken = ""
     @State private var chatId = ""
     @State private var assemblyAIKey = ""
-    @State private var showingTokenSaved = false
+    @State private var showingSaved = false
     @State private var isSendingTest = false
     @State private var testResult: String?
-    @State private var autoSendDelay = UserDefaults.standard.integer(forKey: "autoSendDelay") == 0 ? 2 : UserDefaults.standard.integer(forKey: "autoSendDelay")
+    @State private var autoSendDelay: Int = {
+        let stored = UserDefaults.standard.integer(forKey: "autoSendDelay")
+        return stored > 0 ? stored : 2
+    }()
 
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
-                    HStack {
-                        Text("GPT-4")
-                            .foregroundColor(ShellPhoneTheme.primaryText)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(ShellPhoneTheme.secondaryText)
-                    }
-                } header: {
-                    Text("AI MODEL")
-                        .foregroundColor(ShellPhoneTheme.secondaryText)
-                }
-
-                Section {
-                    SecureField("Telegram Bot Token", text: $botToken)
-                        .textContentType(.password)
-                        .autocorrectionDisabled()
-
-                    TextField("Chat ID", text: $chatId)
-                        .keyboardType(.numberPad)
-
-                    SecureField("AssemblyAI API Key", text: $assemblyAIKey)
-                        .textContentType(.password)
-                        .autocorrectionDisabled()
-
-                    Text("Your API key is stored locally and never shared")
-                        .font(.caption)
-                        .foregroundColor(ShellPhoneTheme.secondaryText)
-
-                    Button {
-                        saveCredentials()
-                    } label: {
-                        Text("Save Credentials")
-                            .frame(maxWidth: .infinity)
-                            .foregroundColor(.white)
-                    }
-                    .listRowBackground(ShellPhoneTheme.accent)
-
-                    Button {
-                        sendTestMessage()
-                    } label: {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                Text("Settings")
+                    .font(.largeTitle.bold())
+                    .foregroundColor(.white)
+                    .padding(.top, 8)
+                
+                // MARK: - Agent
+                settingsSection("AGENT") {
+                    settingsRow {
                         HStack {
-                            if isSendingTest {
-                                ProgressView()
-                                    .padding(.trailing, 4)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Active Agent")
+                                    .foregroundColor(.white)
+                                Text(coordinator.agentManager.activeAgent?.agentName ?? "Not configured")
+                                    .font(.caption)
+                                    .foregroundColor(ShellPhoneTheme.secondaryText)
                             }
-                            Text(testResult ?? "Send Test Message")
-                                .frame(maxWidth: .infinity)
-                                .foregroundColor(testResult != nil ? (testResult!.starts(with: "✅") ? .green : .red) : .white)
+                            Spacer()
+                            Text("Telegram")
+                                .font(.caption)
+                                .foregroundColor(ShellPhoneTheme.secondaryText)
                         }
                     }
-                    .listRowBackground(isSendingTest ? Color.gray : ShellPhoneTheme.accent)
-                    .disabled(isSendingTest || botToken.isEmpty || chatId.isEmpty)
-                } header: {
-                    Text("API CONFIGURATION")
-                        .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
-
-                Section {
-                    Stepper("Auto-send Delay: \(autoSendDelay)s", value: $autoSendDelay, in: 1...10)
-                        .foregroundColor(ShellPhoneTheme.primaryText)
+                
+                // MARK: - API Configuration
+                settingsSection("API CONFIGURATION") {
+                    VStack(spacing: 1) {
+                        settingsRow {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Telegram Bot Token")
+                                    .font(.caption)
+                                    .foregroundColor(ShellPhoneTheme.secondaryText)
+                                SecureField("Bot token", text: $botToken)
+                                    .textContentType(.password)
+                                    .autocorrectionDisabled()
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        
+                        settingsRow {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("Chat ID")
+                                    .font(.caption)
+                                    .foregroundColor(ShellPhoneTheme.secondaryText)
+                                TextField("Chat ID", text: $chatId)
+                                    .keyboardType(.numberPad)
+                                    .foregroundColor(.white)
+                            }
+                        }
+                        
+                        settingsRow {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("AssemblyAI API Key")
+                                    .font(.caption)
+                                    .foregroundColor(ShellPhoneTheme.secondaryText)
+                                SecureField("API key", text: $assemblyAIKey)
+                                    .textContentType(.password)
+                                    .autocorrectionDisabled()
+                                    .foregroundColor(.white)
+                            }
+                        }
+                    }
+                    
+                    Text("Your API keys are stored locally in the Keychain and never shared.")
+                        .font(.caption2)
+                        .foregroundColor(ShellPhoneTheme.secondaryText)
+                        .padding(.top, 4)
+                    
+                    HStack(spacing: 12) {
+                        Button {
+                            saveCredentials()
+                        } label: {
+                            Text("Save")
+                                .font(.subheadline.bold())
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                                .background(ShellPhoneTheme.accent)
+                                .cornerRadius(10)
+                        }
+                        
+                        Button {
+                            sendTestMessage()
+                        } label: {
+                            HStack(spacing: 4) {
+                                if isSendingTest {
+                                    ProgressView()
+                                        .scaleEffect(0.7)
+                                }
+                                Text(testResult ?? "Test")
+                                    .font(.subheadline.bold())
+                            }
+                            .foregroundColor(testResultColor)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 10)
+                            .background(ShellPhoneTheme.cardBackground)
+                            .cornerRadius(10)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .stroke(ShellPhoneTheme.accent.opacity(0.3), lineWidth: 1)
+                            )
+                        }
+                        .disabled(isSendingTest || botToken.isEmpty || chatId.isEmpty)
+                    }
+                    .padding(.top, 8)
+                }
+                
+                // MARK: - Voice
+                settingsSection("VOICE") {
+                    settingsRow {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text("Auto-send Delay")
+                                    .foregroundColor(.white)
+                                Text("Time to edit before sending")
+                                    .font(.caption)
+                                    .foregroundColor(ShellPhoneTheme.secondaryText)
+                            }
+                            Spacer()
+                            Stepper("\(autoSendDelay) seconds", value: $autoSendDelay, in: 1...10)
+                                .labelsHidden()
+                            Text("\(autoSendDelay)s")
+                                .foregroundColor(ShellPhoneTheme.secondaryText)
+                                .frame(width: 30)
+                        }
                         .onChange(of: autoSendDelay) {
                             UserDefaults.standard.set(autoSendDelay, forKey: "autoSendDelay")
                         }
-
-                    HStack {
-                        Text("Language")
-                            .foregroundColor(ShellPhoneTheme.primaryText)
-                        Spacer()
-                        Text("English (US)")
-                            .foregroundColor(ShellPhoneTheme.secondaryText)
                     }
-                } header: {
-                    Text("VOICE")
-                        .foregroundColor(ShellPhoneTheme.secondaryText)
+                    
+                    settingsRow {
+                        HStack {
+                            Text("Language")
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("English (US)")
+                                .foregroundColor(ShellPhoneTheme.secondaryText)
+                        }
+                    }
+                    
+                    settingsRow {
+                        HStack {
+                            Text("Speech-to-Text")
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text(assemblyAIKey.isEmpty ? "Apple Speech" : "AssemblyAI")
+                                .foregroundColor(ShellPhoneTheme.secondaryText)
+                        }
+                    }
                 }
-
-                Section {
-                    LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Build", value: "2026.02.18")
-                } header: {
-                    Text("ABOUT")
-                        .foregroundColor(ShellPhoneTheme.secondaryText)
+                
+                // MARK: - About
+                settingsSection("ABOUT") {
+                    settingsRow {
+                        HStack {
+                            Text("Version")
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("1.0.0")
+                                .foregroundColor(ShellPhoneTheme.secondaryText)
+                        }
+                    }
+                    settingsRow {
+                        HStack {
+                            Text("Build")
+                                .foregroundColor(.white)
+                            Spacer()
+                            Text("2026.02.18")
+                                .foregroundColor(ShellPhoneTheme.secondaryText)
+                        }
+                    }
                 }
+                
+                Spacer(minLength: 40)
             }
-            .navigationTitle("Settings")
-            .preferredColorScheme(.dark)
-            .alert("Saved", isPresented: $showingTokenSaved) {
-                Button("OK") {}
-            }
-            .onAppear { loadCredentials() }
+            .padding(.horizontal, 16)
         }
+        .background(ShellPhoneTheme.background)
+        .alert("Credentials Saved", isPresented: $showingSaved) {
+            Button("OK") {
+                coordinator.reloadAgent()
+            }
+        }
+        .onAppear { loadCredentials() }
+    }
+    
+    // MARK: - Helpers
+    
+    private var testResultColor: Color {
+        guard let result = testResult else { return .white }
+        if result.hasPrefix("✅") { return .green }
+        if result.hasPrefix("❌") { return .red }
+        return .white
+    }
+    
+    private func settingsSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.bold())
+                .foregroundColor(ShellPhoneTheme.secondaryText)
+                .tracking(1)
+            content()
+        }
+    }
+    
+    private func settingsRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
+        content()
+            .padding(.horizontal, 14)
+            .padding(.vertical, 12)
+            .background(ShellPhoneTheme.cardBackground)
+            .cornerRadius(10)
     }
 
     private func saveCredentials() {
@@ -113,7 +237,7 @@ struct SettingsView: View {
         if !assemblyAIKey.isEmpty {
             try? SecureStorage.save(key: "assemblyai_api_key", value: assemblyAIKey)
         }
-        showingTokenSaved = true
+        showingSaved = true
     }
 
     private func loadCredentials() {
@@ -131,22 +255,18 @@ struct SettingsView: View {
                 let api = TelegramAPI(botToken: botToken)
                 let response = try await api.sendMessage(
                     chatId: chatId,
-                    text: "🧪 ShellPhone test message — if you see this, Telegram integration is working!"
+                    text: "🧪 ShellPhone test — Telegram integration working!"
                 )
                 await MainActor.run {
-                    testResult = "✅ Sent (msg \(response.message_id))"
+                    testResult = "✅ Sent"
                     isSendingTest = false
                 }
             } catch {
                 await MainActor.run {
-                    testResult = "❌ \(error.localizedDescription)"
+                    testResult = "❌ Failed"
                     isSendingTest = false
                 }
             }
         }
     }
-}
-
-#Preview {
-    SettingsView()
 }
