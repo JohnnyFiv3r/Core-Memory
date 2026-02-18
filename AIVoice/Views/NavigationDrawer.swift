@@ -32,9 +32,16 @@ struct NavigationDrawer: View {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     // App name
-                    Text("Clawdio")
-                        .font(.title2.bold())
-                        .foregroundColor(.white)
+                    HStack(spacing: 10) {
+                        Image("AgentAvatar")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 32, height: 32)
+                            .clipShape(Circle())
+                        Text("Clawdio")
+                            .font(.title2.bold())
+                            .foregroundColor(.white)
+                    }
                         .padding(.top, 60)
                         .padding(.bottom, 32)
                         .padding(.horizontal, 24)
