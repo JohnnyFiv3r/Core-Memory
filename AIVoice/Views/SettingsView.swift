@@ -1,64 +1,56 @@
-// SettingsView.swift — App settings with dark theme
+// SettingsView.swift — App settings with dark theme matching Figma spec
 import SwiftUI
 
 struct SettingsView: View {
-    @State private var selectedAgent = "Krusty"
     @State private var botToken = ""
     @State private var chatId = ""
     @State private var assemblyAIKey = ""
     @State private var showingTokenSaved = false
     @State private var isSendingTest = false
     @State private var testResult: String?
-    
+    @State private var autoSendDelay = UserDefaults.standard.integer(forKey: "autoSendDelay") == 0 ? 2 : UserDefaults.standard.integer(forKey: "autoSendDelay")
+
     var body: some View {
         NavigationStack {
             Form {
-                Section("Active Agent") {
-                    Picker("Agent", selection: $selectedAgent) {
-                        Text("Krusty (OpenClaw)").tag("Krusty")
+                Section {
+                    HStack {
+                        Text("GPT-4")
+                            .foregroundColor(ShellPhoneTheme.primaryText)
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(ShellPhoneTheme.secondaryText)
                     }
-                    .disabled(true)
+                } header: {
+                    Text("AI MODEL")
+                        .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
-                
-                Section("AssemblyAI") {
-                    SecureField("API Key", text: $assemblyAIKey)
+
+                Section {
+                    SecureField("Telegram Bot Token", text: $botToken)
                         .textContentType(.password)
                         .autocorrectionDisabled()
-                    
-                    Button {
-                        saveAssemblyAIKey()
-                    } label: {
-                        Text("Save API Key")
-                            .frame(maxWidth: .infinity)
-                            .foregroundColor(assemblyAIKey.isEmpty ? .gray : .white)
-                    }
-                    .listRowBackground(assemblyAIKey.isEmpty ? Color.gray.opacity(0.2) : Color.blue)
-                    .disabled(assemblyAIKey.isEmpty)
-                }
-                
-                Section("Telegram Configuration") {
-                    SecureField("Bot Token", text: $botToken)
-                        .textContentType(.password)
-                        .autocorrectionDisabled()
-                    
+
                     TextField("Chat ID", text: $chatId)
                         .keyboardType(.numberPad)
-                    
+
+                    SecureField("AssemblyAI API Key", text: $assemblyAIKey)
+                        .textContentType(.password)
+                        .autocorrectionDisabled()
+
+                    Text("Your API key is stored locally and never shared")
+                        .font(.caption)
+                        .foregroundColor(ShellPhoneTheme.secondaryText)
+
                     Button {
                         saveCredentials()
                     } label: {
                         Text("Save Credentials")
                             .frame(maxWidth: .infinity)
-                            .foregroundColor(botToken.isEmpty || chatId.isEmpty ? .gray : .white)
+                            .foregroundColor(.white)
                     }
-                    .listRowBackground(botToken.isEmpty || chatId.isEmpty ? Color.gray.opacity(0.2) : Color.blue)
-                    .disabled(botToken.isEmpty || chatId.isEmpty)
-                }
-                
-                Section("Connection") {
-                    LabeledContent("Status", value: "Connected")
-                    LabeledContent("Transport", value: "Telegram Bot API")
-                    
+                    .listRowBackground(ShellPhoneTheme.accent)
+
                     Button {
                         sendTestMessage()
                     } label: {
@@ -72,18 +64,38 @@ struct SettingsView: View {
                                 .foregroundColor(testResult != nil ? (testResult!.starts(with: "✅") ? .green : .red) : .white)
                         }
                     }
-                    .listRowBackground(isSendingTest ? Color.gray : Color.blue)
+                    .listRowBackground(isSendingTest ? Color.gray : ShellPhoneTheme.accent)
                     .disabled(isSendingTest || botToken.isEmpty || chatId.isEmpty)
+                } header: {
+                    Text("API CONFIGURATION")
+                        .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
-                
-                Section("Voice") {
-                    LabeledContent("Speech-to-Text", value: assemblyAIKey.isEmpty ? "Apple Speech" : "AssemblyAI")
-                    LabeledContent("Text-to-Speech", value: "Apple TTS")
+
+                Section {
+                    Stepper("Auto-send Delay: \(autoSendDelay)s", value: $autoSendDelay, in: 1...10)
+                        .foregroundColor(ShellPhoneTheme.primaryText)
+                        .onChange(of: autoSendDelay) {
+                            UserDefaults.standard.set(autoSendDelay, forKey: "autoSendDelay")
+                        }
+
+                    HStack {
+                        Text("Language")
+                            .foregroundColor(ShellPhoneTheme.primaryText)
+                        Spacer()
+                        Text("English (US)")
+                            .foregroundColor(ShellPhoneTheme.secondaryText)
+                    }
+                } header: {
+                    Text("VOICE")
+                        .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
-                
-                Section("About") {
+
+                Section {
                     LabeledContent("Version", value: "1.0.0")
-                    LabeledContent("Agent", value: "Krusty via OpenClaw")
+                    LabeledContent("Build", value: "2026.02.18")
+                } header: {
+                    Text("ABOUT")
+                        .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
             }
             .navigationTitle("Settings")
@@ -91,33 +103,29 @@ struct SettingsView: View {
             .alert("Saved", isPresented: $showingTokenSaved) {
                 Button("OK") {}
             }
-            .onAppear {
-                loadCredentials()
-            }
+            .onAppear { loadCredentials() }
         }
     }
-    
-    private func saveAssemblyAIKey() {
-        try? SecureStorage.save(key: "assemblyai_api_key", value: assemblyAIKey)
-        showingTokenSaved = true
-    }
-    
+
     private func saveCredentials() {
         try? SecureStorage.save(key: "telegram_bot_token", value: botToken)
         try? SecureStorage.save(key: "telegram_chat_id", value: chatId)
+        if !assemblyAIKey.isEmpty {
+            try? SecureStorage.save(key: "assemblyai_api_key", value: assemblyAIKey)
+        }
         showingTokenSaved = true
     }
-    
+
     private func loadCredentials() {
         botToken = (try? SecureStorage.load(key: "telegram_bot_token")) ?? ""
         chatId = (try? SecureStorage.load(key: "telegram_chat_id")) ?? ""
         assemblyAIKey = (try? SecureStorage.load(key: "assemblyai_api_key")) ?? ""
     }
-    
+
     private func sendTestMessage() {
         isSendingTest = true
         testResult = nil
-        
+
         Task {
             do {
                 let api = TelegramAPI(botToken: botToken)

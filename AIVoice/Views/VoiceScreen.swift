@@ -1,166 +1,224 @@
-// VoiceScreen.swift — Dark hands-free voice interface
+// VoiceScreen.swift — Dark voice chat interface (watch-driven, no mic button)
 import SwiftUI
 
 struct VoiceScreen: View {
-    @State private var chatManager = ChatManager.shared
-    @State private var isRecording = false
-    @State private var transcript = ""
+    @Environment(AppCoordinator.self) private var coordinator
+
     @State private var isEditing = false
-    @State private var agentResponse = ""
-    @State private var countdownProgress: CGFloat = 0
+    @State private var editText = ""
+    @State private var countdownSeconds = 0
     @State private var countdownTimer: Timer?
-    @State private var showCountdown = false
-    
+
+    private var autoSendDelay: Int {
+        UserDefaults.standard.integer(forKey: "autoSendDelay").clamped(to: 1...10, default: 2)
+    }
+
     var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            
-            VStack(spacing: 0) {
-                Spacer()
-                
-                // Agent response area
-                if !agentResponse.isEmpty {
-                    ScrollView {
-                        Text(agentResponse)
-                            .font(.title2)
-                            .foregroundColor(.white)
-                            .multilineTextAlignment(.leading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 24)
-                    }
-                    .frame(maxHeight: .infinity)
-                }
-                
-                // Transcript area
-                if !transcript.isEmpty && agentResponse.isEmpty {
-                    Spacer()
-                    
-                    if isEditing {
-                        TextField("Edit message", text: $transcript)
-                            .font(.title)
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                            .onSubmit {
-                                sendMessage()
-                            }
-                    } else {
-                        Text(""\(transcript)"")
-                            .font(.title)
-                            .foregroundColor(.gray)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 24)
-                            .onTapGesture {
-                                isEditing = true
-                                cancelCountdown()
-                            }
-                    }
-                    
-                    // Countdown bar
-                    if showCountdown {
-                        GeometryReader { geo in
-                            Rectangle()
-                                .fill(Color.accentColor)
-                                .frame(width: geo.size.width * countdownProgress, height: 3)
-                                .animation(.linear(duration: 0.05), value: countdownProgress)
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 16) {
+                        // Agent response
+                        if let response = coordinator.agentResponse,
+                           let ts = coordinator.agentResponseTimestamp {
+                            agentBubble(text: response, timestamp: ts)
+                                .id("agent")
                         }
-                        .frame(height: 3)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 12)
+
+                        // Transcribing indicator
+                        if coordinator.isTranscribing {
+                            transcribingPill()
+                        }
+
+                        // User transcript bubble
+                        if let text = coordinator.transcribedText,
+                           let ts = coordinator.userTranscriptTimestamp {
+                            userBubble(text: text, timestamp: ts)
+                                .id("user")
+                                .onTapGesture { beginEditing(text) }
+                        }
+
+                        // Waiting for agent
+                        if coordinator.isWaitingForAgent {
+                            thinkingIndicator()
+                        }
                     }
-                    
-                    Spacer()
+                    .padding(16)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                
-                if transcript.isEmpty && agentResponse.isEmpty {
-                    Spacer()
-                    Text("Tap to speak")
-                        .font(.title2)
-                        .foregroundColor(.gray.opacity(0.5))
-                    Spacer()
+                .onChange(of: coordinator.agentResponse) {
+                    withAnimation { proxy.scrollTo("agent", anchor: .bottom) }
                 }
-                
-                // Mic button
-                Button(action: micTapped) {
-                    ZStack {
-                        Circle()
-                            .fill(Color.accentColor)
-                            .frame(width: 72, height: 72)
-                            .shadow(color: isRecording ? Color.accentColor.opacity(0.6) : .clear, radius: isRecording ? 20 : 0)
-                        
-                        Image(systemName: isRecording ? "stop.fill" : "mic.fill")
-                            .font(.system(size: 28))
-                            .foregroundColor(.white)
-                    }
-                }
-                .padding(.bottom, 32)
+            }
+
+            Spacer(minLength: 0)
+
+            // Countdown label
+            if countdownSeconds > 0 && !isEditing {
+                Text("Sending in \(countdownSeconds)s...")
+                    .font(.caption)
+                    .foregroundColor(ShellPhoneTheme.accent)
+                    .padding(.bottom, 4)
+            }
+
+            // Edit bar
+            if isEditing {
+                editBar()
             }
         }
-        .preferredColorScheme(.dark)
-    }
-    
-    private func micTapped() {
-        if isRecording {
-            stopRecording()
-        } else {
-            startRecording()
+        .background(ShellPhoneTheme.background)
+        .onChange(of: coordinator.transcribedText) {
+            if coordinator.transcribedText != nil {
+                startCountdown()
+            }
         }
     }
-    
-    private func startRecording() {
-        isRecording = true
-        agentResponse = ""
-        transcript = ""
-        isEditing = false
+
+    // MARK: - Bubbles
+
+    private func agentBubble(text: String, timestamp: Date) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(text)
+                .font(.title3)
+                .foregroundColor(ShellPhoneTheme.primaryText)
+                .padding(14)
+                .background(ShellPhoneTheme.cardBackground)
+                .cornerRadius(16)
+
+            Text(timestamp.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundColor(ShellPhoneTheme.secondaryText)
+                .padding(.leading, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func userBubble(text: String, timestamp: Date) -> some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            Text(text)
+                .font(.body)
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(ShellPhoneTheme.accent)
+                .cornerRadius(20)
+
+            Text(timestamp.formatted(date: .omitted, time: .shortened))
+                .font(.caption2)
+                .foregroundColor(ShellPhoneTheme.secondaryText)
+                .padding(.trailing, 4)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func transcribingPill() -> some View {
+        HStack(spacing: 6) {
+            ForEach(0..<3, id: \.self) { i in
+                Circle()
+                    .fill(ShellPhoneTheme.accent)
+                    .frame(width: 6, height: 6)
+                    .opacity(0.6)
+            }
+            Text("Transcribing...")
+                .font(.caption)
+                .foregroundColor(ShellPhoneTheme.accent)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+        .background(ShellPhoneTheme.cardBackground)
+        .cornerRadius(20)
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    private func thinkingIndicator() -> some View {
+        HStack(spacing: 8) {
+            ProgressView()
+                .tint(ShellPhoneTheme.secondaryText)
+            Text("Thinking...")
+                .font(.caption)
+                .foregroundColor(ShellPhoneTheme.secondaryText)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    // MARK: - Edit Bar
+
+    private func editBar() -> some View {
+        VStack(spacing: 6) {
+            Text("Edit transcript")
+                .font(.caption)
+                .foregroundColor(ShellPhoneTheme.secondaryText)
+
+            HStack(spacing: 10) {
+                TextField("Edit message", text: $editText)
+                    .textFieldStyle(.plain)
+                    .foregroundColor(.white)
+                    .padding(10)
+                    .background(ShellPhoneTheme.cardBackground)
+                    .cornerRadius(10)
+
+                Button { sendEdited() } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(width: 36, height: 36)
+                        .background(ShellPhoneTheme.accent)
+                        .clipShape(Circle())
+                }
+            }
+
+            if countdownSeconds > 0 {
+                Text("Auto-send in \(countdownSeconds)s")
+                    .font(.caption2)
+                    .foregroundColor(ShellPhoneTheme.accent)
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(ShellPhoneTheme.drawerBackground)
+    }
+
+    // MARK: - Actions
+
+    private func beginEditing(_ text: String) {
+        editText = text
+        isEditing = true
+    }
+
+    private func sendEdited() {
         cancelCountdown()
+        isEditing = false
+        let text = editText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        coordinator.sendTranscript(text)
     }
-    
-    private func stopRecording() {
-        isRecording = false
-        // Simulate transcript from recording (real impl would use VoicePipeline)
-        if transcript.isEmpty {
-            transcript = "..."
-        }
-        startCountdown()
-    }
-    
+
     private func startCountdown() {
-        showCountdown = true
-        countdownProgress = 0
-        let start = Date()
-        let duration: TimeInterval = 2.0
-        
-        countdownTimer = Timer.scheduledTimer(withTimeInterval: 0.05, repeats: true) { timer in
-            let elapsed = Date().timeIntervalSince(start)
-            countdownProgress = min(1.0, CGFloat(elapsed / duration))
-            if elapsed >= duration {
-                timer.invalidate()
-                sendMessage()
+        cancelCountdown()
+        countdownSeconds = autoSendDelay
+        countdownTimer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            Task { @MainActor in
+                countdownSeconds -= 1
+                if countdownSeconds <= 0 {
+                    cancelCountdown()
+                    if let text = coordinator.transcribedText {
+                        coordinator.sendTranscript(text)
+                    }
+                }
             }
         }
     }
-    
+
     private func cancelCountdown() {
         countdownTimer?.invalidate()
         countdownTimer = nil
-        showCountdown = false
-        countdownProgress = 0
-    }
-    
-    private func sendMessage() {
-        cancelCountdown()
-        let message = transcript
-        guard !message.isEmpty else { return }
-        
-        chatManager.recordSentMessage(text: message)
-        
-        // Placeholder: in real app, AppCoordinator handles agent call
-        agentResponse = "Processing..."
-        transcript = ""
-        isEditing = false
+        countdownSeconds = 0
     }
 }
 
-#Preview {
-    VoiceScreen()
+private extension Int {
+    func clamped(to range: ClosedRange<Int>, default defaultVal: Int) -> Int {
+        self == 0 ? defaultVal : min(max(self, range.lowerBound), range.upperBound)
+    }
 }

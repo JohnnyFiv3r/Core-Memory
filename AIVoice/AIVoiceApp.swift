@@ -4,10 +4,11 @@ import SwiftUI
 @main
 struct AIVoiceApp: App {
     @State private var coordinator = AppCoordinator()
-    
+
     var body: some Scene {
         WindowGroup {
-            MainTabView()
+            AppShell()
+                .environment(coordinator)
                 .onAppear {
                     coordinator.start()
                 }
