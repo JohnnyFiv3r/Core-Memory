@@ -22,6 +22,9 @@ targets:
       - path: Shared
         excludes:
           - "**/.DS_Store"
+    dependencies:
+      - target: AIVoiceWatch
+        embed: true
     settings:
       base:
         INFOPLIST_FILE: AIVoice/Info.plist
