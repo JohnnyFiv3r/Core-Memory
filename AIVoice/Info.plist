@@ -19,9 +19,9 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>ShellPhone needs microphone access for speech recognition</string>
+	<string>Clawdio needs microphone access for speech recognition</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
-	<string>ShellPhone uses speech recognition to transcribe your voice messages</string>
+	<string>Clawdio uses speech recognition to transcribe your voice messages</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

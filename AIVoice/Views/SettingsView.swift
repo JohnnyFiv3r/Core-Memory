@@ -255,7 +255,7 @@ struct SettingsView: View {
                 let api = TelegramAPI(botToken: botToken)
                 let response = try await api.sendMessage(
                     chatId: chatId,
-                    text: "🧪 ShellPhone test — Telegram integration working!"
+                    text: "🧪 Clawdio test — Telegram integration working!"
                 )
                 await MainActor.run {
                     testResult = "✅ Sent"

@@ -26,7 +26,7 @@ targets:
       base:
         INFOPLIST_FILE: AIVoice/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.johnny5.aivoice
-        PRODUCT_NAME: ShellPhone
+        PRODUCT_NAME: Clawdio
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: 1
         TARGETED_DEVICE_FAMILY: 1
@@ -42,6 +42,6 @@ targets:
       base:
         INFOPLIST_FILE: AIVoiceWatch/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.johnny5.aivoice.watchkitapp
-        PRODUCT_NAME: ShellPhone
+        PRODUCT_NAME: Clawdio
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: 1

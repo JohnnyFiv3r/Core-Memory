@@ -32,7 +32,7 @@ struct NavigationDrawer: View {
             HStack(spacing: 0) {
                 VStack(alignment: .leading, spacing: 0) {
                     // App name
-                    Text("ShellPhone")
+                    Text("Clawdio")
                         .font(.title2.bold())
                         .foregroundColor(.white)
                         .padding(.top, 60)

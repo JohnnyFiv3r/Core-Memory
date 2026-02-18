@@ -19,7 +19,7 @@
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>NSMicrophoneUsageDescription</key>
-	<string>ShellPhone needs microphone access to record your messages</string>
+	<string>Clawdio needs microphone access to record your messages</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>WKApplication</key>
