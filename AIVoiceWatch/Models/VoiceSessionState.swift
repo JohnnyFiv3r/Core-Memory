@@ -11,7 +11,7 @@ enum SessionState: String {
     var icon: String {
         switch self {
         case .idle: return "mic.fill"
-        case .recording: return "mic.fill"
+        case .recording: return "stop.fill"
         case .sent: return "checkmark"
         case .playing: return "speaker.wave.2.fill"
         }
@@ -28,7 +28,7 @@ enum SessionState: String {
     
     var label: String {
         switch self {
-        case .idle: return "Tap to Record"
+        case .idle: return "WristChat"
         case .recording: return "Recording..."
         case .sent: return "Sent"
         case .playing: return "Playing..."
@@ -39,10 +39,12 @@ enum SessionState: String {
 @Observable
 class VoiceSession {
     var state: SessionState = .idle
+    var audioLevel: Float = 0
     var audioFileURL: URL?
     
     private var audioRecorder: AudioRecorder?
     private var audioPlayer: AudioPlayer?
+    private var meterTimer: Timer?
     let connectivity = WatchConnectivityManager()
     
     init() {
@@ -78,9 +80,19 @@ class VoiceSession {
         audioRecorder = AudioRecorder()
         audioRecorder?.startRecording(to: fileURL)
         state = .recording
+        
+        // Poll mic level at 15Hz
+        meterTimer = Timer.scheduledTimer(withTimeInterval: 1.0 / 15.0, repeats: true) { [weak self] _ in
+            guard let self = self else { return }
+            self.audioLevel = self.audioRecorder?.currentLevel() ?? 0
+        }
     }
     
     private func stopRecordingAndSend() {
+        meterTimer?.invalidate()
+        meterTimer = nil
+        audioLevel = 0
+        
         audioRecorder?.stopRecording()
         audioRecorder = nil
         state = .sent
@@ -88,6 +100,13 @@ class VoiceSession {
         // Send audio to iPhone via WatchConnectivity
         if let url = audioFileURL {
             connectivity.sendAudio(fileURL: url)
+        }
+        
+        // Return to idle after delay (will be interrupted if response arrives)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            if self?.state == .sent {
+                self?.state = .idle
+            }
         }
     }
     

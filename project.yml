@@ -26,43 +26,22 @@ targets:
       base:
         INFOPLIST_FILE: AIVoice/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.johnny5.aivoice
+        PRODUCT_NAME: ShellPhone
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: 1
-        TARGETED_DEVICE_FAMILY: 1  # iPhone only
-    info:
-      path: AIVoice/Info.plist
-      properties:
-        NSMicrophoneUsageDescription: "AI Voice needs microphone access for speech recognition"
-        NSSpeechRecognitionUsageDescription: "AI Voice uses speech recognition to transcribe your voice messages"
-        UIBackgroundModes:
-          - fetch
-          - processing
-        UILaunchScreen: {}
+        TARGETED_DEVICE_FAMILY: 1
 
   AIVoiceWatch:
-    type: application.watchapp2
+    type: application
     platform: watchOS
     sources:
       - path: AIVoiceWatch
-        excludes:
-          - "**/.DS_Store"
-      - path: Shared
         excludes:
           - "**/.DS_Store"
     settings:
       base:
         INFOPLIST_FILE: AIVoiceWatch/Info.plist
         PRODUCT_BUNDLE_IDENTIFIER: com.johnny5.aivoice.watchkitapp
+        PRODUCT_NAME: ShellPhone
         MARKETING_VERSION: "1.0.0"
         CURRENT_PROJECT_VERSION: 1
-        WATCHOS_DEPLOYMENT_TARGET: "10.0"
-        GENERATE_INFOPLIST_FILE: true
-        INFOPLIST_KEY_WKApplication: true
-        INFOPLIST_KEY_WKCompanionAppBundleIdentifier: com.johnny5.aivoice
-    info:
-      path: AIVoiceWatch/Info.plist
-      properties:
-        NSMicrophoneUsageDescription: "AI Voice needs microphone access to record your messages"
-        WKApplication: true
-        WKCompanionAppBundleIdentifier: com.johnny5.aivoice
-        UILaunchScreen: {}

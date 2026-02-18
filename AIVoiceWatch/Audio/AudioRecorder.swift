@@ -19,6 +19,7 @@ class AudioRecorder: NSObject, AVAudioRecorderDelegate {
             
             recorder = try AVAudioRecorder(url: url, settings: recordSettings)
             recorder?.delegate = self
+            recorder?.isMeteringEnabled = true
             recorder?.prepareToRecord()
             recorder?.record()
         } catch {
@@ -32,6 +33,17 @@ class AudioRecorder: NSObject, AVAudioRecorderDelegate {
         
         let session = AVAudioSession.sharedInstance()
         try? session.setActive(false)
+    }
+    
+    /// Returns normalized audio level 0.0–1.0
+    func currentLevel() -> Float {
+        guard let recorder = recorder, recorder.isRecording else { return 0 }
+        recorder.updateMeters()
+        let dB = recorder.averagePower(forChannel: 0)  // -160 to 0
+        // Normalize: -50dB and below = 0, 0dB = 1
+        let minDB: Float = -50
+        let clamped = max(minDB, min(dB, 0))
+        return (clamped - minDB) / (0 - minDB)
     }
     
     var isRecording: Bool {

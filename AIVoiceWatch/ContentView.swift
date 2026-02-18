@@ -1,19 +1,14 @@
-// ContentView.swift — Main watch view
+// ContentView.swift — Main watch view (ultra-minimal, full-screen button)
 import SwiftUI
 
 struct ContentView: View {
     @State private var session = VoiceSession()
     
     var body: some View {
-        VStack(spacing: 0) {
-            Text("AI Voice")
-                .font(.headline)
-                .padding(.top, 4)
-            
-            RecordButton(state: session.state) {
-                session.handleTap()
-            }
+        RecordButton(state: session.state, audioLevel: session.audioLevel) {
+            session.handleTap()
         }
+        .ignoresSafeArea()
     }
 }
 

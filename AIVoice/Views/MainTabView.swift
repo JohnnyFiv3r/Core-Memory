@@ -1,12 +1,12 @@
-// MainTabView.swift — Main iPhone app interface with Chat and Settings tabs
+// MainTabView.swift — Main iPhone app interface with Voice and Settings tabs
 import SwiftUI
 
 struct MainTabView: View {
     var body: some View {
         TabView {
-            ChatView()
+            VoiceScreen()
                 .tabItem {
-                    Label("Chat", systemImage: "message.fill")
+                    Label("Voice", systemImage: "waveform")
                 }
             
             SettingsView()
@@ -14,6 +14,7 @@ struct MainTabView: View {
                     Label("Settings", systemImage: "gear")
                 }
         }
+        .preferredColorScheme(.dark)
     }
 }
 

@@ -10,9 +10,19 @@ class VoicePipeline {
     var lastTranscription: String?
     var lastError: Error?
     
-    init(transcriber: SpeechTranscriber = AppleSpeechTranscriber(),
+    init(transcriber: SpeechTranscriber? = nil,
          synthesizer: SpeechSynthesizer = AppleSpeechSynthesizer()) {
-        self.transcriber = transcriber
+        // Use AssemblyAI if key is configured, otherwise fall back to Apple Speech
+        if let transcriber = transcriber {
+            self.transcriber = transcriber
+        } else {
+            let assemblyKey = try? SecureStorage.load(key: "assemblyai_api_key")
+            if let key = assemblyKey, !key.isEmpty {
+                self.transcriber = AssemblyAITranscriber()
+            } else {
+                self.transcriber = AppleSpeechTranscriber()
+            }
+        }
         self.synthesizer = synthesizer
     }
     
