@@ -219,6 +219,7 @@ struct VoiceScreen: View {
 
 private extension Int {
     func clamped(to range: ClosedRange<Int>, default defaultVal: Int) -> Int {
-        self == 0 ? defaultVal : min(max(self, range.lowerBound), range.upperBound)
+        let value = self == 0 ? defaultVal : self
+        return Swift.min(Swift.max(value, range.lowerBound), range.upperBound)
     }
 }
