@@ -35,12 +35,16 @@ class VoicePipeline {
         let gatewayURL = (try? SecureStorage.load(key: "openclaw_gateway_url")) ?? ""
         let gatewayToken = (try? SecureStorage.load(key: "openclaw_gateway_token")) ?? ""
 
+        print("[VoicePipeline] loadPiperConfig: gatewayURL='\(gatewayURL.prefix(40))' token='\(gatewayToken.isEmpty ? "EMPTY" : "SET (\(gatewayToken.count) chars)")'")
+
         if !gatewayURL.isEmpty && !gatewayToken.isEmpty {
             piperSynthesizer = PiperSpeechSynthesizer(gatewayURL: gatewayURL, token: gatewayToken)
-            print("[VoicePipeline] Piper TTS configured via \(gatewayURL)")
+            print("[VoicePipeline] ✅ Piper TTS configured")
         } else {
             piperSynthesizer = nil
-            print("[VoicePipeline] Using Apple TTS (no gateway configured)")
+            print("[VoicePipeline] ⚠️ Piper not configured — using Apple TTS")
+            if gatewayURL.isEmpty { print("[VoicePipeline]   → gateway URL is empty") }
+            if gatewayToken.isEmpty { print("[VoicePipeline]   → gateway token is empty") }
         }
     }
 

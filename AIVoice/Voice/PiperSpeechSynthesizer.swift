@@ -2,31 +2,36 @@
 import Foundation
 
 class PiperSpeechSynthesizer: SpeechSynthesizer {
-    private let gatewayURL: String
+    private let ttsURL: String
     private let token: String
     private let session: URLSession
 
     init(gatewayURL: String, token: String) {
-        // Derive TTS URL from gateway URL:
-        // - If hostname starts with "api.", replace with "tts." (tunnel setup)
-        // - If local IP, swap port to 18790
+        self.token = token
+
+        // Derive TTS URL from gateway URL
+        var derivedURL = gatewayURL  // fallback
         if let url = URL(string: gatewayURL), let host = url.host {
             if host.hasPrefix("api.") {
-                var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
-                components.host = "tts." + host.dropFirst(4)
+                let ttsHost = "tts." + String(host.dropFirst(4))
+                var components = URLComponents()
+                components.scheme = url.scheme ?? "https"
+                components.host = ttsHost
                 components.path = "/tts"
-                self.gatewayURL = components.url?.absoluteString ?? gatewayURL
+                if let built = components.url?.absoluteString {
+                    derivedURL = built
+                }
             } else {
-                // Local network — use port 18790
                 var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
                 components.port = 18790
                 components.path = "/tts"
-                self.gatewayURL = components.url?.absoluteString ?? gatewayURL
+                if let built = components.url?.absoluteString {
+                    derivedURL = built
+                }
             }
-        } else {
-            self.gatewayURL = gatewayURL
         }
-        self.token = token
+        self.ttsURL = derivedURL
+        print("PiperTTS: initialized with URL: \(ttsURL)")
 
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 30
@@ -34,11 +39,12 @@ class PiperSpeechSynthesizer: SpeechSynthesizer {
     }
 
     func synthesize(text: String) async throws -> URL {
-        guard let url = URL(string: gatewayURL) else {
+        guard let url = URL(string: ttsURL) else {
+            print("PiperTTS: ❌ invalid URL: \(ttsURL)")
             throw PiperError.invalidURL
         }
 
-        print("PiperTTS: requesting from \(url.absoluteString)")
+        print("PiperTTS: POST \(url.absoluteString) with \(text.count) chars")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -51,16 +57,20 @@ class PiperSpeechSynthesizer: SpeechSynthesizer {
         let (data, httpResponse) = try await session.data(for: request)
 
         guard let http = httpResponse as? HTTPURLResponse else {
+            print("PiperTTS: ❌ not an HTTP response")
             throw PiperError.invalidResponse
         }
 
+        print("PiperTTS: response HTTP \(http.statusCode), \(data.count) bytes")
+
         guard http.statusCode == 200 else {
-            let body = String(data: data, encoding: .utf8) ?? "unknown"
-            throw PiperError.httpError(status: http.statusCode, body: body)
+            let responseBody = String(data: data, encoding: .utf8) ?? "unknown"
+            print("PiperTTS: ❌ HTTP \(http.statusCode): \(responseBody)")
+            throw PiperError.httpError(status: http.statusCode, body: responseBody)
         }
 
-        // Verify we got audio
-        guard data.count > 44 else {  // WAV header is 44 bytes minimum
+        guard data.count > 44 else {
+            print("PiperTTS: ❌ response too small (\(data.count) bytes)")
             throw PiperError.emptyAudio
         }
 
@@ -69,7 +79,7 @@ class PiperSpeechSynthesizer: SpeechSynthesizer {
             .appendingPathComponent(UUID().uuidString + ".wav")
         try data.write(to: outputURL)
 
-        print("PiperTTS: received \(data.count) bytes, saved to \(outputURL.lastPathComponent)")
+        print("PiperTTS: ✅ saved \(data.count) bytes to \(outputURL.lastPathComponent)")
         return outputURL
     }
 }
