@@ -1,26 +1,15 @@
-// AudioPlayer.swift — AVAudioEngine-based playback for watchOS
+// AudioPlayer.swift — AVPlayer-based playback for watchOS
+// AVPlayer handles audio routing and session management internally,
+// which may be more reliable than AVAudioEngine on watchOS.
 import AVFoundation
 
 class AudioPlayer: NSObject {
-    private var engine: AVAudioEngine?
-    private var playerNode: AVAudioPlayerNode?
-    private var audioBuffer: AVAudioPCMBuffer?
+    private var player: AVPlayer?
+    private var playerItem: AVPlayerItem?
+    private var endObserver: Any?
+    private var stallObserver: NSKeyValueObservation?
     private var completionCalled = false
     var onPlaybackComplete: (() -> Void)?
-
-    override init() {
-        super.init()
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleInterruption),
-            name: AVAudioSession.interruptionNotification,
-            object: nil
-        )
-    }
-
-    deinit {
-        NotificationCenter.default.removeObserver(self)
-    }
 
     func play(url: URL) {
         completionCalled = false
@@ -38,86 +27,91 @@ class AudioPlayer: NSObject {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default)
             try session.setActive(true)
-
-            let audioFile = try AVAudioFile(forReading: url)
-            let format = audioFile.processingFormat
-            let frameCount = AVAudioFrameCount(audioFile.length)
-            let duration = Double(audioFile.length) / format.sampleRate
-            print("AudioPlayer: duration: \(String(format: "%.1f", duration))s")
-
-            let engine = AVAudioEngine()
-            let player = AVAudioPlayerNode()
-
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: format)
-
-            let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
-            try audioFile.read(into: buffer)
-
-            try engine.start()
-
-            self.engine = engine
-            self.playerNode = player
-            self.audioBuffer = buffer
-
-            player.scheduleBuffer(buffer, at: nil, options: []) { [weak self] in
-                // This fires on audio render thread — dispatch to main
-                DispatchQueue.main.async {
-                    print("AudioPlayer: buffer done")
-                    self?.fireCompletion()
-                }
-            }
-
-            player.play()
-            print("AudioPlayer: playing, duration \(String(format: "%.1f", duration))s")
-
-            // Safety fallback: force completion after duration + 3s
-            let safetyDelay = duration + 3.0
-            DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
-                guard let self = self, !self.completionCalled else { return }
-                print("AudioPlayer: safety timeout after \(safetyDelay)s")
-                self.fireCompletion()
-            }
-
         } catch {
-            print("AudioPlayer: error: \(error)")
+            print("AudioPlayer: session error: \(error)")
             fireCompletion()
+            return
         }
+
+        let item = AVPlayerItem(url: url)
+        let avPlayer = AVPlayer(playerItem: item)
+        avPlayer.volume = 1.0
+
+        self.playerItem = item
+        self.player = avPlayer
+
+        // Observe playback end
+        endObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] _ in
+            print("AudioPlayer: ✅ played to end")
+            self?.fireCompletion()
+        }
+
+        // Observe failures
+        NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemFailedToPlayToEndTime,
+            object: item,
+            queue: .main
+        ) { [weak self] notification in
+            let error = notification.userInfo?[AVPlayerItemFailedToPlayToEndTimeErrorKey] as? Error
+            print("AudioPlayer: ❌ failed to play to end: \(error?.localizedDescription ?? "unknown")")
+            self?.fireCompletion()
+        }
+
+        // Observe stalls
+        stallObserver = item.observe(\.isPlaybackLikelyToKeepUp, options: [.new]) { item, change in
+            print("AudioPlayer: likelyToKeepUp=\(item.isPlaybackLikelyToKeepUp), buffered=\(item.isPlaybackBufferFull)")
+        }
+
+        // Log duration
+        let duration = CMTimeGetSeconds(item.asset.duration)
+        print("AudioPlayer: duration: \(String(format: "%.1f", duration))s, starting playback")
+
+        // Safety timeout
+        let safetyDelay = max(duration + 5.0, 10.0)
+        DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
+            guard let self = self, !self.completionCalled else { return }
+            print("AudioPlayer: safety timeout after \(safetyDelay)s")
+            self.fireCompletion()
+        }
+
+        avPlayer.play()
     }
 
     func stop() {
-        playerNode?.stop()
-        engine?.stop()
+        player?.pause()
         fireCompletion()
     }
 
     var isPlaying: Bool {
-        playerNode?.isPlaying ?? false
-    }
-
-    @objc private func handleInterruption(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
-              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
-
-        print("AudioPlayer: interruption \(type.rawValue)")
-        if type == .began {
-            DispatchQueue.main.async { [weak self] in
-                self?.fireCompletion()
-            }
-        }
+        player?.rate ?? 0 > 0
     }
 
     private func fireCompletion() {
         guard !completionCalled else { return }
         completionCalled = true
 
-        playerNode?.stop()
-        engine?.stop()
-        playerNode = nil
-        engine = nil
-        audioBuffer = nil
+        player?.pause()
+        if let obs = endObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        stallObserver?.invalidate()
+        player = nil
+        playerItem = nil
+        endObserver = nil
+        stallObserver = nil
+
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         onPlaybackComplete?()
+    }
+
+    deinit {
+        if let obs = endObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        stallObserver?.invalidate()
     }
 }
