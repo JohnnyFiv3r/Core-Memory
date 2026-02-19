@@ -5,6 +5,7 @@ import WatchConnectivity
 @Observable
 class PhoneConnectivityManager: NSObject, WCSessionDelegate {
     var isWatchReachable = false
+    var isWatchPaired = false
     var onVoiceMessageReceived: ((URL) -> Void)?
     var onTransferError: ((Error) -> Void)?
     
@@ -38,6 +39,7 @@ class PhoneConnectivityManager: NSObject, WCSessionDelegate {
     func session(_ session: WCSession, activationDidCompleteWith activationState: WCSessionActivationState, error: Error?) {
         DispatchQueue.main.async {
             self.isWatchReachable = session.isReachable
+            self.isWatchPaired = session.isPaired
         }
     }
     
@@ -51,6 +53,7 @@ class PhoneConnectivityManager: NSObject, WCSessionDelegate {
     func sessionReachabilityDidChange(_ session: WCSession) {
         DispatchQueue.main.async {
             self.isWatchReachable = session.isReachable
+            self.isWatchPaired = session.isPaired
         }
     }
     

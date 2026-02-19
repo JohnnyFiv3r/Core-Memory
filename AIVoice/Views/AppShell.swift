@@ -50,18 +50,38 @@ struct AppShell: View {
 
             Spacer()
 
-            // Connection status
+            // Watch status
             HStack(spacing: 6) {
                 Circle()
-                    .fill(coordinator.connectivity.isWatchReachable ? ShellPhoneTheme.online : .orange)
+                    .fill(watchStatusColor)
                     .frame(width: 8, height: 8)
-                Text(coordinator.connectivity.isWatchReachable ? "Online" : "Watch not connected")
+                Text(watchStatusText)
                     .font(.caption)
-                    .foregroundColor(coordinator.connectivity.isWatchReachable ? ShellPhoneTheme.online : .orange)
+                    .foregroundColor(watchStatusColor)
             }
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(ShellPhoneTheme.topBarBackground)
+    }
+
+    private var watchStatusColor: Color {
+        if coordinator.connectivity.isWatchReachable {
+            return ShellPhoneTheme.online
+        } else if coordinator.connectivity.isWatchPaired {
+            return .yellow
+        } else {
+            return .orange
+        }
+    }
+
+    private var watchStatusText: String {
+        if coordinator.connectivity.isWatchReachable {
+            return "Watch Active"
+        } else if coordinator.connectivity.isWatchPaired {
+            return "Watch Paired"
+        } else {
+            return "No Watch"
+        }
     }
 }
