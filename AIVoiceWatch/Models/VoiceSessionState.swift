@@ -99,8 +99,27 @@ class VoiceSession: NSObject, WKExtendedRuntimeSessionDelegate {
     }
 
     func extendedRuntimeSession(_ extendedRuntimeSession: WKExtendedRuntimeSession, didInvalidateWith reason: WKExtendedRuntimeSessionInvalidationReason, error: Error?) {
-        print("VoiceSession: extended session invalidated: \(reason.rawValue), error: \(error?.localizedDescription ?? "none")")
+        print("VoiceSession: extended session invalidated: \(reason.rawValue)")
         extendedSession = nil
+    }
+
+    // MARK: - Audio Session (keep watch awake)
+
+    /// Activate audio session early to prevent watch from sleeping
+    /// watchOS respects active audio sessions and delays sleep
+    private func keepAwakeForPlayback() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playback, mode: .default)
+            try session.setActive(true)
+            print("VoiceSession: audio session activated (keeping watch awake)")
+        } catch {
+            print("VoiceSession: failed to activate audio session: \(error)")
+        }
+    }
+
+    private func releaseAudioSession() {
+        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     // MARK: - Recording
@@ -133,12 +152,23 @@ class VoiceSession: NSObject, WKExtendedRuntimeSessionDelegate {
             connectivity.sendAudio(fileURL: url)
         }
 
-        // Start extended session while waiting for response + playback
+        // Start extended session AND audio session immediately
+        // This keeps the watch awake while waiting for the agent response
         startExtendedSession()
+        keepAwakeForPlayback()
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 60.0) { [weak self] in
+        // Also use performExpiringActivity as belt-and-suspenders
+        ProcessInfo.processInfo.performExpiringActivity(withReason: "Waiting for agent response audio") { expired in
+            if expired {
+                print("VoiceSession: expiring activity expired")
+            }
+        }
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 120.0) { [weak self] in
             if self?.state == .sent {
+                print("VoiceSession: sent timeout, returning to idle")
                 self?.state = .idle
+                self?.releaseAudioSession()
                 self?.stopExtendedSession()
             }
         }
@@ -154,13 +184,15 @@ class VoiceSession: NSObject, WKExtendedRuntimeSessionDelegate {
     // MARK: - Playback
 
     func onAudioReceived(url: URL) {
-        // Ensure extended session is active for playback
+        // Extended session and audio session should already be active from sent state
+        // Reinforce just in case
         startExtendedSession()
 
         audioPlayer = AudioPlayer()
         audioPlayer?.onPlaybackComplete = { [weak self] in
             DispatchQueue.main.async {
                 self?.state = .idle
+                self?.releaseAudioSession()
                 self?.stopExtendedSession()
             }
         }
