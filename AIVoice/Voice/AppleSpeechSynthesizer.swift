@@ -17,49 +17,51 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
         utterance.pitchMultiplier = 1.0
 
         let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".m4a")
-
-        var audioBuffers: [AVAudioPCMBuffer] = []
+            .appendingPathComponent(UUID().uuidString + ".wav")
 
         return try await withCheckedThrowingContinuation { cont in
             var hasResumed = false
+            var audioFile: AVAudioFile?
+            var totalFrames: AVAudioFrameCount = 0
 
             synthesizer.write(utterance) { buffer in
                 guard !hasResumed else { return }
 
                 guard let pcmBuffer = buffer as? AVAudioPCMBuffer,
                       pcmBuffer.frameLength > 0 else {
-                    // Empty buffer signals completion
+                    // Empty buffer = done
                     hasResumed = true
-                    do {
-                        let url = try self.writeBuffersToFile(audioBuffers, outputURL: outputURL)
-                        cont.resume(returning: url)
-                    } catch {
-                        cont.resume(throwing: error)
+                    audioFile = nil  // close file
+                    if totalFrames > 0 {
+                        print("AppleTTS: wrote \(totalFrames) frames to \(outputURL.lastPathComponent)")
+                        cont.resume(returning: outputURL)
+                    } else {
+                        cont.resume(throwing: SynthesizerError.noAudio)
                     }
                     return
                 }
-                audioBuffers.append(pcmBuffer)
+
+                do {
+                    // Create file on first buffer (to get correct format)
+                    if audioFile == nil {
+                        let wavSettings: [String: Any] = [
+                            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+                            AVSampleRateKey: pcmBuffer.format.sampleRate,
+                            AVNumberOfChannelsKey: 1,
+                            AVLinearPCMBitDepthKey: 16,
+                            AVLinearPCMIsFloatKey: false,
+                            AVLinearPCMIsBigEndianKey: false
+                        ]
+                        audioFile = try AVAudioFile(forWriting: outputURL, settings: wavSettings)
+                    }
+                    try audioFile?.write(from: pcmBuffer)
+                    totalFrames += pcmBuffer.frameLength
+                } catch {
+                    guard !hasResumed else { return }
+                    hasResumed = true
+                    cont.resume(throwing: error)
+                }
             }
         }
-    }
-
-    private func writeBuffersToFile(_ buffers: [AVAudioPCMBuffer], outputURL: URL) throws -> URL {
-        guard let firstBuffer = buffers.first else {
-            throw SynthesizerError.noAudio
-        }
-
-        // AAC for smaller file size over WatchConnectivity
-        let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-            AVSampleRateKey: firstBuffer.format.sampleRate,
-            AVNumberOfChannelsKey: 1
-        ]
-
-        let audioFile = try AVAudioFile(forWriting: outputURL, settings: settings)
-        for buffer in buffers {
-            try audioFile.write(from: buffer)
-        }
-        return outputURL
     }
 }
