@@ -9,19 +9,14 @@ class AudioPlayer: NSObject {
     private var isCleanedUp = false
     var onPlaybackComplete: (() -> Void)?
 
+    private var interruptionTimer: Timer?
+
     override init() {
         super.init()
-        // Observe audio interruptions
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(handleInterruption),
             name: AVAudioSession.interruptionNotification,
-            object: nil
-        )
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(handleRouteChange),
-            name: AVAudioSession.routeChangeNotification,
             object: nil
         )
     }
@@ -108,36 +103,15 @@ class AudioPlayer: NSObject {
 
         switch type {
         case .began:
-            print("AudioPlayer: interruption began")
-        case .ended:
-            print("AudioPlayer: interruption ended, attempting resume")
-            let options = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
-            if AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
-                resumePlayback()
+            print("AudioPlayer: interruption began — cleaning up")
+            // Don't try to resume, just clean up. watchOS interruptions rarely recover.
+            DispatchQueue.main.async { [weak self] in
+                self?.cleanup()
             }
+        case .ended:
+            print("AudioPlayer: interruption ended")
         @unknown default:
             break
-        }
-    }
-
-    @objc private func handleRouteChange(_ notification: Notification) {
-        guard let info = notification.userInfo,
-              let reasonValue = info[AVAudioSessionRouteChangeReasonKey] as? UInt else { return }
-        print("AudioPlayer: route change reason=\(reasonValue)")
-    }
-
-    private func resumePlayback() {
-        guard let engine = engine, let player = playerNode else { return }
-        do {
-            try AVAudioSession.sharedInstance().setActive(true)
-            if !engine.isRunning {
-                try engine.start()
-            }
-            player.play()
-            print("AudioPlayer: resumed after interruption")
-        } catch {
-            print("AudioPlayer: failed to resume: \(error)")
-            cleanup()
         }
     }
 
