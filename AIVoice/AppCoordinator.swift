@@ -23,6 +23,7 @@ class AppCoordinator {
     func start() {
         connectivity.activate()
         agentManager.loadDefaults()
+        voicePipeline.loadPiperConfig()
 
         connectivity.onVoiceMessageReceived = { [weak self] audioURL in
             Task { await self?.handleVoiceMessage(audioURL) }
