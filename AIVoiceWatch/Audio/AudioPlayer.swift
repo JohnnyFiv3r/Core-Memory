@@ -1,9 +1,9 @@
-// AudioPlayer.swift — Robust AVPlayer-based playback for watchOS
-// Applies all known watchOS audio workarounds:
-// - Persistent instance scoping (caller must retain as instance var)
-// - Explicit session activation before every play
-// - Reinitialize on wake
-// - AVPlayer for reliable media playback
+// AudioPlayer.swift — watchOS background-audio-compliant playback
+// Implements all Apple-recommended watchOS audio workarounds:
+// 1. Background audio mode (UIBackgroundModes in Info.plist)
+// 2. routeSharingPolicy: .longFormAudio
+// 3. Strong reference to AVAudioSession.sharedInstance()
+// 4. Interruption handler with .shouldResume
 import AVFoundation
 import WatchKit
 
@@ -15,16 +15,20 @@ class AudioPlayer: NSObject {
     private var timeObserver: Any?
     private var completionCalled = false
     private var pendingURL: URL?
+
+    // Strong reference to audio session (watchOS workaround #3)
+    private let audioSession = AVAudioSession.sharedInstance()
+
     var onPlaybackComplete: (() -> Void)?
 
     override init() {
         super.init()
-        // Reinitialize audio on wake (watchOS workaround)
+        // Interruption handler (watchOS workaround #4)
         NotificationCenter.default.addObserver(
             self,
-            selector: #selector(appDidBecomeActive),
-            name: WKApplication.didBecomeActiveNotification,
-            object: nil
+            selector: #selector(handleInterruption),
+            name: AVAudioSession.interruptionNotification,
+            object: audioSession
         )
     }
 
@@ -33,17 +37,23 @@ class AudioPlayer: NSObject {
         NotificationCenter.default.removeObserver(self)
     }
 
-    @objc private func appDidBecomeActive() {
-        // If we were playing when the app went inactive, the player may have died.
-        // The safety timeout will handle cleanup.
-        if let player = player, player.rate == 0 && !completionCalled {
-            print("AudioPlayer: app became active, player stalled — cleaning up")
-            fireCompletion()
+    /// Configure audio session for background playback (call early)
+    func configureSession() {
+        do {
+            // watchOS workaround #2: longFormAudio route sharing
+            try audioSession.setCategory(
+                .playback,
+                mode: .default,
+                policy: .longFormAudio
+            )
+            try audioSession.setActive(true)
+            print("AudioPlayer: session configured — category=\(audioSession.category.rawValue), active=true")
+        } catch {
+            print("AudioPlayer: ❌ session config error: \(error)")
         }
     }
 
     func play(url: URL) {
-        // Clean up any previous playback
         cleanup()
         completionCalled = false
         pendingURL = url
@@ -57,14 +67,16 @@ class AudioPlayer: NSObject {
             return
         }
 
-        // Explicit audio session setup (watchOS workaround)
+        // Ensure session is active (may have been interrupted)
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
-            print("AudioPlayer: audio session activated, category=\(session.category.rawValue), route=\(session.currentRoute.outputs.map { $0.portType.rawValue })")
+            try audioSession.setCategory(
+                .playback,
+                mode: .default,
+                policy: .longFormAudio
+            )
+            try audioSession.setActive(true)
         } catch {
-            print("AudioPlayer: ❌ session error: \(error)")
+            print("AudioPlayer: ❌ session activation error: \(error)")
             fireCompletion()
             return
         }
@@ -72,7 +84,6 @@ class AudioPlayer: NSObject {
         let item = AVPlayerItem(url: url)
         let avPlayer = AVPlayer(playerItem: item)
         avPlayer.volume = 1.0
-        // Disable automatic waiting — start playing immediately
         avPlayer.automaticallyWaitsToMinimizeStalling = false
 
         self.playerItem = item
@@ -99,27 +110,21 @@ class AudioPlayer: NSObject {
             self?.fireCompletion()
         }
 
-        // Periodic time observer — logs progress and detects stalls
-        let interval = CMTime(seconds: 1.0, preferredTimescale: 1)
+        // Progress logging
+        let interval = CMTime(seconds: 2.0, preferredTimescale: 1)
         timeObserver = avPlayer.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
             guard let self = self, let item = self.playerItem else { return }
             let current = CMTimeGetSeconds(time)
             let total = CMTimeGetSeconds(item.duration)
             let rate = self.player?.rate ?? 0
             print("AudioPlayer: \(String(format: "%.1f", current))/\(String(format: "%.1f", total))s rate=\(rate)")
-
-            // Detect stall: time is advancing but rate dropped to 0
-            if rate == 0 && current > 0 && current < total - 0.5 && !self.completionCalled {
-                print("AudioPlayer: ⚠️ stall detected at \(String(format: "%.1f", current))s, attempting resume")
-                self.player?.play()
-            }
         }
 
         let duration = CMTimeGetSeconds(item.asset.duration)
         print("AudioPlayer: duration \(String(format: "%.1f", duration))s, starting")
 
         // Safety timeout
-        let safetyDelay = max(duration + 5.0, 10.0)
+        let safetyDelay = max(duration + 10.0, 15.0)
         DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
             guard let self = self, !self.completionCalled else { return }
             print("AudioPlayer: safety timeout")
@@ -138,6 +143,45 @@ class AudioPlayer: NSObject {
     var isPlaying: Bool {
         player?.rate ?? 0 > 0
     }
+
+    // MARK: - Interruption handling (watchOS workaround #4)
+
+    @objc private func handleInterruption(_ notification: Notification) {
+        guard let info = notification.userInfo,
+              let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
+
+        switch type {
+        case .began:
+            print("AudioPlayer: ⚠️ interruption began")
+            // Don't clean up — wait for .ended with .shouldResume
+
+        case .ended:
+            let options = info[AVAudioSessionInterruptionOptionKey] as? UInt ?? 0
+            let shouldResume = AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume)
+            print("AudioPlayer: interruption ended, shouldResume=\(shouldResume)")
+
+            if shouldResume {
+                // Reactivate and resume playback
+                do {
+                    try audioSession.setActive(true)
+                    player?.play()
+                    print("AudioPlayer: ✅ resumed after interruption")
+                } catch {
+                    print("AudioPlayer: ❌ failed to resume: \(error)")
+                    fireCompletion()
+                }
+            } else {
+                print("AudioPlayer: system says don't resume — cleaning up")
+                fireCompletion()
+            }
+
+        @unknown default:
+            break
+        }
+    }
+
+    // MARK: - Cleanup
 
     private func cleanup() {
         player?.pause()
@@ -162,8 +206,7 @@ class AudioPlayer: NSObject {
         completionCalled = true
         let urlToDelete = pendingURL
         cleanup()
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
-        // Clean up temp audio file after playback
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
         if let url = urlToDelete {
             try? FileManager.default.removeItem(at: url)
         }

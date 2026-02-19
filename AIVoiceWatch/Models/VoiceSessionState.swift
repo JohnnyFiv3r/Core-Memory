@@ -105,21 +105,22 @@ class VoiceSession: NSObject, WKExtendedRuntimeSessionDelegate {
 
     // MARK: - Audio Session (keep watch awake)
 
-    /// Activate audio session early to prevent watch from sleeping
-    /// watchOS respects active audio sessions and delays sleep
+    // Strong reference (watchOS workaround #3)
+    private let audioSession = AVAudioSession.sharedInstance()
+
+    /// Configure and activate audio session for background playback
     private func keepAwakeForPlayback() {
         do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playback, mode: .default)
-            try session.setActive(true)
-            print("VoiceSession: audio session activated (keeping watch awake)")
+            try audioSession.setCategory(.playback, mode: .default, policy: .longFormAudio)
+            try audioSession.setActive(true)
+            print("VoiceSession: audio session activated (longFormAudio, keeping watch awake)")
         } catch {
             print("VoiceSession: failed to activate audio session: \(error)")
         }
     }
 
     private func releaseAudioSession() {
-        try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        try? audioSession.setActive(false, options: .notifyOthersOnDeactivation)
     }
 
     // MARK: - Recording
