@@ -13,6 +13,12 @@ class AssemblyAITranscriber: SpeechTranscriber {
             throw TranscriberError.unavailable
         }
         
+        // Validate audio file exists and has content
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: audioFileURL.path)[.size] as? Int) ?? 0
+        guard fileSize > 0 else {
+            throw DetailedTranscriberError.emptyAudioFile(bytes: fileSize)
+        }
+        
         // Step 1: Upload audio file
         let uploadURL = try await uploadAudio(fileURL: audioFileURL, apiKey: apiKey)
         
@@ -23,7 +29,10 @@ class AssemblyAITranscriber: SpeechTranscriber {
         let text = try await pollTranscript(id: transcriptId, apiKey: apiKey)
         
         guard !text.isEmpty else {
-            throw TranscriberError.noResult
+            throw DetailedTranscriberError.emptyTranscript(
+                fileBytes: fileSize,
+                transcriptId: transcriptId
+            )
         }
         
         return text
@@ -38,11 +47,18 @@ class AssemblyAITranscriber: SpeechTranscriber {
         request.setValue("application/octet-stream", forHTTPHeaderField: "content-type")
         request.httpBody = data
         
-        let (responseData, _) = try await URLSession.shared.data(for: request)
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            let body = String(data: responseData, encoding: .utf8) ?? "unknown"
+            throw DetailedTranscriberError.uploadFailed(status: httpResponse.statusCode, body: body)
+        }
+        
         let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
         
         guard let uploadURL = json?["upload_url"] as? String else {
-            throw TranscriberError.noResult
+            let body = String(data: responseData, encoding: .utf8) ?? "unknown"
+            throw DetailedTranscriberError.uploadFailed(status: 0, body: "No upload_url: \(body)")
         }
         
         return uploadURL
@@ -57,11 +73,17 @@ class AssemblyAITranscriber: SpeechTranscriber {
         let body = ["audio_url": audioURL]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
-        let (responseData, _) = try await URLSession.shared.data(for: request)
+        let (responseData, response) = try await URLSession.shared.data(for: request)
+        
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            let body = String(data: responseData, encoding: .utf8) ?? "unknown"
+            throw DetailedTranscriberError.transcriptCreateFailed(status: httpResponse.statusCode, body: body)
+        }
+        
         let json = try JSONSerialization.jsonObject(with: responseData) as? [String: Any]
         
         guard let id = json?["id"] as? String else {
-            throw TranscriberError.noResult
+            throw DetailedTranscriberError.transcriptCreateFailed(status: 0, body: "No id in response")
         }
         
         return id
@@ -78,14 +100,45 @@ class AssemblyAITranscriber: SpeechTranscriber {
             let status = json?["status"] as? String ?? ""
             
             if status == "completed" {
-                return json?["text"] as? String ?? ""
+                // AssemblyAI returns null for text when audio has no speech
+                if let text = json?["text"] as? String {
+                    return text
+                }
+                return ""
             } else if status == "error" {
-                throw TranscriberError.noResult
+                let errorMsg = json?["error"] as? String ?? "unknown error"
+                throw DetailedTranscriberError.transcriptionError(message: errorMsg)
             }
             
-            try await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+            try await Task.sleep(nanoseconds: 1_000_000_000)
         }
         
-        throw TranscriberError.noResult
+        throw DetailedTranscriberError.timeout
+    }
+}
+
+enum DetailedTranscriberError: Error, LocalizedError {
+    case emptyAudioFile(bytes: Int)
+    case emptyTranscript(fileBytes: Int, transcriptId: String)
+    case uploadFailed(status: Int, body: String)
+    case transcriptCreateFailed(status: Int, body: String)
+    case transcriptionError(message: String)
+    case timeout
+    
+    var errorDescription: String? {
+        switch self {
+        case .emptyAudioFile(let bytes):
+            return "Audio file empty (\(bytes) bytes)"
+        case .emptyTranscript(let bytes, let id):
+            return "No speech detected (\(bytes) bytes, id: \(id))"
+        case .uploadFailed(let status, let body):
+            return "Upload failed (HTTP \(status)): \(body)"
+        case .transcriptCreateFailed(let status, let body):
+            return "Transcript create failed (HTTP \(status)): \(body)"
+        case .transcriptionError(let msg):
+            return "AssemblyAI error: \(msg)"
+        case .timeout:
+            return "Transcription timed out (60s)"
+        }
     }
 }

@@ -32,11 +32,18 @@ class VoicePipeline {
         lastError = nil
         defer { isProcessing = false }
         
+        // Log audio file details for debugging
+        let fileSize = (try? FileManager.default.attributesOfItem(atPath: audioURL.path)[.size] as? Int) ?? 0
+        let engine = transcriber is AssemblyAITranscriber ? "AssemblyAI" : "Apple Speech"
+        print("[VoicePipeline] Processing \(fileSize) bytes with \(engine): \(audioURL.lastPathComponent)")
+        
         do {
             let text = try await transcriber.transcribe(audioFileURL: audioURL)
+            print("[VoicePipeline] Transcribed: \"\(text)\"")
             lastTranscription = text
             return text
         } catch {
+            print("[VoicePipeline] Error: \(error.localizedDescription)")
             lastError = error
             throw error
         }
