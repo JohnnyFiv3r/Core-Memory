@@ -2,16 +2,12 @@
 import SwiftUI
 
 struct ContentView: View {
-    @State private var session = VoiceSession()
-    
+    @Environment(VoiceSession.self) private var session
+
     var body: some View {
         RecordButton(state: session.state, audioLevel: session.audioLevel) {
             session.handleTap()
         }
         .ignoresSafeArea()
     }
-}
-
-#Preview {
-    ContentView()
 }
