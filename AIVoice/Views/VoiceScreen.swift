@@ -1,15 +1,17 @@
-// VoiceScreen.swift — Hands-free voice interface
-// Shows full conversation history plus live transcription states.
-// Voice is watch-driven (no mic button on phone).
+// VoiceScreen.swift — Chat interface with voice + text input
+// Shows full conversation history, text input bar, and voice transcript states.
 import SwiftUI
 
 struct VoiceScreen: View {
     @Environment(AppCoordinator.self) private var coordinator
 
-    // Edit mode
+    // Text input
+    @State private var inputText = ""
+    @FocusState private var inputFocused: Bool
+
+    // Voice edit mode
     @State private var isEditing = false
     @State private var editText = ""
-    @FocusState private var editFieldFocused: Bool
 
     // Countdown
     @State private var countdownRemaining: Double = 0
@@ -23,10 +25,11 @@ struct VoiceScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // MARK: - Message list
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        // MARK: - Chat history
+                        // Chat history
                         ForEach(coordinator.chatManager.messages) { msg in
                             switch msg.sender {
                             case .agent:
@@ -36,22 +39,19 @@ struct VoiceScreen: View {
                             }
                         }
 
-                        // MARK: - Live states (below history)
+                        // Live states
 
-                        // Transcribing indicator
                         if coordinator.isTranscribing {
                             transcribingIndicator
                                 .id("transcribing")
                         }
 
-                        // User transcript with countdown (not yet sent)
                         if let transcript = coordinator.transcribedText,
                            !coordinator.isWaitingForAgent {
-                            userBubble(text: transcript, timestamp: coordinator.userTranscriptTimestamp)
+                            voiceTranscriptBubble(text: transcript, timestamp: coordinator.userTranscriptTimestamp)
                                 .id("userTranscript")
                         }
 
-                        // Waiting for agent
                         if coordinator.isWaitingForAgent {
                             if let transcript = coordinator.lastSentText {
                                 sentBubble(text: transcript)
@@ -61,17 +61,16 @@ struct VoiceScreen: View {
                                 .id("thinking")
                         }
 
-                        // Error
                         if let error = coordinator.lastError {
                             errorBubble(text: error)
                         }
 
-                        // Scroll anchor
                         Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                .onTapGesture { inputFocused = false }
                 .onChange(of: coordinator.chatManager.messages.count) {
                     withAnimation { proxy.scrollTo("bottom") }
                 }
@@ -96,19 +95,18 @@ struct VoiceScreen: View {
                 }
             }
 
-            Spacer(minLength: 0)
-
-            // Bottom bar: countdown or edit
-            if isEditing {
-                editBar
-            } else if countdownRemaining > 0 {
-                countdownBar
+            // MARK: - Countdown bar (voice transcript auto-send)
+            if countdownRemaining > 0 || isEditing {
+                voiceCountdownBar
             }
+
+            // MARK: - Input bar
+            inputBar
         }
         .background(ShellPhoneTheme.background)
     }
 
-    // MARK: - Agent response bubble (left-aligned)
+    // MARK: - Agent bubble
 
     private func agentBubble(text: String, timestamp: Date?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -139,7 +137,7 @@ struct VoiceScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - User history bubble (right-aligned, already sent)
+    // MARK: - User history bubble
 
     private func userHistoryBubble(text: String, timestamp: Date?) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
@@ -161,9 +159,9 @@ struct VoiceScreen: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    // MARK: - User transcript bubble (not yet sent, tappable to edit)
+    // MARK: - Voice transcript bubble (not yet sent, tappable)
 
-    private func userBubble(text: String, timestamp: Date?) -> some View {
+    private func voiceTranscriptBubble(text: String, timestamp: Date?) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
             Text(text)
                 .font(.body)
@@ -172,9 +170,7 @@ struct VoiceScreen: View {
                 .padding(.vertical, 10)
                 .background(ShellPhoneTheme.userBubble)
                 .cornerRadius(20)
-                .onTapGesture {
-                    beginEditing(text)
-                }
+                .onTapGesture { beginEditing(text) }
 
             HStack(spacing: 8) {
                 if let ts = timestamp {
@@ -183,7 +179,7 @@ struct VoiceScreen: View {
                         .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
                 if countdownRemaining > 0 {
-                    Text("Sending in \(Int(ceil(countdownRemaining)))s...")
+                    Text("Tap to edit")
                         .font(.caption2)
                         .foregroundColor(ShellPhoneTheme.sending)
                 }
@@ -193,7 +189,7 @@ struct VoiceScreen: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    // MARK: - Sent bubble (after countdown, waiting for agent)
+    // MARK: - Sent bubble
 
     private func sentBubble(text: String) -> some View {
         VStack(alignment: .trailing, spacing: 4) {
@@ -213,7 +209,7 @@ struct VoiceScreen: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    // MARK: - Transcribing pill
+    // MARK: - Indicators
 
     private var transcribingIndicator: some View {
         HStack(spacing: 6) {
@@ -229,8 +225,6 @@ struct VoiceScreen: View {
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
 
-    // MARK: - Thinking indicator
-
     private var thinkingIndicator: some View {
         HStack(spacing: 10) {
             Image("AgentAvatar")
@@ -238,7 +232,6 @@ struct VoiceScreen: View {
                 .scaledToFit()
                 .frame(width: 20, height: 20)
                 .clipShape(Circle())
-
             TranscribingDots()
         }
         .padding(12)
@@ -246,8 +239,6 @@ struct VoiceScreen: View {
         .cornerRadius(16)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    // MARK: - Error bubble
 
     private func errorBubble(text: String) -> some View {
         HStack(spacing: 8) {
@@ -263,92 +254,106 @@ struct VoiceScreen: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    // MARK: - Countdown bar
+    // MARK: - Voice countdown bar (above input bar)
 
-    private var countdownBar: some View {
-        VStack(spacing: 8) {
-            GeometryReader { geo in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(Color.white.opacity(0.1))
-                        .frame(height: 3)
-
-                    RoundedRectangle(cornerRadius: 2)
-                        .fill(ShellPhoneTheme.accent)
-                        .frame(width: geo.size.width * (countdownTotal > 0 ? (1 - countdownRemaining / countdownTotal) : 0), height: 3)
-                        .animation(.linear(duration: 0.1), value: countdownRemaining)
-                }
-            }
-            .frame(height: 3)
-
-            HStack {
-                Button {
-                    if let text = coordinator.transcribedText {
-                        beginEditing(text)
+    private var voiceCountdownBar: some View {
+        VStack(spacing: 6) {
+            if countdownRemaining > 0 && !isEditing {
+                // Progress bar
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(Color.white.opacity(0.1))
+                            .frame(height: 3)
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(ShellPhoneTheme.accent)
+                            .frame(width: geo.size.width * (countdownTotal > 0 ? (1 - countdownRemaining / countdownTotal) : 0), height: 3)
+                            .animation(.linear(duration: 0.1), value: countdownRemaining)
                     }
-                } label: {
-                    Text("Edit transcript")
-                        .font(.caption)
-                        .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
+                .frame(height: 3)
 
-                Spacer()
-
-                Text("Auto-send in \(Int(ceil(countdownRemaining)))s")
-                    .font(.caption)
-                    .foregroundColor(ShellPhoneTheme.accent)
-            }
-        }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(ShellPhoneTheme.topBarBackground)
-    }
-
-    // MARK: - Edit bar
-
-    private var editBar: some View {
-        VStack(spacing: 8) {
-            HStack {
-                Text("Edit transcript")
-                    .font(.caption)
-                    .foregroundColor(ShellPhoneTheme.secondaryText)
-                Spacer()
-                if countdownRemaining > 0 {
+                HStack {
+                    Button { beginEditingTranscript() } label: {
+                        Text("Edit transcript")
+                            .font(.caption)
+                            .foregroundColor(ShellPhoneTheme.secondaryText)
+                    }
+                    Spacer()
                     Text("Auto-send in \(Int(ceil(countdownRemaining)))s")
                         .font(.caption)
                         .foregroundColor(ShellPhoneTheme.accent)
                 }
             }
 
-            HStack(spacing: 10) {
-                TextField("Edit message", text: $editText)
-                    .textFieldStyle(.plain)
-                    .foregroundColor(.white)
-                    .padding(10)
-                    .background(ShellPhoneTheme.cardBackground)
-                    .cornerRadius(10)
-                    .focused($editFieldFocused)
-
-                Button {
-                    sendEdited()
-                } label: {
-                    Text("Send")
-                        .font(.subheadline.bold())
+            if isEditing {
+                HStack(spacing: 10) {
+                    TextField("Edit transcript", text: $editText)
+                        .textFieldStyle(.plain)
                         .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(ShellPhoneTheme.accent)
-                        .cornerRadius(20)
+                        .padding(10)
+                        .background(ShellPhoneTheme.cardBackground)
+                        .cornerRadius(10)
+
+                    Button { sendEdited() } label: {
+                        Text("Send")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .background(ShellPhoneTheme.accent)
+                            .cornerRadius(20)
+                    }
                 }
             }
         }
         .padding(.horizontal, 16)
-        .padding(.vertical, 10)
+        .padding(.vertical, 8)
         .background(ShellPhoneTheme.topBarBackground)
-        .onAppear { editFieldFocused = true }
+    }
+
+    // MARK: - Text input bar
+
+    private var inputBar: some View {
+        HStack(spacing: 10) {
+            TextField("Message", text: $inputText)
+                .textFieldStyle(.plain)
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(ShellPhoneTheme.cardBackground)
+                .cornerRadius(22)
+                .focused($inputFocused)
+                .onSubmit { sendTextMessage() }
+
+            if !inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button { sendTextMessage() } label: {
+                    Image(systemName: "arrow.up.circle.fill")
+                        .font(.system(size: 32))
+                        .foregroundColor(ShellPhoneTheme.accent)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(ShellPhoneTheme.topBarBackground)
     }
 
     // MARK: - Actions
+
+    private func sendTextMessage() {
+        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        inputText = ""
+        inputFocused = false
+        coordinator.sendTranscript(text)
+    }
+
+    private func beginEditingTranscript() {
+        if let text = coordinator.transcribedText {
+            beginEditing(text)
+        }
+    }
 
     private func beginEditing(_ text: String) {
         editText = text
@@ -358,7 +363,6 @@ struct VoiceScreen: View {
     private func sendEdited() {
         cancelCountdown()
         isEditing = false
-        editFieldFocused = false
         let text = editText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         coordinator.sendTranscript(text)
@@ -377,7 +381,6 @@ struct VoiceScreen: View {
                     cancelCountdown()
                     let textToSend = isEditing ? editText : (coordinator.transcribedText ?? "")
                     isEditing = false
-                    editFieldFocused = false
                     let trimmed = textToSend.trimmingCharacters(in: .whitespacesAndNewlines)
                     if !trimmed.isEmpty {
                         coordinator.sendTranscript(trimmed)
@@ -399,7 +402,6 @@ struct VoiceScreen: View {
 
 struct TranscribingDots: View {
     @State private var phase = 0
-
     let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
 
     var body: some View {
