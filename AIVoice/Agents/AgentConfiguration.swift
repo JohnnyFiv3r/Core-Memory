@@ -2,35 +2,54 @@
 import Foundation
 
 enum AgentType: String, Codable {
-    case telegram
-    case openai  // stubbed for future
+    case openclaw
+    case telegram  // legacy fallback
 }
 
 struct AgentConfiguration: Codable {
     let name: String
     let type: AgentType
-    let config: [String: String]  // bot token, chat ID, etc.
+    let config: [String: String]
 }
 
 @Observable
 class AgentManager {
     var activeAgent: AgentService?
     var availableAgents: [AgentConfiguration] = []
-    
+
     func loadDefaults() {
-        // MVP: Krusty via Telegram
-        let botToken = (try? SecureStorage.load(key: "telegram_bot_token")) ?? ""
-        let chatId = (try? SecureStorage.load(key: "telegram_chat_id")) ?? ""
-        
-        let krusty = AgentConfiguration(
-            name: "Krusty",
-            type: .telegram,
-            config: [
-                "botToken": botToken,
-                "chatId": chatId
-            ]
-        )
-        availableAgents = [krusty]
-        activeAgent = TelegramAgentService(config: krusty)
+        let gatewayURL = (try? SecureStorage.load(key: "openclaw_gateway_url")) ?? ""
+        let gatewayToken = (try? SecureStorage.load(key: "openclaw_gateway_token")) ?? ""
+
+        if !gatewayURL.isEmpty && !gatewayToken.isEmpty {
+            // Preferred: direct OpenClaw gateway connection
+            let config = AgentConfiguration(
+                name: "Krusty",
+                type: .openclaw,
+                config: [
+                    "gatewayURL": gatewayURL,
+                    "gatewayToken": gatewayToken,
+                    "agentId": "main",
+                    "userId": "clawdio-voice"
+                ]
+            )
+            availableAgents = [config]
+            activeAgent = OpenClawAgentService(config: config)
+        } else {
+            // Fallback: Telegram Bot API (legacy)
+            let botToken = (try? SecureStorage.load(key: "telegram_bot_token")) ?? ""
+            let chatId = (try? SecureStorage.load(key: "telegram_chat_id")) ?? ""
+
+            let config = AgentConfiguration(
+                name: "Krusty",
+                type: .telegram,
+                config: [
+                    "botToken": botToken,
+                    "chatId": chatId
+                ]
+            )
+            availableAgents = [config]
+            activeAgent = TelegramAgentService(config: config)
+        }
     }
 }

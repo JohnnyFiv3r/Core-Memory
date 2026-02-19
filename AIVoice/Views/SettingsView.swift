@@ -1,14 +1,14 @@
-// SettingsView.swift — ShellPhone settings
+// SettingsView.swift — Clawdio settings
 import SwiftUI
 
 struct SettingsView: View {
     @Environment(AppCoordinator.self) private var coordinator
-    
-    @State private var botToken = ""
-    @State private var chatId = ""
+
+    @State private var gatewayURL = ""
+    @State private var gatewayToken = ""
     @State private var assemblyAIKey = ""
     @State private var showingSaved = false
-    @State private var isSendingTest = false
+    @State private var isTesting = false
     @State private var testResult: String?
     @State private var autoSendDelay: Int = {
         let stored = UserDefaults.standard.integer(forKey: "autoSendDelay")
@@ -22,7 +22,7 @@ struct SettingsView: View {
                     .font(.largeTitle.bold())
                     .foregroundColor(.white)
                     .padding(.top, 8)
-                
+
                 // MARK: - Agent
                 settingsSection("AGENT") {
                     settingsRow {
@@ -35,96 +35,108 @@ struct SettingsView: View {
                                     .foregroundColor(ShellPhoneTheme.secondaryText)
                             }
                             Spacer()
-                            Text("Telegram")
+                            Text(connectionMode)
                                 .font(.caption)
                                 .foregroundColor(ShellPhoneTheme.secondaryText)
                         }
                     }
                 }
-                
-                // MARK: - API Configuration
-                settingsSection("API CONFIGURATION") {
+
+                // MARK: - OpenClaw Gateway
+                settingsSection("OPENCLAW GATEWAY") {
                     VStack(spacing: 1) {
                         settingsRow {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Telegram Bot Token")
+                                Text("Gateway URL")
                                     .font(.caption)
                                     .foregroundColor(ShellPhoneTheme.secondaryText)
-                                SecureField("Bot token", text: $botToken)
-                                    .textContentType(.password)
+                                TextField("http://192.168.1.x:18789", text: $gatewayURL)
+                                    .keyboardType(.URL)
                                     .autocorrectionDisabled()
+                                    .textInputAutocapitalization(.never)
                                     .foregroundColor(.white)
                             }
                         }
-                        
+
                         settingsRow {
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Chat ID")
+                                Text("Gateway Token")
                                     .font(.caption)
                                     .foregroundColor(ShellPhoneTheme.secondaryText)
-                                TextField("Chat ID", text: $chatId)
-                                    .keyboardType(.numberPad)
-                                    .foregroundColor(.white)
-                            }
-                        }
-                        
-                        settingsRow {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("AssemblyAI API Key")
-                                    .font(.caption)
-                                    .foregroundColor(ShellPhoneTheme.secondaryText)
-                                SecureField("API key", text: $assemblyAIKey)
+                                SecureField("Token", text: $gatewayToken)
                                     .textContentType(.password)
                                     .autocorrectionDisabled()
                                     .foregroundColor(.white)
                             }
                         }
                     }
-                    
-                    Text("Your API keys are stored locally in the Keychain and never shared.")
+
+                    Text("Connect directly to your OpenClaw gateway on the local network.")
                         .font(.caption2)
                         .foregroundColor(ShellPhoneTheme.secondaryText)
                         .padding(.top, 4)
-                    
-                    HStack(spacing: 12) {
-                        Button {
-                            saveCredentials()
-                        } label: {
-                            Text("Save")
-                                .font(.subheadline.bold())
+                }
+
+                // MARK: - Speech
+                settingsSection("SPEECH") {
+                    settingsRow {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text("AssemblyAI API Key")
+                                .font(.caption)
+                                .foregroundColor(ShellPhoneTheme.secondaryText)
+                            SecureField("API key (optional)", text: $assemblyAIKey)
+                                .textContentType(.password)
+                                .autocorrectionDisabled()
                                 .foregroundColor(.white)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                                .background(ShellPhoneTheme.accent)
-                                .cornerRadius(10)
                         }
-                        
-                        Button {
-                            sendTestMessage()
-                        } label: {
-                            HStack(spacing: 4) {
-                                if isSendingTest {
-                                    ProgressView()
-                                        .scaleEffect(0.7)
-                                }
-                                Text(testResult ?? "Test")
-                                    .font(.subheadline.bold())
-                            }
-                            .foregroundColor(testResultColor)
+                    }
+
+                    Text(assemblyAIKey.isEmpty
+                         ? "Using Apple Speech. Add AssemblyAI key for better accuracy."
+                         : "Using AssemblyAI for speech-to-text.")
+                        .font(.caption2)
+                        .foregroundColor(ShellPhoneTheme.secondaryText)
+                        .padding(.top, 4)
+                }
+
+                // MARK: - Save / Test
+                HStack(spacing: 12) {
+                    Button {
+                        saveCredentials()
+                    } label: {
+                        Text("Save")
+                            .font(.subheadline.bold())
+                            .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 10)
-                            .background(ShellPhoneTheme.cardBackground)
+                            .background(ShellPhoneTheme.accent)
                             .cornerRadius(10)
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 10)
-                                    .stroke(ShellPhoneTheme.accent.opacity(0.3), lineWidth: 1)
-                            )
-                        }
-                        .disabled(isSendingTest || botToken.isEmpty || chatId.isEmpty)
                     }
-                    .padding(.top, 8)
+
+                    Button {
+                        testConnection()
+                    } label: {
+                        HStack(spacing: 4) {
+                            if isTesting {
+                                ProgressView()
+                                    .scaleEffect(0.7)
+                            }
+                            Text(testResult ?? "Test")
+                                .font(.subheadline.bold())
+                        }
+                        .foregroundColor(testResultColor)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(ShellPhoneTheme.cardBackground)
+                        .cornerRadius(10)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 10)
+                                .stroke(ShellPhoneTheme.accent.opacity(0.3), lineWidth: 1)
+                        )
+                    }
+                    .disabled(isTesting || gatewayURL.isEmpty || gatewayToken.isEmpty)
                 }
-                
+
                 // MARK: - Voice
                 settingsSection("VOICE") {
                     settingsRow {
@@ -147,17 +159,7 @@ struct SettingsView: View {
                             UserDefaults.standard.set(autoSendDelay, forKey: "autoSendDelay")
                         }
                     }
-                    
-                    settingsRow {
-                        HStack {
-                            Text("Language")
-                                .foregroundColor(.white)
-                            Spacer()
-                            Text("English (US)")
-                                .foregroundColor(ShellPhoneTheme.secondaryText)
-                        }
-                    }
-                    
+
                     settingsRow {
                         HStack {
                             Text("Speech-to-Text")
@@ -168,7 +170,7 @@ struct SettingsView: View {
                         }
                     }
                 }
-                
+
                 // MARK: - About
                 settingsSection("ABOUT") {
                     settingsRow {
@@ -185,34 +187,41 @@ struct SettingsView: View {
                             Text("Build")
                                 .foregroundColor(.white)
                             Spacer()
-                            Text("2026.02.18")
+                            Text("2026.02.19")
                                 .foregroundColor(ShellPhoneTheme.secondaryText)
                         }
                     }
                 }
-                
+
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 16)
         }
         .background(ShellPhoneTheme.background)
-        .alert("Credentials Saved", isPresented: $showingSaved) {
+        .alert("Settings Saved", isPresented: $showingSaved) {
             Button("OK") {
                 coordinator.reloadAgent()
             }
         }
         .onAppear { loadCredentials() }
     }
-    
+
     // MARK: - Helpers
-    
+
+    private var connectionMode: String {
+        if !gatewayURL.isEmpty && !gatewayToken.isEmpty {
+            return "OpenClaw"
+        }
+        return "Not configured"
+    }
+
     private var testResultColor: Color {
         guard let result = testResult else { return .white }
         if result.hasPrefix("✅") { return .green }
         if result.hasPrefix("❌") { return .red }
         return .white
     }
-    
+
     private func settingsSection(_ title: String, @ViewBuilder content: () -> some View) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
@@ -222,7 +231,7 @@ struct SettingsView: View {
             content()
         }
     }
-    
+
     private func settingsRow<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         content()
             .padding(.horizontal, 14)
@@ -232,8 +241,8 @@ struct SettingsView: View {
     }
 
     private func saveCredentials() {
-        try? SecureStorage.save(key: "telegram_bot_token", value: botToken)
-        try? SecureStorage.save(key: "telegram_chat_id", value: chatId)
+        try? SecureStorage.save(key: "openclaw_gateway_url", value: gatewayURL)
+        try? SecureStorage.save(key: "openclaw_gateway_token", value: gatewayToken)
         if !assemblyAIKey.isEmpty {
             try? SecureStorage.save(key: "assemblyai_api_key", value: assemblyAIKey)
         }
@@ -241,30 +250,37 @@ struct SettingsView: View {
     }
 
     private func loadCredentials() {
-        botToken = (try? SecureStorage.load(key: "telegram_bot_token")) ?? ""
-        chatId = (try? SecureStorage.load(key: "telegram_chat_id")) ?? ""
+        gatewayURL = (try? SecureStorage.load(key: "openclaw_gateway_url")) ?? ""
+        gatewayToken = (try? SecureStorage.load(key: "openclaw_gateway_token")) ?? ""
         assemblyAIKey = (try? SecureStorage.load(key: "assemblyai_api_key")) ?? ""
     }
 
-    private func sendTestMessage() {
-        isSendingTest = true
+    private func testConnection() {
+        isTesting = true
         testResult = nil
 
         Task {
             do {
-                let api = TelegramAPI(botToken: botToken)
-                let response = try await api.sendMessage(
-                    chatId: chatId,
-                    text: "🧪 Clawdio test — Telegram integration working!"
+                let config = AgentConfiguration(
+                    name: "Test",
+                    type: .openclaw,
+                    config: [
+                        "gatewayURL": gatewayURL,
+                        "gatewayToken": gatewayToken,
+                        "agentId": "main",
+                        "userId": "clawdio-test"
+                    ]
                 )
+                let service = OpenClawAgentService(config: config)
+                let response = try await service.send(message: "ping")
                 await MainActor.run {
-                    testResult = "✅ Sent"
-                    isSendingTest = false
+                    testResult = "✅ Connected"
+                    isTesting = false
                 }
             } catch {
                 await MainActor.run {
-                    testResult = "❌ Failed"
-                    isSendingTest = false
+                    testResult = "❌ \(error.localizedDescription.prefix(30))"
+                    isTesting = false
                 }
             }
         }
