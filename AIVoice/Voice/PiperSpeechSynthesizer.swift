@@ -7,15 +7,22 @@ class PiperSpeechSynthesizer: SpeechSynthesizer {
     private let session: URLSession
 
     init(gatewayURL: String, token: String) {
-        // TTS server runs on same host, port 18790
-        // Derive TTS URL from gateway URL by swapping the port
-        if let url = URL(string: gatewayURL),
-           let host = url.host,
-           let scheme = url.scheme {
-            // For tunnel URLs, TTS is at /tts on a different port
-            // For now, use same base URL with /tts path
-            // The tunnel needs to route 18790 too, or we use the gateway to proxy
-            self.gatewayURL = gatewayURL
+        // Derive TTS URL from gateway URL:
+        // - If hostname starts with "api.", replace with "tts." (tunnel setup)
+        // - If local IP, swap port to 18790
+        if let url = URL(string: gatewayURL), let host = url.host {
+            if host.hasPrefix("api.") {
+                var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+                components.host = "tts." + host.dropFirst(4)
+                components.path = "/tts"
+                self.gatewayURL = components.url?.absoluteString ?? gatewayURL
+            } else {
+                // Local network — use port 18790
+                var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+                components.port = 18790
+                components.path = "/tts"
+                self.gatewayURL = components.url?.absoluteString ?? gatewayURL
+            }
         } else {
             self.gatewayURL = gatewayURL
         }
@@ -27,15 +34,11 @@ class PiperSpeechSynthesizer: SpeechSynthesizer {
     }
 
     func synthesize(text: String) async throws -> URL {
-        // Build TTS URL — use /tts path on the gateway base
-        guard var components = URLComponents(string: gatewayURL) else {
+        guard let url = URL(string: gatewayURL) else {
             throw PiperError.invalidURL
         }
-        components.path = "/tts"
 
-        guard let url = components.url else {
-            throw PiperError.invalidURL
-        }
+        print("PiperTTS: requesting from \(url.absoluteString)")
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
