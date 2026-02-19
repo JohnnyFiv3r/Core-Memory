@@ -16,13 +16,15 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate
         utterance.pitchMultiplier = 1.0
 
+        // Use CAF (Core Audio Format) — native to Apple, no encoding overhead
         let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".wav")
+            .appendingPathComponent(UUID().uuidString + ".caf")
 
         return try await withCheckedThrowingContinuation { cont in
             var hasResumed = false
             var audioFile: AVAudioFile?
             var totalFrames: AVAudioFrameCount = 0
+            var lastBufferHash: Int = 0
 
             synthesizer.write(utterance) { buffer in
                 guard !hasResumed else { return }
@@ -31,7 +33,7 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
                       pcmBuffer.frameLength > 0 else {
                     // Empty buffer = done
                     hasResumed = true
-                    audioFile = nil  // close file
+                    audioFile = nil
                     if totalFrames > 0 {
                         print("AppleTTS: wrote \(totalFrames) frames to \(outputURL.lastPathComponent)")
                         cont.resume(returning: outputURL)
@@ -41,10 +43,20 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
                     return
                 }
 
+                // Deduplicate: AVSpeechSynthesizer.write() sometimes delivers
+                // the same initial buffer multiple times (causes stutter)
+                let bufferHash = self.hashBuffer(pcmBuffer)
+                if bufferHash == lastBufferHash && totalFrames < 4800 {
+                    // Skip duplicate buffer (only check early in stream)
+                    print("AppleTTS: skipping duplicate buffer at frame \(totalFrames)")
+                    return
+                }
+                lastBufferHash = bufferHash
+
                 do {
-                    // Create file on first buffer (to get correct format)
                     if audioFile == nil {
-                        let wavSettings: [String: Any] = [
+                        // Write as Linear PCM in CAF container
+                        let settings: [String: Any] = [
                             AVFormatIDKey: Int(kAudioFormatLinearPCM),
                             AVSampleRateKey: pcmBuffer.format.sampleRate,
                             AVNumberOfChannelsKey: 1,
@@ -52,7 +64,8 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
                             AVLinearPCMIsFloatKey: false,
                             AVLinearPCMIsBigEndianKey: false
                         ]
-                        audioFile = try AVAudioFile(forWriting: outputURL, settings: wavSettings)
+                        audioFile = try AVAudioFile(forWriting: outputURL, settings: settings)
+                        print("AppleTTS: format \(pcmBuffer.format.sampleRate)Hz, channels \(pcmBuffer.format.channelCount)")
                     }
                     try audioFile?.write(from: pcmBuffer)
                     totalFrames += pcmBuffer.frameLength
@@ -63,5 +76,17 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
                 }
             }
         }
+    }
+
+    /// Quick hash of first N samples to detect duplicate buffers
+    private func hashBuffer(_ buffer: AVAudioPCMBuffer) -> Int {
+        guard let channelData = buffer.floatChannelData else { return 0 }
+        let ptr = channelData[0]
+        let samplesToHash = min(Int(buffer.frameLength), 64)
+        var hash = 0
+        for i in 0..<samplesToHash {
+            hash = hash &+ Int(ptr[i] * 10000)
+        }
+        return hash
     }
 }

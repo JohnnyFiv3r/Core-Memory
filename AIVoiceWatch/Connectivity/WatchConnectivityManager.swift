@@ -53,7 +53,7 @@ class WatchConnectivityManager: NSObject, WCSessionDelegate {
         
         // Copy to permanent location (WC temp file gets deleted)
         let dest = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".wav")
+            .appendingPathComponent(UUID().uuidString + ".caf")
         do {
             try FileManager.default.copyItem(at: file.fileURL, to: dest)
             DispatchQueue.main.async {

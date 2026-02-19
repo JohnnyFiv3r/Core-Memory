@@ -5,11 +5,8 @@ class AudioPlayer: NSObject {
     private var engine: AVAudioEngine?
     private var playerNode: AVAudioPlayerNode?
     private var audioBuffer: AVAudioPCMBuffer?
-    private var bufferFormat: AVAudioFormat?
-    private var isCleanedUp = false
+    private var completionCalled = false
     var onPlaybackComplete: (() -> Void)?
-
-    private var interruptionTimer: Timer?
 
     override init() {
         super.init()
@@ -26,15 +23,14 @@ class AudioPlayer: NSObject {
     }
 
     func play(url: URL) {
-        isCleanedUp = false
+        completionCalled = false
 
-        // Verify file
         let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
         let fileSize = attrs?[.size] as? Int ?? 0
         print("AudioPlayer: file \(url.lastPathComponent), size: \(fileSize) bytes")
         guard fileSize > 0 else {
             print("AudioPlayer: empty file")
-            onPlaybackComplete?()
+            fireCompletion()
             return
         }
 
@@ -47,7 +43,7 @@ class AudioPlayer: NSObject {
             let format = audioFile.processingFormat
             let frameCount = AVAudioFrameCount(audioFile.length)
             let duration = Double(audioFile.length) / format.sampleRate
-            print("AudioPlayer: duration: \(String(format: "%.1f", duration))s, frames: \(frameCount)")
+            print("AudioPlayer: duration: \(String(format: "%.1f", duration))s")
 
             let engine = AVAudioEngine()
             let player = AVAudioPlayerNode()
@@ -55,7 +51,6 @@ class AudioPlayer: NSObject {
             engine.attach(player)
             engine.connect(player, to: engine.mainMixerNode, format: format)
 
-            // Read entire file into buffer
             let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: frameCount)!
             try audioFile.read(into: buffer)
 
@@ -64,66 +59,64 @@ class AudioPlayer: NSObject {
             self.engine = engine
             self.playerNode = player
             self.audioBuffer = buffer
-            self.bufferFormat = format
 
             player.scheduleBuffer(buffer, at: nil, options: []) { [weak self] in
+                // This fires on audio render thread — dispatch to main
                 DispatchQueue.main.async {
-                    guard let self = self, !self.isCleanedUp else { return }
-                    print("AudioPlayer: playback complete")
-                    self.cleanup()
+                    print("AudioPlayer: buffer done")
+                    self?.fireCompletion()
                 }
             }
 
             player.play()
-            print("AudioPlayer: playing")
+            print("AudioPlayer: playing, duration \(String(format: "%.1f", duration))s")
+
+            // Safety fallback: force completion after duration + 3s
+            let safetyDelay = duration + 3.0
+            DispatchQueue.main.asyncAfter(deadline: .now() + safetyDelay) { [weak self] in
+                guard let self = self, !self.completionCalled else { return }
+                print("AudioPlayer: safety timeout after \(safetyDelay)s")
+                self.fireCompletion()
+            }
 
         } catch {
             print("AudioPlayer: error: \(error)")
-            cleanup()
+            fireCompletion()
         }
     }
 
     func stop() {
         playerNode?.stop()
-        cleanup()
+        engine?.stop()
+        fireCompletion()
     }
 
     var isPlaying: Bool {
         playerNode?.isPlaying ?? false
     }
 
-    // MARK: - Interruption handling
-
     @objc private func handleInterruption(_ notification: Notification) {
         guard let info = notification.userInfo,
               let typeValue = info[AVAudioSessionInterruptionTypeKey] as? UInt,
               let type = AVAudioSession.InterruptionType(rawValue: typeValue) else { return }
 
-        print("AudioPlayer: interruption type=\(type.rawValue)")
-
-        switch type {
-        case .began:
-            print("AudioPlayer: interruption began — cleaning up")
-            // Don't try to resume, just clean up. watchOS interruptions rarely recover.
+        print("AudioPlayer: interruption \(type.rawValue)")
+        if type == .began {
             DispatchQueue.main.async { [weak self] in
-                self?.cleanup()
+                self?.fireCompletion()
             }
-        case .ended:
-            print("AudioPlayer: interruption ended")
-        @unknown default:
-            break
         }
     }
 
-    private func cleanup() {
-        guard !isCleanedUp else { return }
-        isCleanedUp = true
+    private func fireCompletion() {
+        guard !completionCalled else { return }
+        completionCalled = true
+
         playerNode?.stop()
         engine?.stop()
         playerNode = nil
         engine = nil
         audioBuffer = nil
-        bufferFormat = nil
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
         onPlaybackComplete?()
     }
