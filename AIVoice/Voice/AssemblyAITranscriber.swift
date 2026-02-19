@@ -72,7 +72,7 @@ class AssemblyAITranscriber: SpeechTranscriber {
         
         let body: [String: Any] = [
             "audio_url": audioURL,
-            "speech_model": "universal-3-pro"
+            "speech_models": ["universal-3-pro"]
         ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
