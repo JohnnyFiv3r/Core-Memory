@@ -76,8 +76,12 @@ class PhoneConnectivityManager: NSObject, WCSessionDelegate {
         }
     }
     
-    // Monitor transfer completion
+    // Monitor transfer completion — clean up temp files
     func session(_ session: WCSession, didFinish fileTransfer: WCSessionFileTransfer, error: Error?) {
+        // Delete the source file after transfer completes (success or fail)
+        let fileURL = fileTransfer.file.fileURL
+        try? FileManager.default.removeItem(at: fileURL)
+
         if let error {
             DispatchQueue.main.async {
                 self.onTransferError?(error)

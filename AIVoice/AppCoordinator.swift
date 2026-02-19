@@ -56,6 +56,8 @@ class AppCoordinator {
 
         do {
             let text = try await voicePipeline.processIncoming(audioURL: audioURL)
+            // Clean up incoming audio temp file
+            try? FileManager.default.removeItem(at: audioURL)
             await MainActor.run {
                 isTranscribing = false
                 transcribedText = text
@@ -63,6 +65,7 @@ class AppCoordinator {
             }
             // Countdown and auto-send handled by VoiceScreen
         } catch {
+            try? FileManager.default.removeItem(at: audioURL)
             await MainActor.run {
                 isTranscribing = false
                 isProcessing = false

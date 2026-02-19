@@ -159,8 +159,13 @@ class AudioPlayer: NSObject {
     private func fireCompletion() {
         guard !completionCalled else { return }
         completionCalled = true
+        let urlToDelete = pendingURL
         cleanup()
         try? AVAudioSession.sharedInstance().setActive(false, options: .notifyOthersOnDeactivation)
+        // Clean up temp audio file after playback
+        if let url = urlToDelete {
+            try? FileManager.default.removeItem(at: url)
+        }
         onPlaybackComplete?()
     }
 }
