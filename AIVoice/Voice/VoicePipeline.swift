@@ -75,13 +75,18 @@ class VoicePipeline {
 
         // Try Piper first
         if let piper = piperSynthesizer {
+            print("[VoicePipeline] Attempting Piper TTS...")
             do {
                 let url = try await piper.synthesize(text: text)
-                print("[VoicePipeline] TTS via Piper: \(url.lastPathComponent)")
+                let fileSize = (try? FileManager.default.attributesOfItem(atPath: url.path)[.size] as? Int) ?? 0
+                print("[VoicePipeline] TTS via Piper: \(url.lastPathComponent) (\(fileSize) bytes)")
                 return url
             } catch {
-                print("[VoicePipeline] Piper failed, falling back to Apple TTS: \(error.localizedDescription)")
+                print("[VoicePipeline] ⚠️ Piper failed: \(error.localizedDescription)")
+                print("[VoicePipeline] Falling back to Apple TTS")
             }
+        } else {
+            print("[VoicePipeline] Piper not configured, using Apple TTS")
         }
 
         // Fallback to Apple TTS

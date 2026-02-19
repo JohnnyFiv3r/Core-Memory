@@ -29,9 +29,10 @@ class AppCoordinator {
         }
     }
     
-    /// Reload agent config (call after saving new credentials)
+    /// Reload agent + TTS config (call after saving new credentials)
     func reloadAgent() {
         agentManager.loadDefaults()
+        voicePipeline.loadPiperConfig()
     }
 
     /// Called by VoiceScreen after countdown or manual send
