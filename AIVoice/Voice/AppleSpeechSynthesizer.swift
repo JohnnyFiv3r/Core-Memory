@@ -17,7 +17,7 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
         utterance.pitchMultiplier = 1.0
 
         let outputURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString + ".wav")
+            .appendingPathComponent(UUID().uuidString + ".m4a")
 
         var audioBuffers: [AVAudioPCMBuffer] = []
 
@@ -49,14 +49,11 @@ class AppleSpeechSynthesizer: NSObject, SpeechSynthesizer {
             throw SynthesizerError.noAudio
         }
 
-        // Write as WAV (Linear PCM) for maximum compatibility with watchOS
+        // AAC for smaller file size over WatchConnectivity
         let settings: [String: Any] = [
-            AVFormatIDKey: Int(kAudioFormatLinearPCM),
+            AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
             AVSampleRateKey: firstBuffer.format.sampleRate,
-            AVNumberOfChannelsKey: 1,
-            AVLinearPCMBitDepthKey: 16,
-            AVLinearPCMIsFloatKey: false,
-            AVLinearPCMIsBigEndianKey: false
+            AVNumberOfChannelsKey: 1
         ]
 
         let audioFile = try AVAudioFile(forWriting: outputURL, settings: settings)
