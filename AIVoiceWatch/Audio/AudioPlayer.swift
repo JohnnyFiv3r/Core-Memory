@@ -21,9 +21,7 @@ class AudioPlayer: NSObject, AVAudioPlayerDelegate {
         do {
             let session = AVAudioSession.sharedInstance()
             // Use playAndRecord to avoid category switching issues
-            try session.setCategory(.playAndRecord,
-                                    mode: .default,
-                                    options: [.defaultToSpeaker])
+            try session.setCategory(.playAndRecord, mode: .default)
             try session.setActive(true)
 
             player = try AVAudioPlayer(contentsOf: url)

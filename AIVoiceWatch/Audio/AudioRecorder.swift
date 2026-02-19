@@ -14,7 +14,7 @@ class AudioRecorder: NSObject, AVAudioRecorderDelegate {
     func startRecording(to url: URL) {
         let session = AVAudioSession.sharedInstance()
         do {
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setCategory(.playAndRecord, mode: .default)
             try session.setActive(true)
             
             recorder = try AVAudioRecorder(url: url, settings: recordSettings)
