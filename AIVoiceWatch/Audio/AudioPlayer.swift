@@ -5,6 +5,7 @@
 // - Reinitialize on wake
 // - AVPlayer for reliable media playback
 import AVFoundation
+import WatchKit
 
 class AudioPlayer: NSObject {
     private var player: AVPlayer?
