@@ -1,21 +1,21 @@
 // VoiceScreen.swift — Hands-free voice interface
-// Shows transcription from watch audio, countdown to auto-send, agent response.
-// Tap transcript to edit before sending. All watch-driven (no mic button on phone).
+// Shows full conversation history plus live transcription states.
+// Voice is watch-driven (no mic button on phone).
 import SwiftUI
 
 struct VoiceScreen: View {
     @Environment(AppCoordinator.self) private var coordinator
-    
+
     // Edit mode
     @State private var isEditing = false
     @State private var editText = ""
     @FocusState private var editFieldFocused: Bool
-    
+
     // Countdown
     @State private var countdownRemaining: Double = 0
     @State private var countdownTotal: Double = 0
     @State private var countdownTimer: Timer?
-    
+
     private var autoSendDelay: Double {
         let stored = UserDefaults.standard.integer(forKey: "autoSendDelay")
         return Double(stored > 0 ? stored : 2)
@@ -23,30 +23,35 @@ struct VoiceScreen: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Message area
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        // Show previous agent response at top
-                        if let response = coordinator.agentResponse {
-                            agentBubble(text: response, timestamp: coordinator.agentResponseTimestamp)
-                                .id("agentResponse")
+                        // MARK: - Chat history
+                        ForEach(coordinator.chatManager.messages) { msg in
+                            switch msg.sender {
+                            case .agent:
+                                agentBubble(text: msg.text, timestamp: msg.timestamp)
+                            case .user:
+                                userHistoryBubble(text: msg.text, timestamp: msg.timestamp)
+                            }
                         }
-                        
+
+                        // MARK: - Live states (below history)
+
                         // Transcribing indicator
                         if coordinator.isTranscribing {
                             transcribingIndicator
                                 .id("transcribing")
                         }
-                        
-                        // User transcript with countdown
+
+                        // User transcript with countdown (not yet sent)
                         if let transcript = coordinator.transcribedText,
                            !coordinator.isWaitingForAgent {
                             userBubble(text: transcript, timestamp: coordinator.userTranscriptTimestamp)
                                 .id("userTranscript")
                         }
-                        
-                        // Sent transcript (waiting for agent)
+
+                        // Waiting for agent
                         if coordinator.isWaitingForAgent {
                             if let transcript = coordinator.lastSentText {
                                 sentBubble(text: transcript)
@@ -55,33 +60,44 @@ struct VoiceScreen: View {
                             thinkingIndicator
                                 .id("thinking")
                         }
-                        
+
                         // Error
                         if let error = coordinator.lastError {
                             errorBubble(text: error)
                         }
+
+                        // Scroll anchor
+                        Color.clear.frame(height: 1).id("bottom")
                     }
                     .padding(16)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .onChange(of: coordinator.agentResponse) {
-                    withAnimation { proxy.scrollTo("agentResponse", anchor: .top) }
+                .onChange(of: coordinator.chatManager.messages.count) {
+                    withAnimation { proxy.scrollTo("bottom") }
                 }
                 .onChange(of: coordinator.isTranscribing) {
                     if coordinator.isTranscribing {
-                        withAnimation { proxy.scrollTo("transcribing") }
+                        withAnimation { proxy.scrollTo("bottom") }
                     }
                 }
                 .onChange(of: coordinator.transcribedText) {
                     if coordinator.transcribedText != nil {
-                        withAnimation { proxy.scrollTo("userTranscript") }
+                        withAnimation { proxy.scrollTo("bottom") }
                         startCountdown()
                     }
                 }
+                .onChange(of: coordinator.isWaitingForAgent) {
+                    withAnimation { proxy.scrollTo("bottom") }
+                }
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        proxy.scrollTo("bottom", anchor: .bottom)
+                    }
+                }
             }
-            
+
             Spacer(minLength: 0)
-            
+
             // Bottom bar: countdown or edit
             if isEditing {
                 editBar
@@ -91,20 +107,19 @@ struct VoiceScreen: View {
         }
         .background(ShellPhoneTheme.background)
     }
-    
-    // MARK: - Agent response bubble (left-aligned, dark card)
-    
+
+    // MARK: - Agent response bubble (left-aligned)
+
     private func agentBubble(text: String, timestamp: Date?) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .top, spacing: 10) {
-                // Agent avatar
                 Image("AgentAvatar")
                     .resizable()
                     .scaledToFit()
                     .frame(width: 24, height: 24)
                     .clipShape(Circle())
                     .padding(.top, 2)
-                
+
                 Text(text)
                     .font(.body)
                     .foregroundColor(.white)
@@ -113,7 +128,7 @@ struct VoiceScreen: View {
             .padding(14)
             .background(ShellPhoneTheme.agentBubble)
             .cornerRadius(16)
-            
+
             if let ts = timestamp {
                 Text(ts.formatted(date: .omitted, time: .shortened))
                     .font(.caption2)
@@ -123,9 +138,31 @@ struct VoiceScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    
-    // MARK: - User transcript bubble (right-aligned, accent color)
-    
+
+    // MARK: - User history bubble (right-aligned, already sent)
+
+    private func userHistoryBubble(text: String, timestamp: Date?) -> some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            Text(text)
+                .font(.body)
+                .foregroundColor(.white)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .background(ShellPhoneTheme.userBubble)
+                .cornerRadius(20)
+
+            if let ts = timestamp {
+                Text(ts.formatted(date: .omitted, time: .shortened))
+                    .font(.caption2)
+                    .foregroundColor(ShellPhoneTheme.secondaryText)
+                    .padding(.trailing, 4)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+    }
+
+    // MARK: - User transcript bubble (not yet sent, tappable to edit)
+
     private func userBubble(text: String, timestamp: Date?) -> some View {
         VStack(alignment: .trailing, spacing: 6) {
             Text(text)
@@ -138,7 +175,7 @@ struct VoiceScreen: View {
                 .onTapGesture {
                     beginEditing(text)
                 }
-            
+
             HStack(spacing: 8) {
                 if let ts = timestamp {
                     Text(ts.formatted(date: .omitted, time: .shortened))
@@ -155,9 +192,9 @@ struct VoiceScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
-    
+
     // MARK: - Sent bubble (after countdown, waiting for agent)
-    
+
     private func sentBubble(text: String) -> some View {
         VStack(alignment: .trailing, spacing: 4) {
             Text(text)
@@ -167,7 +204,7 @@ struct VoiceScreen: View {
                 .padding(.vertical, 10)
                 .background(ShellPhoneTheme.userBubble.opacity(0.6))
                 .cornerRadius(20)
-            
+
             Text("Sent")
                 .font(.caption2)
                 .foregroundColor(ShellPhoneTheme.secondaryText)
@@ -175,12 +212,11 @@ struct VoiceScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
-    
+
     // MARK: - Transcribing pill
-    
+
     private var transcribingIndicator: some View {
         HStack(spacing: 6) {
-            // Animated dots
             TranscribingDots()
             Text("Transcribing...")
                 .font(.caption)
@@ -192,9 +228,9 @@ struct VoiceScreen: View {
         .cornerRadius(20)
         .frame(maxWidth: .infinity, alignment: .trailing)
     }
-    
+
     // MARK: - Thinking indicator
-    
+
     private var thinkingIndicator: some View {
         HStack(spacing: 10) {
             Image("AgentAvatar")
@@ -202,7 +238,7 @@ struct VoiceScreen: View {
                 .scaledToFit()
                 .frame(width: 20, height: 20)
                 .clipShape(Circle())
-            
+
             TranscribingDots()
         }
         .padding(12)
@@ -210,9 +246,9 @@ struct VoiceScreen: View {
         .cornerRadius(16)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    
+
     // MARK: - Error bubble
-    
+
     private func errorBubble(text: String) -> some View {
         HStack(spacing: 8) {
             Image(systemName: "exclamationmark.triangle.fill")
@@ -226,18 +262,17 @@ struct VoiceScreen: View {
         .cornerRadius(12)
         .frame(maxWidth: .infinity, alignment: .leading)
     }
-    
-    // MARK: - Countdown bar (tap "Edit transcript" to enter edit mode)
-    
+
+    // MARK: - Countdown bar
+
     private var countdownBar: some View {
         VStack(spacing: 8) {
-            // Progress bar
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
                     RoundedRectangle(cornerRadius: 2)
                         .fill(Color.white.opacity(0.1))
                         .frame(height: 3)
-                    
+
                     RoundedRectangle(cornerRadius: 2)
                         .fill(ShellPhoneTheme.accent)
                         .frame(width: geo.size.width * (countdownTotal > 0 ? (1 - countdownRemaining / countdownTotal) : 0), height: 3)
@@ -245,7 +280,7 @@ struct VoiceScreen: View {
                 }
             }
             .frame(height: 3)
-            
+
             HStack {
                 Button {
                     if let text = coordinator.transcribedText {
@@ -256,9 +291,9 @@ struct VoiceScreen: View {
                         .font(.caption)
                         .foregroundColor(ShellPhoneTheme.secondaryText)
                 }
-                
+
                 Spacer()
-                
+
                 Text("Auto-send in \(Int(ceil(countdownRemaining)))s")
                     .font(.caption)
                     .foregroundColor(ShellPhoneTheme.accent)
@@ -268,9 +303,9 @@ struct VoiceScreen: View {
         .padding(.vertical, 10)
         .background(ShellPhoneTheme.topBarBackground)
     }
-    
-    // MARK: - Edit bar (text field + send button)
-    
+
+    // MARK: - Edit bar
+
     private var editBar: some View {
         VStack(spacing: 8) {
             HStack {
@@ -284,7 +319,7 @@ struct VoiceScreen: View {
                         .foregroundColor(ShellPhoneTheme.accent)
                 }
             }
-            
+
             HStack(spacing: 10) {
                 TextField("Edit message", text: $editText)
                     .textFieldStyle(.plain)
@@ -293,7 +328,7 @@ struct VoiceScreen: View {
                     .background(ShellPhoneTheme.cardBackground)
                     .cornerRadius(10)
                     .focused($editFieldFocused)
-                
+
                 Button {
                     sendEdited()
                 } label: {
@@ -312,15 +347,14 @@ struct VoiceScreen: View {
         .background(ShellPhoneTheme.topBarBackground)
         .onAppear { editFieldFocused = true }
     }
-    
+
     // MARK: - Actions
-    
+
     private func beginEditing(_ text: String) {
         editText = text
         isEditing = true
-        // Countdown continues while editing — user can send early or let it auto-send
     }
-    
+
     private func sendEdited() {
         cancelCountdown()
         isEditing = false
@@ -329,19 +363,18 @@ struct VoiceScreen: View {
         guard !text.isEmpty else { return }
         coordinator.sendTranscript(text)
     }
-    
+
     private func startCountdown() {
         cancelCountdown()
         let delay = autoSendDelay
         countdownTotal = delay
         countdownRemaining = delay
-        
+
         countdownTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
             Task { @MainActor in
                 countdownRemaining -= 0.1
                 if countdownRemaining <= 0 {
                     cancelCountdown()
-                    // Auto-send: use edited text if editing, otherwise original transcript
                     let textToSend = isEditing ? editText : (coordinator.transcribedText ?? "")
                     isEditing = false
                     editFieldFocused = false
@@ -353,7 +386,7 @@ struct VoiceScreen: View {
             }
         }
     }
-    
+
     private func cancelCountdown() {
         countdownTimer?.invalidate()
         countdownTimer = nil
@@ -362,13 +395,13 @@ struct VoiceScreen: View {
     }
 }
 
-// MARK: - Animated dots for transcribing/thinking states
+// MARK: - Animated dots
 
 struct TranscribingDots: View {
     @State private var phase = 0
-    
+
     let timer = Timer.publish(every: 0.4, on: .main, in: .common).autoconnect()
-    
+
     var body: some View {
         HStack(spacing: 4) {
             ForEach(0..<3, id: \.self) { i in
