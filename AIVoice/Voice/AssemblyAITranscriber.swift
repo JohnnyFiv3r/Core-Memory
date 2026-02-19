@@ -70,7 +70,10 @@ class AssemblyAITranscriber: SpeechTranscriber {
         request.setValue(apiKey, forHTTPHeaderField: "authorization")
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         
-        let body = ["audio_url": audioURL]
+        let body: [String: Any] = [
+            "audio_url": audioURL,
+            "speech_model": "universal-3-pro"
+        ]
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
         let (responseData, response) = try await URLSession.shared.data(for: request)
