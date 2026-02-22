@@ -34,9 +34,13 @@ export class OpenAIRealtimeSession {
         session: {
           modalities: ["text"],
           instructions:
-            "You are Johnny's portfolio voice assistant. Be concise, first-person, and helpful.",
+            "You are Johnny's portfolio voice assistant. Always respond in English unless the user explicitly asks for another language. Be concise, first-person, and helpful.",
           input_audio_format: "pcm16",
-          output_audio_format: "pcm16"
+          output_audio_format: "pcm16",
+          input_audio_transcription: {
+            model: "gpt-4o-mini-transcribe",
+            language: "en"
+          }
         }
       });
     });
