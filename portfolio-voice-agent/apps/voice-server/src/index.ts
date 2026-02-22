@@ -8,6 +8,7 @@ import {
   type ServerEvent
 } from "@portfolio/shared-types";
 import { OpenAIRealtimeSession } from "./providers/openaiRealtime";
+import { ElevenLabsTts } from "./providers/elevenlabs";
 
 const port = Number(process.env.PORT ?? 8787);
 const wss = new WebSocketServer({ port });
@@ -24,6 +25,40 @@ function send(ws: import("ws").WebSocket, event: ServerEvent) {
 wss.on("connection", (ws) => {
   const sessionId = randomUUID();
   let realtime: OpenAIRealtimeSession | null = null;
+  let ttsAbort: AbortController | null = null;
+  const tts = buildTts();
+
+  const emit = (event: ServerEvent) => {
+    send(ws, event);
+
+    // B-005: stream ElevenLabs audio from assistant final text
+    if (event.type === "assistant.text.final" && tts) {
+      void streamAssistantTts(event.text);
+    }
+  };
+
+  async function streamAssistantTts(text: string) {
+    try {
+      ttsAbort?.abort();
+      ttsAbort = new AbortController();
+      await tts!.streamSpeak(
+        text,
+        (audioBase64) => emit({ type: "tts.audio.chunk", audioBase64, mime: "audio/mpeg" }),
+        ttsAbort.signal
+      );
+      emit({ type: "tts.done" });
+    } catch (error: any) {
+      if (ttsAbort?.signal.aborted) {
+        emit({ type: "tts.done" });
+        return;
+      }
+      emit({
+        type: "error",
+        code: "tts_stream_failed",
+        message: String(error?.message ?? error)
+      });
+    }
+  }
 
   send(ws, { type: "session.ready", sessionId, maxMinutes: Number(process.env.MAX_SESSION_MINUTES ?? 8) });
 
@@ -43,10 +78,14 @@ wss.on("connection", (ws) => {
     }
 
     const event = parsed.data;
-    realtime = handleClientEvent(ws, event, realtime);
+    realtime = handleClientEvent(ws, event, realtime, emit, () => {
+      ttsAbort?.abort();
+      ttsAbort = null;
+    });
   });
 
   ws.on("close", () => {
+    ttsAbort?.abort();
     realtime?.close();
   });
 });
@@ -54,17 +93,18 @@ wss.on("connection", (ws) => {
 function handleClientEvent(
   ws: import("ws").WebSocket,
   event: ClientEvent,
-  realtime: OpenAIRealtimeSession | null
+  realtime: OpenAIRealtimeSession | null,
+  emit: (event: ServerEvent) => void,
+  stopTts: () => void
 ): OpenAIRealtimeSession | null {
   switch (event.type) {
     case "session.start": {
-      // Lazy init per user session
       if (!realtime) {
         try {
-          realtime = new OpenAIRealtimeSession((serverEvent) => send(ws, serverEvent));
-          send(ws, { type: "stt.partial", text: "Realtime connected. Listening…" });
+          realtime = new OpenAIRealtimeSession((serverEvent) => emit(serverEvent));
+          emit({ type: "stt.partial", text: "Realtime connected. Listening…" });
         } catch (error: any) {
-          send(ws, {
+          emit({
             type: "error",
             code: "realtime_init_failed",
             message: String(error?.message ?? error)
@@ -75,7 +115,7 @@ function handleClientEvent(
     }
     case "voice.input.chunk": {
       if (!realtime) {
-        send(ws, { type: "error", code: "session_not_started", message: "Send session.start before audio chunks" });
+        emit({ type: "error", code: "session_not_started", message: "Send session.start before audio chunks" });
         return realtime;
       }
       realtime.appendAudioChunk(event.pcm16Base64);
@@ -83,23 +123,34 @@ function handleClientEvent(
     }
     case "voice.input.end_turn": {
       if (!realtime) {
-        send(ws, { type: "error", code: "session_not_started", message: "Send session.start before end_turn" });
+        emit({ type: "error", code: "session_not_started", message: "Send session.start before end_turn" });
         return realtime;
       }
       realtime.endTurn();
       return realtime;
     }
     case "voice.interrupt": {
+      stopTts();
       realtime?.interrupt();
+      emit({ type: "tts.done" });
       return realtime;
     }
     case "session.stop": {
+      stopTts();
       realtime?.close();
-      send(ws, { type: "session.ended", reason: "user" });
+      emit({ type: "session.ended", reason: "user" });
       return null;
     }
     default:
       return realtime;
+  }
+}
+
+function buildTts(): ElevenLabsTts | null {
+  try {
+    return new ElevenLabsTts();
+  } catch {
+    return null;
   }
 }
 

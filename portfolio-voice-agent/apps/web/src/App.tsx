@@ -13,6 +13,9 @@ export function App() {
   const [transcript, setTranscript] = useState<string[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<VoiceWsClient | null>(null);
+  const audioQueueRef = useRef<string[]>([]);
+  const isPlayingRef = useRef(false);
+  const currentAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -23,6 +26,36 @@ export function App() {
       if (next !== prev) setHistory((h) => [...h, next]);
       return next;
     });
+  }
+
+  function stopPlayback() {
+    audioQueueRef.current = [];
+    isPlayingRef.current = false;
+    if (currentAudioRef.current) {
+      currentAudioRef.current.pause();
+      currentAudioRef.current.src = "";
+      currentAudioRef.current = null;
+    }
+  }
+
+  function playNextChunk() {
+    if (isPlayingRef.current) return;
+    const next = audioQueueRef.current.shift();
+    if (!next) return;
+
+    const audio = new Audio(`data:audio/mpeg;base64,${next}`);
+    currentAudioRef.current = audio;
+    isPlayingRef.current = true;
+
+    const done = () => {
+      isPlayingRef.current = false;
+      currentAudioRef.current = null;
+      playNextChunk();
+    };
+
+    audio.onended = done;
+    audio.onerror = done;
+    void audio.play().catch(() => done());
   }
 
   function onServerEvent(event: ServerEvent) {
@@ -44,6 +77,10 @@ export function App() {
         break;
       case "assistant.text.final":
         setTranscript((t) => [...t, `assistant: ${event.text}`]);
+        break;
+      case "tts.audio.chunk":
+        audioQueueRef.current.push(event.audioBase64);
+        playNextChunk();
         break;
       case "tts.done":
         apply("END_SPEAKING");
@@ -85,6 +122,7 @@ export function App() {
       return;
     }
 
+    stopPlayback();
     send({ type: "session.stop", reason: "user" });
     wsRef.current?.close();
     wsRef.current = null;
@@ -110,6 +148,7 @@ export function App() {
 
   useEffect(() => {
     return () => {
+      stopPlayback();
       wsRef.current?.close();
       wsRef.current = null;
     };
@@ -161,7 +200,7 @@ export function App() {
           <button onClick={() => send({ type: "voice.input.end_turn" })} style={{ padding: "8px 10px" }}>
             Send end_turn (test)
           </button>
-          <button onClick={() => send({ type: "voice.interrupt" })} style={{ padding: "8px 10px" }}>
+          <button onClick={() => { stopPlayback(); send({ type: "voice.interrupt" }); }} style={{ padding: "8px 10px" }}>
             Interrupt
           </button>
         </section>
