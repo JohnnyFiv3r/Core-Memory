@@ -32,8 +32,19 @@ wss.on("connection", (ws) => {
     send(ws, event);
 
     // B-005: stream ElevenLabs audio from assistant final text
-    if (event.type === "assistant.text.final" && tts) {
-      void streamAssistantTts(event.text);
+    if (event.type === "assistant.text.final") {
+      if (tts) void streamAssistantTts(event.text);
+      // B-007: lightweight action chip suggestions from project mentions
+      const projectSlugs = ["line-lead", "clawdio", "data-mentor", "aquaspec", "permitpro", "storyboard", "midwest-muscle", "contour"]; 
+      const lowered = event.text.toLowerCase();
+      const matched = projectSlugs.find((slug) => lowered.includes(slug.replace("-", " ")) || lowered.includes(slug));
+      if (matched) {
+        emit({
+          type: "assistant.action",
+          action: "open_project",
+          payload: { slug: matched, label: `Open ${matched}` }
+        });
+      }
     }
   };
 

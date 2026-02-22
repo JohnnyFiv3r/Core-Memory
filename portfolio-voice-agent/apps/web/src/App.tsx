@@ -2,6 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { ClientEvent, ServerEvent } from "@portfolio/shared-types";
 import { nextState, type VoiceEvent, type VoiceState } from "./lib/stateMachine";
 import { VoiceWsClient } from "./lib/wsClient";
+import { PersonaOrb } from "./components/PersonaOrb";
+import { TranscriptStrip } from "./components/TranscriptStrip";
 
 const DEFAULT_WS_URL = (import.meta.env.VITE_VOICE_SERVER_WS_URL as string) ?? "ws://localhost:8787";
 
@@ -11,6 +13,7 @@ export function App() {
   const [email, setEmail] = useState("");
   const [history, setHistory] = useState<string[]>(["idle"]);
   const [transcript, setTranscript] = useState<string[]>([]);
+  const [actionChips, setActionChips] = useState<Array<{ label: string; slug?: string }>>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const wsRef = useRef<VoiceWsClient | null>(null);
   const audioQueueRef = useRef<string[]>([]);
@@ -78,6 +81,19 @@ export function App() {
       case "assistant.text.final":
         setTranscript((t) => [...t, `assistant: ${event.text}`]);
         break;
+      case "assistant.action": {
+        if (event.action === "open_project") {
+          const slug = String((event.payload as any).slug ?? "project");
+          const label = String((event.payload as any).label ?? `Open ${slug}`);
+          setActionChips((prev) => [...prev.slice(-4), { label, slug }]);
+        }
+        if (event.action === "suggest_related") {
+          const slugs = Array.isArray((event.payload as any).slugs) ? (event.payload as any).slugs : [];
+          const chips = slugs.slice(0, 3).map((slug: string) => ({ label: `Explore ${slug}`, slug }));
+          if (chips.length) setActionChips((prev) => [...prev.slice(-2), ...chips]);
+        }
+        break;
+      }
       case "tts.audio.chunk":
         audioQueueRef.current.push(event.audioBase64);
         playNextChunk();
@@ -171,8 +187,11 @@ export function App() {
 
   return (
     <main style={{ fontFamily: "Inter, system-ui, sans-serif", maxWidth: 920, margin: "0 auto", padding: 24 }}>
-      <h1>Portfolio Voice Agent — Scaffold</h1>
-      <p>Beads B-001..B-004: state machine + websocket + realtime adapter wiring.</p>
+      <h1>Portfolio Voice Agent</h1>
+      <p>Beads B-001..B-007: realtime backbone + persona states + transcript + action chips.</p>
+      <div style={{ marginTop: 12 }}>
+        <PersonaOrb state={state} />
+      </div>
 
       <section style={{ marginTop: 24, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={handleToggle} disabled={!canToggle} style={{ padding: "10px 16px", borderRadius: 8 }}>
@@ -207,6 +226,33 @@ export function App() {
       )}
 
       {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
+
+      <TranscriptStrip lines={transcript} />
+
+      <section style={{ marginTop: 14 }}>
+        <h3 style={{ margin: "0 0 8px 0" }}>Action Chips</h3>
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+          {actionChips.length === 0 ? (
+            <small style={{ color: "#71717a" }}>No project suggestions yet.</small>
+          ) : (
+            actionChips.map((chip, idx) => (
+              <button
+                key={`${chip.label}-${idx}`}
+                onClick={() => setTranscript((t) => [...t, `ui-action: ${chip.slug ?? chip.label}`])}
+                style={{
+                  padding: "6px 10px",
+                  borderRadius: 999,
+                  border: "1px solid #d4d4d8",
+                  background: "white",
+                  fontSize: 12
+                }}
+              >
+                {chip.label}
+              </button>
+            ))
+          )}
+        </div>
+      </section>
 
       <section style={{ marginTop: 28 }}>
         <h2>Debug Panel</h2>
