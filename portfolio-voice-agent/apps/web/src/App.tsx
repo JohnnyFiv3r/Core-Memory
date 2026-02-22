@@ -44,18 +44,25 @@ export function App() {
 
   function flushAppendQueue() {
     const sourceBuffer = sourceBufferRef.current;
-    if (!sourceBuffer || sourceBuffer.updating) return;
+    const mediaSource = mediaSourceRef.current;
+    if (!sourceBuffer || !mediaSource) return;
+    if (sourceBuffer.updating) return;
+    if (mediaSource.readyState !== "open") return;
 
     const next = appendQueueRef.current.shift();
     if (next) {
-      const chunk = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer;
-      sourceBuffer.appendBuffer(chunk);
+      try {
+        const chunk = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer;
+        sourceBuffer.appendBuffer(chunk);
+      } catch {
+        // stale/removed source buffer race; drop chunk and keep stream alive
+      }
       return;
     }
 
-    if (ttsDoneRef.current && mediaSourceRef.current?.readyState === "open") {
+    if (ttsDoneRef.current && mediaSource.readyState === "open") {
       try {
-        mediaSourceRef.current.endOfStream();
+        mediaSource.endOfStream();
       } catch {
         // noop
       }
@@ -107,6 +114,9 @@ export function App() {
   }
 
   function appendTtsChunk(base64: string) {
+    // Ignore late chunks that arrive after stream completion/teardown.
+    if (ttsDoneRef.current) return;
+
     appendQueueRef.current.push(base64ToBytes(base64));
     void ensureStreamingAudioStarted().then(() => flushAppendQueue()).catch((e) => {
       setError(`audio_stream_error: ${String((e as Error)?.message ?? e)}`);
