@@ -7,6 +7,7 @@ import {
   type ClientEvent,
   type ServerEvent
 } from "@portfolio/shared-types";
+import { OpenAIRealtimeSession } from "./providers/openaiRealtime";
 
 const port = Number(process.env.PORT ?? 8787);
 const wss = new WebSocketServer({ port });
@@ -21,7 +22,10 @@ function send(ws: import("ws").WebSocket, event: ServerEvent) {
 }
 
 wss.on("connection", (ws) => {
-  send(ws, { type: "session.ready", sessionId: randomUUID(), maxMinutes: Number(process.env.MAX_SESSION_MINUTES ?? 8) });
+  const sessionId = randomUUID();
+  let realtime: OpenAIRealtimeSession | null = null;
+
+  send(ws, { type: "session.ready", sessionId, maxMinutes: Number(process.env.MAX_SESSION_MINUTES ?? 8) });
 
   ws.on("message", (raw) => {
     let payload: unknown;
@@ -38,26 +42,64 @@ wss.on("connection", (ws) => {
       return;
     }
 
-    handleClientEvent(ws, parsed.data);
+    const event = parsed.data;
+    realtime = handleClientEvent(ws, event, realtime);
+  });
+
+  ws.on("close", () => {
+    realtime?.close();
   });
 });
 
-function handleClientEvent(ws: import("ws").WebSocket, event: ClientEvent) {
+function handleClientEvent(
+  ws: import("ws").WebSocket,
+  event: ClientEvent,
+  realtime: OpenAIRealtimeSession | null
+): OpenAIRealtimeSession | null {
   switch (event.type) {
-    case "session.start":
-      send(ws, { type: "stt.partial", text: "(placeholder) listening…" });
-      break;
-    case "voice.input.end_turn":
-      send(ws, { type: "assistant.text.delta", text: "(placeholder) Provider integrations land in B-004." });
-      send(ws, { type: "assistant.text.final", text: "(placeholder) Provider integrations land in B-004." });
-      send(ws, { type: "tts.done" });
-      break;
-    case "session.stop":
+    case "session.start": {
+      // Lazy init per user session
+      if (!realtime) {
+        try {
+          realtime = new OpenAIRealtimeSession((serverEvent) => send(ws, serverEvent));
+          send(ws, { type: "stt.partial", text: "Realtime connected. Listening…" });
+        } catch (error: any) {
+          send(ws, {
+            type: "error",
+            code: "realtime_init_failed",
+            message: String(error?.message ?? error)
+          });
+        }
+      }
+      return realtime;
+    }
+    case "voice.input.chunk": {
+      if (!realtime) {
+        send(ws, { type: "error", code: "session_not_started", message: "Send session.start before audio chunks" });
+        return realtime;
+      }
+      realtime.appendAudioChunk(event.pcm16Base64);
+      return realtime;
+    }
+    case "voice.input.end_turn": {
+      if (!realtime) {
+        send(ws, { type: "error", code: "session_not_started", message: "Send session.start before end_turn" });
+        return realtime;
+      }
+      realtime.endTurn();
+      return realtime;
+    }
+    case "voice.interrupt": {
+      realtime?.interrupt();
+      return realtime;
+    }
+    case "session.stop": {
+      realtime?.close();
       send(ws, { type: "session.ended", reason: "user" });
-      break;
+      return null;
+    }
     default:
-      // noop placeholders for this phase
-      break;
+      return realtime;
   }
 }
 

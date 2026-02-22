@@ -1,13 +1,18 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ClientEvent, ServerEvent } from "@portfolio/shared-types";
 import { nextState, type VoiceEvent, type VoiceState } from "./lib/stateMachine";
+import { VoiceWsClient } from "./lib/wsClient";
 
-const MOCK_EMAIL = "recruiter@example.com";
+const DEFAULT_WS_URL = (import.meta.env.VITE_VOICE_SERVER_WS_URL as string) ?? "ws://localhost:8787";
 
 export function App() {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [history, setHistory] = useState<string[]>(["idle"]);
+  const [transcript, setTranscript] = useState<string[]>([]);
+  const [wsConnected, setWsConnected] = useState(false);
+  const wsRef = useRef<VoiceWsClient | null>(null);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -18,6 +23,46 @@ export function App() {
       if (next !== prev) setHistory((h) => [...h, next]);
       return next;
     });
+  }
+
+  function onServerEvent(event: ServerEvent) {
+    switch (event.type) {
+      case "session.ready":
+        setWsConnected(true);
+        apply("CONNECTED");
+        break;
+      case "stt.partial":
+        setTranscript((t) => [...t, `user(partial): ${event.text}`]);
+        break;
+      case "stt.final":
+        setTranscript((t) => [...t, `user: ${event.text}`]);
+        apply("ASSISTANT_THINKING");
+        break;
+      case "assistant.text.delta":
+        setTranscript((t) => [...t, `assistant(delta): ${event.text}`]);
+        apply("ASSISTANT_SPEAKING");
+        break;
+      case "assistant.text.final":
+        setTranscript((t) => [...t, `assistant: ${event.text}`]);
+        break;
+      case "tts.done":
+        apply("END_SPEAKING");
+        break;
+      case "error":
+        setError(`${event.code}: ${event.message}`);
+        apply("FAIL");
+        break;
+      case "session.ended":
+        apply("END");
+        setWsConnected(false);
+        break;
+      default:
+        break;
+    }
+  }
+
+  function send(event: ClientEvent) {
+    wsRef.current?.send(event);
   }
 
   async function requestMic() {
@@ -40,6 +85,10 @@ export function App() {
       return;
     }
 
+    send({ type: "session.stop", reason: "user" });
+    wsRef.current?.close();
+    wsRef.current = null;
+    setWsConnected(false);
     apply("END");
   }
 
@@ -50,8 +99,21 @@ export function App() {
     }
     setError(null);
     apply("EMAIL_VERIFIED");
-    setTimeout(() => apply("CONNECTED"), 300);
+
+    const client = new VoiceWsClient(DEFAULT_WS_URL, onServerEvent);
+    wsRef.current = client;
+    client.onOpen(() => {
+      wsRef.current?.send({ type: "session.start", email });
+    });
+    client.connect();
   }
+
+  useEffect(() => {
+    return () => {
+      wsRef.current?.close();
+      wsRef.current = null;
+    };
+  }, []);
 
   const debug = useMemo(
     () => ({
@@ -60,22 +122,25 @@ export function App() {
       hasMic: state !== "idle",
       isGated: state === "gated",
       email,
-      mockAcceptedEmail: MOCK_EMAIL,
-      transitions: history
+      wsUrl: DEFAULT_WS_URL,
+      wsConnected,
+      transitions: history,
+      transcriptTail: transcript.slice(-6)
     }),
-    [state, canToggle, email, history]
+    [state, canToggle, email, history, transcript, wsConnected]
   );
 
   return (
     <main style={{ fontFamily: "Inter, system-ui, sans-serif", maxWidth: 920, margin: "0 auto", padding: 24 }}>
       <h1>Portfolio Voice Agent — Scaffold</h1>
-      <p>Beads B-001..B-003: mic permission + session state machine + debug visibility.</p>
+      <p>Beads B-001..B-004: state machine + websocket + realtime adapter wiring.</p>
 
-      <section style={{ marginTop: 24, display: "flex", gap: 12, alignItems: "center" }}>
+      <section style={{ marginTop: 24, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={handleToggle} disabled={!canToggle} style={{ padding: "10px 16px", borderRadius: 8 }}>
           {buttonLabel}
         </button>
         <span><strong>State:</strong> {state}</span>
+        <span><strong>WS:</strong> {wsConnected ? "connected" : "disconnected"}</span>
       </section>
 
       {state === "gated" && (
@@ -87,25 +152,18 @@ export function App() {
             onChange={(e) => setEmail(e.target.value)}
             style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", minWidth: 260 }}
           />
-          <button onClick={submitEmail} style={{ padding: "8px 12px" }}>Verify Email</button>
+          <button onClick={submitEmail} style={{ padding: "8px 12px" }}>Verify Email + Connect</button>
         </section>
       )}
 
       {state === "listening" && (
-        <section style={{ marginTop: 16, display: "flex", gap: 8 }}>
-          <button onClick={() => apply("ASSISTANT_THINKING")} style={{ padding: "8px 10px" }}>Simulate assistant thinking</button>
-        </section>
-      )}
-
-      {state === "thinking" && (
-        <section style={{ marginTop: 16, display: "flex", gap: 8 }}>
-          <button onClick={() => apply("ASSISTANT_SPEAKING")} style={{ padding: "8px 10px" }}>Simulate assistant speaking</button>
-        </section>
-      )}
-
-      {state === "speaking" && (
-        <section style={{ marginTop: 16, display: "flex", gap: 8 }}>
-          <button onClick={() => apply("END_SPEAKING")} style={{ padding: "8px 10px" }}>Simulate end speaking</button>
+        <section style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
+          <button onClick={() => send({ type: "voice.input.end_turn" })} style={{ padding: "8px 10px" }}>
+            Send end_turn (test)
+          </button>
+          <button onClick={() => send({ type: "voice.interrupt" })} style={{ padding: "8px 10px" }}>
+            Interrupt
+          </button>
         </section>
       )}
 
