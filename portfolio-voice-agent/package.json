@@ -1,0 +1,11 @@
+{
+  "name": "portfolio-voice-agent",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@10.0.0",
+  "scripts": {
+    "dev": "pnpm -r --parallel --filter @portfolio/web --filter @portfolio/voice-server dev",
+    "build": "pnpm -r --filter @portfolio/shared-types --filter @portfolio/web --filter @portfolio/voice-server build",
+    "typecheck": "pnpm -r typecheck"
+  }
+}
