@@ -30,6 +30,8 @@ export function App() {
   const appendQueueRef = useRef<Uint8Array[]>([]);
   const ttsDoneRef = useRef(false);
   const mediaUrlRef = useRef<string | null>(null);
+  const fallbackChunksRef = useRef<Uint8Array[]>([]);
+  const playbackStartedRef = useRef(false);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -77,6 +79,10 @@ export function App() {
     }
 
     const audio = new Audio();
+    audio.autoplay = true;
+    audio.onplaying = () => {
+      playbackStartedRef.current = true;
+    };
     currentAudioRef.current = audio;
 
     const mediaSource = new MediaSource();
@@ -111,27 +117,65 @@ export function App() {
     stopPlayback();
     ttsDoneRef.current = false;
     appendQueueRef.current = [];
+    fallbackChunksRef.current = [];
+    playbackStartedRef.current = false;
   }
 
   function appendTtsChunk(base64: string) {
     // Ignore late chunks that arrive after stream completion/teardown.
     if (ttsDoneRef.current) return;
 
-    appendQueueRef.current.push(base64ToBytes(base64));
-    void ensureStreamingAudioStarted().then(() => flushAppendQueue()).catch((e) => {
-      setError(`audio_stream_error: ${String((e as Error)?.message ?? e)}`);
-      apply("FAIL");
-    });
+    const bytes = base64ToBytes(base64);
+    appendQueueRef.current.push(bytes);
+    fallbackChunksRef.current.push(bytes);
+
+    void ensureStreamingAudioStarted()
+      .then(() => {
+        flushAppendQueue();
+        if (currentAudioRef.current) {
+          void currentAudioRef.current.play().then(() => {
+            playbackStartedRef.current = true;
+          }).catch(() => {
+            // browser may block autoplay until enough buffered/audio policy allows
+          });
+        }
+      })
+      .catch((e) => {
+        setError(`audio_stream_error: ${String((e as Error)?.message ?? e)}`);
+      });
   }
 
-  function markTtsDone() {
+  async function markTtsDone() {
     ttsDoneRef.current = true;
     flushAppendQueue();
+
+    // Fallback safety: if streaming never started, play full utterance blob.
+    if (!playbackStartedRef.current && fallbackChunksRef.current.length > 0) {
+      const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
+      const merged = new Uint8Array(size);
+      let offset = 0;
+      for (const c of fallbackChunksRef.current) {
+        merged.set(c, offset);
+        offset += c.byteLength;
+      }
+      const blob = new Blob([merged.buffer], { type: "audio/mpeg" });
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      currentAudioRef.current = audio;
+      try {
+        await audio.play();
+      } catch {
+        // noop
+      }
+      audio.onended = () => URL.revokeObjectURL(url);
+    }
   }
 
   function stopPlayback() {
     appendQueueRef.current = [];
+    fallbackChunksRef.current = [];
     ttsDoneRef.current = false;
+    playbackStartedRef.current = false;
 
     if (sourceBufferRef.current) {
       try {
