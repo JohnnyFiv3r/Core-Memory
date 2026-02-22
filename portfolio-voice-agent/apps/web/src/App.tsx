@@ -7,6 +7,13 @@ import { TranscriptStrip } from "./components/TranscriptStrip";
 
 const DEFAULT_WS_URL = (import.meta.env.VITE_VOICE_SERVER_WS_URL as string) ?? "ws://localhost:8787";
 
+function base64ToBytes(base64: string): Uint8Array {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
+}
+
 export function App() {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState<string | null>(null);
@@ -15,10 +22,14 @@ export function App() {
   const [transcript, setTranscript] = useState<string[]>([]);
   const [actionChips, setActionChips] = useState<Array<{ label: string; slug?: string }>>([]);
   const [wsConnected, setWsConnected] = useState(false);
+
   const wsRef = useRef<VoiceWsClient | null>(null);
-  const audioQueueRef = useRef<string[]>([]);
-  const isPlayingRef = useRef(false);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
+  const mediaSourceRef = useRef<MediaSource | null>(null);
+  const sourceBufferRef = useRef<SourceBuffer | null>(null);
+  const appendQueueRef = useRef<Uint8Array[]>([]);
+  const ttsDoneRef = useRef(false);
+  const mediaUrlRef = useRef<string | null>(null);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -31,34 +42,116 @@ export function App() {
     });
   }
 
+  function flushAppendQueue() {
+    const sourceBuffer = sourceBufferRef.current;
+    if (!sourceBuffer || sourceBuffer.updating) return;
+
+    const next = appendQueueRef.current.shift();
+    if (next) {
+      const chunk = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer;
+      sourceBuffer.appendBuffer(chunk);
+      return;
+    }
+
+    if (ttsDoneRef.current && mediaSourceRef.current?.readyState === "open") {
+      try {
+        mediaSourceRef.current.endOfStream();
+      } catch {
+        // noop
+      }
+    }
+  }
+
+  async function ensureStreamingAudioStarted() {
+    if (currentAudioRef.current && mediaSourceRef.current && sourceBufferRef.current) return;
+
+    if (!("MediaSource" in window) || !MediaSource.isTypeSupported("audio/mpeg")) {
+      throw new Error("MediaSource audio/mpeg is not supported in this browser");
+    }
+
+    const audio = new Audio();
+    currentAudioRef.current = audio;
+
+    const mediaSource = new MediaSource();
+    mediaSourceRef.current = mediaSource;
+
+    const objectUrl = URL.createObjectURL(mediaSource);
+    mediaUrlRef.current = objectUrl;
+    audio.src = objectUrl;
+
+    await new Promise<void>((resolve, reject) => {
+      mediaSource.addEventListener(
+        "sourceopen",
+        () => {
+          try {
+            const sb = mediaSource.addSourceBuffer("audio/mpeg");
+            sourceBufferRef.current = sb;
+            sb.mode = "sequence";
+            sb.addEventListener("updateend", () => flushAppendQueue());
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        },
+        { once: true }
+      );
+    });
+
+    await audio.play().catch(() => undefined);
+  }
+
+  function startNewTtsStream() {
+    stopPlayback();
+    ttsDoneRef.current = false;
+    appendQueueRef.current = [];
+  }
+
+  function appendTtsChunk(base64: string) {
+    appendQueueRef.current.push(base64ToBytes(base64));
+    void ensureStreamingAudioStarted().then(() => flushAppendQueue()).catch((e) => {
+      setError(`audio_stream_error: ${String((e as Error)?.message ?? e)}`);
+      apply("FAIL");
+    });
+  }
+
+  function markTtsDone() {
+    ttsDoneRef.current = true;
+    flushAppendQueue();
+  }
+
   function stopPlayback() {
-    audioQueueRef.current = [];
-    isPlayingRef.current = false;
+    appendQueueRef.current = [];
+    ttsDoneRef.current = false;
+
+    if (sourceBufferRef.current) {
+      try {
+        sourceBufferRef.current.abort();
+      } catch {
+        // noop
+      }
+    }
+
+    if (mediaSourceRef.current?.readyState === "open") {
+      try {
+        mediaSourceRef.current.endOfStream();
+      } catch {
+        // noop
+      }
+    }
+
+    sourceBufferRef.current = null;
+    mediaSourceRef.current = null;
+
     if (currentAudioRef.current) {
       currentAudioRef.current.pause();
       currentAudioRef.current.src = "";
       currentAudioRef.current = null;
     }
-  }
 
-  function playNextChunk() {
-    if (isPlayingRef.current) return;
-    const next = audioQueueRef.current.shift();
-    if (!next) return;
-
-    const audio = new Audio(`data:audio/mpeg;base64,${next}`);
-    currentAudioRef.current = audio;
-    isPlayingRef.current = true;
-
-    const done = () => {
-      isPlayingRef.current = false;
-      currentAudioRef.current = null;
-      playNextChunk();
-    };
-
-    audio.onended = done;
-    audio.onerror = done;
-    void audio.play().catch(() => done());
+    if (mediaUrlRef.current) {
+      URL.revokeObjectURL(mediaUrlRef.current);
+      mediaUrlRef.current = null;
+    }
   }
 
   function onServerEvent(event: ServerEvent) {
@@ -80,6 +173,7 @@ export function App() {
         break;
       case "assistant.text.final":
         setTranscript((t) => [...t, `assistant: ${event.text}`]);
+        startNewTtsStream();
         break;
       case "assistant.action": {
         if (event.action === "open_project") {
@@ -95,10 +189,10 @@ export function App() {
         break;
       }
       case "tts.audio.chunk":
-        audioQueueRef.current.push(event.audioBase64);
-        playNextChunk();
+        appendTtsChunk(event.audioBase64);
         break;
       case "tts.done":
+        markTtsDone();
         apply("END_SPEAKING");
         break;
       case "error":
