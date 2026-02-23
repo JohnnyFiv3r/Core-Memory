@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 type Story = {
   id: string;
@@ -18,14 +19,33 @@ type StoryToolResult = {
   proof_points?: string[];
 };
 
-const STORY_PATH = path.resolve(process.cwd(), "apps/voice-server/context/story-bank.json");
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const STORY_PATH_CANDIDATES = [
+  path.resolve(process.cwd(), "apps/voice-server/context/story-bank.json"),
+  path.resolve(process.cwd(), "context/story-bank.json"),
+  path.resolve(__dirname, "../../context/story-bank.json")
+];
 
 let storyCache: Story[] | null = null;
+
+function resolveStoryPath(): string | null {
+  for (const p of STORY_PATH_CANDIDATES) {
+    if (fs.existsSync(p)) return p;
+  }
+  return null;
+}
 
 function loadStories(): Story[] {
   if (storyCache) return storyCache;
   try {
-    const raw = fs.readFileSync(STORY_PATH, "utf8");
+    const storyPath = resolveStoryPath();
+    if (!storyPath) {
+      storyCache = [];
+      return storyCache;
+    }
+    const raw = fs.readFileSync(storyPath, "utf8");
     storyCache = JSON.parse(raw) as Story[];
   } catch {
     storyCache = [];
@@ -67,7 +87,11 @@ export function selectStory(userQuery: string): StoryToolResult {
 
   const stories = loadStories();
   if (!stories.length) {
-    return { story_id: "none", confidence: 0, reason: "story_bank_unavailable" };
+    return {
+      story_id: "none",
+      confidence: 0,
+      reason: `story_bank_unavailable cwd=${process.cwd()}`
+    };
   }
 
   const tokens = new Set(tokenize(query));
