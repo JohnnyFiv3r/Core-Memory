@@ -34,6 +34,7 @@ export function App() {
   const mediaUrlRef = useRef<string | null>(null);
   const fallbackChunksRef = useRef<Uint8Array[]>([]);
   const playbackStartedRef = useRef(false);
+  const doneRetryTimerRef = useRef<number | null>(null);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -89,51 +90,63 @@ export function App() {
     appendQueueRef.current = [];
     fallbackChunksRef.current = [];
     playbackStartedRef.current = false;
+    if (doneRetryTimerRef.current) {
+      window.clearTimeout(doneRetryTimerRef.current);
+      doneRetryTimerRef.current = null;
+    }
   }
 
   function appendTtsChunk(base64: string) {
-    if (ttsDoneRef.current) return;
     const bytes = base64ToBytes(base64);
     fallbackChunksRef.current.push(bytes);
+    if (ttsDoneRef.current) {
+      pushTtsDebug(`[audio.late_chunk] accepted chunk after tts.done (bytes=${bytes.byteLength})`);
+    }
   }
 
   async function markTtsDone() {
     ttsDoneRef.current = true;
 
-    // Primary playback path: play full utterance blob.
-    if (fallbackChunksRef.current.length > 0) {
-      const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
-      pushTtsDebug(`[audio.fallback.prepare] chunks=${fallbackChunksRef.current.length} bytes=${size}`);
-      const merged = new Uint8Array(size);
-      let offset = 0;
-      for (const c of fallbackChunksRef.current) {
-        merged.set(c, offset);
-        offset += c.byteLength;
-      }
-      const blob = new Blob([merged.buffer], { type: "audio/mpeg" });
-      const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
-      audio.onloadedmetadata = () => pushTtsDebug(`[audio.fallback.meta] duration=${audio.duration}`);
-      audio.oncanplay = () => pushTtsDebug("[audio.fallback.canplay]");
-      audio.onplaying = () => pushTtsDebug("[audio.fallback.playing]");
-      audio.onerror = () => {
-        const mediaError = (audio as any).error;
-        pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
-      };
-      currentAudioRef.current = audio;
-      try {
-        await audio.play();
-        pushTtsDebug("[audio.fallback.play] fallback blob playback started");
-      } catch (e) {
-        pushTtsDebug(`[audio.fallback.error] ${String((e as Error)?.message ?? e)}`);
-      }
-      audio.onended = () => {
-        pushTtsDebug("[audio.fallback.ended]");
-        URL.revokeObjectURL(url);
-      };
-    } else {
-      pushTtsDebug("[audio.fallback.skip] no chunks collected");
+    if (fallbackChunksRef.current.length === 0) {
+      pushTtsDebug("[audio.fallback.wait] tts.done received before chunks; retrying in 250ms");
+      if (doneRetryTimerRef.current) window.clearTimeout(doneRetryTimerRef.current);
+      doneRetryTimerRef.current = window.setTimeout(() => {
+        doneRetryTimerRef.current = null;
+        void markTtsDone();
+      }, 250);
+      return;
     }
+
+    // Primary playback path: play full utterance blob.
+    const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
+    pushTtsDebug(`[audio.fallback.prepare] chunks=${fallbackChunksRef.current.length} bytes=${size}`);
+    const merged = new Uint8Array(size);
+    let offset = 0;
+    for (const c of fallbackChunksRef.current) {
+      merged.set(c, offset);
+      offset += c.byteLength;
+    }
+    const blob = new Blob([merged.buffer], { type: "audio/mpeg" });
+    const url = URL.createObjectURL(blob);
+    const audio = new Audio(url);
+    audio.onloadedmetadata = () => pushTtsDebug(`[audio.fallback.meta] duration=${audio.duration}`);
+    audio.oncanplay = () => pushTtsDebug("[audio.fallback.canplay]");
+    audio.onplaying = () => pushTtsDebug("[audio.fallback.playing]");
+    audio.onerror = () => {
+      const mediaError = (audio as any).error;
+      pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
+    };
+    currentAudioRef.current = audio;
+    try {
+      await audio.play();
+      pushTtsDebug("[audio.fallback.play] fallback blob playback started");
+    } catch (e) {
+      pushTtsDebug(`[audio.fallback.error] ${String((e as Error)?.message ?? e)}`);
+    }
+    audio.onended = () => {
+      pushTtsDebug("[audio.fallback.ended]");
+      URL.revokeObjectURL(url);
+    };
   }
 
   function stopPlayback() {
@@ -141,6 +154,10 @@ export function App() {
     fallbackChunksRef.current = [];
     ttsDoneRef.current = false;
     playbackStartedRef.current = false;
+    if (doneRetryTimerRef.current) {
+      window.clearTimeout(doneRetryTimerRef.current);
+      doneRetryTimerRef.current = null;
+    }
 
     if (sourceBufferRef.current) {
       try {
