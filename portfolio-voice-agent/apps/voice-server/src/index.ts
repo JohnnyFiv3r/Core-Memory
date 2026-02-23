@@ -26,6 +26,7 @@ wss.on("connection", (ws) => {
   const sessionId = randomUUID();
   let realtime: OpenAIRealtimeSession | null = null;
   let ttsAbort: AbortController | null = null;
+  let ttsCounter = 0;
   const tts = buildTts();
 
   const emit = (event: ServerEvent) => {
@@ -35,7 +36,8 @@ wss.on("connection", (ws) => {
     if (event.type === "assistant.text.final") {
       send(ws, { type: "debug.tts", stage: "assistant.text.final", detail: `chars=${event.text.length}` });
       if (tts) {
-        void streamAssistantTts(event.text);
+        const ttsId = ++ttsCounter;
+        void streamAssistantTts(event.text, ttsId);
       } else {
         send(ws, { type: "debug.tts", stage: "tts.skipped", detail: "ElevenLabs not configured (missing ELEVENLABS_API_KEY or ELEVENLABS_VOICE_ID)" });
       }
@@ -53,27 +55,27 @@ wss.on("connection", (ws) => {
     }
   };
 
-  async function streamAssistantTts(text: string) {
+  async function streamAssistantTts(text: string, ttsId: number) {
     try {
       ttsAbort?.abort();
       ttsAbort = new AbortController();
       let chunkCount = 0;
       let totalBytes = 0;
-      send(ws, { type: "debug.tts", stage: "tts.start", detail: `chars=${text.length}` });
+      send(ws, { type: "debug.tts", stage: "tts.start", detail: `ttsId=${ttsId} chars=${text.length}` });
       await tts!.streamSpeak(
         text,
         (audioBase64) => {
           chunkCount += 1;
           totalBytes += Buffer.from(audioBase64, "base64").byteLength;
-          emit({ type: "tts.audio.chunk", audioBase64, mime: "audio/mpeg" });
+          emit({ type: "tts.audio.chunk", ttsId, audioBase64, mime: "audio/mpeg" });
         },
         ttsAbort.signal
       );
-      send(ws, { type: "debug.tts", stage: "tts.done", detail: `chunks=${chunkCount} bytes=${totalBytes}` });
-      emit({ type: "tts.done" });
+      send(ws, { type: "debug.tts", stage: "tts.done", detail: `ttsId=${ttsId} chunks=${chunkCount} bytes=${totalBytes}` });
+      emit({ type: "tts.done", ttsId });
     } catch (error: any) {
       if (ttsAbort?.signal.aborted) {
-        emit({ type: "tts.done" });
+        emit({ type: "tts.done", ttsId });
         return;
       }
       const message = String(error?.message ?? error);
@@ -158,7 +160,6 @@ function handleClientEvent(
     case "voice.interrupt": {
       stopTts();
       realtime?.interrupt();
-      emit({ type: "tts.done" });
       return realtime;
     }
     case "session.stop": {

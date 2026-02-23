@@ -32,8 +32,8 @@ export const ServerEventSchema = z.discriminatedUnion("type", [
     action: z.enum(["open_project", "suggest_related", "show_metrics"]),
     payload: z.record(z.any())
   }),
-  z.object({ type: z.literal("tts.audio.chunk"), audioBase64: z.string(), mime: z.string() }),
-  z.object({ type: z.literal("tts.done") }),
+  z.object({ type: z.literal("tts.audio.chunk"), ttsId: z.number().int().nonnegative(), audioBase64: z.string(), mime: z.string() }),
+  z.object({ type: z.literal("tts.done"), ttsId: z.number().int().nonnegative() }),
   z.object({ type: z.literal("debug.tts"), stage: z.string(), detail: z.string().optional() }),
   z.object({ type: z.literal("session.limit_warning"), secondsLeft: z.number().int().nonnegative() }),
   z.object({ type: z.literal("session.ended"), reason: z.enum(["limit", "user", "error"]) }),

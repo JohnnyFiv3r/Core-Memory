@@ -38,6 +38,7 @@ export function App() {
   const ttsPlaybackLaunchedRef = useRef(false);
   const ttsPlaybackBytesRef = useRef(0);
   const ttsDoneRetryCountRef = useRef(0);
+  const activeTtsIdRef = useRef<number | null>(null);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -96,13 +97,23 @@ export function App() {
     ttsPlaybackLaunchedRef.current = false;
     ttsPlaybackBytesRef.current = 0;
     ttsDoneRetryCountRef.current = 0;
+    activeTtsIdRef.current = null;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
     }
   }
 
-  function appendTtsChunk(base64: string) {
+  function appendTtsChunk(base64: string, ttsId: number) {
+    if (activeTtsIdRef.current === null) {
+      activeTtsIdRef.current = ttsId;
+      pushTtsDebug(`[tts.bind] active ttsId=${ttsId}`);
+    }
+    if (ttsId !== activeTtsIdRef.current) {
+      pushTtsDebug(`[tts.ignore] stale chunk ttsId=${ttsId}, active=${activeTtsIdRef.current}`);
+      return;
+    }
+
     const bytes = base64ToBytes(base64);
     fallbackChunksRef.current.push(bytes);
     if (ttsDoneRef.current) {
@@ -188,6 +199,7 @@ export function App() {
     ttsPlaybackLaunchedRef.current = false;
     ttsPlaybackBytesRef.current = 0;
     ttsDoneRetryCountRef.current = 0;
+    activeTtsIdRef.current = null;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
@@ -259,9 +271,17 @@ export function App() {
         break;
       }
       case "tts.audio.chunk":
-        appendTtsChunk(event.audioBase64);
+        appendTtsChunk(event.audioBase64, event.ttsId);
         break;
       case "tts.done":
+        if (activeTtsIdRef.current === null) {
+          activeTtsIdRef.current = event.ttsId;
+          pushTtsDebug(`[tts.bind] tts.done bound active ttsId=${event.ttsId}`);
+        }
+        if (event.ttsId !== activeTtsIdRef.current) {
+          pushTtsDebug(`[tts.ignore] stale done ttsId=${event.ttsId}, active=${activeTtsIdRef.current}`);
+          break;
+        }
         markTtsDone();
         apply("END_SPEAKING");
         break;
@@ -426,7 +446,7 @@ export function App() {
 
       <section style={{ marginTop: 14 }}>
         <h3 style={{ margin: "0 0 8px 0" }}>ElevenLabs Debug</h3>
-        <pre style={{ background: "#0b1020", color: "#c7d2fe", padding: 10, borderRadius: 8, minHeight: 64 }}>
+        <pre style={{ background: "#0b1020", color: "#c7d2fe", padding: 10, borderRadius: 8, minHeight: 64, maxHeight: 220, overflowY: "auto" }}>
 {ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}
         </pre>
       </section>

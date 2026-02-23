@@ -116,8 +116,6 @@ export class OpenAIRealtimeSession {
     }
 
     if (event.type === "response.done") {
-      // Keep client pipeline compatible with future TTS stage.
-      this.emit({ type: "tts.done" });
       return;
     }
   }
