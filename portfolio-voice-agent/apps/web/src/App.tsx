@@ -36,6 +36,7 @@ export function App() {
   const playbackStartedRef = useRef(false);
   const doneRetryTimerRef = useRef<number | null>(null);
   const ttsPlaybackLaunchedRef = useRef(false);
+  const ttsPlaybackBytesRef = useRef(0);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -92,6 +93,7 @@ export function App() {
     fallbackChunksRef.current = [];
     playbackStartedRef.current = false;
     ttsPlaybackLaunchedRef.current = false;
+    ttsPlaybackBytesRef.current = 0;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
@@ -109,11 +111,6 @@ export function App() {
   async function markTtsDone() {
     ttsDoneRef.current = true;
 
-    if (ttsPlaybackLaunchedRef.current) {
-      pushTtsDebug("[audio.fallback.skip] playback already launched for this utterance");
-      return;
-    }
-
     if (fallbackChunksRef.current.length === 0) {
       pushTtsDebug("[audio.fallback.wait] tts.done received before chunks; retrying in 250ms");
       if (doneRetryTimerRef.current) window.clearTimeout(doneRetryTimerRef.current);
@@ -124,9 +121,20 @@ export function App() {
       return;
     }
 
+    const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
+    if (ttsPlaybackLaunchedRef.current) {
+      const grewEnough = size > ttsPlaybackBytesRef.current + 4096;
+      const ended = !currentAudioRef.current || currentAudioRef.current.ended;
+      if (!(grewEnough && ended)) {
+        pushTtsDebug("[audio.fallback.skip] playback already launched for this utterance");
+        return;
+      }
+      pushTtsDebug(`[audio.fallback.replay] relaunching with more audio bytes (old=${ttsPlaybackBytesRef.current}, new=${size})`);
+    }
+
     // Primary playback path: play full utterance blob.
     ttsPlaybackLaunchedRef.current = true;
-    const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
+    ttsPlaybackBytesRef.current = size;
     pushTtsDebug(`[audio.fallback.prepare] chunks=${fallbackChunksRef.current.length} bytes=${size}`);
     const merged = new Uint8Array(size);
     let offset = 0;
@@ -163,6 +171,7 @@ export function App() {
     ttsDoneRef.current = false;
     playbackStartedRef.current = false;
     ttsPlaybackLaunchedRef.current = false;
+    ttsPlaybackBytesRef.current = 0;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
