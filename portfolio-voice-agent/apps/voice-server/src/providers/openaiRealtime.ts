@@ -1,6 +1,7 @@
 import WebSocket from "ws";
 import type { ServerEvent } from "@portfolio/shared-types";
 import { selectStory } from "./storySelector";
+import { buildRealtimeInstructions } from "./promptLoader";
 
 type Emit = (event: ServerEvent) => void;
 
@@ -29,13 +30,14 @@ export class OpenAIRealtimeSession {
     });
 
     this.upstream.on("open", () => {
+      const instructions = buildRealtimeInstructions();
+
       // Configure session for text responses; UI TTS is handled separately (B-005+).
       this.send({
         type: "session.update",
         session: {
           modalities: ["text"],
-          instructions:
-            "You are Johnny's portfolio voice assistant. Always respond in English unless explicitly asked otherwise. Speak in first person, concise, grounded, and factual. Do NOT volunteer long stories unprompted. Only use a story when the user asks for examples, background, specific projects, or deeper context. If a story may help, call the select_story tool first and follow its result. If tool returns story_id='none', answer directly without story.",
+          instructions,
           input_audio_format: "pcm16",
           output_audio_format: "pcm16",
           input_audio_transcription: {
