@@ -132,6 +132,12 @@ export class OpenAIRealtimeSession {
     const userQuery = String(args?.user_query ?? "");
     const result = selectStory(userQuery);
 
+    this.emit({
+      type: "debug.tts",
+      stage: "story.selected",
+      detail: `id=${result.story_id} confidence=${result.confidence.toFixed(2)} reason=${result.reason}`
+    });
+
     this.send({
       type: "conversation.item.create",
       item: {
