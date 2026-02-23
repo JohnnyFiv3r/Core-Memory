@@ -25,6 +25,8 @@ export function App() {
   const [ttsDebug, setTtsDebug] = useState<string[]>([]);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
 
+  const stateRef = useRef<VoiceState>("idle");
+
   const wsRef = useRef<VoiceWsClient | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
   const mediaSourceRef = useRef<MediaSource | null>(null);
@@ -40,12 +42,19 @@ export function App() {
   const ttsDoneRetryCountRef = useRef(0);
   const activeTtsIdRef = useRef<number | null>(null);
 
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const micContextRef = useRef<AudioContext | null>(null);
+  const micSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const micSeqRef = useRef(0);
+
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
 
   function apply(event: VoiceEvent) {
     setState((prev) => {
       const next = nextState(prev, event);
+      stateRef.current = next;
       if (next !== prev) setHistory((h) => [...h, next]);
       return next;
     });
@@ -53,6 +62,84 @@ export function App() {
 
   function pushTtsDebug(line: string) {
     setTtsDebug((prev) => [...prev.slice(-24), line]);
+  }
+
+  function floatToPcm16Base64(input: Float32Array, inputSampleRate: number, outputSampleRate = 24000): string {
+    const ratio = inputSampleRate / outputSampleRate;
+    const newLength = Math.max(1, Math.floor(input.length / ratio));
+    const pcm = new Int16Array(newLength);
+
+    let offsetResult = 0;
+    let offsetBuffer = 0;
+    while (offsetResult < newLength) {
+      const nextOffsetBuffer = Math.floor((offsetResult + 1) * ratio);
+      let accum = 0;
+      let count = 0;
+      for (let i = offsetBuffer; i < nextOffsetBuffer && i < input.length; i++) {
+        accum += input[i];
+        count++;
+      }
+      const sample = count > 0 ? accum / count : 0;
+      const clamped = Math.max(-1, Math.min(1, sample));
+      pcm[offsetResult] = clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff;
+      offsetResult++;
+      offsetBuffer = nextOffsetBuffer;
+    }
+
+    const bytes = new Uint8Array(pcm.buffer);
+    let binary = "";
+    const chunk = 0x8000;
+    for (let i = 0; i < bytes.length; i += chunk) {
+      binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    }
+    return btoa(binary);
+  }
+
+  function stopMicStreaming() {
+    try { micProcessorRef.current?.disconnect(); } catch {}
+    try { micSourceRef.current?.disconnect(); } catch {}
+    try { micContextRef.current?.close(); } catch {}
+    try { micStreamRef.current?.getTracks().forEach((t) => t.stop()); } catch {}
+    micProcessorRef.current = null;
+    micSourceRef.current = null;
+    micContextRef.current = null;
+    micStreamRef.current = null;
+  }
+
+  async function startMicStreaming() {
+    stopMicStreaming();
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: {
+        channelCount: 1,
+        echoCancellation: true,
+        noiseSuppression: true,
+        autoGainControl: true
+      }
+    });
+
+    const audioContext = new AudioContext();
+    const source = audioContext.createMediaStreamSource(stream);
+    const processor = audioContext.createScriptProcessor(4096, 1, 1);
+
+    micSeqRef.current = 0;
+    processor.onaudioprocess = (event) => {
+      const ws = wsRef.current;
+      if (!ws) return;
+      const s = stateRef.current;
+      if (!(s === "listening" || s === "thinking" || s === "speaking")) return;
+      const channelData = event.inputBuffer.getChannelData(0);
+      const base64 = floatToPcm16Base64(channelData, audioContext.sampleRate, 24000);
+      ws.send({ type: "voice.input.chunk", pcm16Base64: base64, seq: micSeqRef.current++ });
+    };
+
+    source.connect(processor);
+    processor.connect(audioContext.destination);
+
+    micStreamRef.current = stream;
+    micContextRef.current = audioContext;
+    micSourceRef.current = source;
+    micProcessorRef.current = processor;
+    pushTtsDebug(`[mic.started] sampleRate=${audioContext.sampleRate}`);
   }
 
   function flushAppendQueue() {
@@ -350,6 +437,7 @@ export function App() {
     }
 
     stopPlayback();
+    stopMicStreaming();
     send({ type: "session.stop", reason: "user" });
     wsRef.current?.close();
     wsRef.current = null;
@@ -369,13 +457,22 @@ export function App() {
     wsRef.current = client;
     client.onOpen(() => {
       wsRef.current?.send({ type: "session.start", email });
+      void startMicStreaming().catch((e) => {
+        setError(`mic_stream_error: ${String((e as Error)?.message ?? e)}`);
+        pushTtsDebug(`[mic.error] ${String((e as Error)?.message ?? e)}`);
+      });
     });
     client.connect();
   }
 
   useEffect(() => {
+    stateRef.current = state;
+  }, [state]);
+
+  useEffect(() => {
     return () => {
       stopPlayback();
+      stopMicStreaming();
       wsRef.current?.close();
       wsRef.current = null;
     };
