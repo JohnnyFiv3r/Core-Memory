@@ -258,10 +258,12 @@ export function App() {
     const blob = new Blob([merged.buffer], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
+    let playbackClosed = false;
     audio.onloadedmetadata = () => pushTtsDebug(`[audio.fallback.meta] duration=${audio.duration}`);
     audio.oncanplay = () => pushTtsDebug("[audio.fallback.canplay]");
     audio.onplaying = () => pushTtsDebug("[audio.fallback.playing]");
     audio.onerror = () => {
+      if (playbackClosed || audio.ended) return;
       const mediaError = (audio as any).error;
       pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
     };
@@ -273,6 +275,7 @@ export function App() {
       pushTtsDebug(`[audio.fallback.error] ${String((e as Error)?.message ?? e)}`);
     }
     audio.onended = () => {
+      playbackClosed = true;
       pushTtsDebug("[audio.fallback.ended]");
       URL.revokeObjectURL(url);
     };

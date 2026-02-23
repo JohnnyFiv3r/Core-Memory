@@ -28,6 +28,14 @@ wss.on("connection", (ws) => {
   let ttsAbort: AbortController | null = null;
   let ttsCounter = 0;
   const tts = buildTts();
+  if (tts) {
+    const cfg = tts.getDebugConfig();
+    send(ws, {
+      type: "debug.tts",
+      stage: "tts.config",
+      detail: `voiceId=${cfg.voiceId} model=${cfg.modelId} output=${cfg.outputFormat} stability=${cfg.stability} similarity=${cfg.similarityBoost} style=${cfg.style} speakerBoost=${cfg.useSpeakerBoost}`
+    });
+  }
 
   const emit = (event: ServerEvent) => {
     send(ws, event);
