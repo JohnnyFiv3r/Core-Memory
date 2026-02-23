@@ -15,7 +15,7 @@ export class ElevenLabsTts {
   }
 
   async streamSpeak(text: string, onChunk: OnChunk, signal?: AbortSignal): Promise<void> {
-    const url = `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}/stream`;
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${this.voiceId}/stream?output_format=mp3_44100_128`;
 
     const resp = await fetch(url, {
       method: "POST",

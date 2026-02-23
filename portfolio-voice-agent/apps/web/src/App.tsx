@@ -78,54 +78,9 @@ export function App() {
   }
 
   async function ensureStreamingAudioStarted() {
-    if (currentAudioRef.current && mediaSourceRef.current && sourceBufferRef.current) return;
-
-    if (!("MediaSource" in window) || !MediaSource.isTypeSupported("audio/mpeg")) {
-      throw new Error("MediaSource audio/mpeg is not supported in this browser");
-    }
-
-    const audio = new Audio();
-    audio.autoplay = true;
-    audio.onplaying = () => {
-      playbackStartedRef.current = true;
-      pushTtsDebug("[audio.playing] HTMLAudioElement started playback");
-    };
-    audio.oncanplay = () => pushTtsDebug("[audio.canplay] enough data buffered");
-    audio.onstalled = () => pushTtsDebug("[audio.stalled] playback stalled");
-    audio.onerror = () => {
-      const mediaError = (audio as any).error;
-      pushTtsDebug(`[audio.error] code=${mediaError?.code ?? "unknown"}`);
-    };
-    currentAudioRef.current = audio;
-
-    const mediaSource = new MediaSource();
-    mediaSourceRef.current = mediaSource;
-
-    const objectUrl = URL.createObjectURL(mediaSource);
-    mediaUrlRef.current = objectUrl;
-    audio.src = objectUrl;
-
-    await new Promise<void>((resolve, reject) => {
-      mediaSource.addEventListener(
-        "sourceopen",
-        () => {
-          try {
-            const sb = mediaSource.addSourceBuffer("audio/mpeg");
-            sourceBufferRef.current = sb;
-            sb.mode = "sequence";
-            sb.addEventListener("updateend", () => flushAppendQueue());
-            resolve();
-          } catch (error) {
-            reject(error);
-          }
-        },
-        { once: true }
-      );
-    });
-
-    await audio.play().catch((e) => {
-      pushTtsDebug(`[audio.play.blocked] ${String((e as Error)?.message ?? e)}`);
-    });
+    // Streaming path disabled for now due to browser-specific MSE/MP3 quirks.
+    // We keep collecting chunks and play once at tts.done via fallback blob.
+    return;
   }
 
   function startNewTtsStream() {
@@ -137,36 +92,16 @@ export function App() {
   }
 
   function appendTtsChunk(base64: string) {
-    // Ignore late chunks that arrive after stream completion/teardown.
     if (ttsDoneRef.current) return;
-
     const bytes = base64ToBytes(base64);
-    appendQueueRef.current.push(bytes);
     fallbackChunksRef.current.push(bytes);
-
-    void ensureStreamingAudioStarted()
-      .then(() => {
-        flushAppendQueue();
-        if (currentAudioRef.current) {
-          void currentAudioRef.current.play().then(() => {
-            playbackStartedRef.current = true;
-            pushTtsDebug("[audio.play] play() resolved");
-          }).catch((e) => {
-            pushTtsDebug(`[audio.play.blocked] ${String((e as Error)?.message ?? e)}`);
-          });
-        }
-      })
-      .catch((e) => {
-        setError(`audio_stream_error: ${String((e as Error)?.message ?? e)}`);
-      });
   }
 
   async function markTtsDone() {
     ttsDoneRef.current = true;
-    flushAppendQueue();
 
-    // Fallback safety: if streaming never started, play full utterance blob.
-    if (!playbackStartedRef.current && fallbackChunksRef.current.length > 0) {
+    // Primary playback path: play full utterance blob.
+    if (fallbackChunksRef.current.length > 0) {
       const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
       const merged = new Uint8Array(size);
       let offset = 0;
