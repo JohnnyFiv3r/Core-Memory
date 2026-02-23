@@ -33,7 +33,12 @@ wss.on("connection", (ws) => {
 
     // B-005: stream ElevenLabs audio from assistant final text
     if (event.type === "assistant.text.final") {
-      if (tts) void streamAssistantTts(event.text);
+      send(ws, { type: "debug.tts", stage: "assistant.text.final", detail: `chars=${event.text.length}` });
+      if (tts) {
+        void streamAssistantTts(event.text);
+      } else {
+        send(ws, { type: "debug.tts", stage: "tts.skipped", detail: "ElevenLabs not configured (missing ELEVENLABS_API_KEY or ELEVENLABS_VOICE_ID)" });
+      }
       // B-007: lightweight action chip suggestions from project mentions
       const projectSlugs = ["line-lead", "clawdio", "data-mentor", "aquaspec", "permitpro", "storyboard", "midwest-muscle", "contour"]; 
       const lowered = event.text.toLowerCase();
@@ -52,21 +57,31 @@ wss.on("connection", (ws) => {
     try {
       ttsAbort?.abort();
       ttsAbort = new AbortController();
+      let chunkCount = 0;
+      let totalBytes = 0;
+      send(ws, { type: "debug.tts", stage: "tts.start", detail: `chars=${text.length}` });
       await tts!.streamSpeak(
         text,
-        (audioBase64) => emit({ type: "tts.audio.chunk", audioBase64, mime: "audio/mpeg" }),
+        (audioBase64) => {
+          chunkCount += 1;
+          totalBytes += Buffer.from(audioBase64, "base64").byteLength;
+          emit({ type: "tts.audio.chunk", audioBase64, mime: "audio/mpeg" });
+        },
         ttsAbort.signal
       );
+      send(ws, { type: "debug.tts", stage: "tts.done", detail: `chunks=${chunkCount} bytes=${totalBytes}` });
       emit({ type: "tts.done" });
     } catch (error: any) {
       if (ttsAbort?.signal.aborted) {
         emit({ type: "tts.done" });
         return;
       }
+      const message = String(error?.message ?? error);
+      send(ws, { type: "debug.tts", stage: "tts.error", detail: message });
       emit({
         type: "error",
         code: "tts_stream_failed",
-        message: String(error?.message ?? error)
+        message
       });
     }
   }

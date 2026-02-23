@@ -22,6 +22,7 @@ export function App() {
   const [transcript, setTranscript] = useState<string[]>([]);
   const [actionChips, setActionChips] = useState<Array<{ label: string; slug?: string }>>([]);
   const [wsConnected, setWsConnected] = useState(false);
+  const [ttsDebug, setTtsDebug] = useState<string[]>([]);
 
   const wsRef = useRef<VoiceWsClient | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -249,6 +250,9 @@ export function App() {
         markTtsDone();
         apply("END_SPEAKING");
         break;
+      case "debug.tts":
+        setTtsDebug((prev) => [...prev.slice(-24), `[${event.stage}] ${event.detail ?? ""}`.trim()]);
+        break;
       case "error":
         setError(`${event.code}: ${event.message}`);
         apply("FAIL");
@@ -328,9 +332,10 @@ export function App() {
       wsUrl: DEFAULT_WS_URL,
       wsConnected,
       transitions: history,
-      transcriptTail: transcript.slice(-6)
+      transcriptTail: transcript.slice(-6),
+      ttsDebugTail: ttsDebug.slice(-8)
     }),
-    [state, canToggle, email, history, transcript, wsConnected]
+    [state, canToggle, email, history, transcript, wsConnected, ttsDebug]
   );
 
   return (
@@ -376,6 +381,13 @@ export function App() {
       {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
 
       <TranscriptStrip lines={transcript} />
+
+      <section style={{ marginTop: 14 }}>
+        <h3 style={{ margin: "0 0 8px 0" }}>ElevenLabs Debug</h3>
+        <pre style={{ background: "#0b1020", color: "#c7d2fe", padding: 10, borderRadius: 8, minHeight: 64 }}>
+{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}
+        </pre>
+      </section>
 
       <section style={{ marginTop: 14 }}>
         <h3 style={{ margin: "0 0 8px 0" }}>Action Chips</h3>
