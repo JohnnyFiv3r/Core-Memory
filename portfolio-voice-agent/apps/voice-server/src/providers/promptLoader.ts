@@ -30,7 +30,7 @@ export function buildRealtimeInstructions(): string {
   ]);
 
   const base = [
-    "You are Johnny's portfolio voice assistant.",
+    "You are John's portfolio voice assistant.",
     "Always respond in English unless explicitly asked otherwise.",
     "Speak in first person as John Inniger.",
     "Do not claim you cannot access resume/background context; it is provided below.",
