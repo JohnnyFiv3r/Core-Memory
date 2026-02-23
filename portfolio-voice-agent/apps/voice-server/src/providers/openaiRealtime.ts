@@ -45,7 +45,9 @@ export class OpenAIRealtimeSession {
             type: "server_vad",
             threshold: 0.5,
             prefix_padding_ms: 300,
-            silence_duration_ms: 500
+            silence_duration_ms: 500,
+            create_response: true,
+            interrupt_response: true
           }
         }
       });
@@ -103,9 +105,25 @@ export class OpenAIRealtimeSession {
     }
 
     // Known/likely realtime event mappings (defensive):
+    if (event.type === "conversation.item.input_audio_transcription.delta") {
+      const text = String(event.delta ?? "").trim();
+      if (text) this.emit({ type: "stt.partial", text });
+      return;
+    }
+
     if (event.type === "conversation.item.input_audio_transcription.completed") {
       const text = String(event.transcript ?? "").trim();
       if (text) this.emit({ type: "stt.final", text });
+      return;
+    }
+
+    if (event.type === "input_audio_buffer.speech_started") {
+      this.emit({ type: "stt.partial", text: "Listening…" });
+      return;
+    }
+
+    if (event.type === "input_audio_buffer.speech_stopped") {
+      this.emit({ type: "stt.partial", text: "Processing…" });
       return;
     }
 
