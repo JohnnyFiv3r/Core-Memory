@@ -103,6 +103,7 @@ export function App() {
     // Primary playback path: play full utterance blob.
     if (fallbackChunksRef.current.length > 0) {
       const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
+      pushTtsDebug(`[audio.fallback.prepare] chunks=${fallbackChunksRef.current.length} bytes=${size}`);
       const merged = new Uint8Array(size);
       let offset = 0;
       for (const c of fallbackChunksRef.current) {
@@ -112,6 +113,13 @@ export function App() {
       const blob = new Blob([merged.buffer], { type: "audio/mpeg" });
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
+      audio.onloadedmetadata = () => pushTtsDebug(`[audio.fallback.meta] duration=${audio.duration}`);
+      audio.oncanplay = () => pushTtsDebug("[audio.fallback.canplay]");
+      audio.onplaying = () => pushTtsDebug("[audio.fallback.playing]");
+      audio.onerror = () => {
+        const mediaError = (audio as any).error;
+        pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
+      };
       currentAudioRef.current = audio;
       try {
         await audio.play();
@@ -119,7 +127,12 @@ export function App() {
       } catch (e) {
         pushTtsDebug(`[audio.fallback.error] ${String((e as Error)?.message ?? e)}`);
       }
-      audio.onended = () => URL.revokeObjectURL(url);
+      audio.onended = () => {
+        pushTtsDebug("[audio.fallback.ended]");
+        URL.revokeObjectURL(url);
+      };
+    } else {
+      pushTtsDebug("[audio.fallback.skip] no chunks collected");
     }
   }
 
