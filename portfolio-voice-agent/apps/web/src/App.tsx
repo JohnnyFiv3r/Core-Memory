@@ -35,6 +35,7 @@ export function App() {
   const fallbackChunksRef = useRef<Uint8Array[]>([]);
   const playbackStartedRef = useRef(false);
   const doneRetryTimerRef = useRef<number | null>(null);
+  const ttsPlaybackLaunchedRef = useRef(false);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -90,6 +91,7 @@ export function App() {
     appendQueueRef.current = [];
     fallbackChunksRef.current = [];
     playbackStartedRef.current = false;
+    ttsPlaybackLaunchedRef.current = false;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
@@ -107,6 +109,11 @@ export function App() {
   async function markTtsDone() {
     ttsDoneRef.current = true;
 
+    if (ttsPlaybackLaunchedRef.current) {
+      pushTtsDebug("[audio.fallback.skip] playback already launched for this utterance");
+      return;
+    }
+
     if (fallbackChunksRef.current.length === 0) {
       pushTtsDebug("[audio.fallback.wait] tts.done received before chunks; retrying in 250ms");
       if (doneRetryTimerRef.current) window.clearTimeout(doneRetryTimerRef.current);
@@ -118,6 +125,7 @@ export function App() {
     }
 
     // Primary playback path: play full utterance blob.
+    ttsPlaybackLaunchedRef.current = true;
     const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
     pushTtsDebug(`[audio.fallback.prepare] chunks=${fallbackChunksRef.current.length} bytes=${size}`);
     const merged = new Uint8Array(size);
@@ -154,6 +162,7 @@ export function App() {
     fallbackChunksRef.current = [];
     ttsDoneRef.current = false;
     playbackStartedRef.current = false;
+    ttsPlaybackLaunchedRef.current = false;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
