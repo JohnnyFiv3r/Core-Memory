@@ -16,6 +16,7 @@ function base64ToBytes(base64: string): Uint8Array {
 
 export function App() {
   const [state, setState] = useState<VoiceState>("idle");
+  const [conversationActive, setConversationActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [email, setEmail] = useState("");
   const [history, setHistory] = useState<string[]>(["idle"]);
@@ -26,6 +27,7 @@ export function App() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   const stateRef = useRef<VoiceState>("idle");
+  const userStoppingRef = useRef(false);
 
   const wsRef = useRef<VoiceWsClient | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -49,7 +51,7 @@ export function App() {
   const micSeqRef = useRef(0);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
-  const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
+  const buttonLabel = conversationActive ? "Stop conversation" : "Start talking";
 
   function apply(event: VoiceEvent) {
     setState((prev) => {
@@ -330,6 +332,8 @@ export function App() {
     switch (event.type) {
       case "session.ready":
         setWsConnected(true);
+        setConversationActive(true);
+        userStoppingRef.current = false;
         apply("CONNECTED");
         break;
       case "stt.partial":
@@ -383,8 +387,19 @@ export function App() {
         apply("FAIL");
         break;
       case "session.ended":
-        apply("END");
         setWsConnected(false);
+        setConversationActive(false);
+        stopMicStreaming();
+        stopPlayback();
+        if (event.reason === "user") {
+          apply("END");
+        } else if (event.reason === "limit") {
+          setError("Session time limit reached. Tap Start talking to begin a new conversation.");
+          apply("FAIL");
+        } else {
+          setError("Session ended unexpectedly.");
+          apply("FAIL");
+        }
         break;
       default:
         break;
@@ -434,17 +449,19 @@ export function App() {
   async function handleToggle() {
     if (!canToggle) return;
 
-    if (state === "idle" || state === "error") {
+    if (!conversationActive) {
       await requestMic();
       return;
     }
 
+    userStoppingRef.current = true;
     stopPlayback();
     stopMicStreaming();
     send({ type: "session.stop", reason: "user" });
     wsRef.current?.close();
     wsRef.current = null;
     setWsConnected(false);
+    setConversationActive(false);
     apply("END");
   }
 
@@ -464,6 +481,15 @@ export function App() {
         setError(`mic_stream_error: ${String((e as Error)?.message ?? e)}`);
         pushTtsDebug(`[mic.error] ${String((e as Error)?.message ?? e)}`);
       });
+    });
+    client.onClose(() => {
+      setWsConnected(false);
+      stopMicStreaming();
+      if (!userStoppingRef.current) {
+        setConversationActive(false);
+        setError("Connection closed. Tap Start talking to reconnect.");
+        apply("FAIL");
+      }
     });
     client.connect();
   }
@@ -485,7 +511,8 @@ export function App() {
     () => ({
       state,
       canToggle,
-      hasMic: state !== "idle",
+      conversationActive,
+      hasMic: conversationActive,
       isGated: state === "gated",
       email,
       wsUrl: DEFAULT_WS_URL,
@@ -494,7 +521,7 @@ export function App() {
       transcriptTail: transcript.slice(-6),
       ttsDebugTail: ttsDebug.slice(-8)
     }),
-    [state, canToggle, email, history, transcript, wsConnected, ttsDebug]
+    [state, canToggle, conversationActive, email, history, transcript, wsConnected, ttsDebug]
   );
 
   return (
@@ -529,13 +556,10 @@ export function App() {
         </section>
       )}
 
-      {state === "listening" && (
+      {conversationActive && (
         <section style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => send({ type: "voice.input.end_turn" })} style={{ padding: "8px 10px" }}>
-            Send end_turn (test)
-          </button>
           <button onClick={() => { stopPlayback(); send({ type: "voice.interrupt" }); }} style={{ padding: "8px 10px" }}>
-            Interrupt
+            Interrupt assistant
           </button>
         </section>
       )}

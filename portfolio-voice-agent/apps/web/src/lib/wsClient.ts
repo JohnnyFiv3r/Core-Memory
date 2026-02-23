@@ -5,6 +5,7 @@ export type ServerEventHandler = (event: ServerEvent) => void;
 export class VoiceWsClient {
   private ws: WebSocket | null = null;
   private onOpenCb: (() => void) | null = null;
+  private onCloseCb: (() => void) | null = null;
 
   constructor(private readonly url: string, private readonly onEvent: ServerEventHandler) {}
 
@@ -14,6 +15,10 @@ export class VoiceWsClient {
 
     this.ws.onopen = () => {
       this.onOpenCb?.();
+    };
+
+    this.ws.onclose = () => {
+      this.onCloseCb?.();
     };
 
     this.ws.onmessage = (msg) => {
@@ -33,6 +38,10 @@ export class VoiceWsClient {
 
   onOpen(cb: () => void) {
     this.onOpenCb = cb;
+  }
+
+  onClose(cb: () => void) {
+    this.onCloseCb = cb;
   }
 
   close() {
