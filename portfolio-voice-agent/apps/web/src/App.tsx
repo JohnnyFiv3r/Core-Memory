@@ -23,6 +23,7 @@ export function App() {
   const [actionChips, setActionChips] = useState<Array<{ label: string; slug?: string }>>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [ttsDebug, setTtsDebug] = useState<string[]>([]);
+  const [audioUnlocked, setAudioUnlocked] = useState(false);
 
   const wsRef = useRef<VoiceWsClient | null>(null);
   const currentAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -43,6 +44,10 @@ export function App() {
       if (next !== prev) setHistory((h) => [...h, next]);
       return next;
     });
+  }
+
+  function pushTtsDebug(line: string) {
+    setTtsDebug((prev) => [...prev.slice(-24), line]);
   }
 
   function flushAppendQueue() {
@@ -83,6 +88,13 @@ export function App() {
     audio.autoplay = true;
     audio.onplaying = () => {
       playbackStartedRef.current = true;
+      pushTtsDebug("[audio.playing] HTMLAudioElement started playback");
+    };
+    audio.oncanplay = () => pushTtsDebug("[audio.canplay] enough data buffered");
+    audio.onstalled = () => pushTtsDebug("[audio.stalled] playback stalled");
+    audio.onerror = () => {
+      const mediaError = (audio as any).error;
+      pushTtsDebug(`[audio.error] code=${mediaError?.code ?? "unknown"}`);
     };
     currentAudioRef.current = audio;
 
@@ -111,7 +123,9 @@ export function App() {
       );
     });
 
-    await audio.play().catch(() => undefined);
+    await audio.play().catch((e) => {
+      pushTtsDebug(`[audio.play.blocked] ${String((e as Error)?.message ?? e)}`);
+    });
   }
 
   function startNewTtsStream() {
@@ -136,8 +150,9 @@ export function App() {
         if (currentAudioRef.current) {
           void currentAudioRef.current.play().then(() => {
             playbackStartedRef.current = true;
-          }).catch(() => {
-            // browser may block autoplay until enough buffered/audio policy allows
+            pushTtsDebug("[audio.play] play() resolved");
+          }).catch((e) => {
+            pushTtsDebug(`[audio.play.blocked] ${String((e as Error)?.message ?? e)}`);
           });
         }
       })
@@ -165,8 +180,9 @@ export function App() {
       currentAudioRef.current = audio;
       try {
         await audio.play();
-      } catch {
-        // noop
+        pushTtsDebug("[audio.fallback.play] fallback blob playback started");
+      } catch (e) {
+        pushTtsDebug(`[audio.fallback.error] ${String((e as Error)?.message ?? e)}`);
       }
       audio.onended = () => URL.revokeObjectURL(url);
     }
@@ -251,7 +267,7 @@ export function App() {
         apply("END_SPEAKING");
         break;
       case "debug.tts":
-        setTtsDebug((prev) => [...prev.slice(-24), `[${event.stage}] ${event.detail ?? ""}`.trim()]);
+        pushTtsDebug(`[${event.stage}] ${event.detail ?? ""}`.trim());
         break;
       case "error":
         setError(`${event.code}: ${event.message}`);
@@ -279,6 +295,30 @@ export function App() {
     } catch {
       setError("Microphone permission denied");
       apply("MIC_DENIED");
+    }
+  }
+
+  async function unlockAudioOutput() {
+    try {
+      const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
+      if (!Ctx) {
+        pushTtsDebug("[audio.unlock] AudioContext not supported");
+        return;
+      }
+      const ctx = new Ctx();
+      await ctx.resume();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.frequency.value = 440;
+      gain.gain.value = 0.0001;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.03);
+      setAudioUnlocked(true);
+      pushTtsDebug("[audio.unlock] Audio output unlocked by user gesture");
+    } catch (e) {
+      pushTtsDebug(`[audio.unlock.error] ${String((e as Error)?.message ?? e)}`);
     }
   }
 
@@ -349,6 +389,9 @@ export function App() {
       <section style={{ marginTop: 24, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
         <button onClick={handleToggle} disabled={!canToggle} style={{ padding: "10px 16px", borderRadius: 8 }}>
           {buttonLabel}
+        </button>
+        <button onClick={unlockAudioOutput} style={{ padding: "10px 16px", borderRadius: 8 }}>
+          {audioUnlocked ? "Audio unlocked ✅" : "Unlock audio"}
         </button>
         <span><strong>State:</strong> {state}</span>
         <span><strong>WS:</strong> {wsConnected ? "connected" : "disconnected"}</span>
