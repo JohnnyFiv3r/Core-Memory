@@ -37,6 +37,7 @@ export function App() {
   const doneRetryTimerRef = useRef<number | null>(null);
   const ttsPlaybackLaunchedRef = useRef(false);
   const ttsPlaybackBytesRef = useRef(0);
+  const ttsDoneRetryCountRef = useRef(0);
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = state === "idle" || state === "error" ? "Start conversation" : "End conversation";
@@ -94,6 +95,7 @@ export function App() {
     playbackStartedRef.current = false;
     ttsPlaybackLaunchedRef.current = false;
     ttsPlaybackBytesRef.current = 0;
+    ttsDoneRetryCountRef.current = 0;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
@@ -105,6 +107,13 @@ export function App() {
     fallbackChunksRef.current.push(bytes);
     if (ttsDoneRef.current) {
       pushTtsDebug(`[audio.late_chunk] accepted chunk after tts.done (bytes=${bytes.byteLength})`);
+      if (!ttsPlaybackLaunchedRef.current) {
+        if (doneRetryTimerRef.current) {
+          window.clearTimeout(doneRetryTimerRef.current);
+          doneRetryTimerRef.current = null;
+        }
+        void markTtsDone();
+      }
     }
   }
 
@@ -112,6 +121,11 @@ export function App() {
     ttsDoneRef.current = true;
 
     if (fallbackChunksRef.current.length === 0) {
+      ttsDoneRetryCountRef.current += 1;
+      if (ttsDoneRetryCountRef.current > 20) {
+        pushTtsDebug("[audio.fallback.timeout] no chunks arrived after tts.done");
+        return;
+      }
       pushTtsDebug("[audio.fallback.wait] tts.done received before chunks; retrying in 250ms");
       if (doneRetryTimerRef.current) window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = window.setTimeout(() => {
@@ -121,6 +135,7 @@ export function App() {
       return;
     }
 
+    ttsDoneRetryCountRef.current = 0;
     const size = fallbackChunksRef.current.reduce((acc, c) => acc + c.byteLength, 0);
     if (ttsPlaybackLaunchedRef.current) {
       const grewEnough = size > ttsPlaybackBytesRef.current + 4096;
@@ -172,6 +187,7 @@ export function App() {
     playbackStartedRef.current = false;
     ttsPlaybackLaunchedRef.current = false;
     ttsPlaybackBytesRef.current = 0;
+    ttsDoneRetryCountRef.current = 0;
     if (doneRetryTimerRef.current) {
       window.clearTimeout(doneRetryTimerRef.current);
       doneRetryTimerRef.current = null;
