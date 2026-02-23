@@ -1,0 +1,62 @@
+[
+  {
+    "id": "contour",
+    "title": "Contour — From Brand to Systems",
+    "tags": ["aviation", "systems", "operations", "strategy", "market expansion"],
+    "summary_30s": "At Contour (then Corporate Flight Management), John started in brand design but shifted toward operational systems. The key insight came from EAS economics: if fixed daily costs are covered, ground-time utilization can unlock adjacent routes at incremental cost.",
+    "proof_points": [
+      "Contributed to launching multiple new markets.",
+      "Later led UX/commercial improvements tied to booking conversion and route growth."
+    ]
+  },
+  {
+    "id": "storyboard",
+    "title": "Storyboard — Discovering Frontline Constraints",
+    "tags": ["frontline", "pivot", "voice", "communications", "product-market-fit"],
+    "summary_30s": "Storyboard began as corporate podcasting but usage patterns showed long-form audio did not fit frontline workflow. The team pivoted toward operational voice chat designed for noisy, high-cognitive-load environments.",
+    "proof_points": [
+      "Drove pivot resulting in stronger usage/engagement.",
+      "Supported large-scale frontline deployment contexts."
+    ]
+  },
+  {
+    "id": "data-mentor",
+    "title": "Data Mentor — Defending Against Commoditization",
+    "tags": ["ai", "platform", "enterprise", "defensibility", "productization"],
+    "summary_30s": "At Delta Bravo, John identified that the bottleneck was communication between process experts and data scientists. He built Data Mentor in three weeks to close that gap and support a defensible platform direction.",
+    "proof_points": [
+      "Built initial Data Mentor quickly from identified workflow friction.",
+      "Helped drive platform unification strategy and improved differentiation."
+    ]
+  },
+  {
+    "id": "aquaspec",
+    "title": "Aquaspec — Clear Thinking Under Constraint",
+    "tags": ["public sector", "utilities", "decision support", "cost savings", "regulatory"],
+    "summary_30s": "Aquaspec helped a budget-constrained utility operator evaluate expensive engineering recommendations using structured AI guidance and regulatory context, surfacing savings opportunities and improving decision confidence.",
+    "proof_points": [
+      "Context includes ~$45k immediate savings and possible additional savings.",
+      "Program momentum supported by NSF Phase II context."
+    ]
+  },
+  {
+    "id": "permitpro",
+    "title": "PermitPro — AI with Guardrails",
+    "tags": ["governance", "compliance", "human in the loop", "workflow automation", "public sector"],
+    "summary_30s": "PermitPro was built to reduce permitting backlog using structured journeys and templates while keeping final engineering authority with humans. Principle: AI assists, humans decide.",
+    "proof_points": [
+      "Context includes major administrative time reduction claims.",
+      "Used for public-sector permitting workflows."
+    ]
+  },
+  {
+    "id": "line-lead",
+    "title": "Line Lead — Collision of Worlds",
+    "tags": ["qsr", "voice ai", "founder", "workflow", "pilots", "execution"],
+    "summary_30s": "Line Lead came from observing real QSR line work and combining frontline voice patterns, structured agents, and guardrails. A fast demo validated quickly with operators and pilot partners.",
+    "proof_points": [
+      "Secured pilot partners early in product lifecycle context.",
+      "Demonstrated rapid build-and-validate execution."
+    ]
+  }
+]

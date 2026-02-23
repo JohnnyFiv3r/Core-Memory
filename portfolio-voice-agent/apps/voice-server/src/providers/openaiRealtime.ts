@@ -1,5 +1,6 @@
 import WebSocket from "ws";
 import type { ServerEvent } from "@portfolio/shared-types";
+import { selectStory } from "./storySelector";
 
 type Emit = (event: ServerEvent) => void;
 
@@ -34,7 +35,7 @@ export class OpenAIRealtimeSession {
         session: {
           modalities: ["text"],
           instructions:
-            "You are Johnny's portfolio voice assistant. Always respond in English unless the user explicitly asks for another language. Be concise, first-person, and helpful.",
+            "You are Johnny's portfolio voice assistant. Always respond in English unless explicitly asked otherwise. Speak in first person, concise, grounded, and factual. Do NOT volunteer long stories unprompted. Only use a story when the user asks for examples, background, specific projects, or deeper context. If a story may help, call the select_story tool first and follow its result. If tool returns story_id='none', answer directly without story.",
           input_audio_format: "pcm16",
           output_audio_format: "pcm16",
           input_audio_transcription: {
@@ -48,7 +49,29 @@ export class OpenAIRealtimeSession {
             silence_duration_ms: 500,
             create_response: true,
             interrupt_response: true
-          }
+          },
+          tool_choice: "auto",
+          tools: [
+            {
+              type: "function",
+              name: "select_story",
+              description:
+                "Select the most relevant John Inniger portfolio story only when user explicitly asks for examples/background/project context. Return none when not needed.",
+              parameters: {
+                type: "object",
+                properties: {
+                  user_query: { type: "string", description: "User question or utterance" },
+                  mode: {
+                    type: "string",
+                    enum: ["recruiter", "technical", "founder", "investor", "general"],
+                    description: "Optional conversational mode"
+                  }
+                },
+                required: ["user_query"],
+                additionalProperties: false
+              }
+            }
+          ]
         }
       });
     });
@@ -96,11 +119,50 @@ export class OpenAIRealtimeSession {
     }
   }
 
+  private handleSelectStoryToolCall(callId: string | undefined, argsRaw: string | undefined) {
+    if (!callId) return;
+
+    let args: any = {};
+    try {
+      args = argsRaw ? JSON.parse(argsRaw) : {};
+    } catch {
+      args = {};
+    }
+
+    const userQuery = String(args?.user_query ?? "");
+    const result = selectStory(userQuery);
+
+    this.send({
+      type: "conversation.item.create",
+      item: {
+        type: "function_call_output",
+        call_id: callId,
+        output: JSON.stringify(result)
+      }
+    });
+
+    this.send({
+      type: "response.create",
+      response: { modalities: ["text"] }
+    });
+  }
+
   private handleUpstreamMessage(json: string) {
     let event: any;
     try {
       event = JSON.parse(json);
     } catch {
+      return;
+    }
+
+    // Realtime function calling variants
+    if (event.type === "response.function_call_arguments.done" && event.name === "select_story") {
+      this.handleSelectStoryToolCall(event.call_id, event.arguments);
+      return;
+    }
+
+    if (event.type === "response.output_item.done" && event.item?.type === "function_call" && event.item?.name === "select_story") {
+      this.handleSelectStoryToolCall(event.item.call_id, event.item.arguments);
       return;
     }
 
