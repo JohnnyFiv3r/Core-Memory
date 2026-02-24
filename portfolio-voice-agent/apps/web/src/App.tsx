@@ -514,11 +514,15 @@ export function App() {
     apply("END");
   }
 
-  function submitEmail() {
+  async function submitEmail() {
     if (!email.includes("@")) {
       setError("Enter a valid email to continue");
       return;
     }
+
+    // Email verification click is a direct user gesture: piggyback audio unlock here.
+    await unlockAudioOutput();
+
     setError(null);
     apply("EMAIL_VERIFIED");
 
