@@ -28,6 +28,7 @@ export function App() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
+  const [webflowAuthStatus, setWebflowAuthStatus] = useState<"idle" | "received" | "missing">("idle");
 
   const stateRef = useRef<VoiceState>("idle");
   const userStoppingRef = useRef(false);
@@ -556,6 +557,23 @@ export function App() {
   }, [state]);
 
   useEffect(() => {
+    const path = window.location.pathname;
+    if (!path.startsWith("/webflow/oauth/callback")) return;
+
+    const params = new URLSearchParams(window.location.search);
+    const code = params.get("code");
+
+    if (code) {
+      // Keep code out of the visible URL immediately.
+      sessionStorage.setItem("webflow_oauth_code", code);
+      window.history.replaceState({}, document.title, "/webflow/oauth/callback");
+      setWebflowAuthStatus("received");
+    } else {
+      setWebflowAuthStatus("missing");
+    }
+  }, []);
+
+  useEffect(() => {
     return () => {
       stopPlayback();
       stopMicStreaming();
@@ -592,6 +610,14 @@ export function App() {
         </nav>
         <button className="copy-btn" onClick={copyEmailToClipboard}>{copiedEmail ? "Copied" : "Copy Email"}</button>
       </header>
+
+      {webflowAuthStatus !== "idle" && (
+        <section className="oauth-notice" role="status">
+          {webflowAuthStatus === "received"
+            ? "Webflow auth code received and URL sanitized. Next: exchange code server-side for a token."
+            : "Webflow callback loaded without a code parameter."}
+        </section>
+      )}
 
       <section className="hero-center" id="home">
         <p className="kicker">Product Designer + Voice AI Builder</p>

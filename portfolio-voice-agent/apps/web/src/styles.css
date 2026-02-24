@@ -51,6 +51,17 @@ body {
   cursor: pointer;
 }
 
+.oauth-notice {
+  margin: 14px auto 6px;
+  max-width: 760px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #cdd6ff;
+  background: #eef2ff;
+  color: #1e293b;
+  font-size: 13px;
+}
+
 .hero-center {
   text-align: center;
   margin-top: 54px;
