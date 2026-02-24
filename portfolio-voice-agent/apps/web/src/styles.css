@@ -8,6 +8,24 @@ body {
   line-height: 1.35;
 }
 
+.ji-embed-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  background: transparent;
+  padding: 10px;
+}
+.ji-embed-card {
+  width: min(100%, 380px);
+  background: #f7f7f7;
+  border: 1px solid #d8d8d8;
+  border-radius: 16px;
+  padding: 14px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
+}
+
 .portfolio-shell {
   max-width: 980px;
   margin: 0 auto;

@@ -65,6 +65,7 @@ export function App() {
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = conversationActive ? "Stop conversation" : "Start talking";
   const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@wristchat.net";
+  const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "1";
   const featuredProjects = [
     {
       title: "Storyboard",
@@ -623,6 +624,35 @@ export function App() {
     }),
     [state, canToggle, conversationActive, email, history, transcript, wsConnected, ttsDebug]
   );
+
+  if (isEmbed) {
+    return (
+      <main className="ji-embed-shell">
+        <div className="ji-embed-card">
+          <PersonaOrb state={state} />
+          <button className="mic-btn" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
+            <MicIcon size={24} />
+          </button>
+          <p className="hero-copy">Talk to my portfolio voice agent.</p>
+          <div className="status-row">
+            <span className="status-chip">{state}</span>
+            <span className="status-chip">{wsConnected ? "connected" : "disconnected"}</span>
+          </div>
+          <div className="hero-actions">
+            <button onClick={unlockAudioOutput} className="text-btn icon-btn"><Volume2Icon size={14} /> {audioUnlocked ? "Audio unlocked" : "Unlock audio"}</button>
+            {conversationActive && <button onClick={() => { stopPlayback(); send({ type: "voice.interrupt" }); }} className="text-btn icon-btn"><HandIcon size={14} /> Interrupt</button>}
+          </div>
+          {state === "gated" && (
+            <div className="email-gate">
+              <input type="email" className="field" placeholder="recruiter@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <button onClick={submitEmail} className="text-btn">Verify + Connect</button>
+            </div>
+          )}
+          {error && <p className="error">{error}</p>}
+        </div>
+      </main>
+    );
+  }
 
   return (
     <main className="portfolio-shell">
