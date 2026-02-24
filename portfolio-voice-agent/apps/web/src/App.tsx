@@ -388,6 +388,8 @@ export function App() {
         break;
       case "assistant.text.final":
         setTranscript((t) => [...t, `assistant: ${event.text}`]);
+        // Keep persona in "thinking" while TTS audio is being generated.
+        apply("ASSISTANT_THINKING");
         startNewTtsStream();
         break;
       case "assistant.action": {
@@ -405,6 +407,8 @@ export function App() {
       }
       case "tts.audio.chunk":
         appendTtsChunk(event.audioBase64, event.ttsId);
+        // Transition to speaking as soon as we receive actual audio payload.
+        if (stateRef.current !== "speaking") apply("ASSISTANT_SPEAKING");
         break;
       case "tts.done":
         if (activeTtsIdRef.current === null) {
