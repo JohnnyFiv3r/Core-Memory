@@ -25,6 +25,7 @@ export function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [ttsDebug, setTtsDebug] = useState<string[]>([]);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [showDebug, setShowDebug] = useState(false);
 
   const stateRef = useRef<VoiceState>("idle");
   const userStoppingRef = useRef(false);
@@ -605,13 +606,28 @@ export function App() {
           </div>
 
           <div className="card">
-            <h3 className="section-title">ElevenLabs Debug Stream</h3>
-            <pre className="log">{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}</pre>
-          </div>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+              <h3 className="section-title" style={{ marginBottom: 0 }}>Developer Debug</h3>
+              <button className="btn btn-ghost" onClick={() => setShowDebug((v) => !v)}>
+                {showDebug ? "Hide debug" : "Show debug"}
+              </button>
+            </div>
 
-          <div className="card">
-            <h3 className="section-title">Runtime Debug Panel</h3>
-            <pre className="debug">{JSON.stringify(debug, null, 2)}</pre>
+            {showDebug ? (
+              <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
+                <div>
+                  <h4 className="section-title" style={{ marginBottom: 8 }}>ElevenLabs Debug Stream</h4>
+                  <pre className="log">{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}</pre>
+                </div>
+
+                <div>
+                  <h4 className="section-title" style={{ marginBottom: 8 }}>Runtime Debug Panel</h4>
+                  <pre className="debug">{JSON.stringify(debug, null, 2)}</pre>
+                </div>
+              </div>
+            ) : (
+              <p className="mini" style={{ marginTop: 10 }}>Debug panels are hidden.</p>
+            )}
           </div>
         </section>
       </div>
