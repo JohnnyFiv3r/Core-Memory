@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { HandIcon, MicIcon, Volume2Icon } from "./components/Icons";
 import type { ClientEvent, ServerEvent } from "@portfolio/shared-types";
 import { nextState, type VoiceEvent, type VoiceState } from "./lib/stateMachine";
 import { VoiceWsClient } from "./lib/wsClient";
@@ -592,7 +593,7 @@ export function App() {
 
         <div className="mic-wrap">
           <button className="mic-btn" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
-            🎙
+            <MicIcon size={24} />
           </button>
           <p className="hero-copy">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
           <div className="status-row">
@@ -601,16 +602,18 @@ export function App() {
             <span className="status-chip">Mic: {conversationActive ? "live" : "idle"}</span>
           </div>
           <div className="hero-actions">
-            <button onClick={unlockAudioOutput} className="text-btn">{audioUnlocked ? "Audio unlocked ✅" : "Unlock audio"}</button>
+            <button onClick={unlockAudioOutput} className="text-btn icon-btn">
+              <Volume2Icon size={14} /> {audioUnlocked ? "Audio unlocked" : "Unlock audio"}
+            </button>
             {conversationActive && (
               <button
                 onClick={() => {
                   stopPlayback();
                   send({ type: "voice.interrupt" });
                 }}
-                className="text-btn"
+                className="text-btn icon-btn"
               >
-                Interrupt assistant
+                <HandIcon size={14} /> Interrupt assistant
               </button>
             )}
           </div>
