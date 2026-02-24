@@ -634,22 +634,25 @@ export function App() {
             <MicIcon size={24} />
           </button>
           <p className="hero-copy">Talk to my portfolio voice agent.</p>
-          <div className="status-row">
-            <span className="status-chip">{state}</span>
-            <span className="status-chip">{wsConnected ? "connected" : "disconnected"}</span>
-          </div>
-          <div className="hero-actions">
-            <button onClick={unlockAudioOutput} className="text-btn icon-btn"><Volume2Icon size={14} /> {audioUnlocked ? "Audio unlocked" : "Unlock audio"}</button>
-            {conversationActive && <button onClick={() => { stopPlayback(); send({ type: "voice.interrupt" }); }} className="text-btn icon-btn"><HandIcon size={14} /> Interrupt</button>}
-          </div>
-          {state === "gated" && (
-            <div className="email-gate">
-              <input type="email" className="field" placeholder="recruiter@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
-              <button onClick={submitEmail} className="text-btn">Verify + Connect</button>
-            </div>
-          )}
           {error && <p className="error">{error}</p>}
         </div>
+
+        {state === "gated" && (
+          <div className="ji-modal-backdrop">
+            <div className="ji-modal" role="dialog" aria-modal="true" aria-label="Verify your email">
+              <h3 className="ji-modal-title">Continue with email</h3>
+              <p className="ji-modal-copy">Enter your email to unlock the voice experience.</p>
+              <input
+                type="email"
+                className="field"
+                placeholder="recruiter@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <button onClick={submitEmail} className="text-btn">Verify Email + Continue</button>
+            </div>
+          </div>
+        )}
       </main>
     );
   }

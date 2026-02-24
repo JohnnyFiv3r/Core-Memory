@@ -14,9 +14,10 @@ body {
   place-items: center;
   background: transparent;
   padding: 10px;
+  position: relative;
 }
 .ji-embed-card {
-  width: min(100%, 380px);
+  width: min(100%, 340px);
   background: #f7f7f7;
   border: 1px solid #d8d8d8;
   border-radius: 16px;
@@ -24,6 +25,33 @@ body {
   display: grid;
   justify-items: center;
   gap: 10px;
+}
+.ji-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(17, 24, 39, 0.45);
+  display: grid;
+  place-items: center;
+  padding: 12px;
+}
+.ji-modal {
+  width: min(100%, 320px);
+  border-radius: 14px;
+  background: #fff;
+  border: 1px solid #d9d9d9;
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
+}
+.ji-modal-title {
+  margin: 0;
+  font-size: 18px;
+}
+.ji-modal-copy {
+  margin: 0;
+  color: #525252;
+  font-size: 14px;
 }
 
 .portfolio-shell {
