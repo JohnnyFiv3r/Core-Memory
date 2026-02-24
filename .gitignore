@@ -38,3 +38,5 @@ fastlane/test_output
 # Secrets — never commit
 *.secret
 *.key
+.openclaw/secrets/
+*.env
