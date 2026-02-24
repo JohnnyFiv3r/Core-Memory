@@ -55,6 +55,20 @@ export function App() {
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = conversationActive ? "Stop conversation" : "Start talking";
   const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@wristchat.net";
+  const featuredProjects = [
+    {
+      title: "Line Lead",
+      description: "Voice-first restaurant execution assistant with Android + backend orchestration.",
+      tags: ["Kotlin", "Spring", "RAG"],
+      image: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80"
+    },
+    {
+      title: "Clawdio",
+      description: "iOS + watchOS conversational interface focused on fast, natural voice UX.",
+      tags: ["Swift", "watchOS", "Realtime Audio"],
+      image: "https://images.unsplash.com/photo-1586717799252-bd134ad00e26?auto=format&fit=crop&w=1200&q=80"
+    }
+  ];
 
   function apply(event: VoiceEvent) {
     setState((prev) => {
@@ -550,15 +564,21 @@ export function App() {
       </header>
 
       <section className="hero-center" id="about">
+        <p className="kicker">Product Designer + Voice AI Builder</p>
+        <h1 className="hero-title">I design and ship conversational product experiences.</h1>
+
         <PersonaOrb state={state} />
 
         <div className="mic-wrap">
           <button className="mic-btn" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
             🎙
           </button>
-          <p className="hero-copy">
-            Tap the microphone to talk to my personal voice agent about my experience.
-          </p>
+          <p className="hero-copy">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
+          <div className="status-row">
+            <span className="status-chip">State: {state}</span>
+            <span className="status-chip">WS: {wsConnected ? "connected" : "disconnected"}</span>
+            <span className="status-chip">Mic: {conversationActive ? "live" : "idle"}</span>
+          </div>
           <div className="hero-actions">
             <button onClick={unlockAudioOutput} className="text-btn">{audioUnlocked ? "Audio unlocked ✅" : "Unlock audio"}</button>
             {conversationActive && (
@@ -593,20 +613,20 @@ export function App() {
       <section id="projects" className="featured-section">
         <h2>Featured Work—</h2>
         <div className="project-grid">
-          <article className="project-card">
-            <img src="https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80" alt="Project visual one" />
-            <div className="project-overlay">
-              <h3>Line Lead</h3>
-              <p>Voice-first restaurant execution assistant across Android + backend intelligence.</p>
-            </div>
-          </article>
-          <article className="project-card">
-            <img src="https://images.unsplash.com/photo-1586717799252-bd134ad00e26?auto=format&fit=crop&w=1200&q=80" alt="Project visual two" />
-            <div className="project-overlay">
-              <h3>Clawdio</h3>
-              <p>Mobile + watchOS conversational experience designed for fast, human voice UX.</p>
-            </div>
-          </article>
+          {featuredProjects.map((project) => (
+            <article className="project-card" key={project.title}>
+              <img src={project.image} alt={`${project.title} visual`} />
+              <div className="project-overlay">
+                <h3>{project.title}</h3>
+                <p>{project.description}</p>
+                <div className="tag-row">
+                  {project.tags.map((tag) => (
+                    <span className="tag" key={tag}>{tag}</span>
+                  ))}
+                </div>
+              </div>
+            </article>
+          ))}
         </div>
       </section>
 
