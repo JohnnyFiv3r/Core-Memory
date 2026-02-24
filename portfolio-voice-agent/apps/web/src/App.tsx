@@ -57,16 +57,37 @@ export function App() {
   const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@wristchat.net";
   const featuredProjects = [
     {
-      title: "Line Lead",
-      description: "Voice-first restaurant execution assistant with Android + backend orchestration.",
-      tags: ["Kotlin", "Spring", "RAG"],
-      image: "https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80"
+      title: "Storyboard",
+      description: "AI-driven hands-free voice interface for truck-driver and dispatcher communication.",
+      tags: ["Voice UX", "Accessibility", "Beta Launch"],
+      image: "https://images.unsplash.com/photo-1464219789935-c2d9d9aba644?auto=format&fit=crop&w=1200&q=80"
     },
     {
-      title: "Clawdio",
-      description: "iOS + watchOS conversational interface focused on fast, natural voice UX.",
-      tags: ["Swift", "watchOS", "Realtime Audio"],
-      image: "https://images.unsplash.com/photo-1586717799252-bd134ad00e26?auto=format&fit=crop&w=1200&q=80"
+      title: "Midwest Muscle Nutrition",
+      description: "Co-founded consumer brand with product strategy, packaging, and go-to-market execution.",
+      tags: ["Brand", "Consumer", "Growth"],
+      image: "https://images.unsplash.com/photo-1579722821273-0f6c38d1f3f0?auto=format&fit=crop&w=1200&q=80"
+    }
+  ];
+
+  const experience = [
+    {
+      company: "Storyboard",
+      role: "Director of Design",
+      period: "Aug 2021 — Today",
+      blurb: "Led design for a voice-first trucking communication product, from research to pilot rollout."
+    },
+    {
+      company: "Midwest Muscle Nutrition",
+      role: "Co-Founder",
+      period: "May 2021 — Today",
+      blurb: "Built brand and product narrative around an ultra-high protein bar concept."
+    },
+    {
+      company: "Contour Airlines",
+      role: "Manager, Marketing & Distribution",
+      period: "Nov 2015 — Aug 2021",
+      blurb: "Owned digital product and ticket distribution with cross-functional airline initiatives."
     }
   ];
 
@@ -563,7 +584,7 @@ export function App() {
         <button className="copy-btn" onClick={copyEmailToClipboard}>{copiedEmail ? "Copied" : "Copy Email"}</button>
       </header>
 
-      <section className="hero-center" id="about">
+      <section className="hero-center" id="home">
         <p className="kicker">Product Designer + Voice AI Builder</p>
         <h1 className="hero-title">I design and ship conversational product experiences.</h1>
 
@@ -627,6 +648,36 @@ export function App() {
               </div>
             </article>
           ))}
+        </div>
+      </section>
+
+      <section className="experience-section" id="about">
+        <h2>Experience</h2>
+        <div className="experience-list">
+          {experience.map((item) => (
+            <article key={`${item.company}-${item.role}`} className="experience-item">
+              <div>
+                <h3>{item.company}</h3>
+                <p className="exp-role">{item.role}</p>
+              </div>
+              <p className="exp-period">{item.period}</p>
+              <p className="exp-blurb">{item.blurb}</p>
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="case-study" id="storyboard">
+        <h2>Storyboard — Beating Isolation on the Road</h2>
+        <p>
+          We pivoted from podcasting to a voice-first team communication model. I led discovery interviews, journey mapping,
+          hands-free prototype testing, and public beta delivery for trucking customers.
+        </p>
+        <div className="case-grid">
+          <div><h4>Discovery</h4><p>Interviewed drivers and dispatchers to map communication breakdowns and accessibility constraints.</p></div>
+          <div><h4>Strategy</h4><p>Prioritized voice commands, transcription, and translation for high-frequency, low-attention workflows.</p></div>
+          <div><h4>Testing</h4><p>Ran real-world usability tests and refined recognition reliability with redundant audio/visual messaging.</p></div>
+          <div><h4>Impact</h4><p>Reduced design delivery time using fast sprint loops; launched pilots with Grand Island Express, Cypress, and Ryder.</p></div>
         </div>
       </section>
 

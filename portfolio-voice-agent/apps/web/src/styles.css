@@ -176,6 +176,46 @@ body {
   font-size: 11px;
 }
 
+.experience-section,
+.case-study {
+  margin-top: 30px;
+}
+.experience-section h2,
+.case-study h2 {
+  font-size: clamp(1.6rem, 2.4vw, 2rem);
+  margin: 0 0 14px;
+}
+.experience-list {
+  display: grid;
+  gap: 10px;
+}
+.experience-item {
+  background: #f7f7f7;
+  border: 1px solid #d8d8d8;
+  border-radius: 12px;
+  padding: 12px;
+}
+.experience-item h3 { margin: 0; }
+.exp-role { margin: 2px 0 8px; font-weight: 600; color: #333; }
+.exp-period { margin: 0 0 8px; font-size: 12px; color: #666; }
+.exp-blurb { margin: 0; color: #222; }
+
+.case-study p { color: #222; max-width: 78ch; }
+.case-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+.case-grid > div {
+  background: #f7f7f7;
+  border: 1px solid #d8d8d8;
+  border-radius: 12px;
+  padding: 12px;
+}
+.case-grid h4 { margin: 0 0 6px; }
+.case-grid p { margin: 0; font-size: 14px; }
+
 .live-panels {
   margin-top: 26px;
   display: grid;
@@ -254,5 +294,5 @@ body {
 
 @media (max-width: 840px) {
   .top-nav { flex-wrap: wrap; justify-content: center; }
-  .project-grid, .live-panels { grid-template-columns: 1fr; }
+  .project-grid, .live-panels, .case-grid { grid-template-columns: 1fr; }
 }
