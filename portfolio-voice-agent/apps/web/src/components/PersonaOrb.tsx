@@ -5,7 +5,7 @@ export function PersonaOrb({ state }: { state: VoiceState }) {
     <div className={`orb-wrap halo halo-${state}`} aria-label={`Persona state: ${state}`}>
       <div className="halo-ring halo-ring-outer" />
       <div className="halo-ring halo-ring-inner" />
-      <div className="halo-core" />
+      <div className="halo-center-dot" />
     </div>
   );
 }
