@@ -26,6 +26,7 @@ export function App() {
   const [ttsDebug, setTtsDebug] = useState<string[]>([]);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
+  const [copiedEmail, setCopiedEmail] = useState(false);
 
   const stateRef = useRef<VoiceState>("idle");
   const userStoppingRef = useRef(false);
@@ -53,6 +54,7 @@ export function App() {
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = conversationActive ? "Stop conversation" : "Start talking";
+  const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@wristchat.net";
 
   function apply(event: VoiceEvent) {
     setState((prev) => {
@@ -447,6 +449,16 @@ export function App() {
     }
   }
 
+  async function copyEmailToClipboard() {
+    try {
+      await navigator.clipboard.writeText(contactEmail);
+      setCopiedEmail(true);
+      window.setTimeout(() => setCopiedEmail(false), 1400);
+    } catch {
+      setError("Could not copy email. You can still use it manually below.");
+    }
+  }
+
   async function handleToggle() {
     if (!canToggle) return;
 
@@ -526,111 +538,117 @@ export function App() {
   );
 
   return (
-    <main className="app-shell">
-      <header className="hero">
-        <div>
-          <h1 className="title">Portfolio Voice Agent</h1>
-          <p className="subtitle">
-            A conversational portfolio experience. Real-time voice, guided project discovery, and a clean recruiter-friendly UX.
-          </p>
-        </div>
-        <div className="badges">
-          <span className="badge">State: {state}</span>
-          <span className={`badge ${wsConnected ? "status-ok" : "status-warn"}`}>WS: {wsConnected ? "connected" : "disconnected"}</span>
-          <span className="badge">Mic: {conversationActive ? "live" : "idle"}</span>
-        </div>
+    <main className="portfolio-shell">
+      <header className="top-nav">
+        <div className="logo-box">JI</div>
+        <nav className="nav-links">
+          <a href="#projects" className="nav-pill nav-pill-active">Projects</a>
+          <a href="#about" className="nav-pill">About</a>
+          <a href="#contact" className="nav-pill">Contact</a>
+        </nav>
+        <button className="copy-btn" onClick={copyEmailToClipboard}>{copiedEmail ? "Copied" : "Copy Email"}</button>
       </header>
 
-      <div className="grid">
-        <aside className="card controls">
-          <h2 className="section-title">Voice Console</h2>
-          <PersonaOrb state={state} />
-          <div className="button-row">
-            <button onClick={handleToggle} disabled={!canToggle} className="btn btn-primary">{buttonLabel}</button>
-            <button onClick={unlockAudioOutput} className="btn btn-ghost">{audioUnlocked ? "Audio unlocked ✅" : "Unlock audio"}</button>
-          </div>
+      <section className="hero-center" id="about">
+        <PersonaOrb state={state} />
 
-          {state === "gated" && (
-            <>
-              <input
-                type="email"
-                className="field"
-                placeholder="recruiter@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <button onClick={submitEmail} className="btn btn-ghost">Verify Email + Connect</button>
-            </>
-          )}
-
-          {conversationActive && (
-            <div className="button-row">
+        <div className="mic-wrap">
+          <button className="mic-btn" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
+            🎙
+          </button>
+          <p className="hero-copy">
+            Tap the microphone to talk to my personal voice agent about my experience.
+          </p>
+          <div className="hero-actions">
+            <button onClick={unlockAudioOutput} className="text-btn">{audioUnlocked ? "Audio unlocked ✅" : "Unlock audio"}</button>
+            {conversationActive && (
               <button
                 onClick={() => {
                   stopPlayback();
                   send({ type: "voice.interrupt" });
                 }}
-                className="btn btn-danger"
+                className="text-btn"
               >
                 Interrupt assistant
               </button>
-            </div>
-          )}
-
-          {error && <p className="error">{error}</p>}
-          <p className="mini">Tip: Keep this panel minimal while the right side sells your projects.</p>
-        </aside>
-
-        <section className="stack">
-          <div className="card">
-            <TranscriptStrip lines={transcript} />
-          </div>
-
-          <div className="card">
-            <h3 className="section-title">Suggested Actions</h3>
-            <div className="pill-row">
-              {actionChips.length === 0 ? (
-                <small className="mini">No project suggestions yet.</small>
-              ) : (
-                actionChips.map((chip, idx) => (
-                  <button
-                    key={`${chip.label}-${idx}`}
-                    className="pill"
-                    onClick={() => setTranscript((t) => [...t, `ui-action: ${chip.slug ?? chip.label}`])}
-                  >
-                    {chip.label}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>
-
-          <div className="card">
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
-              <h3 className="section-title" style={{ marginBottom: 0 }}>Developer Debug</h3>
-              <button className="btn btn-ghost" onClick={() => setShowDebug((v) => !v)}>
-                {showDebug ? "Hide debug" : "Show debug"}
-              </button>
-            </div>
-
-            {showDebug ? (
-              <div style={{ marginTop: 10, display: "grid", gap: 12 }}>
-                <div>
-                  <h4 className="section-title" style={{ marginBottom: 8 }}>ElevenLabs Debug Stream</h4>
-                  <pre className="log">{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}</pre>
-                </div>
-
-                <div>
-                  <h4 className="section-title" style={{ marginBottom: 8 }}>Runtime Debug Panel</h4>
-                  <pre className="debug">{JSON.stringify(debug, null, 2)}</pre>
-                </div>
-              </div>
-            ) : (
-              <p className="mini" style={{ marginTop: 10 }}>Debug panels are hidden.</p>
             )}
           </div>
-        </section>
-      </div>
+        </div>
+
+        {state === "gated" && (
+          <div className="email-gate">
+            <input
+              type="email"
+              className="field"
+              placeholder="recruiter@company.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+            />
+            <button onClick={submitEmail} className="text-btn">Verify Email + Connect</button>
+          </div>
+        )}
+        {error && <p className="error">{error}</p>}
+      </section>
+
+      <section id="projects" className="featured-section">
+        <h2>Featured Work—</h2>
+        <div className="project-grid">
+          <article className="project-card">
+            <img src="https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?auto=format&fit=crop&w=1200&q=80" alt="Project visual one" />
+            <div className="project-overlay">
+              <h3>Line Lead</h3>
+              <p>Voice-first restaurant execution assistant across Android + backend intelligence.</p>
+            </div>
+          </article>
+          <article className="project-card">
+            <img src="https://images.unsplash.com/photo-1586717799252-bd134ad00e26?auto=format&fit=crop&w=1200&q=80" alt="Project visual two" />
+            <div className="project-overlay">
+              <h3>Clawdio</h3>
+              <p>Mobile + watchOS conversational experience designed for fast, human voice UX.</p>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section className="live-panels">
+        <div className="card-light">
+          <TranscriptStrip lines={transcript} />
+        </div>
+        <div className="card-light" id="contact">
+          <h3 className="section-title-dark">Suggested Actions</h3>
+          <div className="pill-row">
+            {actionChips.length === 0 ? (
+              <small className="mini-dark">No project suggestions yet.</small>
+            ) : (
+              actionChips.map((chip, idx) => (
+                <button
+                  key={`${chip.label}-${idx}`}
+                  className="pill-light"
+                  onClick={() => setTranscript((t) => [...t, `ui-action: ${chip.slug ?? chip.label}`])}
+                >
+                  {chip.label}
+                </button>
+              ))
+            )}
+          </div>
+          <p className="contact-copy">{contactEmail}</p>
+        </div>
+      </section>
+
+      <section className="card-light debug-wrap">
+        <div className="debug-head">
+          <h3 className="section-title-dark">Developer Debug</h3>
+          <button className="text-btn" onClick={() => setShowDebug((v) => !v)}>{showDebug ? "Hide debug" : "Show debug"}</button>
+        </div>
+        {showDebug ? (
+          <div className="debug-grid">
+            <pre className="log">{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}</pre>
+            <pre className="debug">{JSON.stringify(debug, null, 2)}</pre>
+          </div>
+        ) : (
+          <p className="mini-dark">Debug panels are hidden.</p>
+        )}
+      </section>
     </main>
   );
 }
