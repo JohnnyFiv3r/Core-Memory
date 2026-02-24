@@ -525,87 +525,96 @@ export function App() {
   );
 
   return (
-    <main style={{ fontFamily: "Inter, system-ui, sans-serif", maxWidth: 920, margin: "0 auto", padding: 24 }}>
-      <h1>Portfolio Voice Agent</h1>
-      <p>Beads B-001..B-007: realtime backbone + persona states + transcript + action chips.</p>
-      <div style={{ marginTop: 12 }}>
-        <PersonaOrb state={state} />
-      </div>
-
-      <section style={{ marginTop: 24, display: "flex", gap: 12, alignItems: "center", flexWrap: "wrap" }}>
-        <button onClick={handleToggle} disabled={!canToggle} style={{ padding: "10px 16px", borderRadius: 8 }}>
-          {buttonLabel}
-        </button>
-        <button onClick={unlockAudioOutput} style={{ padding: "10px 16px", borderRadius: 8 }}>
-          {audioUnlocked ? "Audio unlocked ✅" : "Unlock audio"}
-        </button>
-        <span><strong>State:</strong> {state}</span>
-        <span><strong>WS:</strong> {wsConnected ? "connected" : "disconnected"}</span>
-      </section>
-
-      {state === "gated" && (
-        <section style={{ marginTop: 16, display: "flex", gap: 8, alignItems: "center" }}>
-          <input
-            type="email"
-            placeholder="recruiter@company.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            style={{ padding: 8, borderRadius: 6, border: "1px solid #ccc", minWidth: 260 }}
-          />
-          <button onClick={submitEmail} style={{ padding: "8px 12px" }}>Verify Email + Connect</button>
-        </section>
-      )}
-
-      {conversationActive && (
-        <section style={{ marginTop: 16, display: "flex", gap: 8, flexWrap: "wrap" }}>
-          <button onClick={() => { stopPlayback(); send({ type: "voice.interrupt" }); }} style={{ padding: "8px 10px" }}>
-            Interrupt assistant
-          </button>
-        </section>
-      )}
-
-      {error && <p style={{ color: "#b91c1c", marginTop: 12 }}>{error}</p>}
-
-      <TranscriptStrip lines={transcript} />
-
-      <section style={{ marginTop: 14 }}>
-        <h3 style={{ margin: "0 0 8px 0" }}>ElevenLabs Debug</h3>
-        <pre style={{ background: "#0b1020", color: "#c7d2fe", padding: 10, borderRadius: 8, minHeight: 64, maxHeight: 220, overflowY: "auto" }}>
-{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}
-        </pre>
-      </section>
-
-      <section style={{ marginTop: 14 }}>
-        <h3 style={{ margin: "0 0 8px 0" }}>Action Chips</h3>
-        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-          {actionChips.length === 0 ? (
-            <small style={{ color: "#71717a" }}>No project suggestions yet.</small>
-          ) : (
-            actionChips.map((chip, idx) => (
-              <button
-                key={`${chip.label}-${idx}`}
-                onClick={() => setTranscript((t) => [...t, `ui-action: ${chip.slug ?? chip.label}`])}
-                style={{
-                  padding: "6px 10px",
-                  borderRadius: 999,
-                  border: "1px solid #d4d4d8",
-                  background: "white",
-                  fontSize: 12
-                }}
-              >
-                {chip.label}
-              </button>
-            ))
-          )}
+    <main className="app-shell">
+      <header className="hero">
+        <div>
+          <h1 className="title">Portfolio Voice Agent</h1>
+          <p className="subtitle">
+            A conversational portfolio experience. Real-time voice, guided project discovery, and a clean recruiter-friendly UX.
+          </p>
         </div>
-      </section>
+        <div className="badges">
+          <span className="badge">State: {state}</span>
+          <span className={`badge ${wsConnected ? "status-ok" : "status-warn"}`}>WS: {wsConnected ? "connected" : "disconnected"}</span>
+          <span className="badge">Mic: {conversationActive ? "live" : "idle"}</span>
+        </div>
+      </header>
 
-      <section style={{ marginTop: 28 }}>
-        <h2>Debug Panel</h2>
-        <pre style={{ background: "#111", color: "#0f0", padding: 12, borderRadius: 8, overflowX: "auto" }}>
-          {JSON.stringify(debug, null, 2)}
-        </pre>
-      </section>
+      <div className="grid">
+        <aside className="card controls">
+          <h2 className="section-title">Voice Console</h2>
+          <PersonaOrb state={state} />
+          <div className="button-row">
+            <button onClick={handleToggle} disabled={!canToggle} className="btn btn-primary">{buttonLabel}</button>
+            <button onClick={unlockAudioOutput} className="btn btn-ghost">{audioUnlocked ? "Audio unlocked ✅" : "Unlock audio"}</button>
+          </div>
+
+          {state === "gated" && (
+            <>
+              <input
+                type="email"
+                className="field"
+                placeholder="recruiter@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <button onClick={submitEmail} className="btn btn-ghost">Verify Email + Connect</button>
+            </>
+          )}
+
+          {conversationActive && (
+            <div className="button-row">
+              <button
+                onClick={() => {
+                  stopPlayback();
+                  send({ type: "voice.interrupt" });
+                }}
+                className="btn btn-danger"
+              >
+                Interrupt assistant
+              </button>
+            </div>
+          )}
+
+          {error && <p className="error">{error}</p>}
+          <p className="mini">Tip: Keep this panel minimal while the right side sells your projects.</p>
+        </aside>
+
+        <section className="stack">
+          <div className="card">
+            <TranscriptStrip lines={transcript} />
+          </div>
+
+          <div className="card">
+            <h3 className="section-title">Suggested Actions</h3>
+            <div className="pill-row">
+              {actionChips.length === 0 ? (
+                <small className="mini">No project suggestions yet.</small>
+              ) : (
+                actionChips.map((chip, idx) => (
+                  <button
+                    key={`${chip.label}-${idx}`}
+                    className="pill"
+                    onClick={() => setTranscript((t) => [...t, `ui-action: ${chip.slug ?? chip.label}`])}
+                  >
+                    {chip.label}
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="card">
+            <h3 className="section-title">ElevenLabs Debug Stream</h3>
+            <pre className="log">{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}</pre>
+          </div>
+
+          <div className="card">
+            <h3 className="section-title">Runtime Debug Panel</h3>
+            <pre className="debug">{JSON.stringify(debug, null, 2)}</pre>
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
