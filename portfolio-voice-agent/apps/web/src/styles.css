@@ -297,79 +297,94 @@ body {
 
 .orb-wrap {
   position: relative;
-  width: 168px;
-  height: 168px;
+  width: 172px;
+  height: 172px;
   margin: 0 auto;
 }
-.halo-ring {
-  position: absolute;
-  inset: 50% auto auto 50%;
-  transform: translate(-50%, -50%);
-  border-radius: 999px;
-  pointer-events: none;
-  transition: all 220ms ease;
-}
-.halo-ring-outer {
-  width: 152px;
-  height: 152px;
-  border: 1px solid #d2d2d2;
-  box-shadow: 0 0 0 10px rgba(255,255,255,.42);
-}
-.halo-ring-inner {
-  width: 130px;
-  height: 130px;
-  border: 1px solid #d8d8d8;
-}
-.halo-center-dot {
+.halo-ring,
+.halo-core {
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  width: 18px;
-  height: 18px;
   border-radius: 999px;
-  background: #f8f8f8;
-  border: 1px solid #d8d8d8;
-  box-shadow: 0 0 0 6px rgba(255,255,255,.6);
+}
+.halo-ring {
+  pointer-events: none;
+  transition: border-color 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
+}
+.halo-ring-outer {
+  width: 162px;
+  height: 162px;
+  border: 1px solid #dadada;
+  background: radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.1) 70%);
+}
+.halo-ring-mid {
+  width: 138px;
+  height: 138px;
+  border: 1px solid #dddddd;
+}
+.halo-ring-inner {
+  width: 114px;
+  height: 114px;
+  border: 1px solid #dfdfdf;
+}
+.halo-core {
+  width: 10px;
+  height: 10px;
+  background: #f3f4f6;
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.8);
 }
 
-.halo-listening .halo-ring-outer,
-.halo-speaking .halo-ring-outer {
-  border-color: #8bc5ff;
-  box-shadow: 0 0 0 10px rgba(80, 159, 255, .14), 0 0 32px rgba(80,159,255,.22);
+.halo-state-idle .halo-ring-outer { box-shadow: 0 0 0 8px rgba(255,255,255,.45); }
+.halo-state-idle .halo-ring-mid { opacity: .95; }
+
+.halo-state-listening .halo-ring-outer,
+.halo-state-speaking .halo-ring-outer {
+  border-color: #9fc8ff;
+  box-shadow: 0 0 0 9px rgba(130, 184, 255, .22), 0 0 38px rgba(96,165,250,.24);
 }
-.halo-listening .halo-ring-inner,
-.halo-speaking .halo-ring-inner {
-  animation: haloPulse 1.35s ease-in-out infinite;
+.halo-state-listening .halo-ring-mid {
+  border-color: #b9d9ff;
+  animation: haloPulse 1.3s ease-in-out infinite;
+}
+.halo-state-listening .halo-ring-inner {
+  border-color: #cfe4ff;
+  animation: haloPulse 1.3s ease-in-out infinite reverse;
 }
 
-.halo-thinking .halo-ring-outer {
-  border-color: #c7b3ff;
-  box-shadow: 0 0 0 10px rgba(167, 139, 250, .16), 0 0 30px rgba(167,139,250,.25);
+.halo-state-speaking .halo-ring-mid {
+  border-color: #9fd0ff;
+  animation: haloPulse 0.95s ease-in-out infinite;
 }
-.halo-thinking .halo-ring-inner {
-  animation: haloBreathe 1.8s ease-in-out infinite;
+.halo-state-speaking .halo-ring-inner {
+  border-color: #b9ddff;
+  animation: haloPulse 0.95s ease-in-out infinite reverse;
 }
-
-.halo-connecting .halo-ring-outer,
-.halo-requesting_mic .halo-ring-outer,
-.halo-gated .halo-ring-outer {
-  border-color: #bcbcbc;
-  box-shadow: 0 0 0 10px rgba(255,255,255,.5);
+.halo-state-speaking .halo-core {
+  background: #e6f2ff;
 }
 
-.halo-error .halo-ring-outer {
-  border-color: #f28f8f;
-  box-shadow: 0 0 0 10px rgba(242, 143, 143, .18), 0 0 34px rgba(239,68,68,.25);
+.halo-state-thinking .halo-ring-outer {
+  border-color: #cab5ff;
+  box-shadow: 0 0 0 9px rgba(167, 139, 250, .20), 0 0 38px rgba(167,139,250,.25);
+}
+.halo-state-thinking .halo-ring-mid {
+  border-color: #d8c8ff;
+  animation: haloBreathe 1.65s ease-in-out infinite;
+}
+.halo-state-thinking .halo-ring-inner {
+  border-color: #e4dcff;
+  animation: haloBreathe 1.65s ease-in-out infinite reverse;
 }
 
 @keyframes haloPulse {
   0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  50% { transform: translate(-50%, -50%) scale(1.04); }
+  50% { transform: translate(-50%, -50%) scale(1.035); }
 }
 @keyframes haloBreathe {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); filter: saturate(1); }
-  50% { transform: translate(-50%, -50%) scale(1.03); filter: saturate(1.12); }
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: .95; }
+  50% { transform: translate(-50%, -50%) scale(1.028); opacity: 1; }
 }
 
 @media (max-width: 840px) {
