@@ -1,0 +1,65 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "检索查询内容，如法规名称、条款关键词"
+    },
+    "top_k": {
+      "type": "number",
+      "description": "返回结果数量",
+      "default": 5
+    }
+  },
+  "required": ["query"],
+  "result": {
+    "type": "object",
+    "properties": {
+      "results": {
+        "type": "array",
+        "description": 向量检索返回的原文结果",
+        "items": {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string",
+              "description": "原文内容"
+            },
+            "source": {
+              "type": "string",
+              "description": "文件来源"
+            },
+            "clause": {
+              "type": "string",
+              "description": "条款编号"
+            },
+            "regulation_level": {
+              "type": "string",
+              "description": "法规级别"
+            },
+            "score": {
+              "type": "number",
+              "description": "相似度分数"
+            }
+          }
+        }
+      },
+      "error": {
+        "type": "string",
+        "description": "错误信息"
+      },
+      "query": {
+        "type": "string",
+        "description": "原始查询"
+      },
+      "count": {
+        "type": "number",
+        "description": "结果数量"
+      },
+      "method": {
+        "type": "string",
+        "description": "检索方法：rerank 或 recall"
+      }
+    }
+  }
+}

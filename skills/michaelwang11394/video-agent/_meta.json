@@ -1,0 +1,42 @@
+{
+  "owner": "michaelwang11394",
+  "slug": "video-agent",
+  "displayName": "Video Agent",
+  "latest": {
+    "version": "2.8.0",
+    "publishedAt": 1771867395703,
+    "commit": "https://github.com/openclaw/skills/commit/6a9f37b8b6fa64078a3a33a388ebd9905babe677"
+  },
+  "history": [
+    {
+      "version": "2.6.0",
+      "publishedAt": 1771797680257,
+      "commit": "https://github.com/openclaw/skills/commit/01f9d0793437a8c8a37eef55da123ec83a67cf36"
+    },
+    {
+      "version": "2.5.0",
+      "publishedAt": 1771444490258,
+      "commit": "https://github.com/openclaw/skills/commit/d3df36a48f9d75c807a77502a15267e30cf3a8a8"
+    },
+    {
+      "version": "2.2.0",
+      "publishedAt": 1771359434362,
+      "commit": "https://github.com/openclaw/skills/commit/b553f716d7c0a1bcdab73489533d1ef7a979089b"
+    },
+    {
+      "version": "1.2.1",
+      "publishedAt": 1770661000318,
+      "commit": "https://github.com/openclaw/skills/commit/fb1481d4d6b91ce0eb8024a37a37e7138aa61e26"
+    },
+    {
+      "version": "1.2.0",
+      "publishedAt": 1770660903374,
+      "commit": "https://github.com/openclaw/skills/commit/e58c008fedb7ad4681fa87d20f72029080f5b75d"
+    },
+    {
+      "version": "1.0.1",
+      "publishedAt": 1770055585260,
+      "commit": "https://github.com/clawdbot/skills/commit/95fcee8b62966831f59f6cc9b959a1712cbeb0a7"
+    }
+  ]
+}

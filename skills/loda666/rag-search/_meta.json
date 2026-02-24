@@ -1,0 +1,11 @@
+{
+  "owner": "loda666",
+  "slug": "rag-search",
+  "displayName": "RAG Search",
+  "latest": {
+    "version": "0.1.1",
+    "publishedAt": 1770437660268,
+    "commit": "https://github.com/openclaw/skills/commit/f6becb7b97f8f73ebbffd52e8b25845d35cfe539"
+  },
+  "history": []
+}

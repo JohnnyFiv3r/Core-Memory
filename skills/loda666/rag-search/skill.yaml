@@ -1,0 +1,26 @@
+name: rag-search
+display_name: RAG Search
+version: 0.1.0
+description: Minimal RAG search skill for querying local vector knowledge base. Returns original text with citations for occupational health regulations.
+entry: handler.py
+tags:
+  - rag
+  - search
+  - knowledge-base
+  - 职业卫生
+inputs:
+  query:
+    type: string
+    description: 检索查询内容，如法规名称、条款关键词
+    required: true
+  top_k:
+    type: number
+    description: 返回结果数量
+    default: 5
+outputs:
+  results:
+    type: array
+    description: 向量检索返回的原文结果
+  error:
+    type: string
+    description: 错误信息
