@@ -8,6 +8,14 @@ import { TranscriptStrip } from "./components/TranscriptStrip";
 
 const DEFAULT_WS_URL = (import.meta.env.VITE_VOICE_SERVER_WS_URL as string) ?? "ws://localhost:8787";
 
+function wsToHttp(wsUrl: string): string {
+  if (wsUrl.startsWith("wss://")) return wsUrl.replace("wss://", "https://");
+  if (wsUrl.startsWith("ws://")) return wsUrl.replace("ws://", "http://");
+  return wsUrl;
+}
+
+const DEFAULT_HTTP_URL = (import.meta.env.VITE_VOICE_SERVER_HTTP_URL as string) ?? wsToHttp(DEFAULT_WS_URL);
+
 function base64ToBytes(base64: string): Uint8Array {
   const binary = atob(base64);
   const bytes = new Uint8Array(binary.length);
@@ -28,7 +36,7 @@ export function App() {
   const [audioUnlocked, setAudioUnlocked] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
-  const [webflowAuthStatus, setWebflowAuthStatus] = useState<"idle" | "received" | "missing">("idle");
+  const [webflowAuthStatus, setWebflowAuthStatus] = useState<"idle" | "exchanging" | "received" | "missing" | "error">("idle");
 
   const stateRef = useRef<VoiceState>("idle");
   const userStoppingRef = useRef(false);
@@ -563,14 +571,31 @@ export function App() {
     const params = new URLSearchParams(window.location.search);
     const code = params.get("code");
 
-    if (code) {
-      // Keep code out of the visible URL immediately.
-      sessionStorage.setItem("webflow_oauth_code", code);
-      window.history.replaceState({}, document.title, "/webflow/oauth/callback");
-      setWebflowAuthStatus("received");
-    } else {
+    if (!code) {
       setWebflowAuthStatus("missing");
+      return;
     }
+
+    // Keep code out of the visible URL immediately.
+    sessionStorage.setItem("webflow_oauth_code", code);
+    window.history.replaceState({}, document.title, "/webflow/oauth/callback");
+    setWebflowAuthStatus("exchanging");
+
+    fetch(`${DEFAULT_HTTP_URL}/oauth/webflow/exchange?code=${encodeURIComponent(code)}`)
+      .then(async (res) => {
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `exchange_failed_${res.status}`);
+        }
+        return res.json();
+      })
+      .then(() => {
+        setWebflowAuthStatus("received");
+      })
+      .catch((err) => {
+        setWebflowAuthStatus("error");
+        setError(`webflow_oauth_exchange_failed: ${String((err as Error)?.message ?? err)}`);
+      });
   }, []);
 
   useEffect(() => {
@@ -613,9 +638,10 @@ export function App() {
 
       {webflowAuthStatus !== "idle" && (
         <section className="oauth-notice" role="status">
-          {webflowAuthStatus === "received"
-            ? "Webflow auth code received and URL sanitized. Next: exchange code server-side for a token."
-            : "Webflow callback loaded without a code parameter."}
+          {webflowAuthStatus === "exchanging" && "Webflow auth code captured. Exchanging for access token..."}
+          {webflowAuthStatus === "received" && "Webflow auth complete. Token saved server-side and code removed from URL."}
+          {webflowAuthStatus === "missing" && "Webflow callback loaded without a code parameter."}
+          {webflowAuthStatus === "error" && "Webflow OAuth exchange failed. Check server logs and env credentials."}
         </section>
       )}
 

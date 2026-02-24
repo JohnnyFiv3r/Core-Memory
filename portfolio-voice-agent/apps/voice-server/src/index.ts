@@ -1,5 +1,9 @@
 import "dotenv/config";
 import { randomUUID } from "node:crypto";
+import { createServer } from "node:http";
+import { mkdir, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { WebSocketServer } from "ws";
 import {
   ClientEventSchema,
@@ -11,7 +15,52 @@ import { OpenAIRealtimeSession } from "./providers/openaiRealtime";
 import { ElevenLabsTts } from "./providers/elevenlabs";
 
 const port = Number(process.env.PORT ?? 8787);
-const wss = new WebSocketServer({ port });
+
+const httpServer = createServer(async (req, res) => {
+  try {
+    const url = new URL(req.url ?? "/", `http://localhost:${port}`);
+
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "GET, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type"
+      });
+      res.end();
+      return;
+    }
+
+    if (req.method === "GET" && url.pathname === "/oauth/webflow/exchange") {
+      const code = url.searchParams.get("code");
+      if (!code) {
+        res.writeHead(400, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+        res.end(JSON.stringify({ ok: false, error: "Missing code" }));
+        return;
+      }
+
+      const tokenData = await exchangeWebflowCode(code);
+      await persistWebflowToken(tokenData);
+
+      res.writeHead(200, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+      res.end(JSON.stringify({
+        ok: true,
+        tokenType: tokenData.token_type,
+        scope: tokenData.scope ?? null,
+        workspaceId: tokenData.workspace_id ?? null
+      }));
+      return;
+    }
+
+    res.writeHead(404, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify({ ok: false, error: "Not found" }));
+  } catch (error: any) {
+    res.writeHead(500, { "Content-Type": "application/json", "Access-Control-Allow-Origin": "*" });
+    res.end(JSON.stringify({ ok: false, error: String(error?.message ?? error) }));
+  }
+});
+
+const wss = new WebSocketServer({ server: httpServer });
+const currentDir = dirname(fileURLToPath(import.meta.url));
 
 function send(ws: import("ws").WebSocket, event: ServerEvent) {
   const parsed = ServerEventSchema.safeParse(event);
@@ -181,6 +230,64 @@ function handleClientEvent(
   }
 }
 
+async function exchangeWebflowCode(code: string) {
+  const clientId = process.env.WEBFLOW_CLIENT_ID;
+  const clientSecret = process.env.WEBFLOW_CLIENT_SECRET;
+  const redirectUri = process.env.WEBFLOW_REDIRECT_URI;
+
+  if (!clientId || !clientSecret || !redirectUri) {
+    throw new Error("Missing WEBFLOW_CLIENT_ID / WEBFLOW_CLIENT_SECRET / WEBFLOW_REDIRECT_URI");
+  }
+
+  const body = new URLSearchParams({
+    client_id: clientId,
+    client_secret: clientSecret,
+    code,
+    grant_type: "authorization_code",
+    redirect_uri: redirectUri
+  });
+
+  const response = await fetch("https://api.webflow.com/oauth/access_token", {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+    body
+  });
+
+  const raw = await response.text();
+  let json: any;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error(`Webflow token exchange returned non-JSON (${response.status})`);
+  }
+
+  if (!response.ok) {
+    throw new Error(`Webflow token exchange failed (${response.status}): ${json?.message ?? raw}`);
+  }
+
+  if (!json?.access_token) {
+    throw new Error("Webflow token exchange response missing access_token");
+  }
+
+  return json as {
+    access_token: string;
+    token_type?: string;
+    scope?: string;
+    workspace_id?: string;
+    [k: string]: unknown;
+  };
+}
+
+async function persistWebflowToken(tokenData: { access_token: string; [k: string]: unknown }) {
+  const out = resolve(currentDir, "../../../../.openclaw/secrets/webflow-token.json");
+  await mkdir(dirname(out), { recursive: true });
+  const payload = {
+    savedAt: new Date().toISOString(),
+    ...tokenData
+  };
+  await writeFile(out, JSON.stringify(payload, null, 2), { mode: 0o600 });
+}
+
 function buildTts(): ElevenLabsTts | null {
   try {
     return new ElevenLabsTts();
@@ -189,4 +296,7 @@ function buildTts(): ElevenLabsTts | null {
   }
 }
 
-console.log(`[voice-server] listening on ws://localhost:${port}`);
+httpServer.listen(port, () => {
+  console.log(`[voice-server] listening on ws://localhost:${port}`);
+  console.log(`[voice-server] oauth exchange endpoint: http://localhost:${port}/oauth/webflow/exchange?code=...`);
+});
