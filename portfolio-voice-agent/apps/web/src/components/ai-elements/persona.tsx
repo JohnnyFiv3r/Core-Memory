@@ -44,9 +44,7 @@ export function Persona({
     } catch (e) {
       onLoadError?.(e as Error);
     }
-    return () => {
-      onStop?.();
-    };
+    return () => onStop?.();
   }, [onLoad, onReady, onLoadError, onStop]);
 
   useEffect(() => {
@@ -56,11 +54,26 @@ export function Persona({
   }, [state, onPlay, onPause]);
 
   return (
-    <div className={`orb-wrap persona-${variant} halo-state-${state} ${className ?? ""}`.trim()} aria-label={`Persona state: ${state}`}>
-      <div className="halo-ring halo-ring-outer" />
-      <div className="halo-ring halo-ring-mid" />
-      <div className="halo-ring halo-ring-inner" />
-      <div className="halo-core" />
+    <div className={`persona persona-${variant} persona-state-${state} ${className ?? ""}`.trim()} aria-label={`Persona state: ${state}`}>
+      <div className="persona-core" />
+
+      <div className="persona-listening-rings" aria-hidden="true">
+        <div className="ring ring-1" />
+        <div className="ring ring-2" />
+        <div className="ring ring-3" />
+      </div>
+
+      <div className="persona-thinking-orbits" aria-hidden="true">
+        <div className="orbit orbit-1" />
+        <div className="orbit orbit-2" />
+      </div>
+
+      <div className="persona-speaking-sketch" aria-hidden="true">
+        <div className="sketch sketch-1" />
+        <div className="sketch sketch-2" />
+      </div>
+
+      <div className="persona-asleep-mark" aria-hidden="true">⌣</div>
     </div>
   );
 }

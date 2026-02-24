@@ -295,118 +295,119 @@ body {
   overflow: auto;
 }
 
-.orb-wrap {
+.persona {
   position: relative;
-  width: 172px;
-  height: 172px;
+  width: 150px;
+  height: 150px;
   margin: 0 auto;
 }
-.halo-ring,
-.halo-core {
+.persona-core,
+.ring,
+.orbit,
+.sketch {
   position: absolute;
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
   border-radius: 999px;
 }
-.halo-ring {
-  pointer-events: none;
-  transition: border-color 180ms ease, box-shadow 180ms ease, opacity 180ms ease;
-}
-.halo-ring-outer {
-  width: 162px;
-  height: 162px;
-  border: 1px solid #dadada;
-  background: radial-gradient(circle, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0.1) 70%);
-}
-.halo-ring-mid {
-  width: 138px;
-  height: 138px;
-  border: 1px solid #dddddd;
-}
-.halo-ring-inner {
-  width: 114px;
-  height: 114px;
-  border: 1px solid #dfdfdf;
-}
-.halo-core {
-  width: 10px;
-  height: 10px;
-  background: #f3f4f6;
-  box-shadow: 0 0 0 4px rgba(255,255,255,0.8);
+
+.persona-core {
+  width: 62px;
+  height: 62px;
+  border: 1.6px solid #1f1f1f;
+  background: rgba(255, 255, 255, 0.82);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.07);
 }
 
-.halo-state-idle .halo-ring-outer { box-shadow: 0 0 0 8px rgba(255,255,255,.45); }
-.halo-state-idle .halo-ring-mid { opacity: .95; }
-
-/* Variant hooks to mirror Vercel Elements API surface */
-.persona-halo .halo-core { background: #f3f4f6; }
-.persona-opal .halo-ring-outer {
-  border-color: #c9dcff;
-  box-shadow: 0 0 0 9px rgba(165, 196, 255, .18), 0 0 32px rgba(120,170,255,.24);
-}
-.persona-opal .halo-core { background: #e8f0ff; }
-.persona-glint .halo-ring-outer {
-  border-color: #d4d4d4;
-  box-shadow: 0 0 0 8px rgba(255,255,255,.5), 0 0 24px rgba(0,0,0,.08);
-}
-.persona-glint .halo-core { background: #ffffff; }
-
-.halo-state-listening .halo-ring-outer,
-.halo-state-speaking .halo-ring-outer {
-  border-color: #9fc8ff;
-  box-shadow: 0 0 0 9px rgba(130, 184, 255, .22), 0 0 38px rgba(96,165,250,.24);
-}
-.halo-state-listening .halo-ring-mid {
-  border-color: #b9d9ff;
-  animation: haloPulse 1.3s ease-in-out infinite;
-}
-.halo-state-listening .halo-ring-inner {
-  border-color: #cfe4ff;
-  animation: haloPulse 1.3s ease-in-out infinite reverse;
+.persona-listening-rings,
+.persona-thinking-orbits,
+.persona-speaking-sketch,
+.persona-asleep-mark {
+  position: absolute;
+  inset: 0;
+  display: none;
 }
 
-.halo-state-speaking .halo-ring-mid {
-  border-color: #9fd0ff;
-  animation: haloPulse 0.95s ease-in-out infinite;
+.ring {
+  border: 1.2px solid #1b1b1b;
+  opacity: 0.78;
 }
-.halo-state-speaking .halo-ring-inner {
-  border-color: #b9ddff;
-  animation: haloPulse 0.95s ease-in-out infinite reverse;
+.ring-1 { width: 86px; height: 86px; }
+.ring-2 { width: 106px; height: 106px; }
+.ring-3 { width: 124px; height: 124px; }
+
+.orbit {
+  width: 84px;
+  height: 84px;
+  border: 1.6px solid transparent;
+  border-top-color: #1f1f1f;
+  border-left-color: #1f1f1f;
+  opacity: 0.88;
 }
-.halo-state-speaking .halo-core {
-  background: #e6f2ff;
+.orbit-2 {
+  width: 90px;
+  height: 90px;
+  border-top-color: transparent;
+  border-left-color: transparent;
+  border-right-color: #1f1f1f;
+  border-bottom-color: #1f1f1f;
 }
 
-.halo-state-thinking .halo-ring-outer {
-  border-color: #cab5ff;
-  box-shadow: 0 0 0 9px rgba(167, 139, 250, .20), 0 0 38px rgba(167,139,250,.25);
+.sketch {
+  width: 66px;
+  height: 66px;
+  border: 1.3px solid #1f1f1f;
+  opacity: 0.66;
 }
-.halo-state-thinking .halo-ring-mid {
-  border-color: #d8c8ff;
-  animation: haloBreathe 1.65s ease-in-out infinite;
-}
-.halo-state-thinking .halo-ring-inner {
-  border-color: #e4dcff;
-  animation: haloBreathe 1.65s ease-in-out infinite reverse;
+.sketch-1 { transform: translate(-50%, -50%) rotate(8deg); }
+.sketch-2 { transform: translate(-50%, -50%) rotate(-8deg); }
+
+.persona-asleep-mark {
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  color: #1f1f1f;
+  opacity: 0.7;
 }
 
-@keyframes haloPulse {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  50% { transform: translate(-50%, -50%) scale(1.035); }
-}
-@keyframes haloBreathe {
-  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: .95; }
-  50% { transform: translate(-50%, -50%) scale(1.028); opacity: 1; }
-}
+.persona-state-listening .persona-listening-rings { display: block; }
+.persona-state-listening .ring-1 { animation: ringPulse 1.25s ease-in-out infinite; }
+.persona-state-listening .ring-2 { animation: ringPulse 1.25s ease-in-out .12s infinite; }
+.persona-state-listening .ring-3 { animation: ringPulse 1.25s ease-in-out .2s infinite; }
 
-.halo-state-asleep .halo-ring-outer,
-.halo-state-asleep .halo-ring-mid,
-.halo-state-asleep .halo-ring-inner {
-  opacity: .55;
+.persona-state-thinking .persona-thinking-orbits { display: block; }
+.persona-state-thinking .orbit-1 { animation: spin 1.55s linear infinite; }
+.persona-state-thinking .orbit-2 { animation: spinReverse 1.25s linear infinite; }
+
+.persona-state-speaking .persona-speaking-sketch { display: block; }
+.persona-state-speaking .sketch-1 { animation: jitterA .16s ease-in-out infinite; }
+.persona-state-speaking .sketch-2 { animation: jitterB .16s ease-in-out infinite; }
+
+.persona-state-asleep .persona-asleep-mark {
+  display: flex;
 }
-.halo-state-asleep .halo-core {
-  opacity: .65;
+.persona-state-asleep .persona-core { opacity: .8; }
+
+@keyframes ringPulse {
+  0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: .55; }
+  50% { transform: translate(-50%, -50%) scale(1.03); opacity: .9; }
+}
+@keyframes spin {
+  from { transform: translate(-50%, -50%) rotate(0deg); }
+  to { transform: translate(-50%, -50%) rotate(360deg); }
+}
+@keyframes spinReverse {
+  from { transform: translate(-50%, -50%) rotate(360deg); }
+  to { transform: translate(-50%, -50%) rotate(0deg); }
+}
+@keyframes jitterA {
+  0%, 100% { transform: translate(-50%, -50%) rotate(8deg); }
+  50% { transform: translate(-50%, -50%) rotate(11deg) scale(1.03); }
+}
+@keyframes jitterB {
+  0%, 100% { transform: translate(-50%, -50%) rotate(-8deg); }
+  50% { transform: translate(-50%, -50%) rotate(-11deg) scale(1.03); }
 }
 
 @media (max-width: 840px) {
