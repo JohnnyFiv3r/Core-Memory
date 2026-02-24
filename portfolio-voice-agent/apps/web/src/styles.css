@@ -339,6 +339,19 @@ body {
 .halo-state-idle .halo-ring-outer { box-shadow: 0 0 0 8px rgba(255,255,255,.45); }
 .halo-state-idle .halo-ring-mid { opacity: .95; }
 
+/* Variant hooks to mirror Vercel Elements API surface */
+.persona-halo .halo-core { background: #f3f4f6; }
+.persona-opal .halo-ring-outer {
+  border-color: #c9dcff;
+  box-shadow: 0 0 0 9px rgba(165, 196, 255, .18), 0 0 32px rgba(120,170,255,.24);
+}
+.persona-opal .halo-core { background: #e8f0ff; }
+.persona-glint .halo-ring-outer {
+  border-color: #d4d4d4;
+  box-shadow: 0 0 0 8px rgba(255,255,255,.5), 0 0 24px rgba(0,0,0,.08);
+}
+.persona-glint .halo-core { background: #ffffff; }
+
 .halo-state-listening .halo-ring-outer,
 .halo-state-speaking .halo-ring-outer {
   border-color: #9fc8ff;
@@ -385,6 +398,15 @@ body {
 @keyframes haloBreathe {
   0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: .95; }
   50% { transform: translate(-50%, -50%) scale(1.028); opacity: 1; }
+}
+
+.halo-state-asleep .halo-ring-outer,
+.halo-state-asleep .halo-ring-mid,
+.halo-state-asleep .halo-ring-inner {
+  opacity: .55;
+}
+.halo-state-asleep .halo-core {
+  opacity: .65;
 }
 
 @media (max-width: 840px) {
