@@ -559,6 +559,18 @@ export function App() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!isEmbed) return;
+    const prevBodyBg = document.body.style.background;
+    const prevHtmlBg = document.documentElement.style.background;
+    document.body.style.background = "transparent";
+    document.documentElement.style.background = "transparent";
+    return () => {
+      document.body.style.background = prevBodyBg;
+      document.documentElement.style.background = prevHtmlBg;
+    };
+  }, [isEmbed]);
+
   const debug = useMemo(
     () => ({
       state,
@@ -580,10 +592,13 @@ export function App() {
 
   if (isEmbed) {
     return (
-      <main className="relative grid min-h-screen place-items-center bg-background p-3 text-foreground">
+      <main className="relative grid min-h-screen place-items-center overflow-hidden bg-transparent p-3 text-foreground">
         <div className="grid w-full max-w-sm justify-items-center gap-4">
-          <div className="relative grid h-[820px] w-[820px] place-items-center max-sm:h-[460px] max-sm:w-[460px]">
-            <PersonaOrb className="origin-center scale-[5.25] max-sm:scale-[3.1]" state={state} />
+          <div
+            className="relative grid place-items-center"
+            style={{ height: "min(72vh, 460px)", width: "min(92vw, 460px)" }}
+          >
+            <PersonaOrb className="origin-center scale-[5.8] max-sm:scale-[4.9]" state={state} />
             <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
               <MicIcon size={24} />
             </Button>
