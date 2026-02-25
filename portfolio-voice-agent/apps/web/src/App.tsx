@@ -20,8 +20,9 @@ function resolveDefaultWsUrl(): string {
   const envWs = import.meta.env.VITE_VOICE_SERVER_WS_URL as string | undefined;
   if (envWs) return envWs;
 
-  if (typeof window !== "undefined" && window.location.protocol === "https:") {
-    return "wss://api.wristchat.net";
+  if (typeof window !== "undefined") {
+    const wsParam = new URLSearchParams(window.location.search).get("ws");
+    if (wsParam) return wsParam;
   }
 
   return "ws://localhost:8787";
@@ -513,12 +514,16 @@ export function App() {
     setError(null);
     apply("EMAIL_VERIFIED");
 
-    const client = new VoiceWsClient(DEFAULT_WS_URL, onServerEvent);
+    let sessionReady = false;
+    const client = new VoiceWsClient(DEFAULT_WS_URL, (event) => {
+      if (event.type === "session.ready") sessionReady = true;
+      onServerEvent(event);
+    });
     wsRef.current = client;
     let opened = false;
     const connectTimer = window.setTimeout(() => {
       if (!opened) {
-        setError("Connection timeout reaching voice server. On iPhone this is usually a WSS/SSL issue.");
+        setError(`Connection timeout reaching voice server (${DEFAULT_WS_URL}).`);
         apply("FAIL");
       }
     }, 8000);
@@ -532,16 +537,21 @@ export function App() {
       });
     });
     client.onError(() => {
-      setError(`Could not open voice websocket (${DEFAULT_WS_URL}). Verify WSS endpoint is reachable from mobile Safari.`);
+      setError(`Could not open voice websocket (${DEFAULT_WS_URL}). Verify endpoint/certs from this device.`);
       apply("FAIL");
     });
-    client.onClose(() => {
+    client.onClose((evt) => {
       window.clearTimeout(connectTimer);
       setWsConnected(false);
       stopMicStreaming();
       if (!userStoppingRef.current) {
         setConversationActive(false);
-        setError("Connection closed. Tap Start talking to reconnect.");
+        const details = `code=${evt.code}${evt.reason ? ` reason=${evt.reason}` : ""}`;
+        if (!sessionReady) {
+          setError(`Voice websocket closed before session init (${details}) at ${DEFAULT_WS_URL}.`);
+        } else {
+          setError("Connection closed. Tap Start talking to reconnect.");
+        }
         apply("FAIL");
       }
     });
