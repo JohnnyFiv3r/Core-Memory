@@ -10,14 +10,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 
-const DEFAULT_WS_URL = (import.meta.env.VITE_VOICE_SERVER_WS_URL as string) ?? "ws://localhost:8787";
-
 function wsToHttp(wsUrl: string): string {
   if (wsUrl.startsWith("wss://")) return wsUrl.replace("wss://", "https://");
   if (wsUrl.startsWith("ws://")) return wsUrl.replace("ws://", "http://");
   return wsUrl;
 }
 
+function resolveDefaultWsUrl(): string {
+  const envWs = import.meta.env.VITE_VOICE_SERVER_WS_URL as string | undefined;
+  if (envWs) return envWs;
+
+  if (typeof window !== "undefined" && window.location.protocol === "https:") {
+    return "wss://api.wristchat.net";
+  }
+
+  return "ws://localhost:8787";
+}
+
+const DEFAULT_WS_URL = resolveDefaultWsUrl();
 const DEFAULT_HTTP_URL = (import.meta.env.VITE_VOICE_SERVER_HTTP_URL as string) ?? wsToHttp(DEFAULT_WS_URL);
 
 function base64ToBytes(base64: string): Uint8Array {
@@ -522,7 +532,7 @@ export function App() {
       });
     });
     client.onError(() => {
-      setError("Could not open voice websocket. Verify WSS endpoint is reachable from mobile Safari.");
+      setError(`Could not open voice websocket (${DEFAULT_WS_URL}). Verify WSS endpoint is reachable from mobile Safari.`);
       apply("FAIL");
     });
     client.onClose(() => {
