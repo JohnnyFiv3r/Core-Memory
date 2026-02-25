@@ -20,6 +20,10 @@ rm -rf apps/web/dist
 # Ensure deps are installed (safe if already up to date)
 pnpm install
 
+# Portfolio voice backend defaults (override by exporting these before running script)
+export VITE_VOICE_SERVER_WS_URL="${VITE_VOICE_SERVER_WS_URL:-wss://portfolio-api.wristchat.net}"
+export VITE_VOICE_SERVER_HTTP_URL="${VITE_VOICE_SERVER_HTTP_URL:-https://portfolio-api.wristchat.net}"
+
 pnpm --filter @portfolio/web build
 npx wrangler pages project create "$PROJECT_NAME" --production-branch main 2>/dev/null || true
 npx wrangler pages deploy apps/web/dist --project-name "$PROJECT_NAME"
