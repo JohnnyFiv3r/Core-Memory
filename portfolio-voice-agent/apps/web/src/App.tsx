@@ -582,8 +582,8 @@ export function App() {
     return (
       <main className="relative grid min-h-screen place-items-center bg-background p-3 text-foreground">
         <div className="grid w-full max-w-sm justify-items-center gap-4">
-          <div className="relative grid h-[620px] w-[620px] place-items-center max-sm:h-[360px] max-sm:w-[360px]">
-            <PersonaOrb className="origin-center scale-[4] max-sm:scale-[2.35]" state={state} />
+          <div className="relative grid h-[820px] w-[820px] place-items-center max-sm:h-[460px] max-sm:w-[460px]">
+            <PersonaOrb className="origin-center scale-[5.25] max-sm:scale-[3.1]" state={state} />
             <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
               <MicIcon size={24} />
             </Button>
@@ -634,8 +634,8 @@ export function App() {
         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Product Designer + Voice AI Builder</p>
         <h1 className="mx-auto max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-6xl">I design and ship conversational product experiences.</h1>
 
-        <div className="relative mx-auto grid h-[620px] w-[620px] place-items-center max-sm:h-[360px] max-sm:w-[360px]">
-          <PersonaOrb className="origin-center scale-[4] max-sm:scale-[2.35]" state={state} />
+        <div className="relative mx-auto grid h-[820px] w-[820px] place-items-center max-sm:h-[460px] max-sm:w-[460px]">
+          <PersonaOrb className="origin-center scale-[5.25] max-sm:scale-[3.1]" state={state} />
           <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
             <MicIcon size={24} />
           </Button>
