@@ -69,7 +69,11 @@ export function App() {
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = conversationActive ? "Stop conversation" : "Start talking";
   const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@wristchat.net";
-  const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "1";
+  const isEmbed =
+    typeof window !== "undefined" &&
+    (new URLSearchParams(window.location.search).get("embed") === "1" ||
+      window.location.pathname === "/embed" ||
+      window.self !== window.top);
 
   const featuredProjects = [
     {
@@ -592,18 +596,18 @@ export function App() {
 
   if (isEmbed) {
     return (
-      <main className="relative grid min-h-screen place-items-center overflow-hidden bg-transparent p-3 text-foreground">
-        <div className="grid w-full max-w-sm justify-items-center gap-4">
+      <main className="relative grid h-full w-full place-items-center overflow-hidden bg-transparent p-2 text-foreground">
+        <div className="grid w-full max-w-sm justify-items-center gap-1.5">
           <div
             className="relative grid place-items-center"
-            style={{ height: "min(72vh, 460px)", width: "min(92vw, 460px)" }}
+            style={{ height: "min(56vh, 360px)", width: "min(90vw, 360px)" }}
           >
-            <PersonaOrb className="origin-center scale-[5.8] max-sm:scale-[4.9]" state={state} />
+            <PersonaOrb className="origin-center scale-[5.2] max-sm:scale-[4.6]" state={state} />
             <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
               <MicIcon size={24} />
             </Button>
           </div>
-          <p className="max-w-sm text-center text-sm text-muted-foreground">Talk to my portfolio voice agent.</p>
+          <p className="max-w-sm text-center text-sm leading-tight text-muted-foreground">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
