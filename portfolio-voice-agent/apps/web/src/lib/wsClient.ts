@@ -6,6 +6,7 @@ export class VoiceWsClient {
   private ws: WebSocket | null = null;
   private onOpenCb: (() => void) | null = null;
   private onCloseCb: (() => void) | null = null;
+  private onErrorCb: ((event: Event) => void) | null = null;
 
   constructor(private readonly url: string, private readonly onEvent: ServerEventHandler) {}
 
@@ -29,6 +30,10 @@ export class VoiceWsClient {
         // ignore malformed frames
       }
     };
+
+    this.ws.onerror = (event) => {
+      this.onErrorCb?.(event);
+    };
   }
 
   send(event: ClientEvent) {
@@ -42,6 +47,10 @@ export class VoiceWsClient {
 
   onClose(cb: () => void) {
     this.onCloseCb = cb;
+  }
+
+  onError(cb: (event: Event) => void) {
+    this.onErrorCb = cb;
   }
 
   close() {

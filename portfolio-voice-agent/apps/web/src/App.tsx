@@ -367,7 +367,6 @@ export function App() {
         break;
       case "assistant.text.delta":
         setTranscript((t) => [...t, `assistant(delta): ${event.text}`]);
-        apply("ASSISTANT_SPEAKING");
         break;
       case "assistant.text.final":
         setTranscript((t) => [...t, `assistant: ${event.text}`]);
@@ -506,13 +505,28 @@ export function App() {
 
     const client = new VoiceWsClient(DEFAULT_WS_URL, onServerEvent);
     wsRef.current = client;
+    let opened = false;
+    const connectTimer = window.setTimeout(() => {
+      if (!opened) {
+        setError("Connection timeout reaching voice server. On iPhone this is usually a WSS/SSL issue.");
+        apply("FAIL");
+      }
+    }, 8000);
+
     client.onOpen(() => {
+      opened = true;
+      window.clearTimeout(connectTimer);
       wsRef.current?.send({ type: "session.start", email });
       void startMicStreaming().catch((e) => {
         setError(`mic_stream_error: ${String((e as Error)?.message ?? e)}`);
       });
     });
+    client.onError(() => {
+      setError("Could not open voice websocket. Verify WSS endpoint is reachable from mobile Safari.");
+      apply("FAIL");
+    });
     client.onClose(() => {
+      window.clearTimeout(connectTimer);
       setWsConnected(false);
       stopMicStreaming();
       if (!userStoppingRef.current) {
