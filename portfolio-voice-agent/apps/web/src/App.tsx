@@ -629,10 +629,12 @@ export function App() {
     return (
       <main className="ji-embed-shell">
         <div className="ji-embed-card">
-          <PersonaOrb state={state} />
-          <button className="mic-btn" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
-            <MicIcon size={24} />
-          </button>
+          <div className="persona-hero-wrap">
+            <PersonaOrb className="persona-scale-4" state={state} />
+            <button className="mic-btn mic-btn-fab" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
+              <MicIcon size={24} />
+            </button>
+          </div>
           <p className="hero-copy">Talk to my portfolio voice agent.</p>
           {error && <p className="error">{error}</p>}
         </div>
@@ -682,12 +684,14 @@ export function App() {
         <p className="kicker">Product Designer + Voice AI Builder</p>
         <h1 className="hero-title">I design and ship conversational product experiences.</h1>
 
-        <PersonaOrb state={state} />
-
-        <div className="mic-wrap">
-          <button className="mic-btn" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
+        <div className="persona-hero-wrap">
+          <PersonaOrb className="persona-scale-4" state={state} />
+          <button className="mic-btn mic-btn-fab" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
             <MicIcon size={24} />
           </button>
+        </div>
+
+        <div className="mic-wrap">
           <p className="hero-copy">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
           <div className="status-row">
             <span className="status-chip">State: {state}</span>

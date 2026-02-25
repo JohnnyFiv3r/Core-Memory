@@ -3,8 +3,8 @@ html, body, #root { height: 100%; }
 body {
   margin: 0;
   font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-  background: #ececec;
-  color: #101010;
+  background: #000;
+  color: #fff;
   line-height: 1.35;
 }
 
@@ -18,9 +18,9 @@ body {
 }
 .ji-embed-card {
   width: min(100%, 340px);
-  background: #f7f7f7;
-  border: 1px solid #d8d8d8;
-  border-radius: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
   padding: 14px;
   display: grid;
   justify-items: center;
@@ -29,7 +29,7 @@ body {
 .ji-modal-backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(17, 24, 39, 0.45);
+  background: transparent;
   display: grid;
   place-items: center;
   padding: 12px;
@@ -37,12 +37,12 @@ body {
 .ji-modal {
   width: min(100%, 320px);
   border-radius: 14px;
-  background: #fff;
-  border: 1px solid #d9d9d9;
+  background: transparent;
+  border: 0;
   padding: 14px;
   display: grid;
   gap: 10px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.18);
+  box-shadow: none;
 }
 .ji-modal-title {
   margin: 0;
@@ -127,17 +127,40 @@ body {
   letter-spacing: -0.03em;
   line-height: 1.05;
 }
+.persona-hero-wrap {
+  position: relative;
+  width: 620px;
+  height: 620px;
+  margin: 0 auto;
+  display: grid;
+  place-items: center;
+}
+
+.persona-scale-4 {
+  transform: scale(4);
+  transform-origin: center;
+}
+
 .mic-wrap { margin-top: 10px; }
 .mic-btn {
   width: 64px;
   height: 64px;
   border-radius: 50%;
-  border: 0;
-  background: #050505;
-  color: #fff;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: #fff;
+  color: #000;
   display: inline-grid;
   place-items: center;
   cursor: pointer;
+}
+
+.mic-btn-fab {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 6;
+  box-shadow: 0 18px 40px rgba(255, 255, 255, 0.22);
 }
 .mic-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .hero-copy {
@@ -372,9 +395,9 @@ body {
 .persona-core {
   width: 62px;
   height: 62px;
-  border: 1.6px solid #1f1f1f;
-  background: rgba(255, 255, 255, 0.82);
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.07);
+  border: 1.6px solid #fff;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 22px rgba(255, 255, 255, 0.22);
 }
 
 .persona-listening-rings,
@@ -387,7 +410,7 @@ body {
 }
 
 .ring {
-  border: 1.2px solid #1b1b1b;
+  border: 1.2px solid #fff;
   opacity: 0.78;
 }
 .ring-1 { width: 86px; height: 86px; }
@@ -398,8 +421,8 @@ body {
   width: 84px;
   height: 84px;
   border: 1.6px solid transparent;
-  border-top-color: #1f1f1f;
-  border-left-color: #1f1f1f;
+  border-top-color: #fff;
+  border-left-color: #fff;
   opacity: 0.88;
 }
 .orbit-2 {
@@ -407,14 +430,14 @@ body {
   height: 90px;
   border-top-color: transparent;
   border-left-color: transparent;
-  border-right-color: #1f1f1f;
-  border-bottom-color: #1f1f1f;
+  border-right-color: #fff;
+  border-bottom-color: #fff;
 }
 
 .sketch {
   width: 66px;
   height: 66px;
-  border: 1.3px solid #1f1f1f;
+  border: 1.3px solid #fff;
   opacity: 0.66;
 }
 .sketch-1 { transform: translate(-50%, -50%) rotate(8deg); }
@@ -424,7 +447,7 @@ body {
   align-items: center;
   justify-content: center;
   font-size: 18px;
-  color: #1f1f1f;
+  color: #fff;
   opacity: 0.7;
 }
 
@@ -470,4 +493,6 @@ body {
 @media (max-width: 840px) {
   .top-nav { flex-wrap: wrap; justify-content: center; }
   .project-grid, .live-panels, .case-grid { grid-template-columns: 1fr; }
+  .persona-hero-wrap { width: 360px; height: 360px; }
+  .persona-scale-4 { transform: scale(2.35); }
 }
