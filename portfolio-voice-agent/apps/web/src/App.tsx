@@ -612,7 +612,7 @@ export function App() {
         </div>
 
         {showGate && (
-          <Card className="absolute inset-x-4 top-6 mx-auto w-full max-w-sm border-border/80 bg-card/95">
+          <Card className="absolute left-1/2 top-6 z-20 w-[min(92vw,22rem)] -translate-x-1/2 border-border/80 bg-card/95">
             <CardHeader>
               <CardTitle className="text-lg">Continue with email</CardTitle>
             </CardHeader>
