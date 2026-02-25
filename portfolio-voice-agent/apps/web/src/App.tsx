@@ -178,6 +178,9 @@ export function App() {
     });
 
     const audioContext = new AudioContext();
+    if (audioContext.state !== "running") {
+      await audioContext.resume();
+    }
     const source = audioContext.createMediaStreamSource(stream);
     const processor = audioContext.createScriptProcessor(4096, 1, 1);
 
@@ -288,18 +291,22 @@ export function App() {
     try {
       await audio.play();
       pushTtsDebug("[audio.fallback.play] fallback blob playback started");
+      apply("ASSISTANT_SPEAKING");
     } catch (e) {
       pushTtsDebug(`[audio.fallback.error] ${String((e as Error)?.message ?? e)}`);
+      apply("END_SPEAKING");
     }
     audio.onended = () => {
       playbackClosed = true;
       pushTtsDebug("[audio.fallback.ended]");
+      apply("END_SPEAKING");
       URL.revokeObjectURL(url);
     };
     audio.onerror = () => {
       if (playbackClosed || audio.ended) return;
       const mediaError = (audio as any).error;
       pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
+      apply("END_SPEAKING");
     };
   }
 
@@ -382,7 +389,6 @@ export function App() {
       }
       case "tts.audio.chunk":
         appendTtsChunk(event.audioBase64, event.ttsId);
-        if (stateRef.current !== "speaking") apply("ASSISTANT_SPEAKING");
         break;
       case "tts.done":
         if (activeTtsIdRef.current === null) {
@@ -394,7 +400,6 @@ export function App() {
           break;
         }
         markTtsDone();
-        apply("END_SPEAKING");
         break;
       case "debug.tts":
         pushTtsDebug(`[${event.stage}] ${event.detail ?? ""}`.trim());
