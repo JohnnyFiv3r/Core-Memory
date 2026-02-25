@@ -203,7 +203,7 @@ export function App() {
       const ws = wsRef.current;
       if (!ws) return;
       const s = stateRef.current;
-      if (!(s === "listening" || s === "thinking" || s === "speaking")) return;
+      if (!(s === "listening" || s === "thinking")) return;
       const channelData = event.inputBuffer.getChannelData(0);
       const base64 = floatToPcm16Base64(channelData, audioContext.sampleRate, 24000);
       ws.send({ type: "voice.input.chunk", pcm16Base64: base64, seq: micSeqRef.current++ });
