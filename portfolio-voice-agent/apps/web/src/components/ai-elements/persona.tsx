@@ -1,79 +1,280 @@
-import { useEffect, useRef } from "react";
-import type { VoiceState } from "../../lib/stateMachine";
+"use client";
 
-type PersonaState = "idle" | "listening" | "thinking" | "speaking" | "asleep";
-type PersonaVariant = "halo" | "opal" | "glint";
+import type { RiveParameters } from "@rive-app/react-webgl2";
+import type { FC, ReactNode } from "react";
 
-type PersonaProps = {
+import { cn } from "@/lib/utils";
+import {
+  useRive,
+  useStateMachineInput,
+  useViewModel,
+  useViewModelInstance,
+  useViewModelInstanceColor,
+} from "@rive-app/react-webgl2";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+
+export type PersonaState =
+  | "idle"
+  | "listening"
+  | "thinking"
+  | "speaking"
+  | "asleep";
+
+interface PersonaProps {
   state: PersonaState;
-  variant?: PersonaVariant;
-  className?: string;
+  onLoad?: RiveParameters["onLoad"];
+  onLoadError?: RiveParameters["onLoadError"];
   onReady?: () => void;
-  onLoad?: () => void;
-  onLoadError?: (error: Error) => void;
-  onPlay?: () => void;
-  onPause?: () => void;
-  onStop?: () => void;
+  onPause?: RiveParameters["onPause"];
+  onPlay?: RiveParameters["onPlay"];
+  onStop?: RiveParameters["onStop"];
+  className?: string;
+  variant?: keyof typeof sources;
+}
+
+// The state machine name is always 'default' for Elements AI visuals
+const stateMachine = "default";
+
+const sources = {
+  command: {
+    dynamicColor: true,
+    hasModel: true,
+    source:
+      "https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/command-2.0.riv",
+  },
+  glint: {
+    dynamicColor: true,
+    hasModel: true,
+    source:
+      "https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/glint-2.0.riv",
+  },
+  halo: {
+    dynamicColor: true,
+    hasModel: true,
+    source:
+      "https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/halo-2.0.riv",
+  },
+  mana: {
+    dynamicColor: false,
+    hasModel: true,
+    source:
+      "https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/mana-2.0.riv",
+  },
+  obsidian: {
+    dynamicColor: true,
+    hasModel: true,
+    source:
+      "https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/obsidian-2.0.riv",
+  },
+  opal: {
+    dynamicColor: false,
+    hasModel: false,
+    source:
+      "https://ejiidnob33g9ap1r.public.blob.vercel-storage.com/orb-1.2.riv",
+  },
 };
 
-export function mapVoiceToPersonaState(state: VoiceState): PersonaState {
-  if (state === "listening") return "listening";
-  if (state === "thinking") return "thinking";
-  if (state === "speaking") return "speaking";
-  return "idle";
-}
-
-export function Persona({
-  state,
-  variant = "halo",
-  className,
-  onReady,
-  onLoad,
-  onLoadError,
-  onPlay,
-  onPause,
-  onStop
-}: PersonaProps) {
-  const mountedRef = useRef(false);
-
-  useEffect(() => {
-    try {
-      onLoad?.();
-      onReady?.();
-      mountedRef.current = true;
-    } catch (e) {
-      onLoadError?.(e as Error);
+const getCurrentTheme = (): "light" | "dark" => {
+  if (typeof window !== "undefined") {
+    if (document.documentElement.classList.contains("dark")) {
+      return "dark";
     }
-    return () => onStop?.();
-  }, [onLoad, onReady, onLoadError, onStop]);
+    if (window.matchMedia?.("(prefers-color-scheme: dark)").matches) {
+      return "dark";
+    }
+  }
+  return "light";
+};
+
+const useTheme = (enabled: boolean) => {
+  const [theme, setTheme] = useState<"light" | "dark">(getCurrentTheme);
 
   useEffect(() => {
-    if (!mountedRef.current) return;
-    if (state === "idle" || state === "asleep") onPause?.();
-    else onPlay?.();
-  }, [state, onPlay, onPause]);
+    // Skip if not enabled (avoids unnecessary observers for non-dynamic-color variants)
+    if (!enabled) {
+      return;
+    }
 
-  return (
-    <div className={`persona persona-${variant} persona-state-${state} ${className ?? ""}`.trim()} aria-label={`Persona state: ${state}`}>
-      <div className="persona-core" />
+    // Watch for classList changes
+    const observer = new MutationObserver(() => {
+      setTheme(getCurrentTheme());
+    });
 
-      <div className="persona-listening-rings" aria-hidden="true">
-        <div className="ring ring-1" />
-        <div className="ring ring-2" />
-        <div className="ring ring-3" />
-      </div>
+    observer.observe(document.documentElement, {
+      attributeFilter: ["class"],
+      attributes: true,
+    });
 
-      <div className="persona-thinking-orbits" aria-hidden="true">
-        <div className="orbit orbit-1" />
-        <div className="orbit orbit-2" />
-      </div>
+    // Watch for OS-level theme changes
+    let mql: MediaQueryList | null = null;
+    const handleMediaChange = () => {
+      setTheme(getCurrentTheme());
+    };
 
-      <div className="persona-speaking-sketch" aria-hidden="true">
-        <div className="sketch sketch-1" />
-        <div className="sketch sketch-2" />
-      </div>
+    if (window.matchMedia) {
+      mql = window.matchMedia("(prefers-color-scheme: dark)");
+      mql.addEventListener("change", handleMediaChange);
+    }
 
-      <div className="persona-asleep-mark" aria-hidden="true">⌣</div>
-    </div>
-  );
+    return () => {
+      observer.disconnect();
+      if (mql) {
+        mql.removeEventListener("change", handleMediaChange);
+      }
+    };
+  }, [enabled]);
+
+  return theme;
+};
+
+interface PersonaWithModelProps {
+  rive: ReturnType<typeof useRive>["rive"];
+  source: (typeof sources)[keyof typeof sources];
+  children: React.ReactNode;
 }
+
+const PersonaWithModel = memo(
+  ({ rive, source, children }: PersonaWithModelProps) => {
+    const theme = useTheme(source.dynamicColor);
+    const viewModel = useViewModel(rive, { useDefault: true });
+    const viewModelInstance = useViewModelInstance(viewModel, {
+      rive,
+      useDefault: true,
+    });
+    const viewModelInstanceColor = useViewModelInstanceColor(
+      "color",
+      viewModelInstance
+    );
+
+    useEffect(() => {
+      if (!(viewModelInstanceColor && source.dynamicColor)) {
+        return;
+      }
+
+      const [r, g, b] = theme === "dark" ? [255, 255, 255] : [0, 0, 0];
+      viewModelInstanceColor.setRgb(r, g, b);
+    }, [viewModelInstanceColor, theme, source.dynamicColor]);
+
+    return children;
+  }
+);
+
+PersonaWithModel.displayName = "PersonaWithModel";
+
+interface PersonaWithoutModelProps {
+  children: ReactNode;
+}
+
+const PersonaWithoutModel = memo(
+  ({ children }: PersonaWithoutModelProps) => children
+);
+
+PersonaWithoutModel.displayName = "PersonaWithoutModel";
+
+export const Persona: FC<PersonaProps> = memo(
+  ({
+    variant = "obsidian",
+    state = "idle",
+    onLoad,
+    onLoadError,
+    onReady,
+    onPause,
+    onPlay,
+    onStop,
+    className,
+  }) => {
+    const source = sources[variant];
+
+    if (!source) {
+      throw new Error(`Invalid variant: ${variant}`);
+    }
+
+    // Stabilize callbacks to prevent useRive from reinitializing
+    const callbacksRef = useRef({
+      onLoad,
+      onLoadError,
+      onPause,
+      onPlay,
+      onReady,
+      onStop,
+    });
+
+    useEffect(() => {
+      callbacksRef.current = {
+        onLoad,
+        onLoadError,
+        onPause,
+        onPlay,
+        onReady,
+        onStop,
+      };
+    }, [onLoad, onLoadError, onPause, onPlay, onReady, onStop]);
+
+    const stableCallbacks = useMemo(
+      () => ({
+        onLoad: ((loadedRive) =>
+          callbacksRef.current.onLoad?.(
+            loadedRive
+          )) as RiveParameters["onLoad"],
+        onLoadError: ((err) =>
+          callbacksRef.current.onLoadError?.(
+            err
+          )) as RiveParameters["onLoadError"],
+        onPause: ((event) =>
+          callbacksRef.current.onPause?.(event)) as RiveParameters["onPause"],
+        onPlay: ((event) =>
+          callbacksRef.current.onPlay?.(event)) as RiveParameters["onPlay"],
+        onReady: () => callbacksRef.current.onReady?.(),
+        onStop: ((event) =>
+          callbacksRef.current.onStop?.(event)) as RiveParameters["onStop"],
+      }),
+      []
+    );
+
+    const { rive, RiveComponent } = useRive({
+      autoplay: true,
+      onLoad: stableCallbacks.onLoad,
+      onLoadError: stableCallbacks.onLoadError,
+      onPause: stableCallbacks.onPause,
+      onPlay: stableCallbacks.onPlay,
+      onRiveReady: stableCallbacks.onReady,
+      onStop: stableCallbacks.onStop,
+      src: source.source,
+      stateMachines: stateMachine,
+    });
+
+    const listeningInput = useStateMachineInput(
+      rive,
+      stateMachine,
+      "listening"
+    );
+    const thinkingInput = useStateMachineInput(rive, stateMachine, "thinking");
+    const speakingInput = useStateMachineInput(rive, stateMachine, "speaking");
+    const asleepInput = useStateMachineInput(rive, stateMachine, "asleep");
+
+    useEffect(() => {
+      if (listeningInput) {
+        listeningInput.value = state === "listening";
+      }
+      if (thinkingInput) {
+        thinkingInput.value = state === "thinking";
+      }
+      if (speakingInput) {
+        speakingInput.value = state === "speaking";
+      }
+      if (asleepInput) {
+        asleepInput.value = state === "asleep";
+      }
+    }, [state, listeningInput, thinkingInput, speakingInput, asleepInput]);
+
+    const Component = source.hasModel ? PersonaWithModel : PersonaWithoutModel;
+
+    return (
+      <Component rive={rive} source={source}>
+        <RiveComponent className={cn("size-16 shrink-0", className)} />
+      </Component>
+    );
+  }
+);
+
+Persona.displayName = "Persona";

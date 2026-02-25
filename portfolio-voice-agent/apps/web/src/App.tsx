@@ -5,6 +5,10 @@ import { nextState, type VoiceEvent, type VoiceState } from "./lib/stateMachine"
 import { VoiceWsClient } from "./lib/wsClient";
 import { PersonaOrb } from "./components/PersonaOrb";
 import { TranscriptStrip } from "./components/TranscriptStrip";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
 
 const DEFAULT_WS_URL = (import.meta.env.VITE_VOICE_SERVER_WS_URL as string) ?? "ws://localhost:8787";
 
@@ -66,6 +70,7 @@ export function App() {
   const buttonLabel = conversationActive ? "Stop conversation" : "Start talking";
   const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@wristchat.net";
   const isEmbed = typeof window !== "undefined" && new URLSearchParams(window.location.search).get("embed") === "1";
+
   const featuredProjects = [
     {
       title: "Storyboard",
@@ -193,39 +198,6 @@ export function App() {
     pushTtsDebug(`[mic.started] sampleRate=${audioContext.sampleRate}`);
   }
 
-  function flushAppendQueue() {
-    const sourceBuffer = sourceBufferRef.current;
-    const mediaSource = mediaSourceRef.current;
-    if (!sourceBuffer || !mediaSource) return;
-    if (sourceBuffer.updating) return;
-    if (mediaSource.readyState !== "open") return;
-
-    const next = appendQueueRef.current.shift();
-    if (next) {
-      try {
-        const chunk = next.buffer.slice(next.byteOffset, next.byteOffset + next.byteLength) as ArrayBuffer;
-        sourceBuffer.appendBuffer(chunk);
-      } catch {
-        // stale/removed source buffer race; drop chunk and keep stream alive
-      }
-      return;
-    }
-
-    if (ttsDoneRef.current && mediaSource.readyState === "open") {
-      try {
-        mediaSource.endOfStream();
-      } catch {
-        // noop
-      }
-    }
-  }
-
-  async function ensureStreamingAudioStarted() {
-    // Streaming path disabled for now due to browser-specific MSE/MP3 quirks.
-    // We keep collecting chunks and play once at tts.done via fallback blob.
-    return;
-  }
-
   function startNewTtsStream() {
     stopPlayback();
     ttsDoneRef.current = false;
@@ -296,10 +268,8 @@ export function App() {
       pushTtsDebug(`[audio.fallback.replay] relaunching with more audio bytes (old=${ttsPlaybackBytesRef.current}, new=${size})`);
     }
 
-    // Primary playback path: play full utterance blob.
     ttsPlaybackLaunchedRef.current = true;
     ttsPlaybackBytesRef.current = size;
-    pushTtsDebug(`[audio.fallback.prepare] chunks=${fallbackChunksRef.current.length} bytes=${size}`);
     const merged = new Uint8Array(size);
     let offset = 0;
     for (const c of fallbackChunksRef.current) {
@@ -310,14 +280,6 @@ export function App() {
     const url = URL.createObjectURL(blob);
     const audio = new Audio(url);
     let playbackClosed = false;
-    audio.onloadedmetadata = () => pushTtsDebug(`[audio.fallback.meta] duration=${audio.duration}`);
-    audio.oncanplay = () => pushTtsDebug("[audio.fallback.canplay]");
-    audio.onplaying = () => pushTtsDebug("[audio.fallback.playing]");
-    audio.onerror = () => {
-      if (playbackClosed || audio.ended) return;
-      const mediaError = (audio as any).error;
-      pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
-    };
     currentAudioRef.current = audio;
     try {
       await audio.play();
@@ -329,6 +291,11 @@ export function App() {
       playbackClosed = true;
       pushTtsDebug("[audio.fallback.ended]");
       URL.revokeObjectURL(url);
+    };
+    audio.onerror = () => {
+      if (playbackClosed || audio.ended) return;
+      const mediaError = (audio as any).error;
+      pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
     };
   }
 
@@ -349,17 +316,12 @@ export function App() {
     if (sourceBufferRef.current) {
       try {
         sourceBufferRef.current.abort();
-      } catch {
-        // noop
-      }
+      } catch {}
     }
-
     if (mediaSourceRef.current?.readyState === "open") {
       try {
         mediaSourceRef.current.endOfStream();
-      } catch {
-        // noop
-      }
+      } catch {}
     }
 
     sourceBufferRef.current = null;
@@ -398,7 +360,6 @@ export function App() {
         break;
       case "assistant.text.final":
         setTranscript((t) => [...t, `assistant: ${event.text}`]);
-        // Keep persona in "thinking" while TTS audio is being generated.
         apply("ASSISTANT_THINKING");
         startNewTtsStream();
         break;
@@ -417,7 +378,6 @@ export function App() {
       }
       case "tts.audio.chunk":
         appendTtsChunk(event.audioBase64, event.ttsId);
-        // Transition to speaking as soon as we receive actual audio payload.
         if (stateRef.current !== "speaking") apply("ASSISTANT_SPEAKING");
         break;
       case "tts.done":
@@ -478,10 +438,7 @@ export function App() {
   async function unlockAudioOutput() {
     try {
       const Ctx = (window.AudioContext || (window as any).webkitAudioContext);
-      if (!Ctx) {
-        pushTtsDebug("[audio.unlock] AudioContext not supported");
-        return;
-      }
+      if (!Ctx) return;
       const ctx = new Ctx();
       await ctx.resume();
       const osc = ctx.createOscillator();
@@ -511,7 +468,6 @@ export function App() {
 
   async function handleToggle() {
     if (!canToggle) return;
-
     if (!conversationActive) {
       await requestMic();
       return;
@@ -534,7 +490,6 @@ export function App() {
       return;
     }
 
-    // Email verification click is a direct user gesture: piggyback audio unlock here.
     await unlockAudioOutput();
 
     setError(null);
@@ -546,7 +501,6 @@ export function App() {
       wsRef.current?.send({ type: "session.start", email });
       void startMicStreaming().catch((e) => {
         setError(`mic_stream_error: ${String((e as Error)?.message ?? e)}`);
-        pushTtsDebug(`[mic.error] ${String((e as Error)?.message ?? e)}`);
       });
     });
     client.onClose(() => {
@@ -577,7 +531,6 @@ export function App() {
       return;
     }
 
-    // Keep code out of the visible URL immediately.
     sessionStorage.setItem("webflow_oauth_code", code);
     window.history.replaceState({}, document.title, "/webflow/oauth/callback");
     setWebflowAuthStatus("exchanging");
@@ -590,9 +543,7 @@ export function App() {
         }
         return res.json();
       })
-      .then(() => {
-        setWebflowAuthStatus("received");
-      })
+      .then(() => setWebflowAuthStatus("received"))
       .catch((err) => {
         setWebflowAuthStatus("error");
         setError(`webflow_oauth_exchange_failed: ${String((err as Error)?.message ?? err)}`);
@@ -625,201 +576,222 @@ export function App() {
     [state, canToggle, conversationActive, email, history, transcript, wsConnected, ttsDebug]
   );
 
+  const showGate = state === "gated";
+
   if (isEmbed) {
     return (
-      <main className="ji-embed-shell">
-        <div className="ji-embed-card">
-          <div className="persona-hero-wrap">
-            <PersonaOrb className="persona-scale-4" state={state} />
-            <button className="mic-btn mic-btn-fab" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
+      <main className="relative grid min-h-screen place-items-center bg-background p-3 text-foreground">
+        <div className="grid w-full max-w-sm justify-items-center gap-4">
+          <div className="relative grid h-[620px] w-[620px] place-items-center max-sm:h-[360px] max-sm:w-[360px]">
+            <PersonaOrb className="origin-center scale-[4] max-sm:scale-[2.35]" state={state} />
+            <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
               <MicIcon size={24} />
-            </button>
+            </Button>
           </div>
-          <p className="hero-copy">Talk to my portfolio voice agent.</p>
-          {error && <p className="error">{error}</p>}
+          <p className="max-w-sm text-center text-sm text-muted-foreground">Talk to my portfolio voice agent.</p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
 
-        {state === "gated" && (
-          <div className="ji-modal-backdrop">
-            <div className="ji-modal" role="dialog" aria-modal="true" aria-label="Verify your email">
-              <h3 className="ji-modal-title">Continue with email</h3>
-              <p className="ji-modal-copy">Enter your email to unlock the voice experience.</p>
-              <input
-                type="email"
-                className="field"
-                placeholder="recruiter@company.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-              <button onClick={submitEmail} className="text-btn">Verify Email + Continue</button>
-            </div>
-          </div>
+        {showGate && (
+          <Card className="absolute inset-x-4 top-6 mx-auto w-full max-w-sm border-border/80 bg-card/95">
+            <CardHeader>
+              <CardTitle className="text-lg">Continue with email</CardTitle>
+            </CardHeader>
+            <CardContent className="grid gap-3">
+              <Input type="email" placeholder="recruiter@company.com" value={email} onChange={(e) => setEmail(e.target.value)} />
+              <Button onClick={submitEmail}>Verify Email + Continue</Button>
+            </CardContent>
+          </Card>
         )}
       </main>
     );
   }
 
   return (
-    <main className="portfolio-shell">
-      <header className="top-nav">
-        <div className="logo-box">JI</div>
-        <nav className="nav-links">
-          <a href="#projects" className="nav-pill nav-pill-active">Projects</a>
-          <a href="#about" className="nav-pill">About</a>
-          <a href="#contact" className="nav-pill">Contact</a>
+    <main className="mx-auto max-w-6xl space-y-10 bg-background px-4 py-8 text-foreground sm:px-6">
+      <header className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border/70 bg-card/30 p-4">
+        <div className="grid h-14 w-14 place-items-center rounded-md bg-primary text-primary-foreground font-bold tracking-[0.08em]">JI</div>
+        <nav className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={() => document.getElementById("projects")?.scrollIntoView({ behavior: "smooth" })}>Projects</Button>
+          <Button variant="outline" size="sm" onClick={() => document.getElementById("about")?.scrollIntoView({ behavior: "smooth" })}>About</Button>
+          <Button variant="outline" size="sm" onClick={() => document.getElementById("contact")?.scrollIntoView({ behavior: "smooth" })}>Contact</Button>
         </nav>
-        <button className="copy-btn" onClick={copyEmailToClipboard}>{copiedEmail ? "Copied" : "Copy Email"}</button>
+        <Button onClick={copyEmailToClipboard}>{copiedEmail ? "Copied" : "Copy Email"}</Button>
       </header>
 
       {webflowAuthStatus !== "idle" && (
-        <section className="oauth-notice" role="status">
-          {webflowAuthStatus === "exchanging" && "Webflow auth code captured. Exchanging for access token..."}
-          {webflowAuthStatus === "received" && "Webflow auth complete. Token saved server-side and code removed from URL."}
-          {webflowAuthStatus === "missing" && "Webflow callback loaded without a code parameter."}
-          {webflowAuthStatus === "error" && "Webflow OAuth exchange failed. Check server logs and env credentials."}
-        </section>
+        <Card className="border-blue-200 bg-blue-50 text-slate-800 dark:border-blue-900 dark:bg-blue-950 dark:text-blue-100">
+          <CardContent className="p-4 text-sm">
+            {webflowAuthStatus === "exchanging" && "Webflow auth code captured. Exchanging for access token..."}
+            {webflowAuthStatus === "received" && "Webflow auth complete. Token saved server-side and code removed from URL."}
+            {webflowAuthStatus === "missing" && "Webflow callback loaded without a code parameter."}
+            {webflowAuthStatus === "error" && "Webflow OAuth exchange failed. Check server logs and env credentials."}
+          </CardContent>
+        </Card>
       )}
 
-      <section className="hero-center" id="home">
-        <p className="kicker">Product Designer + Voice AI Builder</p>
-        <h1 className="hero-title">I design and ship conversational product experiences.</h1>
+      <section className="space-y-5 text-center">
+        <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Product Designer + Voice AI Builder</p>
+        <h1 className="mx-auto max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-6xl">I design and ship conversational product experiences.</h1>
 
-        <div className="persona-hero-wrap">
-          <PersonaOrb className="persona-scale-4" state={state} />
-          <button className="mic-btn mic-btn-fab" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
+        <div className="relative mx-auto grid h-[620px] w-[620px] place-items-center max-sm:h-[360px] max-sm:w-[360px]">
+          <PersonaOrb className="origin-center scale-[4] max-sm:scale-[2.35]" state={state} />
+          <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
             <MicIcon size={24} />
-          </button>
+          </Button>
         </div>
 
-        <div className="mic-wrap">
-          <p className="hero-copy">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
-          <div className="status-row">
-            <span className="status-chip">State: {state}</span>
-            <span className="status-chip">WS: {wsConnected ? "connected" : "disconnected"}</span>
-            <span className="status-chip">Mic: {conversationActive ? "live" : "idle"}</span>
-          </div>
-          <div className="hero-actions">
-            <button onClick={unlockAudioOutput} className="text-btn icon-btn">
-              <Volume2Icon size={14} /> {audioUnlocked ? "Audio unlocked" : "Unlock audio"}
-            </button>
-            {conversationActive && (
-              <button
-                onClick={() => {
-                  stopPlayback();
-                  send({ type: "voice.interrupt" });
-                }}
-                className="text-btn icon-btn"
-              >
-                <HandIcon size={14} /> Interrupt assistant
-              </button>
-            )}
-          </div>
+        <p className="mx-auto max-w-md text-muted-foreground">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <Badge>State: {state}</Badge>
+          <Badge>WS: {wsConnected ? "connected" : "disconnected"}</Badge>
+          <Badge>Mic: {conversationActive ? "live" : "idle"}</Badge>
         </div>
 
-        {state === "gated" && (
-          <div className="email-gate">
-            <input
-              type="email"
-              className="field"
-              placeholder="recruiter@company.com"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <button onClick={submitEmail} className="text-btn">Verify Email + Connect</button>
-          </div>
+        <div className="flex flex-wrap justify-center gap-2">
+          <Button variant="outline" size="sm" onClick={unlockAudioOutput} className="gap-2">
+            <Volume2Icon size={14} /> {audioUnlocked ? "Audio unlocked" : "Unlock audio"}
+          </Button>
+          {conversationActive && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2"
+              onClick={() => {
+                stopPlayback();
+                send({ type: "voice.interrupt" });
+              }}
+            >
+              <HandIcon size={14} /> Interrupt assistant
+            </Button>
+          )}
+        </div>
+
+        {showGate && (
+          <Card className="mx-auto w-full max-w-xl border-border/80 bg-card/70">
+            <CardContent className="grid gap-3 p-4 sm:grid-cols-[1fr_auto]">
+              <Input
+                type="email"
+                placeholder="recruiter@company.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+              />
+              <Button onClick={submitEmail}>Verify Email + Connect</Button>
+            </CardContent>
+          </Card>
         )}
-        {error && <p className="error">{error}</p>}
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
       </section>
 
-      <section id="projects" className="featured-section">
-        <h2>Featured Work—</h2>
-        <div className="project-grid">
+      <section id="projects" className="space-y-4">
+        <h2 className="text-3xl font-semibold tracking-tight sm:text-4xl">Featured Work</h2>
+        <div className="grid gap-4 md:grid-cols-2">
           {featuredProjects.map((project) => (
-            <article className="project-card" key={project.title}>
-              <img src={project.image} alt={`${project.title} visual`} />
-              <div className="project-overlay">
-                <h3>{project.title}</h3>
-                <p>{project.description}</p>
-                <div className="tag-row">
-                  {project.tags.map((tag) => (
-                    <span className="tag" key={tag}>{tag}</span>
-                  ))}
+            <Card key={project.title} className="group overflow-hidden border-border/70 bg-card/50">
+              <div className="relative">
+                <img src={project.image} alt={`${project.title} visual`} className="h-64 w-full object-cover" />
+                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent p-4 text-white">
+                  <h3 className="text-lg font-semibold">{project.title}</h3>
+                  <p className="text-sm text-white/90">{project.description}</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {project.tags.map((tag) => (
+                      <Badge key={tag} className="border-white/40 bg-white/10 text-white">{tag}</Badge>
+                    ))}
+                  </div>
                 </div>
               </div>
-            </article>
+            </Card>
           ))}
         </div>
       </section>
 
-      <section className="experience-section" id="about">
-        <h2>Experience</h2>
-        <div className="experience-list">
+      <section className="space-y-4" id="about">
+        <h2 className="text-3xl font-semibold tracking-tight">Experience</h2>
+        <div className="grid gap-3">
           {experience.map((item) => (
-            <article key={`${item.company}-${item.role}`} className="experience-item">
-              <div>
-                <h3>{item.company}</h3>
-                <p className="exp-role">{item.role}</p>
-              </div>
-              <p className="exp-period">{item.period}</p>
-              <p className="exp-blurb">{item.blurb}</p>
-            </article>
+            <Card key={`${item.company}-${item.role}`} className="border-border/70 bg-card/40">
+              <CardContent className="space-y-2 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-lg font-semibold">{item.company}</h3>
+                  <span className="text-xs text-muted-foreground">{item.period}</span>
+                </div>
+                <p className="text-sm font-medium text-muted-foreground">{item.role}</p>
+                <p className="text-sm text-foreground/90">{item.blurb}</p>
+              </CardContent>
+            </Card>
           ))}
         </div>
       </section>
 
-      <section className="case-study" id="storyboard">
-        <h2>Storyboard — Beating Isolation on the Road</h2>
-        <p>
+      <section className="space-y-4">
+        <h2 className="text-3xl font-semibold tracking-tight">Storyboard — Beating Isolation on the Road</h2>
+        <p className="max-w-4xl text-muted-foreground">
           We pivoted from podcasting to a voice-first team communication model. I led discovery interviews, journey mapping,
           hands-free prototype testing, and public beta delivery for trucking customers.
         </p>
-        <div className="case-grid">
-          <div><h4>Discovery</h4><p>Interviewed drivers and dispatchers to map communication breakdowns and accessibility constraints.</p></div>
-          <div><h4>Strategy</h4><p>Prioritized voice commands, transcription, and translation for high-frequency, low-attention workflows.</p></div>
-          <div><h4>Testing</h4><p>Ran real-world usability tests and refined recognition reliability with redundant audio/visual messaging.</p></div>
-          <div><h4>Impact</h4><p>Reduced design delivery time using fast sprint loops; launched pilots with Grand Island Express, Cypress, and Ryder.</p></div>
+        <div className="grid gap-3 md:grid-cols-2">
+          {[
+            ["Discovery", "Interviewed drivers and dispatchers to map communication breakdowns and accessibility constraints."],
+            ["Strategy", "Prioritized voice commands, transcription, and translation for high-frequency, low-attention workflows."],
+            ["Testing", "Ran real-world usability tests and refined recognition reliability with redundant audio/visual messaging."],
+            ["Impact", "Reduced design delivery time using fast sprint loops; launched pilots with Grand Island Express, Cypress, and Ryder."],
+          ].map(([title, copy]) => (
+            <Card key={title} className="border-border/70 bg-card/40">
+              <CardContent className="p-4">
+                <h4 className="font-semibold">{title}</h4>
+                <p className="mt-1 text-sm text-muted-foreground">{copy}</p>
+              </CardContent>
+            </Card>
+          ))}
         </div>
       </section>
 
-      <section className="live-panels">
-        <div className="card-light">
-          <TranscriptStrip lines={transcript} />
-        </div>
-        <div className="card-light" id="contact">
-          <h3 className="section-title-dark">Suggested Actions</h3>
-          <div className="pill-row">
-            {actionChips.length === 0 ? (
-              <small className="mini-dark">No project suggestions yet.</small>
-            ) : (
-              actionChips.map((chip, idx) => (
-                <button
-                  key={`${chip.label}-${idx}`}
-                  className="pill-light"
-                  onClick={() => setTranscript((t) => [...t, `ui-action: ${chip.slug ?? chip.label}`])}
-                >
-                  {chip.label}
-                </button>
-              ))
-            )}
-          </div>
-          <p className="contact-copy">{contactEmail}</p>
-        </div>
+      <section className="grid gap-4 lg:grid-cols-2">
+        <TranscriptStrip lines={transcript} />
+
+        <Card className="border-border/80 bg-card/40" id="contact">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm uppercase tracking-widest text-muted-foreground">Suggested Actions</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              {actionChips.length === 0 ? (
+                <small className="text-muted-foreground">No project suggestions yet.</small>
+              ) : (
+                actionChips.map((chip, idx) => (
+                  <Button
+                    key={`${chip.label}-${idx}`}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setTranscript((t) => [...t, `ui-action: ${chip.slug ?? chip.label}`])}
+                  >
+                    {chip.label}
+                  </Button>
+                ))
+              )}
+            </div>
+            <p className="font-medium text-foreground/90">{contactEmail}</p>
+          </CardContent>
+        </Card>
       </section>
 
-      <section className="card-light debug-wrap">
-        <div className="debug-head">
-          <h3 className="section-title-dark">Developer Debug</h3>
-          <button className="text-btn" onClick={() => setShowDebug((v) => !v)}>{showDebug ? "Hide debug" : "Show debug"}</button>
-        </div>
-        {showDebug ? (
-          <div className="debug-grid">
-            <pre className="log">{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}</pre>
-            <pre className="debug">{JSON.stringify(debug, null, 2)}</pre>
-          </div>
-        ) : (
-          <p className="mini-dark">Debug panels are hidden.</p>
-        )}
-      </section>
+      <Card className="border-border/80 bg-card/40">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <CardTitle className="text-sm uppercase tracking-widest text-muted-foreground">Developer Debug</CardTitle>
+          <Button variant="outline" size="sm" onClick={() => setShowDebug((v) => !v)}>{showDebug ? "Hide debug" : "Show debug"}</Button>
+        </CardHeader>
+        <CardContent>
+          {showDebug ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <pre className="max-h-64 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-blue-100">{ttsDebug.length ? ttsDebug.join("\n") : "No TTS debug events yet."}</pre>
+              <pre className="max-h-64 overflow-auto rounded-md bg-slate-950 p-3 text-xs text-blue-100">{JSON.stringify(debug, null, 2)}</pre>
+            </div>
+          ) : (
+            <p className="text-sm text-muted-foreground">Debug panels are hidden.</p>
+          )}
+        </CardContent>
+      </Card>
     </main>
   );
 }

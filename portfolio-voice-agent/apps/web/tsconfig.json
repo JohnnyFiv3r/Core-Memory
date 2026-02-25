@@ -4,6 +4,7 @@
     "jsx": "react-jsx",
     "types": ["vite/client"],
     "baseUrl": ".",
+    "paths": { "@/*": ["src/*"] },
     "noEmit": true
   },
   "include": ["src"]
