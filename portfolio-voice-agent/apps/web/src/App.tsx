@@ -449,6 +449,11 @@ export function App() {
         pushTtsDebug(`[${event.stage}] ${event.detail ?? ""}`.trim());
         break;
       case "error":
+        // TTS stream aborts are expected when a new segment starts — don't kill session
+        if (event.code === "tts_stream_failed" && event.message?.includes("aborted")) {
+          pushTtsDebug(`[tts.abort] non-fatal: ${event.message}`);
+          break;
+        }
         setError(`${event.code}: ${event.message}`);
         apply("FAIL");
         break;
