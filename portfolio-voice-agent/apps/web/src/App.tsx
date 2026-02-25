@@ -564,6 +564,20 @@ export function App() {
 
     await unlockAudioOutput();
 
+    // Fire-and-forget lead capture to Google Sheet
+    try {
+      fetch("https://script.google.com/macros/s/AKfycbz_56rmBIUdJZvCHKthCzyHyOoc_bZylPo0c4xq0BFavBK-Hvu_fr9YEYS9vKBMuoH9Ig/exec", {
+        method: "POST",
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain" },
+        body: JSON.stringify({
+          email,
+          source: isEmbed ? "embed" : "standalone",
+          userAgent: navigator.userAgent
+        })
+      });
+    } catch { /* don't block voice session on lead capture failure */ }
+
     setError(null);
     apply("EMAIL_VERIFIED");
 
