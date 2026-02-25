@@ -71,6 +71,8 @@ export function App() {
   const ttsDoneRetryCountRef = useRef(0);
   const activeTtsIdRef = useRef<number | null>(null);
   const iosAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ttsQueueRef = useRef<Uint8Array[][]>([]);
+  const ttsQueuePlayingRef = useRef(false);
 
   const micStreamRef = useRef<MediaStream | null>(null);
   const micContextRef = useRef<AudioContext | null>(null);
@@ -218,7 +220,7 @@ export function App() {
   }
 
   function startNewTtsStream() {
-    stopPlayback();
+    // Don't kill current playback — just reset chunk collection for this segment
     ttsDoneRef.current = false;
     appendQueueRef.current = [];
     fallbackChunksRef.current = [];
@@ -295,10 +297,29 @@ export function App() {
       merged.set(c, offset);
       offset += c.byteLength;
     }
+
+    // Enqueue this segment's audio and play sequentially
+    ttsQueueRef.current.push([merged]);
+    pushTtsDebug(`[audio.queue] enqueued segment (${size} bytes), queue depth=${ttsQueueRef.current.length}`);
+    void playNextInQueue();
+  }
+
+  async function playNextInQueue() {
+    if (ttsQueuePlayingRef.current) return;
+    const next = ttsQueueRef.current.shift();
+    if (!next || next.length === 0) {
+      // Queue empty — done speaking
+      apply("END_SPEAKING");
+      return;
+    }
+    ttsQueuePlayingRef.current = true;
+    const totalSize = next.reduce((a, c) => a + c.byteLength, 0);
+    const merged = new Uint8Array(totalSize);
+    let off = 0;
+    for (const c of next) { merged.set(c, off); off += c.byteLength; }
     const blob = new Blob([merged.buffer], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
 
-    // Reuse iOS-primed audio element if available, otherwise create new
     const audio = iosAudioRef.current ?? new Audio();
     audio.onended = null;
     audio.onerror = null;
@@ -308,29 +329,35 @@ export function App() {
     currentAudioRef.current = audio;
     try {
       await audio.play();
-      pushTtsDebug("[audio.fallback.play] fallback blob playback started");
+      pushTtsDebug(`[audio.queue.play] playing segment (${totalSize} bytes), remaining=${ttsQueueRef.current.length}`);
       apply("ASSISTANT_SPEAKING");
     } catch (e) {
-      pushTtsDebug(`[audio.fallback.error] ${String((e as Error)?.message ?? e)}`);
+      pushTtsDebug(`[audio.queue.error] ${String((e as Error)?.message ?? e)}`);
+      ttsQueuePlayingRef.current = false;
       apply("END_SPEAKING");
+      return;
     }
     audio.onended = () => {
       playbackClosed = true;
-      pushTtsDebug("[audio.fallback.ended]");
-      apply("END_SPEAKING");
+      pushTtsDebug("[audio.queue.ended]");
       URL.revokeObjectURL(url);
+      ttsQueuePlayingRef.current = false;
+      void playNextInQueue();
     };
     audio.onerror = () => {
       if (playbackClosed || audio.ended) return;
       const mediaError = (audio as any).error;
-      pushTtsDebug(`[audio.fallback.media_error] code=${mediaError?.code ?? "unknown"}`);
-      apply("END_SPEAKING");
+      pushTtsDebug(`[audio.queue.media_error] code=${mediaError?.code ?? "unknown"}`);
+      ttsQueuePlayingRef.current = false;
+      void playNextInQueue();
     };
   }
 
   function stopPlayback() {
     appendQueueRef.current = [];
     fallbackChunksRef.current = [];
+    ttsQueueRef.current = [];
+    ttsQueuePlayingRef.current = false;
     ttsDoneRef.current = false;
     playbackStartedRef.current = false;
     ttsPlaybackLaunchedRef.current = false;
@@ -667,7 +694,7 @@ export function App() {
             className="relative grid place-items-center"
             style={{ height: "min(56vh, 360px)", width: "min(90vw, 360px)" }}
           >
-            <PersonaOrb className="origin-center scale-[5.2] max-sm:scale-[4.6]" state={state} />
+            <PersonaOrb className="origin-center scale-[1.7] max-sm:scale-[1.5]" state={state} />
             <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
               <MicIcon size={24} />
             </Button>
@@ -719,7 +746,7 @@ export function App() {
         <h1 className="mx-auto max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-6xl">I design and ship conversational product experiences.</h1>
 
         <div className="relative mx-auto grid h-[820px] w-[820px] place-items-center max-sm:h-[460px] max-sm:w-[460px]">
-          <PersonaOrb className="origin-center scale-[5.25] max-sm:scale-[3.1]" state={state} />
+          <PersonaOrb className="origin-center scale-[4] max-sm:scale-[2.2]" state={state} />
           <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
             <MicIcon size={24} />
           </Button>
