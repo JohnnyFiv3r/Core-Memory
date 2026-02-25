@@ -70,6 +70,7 @@ export function App() {
   const ttsPlaybackBytesRef = useRef(0);
   const ttsDoneRetryCountRef = useRef(0);
   const activeTtsIdRef = useRef<number | null>(null);
+  const iosAudioRef = useRef<HTMLAudioElement | null>(null);
 
   const micStreamRef = useRef<MediaStream | null>(null);
   const micContextRef = useRef<AudioContext | null>(null);
@@ -296,7 +297,13 @@ export function App() {
     }
     const blob = new Blob([merged.buffer], { type: "audio/mpeg" });
     const url = URL.createObjectURL(blob);
-    const audio = new Audio(url);
+
+    // Reuse iOS-primed audio element if available, otherwise create new
+    const audio = iosAudioRef.current ?? new Audio();
+    audio.onended = null;
+    audio.onerror = null;
+    audio.src = url;
+    audio.muted = false;
     let playbackClosed = false;
     currentAudioRef.current = audio;
     try {
@@ -468,6 +475,25 @@ export function App() {
       gain.connect(ctx.destination);
       osc.start();
       osc.stop(ctx.currentTime + 0.03);
+
+      // Prime a persistent Audio element during user gesture for iOS Safari.
+      // iOS requires play() to originate from a user action; once primed, the
+      // element can be reused for subsequent src changes without gesture.
+      if (!iosAudioRef.current) {
+        const a = new Audio();
+        a.muted = true;
+        (a as any).playsInline = true;
+        a.setAttribute("playsinline", "");
+        // Create a tiny silent mp3 frame to prime with
+        const silentMp3 = "data:audio/mpeg;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYK";
+        a.src = silentMp3;
+        try { await a.play(); } catch { /* expected on some browsers */ }
+        a.muted = false;
+        a.pause();
+        iosAudioRef.current = a;
+        pushTtsDebug("[audio.unlock] iOS persistent audio element primed");
+      }
+
       setAudioUnlocked(true);
       pushTtsDebug("[audio.unlock] Audio output unlocked by user gesture");
     } catch (e) {
