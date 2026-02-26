@@ -12,6 +12,19 @@ This skill manages structured memory beads — typed, linked, append-only record
 
 Or set PATH: `export PATH="/home/node/.openclaw/workspace/tools/mem-beads:$PATH"`
 
+## Architecture: How Beads Get Written
+
+### Per-Turn (inline by main agent)
+There is **no per-turn hook** in OpenClaw core. The main agent writes beads inline after significant turns. This is lightweight — one `exec` call to the CLI.
+
+### Pre-Compaction (OpenClaw memory flush)
+OpenClaw has a built-in **pre-compaction memory flush** — a silent agentic turn injected before auto-compaction. We customize this prompt to also create a `session_end` summary bead and run compaction on the session's beads. This is the closest thing to a "session end" hook.
+
+Configure via `agents.defaults.compaction.memoryFlush.prompt` in `openclaw.json`.
+
+### Sub-Agent (optional, for automation)
+For fully automated capture, spawn a `minimax-fast` sub-agent with the turn context. Use `turn_prompt.py` to generate the prompt. This is optional — inline mode is simpler and cheaper.
+
 ## Per-Turn Bead Writing
 
 ### When to Write a Bead
