@@ -2,6 +2,82 @@
 
 Persistent causal agent memory with lossless compaction.
 
+**Version**: 1.0.0 (MVP)
+**Status**: Production-ready
+**Requires**: Python 3.11+, OpenClaw
+
+## Installation
+
+### 1. Copy Skill
+```bash
+cp -r skills/mem-beads /path/to/your/workspace/skills/
+```
+
+### 2. Copy CLI Tools
+```bash
+mkdir -p /path/to/your/workspace/tools/mem-beads
+cp tools/mem-beads/mem-beads /path/to/your/workspace/tools/mem-beads/
+cp tools/mem-beads/mem_beads.py /path/to/your/workspace/tools/mem-beads/
+cp tools/mem-beads/consolidate.py /path/to/your/workspace/tools/mem-beads/
+cp tools/mem-beads/associate.py /path/to/your/workspace/tools/mem-beads/
+chmod +x /path/to/your/workspace/tools/mem-beads/mem-beads
+```
+
+### 3. Configure Memory Flush (Optional)
+Add to `openclaw.json` to enable session-end consolidation:
+```json
+{
+  "agents": {
+    "defaults": {
+      "compaction": {
+        "memoryFlush": {
+          "enabled": true,
+          "softThresholdTokens": 6000,
+          "systemPrompt": "Pre-compaction memory flush. Run mem-beads consolidation. Reply with NO_REPLY.",
+          "prompt": "Run: python3 /path/to/workspace/tools/mem-beads/consolidate.py consolidate --session SESSION_ID --promote. Then run association analysis: python3 /path/to/workspace/tools/mem-beads/associate.py prompt. Reply with NO_REPLY."
+        }
+      }
+    }
+  }
+}
+```
+
+### 4. Add to AGENTS.md
+Add to your AGENTS.md for per-turn bead writing:
+```markdown
+## Mem.beads — Per-Turn Memory
+After significant turns, write beads. See skills/mem-beads/SKILL.md.
+
+Quick: /path/to/workspace/tools/mem-beads/mem-beads create --type <type> --title "..." --summary "..." --session <id> --scope <scope> --tags "..."
+```
+
+## Configuration Options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `MEMBEADS_DIR` | `.mem-beads` | Directory for bead storage |
+| `window_size` | 10 | Sessions in rolling window |
+| `token_budget` | 5000 | Max tokens for rolling window |
+| `promote_threshold` | 0.8 | Confidence threshold for auto-promotion |
+| `myelination_boost` | 0.05 | Lower threshold by this per recall |
+
+## CLI Reference
+
+| Command | Description |
+|---------|-------------|
+| `mem-beads create` | Create a new bead |
+| `mem-beads query` | Query beads with filters |
+| `mem-beads link` | Link two beads |
+| `mem-beads close` | Update bead status |
+| `mem-beads compact` | Compact beads |
+| `mem-beads uncompact` | Restore full beads |
+| `mem-beads recall` | Record bead recall (myelination) |
+| `mem-beads supersede` | Mark bead as superseded |
+| `mem-beads stats` | Show statistics |
+| `mem-beads rebuild-index` | Rebuild index from JSONL |
+| `consolidate.py` | Session consolidation |
+| `associate.py` | Association crawler |
+
 ## Overview
 
 This skill manages structured memory beads — typed, linked, append-only records of meaningful agent actions. Beads form causal chains across sessions, compact over time, but the full archive is always preserved.
