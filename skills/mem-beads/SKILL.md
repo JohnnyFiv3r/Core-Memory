@@ -205,12 +205,35 @@ python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py surface
 ```
 
 ### Cron Job (automated)
-A cron job can trigger association analysis periodically. The flow:
-1. Cron fires a system event or agent turn
-2. Agent runs `associate.py prompt` to get the analysis prompt
-3. Agent evaluates the beads and identifies associations
-4. Agent runs `associate.py record` to store them
-5. Optionally surfaces interesting finds to the user
+A cron job triggers association analysis periodically via a system event to the main agent:
+
+```bash
+# Example cron job (runs daily at 9am):
+cron job add \
+  --schedule "cron: 0 9 * * *" \
+  --session-target main \
+  --payload 'kind: systemEvent, text: "Run mem-beads association crawler"' \
+  --delivery '{"mode": "announce"}'
+```
+
+The main agent then runs:
+1. `associate.py prompt` to get the analysis prompt
+2. Evaluates the beads and identifies associations (inline, uses main agent model)
+3. Runs `associate.py record` to store them
+4. Optionally surfaces interesting finds to the user
+
+### Alternative: Sub-Agent Mode (configurable)
+For separate model control, spawn a sub-agent with a configurable model:
+
+```bash
+# Set model via env var before running
+MEMBEADS_ASSOCIATION_MODEL=minimax/MiniMax-M2.5 ./run_association.sh
+```
+
+Or spawn manually:
+```bash
+sessions_spawn --task "<analysis task>" --model "minimax/MiniMax-M2.5" --label "association-crawl"
+```
 
 ### Relationship Types
 - `similar_pattern` — Same approach used in different contexts
