@@ -219,7 +219,7 @@ mem-beads create --type <type> --title "..." --summary "..." --session <id> --sc
 
 **When**: Goals, decisions, lessons, outcomes, precedents, important context changes.
 **Skip**: Casual chat, simple Q&A, heartbeats, already-beaded work.
-**Sub-agent**: For automated capture, spawn with `minimax-fast` using the turn prompt template at `tools/mem-beads/turn_prompt.py`.
+**Silent**: Never narrate bead creation to the user. It's background bookkeeping.
 
 ## Make It Yours
 

@@ -14,16 +14,16 @@ Or set PATH: `export PATH="/home/node/.openclaw/workspace/tools/mem-beads:$PATH"
 
 ## Architecture: How Beads Get Written
 
-### Per-Turn (inline by main agent)
-There is **no per-turn hook** in OpenClaw core. The main agent writes beads inline after significant turns. This is lightweight — one `exec` call to the CLI.
+### Per-Turn (inline, silent)
+The main agent writes beads inline after significant turns. This is silent — no user-visible output. One `exec` call to the CLI (~100ms). Do NOT narrate bead creation to the user.
 
 ### Pre-Compaction (OpenClaw memory flush)
-OpenClaw has a built-in **pre-compaction memory flush** — a silent agentic turn injected before auto-compaction. We customize this prompt to also create a `session_end` summary bead and run compaction on the session's beads. This is the closest thing to a "session end" hook.
+OpenClaw has a built-in **pre-compaction memory flush** — a silent agentic turn injected before auto-compaction. We customize this prompt to also create a `session_end` summary bead and run compaction on the session's beads.
 
 Configure via `agents.defaults.compaction.memoryFlush.prompt` in `openclaw.json`.
 
-### Sub-Agent (optional, for automation)
-For fully automated capture, spawn a `minimax-fast` sub-agent with the turn context. Use `turn_prompt.py` to generate the prompt. This is optional — inline mode is simpler and cheaper.
+### Sub-Agent (archived)
+Sub-agent turn prompt archived at `tools/mem-beads/archive/turn_prompt.py`. Requires gateway token fix before use. Not needed for MVP — inline mode is simpler and reliable.
 
 ## Per-Turn Bead Writing
 
@@ -61,12 +61,12 @@ For fully automated capture, spawn a `minimax-fast` sub-agent with the turn cont
 4. Write the bead.
 ```
 
-### How to Write
+### How to Write (silently)
 
-Call the CLI directly:
+Call the CLI directly. **Do not narrate this to the user** — bead writing is background bookkeeping.
 
 ```bash
-mem-beads create \
+/home/node/.openclaw/workspace/tools/mem-beads/mem-beads create \
   --type <type> \
   --title "Short descriptive title" \
   --summary "Key point 1" "Key point 2" \
