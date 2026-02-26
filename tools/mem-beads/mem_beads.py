@@ -106,6 +106,8 @@ def index_bead(index: dict, bead: dict, jsonl_file: str, line_num: int):
         "created_at": bead["created_at"],
         "tags": bead.get("tags", []),
         "scope": bead.get("scope"),
+        "recall_count": 0,
+        "last_recalled": None,
     }
     # Track sessions
     sid = bead.get("session_id")
@@ -431,6 +433,56 @@ def cmd_uncompact(args):
 
     print(json.dumps(results, indent=2))
 
+def cmd_recall(args):
+    """Record that a bead was recalled (boosts myelination score)."""
+    index = load_index()
+    if args.id not in index["beads"]:
+        print(json.dumps({"ok": False, "error": f"Bead not found: {args.id}"}))
+        sys.exit(1)
+
+    meta = index["beads"][args.id]
+    meta["recall_count"] = meta.get("recall_count", 0) + 1
+    meta["last_recalled"] = datetime.now(timezone.utc).isoformat()
+    save_index(index)
+
+    print(json.dumps({
+        "ok": True, "id": args.id,
+        "recall_count": meta["recall_count"],
+        "last_recalled": meta["last_recalled"]
+    }))
+
+
+def cmd_supersede(args):
+    """Mark a bead as superseded by another."""
+    index = load_index()
+    if args.old not in index["beads"]:
+        print(json.dumps({"ok": False, "error": f"Old bead not found: {args.old}"}))
+        sys.exit(1)
+    if args.new not in index["beads"]:
+        print(json.dumps({"ok": False, "error": f"New bead not found: {args.new}"}))
+        sys.exit(1)
+
+    # Mark old as superseded
+    index["beads"][args.old]["status"] = "superseded"
+    index["beads"][args.old]["superseded_by"] = args.new
+
+    # Record link in the session file
+    old_meta = index["beads"][args.old]
+    filepath = _session_file(old_meta.get("session_id")) if old_meta.get("session_id") else _global_file()
+    event = {
+        "event": "supersede",
+        "old_bead": args.old,
+        "new_bead": args.new,
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    with FileLock(filepath):
+        with open(filepath, "a") as f:
+            f.write(json.dumps(event, separators=(",", ":")) + "\n")
+
+    save_index(index)
+    print(json.dumps({"ok": True, "old": args.old, "new": args.new, "status": "superseded"}))
+
+
 def cmd_stats(args):
     """Show statistics about the bead store."""
     index = load_index()
@@ -578,6 +630,15 @@ def build_parser():
     p.add_argument("--radius", help="Include N neighboring beads")
     p.add_argument("--follow-links", action="store_true")
 
+    # recall
+    p = sub.add_parser("recall", help="Record a bead recall (myelination)")
+    p.add_argument("--id", required=True)
+
+    # supersede
+    p = sub.add_parser("supersede", help="Mark a bead as superseded by another")
+    p.add_argument("--old", required=True, help="Bead being superseded")
+    p.add_argument("--new", required=True, help="Bead that supersedes it")
+
     # stats
     sub.add_parser("stats", help="Show bead store statistics")
 
@@ -597,6 +658,8 @@ def main():
         "close": cmd_close,
         "compact": cmd_compact,
         "uncompact": cmd_uncompact,
+        "recall": cmd_recall,
+        "supersede": cmd_supersede,
         "stats": cmd_stats,
         "rebuild-index": cmd_rebuild_index,
     }

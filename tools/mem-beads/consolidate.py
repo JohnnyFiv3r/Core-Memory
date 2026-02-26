@@ -80,10 +80,15 @@ def identify_promotion_candidates(beads: list[dict], index: dict | None = None) 
         if bead_type not in PROMOTION_ELIGIBLE:
             continue
 
+        # Myelination boost: recall_count from index lowers the confidence threshold
+        recall_count = idx_meta.get("recall_count", 0)
+        myelination_boost = min(recall_count * 0.05, 0.2)  # max 0.2 boost from recalls
+
         # Primary promotion targets: lessons, decisions, precedents, outcomes
-        # These auto-promote at confidence >= 0.8
+        # These auto-promote at confidence >= 0.8 (lowered by myelination)
         primary = {"lesson", "decision", "precedent", "outcome", "promoted_lesson", "promoted_decision"}
-        if bead_type in primary and confidence >= 0.8:
+        threshold = 0.8 - myelination_boost
+        if bead_type in primary and confidence >= threshold:
             candidates.append(bead)
             continue
 
@@ -93,7 +98,8 @@ def identify_promotion_candidates(beads: list[dict], index: dict | None = None) 
             candidates.append(bead)
             continue
 
-        if confidence >= 0.9:
+        secondary_threshold = 0.9 - myelination_boost
+        if confidence >= secondary_threshold:
             candidates.append(bead)
 
     return candidates

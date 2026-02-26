@@ -33,7 +33,7 @@
     "bead-01KJE1W0V3AA49QFXG7JK7WNVG": {
       "type": "lesson",
       "session_id": "main-2026-02-26",
-      "status": "promoted",
+      "status": "superseded",
       "title": "OpenClaw has no per-turn hook for sub-agents",
       "file": "session-main-2026-02-26.jsonl",
       "line": 2,
@@ -44,13 +44,32 @@
         "architecture"
       ],
       "scope": "project",
-      "promoted_at": "2026-02-26T22:42:18.720888+00:00"
+      "promoted_at": "2026-02-26T22:42:18.720888+00:00",
+      "recall_count": 3,
+      "last_recalled": "2026-02-26T22:51:13.571183+00:00",
+      "superseded_by": "bead-01KJE2CBBR48PVG4GFB3X3KY9S"
+    },
+    "bead-01KJE2CBBR48PVG4GFB3X3KY9S": {
+      "type": "lesson",
+      "session_id": "main-2026-02-26",
+      "status": "open",
+      "title": "OpenClaw has no per-turn hooks; mesh is user-invoked only",
+      "file": "session-main-2026-02-26.jsonl",
+      "line": 3,
+      "created_at": "2026-02-26T22:51:13.656231+00:00",
+      "tags": [
+        "mem-beads",
+        "openclaw"
+      ],
+      "scope": "project",
+      "recall_count": 0,
+      "last_recalled": null
     }
   },
   "sessions": {
     "main-2026-02-26": {
       "file": "session-main-2026-02-26.jsonl",
-      "bead_count": 3
+      "bead_count": 4
     }
   },
   "version": 1
