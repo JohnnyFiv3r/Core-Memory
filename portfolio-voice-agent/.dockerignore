@@ -4,4 +4,6 @@ apps/web
 .env
 *.ps1
 .git
+.beads
 dist
+.pnpm-store
