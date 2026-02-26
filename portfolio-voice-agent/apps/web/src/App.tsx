@@ -49,6 +49,7 @@ export function App() {
   const [wsConnected, setWsConnected] = useState(false);
   const [ttsDebug, setTtsDebug] = useState<string[]>([]);
   const [audioUnlocked, setAudioUnlocked] = useState(false);
+  const [sessionLimitReached, setSessionLimitReached] = useState(false);
   const [showDebug, setShowDebug] = useState(false);
   const [copiedEmail, setCopiedEmail] = useState(false);
   const [webflowAuthStatus, setWebflowAuthStatus] = useState<"idle" | "exchanging" | "received" | "missing" | "error">("idle");
@@ -465,8 +466,8 @@ export function App() {
         if (event.reason === "user") {
           apply("END");
         } else if (event.reason === "limit") {
-          setError("Session time limit reached. Tap Start talking to begin a new conversation.");
-          apply("FAIL");
+          setSessionLimitReached(true);
+          apply("END");
         } else {
           setError("Session ended unexpectedly.");
           apply("FAIL");
@@ -708,7 +709,7 @@ export function App() {
   if (isEmbed) {
     return (
       <main className="relative grid h-full w-full place-items-center overflow-hidden bg-transparent p-2 text-foreground">
-        <div className="grid w-full max-w-sm justify-items-center gap-1.5">
+        <div className={`grid w-full max-w-sm justify-items-center gap-1.5${sessionLimitReached ? " pointer-events-none blur-sm" : ""}`}>
           <div
             className="relative grid place-items-center"
             style={{ height: "min(56vh, 360px)", width: "min(90vw, 360px)" }}
@@ -721,6 +722,15 @@ export function App() {
           <p className="max-w-sm text-center text-sm leading-tight text-muted-foreground">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
           {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
+
+        {sessionLimitReached && (
+          <div className="absolute inset-0 z-30 grid place-items-center bg-black/60 p-6">
+            <div className="max-w-xs text-center">
+              <p className="text-lg font-semibold text-white">I hope you enjoyed your chat.</p>
+              <p className="mt-2 text-sm text-white/80">To speak more, send me an email at <a href={`mailto:${contactEmail}`} className="underline text-white">{contactEmail}</a></p>
+            </div>
+          </div>
+        )}
 
         {showGate && (
           <Card className="absolute left-1/2 top-6 z-20 w-[min(92vw,22rem)] -translate-x-1/2 border-border/80 bg-card/95">
@@ -764,12 +774,19 @@ export function App() {
         <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Product Designer + Voice AI Builder</p>
         <h1 className="mx-auto max-w-4xl text-balance text-4xl font-semibold tracking-tight sm:text-6xl">I design and ship conversational product experiences.</h1>
 
-        <div className="relative mx-auto grid h-[820px] w-[820px] place-items-center max-sm:h-[460px] max-sm:w-[460px]">
+        <div className={`relative mx-auto grid h-[820px] w-[820px] place-items-center max-sm:h-[460px] max-sm:w-[460px]${sessionLimitReached ? " pointer-events-none blur-sm" : ""}`}>
           <PersonaOrb className="origin-center scale-[4] max-sm:scale-[2.2]" state={state} />
           <Button className="absolute left-1/2 top-1/2 h-16 w-16 -translate-x-1/2 -translate-y-1/2 rounded-full" onClick={handleToggle} disabled={!canToggle} aria-label={buttonLabel}>
             <MicIcon size={24} />
           </Button>
         </div>
+
+        {sessionLimitReached && (
+          <div className="mx-auto max-w-md rounded-xl border border-border/80 bg-card/90 p-6 text-center">
+            <p className="text-lg font-semibold">I hope you enjoyed your chat.</p>
+            <p className="mt-2 text-sm text-muted-foreground">To speak more, send me an email at <a href={`mailto:${contactEmail}`} className="underline">{contactEmail}</a></p>
+          </div>
+        )}
 
         <p className="mx-auto max-w-md text-muted-foreground">Tap the microphone to talk to my portfolio agent about projects, decisions, and results.</p>
         <div className="flex flex-wrap items-center justify-center gap-2">

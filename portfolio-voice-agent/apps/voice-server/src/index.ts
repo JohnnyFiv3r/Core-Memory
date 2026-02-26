@@ -145,9 +145,28 @@ wss.on("connection", (ws) => {
     }
   }
 
-  send(ws, { type: "session.ready", sessionId, maxMinutes: Number(process.env.MAX_SESSION_MINUTES ?? 8) });
+  const maxMinutes = Number(process.env.MAX_SESSION_MINUTES ?? 5);
+  const maxTurns = Number(process.env.MAX_SESSION_TURNS ?? 20);
+  let turnCount = 0;
+  let sessionEnded = false;
+
+  function enforceSessionEnd() {
+    if (sessionEnded) return;
+    sessionEnded = true;
+    ttsAbort?.abort();
+    realtime?.close();
+    send(ws, { type: "session.ended", reason: "limit" });
+    try { ws.close(); } catch {}
+  }
+
+  // Time limit
+  const sessionTimer = setTimeout(() => enforceSessionEnd(), maxMinutes * 60 * 1000);
+
+  send(ws, { type: "session.ready", sessionId, maxMinutes });
 
   ws.on("message", (raw) => {
+    if (sessionEnded) return;
+
     let payload: unknown;
     try {
       payload = JSON.parse(raw.toString());
@@ -163,6 +182,16 @@ wss.on("connection", (ws) => {
     }
 
     const event = parsed.data;
+
+    // Count turns on end_turn (user finished speaking)
+    if (event.type === "voice.input.end_turn") {
+      turnCount++;
+      if (turnCount >= maxTurns) {
+        enforceSessionEnd();
+        return;
+      }
+    }
+
     realtime = handleClientEvent(ws, event, realtime, emit, () => {
       ttsAbort?.abort();
       ttsAbort = null;
@@ -170,6 +199,7 @@ wss.on("connection", (ws) => {
   });
 
   ws.on("close", () => {
+    clearTimeout(sessionTimer);
     ttsAbort?.abort();
     realtime?.close();
   });

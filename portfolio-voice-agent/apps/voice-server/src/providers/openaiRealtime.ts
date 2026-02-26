@@ -58,7 +58,7 @@ export class OpenAIRealtimeSession {
               type: "function",
               name: "select_story",
               description:
-                "Select the most relevant John Inniger portfolio story only when user explicitly asks for examples/background/project context. Return none when not needed.",
+                "Select the most relevant portfolio story only when user explicitly asks for examples/background/project context. Return none when not needed.",
               parameters: {
                 type: "object",
                 properties: {

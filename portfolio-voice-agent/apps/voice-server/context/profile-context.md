@@ -3,7 +3,7 @@
 > Source adapted from provided resume document. Phone number intentionally removed.
 
 ## Identity
-- **Name:** John Inniger
+- **Name:** John
 - **Role framing:** Founder | AI Design Leader | Cross-Industry Builder
 - **Location:** Murfreesboro, Tennessee
 - **Email:** john.inniger@icloud.com
