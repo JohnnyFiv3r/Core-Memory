@@ -1,0 +1,58 @@
+# MEMORY.md — Long-Term Memory
+
+## User
+- **Name**: John Inniger (Johnny)
+- **Telegram chat ID**: 8305648863
+- **Timezone**: unclear, possibly US (uses UTC context)
+- **Devices**: iPhone 17 Pro Max + Apple Watch Ultra 2
+- **Portfolio site**: johninniger.co (Webflow)
+- **Windows machine**: WSL2, Docker Desktop, cloudflared
+- **Local dev path**: `/Users/johninniger/WristChat/WristChat/`
+
+## Projects
+
+### Line Lead (restaurant AI agent) — ACTIVE
+- Full docs: `memory/line-lead-project.md`
+- Voice-first AI execution system for kitchen staff
+- Kotlin Android client + Spring Boot/Spring AI API + Ragie.ai RAG
+- Repos (Krusty clones): `JohnnyFiv3r/line-lead-client-api-krusty`, `JohnnyFiv3r/line-lead-android-client-krusty`
+- Status: waiting for Johnny to push current codebase to clone repos
+- Key decisions pending: SpringAI vs OpenClaw as agent framework
+
+### Clawdio (iOS + watchOS voice app) — PARKED
+- Full docs: `memory/clawdio-project.md`
+- Status: end-to-end voice loop working, deployed via TestFlight
+- Repo: `https://github.com/JohnnyFiv3r/ai-voice-ios.git` (private, branch `master`)
+- Remaining: landing page (getclawdio.com), open-source release
+
+### Portfolio Voice Agent — ACTIVE
+- Voice-first portfolio widget: GPT Realtime API + ElevenLabs voice clone
+- Monorepo: `portfolio-voice-agent/` (apps/web + apps/voice-server + packages/shared-types)
+- **Voice server**: deployed on Fly.io (`portfolio-voice-server`, ord region, 512MB)
+- **Web frontend**: Cloudflare Pages (`john-voice-agent.pages.dev`)
+- **DNS**: `portfolio-api.wristchat.net` → Fly.io (A + AAAA records, no CF proxy)
+- **Deploy web**: `pnpm --filter @portfolio/web build` then `npx wrangler pages deploy dist --project-name=john-voice-agent` from `apps/web`
+- **Deploy server**: `fly deploy` from project root
+- **Secrets on Fly**: OPENAI_API_KEY, ELEVENLABS_API_KEY, ELEVENLABS_VOICE_ID
+- **Webflow embed**: iframe to `https://john-voice-agent.pages.dev/?embed=1`
+- **Clawdio tunnel** still handles: api.wristchat.net (gateway), tts.wristchat.net (Piper) — portfolio-api route removed
+
+## Infrastructure
+- **Piper TTS server**: `.piper/` dir, port 18790, norman-medium voice, monitored via HEARTBEAT.md
+- **Cloudflare tunnels**: api.wristchat.net (gateway), tts.wristchat.net (Piper)
+- **Webchat**: via static Cloudflare tunnel URL
+- **Beads (bd)**: issue tracker, `export GOPATH="/home/node/gopath" && export PATH="$GOPATH/bin:$PATH"`
+- **12 OpenClaw skills** in `skills/` dir (from ai-commands framework)
+- Git commits need `--no-verify` (beads hooks)
+
+### Mem.beads (agent memory system) — ACTIVE
+- Full plan: `plans/mem-beads-plan.md`
+- Persistent causal agent memory with lossless compaction
+- 22 tickets in beads tracker (epic: workspace-k1s)
+- MVP target: this OpenClaw instance, Python scripts
+- Next: Line Lead (Spring AI), Delta Bravo (PydanticAI)
+
+## Working Style Lessons
+- Sub-agents fail on complex multi-file iOS UI — do it directly
+- Ollama delegation needs heavy correction — use for atomic tasks only
+- User prefers minimal back-and-forth, action-oriented
