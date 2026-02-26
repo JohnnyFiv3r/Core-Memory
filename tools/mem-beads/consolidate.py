@@ -29,15 +29,15 @@ from mem_beads import (
     _session_file, append_bead, make_bead, FileLock
 )
 
-ROLLING_WINDOW_FILE = os.path.join(
-    os.environ.get("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace")),
-    "promoted-context.md"
-)
+WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace"))
 
-MEMORY_FILE = os.path.join(
-    os.environ.get("OPENCLAW_WORKSPACE", os.path.expanduser("~/.openclaw/workspace")),
-    "MEMORY.md"
-)
+ROLLING_WINDOW_FILE = os.path.join(WORKSPACE, "promoted-context.md")
+
+MEMORY_FILE = os.path.join(WORKSPACE, "MEMORY.md")
+
+# Marker for the rolling window section in MEMORY.md
+RW_SECTION_START = "<!-- mem-beads:rolling-window:start -->"
+RW_SECTION_END = "<!-- mem-beads:rolling-window:end -->"
 
 DEFAULT_WINDOW_SIZE = 10  # sessions
 DEFAULT_TOKEN_BUDGET = 5000  # tokens for rolling window
@@ -217,6 +217,35 @@ def generate_rolling_window(window_size: int = DEFAULT_WINDOW_SIZE, budget: int 
     return "\n".join(lines) + "\n"
 
 
+def inject_rolling_window_into_memory(window_md: str) -> bool:
+    """Inject/replace the rolling window section in MEMORY.md."""
+    section = f"\n{RW_SECTION_START}\n{window_md}{RW_SECTION_END}\n"
+
+    if not os.path.exists(MEMORY_FILE):
+        return False
+
+    with open(MEMORY_FILE, "r") as f:
+        content = f.read()
+
+    if RW_SECTION_START in content and RW_SECTION_END in content:
+        # Replace existing section
+        start = content.index(RW_SECTION_START)
+        end = content.index(RW_SECTION_END) + len(RW_SECTION_END)
+        # Include surrounding newlines
+        while start > 0 and content[start - 1] == "\n":
+            start -= 1
+        while end < len(content) and content[end] == "\n":
+            end += 1
+        content = content[:start] + section + content[end:]
+    else:
+        # Append at end
+        content = content.rstrip() + "\n" + section
+
+    with open(MEMORY_FILE, "w") as f:
+        f.write(content)
+    return True
+
+
 def cmd_consolidate(args):
     """Consolidate a session's beads."""
     session_id = args.session
@@ -262,6 +291,10 @@ def cmd_consolidate(args):
         f.write(window)
     result["rolling_window_tokens"] = estimate_tokens(window)
     result["rolling_window_file"] = ROLLING_WINDOW_FILE
+
+    # Inject into MEMORY.md for auto-loading at session start
+    injected = inject_rolling_window_into_memory(window)
+    result["injected_into_memory"] = injected
 
     print(json.dumps(result, indent=2))
 

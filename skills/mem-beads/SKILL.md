@@ -165,11 +165,25 @@ mem-beads uncompact --id <bead-id> --radius 3 --follow-links
 
 ### Session Start
 ```bash
-mem-beads create --type session_start --title "Session: <brief description>" --session <id>
+/home/node/.openclaw/workspace/tools/mem-beads/mem-beads create --type session_start --title "Session: <brief description>" --session <id>
 ```
 
-### Session End
-Handled by session-end consolidation sub-agent (Feature 3). Don't create session_end beads manually.
+### Session End / Pre-Compaction
+When the pre-compaction memory flush fires, run consolidation:
+```bash
+python3 /home/node/.openclaw/workspace/tools/mem-beads/consolidate.py consolidate --session <id> --promote
+```
+
+This will:
+1. Identify and auto-promote qualifying beads (lessons, decisions, precedents, outcomes at confidence >= 0.8)
+2. Compact non-promoted beads
+3. Regenerate `promoted-context.md`
+4. Inject the rolling window into MEMORY.md (between HTML comment markers)
+
+### Context Injection
+The rolling window is injected into MEMORY.md (which OpenClaw auto-loads at session start).
+It lives between `<!-- mem-beads:rolling-window:start -->` and `<!-- mem-beads:rolling-window:end -->` markers.
+Consolidation replaces this section each time — no manual editing needed.
 
 ## Promotion
 
