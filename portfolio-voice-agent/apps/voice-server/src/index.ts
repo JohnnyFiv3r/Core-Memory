@@ -326,7 +326,7 @@ function buildTts(): ElevenLabsTts | null {
   }
 }
 
-httpServer.listen(port, () => {
+httpServer.listen(port, "0.0.0.0", () => {
   console.log(`[voice-server] listening on ws://localhost:${port}`);
   console.log(`[voice-server] oauth exchange endpoint: http://localhost:${port}/oauth/webflow/exchange?code=...`);
 });
