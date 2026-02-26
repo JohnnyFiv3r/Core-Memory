@@ -169,9 +169,21 @@ mem-beads uncompact --id <bead-id> --radius 3 --follow-links
 ```
 
 ### Session End / Pre-Compaction
-When the pre-compaction memory flush fires, run consolidation:
+When the pre-compaction memory flush fires, run consolidation AND association analysis:
 ```bash
+# 1. Consolidate session (promote, compact, rolling window)
 python3 /home/node/.openclaw/workspace/tools/mem-beads/consolidate.py consolidate --session <id> --promote
+
+# 2. Generate association analysis prompt
+python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py prompt
+
+# 3. Analyze beads and identify associations (inline, using main agent model)
+
+# 4. Record any new associations
+python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py record --associations '<json>'
+
+# 5. Optionally surface interesting finds
+python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py surface
 ```
 
 This will:
@@ -179,6 +191,8 @@ This will:
 2. Compact non-promoted beads
 3. Regenerate `promoted-context.md`
 4. Inject the rolling window into MEMORY.md (between HTML comment markers)
+5. Analyze beads for semantic associations (cross-session patterns)
+6. Surface interesting connections to the user (optional)
 
 ### Context Injection
 The rolling window is injected into MEMORY.md (which OpenClaw auto-loads at session start).
@@ -204,23 +218,8 @@ python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py list
 python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py surface
 ```
 
-### Cron Job (automated)
-A cron job triggers association analysis periodically via a system event to the main agent:
-
-```bash
-# Example cron job (runs daily at 9am):
-cron job add \
-  --schedule "cron: 0 9 * * *" \
-  --session-target main \
-  --payload 'kind: systemEvent, text: "Run mem-beads association crawler"' \
-  --delivery '{"mode": "announce"}'
-```
-
-The main agent then runs:
-1. `associate.py prompt` to get the analysis prompt
-2. Evaluates the beads and identifies associations (inline, uses main agent model)
-3. Runs `associate.py record` to store them
-4. Optionally surfaces interesting finds to the user
+### Trigger: Pre-Compaction Memory Flush
+The association crawler runs during the pre-compaction memory flush — no cron needed. This fires automatically before OpenClaw compacts the session, keeping association discovery incremental and tied to session lifecycle.
 
 ### Alternative: Sub-Agent Mode (configurable)
 For separate model control, spawn a sub-agent with a configurable model:
