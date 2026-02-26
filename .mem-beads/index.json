@@ -3,7 +3,7 @@
     "bead-01KJE0XFWH0E8TDDNCC5EYVCT5": {
       "type": "decision",
       "session_id": "main-2026-02-26",
-      "status": "open",
+      "status": "promoted",
       "title": "Use Python stdlib for mem-beads CLI",
       "file": "session-main-2026-02-26.jsonl",
       "line": 0,
@@ -12,12 +12,13 @@
         "mem-beads",
         "tech-stack"
       ],
-      "scope": "project"
+      "scope": "project",
+      "promoted_at": "2026-02-26T22:42:18.720858+00:00"
     },
     "bead-01KJE0XFZCRYGCFJH1HNXSJP96": {
       "type": "outcome",
       "session_id": "main-2026-02-26",
-      "status": "open",
+      "status": "promoted",
       "title": "mem-beads CLI Feature 1 complete",
       "file": "session-main-2026-02-26.jsonl",
       "line": 1,
@@ -26,13 +27,30 @@
         "mem-beads",
         "milestone"
       ],
-      "scope": "project"
+      "scope": "project",
+      "promoted_at": "2026-02-26T22:42:18.720886+00:00"
+    },
+    "bead-01KJE1W0V3AA49QFXG7JK7WNVG": {
+      "type": "lesson",
+      "session_id": "main-2026-02-26",
+      "status": "promoted",
+      "title": "OpenClaw has no per-turn hook for sub-agents",
+      "file": "session-main-2026-02-26.jsonl",
+      "line": 2,
+      "created_at": "2026-02-26T22:42:18.595087+00:00",
+      "tags": [
+        "mem-beads",
+        "openclaw",
+        "architecture"
+      ],
+      "scope": "project",
+      "promoted_at": "2026-02-26T22:42:18.720888+00:00"
     }
   },
   "sessions": {
     "main-2026-02-26": {
       "file": "session-main-2026-02-26.jsonl",
-      "bead_count": 2
+      "bead_count": 3
     }
   },
   "version": 1
