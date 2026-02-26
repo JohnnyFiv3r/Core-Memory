@@ -18,7 +18,8 @@ build/
 # Swift Package Manager
 .build/
 .swiftpm/
-Packages/
+# Swift Package Manager (NOT portfolio-voice-agent/packages!)
+/Packages/
 Package.resolved
 
 # CocoaPods (if used later)
