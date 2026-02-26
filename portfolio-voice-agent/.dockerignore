@@ -1,0 +1,7 @@
+node_modules
+apps/web
+.wrangler
+.env
+*.ps1
+.git
+dist
