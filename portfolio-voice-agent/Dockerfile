@@ -14,4 +14,5 @@ COPY apps/voice-server/ apps/voice-server/
 COPY tsconfig.base.json ./
 
 EXPOSE 8787
-CMD ["npx", "tsx", "apps/voice-server/src/index.ts"]
+RUN pnpm add -w tsx
+CMD ["node", "--import", "tsx", "apps/voice-server/src/index.ts"]
