@@ -185,6 +185,42 @@ The rolling window is injected into MEMORY.md (which OpenClaw auto-loads at sess
 It lives between `<!-- mem-beads:rolling-window:start -->` and `<!-- mem-beads:rolling-window:end -->` markers.
 Consolidation replaces this section each time — no manual editing needed.
 
+## Association Crawler
+
+The association crawler identifies semantic relationships between beads across sessions and projects.
+
+### Manual Run
+```bash
+# Generate analysis prompt
+python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py prompt
+
+# Record associations (from LLM analysis)
+python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py record --associations '<json>'
+
+# List existing associations
+python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py list
+
+# Surface interesting connections
+python3 /home/node/.openclaw/workspace/tools/mem-beads/associate.py surface
+```
+
+### Cron Job (automated)
+A cron job can trigger association analysis periodically. The flow:
+1. Cron fires a system event or agent turn
+2. Agent runs `associate.py prompt` to get the analysis prompt
+3. Agent evaluates the beads and identifies associations
+4. Agent runs `associate.py record` to store them
+5. Optionally surfaces interesting finds to the user
+
+### Relationship Types
+- `similar_pattern` — Same approach used in different contexts
+- `same_mistake` — Same error repeated
+- `transferable_lesson` — Insight applicable across domains
+- `contradicts` — Two beads that conflict
+- `reinforces` — Two beads that support each other
+- `generalizes` — One is a generalization of another
+- `specializes` — One is a specific case of another
+
 ## Promotion
 
 Any bead type except `session_start` and `session_end` can be promoted:
