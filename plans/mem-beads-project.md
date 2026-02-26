@@ -3,7 +3,7 @@
 
 **Author**: Johnny Inniger + Krusty
 **Date**: 2026-02-26
-**Status**: Concept → Architecture
+**Status**: Planned
 **Vision**: A universal structured memory system for AI agents that preserves causal chains, compacts intelligently, and scales across sessions, projects, and deployments.
 
 ---
@@ -397,3 +397,216 @@ The insight is that **memory is not a blob of text — it's a graph of structure
 
 *"The palest ink is better than the best memory." — Chinese proverb*
 *"But structured ink with causal links is better than pale ink." — Mem.beads*
+
+---
+
+# Project Execution Plan
+
+## Executive Summary
+
+Mem.beads is a 4-phase project delivering persistent, structured, causal agent memory with lossless compaction. MVP (Phases 1-2) targets this OpenClaw instance within ~1 week, providing per-turn bead creation, session-end compaction, rolling window context, and promotion to MEMORY.md. Phases 3-4 add association discovery and packaging for distribution. Total project: 2-3 weeks.
+
+**Key risk**: Sub-agent judgment quality — the system is only as good as the memory agent's ability to classify bead-worthy turns and promote correctly. Mitigated by dogfooding early and tuning prompts iteratively.
+
+## Plan Complexity
+
+**Complexity**: **Medium**
+
+**Rationale**: Well-understood problem domain (agent memory), single-platform MVP target (OpenClaw), no external service dependencies. Complexity comes from: (1) sub-agent orchestration quality, (2) designing compaction/promotion heuristics that actually work, (3) CLI tooling with concurrency safety, (4) integration into OpenClaw session lifecycle without breaking existing flows.
+
+## Time Estimates
+
+**Time scale**: 1 day = 8 hours; 1 week = 40 hours (5 days).
+
+| Estimate | Duration | Notes |
+|----------|----------|-------|
+| **100% human** | 3-4 weeks | Schema design, CLI coding, prompt engineering, integration, testing |
+| **LLM-assisted** | 1.5-2 weeks | LLM writes CLI/scripts, human designs prompts & reviews |
+| **100% LLM** | 4-6 days | Agent builds CLI, writes prompts, self-tests; human reviews promotion quality |
+
+## Defined Risks
+
+| Risk | Likelihood | Impact | Mitigation |
+|------|------------|--------|------------|
+| Per-turn sub-agent produces low-quality beads (noisy, mistyped) | Medium | High | Dogfood immediately; iterate prompts; add bead validation in CLI |
+| Promotion heuristics over-promote (MEMORY.md bloat) | Medium | Medium | Conservative defaults; require high confidence; user confirmation for global scope |
+| Promotion heuristics under-promote (valuable context lost from window) | Low | High | Rolling window keeps 10 sessions; lessons/decisions auto-flag for review |
+| Token budget exceeded (~10k target for L2+L3) | Low | Medium | Monitor token counts; auto-truncate oldest rolling window entries; configurable budget |
+| Sub-agent latency slows main session | Low | Medium | Fire-and-forget per-turn writes; session-end runs async after session closes |
+| JSONL files grow large (>10MB) after months | Low | Low | Archive rotation; compress old files; not a concern until hundreds of sessions |
+| Concurrent write conflicts (multiple sub-agents) | Low | Medium | Single-writer pattern; file locking in CLI; separate JSONL per session |
+| Schema needs breaking changes after MVP | Medium | Low | Version field in beads; migration script; append-only means old beads are never modified |
+
+## Feature Breakdown
+
+### Feature 1: Bead Schema & CLI (`mem-beads`)
+- **Size**: Medium (5 days)
+- **Priority**: Critical
+- **Dependencies**: None
+- **Summary**: Define canonical bead JSON schema (all types + link types). Build `mem-beads` CLI in Python or shell+jq: `create`, `query`, `link`, `close`, `compact`, `uncompact`. ULID generation, schema validation, append-only JSONL writes, file locking, index maintenance.
+- **Team**: 1 developer
+- **Skills**: Python or shell scripting, JSON schema design, CLI design
+
+### Feature 2: Per-Turn Memory Sub-Agent
+- **Size**: Small (3 days)
+- **Priority**: Critical
+- **Dependencies**: Feature 1 (CLI must exist to write beads)
+- **Summary**: Sub-agent prompt + invocation rules for OpenClaw. Fires at end of each agent turn. Classifies whether turn is bead-worthy. Creates structured bead via `mem-beads create`. Rules for when to create which bead type. Integration into AGENTS.md workflow. Bead retrieval/packing skill for injecting beads into context.
+- **Team**: 1 developer
+- **Skills**: Prompt engineering, OpenClaw sub-agent orchestration
+
+### Feature 3: Session-End Consolidation Sub-Agent
+- **Size**: Medium (4 days)
+- **Priority**: Critical
+- **Dependencies**: Features 1, 2 (needs beads to exist from per-turn writes)
+- **Summary**: Sub-agent that runs at session end. Reads session beads + chat. Writes session_end summary bead. Identifies promotion candidates. Runs compaction on non-promoted beads. Generates `promoted-context.md` (rolling window). Capable model required (claude-sonnet or equivalent).
+- **Team**: 1 developer
+- **Skills**: Prompt engineering, compaction algorithm design
+
+### Feature 4: Rolling Window & Context Injection
+- **Size**: Small (2 days)
+- **Priority**: Critical
+- **Dependencies**: Feature 3 (needs session_end beads and promoted-context.md)
+- **Summary**: Auto-load `promoted-context.md` + `MEMORY.md` at session start (~10k tokens total). Manage rolling window of last ~10 session_end summaries. Token counting and budget enforcement. Integration with OpenClaw session startup.
+- **Team**: 1 developer
+- **Skills**: OpenClaw config, token estimation
+
+### Feature 5: Promotion Pipeline
+- **Size**: Small (3 days)
+- **Priority**: High
+- **Dependencies**: Feature 3 (session-end agent identifies candidates)
+- **Summary**: Rules engine for promotion: which bead types qualify (all except session_start/session_end), confidence thresholds, myelination scoring (recall frequency boosts), authority rules (global scope needs user_confirmed), `superseded_by` conflict resolution. Writes promoted beads to MEMORY.md in structured format. Pruning of unused long-term beads.
+- **Team**: 1 developer
+- **Skills**: Heuristic design, prompt engineering
+
+### Feature 6: Uncompaction Tool
+- **Size**: Small (2 days)
+- **Priority**: High
+- **Dependencies**: Feature 1 (CLI), Feature 3 (compacted beads must exist)
+- **Summary**: `mem-beads uncompact --id X` and `--around X --radius N` commands. Reads archive JSONL, restores full bead detail + causal neighbors. Returns formatted context for injection into conversation. The "killer feature" — lossless recovery.
+- **Team**: 1 developer
+- **Skills**: JSONL parsing, causal chain traversal
+
+### Feature 7: Association Crawler
+- **Size**: Medium (4 days)
+- **Priority**: Medium
+- **Dependencies**: Features 1-5 (needs populated bead archive with promoted beads)
+- **Summary**: Scheduled cron sub-agent. Reads Layer 3 + Layer 2. Identifies semantic associations: similar topics, repeated patterns, cross-project lessons, contradictions. Creates `association` meta-beads. Surfaces interesting connections to user. Association-aware queries.
+- **Team**: 1 developer
+- **Skills**: Prompt engineering, cron scheduling, semantic reasoning
+
+### Feature 8: OpenClaw Skill Package
+- **Size**: Medium (4 days)
+- **Priority**: Medium
+- **Dependencies**: Features 1-6 (complete working system)
+- **Summary**: Package as drop-in OpenClaw skill. SKILL.md, scripts, prompts, CLI bundled. Installation instructions. Configuration options (token budget, promotion thresholds, model selection). Documentation + examples. Schema spec (versioned).
+- **Team**: 1 developer
+- **Skills**: OpenClaw skill packaging, documentation
+
+### Feature 9: External Distribution (npm/Python)
+- **Size**: Large (5 days)
+- **Priority**: Low
+- **Dependencies**: Feature 8 (skill package proven)
+- **Summary**: npm package (`mem-beads` CLI + Node.js library). Optional Python package. Framework-agnostic schema spec. Optional SQLite backend. Optional web UI for browsing bead chains.
+- **Team**: 1 developer
+- **Skills**: npm publishing, package design, optional Python/SQLite
+
+## Implementation Roadmap
+
+### Phase 1: Foundation (Week 1, Days 1-5)
+- **Features**: 1 (Schema & CLI) + 2 (Per-Turn Sub-Agent)
+- **Milestone**: Beads being written per-turn in live OpenClaw sessions
+- **Critical path**: Schema design → CLI → sub-agent prompt → integration
+- **Testing**: Dogfood on this OpenClaw instance immediately
+
+### Phase 2: Rolling Window + Promotion (Week 2, Days 1-4)
+- **Features**: 3 (Session-End) + 4 (Rolling Window) + 5 (Promotion) + 6 (Uncompact)
+- **Milestone**: Full memory lifecycle working — beads created, compacted, promoted, injected, recoverable
+- **Critical path**: Session-end agent → compaction → rolling window generation → context injection
+- **Testing**: Run 5-10 real sessions, verify promotion quality and token budget
+
+### Phase 3: Association Layer (Week 2, Day 5 – Week 3, Day 3)
+- **Features**: 7 (Association Crawler)
+- **Milestone**: Semantic graph building automatically via cron
+- **Testing**: Review association quality after a few days of running
+
+### Phase 4: Packaging (Week 3, Days 4-5 + overflow)
+- **Features**: 8 (Skill Package) + 9 (External Distribution, stretch)
+- **Milestone**: Installable skill; optionally published packages
+- **Testing**: Clean install on fresh OpenClaw instance
+
+## Gantt Charts
+
+### 100% Human (3-4 weeks)
+
+```
+Week 1       Week 2       Week 3       Week 4
+|------------|------------|------------|------------|
+[===F1: Schema & CLI===]
+             [==F2: Per-Turn Agent==]
+                         [===F3: Session-End===]
+                         [=F4: Rolling Window=]
+                                     [==F5: Promotion==]
+                                     [=F6: Uncompact=]
+                                                  [===F7: Associations===]
+                                                  [===F8: Skill Pkg===]
+                                                            [F9: Dist]
+```
+
+### LLM-Assisted (1.5-2 weeks)
+
+```
+Week 1                    Week 2
+Day1  Day2  Day3  Day4  Day5  Day1  Day2  Day3  Day4  Day5
+|-----|-----|-----|-----|-----|-----|-----|-----|-----|-----|
+[==F1: Schema & CLI==]
+      [=F2: Per-Turn=]
+                  [==F3: Session-End==]
+                  [F4: RW]
+                        [=F5: Promo=]
+                        [F6: Unc]
+                                    [==F7: Assoc==]
+                                    [=F8: Pkg=]
+                                                [F9]
+```
+
+### 100% LLM (4-6 days)
+
+```
+Day 1         Day 2         Day 3         Day 4         Day 5         Day 6
+|-------------|-------------|-------------|-------------|-------------|------|
+[=F1: Schema & CLI=]
+[=F2: Per-Turn=]
+              [=F3: Session-End=]
+              [F4][F5]
+                            [F6: Uncompact]
+                            [=F7: Associations=]
+                                          [=F8: Skill Package=]
+                                                        [F9: Dist]
+```
+
+## Team & Resource Planning
+
+### Skills Required
+- **Prompt engineering** (critical): Sub-agent prompts for per-turn classification, session-end summarization, promotion, association discovery
+- **CLI development** (critical): Python or shell+jq for `mem-beads` tool
+- **OpenClaw integration** (critical): AGENTS.md workflow, sub-agent invocation, context injection, cron scheduling
+- **JSON schema design**: Bead types, link types, validation
+- **Token estimation**: Budget monitoring and enforcement
+- **Documentation**: Skill packaging, schema spec
+
+### Team Composition
+- **1 developer** (this is a solo project — Johnny + Krusty as LLM assistant)
+- All skills covered between human judgment (promotion quality, schema decisions) and LLM implementation (CLI code, prompt drafts, docs)
+
+### Skill Gaps
+- None critical — the stack (Python/shell, JSONL, OpenClaw) is well-understood
+- **Prompt tuning for sub-agents** will require iteration; plan 2-3 revision cycles per prompt
+
+## Next Steps
+
+1. **Review and approve this plan** — any features to cut, reprioritize, or resize?
+2. **Decide implementation language for CLI**: Python (richer, easier testing) vs shell+jq (zero dependencies, lighter)
+3. **Begin Feature 1**: Define final bead schema, build `mem-beads` CLI
+4. **Create beads tickets** in tracker for each feature (22 existing tickets can be mapped)
+5. **Start dogfooding immediately** once Feature 1+2 are done — real sessions on this instance
