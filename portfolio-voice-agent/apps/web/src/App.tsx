@@ -83,7 +83,7 @@ export function App() {
 
   const canToggle = state !== "requesting_mic" && state !== "connecting";
   const buttonLabel = conversationActive ? "Stop conversation" : "Start talking";
-  const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@wristchat.net";
+  const contactEmail = (import.meta.env.VITE_CONTACT_EMAIL as string) || "john@linelead.io";
   const isEmbed =
     typeof window !== "undefined" &&
     (new URLSearchParams(window.location.search).get("embed") === "1" ||
