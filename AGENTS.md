@@ -50,7 +50,7 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 This agent uses **mem-beads** for structured memory. After EVERY response, write a bead:
 
 ```
-[[BEAD:{"type":"<type>","title":"<short title>","summary":["<bullet>","<bullets>"],"session":"<session-id>","turn":<turn-number>}]]
+<!--BEAD:{"type":"<type>","title":"<short title>","summary":["<bullet>","<bullets>"],"session":"<session-id>","turn":<turn-number>}-->
 ```
 
 **Write a bead EVERY turn**, even routine ones. The post-session extractor will parse these markers.
@@ -79,13 +79,13 @@ This agent uses **mem-beads** for structured memory. After EVERY response, write
 #### Minimal Context Bead (routine turns):
 
 ```
-[[BEAD:{"type":"context","title":"Routine turn","summary":["Standard query"],"session":"main","turn":1}]]
+<!--BEAD:{"type":"context","title":"Routine turn","summary":["Standard query"],"session":"main","turn":1}-->
 ```
 
 #### Full Example:
 
 ```
-[[BEAD:{"type":"lesson","title":"No per-turn hooks in OpenClaw","summary":["Discovered OpenClaw lacks automatic per-turn sub-agent spawning","memoryFlush is the only pre-compaction hook","Model-written beads with post-run extraction solves this"],"session":"main","turn":42,"scope":"project"}]]
+<!--BEAD:{"type":"lesson","title":"No per-turn hooks in OpenClaw","summary":["Discovered OpenClaw lacks automatic per-turn sub-agent spawning","memoryFlush is the only pre-compaction hook","Model-written beads with post-run extraction solves this"],"session":"main","turn":42,"scope":"project"}-->
 ```
 
 **Note:** Beads are extracted post-session via memoryFlush. Don't write beads directly to CLI — use markers.

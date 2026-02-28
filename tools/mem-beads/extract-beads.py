@@ -31,7 +31,7 @@ VALID_BEAD_TYPES = {
 VALID_SCOPES = {"personal", "project", "global"}
 VALID_AUTHORITIES = {"agent_inferred", "user_confirmed", "system"}
 
-BEAD_MARKER = re.compile(r'\[\[BEAD:\s*(\{.*?\})\s*\]\]', re.DOTALL)
+BEAD_MARKER = re.compile(r'<!--\s*BEAD:\s*(\{.*?\})\s*-->', re.DOTALL)
 
 MEMBEADS_DIR = os.environ.get("MEMBEADS_DIR", "/home/node/.openclaw/workspace/.mem-beads")
 MEMBEADS_CLI = "/home/node/.openclaw/workspace/tools/mem-beads/mem_beads.py"
