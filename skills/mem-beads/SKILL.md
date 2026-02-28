@@ -2,7 +2,7 @@
 
 Persistent causal agent memory with lossless compaction.
 
-**Version**: 1.0.0 (MVP)
+**Version**: 2.0.0 (Automatic Extraction)
 **Status**: Production-ready
 **Requires**: Python 3.11+, OpenClaw
 
@@ -58,7 +58,7 @@ This configures:
 
 ---
 
-## Installation
+## Installation (v2.0 - Automatic Extraction)
 
 ### 1. Copy Skill
 ```bash
@@ -72,11 +72,13 @@ cp tools/mem-beads/mem-beads /path/to/your/workspace/tools/mem-beads/
 cp tools/mem-beads/mem_beads.py /path/to/your/workspace/tools/mem-beads/
 cp tools/mem-beads/consolidate.py /path/to/your/workspace/tools/mem-beads/
 cp tools/mem-beads/associate.py /path/to/your/workspace/tools/mem-beads/
+cp tools/mem-beads/extract-beads.py /path/to/your/workspace/tools/mem-beads/
 chmod +x /path/to/your/workspace/tools/mem-beads/mem-beads
 ```
 
-### 3. Configure Memory Flush (Optional)
-Add to `openclaw.json` to enable session-end consolidation:
+### 3. Configure Memory Flush (Critical)
+Add to `openclaw.json` to enable automatic bead extraction:
+
 ```json
 {
   "agents": {
@@ -84,9 +86,7 @@ Add to `openclaw.json` to enable session-end consolidation:
       "compaction": {
         "memoryFlush": {
           "enabled": true,
-          "softThresholdTokens": 6000,
-          "systemPrompt": "Pre-compaction memory flush. Run mem-beads consolidation. Reply with NO_REPLY.",
-          "prompt": "Run: python3 /path/to/workspace/tools/mem-beads/consolidate.py consolidate --session SESSION_ID --promote. Then run association analysis: python3 /path/to/workspace/tools/mem-beads/associate.py prompt. Reply with NO_REPLY."
+          "prompt": "Run bead extraction FIRST, then consolidation: python3 /path/to/tools/mem-beads/extract-beads.py && python3 /path/to/tools/mem-beads/consolidate.py consolidate --session main --promote. Reply with NO_REPLY."
         }
       }
     }
@@ -94,13 +94,29 @@ Add to `openclaw.json` to enable session-end consolidation:
 }
 ```
 
-### 4. Add to AGENTS.md
-Add to your AGENTS.md for per-turn bead writing:
-```markdown
-## Mem.beads — Per-Turn Memory
-After significant turns, write beads. See skills/mem-beads/SKILL.md.
+### 4. Add Bead Instructions to AGENTS.md
+Add this section to your AGENTS.md (after the Memory section):
 
-Quick: /path/to/workspace/tools/mem-beads/mem-beads create --type <type> --title "..." --summary "..." --session <id> --scope <scope> --tags "..."
+```markdown
+### 📿 Bead Writing (Every Turn)
+
+This agent uses **mem-beads** for structured memory. After EVERY response, write a bead:
+
+```
+<!--BEAD:{"type":"<type>","title":"<short title>","summary":["<bullet>"],"session":"<session-id>","turn":<turn-number>}-->
+```
+
+Write a bead EVERY turn. The post-session extractor parses these markers.
+
+#### Bead Types:
+- goal, decision, tool_call, evidence, outcome, lesson, context, checkpoint, precedent
+- failed_hypothesis, reversal, misjudgment, overfitted_pattern, abandoned_path
+- reflection, design_principle
+
+#### Minimal (routine turns):
+```
+<!--BEAD:{"type":"context","title":"Routine turn","summary":["Standard query"],"session":"main","turn":1}-->
+```
 ```
 
 ## Configuration Options
