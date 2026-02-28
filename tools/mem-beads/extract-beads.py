@@ -36,11 +36,38 @@ BEAD_MARKER = re.compile(r'<!--\s*BEAD:\s*(\{.*?\})\s*-->', re.DOTALL)
 MEMBEADS_DIR = os.environ.get("MEMBEADS_DIR", "/home/node/.openclaw/workspace/.mem-beads")
 MEMBEADS_CLI = "/home/node/.openclaw/workspace/tools/mem-beads/mem_beads.py"
 
+# OpenClaw stores session transcripts in agents/<agentId>/sessions/
+def get_latest_transcript(agent_id: str = "main") -> tuple[str, str]:
+    """Find the most recent session transcript. Returns (session_id, path)."""
+    sessions_dir = Path(f"/home/node/.openclaw/agents/{agent_id}/sessions")
+    
+    if not sessions_dir.exists():
+        return get_latest_session(), f"{MEMBEADS_DIR}/session-{get_latest_session()}.jsonl"
+    
+    # Find most recent JSONL file (not sessions.json)
+    transcript_files = sorted(
+        [f for f in sessions_dir.glob("*.jsonl") if f.name != "sessions.json"],
+        key=os.path.getmtime,
+        reverse=True
+    )
+    
+    if transcript_files:
+        # Extract session ID from filename: 36bf908b-fa65-4b9d-aaa8-7410e668d0d7.jsonl -> 36bf908b-fa65-4b9d-aaa8-7410e668d0d7
+        session_id = transcript_files[0].stem
+        return session_id, str(transcript_files[0])
+    
+    # Fallback
+    return get_latest_session(), f"{MEMBEADS_DIR}/session-{get_latest_session()}.jsonl"
+
 
 def extract_beads_from_transcript(transcript_path: str) -> list[dict]:
-    """Parse transcript JSONL for bead markers."""
+    """Parse transcript JSONL for bead markers.
+    
+    Supports two formats:
+    1. Simple: {"role": "assistant", "content": "..."}
+    2. Nested (OpenClaw): {"type": "message", "message": {"role": "assistant", "content": [{"type": "text", "text": "..."}]}}
+    """
     beads = []
-    # No deduplication - beads are causal linear time series, duplicates may be intentional
     
     if not os.path.exists(transcript_path):
         print(f"No transcript found: {transcript_path}")
@@ -55,14 +82,27 @@ def extract_beads_from_transcript(transcript_path: str) -> list[dict]:
             except json.JSONDecodeError:
                 continue
             
-            # Look for assistant messages with bead markers
+            # Extract assistant message content (supports both formats)
             content = ""
+            
+            # Format 1: Simple {"role": "assistant", "content": "..."}
             if entry.get('role') == 'assistant':
                 content = entry.get('content', '')
-                # Also check tool calls if beads were in tool results
-                for tc in entry.get('tool_calls', []):
-                    if 'function' in tc:
-                        content += ' ' + tc['function'].get('arguments', '')
+            
+            # Format 2: Nested {"type": "message", "message": {"role": "...", "content": [...]}}
+            elif entry.get('type') == 'message':
+                msg = entry.get('message', {})
+                if msg.get('role') == 'assistant':
+                    msg_content = msg.get('content', [])
+                    if isinstance(msg_content, list):
+                        for c in msg_content:
+                            if c.get('type') == 'text':
+                                content += c.get('text', '') + ' '
+                    else:
+                        content = str(msg_content)
+            
+            if not content:
+                continue
             
             # Extract all bead markers
             matches = BEAD_MARKER.findall(content)
@@ -142,25 +182,19 @@ def write_beads(beads: list[dict], session_id: str) -> int:
     return written
 
 
-def get_latest_session() -> str:
-    """Find the most recent session file in .mem-beads/"""
-    session_files = sorted(Path(MEMBEADS_DIR).glob("session-*.jsonl"), key=os.path.getmtime, reverse=True)
-    if session_files:
-        # Extract session ID from filename: session-main-2026-02-28.jsonl -> main-2026-02-28
-        name = session_files[0].stem  # session-main-2026-02-28
-        return name.replace("session-", "")
-    return "main"
-
-
 def main():
-    # Get session ID from args or find latest
+    # Get session ID from args or find latest transcript
     if len(sys.argv) >= 2:
         session_id = sys.argv[1]
+        # If it's a UUID, construct path; otherwise use .mem-beads format
+        if "-" in session_id and len(session_id) > 20:
+            transcript = f"/home/node/.openclaw/agents/main/sessions/{session_id}.jsonl"
+        else:
+            transcript = f"{MEMBEADS_DIR}/session-{session_id}.jsonl"
     else:
-        session_id = get_latest_session()
+        session_id, transcript = get_latest_transcript()
         print(f"No session ID provided, using latest: {session_id}")
-    
-    transcript = f"{MEMBEADS_DIR}/session-{session_id}.jsonl"
+        print(f"Transcript: {transcript}")
     
     print(f"\n=== Extracting beads from session: {session_id} ===\n")
     
