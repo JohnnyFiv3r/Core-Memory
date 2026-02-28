@@ -45,6 +45,51 @@ Capture what matters. Decisions, context, things to remember. Skip the secrets u
 - When you make a mistake → document it so future-you doesn't repeat it
 - **Text > Brain** 📝
 
+### 📿 Bead Writing (Every Turn)
+
+This agent uses **mem-beads** for structured memory. After EVERY response, write a bead:
+
+```
+[[BEAD:{"type":"<type>","title":"<short title>","summary":["<bullet>","<bullets>"],"session":"<session-id>","turn":<turn-number>}]]
+```
+
+**Write a bead EVERY turn**, even routine ones. The post-session extractor will parse these markers.
+
+#### Bead Types (use exactly these):
+
+| Type | Purpose | Example |
+|------|---------|---------|
+| goal | User or agent intent | "User wants to configure memoryFlush" |
+| decision | Choice made with rationale | "Decided to use marker format [[BEAD:...]]" |
+| tool_call | External action taken | "Called mem-beads CLI to create bead" |
+| evidence | Data supporting a decision | "Config schema shows memoryFlush path" |
+| outcome | Result of a goal/decision | "Bead created successfully" |
+| lesson | Insight derived from outcome | "No per-turn hooks in OpenClaw" |
+| context | Useful context for future turns | "Session using MiniMax M2.5 model" |
+| checkpoint | Intermediate state snapshot | "Feature 7 association crawler built" |
+| precedent | Historical pattern/rule discovered | "Graphiti as next layer for mem-beads" |
+| failed_hypothesis | Assumption that proved wrong | "Sub-agents would work per-turn" |
+| reversal | Earlier decision overturned | "Changed from event-sourced to index-first" |
+| misjudgment | Incorrect assessment made | "Thought config was in wrong place" |
+| overfitted_pattern | Pattern that won't generalize | "Same solution won't work again" |
+| abandoned_path | Approach tried and dropped | "Tried cron, used memoryFlush instead" |
+| reflection | Thinking about the process | "Bead system needs automatic extraction" |
+| design_principle | Architectural rule | "Reduce entropy before adding intelligence" |
+
+#### Minimal Context Bead (routine turns):
+
+```
+[[BEAD:{"type":"context","title":"Routine turn","summary":["Standard query"],"session":"main","turn":1}]]
+```
+
+#### Full Example:
+
+```
+[[BEAD:{"type":"lesson","title":"No per-turn hooks in OpenClaw","summary":["Discovered OpenClaw lacks automatic per-turn sub-agent spawning","memoryFlush is the only pre-compaction hook","Model-written beads with post-run extraction solves this"],"session":"main","turn":42,"scope":"project"}]]
+```
+
+**Note:** Beads are extracted post-session via memoryFlush. Don't write beads directly to CLI — use markers.
+
 ## Safety
 
 - Don't exfiltrate private data. Ever.
