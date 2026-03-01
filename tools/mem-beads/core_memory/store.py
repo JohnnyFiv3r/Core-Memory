@@ -16,7 +16,7 @@ from typing import Optional
 from .models import BeadType, Scope, Status, Authority
 from . import events
 
-# Defaults
+# Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "./memory"
 BEADS_DIR = ".beads"
 TURNS_DIR = ".turns"
@@ -142,7 +142,10 @@ class MemoryStore:
             **kwargs
         }
         
-        # Write to beads directory (archive)
+        # Update index first (canonical)
+        self._update_index(bead)
+        
+        # Write to session archive (full bead for rebuild)
         if session_id:
             bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
         else:
@@ -151,12 +154,8 @@ class MemoryStore:
         with open(bead_file, 'a') as f:
             f.write(json.dumps(bead) + "\n")
         
-        # Append event (source of truth)
-
-        events.event_bead_created(self.root, session_id, bead)
-        
-        # Update index (derived cache)
-        self._update_index(bead)
+        # Append audit event (minimal - just id + timestamp for rebuild)
+        events.event_bead_created(self.root, session_id, bead_id, now)
         
         return bead_id
     
@@ -328,7 +327,7 @@ class MemoryStore:
         index["beads"][bead_id] = bead
         self._write_json(self.beads_dir / INDEX_FILE, index)
         
-        # Append event (source of truth)
+        # Append audit event (rebuild support)
 
         events.event_bead_promoted(self.root, bead_id)
         
@@ -370,7 +369,7 @@ class MemoryStore:
         index["stats"]["total_associations"] += 1
         self._write_json(self.beads_dir / INDEX_FILE, index)
         
-        # Append event (source of truth)
+        # Append audit event (rebuild support)
 
         events.event_association_created(self.root, assoc)
         
@@ -398,7 +397,7 @@ class MemoryStore:
         index["beads"][bead_id] = bead
         self._write_json(self.beads_dir / INDEX_FILE, index)
         
-        # Append event (source of truth)
+        # Append audit event (rebuild support)
 
         events.event_bead_recalled(self.root, bead_id)
         

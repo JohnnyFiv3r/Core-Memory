@@ -114,9 +114,10 @@ def iter_events(
 
 def rebuild_index(root: Path) -> dict:
     """
-    Rebuild the index from all events.
+    Rebuild the index from session JSONL archives.
     
-    This is the canonical way to ensure index consistency.
+    Since events are now minimal (just id + timestamp),
+    we rebuild from the session JSONL files which contain full bead data.
     
     Args:
         root: Root memory directory
@@ -140,32 +141,26 @@ def rebuild_index(root: Path) -> dict:
         }
     }
     
-    # Process all events
-    for event in iter_events(root):
-        event_type = event.get("event_type")
-        payload = event.get("payload", {})
-        
-        if event_type == EVENT_BEAD_CREATED:
-            bead = payload.get("bead", {})
-            if bead.get("id"):
-                index["beads"][bead["id"]] = bead
-        
-        elif event_type == EVENT_BEAD_PROMOTED:
-            bead_id = payload.get("bead_id")
-            if bead_id and bead_id in index["beads"]:
-                index["beads"][bead_id]["status"] = "promoted"
-                index["beads"][bead_id]["promoted_at"] = event.get("created_at")
-        
-        elif event_type == EVENT_BEAD_RECALLED:
-            bead_id = payload.get("bead_id")
-            if bead_id and bead_id in index["beads"]:
-                bead = index["beads"][bead_id]
-                bead["recall_count"] = bead.get("recall_count", 0) + 1
-                bead["last_recalled"] = event.get("created_at")
-        
-        elif event_type == EVENT_ASSOCIATION_CREATED:
-            # Don't duplicate - associations are in their own file
-            index["stats"]["total_associations"] = index["stats"].get("total_associations", 0) + 1
+    # Read all session JSONL files (archive layer)
+    for session_file in beads_dir.glob("session-*.jsonl"):
+        with open(session_file, 'r') as f:
+            for line in f:
+                if line.strip():
+                    bead = json.loads(line)
+                    bead_id = bead.get("id")
+                    if bead_id:
+                        index["beads"][bead_id] = bead
+    
+    # Also check global.jsonl
+    global_file = beads_dir / "global.jsonl"
+    if global_file.exists():
+        with open(global_file, 'r') as f:
+            for line in f:
+                if line.strip():
+                    bead = json.loads(line)
+                    bead_id = bead.get("id")
+                    if bead_id:
+                        index["beads"][bead_id] = bead
     
     # Update stats
     index["stats"]["total_beads"] = len(index["beads"])
@@ -182,14 +177,15 @@ def rebuild_index(root: Path) -> dict:
 def event_bead_created(
     root: Path,
     session_id: Optional[str],
-    bead: dict
+    bead_id: str,
+    created_at: str
 ) -> str:
-    """Create a bead_created event."""
+    """Create a bead_created event (minimal - just id + timestamp)."""
     return append_event(
         root=root,
         session_id=session_id,
         event_type=EVENT_BEAD_CREATED,
-        payload={"bead": bead}
+        payload={"bead_id": bead_id, "created_at": created_at}
     )
 
 
