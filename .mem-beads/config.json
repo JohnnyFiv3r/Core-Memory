@@ -1,8 +1,0 @@
-{
-  "timezone": "America/Chicago",
-  "interval": "12h",
-  "cron_schedule": "0 14,2 * *",
-  "custom_notes": "",
-  "first_run": true,
-  "onboarded_at": null
-}
