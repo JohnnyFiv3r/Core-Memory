@@ -302,5 +302,9 @@ def get_prompt_suffix():
 if __name__ == "__main__":
     if "--prompt-suffix" in sys.argv:
         print(get_prompt_suffix())
-    else:
+    elif "--onboard" in sys.argv:
         onboarding()
+    else:
+        # Default setuptools entrypoint for build backends (pip/build/editable).
+        from setuptools import setup
+        setup()
