@@ -8,10 +8,12 @@ This file intentionally mixes:
 Do not remove expected failures until adapter parity is implemented.
 """
 
+import importlib
 import json
 import os
 import shutil
 import tempfile
+import threading
 import unittest
 
 import mem_beads
@@ -28,6 +30,7 @@ class TestPhase1ParityHarness(unittest.TestCase):
 
         self._orig_mem_root = os.environ.get("MEMBEADS_ROOT")
         os.environ["MEMBEADS_ROOT"] = self.mem_root
+        importlib.reload(mem_beads)
 
     def tearDown(self):
         if self._orig_mem_root is None:
@@ -121,6 +124,92 @@ class TestPhase1ParityHarness(unittest.TestCase):
         self.assertEqual(e["source_id"], a["id"])
         self.assertEqual(e["target_id"], b["id"])
         self.assertTrue(assoc.startswith("assoc-"))
+
+    def test_mem_beads_context_packet_deterministic(self):
+        """Phase 1 requirement: packet assembly is deterministic for same store+filters."""
+        b1 = mem_beads.make_bead("decision", "Use stdlib", "phase1", tags=["ctx"])
+        b2 = mem_beads.make_bead("outcome", "Implemented", "phase1", tags=["ctx"])
+        mem_beads.append_bead(b1)
+        mem_beads.append_bead(b2)
+        mem_beads.add_edge(b2["id"], b1["id"], "derives-from")
+
+        p1 = mem_beads.build_context_packet(session_ids=["phase1"], limit=20, include_chains=True, use_rolling_window=False)
+        p2 = mem_beads.build_context_packet(session_ids=["phase1"], limit=20, include_chains=True, use_rolling_window=False)
+
+        # Ignore run timestamp field; compare structural determinism
+        p1_norm = dict(p1)
+        p2_norm = dict(p2)
+        p1_norm.pop("generated_at", None)
+        p2_norm.pop("generated_at", None)
+
+        self.assertEqual(
+            json.dumps(p1_norm, sort_keys=True),
+            json.dumps(p2_norm, sort_keys=True),
+            "Context packet should be deterministic for same inputs",
+        )
+
+    def test_mem_beads_edge_write_concurrency_no_corruption(self):
+        """Phase 1 requirement: concurrent edge writes should not corrupt edges.jsonl."""
+        # create beads used by concurrent writers
+        beads = []
+        for i in range(12):
+            bead = mem_beads.make_bead("decision", f"D{i}", "phase1", tags=["concurrency"])
+            mem_beads.append_bead(bead)
+            beads.append(bead)
+
+        errors = []
+
+        def worker(start_idx):
+            try:
+                for j in range(start_idx, min(start_idx + 4, len(beads) - 1)):
+                    mem_beads.add_edge(beads[j + 1]["id"], beads[j]["id"], "follows")
+            except Exception as exc:  # pragma: no cover
+                errors.append(exc)
+
+        threads = [threading.Thread(target=worker, args=(i,)) for i in (0, 3, 6, 8)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertFalse(errors, f"Concurrent add_edge errors: {errors}")
+
+        # Validate file parseability (no torn JSON lines)
+        edges = mem_beads.get_all_edges()
+        self.assertGreaterEqual(len(edges), 4)
+        for e in edges:
+            self.assertIn("source_id", e)
+            self.assertIn("target_id", e)
+            self.assertIn("type", e)
+
+    def test_env_compat_membeads_dir_fallback(self):
+        """Phase 1 requirement: MEMBEADS_DIR fallback remains valid."""
+        fallback_root = os.path.join(self.tmp, "fallback-root")
+        os.makedirs(fallback_root, exist_ok=True)
+
+        old_root = os.environ.pop("MEMBEADS_ROOT", None)
+        old_dir = os.environ.get("MEMBEADS_DIR")
+        os.environ["MEMBEADS_DIR"] = fallback_root
+
+        try:
+            mod = importlib.reload(mem_beads)
+            self.assertEqual(mod.MEMBEADS_ROOT, fallback_root)
+
+            bead = mod.make_bead("context", "Fallback test", "phase1")
+            mod.append_bead(bead)
+            idx_path = os.path.join(fallback_root, "index.json")
+            self.assertTrue(os.path.exists(idx_path))
+        finally:
+            if old_root is not None:
+                os.environ["MEMBEADS_ROOT"] = old_root
+            else:
+                os.environ.pop("MEMBEADS_ROOT", None)
+
+            if old_dir is not None:
+                os.environ["MEMBEADS_DIR"] = old_dir
+            else:
+                os.environ.pop("MEMBEADS_DIR", None)
+            importlib.reload(mem_beads)
 
 
 if __name__ == "__main__":
