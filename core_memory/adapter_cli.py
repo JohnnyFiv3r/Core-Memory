@@ -252,8 +252,16 @@ def _run_direct_compat(argv: List[str]) -> Optional[int]:
             ok = store.promote(bead_id)
             print(f'{{"ok": {str(ok).lower()}, "id": "{bead_id}", "status": "promoted"}}')
             return 0 if ok else 1
-        # not supported yet in core store model; let caller fallback to legacy
-        raise NotImplementedError("close status other than promoted not supported in core adapter yet")
+
+        # Generic close status update for compatibility (`closed`, `superseded`, etc.)
+        idx = store._read_json(store.beads_dir / "index.json")
+        if bead_id not in idx.get("beads", {}):
+            print(f'{{"ok": false, "error": "Bead not found: {bead_id}"}}')
+            return 1
+        idx["beads"][bead_id]["status"] = status
+        store._write_json(store.beads_dir / "index.json", idx)
+        print(f'{{"ok": true, "id": "{bead_id}", "status": "{status}"}}')
+        return 0
 
     return None
 

@@ -1,36 +1,26 @@
 #!/usr/bin/env python3
-"""CLI entry point for mem-beads package.
+"""Deprecated mem_beads CLI shim.
 
-Phase 2 migration behavior:
-- default: existing mem_beads implementation
-- opt-in adapter: route to core_memory via MEMBEADS_USE_CORE_ADAPTER=1
+Routes all invocations to core_memory. Kept for migration compatibility.
 """
 
-import os
 import sys
 
 
 def main() -> int:
-    use_core = os.environ.get("MEMBEADS_USE_CORE_ADAPTER", "0") == "1"
+    from core_memory.adapter_cli import can_handle_with_core_adapter, run_core_adapter
 
-    if use_core:
-        from core_memory.adapter_cli import can_handle_with_core_adapter, run_core_adapter
-
-        # preserve command name
-        sys.argv[0] = "mem-beads"
-        if can_handle_with_core_adapter(sys.argv):
-            try:
-                return run_core_adapter(sys.argv)
-            except NotImplementedError:
-                pass
-        # fallback for commands not translated yet
-
-    # legacy default behavior
-    from mem_beads import main as legacy_main
-
+    # preserve command name for compatibility output/help
     sys.argv[0] = "mem-beads"
-    legacy_main()
-    return 0
+    print(
+        "[deprecation] `mem_beads` module shim is deprecated; use `core-memory` CLI.",
+        file=sys.stderr,
+    )
+
+    if not can_handle_with_core_adapter(sys.argv):
+        raise SystemExit("Unsupported mem-beads command in compatibility shim")
+
+    return run_core_adapter(sys.argv)
 
 
 if __name__ == "__main__":

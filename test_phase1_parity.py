@@ -41,6 +41,83 @@ class TestPhase1ParityHarness(unittest.TestCase):
             os.environ["MEMBEADS_ROOT"] = self._orig_mem_root
         shutil.rmtree(self.tmp, ignore_errors=True)
 
+    def _seed_legacy_store(self, legacy_root: str):
+        os.makedirs(legacy_root, exist_ok=True)
+        session_file = os.path.join(legacy_root, "session-s1.jsonl")
+        edges_file = os.path.join(legacy_root, "edges.jsonl")
+
+        bead_a = {
+            "id": "bead-LEGACYA",
+            "type": "decision",
+            "created_at": "2026-03-02T00:00:00+00:00",
+            "session_id": "s1",
+            "title": "Legacy A",
+            "summary": ["a"],
+            "detail": "",
+            "scope": "project",
+            "authority": "agent_inferred",
+            "confidence": 0.8,
+            "tags": ["legacy"],
+            "status": "open",
+        }
+        bead_b = {
+            "id": "bead-LEGACYB",
+            "type": "decision",
+            "created_at": "2026-03-02T00:01:00+00:00",
+            "session_id": "s1",
+            "title": "Legacy B",
+            "summary": ["b"],
+            "detail": "",
+            "scope": "project",
+            "authority": "agent_inferred",
+            "confidence": 0.8,
+            "tags": ["legacy"],
+            "status": "open",
+        }
+        with open(session_file, "w") as f:
+            f.write(json.dumps(bead_a) + "\n")
+            f.write(json.dumps(bead_b) + "\n")
+
+        edge = {
+            "id": "edge-LEGACY1",
+            "source_id": bead_b["id"],
+            "target_id": bead_a["id"],
+            "type": "follows",
+            "created_at": "2026-03-02T00:02:00+00:00",
+        }
+        with open(edges_file, "w") as f:
+            f.write(json.dumps(edge) + "\n")
+
+        idx = {
+            "beads": {
+                bead_a["id"]: {
+                    "type": bead_a["type"],
+                    "session_id": "s1",
+                    "status": "open",
+                    "title": bead_a["title"],
+                    "file": "session-s1.jsonl",
+                    "line": 0,
+                    "created_at": bead_a["created_at"],
+                    "tags": bead_a["tags"],
+                    "scope": bead_a["scope"],
+                },
+                bead_b["id"]: {
+                    "type": bead_b["type"],
+                    "session_id": "s1",
+                    "status": "open",
+                    "title": bead_b["title"],
+                    "file": "session-s1.jsonl",
+                    "line": 1,
+                    "created_at": bead_b["created_at"],
+                    "tags": bead_b["tags"],
+                    "scope": bead_b["scope"],
+                },
+            },
+            "stats": {"total_beads": 2},
+        }
+        with open(os.path.join(legacy_root, "index.json"), "w") as f:
+            json.dump(idx, f)
+
     def test_phase0_docs_exist(self):
         self.assertTrue(os.path.exists("MIGRATION_PLAN.md"))
         self.assertTrue(os.path.exists("COMPATIBILITY_SPEC.md"))
@@ -325,8 +402,8 @@ class TestPhase1ParityHarness(unittest.TestCase):
         self.assertIn("total_beads", payload)
         self.assertIn("total_edges", payload)
 
-    def test_phase2_core_adapter_fallback_for_unsupported_commands(self):
-        """Unsupported commands should fallback to legacy implementation under adapter flag."""
+    def test_phase2_core_adapter_myelinate_supported(self):
+        """myelinate is supported through core adapter path."""
         env = os.environ.copy()
         env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
         env["MEMBEADS_ROOT"] = self.mem_root
@@ -338,8 +415,8 @@ class TestPhase1ParityHarness(unittest.TestCase):
         payload = json.loads(run.stdout)
         self.assertIn("dry_run", payload)
 
-    def test_phase2_core_adapter_fallback_compact_uncompact(self):
-        """compact/uncompact remain legacy-routed under adapter flag."""
+    def test_phase2_core_adapter_compact_uncompact_contract(self):
+        """compact/uncompact contract works through shim-to-core routing."""
         env = os.environ.copy()
         env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
         env["MEMBEADS_ROOT"] = self.mem_root
@@ -366,8 +443,8 @@ class TestPhase1ParityHarness(unittest.TestCase):
         uncompact_payload = json.loads(uncompact_run.stdout)
         self.assertFalse(uncompact_payload.get("ok", True))
 
-    def test_phase2_core_adapter_close_non_promoted_falls_back(self):
-        """close status != promoted should fallback to legacy behavior."""
+    def test_phase2_core_adapter_close_non_promoted_supported(self):
+        """close status != promoted is handled directly in adapter."""
         env = os.environ.copy()
         env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
         env["MEMBEADS_ROOT"] = self.mem_root
@@ -435,24 +512,7 @@ class TestPhase1ParityHarness(unittest.TestCase):
         legacy_root = os.path.join(self.tmp, "legacy-store")
         os.makedirs(legacy_root, exist_ok=True)
 
-        legacy_env = os.environ.copy()
-        legacy_env["MEMBEADS_ROOT"] = legacy_root
-        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
-
-        c1 = [
-            sys.executable, "-m", "mem_beads", "create",
-            "--type", "decision", "--title", "Legacy A", "--session", "s1"
-        ]
-        c2 = [
-            sys.executable, "-m", "mem_beads", "create",
-            "--type", "decision", "--title", "Legacy B", "--session", "s1"
-        ]
-        r1 = subprocess.run(c1, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
-        r2 = subprocess.run(c2, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
-        a = json.loads(r1.stdout)["id"]
-        b = json.loads(r2.stdout)["id"]
-        link = [sys.executable, "-m", "mem_beads", "link", "--from", b, "--to", a, "--type", "follows"]
-        subprocess.run(link, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        self._seed_legacy_store(legacy_root)
 
         env = os.environ.copy()
         env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
@@ -471,14 +531,7 @@ class TestPhase1ParityHarness(unittest.TestCase):
         legacy_root = os.path.join(self.tmp, "legacy-idempotent")
         os.makedirs(legacy_root, exist_ok=True)
 
-        legacy_env = os.environ.copy()
-        legacy_env["MEMBEADS_ROOT"] = legacy_root
-        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
-
-        subprocess.run([
-            sys.executable, "-m", "mem_beads", "create",
-            "--type", "decision", "--title", "One", "--session", "s1"
-        ], cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        self._seed_legacy_store(legacy_root)
 
         env = os.environ.copy()
         env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
@@ -500,13 +553,7 @@ class TestPhase1ParityHarness(unittest.TestCase):
         legacy_root = os.path.join(self.tmp, "legacy-backup")
         os.makedirs(legacy_root, exist_ok=True)
 
-        legacy_env = os.environ.copy()
-        legacy_env["MEMBEADS_ROOT"] = legacy_root
-        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
-        subprocess.run([
-            sys.executable, "-m", "mem_beads", "create",
-            "--type", "decision", "--title", "L", "--session", "s1"
-        ], cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        self._seed_legacy_store(legacy_root)
 
         env = os.environ.copy()
         env["MEMBEADS_USE_CORE_ADAPTER"] = "1"

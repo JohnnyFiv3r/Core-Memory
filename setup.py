@@ -19,23 +19,23 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 def find_workspace():
     """Find the workspace by looking for openclaw.json and AGENTS.md."""
     candidates = []
-    
+
     # Add explicit paths
     if os.environ.get("OPENCLAW_WORKSPACE"):
         candidates.append(os.environ["OPENCLAW_WORKSPACE"])
-    
+
     # Common patterns: tools/mem-beads -> workspace -> parent
     if SCRIPT_DIR.endswith("/tools/mem-beads"):
         candidates.append(SCRIPT_DIR.replace("/tools/mem-beads", ""))
         candidates.append(os.path.dirname(SCRIPT_DIR.replace("/tools/mem-beads", "")))
-    
+
     # Standard workspace location
     candidates.append(os.path.expanduser("~/.openclaw/workspace"))
-    
+
     # Current directory
     candidates.append(os.getcwd())
     candidates.append(os.path.dirname(os.getcwd()))
-    
+
     # Check each candidate for AGENTS.md or openclaw.json
     for path in candidates:
         if not path:
@@ -47,7 +47,7 @@ def find_workspace():
             workspace_candidate = os.path.join(path, "workspace")
             if os.path.exists(workspace_candidate):
                 return workspace_candidate
-    
+
     # Fallback
     return os.getcwd()
 
@@ -76,7 +76,7 @@ DEFAULT_CONFIG = {
 
 MEMORYFLUSH_CONFIG = {
     "enabled": True,
-    "prompt": "Run bead extraction FIRST, then consolidation: python3 {tools_dir}/extract-beads.py && python3 {tools_dir}/consolidate.py consolidate --session main --promote. Reply with NO_REPLY."
+    "prompt": "Run bead extraction FIRST, then consolidation: python3 {workspace}/extract-beads.py && python3 {workspace}/consolidate.py consolidate --session main --promote. Reply with NO_REPLY."
 }
 
 BEAD_INSTRUCTIONS = """
@@ -123,7 +123,7 @@ Write a bead EVERY turn. The post-session extractor parses these markers.
 <!--BEAD:{{"type":"lesson","title":"No per-turn hooks in OpenClaw","summary":["Discovered OpenClaw lacks automatic per-turn sub-agent spawning","memoryFlush is the only pre-compaction hook","Model-written beads with post-run extraction solves this"],"session":"main","turn":42,"scope":"project"}}-->
 ```
 
-**Note:** Beads are extracted post-session via memoryFlush. Don't write beads directly to CLI — use markers.
+**Note:** Beads are extracted post-session via memoryFlush. Don't write beads directly to CLI - use markers.
 
 """
 
@@ -147,10 +147,10 @@ def configure_openclaw_json():
         print(f"⚠️  openclaw.json not found at {OPENCLAW_JSON}")
         print("   Skipping memoryFlush config.")
         return False
-    
+
     with open(OPENCLAW_JSON, "r") as f:
         config = json.load(f)
-    
+
     # Navigate to agents.defaults.compaction
     if "agents" not in config:
         config["agents"] = {}
@@ -158,25 +158,20 @@ def configure_openclaw_json():
         config["agents"]["defaults"] = {}
     if "compaction" not in config["agents"]["defaults"]:
         config["agents"]["defaults"]["compaction"] = {}
-    
+
     # Check if memoryFlush already configured
     if config["agents"]["defaults"]["compaction"].get("memoryFlush", {}).get("enabled"):
         print("✓ memoryFlush already configured in openclaw.json")
         return True
-    
-    # Determine tools path
-    tools_dir = os.path.join(WORKSPACE, "tools", "mem-beads")
-    if not os.path.exists(tools_dir):
-        tools_dir = SCRIPT_DIR
-    
-    # Add memoryFlush config
+
+    # Add memoryFlush config (canonical root scripts)
     memoryflush = MEMORYFLUSH_CONFIG.copy()
-    memoryflush["prompt"] = memoryflush["prompt"].format(tools_dir=tools_dir)
+    memoryflush["prompt"] = memoryflush["prompt"].format(workspace=WORKSPACE)
     config["agents"]["defaults"]["compaction"]["memoryFlush"] = memoryflush
-    
+
     with open(OPENCLAW_JSON, "w") as f:
         json.dump(config, f, indent=2)
-    
+
     print(f"✓ Added memoryFlush config to openclaw.json")
     return True
 
@@ -187,28 +182,28 @@ def configure_agents_md():
         print(f"⚠️  AGENTS.md not found at {AGENTS_MD}")
         print("   Skipping bead instructions.")
         return False
-    
+
     with open(AGENTS_MD, "r") as f:
         content = f.read()
-    
+
     # Check if already configured
     if "Bead Writing (Every Turn)" in content:
         print("✓ Bead instructions already in AGENTS.md")
         return True
-    
+
     # Find a good insertion point - after "Memory" section
     memory_section_match = re.search(r'(## Memory\n.*?)(## |\Z)', content, re.DOTALL)
-    
+
     if memory_section_match:
         insert_pos = memory_section_match.end()
         new_content = content[:insert_pos] + BEAD_INSTRUCTIONS + content[insert_pos:]
     else:
         # Just append at end
         new_content = content + BEAD_INSTRUCTIONS
-    
+
     with open(AGENTS_MD, "w") as f:
         f.write(new_content)
-    
+
     print(f"✓ Added bead instructions to AGENTS.md")
     return True
 
@@ -223,50 +218,50 @@ def onboarding():
     print("  2. MemoryFlush config in openclaw.json")
     print("  3. Bead instructions in AGENTS.md")
     print()
-    
+
     # Check workspace
     if not os.path.exists(WORKSPACE):
         print(f"⚠️  Workspace not found: {WORKSPACE}")
         print("   Set OPENCLAW_WORKSPACE env var.")
         return
-    
+
     print(f"Workspace: {WORKSPACE}")
     print()
-    
+
     # Configure OpenClaw
     print("--- OpenClaw Configuration ---")
     openclaw_configured = configure_openclaw_json()
     print()
-    
+
     # Configure AGENTS.md
     print("--- AGENTS.md Configuration ---")
     agents_configured = configure_agents_md()
     print()
-    
+
     # Dreamer preferences
     print("--- Dreamer Preferences ---")
     cfg = load_config()
-    
+
     print(f"1. Timezone: [{cfg['timezone']}]")
     tz = input("   Press Enter for default, or enter your timezone: ").strip()
     if tz:
         cfg["timezone"] = tz
     print()
-    
+
     print(f"2. Dream interval: [{cfg['interval']}] (how often association analysis runs)")
     print("   Options: 6h, 12h, 24h")
     interval = input("   Press Enter for default (12h): ").strip()
     if interval:
         cfg["interval"] = interval
     print()
-    
+
     print(f"3. Custom notes: [{cfg.get('custom_notes', '')}]")
     print("   Things you want Dreamer to look for?")
     notes = input("   Press Enter to skip: ").strip()
     if notes:
         cfg["custom_notes"] = notes
     print()
-    
+
     # Summary
     print("=" * 60)
     print("Configuration Summary:")
@@ -275,7 +270,7 @@ def onboarding():
     print(f"  Interval: {cfg['interval']}")
     print(f"  Notes: {cfg.get('custom_notes', '(none)')}")
     print("=" * 60)
-    
+
     confirm = input("\nSave configuration? (y/n): ").strip().lower()
     if confirm == "y":
         cfg["first_run"] = False
