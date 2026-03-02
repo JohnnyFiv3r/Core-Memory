@@ -4,6 +4,8 @@ A deterministic, causal memory system for AI agents: **“beads for memory.”**
 
 Core Memory stores durable **beads** (decisions, lessons, outcomes, evidence, etc.) and explicit links between them, then compacts and injects the most relevant prior memory into the agent context via a **Context Packet**.
 
+![Core Memory overview](docs/assets/core-memory-overview.jpg)
+
 ---
 
 ## Why
