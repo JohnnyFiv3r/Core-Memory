@@ -26,3 +26,24 @@
 - `.venv/bin/python -m pip install -e .`
 - `.venv/bin/core-memory --help`
 - `.venv/bin/mem-beads --help`
+
+## [1.0.0-core-migration-rc2] - 2026-03-02
+
+### Added
+- `DEPRECATION_PLAN.md` with N / N+1 / N+2 removal schedule.
+- `scripts/migration_drill.sh` for repeatable migration smoke tests.
+
+### Changed
+- Automation paths repointed from `tools/mem-beads/*` to canonical root scripts.
+- `extract-beads.py` now writes via `core-memory` CLI (`add`) instead of legacy script path.
+- `mem_beads` shim is now core-only (legacy fallback removed).
+- `mem-beads` command now emits deprecation warning.
+
+### Fixed
+- `migrate-store` association idempotency (no duplicate association imports on rerun).
+
+### Validation
+- `./scripts/migration_drill.sh /tmp/core-memory-drill-run2`
+- `python3 test_phase1_parity.py`
+- `PYTHONPATH=. python3 test_edges.py`
+- `PYTHONPATH=. python3 test_e2e.py`
