@@ -7,3 +7,8 @@ __pycache__/
 .mem-beads/.beads/
 .mem-beads/.turns/
 .mem-beads/*.jsonl
+
+.beads/
+memory/
+plans/
+skills/
