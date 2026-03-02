@@ -1,15 +1,27 @@
+# Local/runtime artifacts (do not publish)
 bin/
 .pnpm-store/
 core-memory/
 .openclaw/
+
+# Python cache
 __pycache__/
 *.pyc
-.mem-beads/.beads/
-.mem-beads/.turns/
-.mem-beads/*.jsonl
 
+# Local OpenClaw memory/runtime stores
+.mem-beads/
 .beads/
 memory/
 plans/
 skills/
-.mem-beads/
+
+# Local assistant identity files
+AGENTS.md
+BOOTSTRAP.md
+HEARTBEAT.md
+IDENTITY.md
+MEMORY.md
+SOUL.md
+TOOLS.md
+USER.md
+promoted-context.md
