@@ -466,6 +466,70 @@ class TestPhase1ParityHarness(unittest.TestCase):
         self.assertTrue(payload.get("ok"))
         self.assertGreaterEqual(payload.get("imported_beads", 0), 2)
 
+    def test_phase3_migrate_store_idempotent(self):
+        """Running migrate-store twice should not duplicate imported beads."""
+        legacy_root = os.path.join(self.tmp, "legacy-idempotent")
+        os.makedirs(legacy_root, exist_ok=True)
+
+        legacy_env = os.environ.copy()
+        legacy_env["MEMBEADS_ROOT"] = legacy_root
+        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
+
+        subprocess.run([
+            sys.executable, "-m", "mem_beads", "create",
+            "--type", "decision", "--title", "One", "--session", "s1"
+        ], cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        mig = [sys.executable, "-m", "mem_beads", "migrate-store", "--legacy-root", legacy_root]
+        r1 = subprocess.run(mig, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        r2 = subprocess.run(mig, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+
+        p1 = json.loads(r1.stdout)
+        p2 = json.loads(r2.stdout)
+        self.assertGreaterEqual(p1.get("imported_beads", 0), 1)
+        self.assertEqual(p2.get("imported_beads", 0), 0)
+
+    def test_phase3_migrate_store_backup_created(self):
+        """migrate-store should create a backup of core index by default."""
+        legacy_root = os.path.join(self.tmp, "legacy-backup")
+        os.makedirs(legacy_root, exist_ok=True)
+
+        legacy_env = os.environ.copy()
+        legacy_env["MEMBEADS_ROOT"] = legacy_root
+        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
+        subprocess.run([
+            sys.executable, "-m", "mem_beads", "create",
+            "--type", "decision", "--title", "L", "--session", "s1"
+        ], cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+        mig = [sys.executable, "-m", "mem_beads", "migrate-store", "--legacy-root", legacy_root]
+        run = subprocess.run(mig, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+        backups = [p for p in os.listdir(os.path.join(self.core_root, ".beads")) if p.startswith("index.backup.")]
+        self.assertTrue(backups)
+
+    def test_phase3_migrate_store_missing_legacy_fails_cleanly(self):
+        """Missing legacy path should fail with a clear error and non-zero code."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        missing = os.path.join(self.tmp, "does-not-exist")
+        cmd = [sys.executable, "-m", "mem_beads", "migrate-store", "--legacy-root", missing]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertNotEqual(run.returncode, 0)
+        self.assertIn("Legacy index not found", run.stderr)
+
     def test_env_compat_membeads_dir_fallback(self):
         """Phase 1 requirement: MEMBEADS_DIR fallback remains valid."""
         fallback_root = os.path.join(self.tmp, "fallback-root")

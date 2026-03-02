@@ -16,9 +16,9 @@ Make `core_memory/` the canonical implementation while preserving behavior, safe
 ## Phases
 
 ## Phase 0 — Spec Freeze
-- [ ] Finalize `COMPATIBILITY_SPEC.md`
-- [x] Mark each command as: preserve / shim / deprecate (draft matrix added)
-- [ ] Decide store strategy: read-compatible vs migrate-once
+- [x] Finalize `COMPATIBILITY_SPEC.md` (decision gates resolved)
+- [x] Mark each command as: preserve / shim / deprecate (matrix added)
+- [x] Decide store strategy: read-compatible vs migrate-once (`migrate-store` added)
 
 Deliverable: signed-off compatibility spec.
 
@@ -35,10 +35,10 @@ Deliverable: signed-off compatibility spec.
 Deliverable: failing tests that codify expected behavior.
 
 ## Phase 2 — Adapter Layer
-- [ ] Keep current CLI entry (`mem_beads.cli:main`)
-- [ ] Route internals to `core_memory` service/adapter
-- [ ] Preserve argument names and output contracts where required
-- [ ] Add compatibility shims for renamed concepts
+- [x] Keep stable CLI command (`mem-beads`) during transition
+- [x] Route internals to `core_memory` service/adapter
+- [x] Preserve argument names and output contracts where required
+- [x] Add compatibility shims for renamed concepts
 
 Deliverable: tests green with CLI still exposed as `mem-beads`.
 
@@ -58,11 +58,9 @@ Choose one strategy:
 Deliverable: existing stores work safely without data corruption.
 
 ## Phase 4 — Canonical Package Flip
-- [ ] Update `pyproject.toml` to canonical `core_memory` package
-- [ ] Script entrypoint decision:
-  - `core_memory.cli:main` (direct), or
-  - keep `mem_beads.cli:main` as stable public entrypoint shim
-- [ ] Ensure install/CI paths pass from repo root
+- [x] Update `pyproject.toml` to canonical `core_memory` package
+- [x] Script entrypoint set to `core_memory.cli:main` (`core-memory` + `mem-beads` alias)
+- [x] Ensure install path passes from repo root (`python -m venv .venv && .venv/bin/python -m pip install -e .`)
 
 Deliverable: `pip install -e .` + CLI + tests pass with `core_memory` canonical.
 

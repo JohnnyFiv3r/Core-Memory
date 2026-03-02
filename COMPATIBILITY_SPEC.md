@@ -101,15 +101,12 @@ Legend: ✅ direct in core adapter | 🟡 translated to core CLI | 🔁 legacy f
 - `uncompact` → 🔁 fallback to legacy
 - `myelinate` → 🔁 fallback to legacy
 
-## 11) Decision Gates (needs maintainer input)
-1. **Compaction path (required):**
-   - A) Keep `compact`/`uncompact`/`myelinate` legacy-routed for current release (recommended for safety)
-   - B) Implement core-native equivalents now in Phase 2
+## 11) Decision Gates (resolved)
+1. **Compaction path:**
+   - ✅ Implement core-native `compact` / `uncompact` / `myelinate`
 
-2. **Store strategy (required):**
-   - A) Read-compatible without one-shot migration command (preferred)
-   - B) Add explicit `migrate-store` command before flip
+2. **Store strategy:**
+   - ✅ Add explicit `migrate-store` command for legacy memory migration
 
-3. **Public import path policy (required):**
-   - A) Keep both (`mem_beads` shim + `core_memory` canonical) for one minor release
-   - B) Expose only `core_memory` immediately on flip
+3. **Public import path policy:**
+   - ✅ Canonical flip to `core_memory` now (with `mem-beads` command alias retained for operator convenience)
