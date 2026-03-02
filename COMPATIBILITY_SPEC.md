@@ -77,7 +77,39 @@ Recommendation: option 2 for one release cycle to reduce breakage.
 - [ ] Install + run from clean env works (`pip install -e .`)
 
 ## 9) Open Questions
-- [ ] Is edge direction currently documented unambiguously in README + tests?
+- [x] Is edge direction currently documented unambiguously in README + tests?
+  - Status: yes in tests; README wording should be tightened in final docs pass.
 - [ ] Should sessions remain file-based or move fully index/event first now?
 - [ ] Do we need explicit schema versioning in `index.json` before migration?
 - [ ] Keep `core_memory/` and `mem_beads/` public, or only one public import path?
+
+## 10) Phase 2 Command Mapping Status (current branch)
+Legend: ✅ direct in core adapter | 🟡 translated to core CLI | 🔁 legacy fallback
+
+- `create` → 🟡 translated to core `add`
+- `add` → 🟡 core CLI native
+- `query` → 🟡 translated/core-compatible
+- `stats` → 🟡 core CLI native
+- `rebuild-index` → 🟡 translated to core `rebuild`
+- `link` → ✅ direct handler (`MemoryStore.link`)
+- `recall` → ✅ direct handler (`MemoryStore.recall`)
+- `supersede` → ✅ direct handler (creates `supersedes` association)
+- `validate` → ✅ direct handler (compat payload)
+- `close --status promoted` → ✅ direct handler (`MemoryStore.promote`)
+- `close` (other statuses) → 🔁 fallback to legacy
+- `compact` → 🔁 fallback to legacy
+- `uncompact` → 🔁 fallback to legacy
+- `myelinate` → 🔁 fallback to legacy
+
+## 11) Decision Gates (needs maintainer input)
+1. **Compaction path (required):**
+   - A) Keep `compact`/`uncompact`/`myelinate` legacy-routed for current release (recommended for safety)
+   - B) Implement core-native equivalents now in Phase 2
+
+2. **Store strategy (required):**
+   - A) Read-compatible without one-shot migration command (preferred)
+   - B) Add explicit `migrate-store` command before flip
+
+3. **Public import path policy (required):**
+   - A) Keep both (`mem_beads` shim + `core_memory` canonical) for one minor release
+   - B) Expose only `core_memory` immediately on flip

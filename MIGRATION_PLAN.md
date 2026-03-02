@@ -17,7 +17,7 @@ Make `core_memory/` the canonical implementation while preserving behavior, safe
 
 ## Phase 0 — Spec Freeze
 - [ ] Finalize `COMPATIBILITY_SPEC.md`
-- [ ] Mark each command as: preserve / shim / deprecate
+- [x] Mark each command as: preserve / shim / deprecate (draft matrix added)
 - [ ] Decide store strategy: read-compatible vs migrate-once
 
 Deliverable: signed-off compatibility spec.
