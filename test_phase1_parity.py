@@ -12,6 +12,8 @@ import importlib
 import json
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import unittest
@@ -181,6 +183,42 @@ class TestPhase1ParityHarness(unittest.TestCase):
             self.assertIn("source_id", e)
             self.assertIn("target_id", e)
             self.assertIn("type", e)
+
+    def test_phase2_core_adapter_smoke_add_query(self):
+        """Phase 2 scaffold: mem-beads CLI can route to core_memory via opt-in flag."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        add_cmd = [
+            sys.executable,
+            "-m",
+            "mem_beads",
+            "add",
+            "--type",
+            "decision",
+            "--title",
+            "Adapter Path",
+            "--session-id",
+            "phase2",
+        ]
+        add_run = subprocess.run(add_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(add_run.returncode, 0, add_run.stderr)
+        self.assertIn("Created bead:", add_run.stdout)
+
+        query_cmd = [
+            sys.executable,
+            "-m",
+            "mem_beads",
+            "query",
+            "--type",
+            "decision",
+            "--limit",
+            "5",
+        ]
+        query_run = subprocess.run(query_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(query_run.returncode, 0, query_run.stderr)
+        self.assertIn("[decision]", query_run.stdout)
 
     def test_env_compat_membeads_dir_fallback(self):
         """Phase 1 requirement: MEMBEADS_DIR fallback remains valid."""
