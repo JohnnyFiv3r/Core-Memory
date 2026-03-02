@@ -1,8 +1,37 @@
 #!/usr/bin/env python3
-"""CLI entry point for mem-beads package."""
+"""CLI entry point for mem-beads package.
+
+Phase 2 migration behavior:
+- default: existing mem_beads implementation
+- opt-in adapter: route to core_memory via MEMBEADS_USE_CORE_ADAPTER=1
+"""
+
+import os
 import sys
-from mem_beads import main
+
+
+def main() -> int:
+    use_core = os.environ.get("MEMBEADS_USE_CORE_ADAPTER", "0") == "1"
+
+    if use_core:
+        from core_memory.adapter_cli import can_handle_with_core_adapter, run_core_adapter
+
+        # preserve command name
+        sys.argv[0] = "mem-beads"
+        if can_handle_with_core_adapter(sys.argv):
+            try:
+                return run_core_adapter(sys.argv)
+            except NotImplementedError:
+                pass
+        # fallback for commands not translated yet
+
+    # legacy default behavior
+    from mem_beads import main as legacy_main
+
+    sys.argv[0] = "mem-beads"
+    legacy_main()
+    return 0
+
 
 if __name__ == "__main__":
-    sys.argv[0] = "mem-beads"
-    main()
+    raise SystemExit(main())

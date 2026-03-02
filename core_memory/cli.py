@@ -44,6 +44,24 @@ def main():
     
     # rebuild command
     subparsers.add_parser("rebuild", help="Rebuild index from events")
+
+    # compact command
+    compact_parser = subparsers.add_parser("compact", help="Compact beads")
+    compact_parser.add_argument("--session", help="Compact only this session")
+    compact_parser.add_argument("--promote", action="store_true", help="Promote compacted beads")
+
+    # uncompact command
+    uncompact_parser = subparsers.add_parser("uncompact", help="Restore compacted bead detail")
+    uncompact_parser.add_argument("--id", required=True, help="Bead ID")
+
+    # myelinate command
+    myelinate_parser = subparsers.add_parser("myelinate", help="Run myelination analysis")
+    myelinate_parser.add_argument("--apply", action="store_true", help="Apply changes (default dry-run)")
+
+    # migrate-store command
+    migrate_parser = subparsers.add_parser("migrate-store", help="Migrate legacy mem_beads store")
+    migrate_parser.add_argument("--legacy-root", required=True, help="Path to legacy .mem-beads store")
+    migrate_parser.add_argument("--no-backup", action="store_true", help="Disable backup before import")
     
     args = parser.parse_args()
     
@@ -80,7 +98,25 @@ def main():
     elif args.command == "rebuild":
         index = memory.rebuild_index()
         print(f"Rebuilt index with {index['stats']['total_beads']} beads")
-    
+
+    elif args.command == "compact":
+        result = memory.compact(session_id=args.session, promote=args.promote)
+        print(json.dumps(result))
+
+    elif args.command == "uncompact":
+        result = memory.uncompact(args.id)
+        print(json.dumps(result))
+        if not result.get("ok"):
+            raise SystemExit(1)
+
+    elif args.command == "myelinate":
+        result = memory.myelinate(apply=args.apply)
+        print(json.dumps(result))
+
+    elif args.command == "migrate-store":
+        result = memory.migrate_legacy_store(args.legacy_root, backup=not args.no_backup)
+        print(json.dumps(result, indent=2))
+
     else:
         parser.print_help()
 

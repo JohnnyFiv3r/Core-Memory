@@ -248,6 +248,185 @@ class MemoryStore:
             "end_bead": end_bead_id
         }
     
+    def migrate_legacy_store(self, legacy_root: str, backup: bool = True) -> dict:
+        """Migrate a legacy mem_beads store into this core_memory store.
+
+        Safe behavior:
+        - optional backup of current core index
+        - id-preserving import from legacy index + JSONL files
+        - deterministic association import order
+        """
+        legacy = Path(legacy_root)
+        legacy_index_path = legacy / "index.json"
+        if not legacy_index_path.exists():
+            raise FileNotFoundError(f"Legacy index not found: {legacy_index_path}")
+
+        if backup:
+            idx_path = self.beads_dir / INDEX_FILE
+            if idx_path.exists():
+                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                backup_path = self.beads_dir / f"index.backup.{stamp}.json"
+                backup_path.write_text(idx_path.read_text())
+
+        legacy_index = json.loads(legacy_index_path.read_text())
+        existing = self._read_json(self.beads_dir / INDEX_FILE)
+
+        imported_beads = 0
+        for bead_id, rec in sorted(legacy_index.get("beads", {}).items()):
+            if bead_id in existing.get("beads", {}):
+                continue
+
+            bead_file = legacy / rec.get("file", "")
+            line_no = rec.get("line", 0)
+            full = None
+            if bead_file.exists():
+                with open(bead_file, "r") as f:
+                    for i, line in enumerate(f):
+                        if i == line_no:
+                            full = json.loads(line)
+                            break
+
+            bead = {
+                "id": bead_id,
+                "type": rec.get("type", "context"),
+                "created_at": rec.get("created_at", datetime.now(timezone.utc).isoformat()),
+                "session_id": rec.get("session_id"),
+                "title": rec.get("title", ""),
+                "summary": (full or {}).get("summary", []),
+                "detail": (full or {}).get("detail", ""),
+                "scope": rec.get("scope", "project"),
+                "authority": (full or {}).get("authority", "agent_inferred"),
+                "confidence": (full or {}).get("confidence", 0.8),
+                "tags": rec.get("tags", []),
+                "links": (full or {}).get("links", {}),
+                "status": rec.get("status", "open"),
+                "recall_count": rec.get("recall_count", 0),
+                "last_recalled": rec.get("last_recalled"),
+            }
+            if "promoted_at" in rec:
+                bead["promoted_at"] = rec["promoted_at"]
+
+            existing["beads"][bead_id] = bead
+            imported_beads += 1
+
+        # import edges as associations if available
+        edge_file = legacy / "edges.jsonl"
+        imported_assocs = 0
+        if edge_file.exists():
+            with open(edge_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    e = json.loads(line)
+                    assoc = {
+                        "id": e.get("id", f"assoc-{uuid.uuid4().hex[:12].upper()}"),
+                        "type": "association",
+                        "source_bead": e.get("source_id"),
+                        "target_bead": e.get("target_id"),
+                        "relationship": e.get("type", "related"),
+                        "explanation": "",
+                        "created_at": e.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    }
+                    existing.setdefault("associations", []).append(assoc)
+                    imported_assocs += 1
+
+            existing["associations"] = sorted(
+                existing.get("associations", []),
+                key=lambda a: (a.get("created_at", ""), a.get("id", "")),
+            )
+
+        existing.setdefault("stats", {})["total_beads"] = len(existing.get("beads", {}))
+        existing.setdefault("stats", {})["total_associations"] = len(existing.get("associations", []))
+        self._write_json(self.beads_dir / INDEX_FILE, existing)
+
+        return {
+            "ok": True,
+            "legacy_root": str(legacy),
+            "imported_beads": imported_beads,
+            "imported_associations": imported_assocs,
+            "total_beads": len(existing.get("beads", {})),
+            "total_associations": len(existing.get("associations", [])),
+        }
+
+    def compact(self, session_id: Optional[str] = None, promote: bool = False) -> dict:
+        """Core-native compact: archive detail text losslessly and optionally promote."""
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        archive_file = self.beads_dir / "archive.jsonl"
+        compacted = 0
+
+        for bead_id in sorted(index.get("beads", {}).keys()):
+            bead = index["beads"][bead_id]
+            if session_id and bead.get("session_id") != session_id:
+                continue
+            detail = bead.get("detail", "")
+            if detail:
+                archive = {
+                    "bead_id": bead_id,
+                    "detail": detail,
+                    "summary": bead.get("summary", []),
+                    "archived_at": datetime.now(timezone.utc).isoformat(),
+                }
+                with open(archive_file, "a") as f:
+                    f.write(json.dumps(archive) + "\n")
+                bead["detail"] = ""
+                compacted += 1
+            if promote and bead.get("status") != "promoted":
+                bead["status"] = "promoted"
+                bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
+            index["beads"][bead_id] = bead
+
+        self._write_json(self.beads_dir / INDEX_FILE, index)
+        return {"ok": True, "compacted": compacted, "session": session_id}
+
+    def uncompact(self, bead_id: str) -> dict:
+        """Restore compacted bead detail from core archive."""
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        if bead_id not in index.get("beads", {}):
+            return {"ok": False, "error": f"Bead not found: {bead_id}"}
+
+        archive_file = self.beads_dir / "archive.jsonl"
+        if not archive_file.exists():
+            return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
+
+        found = None
+        with open(archive_file, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                row = json.loads(line)
+                if row.get("bead_id") == bead_id:
+                    found = row
+
+        if not found:
+            return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
+
+        bead = index["beads"][bead_id]
+        bead["detail"] = found.get("detail", "")
+        if found.get("summary"):
+            bead["summary"] = found.get("summary")
+        index["beads"][bead_id] = bead
+        self._write_json(self.beads_dir / INDEX_FILE, index)
+        return {"ok": True, "id": bead_id}
+
+    def myelinate(self, apply: bool = False) -> dict:
+        """Core-native myelination scaffold (deterministic)."""
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        actions = []
+        # Deterministic scan, no destructive behavior until policy finalization.
+        for bead_id in sorted(index.get("beads", {}).keys()):
+            bead = index["beads"][bead_id]
+            if bead.get("recall_count", 0) >= 3:
+                actions.append({"bead_id": bead_id, "action": "retain"})
+
+        return {
+            "dry_run": not apply,
+            "total_derived_edges": 0,
+            "edges_with_actions": len(actions),
+            "actions": actions[:50],
+        }
+
     def _normalize_enum(self, value, enum_class):
         """Normalize enum or string to string value."""
         if value is None:

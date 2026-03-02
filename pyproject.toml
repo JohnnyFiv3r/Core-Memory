@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mem-beads"
+name = "core-memory"
 version = "1.0.0"
 description = "Persistent causal agent memory with lossless compaction"
 readme = "README.md"
@@ -28,11 +28,12 @@ dependencies = []
 dev = ["pytest"]
 
 [project.scripts]
-mem-beads = "mem_beads.cli:main"
+core-memory = "core_memory.cli:main"
+mem-beads = "core_memory.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["mem_beads*"]
+include = ["core_memory*", "mem_beads*"]
 
 [tool.pytest.ini_options]
 testpaths = ["."]

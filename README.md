@@ -55,7 +55,8 @@ Each turn, Core Memory produces a Context Packet: an ordered, token-budgeted set
 ## Install
 
 ```bash
-pip install -e .
+python3 -m venv .venv
+.venv/bin/python -m pip install -e .
 ```
 
 Configure store root:
@@ -71,19 +72,27 @@ export MEMBEADS_ROOT="$PWD/.mem-beads"
 Create a bead:
 
 ```bash
-mem-beads add decision "Use stdlib only" --session main --tags mem-beads
+core-memory --root "$MEMBEADS_ROOT" add --type decision --title "Use stdlib only" --session-id main --tags mem-beads
 ```
 
 Link beads:
 
 ```bash
-mem-beads link <newer_bead_id> <older_bead_id> derives-from
+core-memory --root "$MEMBEADS_ROOT" query --type decision --limit 5
+mem-beads --root "$MEMBEADS_ROOT" link --from <newer_bead_id> --to <older_bead_id> --type derives-from
 ```
 
-Build a Context Packet:
+Compaction + restore:
 
 ```bash
-mem-beads context --budget 10000 --min-sessions 3 --tags mem-beads
+core-memory --root "$MEMBEADS_ROOT" compact --session main --promote
+core-memory --root "$MEMBEADS_ROOT" uncompact --id <bead_id>
+```
+
+Migrate legacy store:
+
+```bash
+core-memory --root "$MEMBEADS_ROOT" migrate-store --legacy-root /path/to/legacy/.mem-beads
 ```
 
 ---
@@ -103,11 +112,13 @@ mem-beads context --budget 10000 --min-sessions 3 --tags mem-beads
 
 ## CLI reference (most-used)
 
-- `mem-beads add ...` — create bead
-- `mem-beads link ...` — create authored edge
-- `mem-beads context ...` — assemble deterministic context packet
-- `mem-beads myelinate ...` — derived-edge strengthening/pruning flow
-- `mem-beads query ...` — inspect memory state
+- `core-memory add ...` — create bead
+- `mem-beads link ...` — create authored edge (compat path)
+- `core-memory compact ...` — compact bead detail (lossless via archive)
+- `core-memory uncompact ...` — restore compacted detail
+- `core-memory myelinate ...` — deterministic myelination pass output
+- `core-memory migrate-store ...` — import legacy mem_beads stores
+- `core-memory query ...` — inspect memory state
 
 ---
 

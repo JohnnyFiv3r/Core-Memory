@@ -25,3 +25,7 @@ SOUL.md
 TOOLS.md
 USER.md
 promoted-context.md
+
+# Local Python env/build artifacts
+.venv/
+*.egg-info/
