@@ -19,7 +19,10 @@ def main() -> int:
         # preserve command name
         sys.argv[0] = "mem-beads"
         if can_handle_with_core_adapter(sys.argv):
-            return run_core_adapter(sys.argv)
+            try:
+                return run_core_adapter(sys.argv)
+            except NotImplementedError:
+                pass
         # fallback for commands not translated yet
 
     # legacy default behavior

@@ -12,11 +12,22 @@ import os
 import sys
 from typing import List, Optional
 
-SUPPORTED_LEGACY_COMMANDS = {"create", "query", "stats", "rebuild-index", "add", "rebuild"}
+from core_memory.store import MemoryStore
+
+SUPPORTED_LEGACY_COMMANDS = {
+    "create",
+    "query",
+    "stats",
+    "rebuild-index",
+    "add",
+    "rebuild",
+    "link",
+    "recall",
+    "close",  # limited: promoted status only
+}
 
 
 def _inject_root_if_missing(argv: List[str]) -> List[str]:
-    """Inject --root from MEMBEADS_ROOT when core CLI doesn't receive one."""
     if "--root" in argv:
         return argv
 
@@ -30,7 +41,6 @@ def _inject_root_if_missing(argv: List[str]) -> List[str]:
 
 
 def _find_command_index(argv: List[str]) -> Optional[int]:
-    """Find first non-flag token after argv[0], accounting for --root value."""
     i = 1
     while i < len(argv):
         tok = argv[i]
@@ -44,8 +54,23 @@ def _find_command_index(argv: List[str]) -> Optional[int]:
     return None
 
 
+def _extract_root(argv: List[str]) -> str:
+    if "--root" in argv:
+        i = argv.index("--root")
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return os.environ.get("MEMBEADS_ROOT") or os.environ.get("MEMBEADS_DIR") or "./memory"
+
+
+def _arg_value(argv: List[str], flag: str) -> Optional[str]:
+    if flag in argv:
+        i = argv.index(flag)
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
 def _translate_legacy_to_core(argv: List[str]) -> List[str]:
-    """Translate supported legacy mem-beads argv to core_memory argv."""
     argv = _inject_root_if_missing(argv)
     cmd_i = _find_command_index(argv)
     if cmd_i is None:
@@ -55,13 +80,11 @@ def _translate_legacy_to_core(argv: List[str]) -> List[str]:
     if cmd not in SUPPORTED_LEGACY_COMMANDS:
         raise NotImplementedError(f"Command '{cmd}' not yet supported by core adapter")
 
-    # normalize command aliases
     if cmd == "create":
         argv[cmd_i] = "add"
     elif cmd == "rebuild-index":
         argv[cmd_i] = "rebuild"
 
-    # translate options for add/query
     if argv[cmd_i] == "add":
         out = argv[: cmd_i + 1]
         i = cmd_i + 1
@@ -75,7 +98,6 @@ def _translate_legacy_to_core(argv: List[str]) -> List[str]:
                 continue
 
             if tok == "--tags" and nxt is not None:
-                # legacy often uses comma-separated string
                 parts = [p for p in nxt.split(",") if p]
                 if parts:
                     out.append("--tags")
@@ -83,7 +105,6 @@ def _translate_legacy_to_core(argv: List[str]) -> List[str]:
                 i += 2
                 continue
 
-            # strip unsupported legacy add flags for now
             if tok in {
                 "--turn-refs",
                 "--scope",
@@ -121,7 +142,6 @@ def _translate_legacy_to_core(argv: List[str]) -> List[str]:
                 i += 2
                 continue
 
-            # unsupported query flags in core cli right now
             if tok in {"--session", "--scope", "--full"}:
                 i += 2 if tok != "--full" and nxt is not None and not nxt.startswith("-") else 1
                 continue
@@ -137,16 +157,65 @@ def _translate_legacy_to_core(argv: List[str]) -> List[str]:
 def can_handle_with_core_adapter(argv: List[str] | None = None) -> bool:
     if argv is None:
         argv = sys.argv
-    cmd_i = _find_command_index(_inject_root_if_missing(list(argv)))
+    patched = _inject_root_if_missing(list(argv))
+    cmd_i = _find_command_index(patched)
     if cmd_i is None:
         return False
-    return _inject_root_if_missing(list(argv))[cmd_i] in SUPPORTED_LEGACY_COMMANDS
+    return patched[cmd_i] in SUPPORTED_LEGACY_COMMANDS
+
+
+def _run_direct_compat(argv: List[str]) -> Optional[int]:
+    """Handle commands not present in core_memory.cli directly via MemoryStore."""
+    patched = _inject_root_if_missing(list(argv))
+    cmd_i = _find_command_index(patched)
+    if cmd_i is None:
+        return None
+
+    cmd = patched[cmd_i]
+    root = _extract_root(patched)
+    store = MemoryStore(root=root)
+
+    if cmd == "link":
+        source = _arg_value(patched, "--from")
+        target = _arg_value(patched, "--to")
+        rel = _arg_value(patched, "--type")
+        if not (source and target and rel):
+            raise SystemExit("link requires --from --to --type")
+        assoc_id = store.link(source, target, rel)
+        print(f'{{"ok": true, "id": "{assoc_id}"}}')
+        return 0
+
+    if cmd == "recall":
+        bead_id = _arg_value(patched, "--id")
+        if not bead_id:
+            raise SystemExit("recall requires --id")
+        ok = store.recall(bead_id)
+        print(f'{{"ok": {str(ok).lower()}, "id": "{bead_id}"}}')
+        return 0 if ok else 1
+
+    if cmd == "close":
+        bead_id = _arg_value(patched, "--id")
+        status = _arg_value(patched, "--status")
+        if not (bead_id and status):
+            raise SystemExit("close requires --id --status")
+        if status == "promoted":
+            ok = store.promote(bead_id)
+            print(f'{{"ok": {str(ok).lower()}, "id": "{bead_id}", "status": "promoted"}}')
+            return 0 if ok else 1
+        # not supported yet in core store model; let caller fallback to legacy
+        raise NotImplementedError("close status other than promoted not supported in core adapter yet")
+
+    return None
 
 
 def run_core_adapter(argv: List[str] | None = None) -> int:
-    """Run core_memory CLI with mem-beads compatibility affordances."""
     if argv is None:
         argv = sys.argv
+
+    # Direct compatibility handlers first
+    direct = _run_direct_compat(list(argv))
+    if direct is not None:
+        return direct
 
     from core_memory.cli import main as core_main
 

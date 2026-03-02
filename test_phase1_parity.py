@@ -248,53 +248,57 @@ class TestPhase1ParityHarness(unittest.TestCase):
         rows = store.query(type="decision", tags=["a"], limit=10)
         self.assertTrue(any(r.get("title") == "Legacy Create" for r in rows))
 
+    def test_phase2_core_adapter_link_direct_handler(self):
+        """`link` should be handled directly by core adapter when flag enabled."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        store = MemoryStore(root=self.core_root)
+        d = store.add_bead(type="decision", title="D", session_id="phase2")
+        o = store.add_bead(type="outcome", title="O", session_id="phase2")
+
+        cmd = [
+            sys.executable, "-m", "mem_beads", "link",
+            "--from", o, "--to", d, "--type", "follows"
+        ]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        payload = json.loads(run.stdout)
+        self.assertTrue(payload.get("ok"))
+
+        rows = store._read_json(store.beads_dir / "index.json").get("associations", [])
+        self.assertTrue(any(a.get("source_bead") == o and a.get("target_bead") == d for a in rows))
+
+    def test_phase2_core_adapter_recall_direct_handler(self):
+        """`recall` should route through core adapter and increment recall_count."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        store = MemoryStore(root=self.core_root)
+        bead_id = store.add_bead(type="decision", title="Recall me", session_id="phase2")
+
+        cmd = [sys.executable, "-m", "mem_beads", "recall", "--id", bead_id]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+
+        bead = store._read_json(store.beads_dir / "index.json")["beads"][bead_id]
+        self.assertEqual(bead.get("recall_count"), 1)
+
     def test_phase2_core_adapter_fallback_for_unsupported_commands(self):
         """Unsupported commands should fallback to legacy implementation under adapter flag."""
         env = os.environ.copy()
         env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
         env["MEMBEADS_ROOT"] = self.mem_root
 
-        # create two beads with adapter OFF (known legacy output)
-        legacy_env = env.copy()
-        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
-        c1 = [
-            sys.executable, "-m", "mem_beads", "create",
-            "--type", "decision", "--title", "D", "--session", "phase2"
-        ]
-        c2 = [
-            sys.executable, "-m", "mem_beads", "create",
-            "--type", "outcome", "--title", "O", "--session", "phase2"
-        ]
-        r1 = subprocess.run(c1, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
-        r2 = subprocess.run(c2, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
-        self.assertEqual(r1.returncode, 0, r1.stderr)
-        self.assertEqual(r2.returncode, 0, r2.stderr)
-
-        # command `link` is unsupported by core adapter, so it must fallback to legacy and succeed
-        # extract ids from stdout JSON payloads produced by legacy create
-        d_id = json.loads(r1.stdout)["id"]
-        o_id = json.loads(r2.stdout)["id"]
-
-        link_cmd = [
-            sys.executable, "-m", "mem_beads", "link",
-            "--from", o_id, "--to", d_id, "--type", "follows"
-        ]
-        link_run = subprocess.run(link_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
-        self.assertEqual(link_run.returncode, 0, link_run.stderr)
-
-        # verify edge exists in legacy store (link command may create an intermediate source bead)
-        old = os.environ.get("MEMBEADS_ROOT")
-        os.environ["MEMBEADS_ROOT"] = self.mem_root
-        try:
-            importlib.reload(mem_beads)
-            edges = mem_beads.get_edges_to(d_id)
-            self.assertTrue(any(e.get("target_id") == d_id and e.get("type") == "follows" for e in edges))
-        finally:
-            if old is not None:
-                os.environ["MEMBEADS_ROOT"] = old
-            else:
-                os.environ.pop("MEMBEADS_ROOT", None)
-            importlib.reload(mem_beads)
+        # `myelinate` is not supported by core adapter yet -> fallback to legacy path
+        cmd = [sys.executable, "-m", "mem_beads", "myelinate"]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        # legacy command emits JSON summary
+        payload = json.loads(run.stdout)
+        self.assertIn("dry_run", payload)
 
     def test_env_compat_membeads_dir_fallback(self):
         """Phase 1 requirement: MEMBEADS_DIR fallback remains valid."""
