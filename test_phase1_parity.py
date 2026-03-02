@@ -335,9 +335,51 @@ class TestPhase1ParityHarness(unittest.TestCase):
         cmd = [sys.executable, "-m", "mem_beads", "myelinate"]
         run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
         self.assertEqual(run.returncode, 0, run.stderr)
-        # legacy command emits JSON summary
         payload = json.loads(run.stdout)
         self.assertIn("dry_run", payload)
+
+    def test_phase2_core_adapter_fallback_compact_uncompact(self):
+        """compact/uncompact remain legacy-routed under adapter flag."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.mem_root
+
+        # Seed legacy store
+        legacy_env = env.copy()
+        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
+        c = [
+            sys.executable, "-m", "mem_beads", "create",
+            "--type", "decision", "--title", "to-compact", "--session", "s1"
+        ]
+        cr = subprocess.run(c, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        self.assertEqual(cr.returncode, 0, cr.stderr)
+
+        compact_cmd = [sys.executable, "-m", "mem_beads", "compact", "--session", "s1"]
+        compact_run = subprocess.run(compact_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(compact_run.returncode, 0, compact_run.stderr)
+        compact_payload = json.loads(compact_run.stdout)
+        self.assertTrue(compact_payload.get("ok"))
+
+        uncompact_cmd = [sys.executable, "-m", "mem_beads", "uncompact", "--id", "bead-missing"]
+        uncompact_run = subprocess.run(uncompact_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(uncompact_run.returncode, 1)
+        uncompact_payload = json.loads(uncompact_run.stdout)
+        self.assertFalse(uncompact_payload.get("ok", True))
+
+    def test_phase2_core_adapter_close_non_promoted_falls_back(self):
+        """close status != promoted should fallback to legacy behavior."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.mem_root
+
+        cmd = [
+            sys.executable, "-m", "mem_beads", "close",
+            "--id", "bead-missing", "--status", "closed"
+        ]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 1)
+        payload = json.loads(run.stdout)
+        self.assertFalse(payload.get("ok", True))
 
     def test_env_compat_membeads_dir_fallback(self):
         """Phase 1 requirement: MEMBEADS_DIR fallback remains valid."""
