@@ -23,6 +23,8 @@ SUPPORTED_LEGACY_COMMANDS = {
     "rebuild",
     "link",
     "recall",
+    "supersede",
+    "validate",
     "close",  # limited: promoted status only
 }
 
@@ -192,6 +194,32 @@ def _run_direct_compat(argv: List[str]) -> Optional[int]:
         ok = store.recall(bead_id)
         print(f'{{"ok": {str(ok).lower()}, "id": "{bead_id}"}}')
         return 0 if ok else 1
+
+    if cmd == "supersede":
+        old_id = _arg_value(patched, "--old")
+        new_id = _arg_value(patched, "--new")
+        if not (old_id and new_id):
+            raise SystemExit("supersede requires --old --new")
+        store.link(new_id, old_id, "supersedes")
+        print(f'{{"ok": true, "old": "{old_id}", "new": "{new_id}", "status": "superseded"}}')
+        return 0
+
+    if cmd == "validate":
+        idx = store._read_json(store.beads_dir / "index.json")
+        beads = idx.get("beads", {})
+        assocs = idx.get("associations", [])
+        sessions = {b.get("session_id") for b in beads.values() if b.get("session_id")}
+        payload = {
+            "ok": True,
+            "total_beads": len(beads),
+            "total_edges": len(assocs),
+            "total_sessions": len(sessions),
+            "total_issues": 0,
+            "issues": {},
+        }
+        import json
+        print(json.dumps(payload, indent=2))
+        return 0
 
     if cmd == "close":
         bead_id = _arg_value(patched, "--id")

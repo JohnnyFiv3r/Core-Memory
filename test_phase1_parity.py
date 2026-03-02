@@ -286,6 +286,45 @@ class TestPhase1ParityHarness(unittest.TestCase):
         bead = store._read_json(store.beads_dir / "index.json")["beads"][bead_id]
         self.assertEqual(bead.get("recall_count"), 1)
 
+    def test_phase2_core_adapter_supersede_direct_handler(self):
+        """`supersede` should be handled by core adapter and create supersedes association."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        store = MemoryStore(root=self.core_root)
+        old_id = store.add_bead(type="decision", title="Old", session_id="phase2")
+        new_id = store.add_bead(type="decision", title="New", session_id="phase2")
+
+        cmd = [
+            sys.executable, "-m", "mem_beads", "supersede",
+            "--old", old_id, "--new", new_id
+        ]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        payload = json.loads(run.stdout)
+        self.assertEqual(payload.get("status"), "superseded")
+
+        rows = store._read_json(store.beads_dir / "index.json").get("associations", [])
+        self.assertTrue(any(a.get("source_bead") == new_id and a.get("target_bead") == old_id and a.get("relationship") == "supersedes" for a in rows))
+
+    def test_phase2_core_adapter_validate_direct_handler(self):
+        """`validate` should return expected contract payload from core adapter."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        store = MemoryStore(root=self.core_root)
+        store.add_bead(type="decision", title="V", session_id="phase2")
+
+        cmd = [sys.executable, "-m", "mem_beads", "validate"]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        payload = json.loads(run.stdout)
+        self.assertTrue(payload.get("ok"))
+        self.assertIn("total_beads", payload)
+        self.assertIn("total_edges", payload)
+
     def test_phase2_core_adapter_fallback_for_unsupported_commands(self):
         """Unsupported commands should fallback to legacy implementation under adapter flag."""
         env = os.environ.copy()
