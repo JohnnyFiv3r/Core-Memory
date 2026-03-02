@@ -15,7 +15,10 @@ from .store import MemoryStore, DEFAULT_ROOT
 
 
 def main():
-    """CLI entry point for mem-beads command."""
+    """CLI entry point for core-memory command."""
+    if (sys.argv and "mem-beads" in sys.argv[0]) or (len(sys.argv) > 1 and sys.argv[1] == "mem-beads"):
+        print("[deprecation] `mem-beads` command is deprecated; use `core-memory`.", file=sys.stderr)
+
     parser = argparse.ArgumentParser(description="Core-Memory CLI")
     parser.add_argument("--root", default=DEFAULT_ROOT, help="Memory root directory")
     

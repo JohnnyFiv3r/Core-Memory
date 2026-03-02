@@ -313,6 +313,11 @@ class MemoryStore:
         edge_file = legacy / "edges.jsonl"
         imported_assocs = 0
         if edge_file.exists():
+            existing_assocs = existing.setdefault("associations", [])
+            seen = {
+                (a.get("id"), a.get("source_bead"), a.get("target_bead"), a.get("relationship"))
+                for a in existing_assocs
+            }
             with open(edge_file, "r") as f:
                 for line in f:
                     line = line.strip()
@@ -328,7 +333,11 @@ class MemoryStore:
                         "explanation": "",
                         "created_at": e.get("created_at", datetime.now(timezone.utc).isoformat()),
                     }
-                    existing.setdefault("associations", []).append(assoc)
+                    key = (assoc.get("id"), assoc.get("source_bead"), assoc.get("target_bead"), assoc.get("relationship"))
+                    if key in seen:
+                        continue
+                    existing_assocs.append(assoc)
+                    seen.add(key)
                     imported_assocs += 1
 
             existing["associations"] = sorted(

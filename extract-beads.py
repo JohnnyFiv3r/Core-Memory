@@ -34,8 +34,9 @@ VALID_AUTHORITIES = {"agent_inferred", "user_confirmed", "system"}
 # Support both old HTML comment format and new invisible {::bead ... /::} format
 BEAD_MARKER = re.compile(r'(?:<!--\s*BEAD:\s*(\{.*?\})\s*-->|\{::bead\s+(.*?)\s*/::\})', re.DOTALL)
 
-MEMBEADS_DIR = os.environ.get("MEMBEADS_DIR", "/home/node/.openclaw/workspace/.mem-beads")
-MEMBEADS_CLI = "/home/node/.openclaw/workspace/tools/mem-beads/mem_beads.py"
+WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/home/node/.openclaw/workspace")
+MEMBEADS_DIR = os.environ.get("MEMBEADS_DIR", f"{WORKSPACE}/.mem-beads")
+CORE_MEMORY_CLI = os.environ.get("CORE_MEMORY_CLI", "core-memory")
 
 # OpenClaw stores session transcripts in agents/<agentId>/sessions/
 def get_latest_transcript(agent_id: str = "main") -> tuple[str, str]:
@@ -168,10 +169,12 @@ def write_beads(beads: list[dict], session_id: str) -> int:
     for bead in beads:
         # Build CLI args
         args = [
-            'python3', MEMBEADS_CLI, 'create',
+            CORE_MEMORY_CLI,
+            '--root', MEMBEADS_DIR,
+            'add',
             '--type', bead.get('type', 'context'),
             '--title', bead.get('title', 'Untitled')[:100],  # Limit title length
-            '--session', session_id,
+            '--session-id', session_id,
         ]
         
         # Optional fields
@@ -197,7 +200,7 @@ def write_beads(beads: list[dict], session_id: str) -> int:
         
         if tags := bead.get('tags'):
             if isinstance(tags, list):
-                args.extend(['--tags', ','.join(tags)])
+                args.extend(['--tags'] + [str(t) for t in tags])
             else:
                 args.extend(['--tags', str(tags)])
         
@@ -239,7 +242,7 @@ def main():
         if len(sys.argv) >= 3 and sys.argv[2] == '--consolidate':
             print("\nRunning consolidation...")
             result = subprocess.run([
-                'python3', '/home/node/.openclaw/workspace/tools/mem-beads/consolidate.py',
+                'python3', f'{WORKSPACE}/consolidate.py',
                 'consolidate', '--session', session_id, '--promote'
             ], capture_output=True, text=True)
             if result.returncode == 0:

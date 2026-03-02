@@ -167,6 +167,13 @@ pytest -q
 
 ---
 
+## Deprecation note (`mem_beads`)
+
+- `core-memory` is canonical.
+- `mem-beads` command remains as a compatibility alias and emits a deprecation warning.
+- Direct `mem_beads` module internals are deprecated and will be removed after migration window.
+- See `DEPRECATION_PLAN.md` for timeline.
+
 ## License
 
 MIT
