@@ -25,6 +25,10 @@ SUPPORTED_LEGACY_COMMANDS = {
     "recall",
     "supersede",
     "validate",
+    "compact",
+    "uncompact",
+    "myelinate",
+    "migrate-store",
     "close",  # limited: promoted status only
 }
 
@@ -130,6 +134,24 @@ def _translate_legacy_to_core(argv: List[str]) -> List[str]:
             out.append(tok)
             i += 1
 
+        return out
+
+    if argv[cmd_i] == "compact":
+        out = argv[: cmd_i + 1]
+        i = cmd_i + 1
+        while i < len(argv):
+            tok = argv[i]
+            nxt = argv[i + 1] if i + 1 < len(argv) else None
+            if tok == "--keep-promoted":
+                out.append("--promote")
+                i += 1
+                continue
+            if tok == "--before":
+                # not implemented in core compact yet
+                i += 2 if nxt is not None and not nxt.startswith("-") else 1
+                continue
+            out.append(tok)
+            i += 1
         return out
 
     if argv[cmd_i] == "query":

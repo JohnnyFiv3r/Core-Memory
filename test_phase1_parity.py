@@ -381,6 +381,91 @@ class TestPhase1ParityHarness(unittest.TestCase):
         payload = json.loads(run.stdout)
         self.assertFalse(payload.get("ok", True))
 
+    def test_phase2_core_adapter_compact_uncompact_core_native(self):
+        """compact/uncompact should route to core-native implementation."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        store = MemoryStore(root=self.core_root)
+        bead_id = store.add_bead(type="decision", title="C", detail="long detail", session_id="s1")
+
+        compact_cmd = [
+            sys.executable, "-m", "mem_beads", "compact", "--session", "s1", "--keep-promoted"
+        ]
+        cr = subprocess.run(compact_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(cr.returncode, 0, cr.stderr)
+        cp = json.loads(cr.stdout)
+        self.assertTrue(cp.get("ok"))
+
+        bead = store._read_json(store.beads_dir / "index.json")["beads"][bead_id]
+        self.assertEqual(bead.get("detail"), "")
+        self.assertEqual(bead.get("status"), "promoted")
+
+        uncompact_cmd = [sys.executable, "-m", "mem_beads", "uncompact", "--id", bead_id]
+        ur = subprocess.run(uncompact_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(ur.returncode, 0, ur.stderr)
+        up = json.loads(ur.stdout)
+        self.assertTrue(up.get("ok"))
+
+        bead2 = store._read_json(store.beads_dir / "index.json")["beads"][bead_id]
+        self.assertEqual(bead2.get("detail"), "long detail")
+
+    def test_phase2_core_adapter_myelinate_core_native(self):
+        """myelinate should use core-native deterministic payload."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        store = MemoryStore(root=self.core_root)
+        bead_id = store.add_bead(type="decision", title="M", session_id="s1")
+        store.recall(bead_id)
+        store.recall(bead_id)
+        store.recall(bead_id)
+
+        cmd = [sys.executable, "-m", "mem_beads", "myelinate"]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        payload = json.loads(run.stdout)
+        self.assertIn("dry_run", payload)
+        self.assertIn("actions", payload)
+
+    def test_phase2_core_adapter_migrate_store_command(self):
+        """migrate-store should import legacy index + edges into core index."""
+        legacy_root = os.path.join(self.tmp, "legacy-store")
+        os.makedirs(legacy_root, exist_ok=True)
+
+        legacy_env = os.environ.copy()
+        legacy_env["MEMBEADS_ROOT"] = legacy_root
+        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
+
+        c1 = [
+            sys.executable, "-m", "mem_beads", "create",
+            "--type", "decision", "--title", "Legacy A", "--session", "s1"
+        ]
+        c2 = [
+            sys.executable, "-m", "mem_beads", "create",
+            "--type", "decision", "--title", "Legacy B", "--session", "s1"
+        ]
+        r1 = subprocess.run(c1, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        r2 = subprocess.run(c2, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        a = json.loads(r1.stdout)["id"]
+        b = json.loads(r2.stdout)["id"]
+        link = [sys.executable, "-m", "mem_beads", "link", "--from", b, "--to", a, "--type", "follows"]
+        subprocess.run(link, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+        mig = [
+            sys.executable, "-m", "mem_beads", "migrate-store", "--legacy-root", legacy_root
+        ]
+        mr = subprocess.run(mig, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(mr.returncode, 0, mr.stderr)
+        payload = json.loads(mr.stdout)
+        self.assertTrue(payload.get("ok"))
+        self.assertGreaterEqual(payload.get("imported_beads", 0), 2)
+
     def test_env_compat_membeads_dir_fallback(self):
         """Phase 1 requirement: MEMBEADS_DIR fallback remains valid."""
         fallback_root = os.path.join(self.tmp, "fallback-root")
