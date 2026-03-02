@@ -14,11 +14,13 @@ def main() -> int:
     use_core = os.environ.get("MEMBEADS_USE_CORE_ADAPTER", "0") == "1"
 
     if use_core:
-        from core_memory.adapter_cli import run_core_adapter
+        from core_memory.adapter_cli import can_handle_with_core_adapter, run_core_adapter
 
         # preserve command name
         sys.argv[0] = "mem-beads"
-        return run_core_adapter(sys.argv)
+        if can_handle_with_core_adapter(sys.argv):
+            return run_core_adapter(sys.argv)
+        # fallback for commands not translated yet
 
     # legacy default behavior
     from mem_beads import main as legacy_main

@@ -220,6 +220,82 @@ class TestPhase1ParityHarness(unittest.TestCase):
         self.assertEqual(query_run.returncode, 0, query_run.stderr)
         self.assertIn("[decision]", query_run.stdout)
 
+    def test_phase2_core_adapter_translates_legacy_create(self):
+        """Legacy `create --session --tags a,b` should be translated for core CLI."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.core_root
+
+        cmd = [
+            sys.executable,
+            "-m",
+            "mem_beads",
+            "create",
+            "--type",
+            "decision",
+            "--title",
+            "Legacy Create",
+            "--session",
+            "phase2",
+            "--tags",
+            "a,b",
+        ]
+        run = subprocess.run(cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(run.returncode, 0, run.stderr)
+        self.assertIn("Created bead:", run.stdout)
+
+        store = MemoryStore(root=self.core_root)
+        rows = store.query(type="decision", tags=["a"], limit=10)
+        self.assertTrue(any(r.get("title") == "Legacy Create" for r in rows))
+
+    def test_phase2_core_adapter_fallback_for_unsupported_commands(self):
+        """Unsupported commands should fallback to legacy implementation under adapter flag."""
+        env = os.environ.copy()
+        env["MEMBEADS_USE_CORE_ADAPTER"] = "1"
+        env["MEMBEADS_ROOT"] = self.mem_root
+
+        # create two beads with adapter OFF (known legacy output)
+        legacy_env = env.copy()
+        legacy_env.pop("MEMBEADS_USE_CORE_ADAPTER", None)
+        c1 = [
+            sys.executable, "-m", "mem_beads", "create",
+            "--type", "decision", "--title", "D", "--session", "phase2"
+        ]
+        c2 = [
+            sys.executable, "-m", "mem_beads", "create",
+            "--type", "outcome", "--title", "O", "--session", "phase2"
+        ]
+        r1 = subprocess.run(c1, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        r2 = subprocess.run(c2, cwd=os.getcwd(), env=legacy_env, capture_output=True, text=True)
+        self.assertEqual(r1.returncode, 0, r1.stderr)
+        self.assertEqual(r2.returncode, 0, r2.stderr)
+
+        # command `link` is unsupported by core adapter, so it must fallback to legacy and succeed
+        # extract ids from stdout JSON payloads produced by legacy create
+        d_id = json.loads(r1.stdout)["id"]
+        o_id = json.loads(r2.stdout)["id"]
+
+        link_cmd = [
+            sys.executable, "-m", "mem_beads", "link",
+            "--from", o_id, "--to", d_id, "--type", "follows"
+        ]
+        link_run = subprocess.run(link_cmd, cwd=os.getcwd(), env=env, capture_output=True, text=True)
+        self.assertEqual(link_run.returncode, 0, link_run.stderr)
+
+        # verify edge exists in legacy store (link command may create an intermediate source bead)
+        old = os.environ.get("MEMBEADS_ROOT")
+        os.environ["MEMBEADS_ROOT"] = self.mem_root
+        try:
+            importlib.reload(mem_beads)
+            edges = mem_beads.get_edges_to(d_id)
+            self.assertTrue(any(e.get("target_id") == d_id and e.get("type") == "follows" for e in edges))
+        finally:
+            if old is not None:
+                os.environ["MEMBEADS_ROOT"] = old
+            else:
+                os.environ.pop("MEMBEADS_ROOT", None)
+            importlib.reload(mem_beads)
+
     def test_env_compat_membeads_dir_fallback(self):
         """Phase 1 requirement: MEMBEADS_DIR fallback remains valid."""
         fallback_root = os.path.join(self.tmp, "fallback-root")
