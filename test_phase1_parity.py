@@ -546,7 +546,9 @@ class TestPhase1ParityHarness(unittest.TestCase):
         p1 = json.loads(r1.stdout)
         p2 = json.loads(r2.stdout)
         self.assertGreaterEqual(p1.get("imported_beads", 0), 1)
+        self.assertGreaterEqual(p1.get("imported_associations", 0), 1)
         self.assertEqual(p2.get("imported_beads", 0), 0)
+        self.assertEqual(p2.get("imported_associations", 0), 0)
 
     def test_phase3_migrate_store_backup_created(self):
         """migrate-store should create a backup of core index by default."""
