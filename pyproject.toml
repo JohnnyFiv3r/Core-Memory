@@ -29,11 +29,10 @@ dev = ["pytest"]
 
 [project.scripts]
 core-memory = "core_memory.cli:main"
-mem-beads = "core_memory.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["core_memory*", "mem_beads*"]
+include = ["core_memory*"]
 
 [tool.pytest.ini_options]
 testpaths = ["."]
