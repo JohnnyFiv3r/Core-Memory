@@ -1,0 +1,9 @@
+bin/
+.pnpm-store/
+core-memory/
+.openclaw/
+__pycache__/
+*.pyc
+.mem-beads/.beads/
+.mem-beads/.turns/
+.mem-beads/*.jsonl
