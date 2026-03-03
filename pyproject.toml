@@ -35,7 +35,7 @@ where = ["."]
 include = ["core_memory*"]
 
 [tool.pytest.ini_options]
-testpaths = ["."]
+testpaths = ["tests"]
 python_files = ["test_*.py"]
 
 [tool.ruff]

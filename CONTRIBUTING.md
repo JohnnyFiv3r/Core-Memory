@@ -12,9 +12,9 @@ python3 -m venv .venv
 ## Running tests
 
 ```bash
-python3 test_phase1_parity.py
-PYTHONPATH=. python3 test_edges.py
-PYTHONPATH=. python3 test_e2e.py
+python3 tests/test_phase1_parity.py
+PYTHONPATH=. python3 tests/test_edges.py
+PYTHONPATH=. python3 tests/test_e2e.py
 ```
 
 Or with pytest:
