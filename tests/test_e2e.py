@@ -22,7 +22,7 @@ class TestCoreMemoryE2E(unittest.TestCase):
         return subprocess.run(cmd, capture_output=True, text=True)
 
     def test_add_query_compact_uncompact(self):
-        add = self.run_cli("add", "--type", "decision", "--title", "E2E", "--session-id", "s1")
+        add = self.run_cli("add", "--type", "decision", "--title", "E2E", "--because", "coverage", "--session-id", "s1")
         self.assertEqual(add.returncode, 0, add.stderr)
         bead_id = add.stdout.strip().split(":", 1)[1].strip()
 

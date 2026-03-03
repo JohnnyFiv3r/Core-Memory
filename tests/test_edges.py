@@ -18,7 +18,7 @@ class TestCoreAssociations(unittest.TestCase):
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_link_basic(self):
-        a = self.store.add_bead(type="decision", title="A", session_id="s")
+        a = self.store.add_bead(type="decision", title="A", session_id="s", because=["chosen for test"])
         b = self.store.add_bead(type="outcome", title="B", session_id="s")
         assoc = self.store.link(b, a, "follows")
         self.assertTrue(assoc.startswith("assoc-"))
@@ -27,7 +27,7 @@ class TestCoreAssociations(unittest.TestCase):
         self.assertTrue(any(x.get("source_bead") == b and x.get("target_bead") == a for x in idx["associations"]))
 
     def test_recall_updates_counts(self):
-        bead = self.store.add_bead(type="lesson", title="L", session_id="s")
+        bead = self.store.add_bead(type="lesson", title="L", session_id="s", because=["learned in test"])
         ok = self.store.recall(bead)
         self.assertTrue(ok)
         row = self.store._read_json(self.store.beads_dir / "index.json")["beads"][bead]

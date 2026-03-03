@@ -100,6 +100,22 @@ class MemoryStore:
     def _tokenize(self, text: str) -> set[str]:
         return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
 
+    def _validate_bead_fields(self, bead: dict):
+        """Lightweight per-type causal validation (backward-compatible)."""
+        t = bead.get("type")
+        because = bead.get("because") or []
+        summary = bead.get("summary") or []
+        source_turn_ids = bead.get("source_turn_ids") or []
+        detail = (bead.get("detail") or "").strip()
+
+        if t in {"decision", "lesson"}:
+            if not because and not summary and not detail:
+                raise ValueError(f"{t} beads require rationale: provide --because or summary/detail")
+
+        if t == "evidence":
+            if not source_turn_ids and not summary and not detail:
+                raise ValueError("evidence beads require provenance: provide --source-turn-ids or summary/detail")
+
     def _quick_association_candidates(self, index: dict, bead: dict, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
         """Fast, deterministic association inference for newly added beads."""
         candidates = []
@@ -149,6 +165,8 @@ class MemoryStore:
         type: str,
         title: str,
         summary: Optional[list] = None,
+        because: Optional[list] = None,
+        source_turn_ids: Optional[list] = None,
         detail: str = "",
         session_id: Optional[str] = None,
         scope: str = "project",
@@ -187,6 +205,8 @@ class MemoryStore:
             "session_id": session_id,
             "title": title,
             "summary": summary or [],
+            "because": because or [],
+            "source_turn_ids": source_turn_ids or [],
             "detail": detail,
             "scope": scope_value,
             "authority": "agent_inferred",
@@ -198,7 +218,9 @@ class MemoryStore:
             "last_recalled": None,
             **kwargs
         }
-        
+
+        self._validate_bead_fields(bead)
+
         with store_lock(self.root):
             # Write to session archive first (durability/rebuild source)
             if session_id:

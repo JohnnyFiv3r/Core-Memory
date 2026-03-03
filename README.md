@@ -76,7 +76,7 @@ export CORE_MEMORY_ROOT="$PWD/memory"
 Create a bead:
 
 ```bash
-core-memory --root "$CORE_MEMORY_ROOT" add --type decision --title "Use stdlib only" --session-id main --tags core-memory
+core-memory --root "$CORE_MEMORY_ROOT" add --type decision --title "Use stdlib only" --because "Reduce dependency risk" --session-id main --tags core-memory
 ```
 
 Query beads:
@@ -185,6 +185,12 @@ pytest -q
 - Windows lock fallback (cross-platform)
 
 ---
+
+## Validation note
+
+Lightweight per-type validation is enabled:
+- `decision` and `lesson` beads require rationale (`--because` or summary/detail)
+- `evidence` beads require provenance (`--source-turn-ids` or summary/detail)
 
 ## Compatibility note
 

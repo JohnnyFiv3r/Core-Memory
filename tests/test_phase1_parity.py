@@ -50,7 +50,7 @@ class TestCoreMigration(unittest.TestCase):
 
     def test_add_query_contract(self):
         store = MemoryStore(root=self.core_root)
-        bead_id = store.add_bead(type="decision", title="Contract", session_id="s1", tags=["t"])
+        bead_id = store.add_bead(type="decision", title="Contract", session_id="s1", tags=["t"], because=["parity test rationale"])
         self.assertTrue(bead_id.startswith("bead-"))
         rows = store.query(type="decision", tags=["t"], limit=10)
         self.assertTrue(any(r.get("id") == bead_id for r in rows))

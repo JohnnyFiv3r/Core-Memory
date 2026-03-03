@@ -112,6 +112,8 @@ class Bead:
     last_recalled: Optional[str] = None
     
     # Optional enhanced fields
+    because: list = field(default_factory=list)
+    source_turn_ids: list = field(default_factory=list)
     mechanism: Optional[str] = None
     impact_level: Optional[str] = None
     uncertainty: float = 0.5
@@ -140,6 +142,8 @@ class Bead:
             "status": self.status,
             "recall_count": self.recall_count,
             "last_recalled": self.last_recalled,
+            "because": self.because,
+            "source_turn_ids": self.source_turn_ids,
             "mechanism": self.mechanism,
             "impact_level": self.impact_level,
             "uncertainty": self.uncertainty,

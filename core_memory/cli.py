@@ -25,6 +25,8 @@ def main():
     add_parser.add_argument("--type", required=True, help="Bead type")
     add_parser.add_argument("--title", required=True, help="Bead title")
     add_parser.add_argument("--summary", nargs="*", help="Summary points")
+    add_parser.add_argument("--because", nargs="*", help="Structured rationale points")
+    add_parser.add_argument("--source-turn-ids", nargs="*", help="Provenance turn IDs")
     add_parser.add_argument("--tags", nargs="*", help="Tags")
     add_parser.add_argument("--session-id", help="Session ID")
     
@@ -71,6 +73,8 @@ def main():
             type=args.type,
             title=args.title,
             summary=args.summary,
+            because=args.because,
+            source_turn_ids=args.source_turn_ids,
             tags=args.tags,
             session_id=args.session_id
         )
