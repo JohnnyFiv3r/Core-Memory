@@ -13,6 +13,7 @@ from typing import Any
 from .sidecar import get_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import process_memory_event, SidecarPolicy
+from .store import MemoryStore
 
 
 def coordinator_finalize_hook(
@@ -146,6 +147,28 @@ def finalize_and_process_turn(
             "error": str(exc),
         }
 
+    # Phase 5: auto-log one autonomy KPI row per processed top-level turn.
+    # Best-effort only; never fail the memory pass on KPI logging issues.
+    kpi_logged = False
+    kpi_error = None
+    try:
+        store = MemoryStore(root=root)
+        env = (last_row.get("envelope") or {})
+        md = env.get("metadata") or {}
+        store.append_autonomy_kpi(
+            run_id=f"auto-{session_id}-{turn_id}",
+            repeat_failure=False,
+            contradiction_resolved=(emitted.get("reason") == "turn_mutation"),
+            contradiction_latency_turns=0,
+            unjustified_flip=False,
+            constraint_violation=bool(md.get("constraint_violation", False)),
+            wrong_transfer=bool(md.get("wrong_transfer", False)),
+            goal_carryover=bool((env.get("window_turn_ids") or []) or (env.get("window_bead_ids") or [])),
+        )
+        kpi_logged = True
+    except Exception as exc:
+        kpi_error = str(exc)
+
     return {
         "ok": True,
         "mode": "turn",
@@ -153,6 +176,8 @@ def finalize_and_process_turn(
         "processed": 1,
         "failed": 0,
         "delta": delta,
+        "kpi_logged": kpi_logged,
+        "kpi_error": kpi_error,
     }
 
 

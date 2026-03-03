@@ -12,6 +12,7 @@ import json
 import os
 import re
 import uuid
+import shlex
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -27,6 +28,7 @@ TURNS_DIR = ".turns"
 EVENTS_DIR = ".beads/events"
 SESSION_FILE = "session-{id}.jsonl"
 INDEX_FILE = "index.json"
+HEADS_FILE = "heads.json"
 
 # NOTE: durability model
 # Archive/event writes happen under a store lock with fsync; index writes are atomic.
@@ -73,8 +75,9 @@ class MemoryStore:
         self._init_index()
     
     def _init_index(self):
-        """Initialize the index file if it doesn't exist."""
+        """Initialize the index + heads files if they don't exist."""
         index_file = self.beads_dir / INDEX_FILE
+        heads_file = self.beads_dir / HEADS_FILE
         with store_lock(self.root):
             if not index_file.exists():
                 self._write_json(index_file, {
@@ -85,6 +88,12 @@ class MemoryStore:
                         "total_associations": 0,
                         "created_at": datetime.now(timezone.utc).isoformat()
                     }
+                })
+            if not heads_file.exists():
+                self._write_json(heads_file, {
+                    "topics": {},
+                    "goals": {},
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
                 })
     
     def _read_json(self, path: Path) -> dict:
@@ -99,6 +108,33 @@ class MemoryStore:
     def _generate_id(self) -> str:
         """Generate a short random bead ID (UUID-derived, non-ULID)."""
         return f"bead-{uuid.uuid4().hex[:12].upper()}"
+
+    def _read_heads(self) -> dict:
+        heads_file = self.beads_dir / HEADS_FILE
+        if not heads_file.exists():
+            return {"topics": {}, "goals": {}, "updated_at": datetime.now(timezone.utc).isoformat()}
+        return self._read_json(heads_file)
+
+    def _write_heads(self, heads: dict):
+        heads["updated_at"] = datetime.now(timezone.utc).isoformat()
+        self._write_json(self.beads_dir / HEADS_FILE, heads)
+
+    def _update_heads_for_bead(self, heads: dict, bead: dict) -> dict:
+        topic_id = (bead.get("topic_id") or "").strip() if isinstance(bead.get("topic_id"), str) else ""
+        goal_id = (bead.get("goal_id") or "").strip() if isinstance(bead.get("goal_id"), str) else ""
+        bead_id = bead.get("id")
+        if topic_id and bead_id:
+            heads.setdefault("topics", {})[topic_id] = {
+                "bead_id": bead_id,
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        if goal_id and bead_id:
+            heads.setdefault("goals", {})[goal_id] = {
+                "bead_id": bead_id,
+                "goal_status": bead.get("goal_status") or bead.get("status") or "open",
+                "updated_at": datetime.now(timezone.utc).isoformat(),
+            }
+        return heads
 
     def _tokenize(self, text: str) -> set[str]:
         return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
@@ -136,6 +172,267 @@ class MemoryStore:
         """Compute a stable failure signature hash from a plan string."""
         norm = re.sub(r"\s+", " ", (plan or "").strip().lower())
         return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+
+    def find_failure_signature_matches(self, plan: str, limit: int = 5, context_tags: Optional[list[str]] = None) -> list[dict]:
+        """Find prior FAILED_HYPOTHESIS beads matching the normalized failure signature.
+
+        Warn-only preflight retrieval for Phase 2. Returns deterministic newest-first matches.
+        """
+        sig = self.compute_failure_signature(plan)
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        matches = []
+        req_tags = set([str(t).strip() for t in (context_tags or []) if str(t).strip()])
+
+        for bead in index.get("beads", {}).values():
+            if bead.get("type") != "failed_hypothesis":
+                continue
+            if bead.get("failure_signature") != sig:
+                continue
+
+            bead_tags = set([str(t).strip() for t in (bead.get("tags") or []) if str(t).strip()])
+            tag_overlap = len(req_tags.intersection(bead_tags)) if req_tags else 0
+            matches.append(
+                {
+                    "bead_id": bead.get("id"),
+                    "title": bead.get("title"),
+                    "failure_signature": sig,
+                    "created_at": bead.get("created_at"),
+                    "summary": (bead.get("summary") or [])[:2],
+                    "tag_overlap": tag_overlap,
+                }
+            )
+
+        matches = sorted(matches, key=lambda m: (-(m.get("tag_overlap") or 0), m.get("created_at") or ""), reverse=False)
+        matches = list(reversed(matches))  # newest first within overlap bucket
+        return matches[: max(0, int(limit))]
+
+    def preflight_failure_check(self, plan: str, limit: int = 5, context_tags: Optional[list[str]] = None) -> dict:
+        """Warn-only preflight check for repeated failure patterns.
+
+        No hard blocking here. Caller can escalate policy later.
+        """
+        sig = self.compute_failure_signature(plan)
+        matches = self.find_failure_signature_matches(plan, limit=limit, context_tags=context_tags)
+        return {
+            "ok": True,
+            "mode": "warn_only",
+            "failure_signature": sig,
+            "match_count": len(matches),
+            "matches": matches,
+            "recommendation": "warn" if matches else "proceed",
+        }
+
+    def extract_constraints(self, text: str) -> list[str]:
+        """Deterministic, conservative constraint extraction.
+
+        Cleanup pass: avoid noisy matches from markdown fragments, ids, and
+        accidental snippets. Prefer explicit policy language only.
+        """
+        raw = (text or "").strip()
+        if not raw:
+            return []
+
+        # Keep only plain-ish sentence segments.
+        segments = [s.strip() for s in re.split(r"[\n.;]+", raw) if s.strip()]
+        cue_re = re.compile(r"\b(must(?:\s+not)?|never|do\s+not|avoid|requires?)\b", re.IGNORECASE)
+
+        out: list[str] = []
+        seen = set()
+        for seg in segments:
+            s = re.sub(r"`[^`]*`", " ", seg)  # drop code-ish inline blocks
+            s = re.sub(r"\[\[.*?\]\]", " ", s)  # drop reply tags
+            s = re.sub(r"\s+", " ", s).strip(" -:\t")
+            if not s:
+                continue
+            if len(s) < 12 or len(s) > 180:
+                continue
+            if not cue_re.search(s):
+                continue
+
+            # Remove obvious non-policy fragments.
+            low = s.lower()
+            banned = ["http://", "https://", "core_memory/", "--", "commit", "bead-"]
+            if any(b in low for b in banned):
+                continue
+
+            # Normalize and bound token count to keep concise constraints.
+            toks = re.findall(r"[a-z0-9_\-]+", low)
+            if len(toks) < 3 or len(toks) > 20:
+                continue
+            normalized = " ".join(toks)
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            out.append(normalized)
+
+        return out[:8]
+
+    def retrieve_with_context(
+        self,
+        *,
+        query_text: str = "",
+        context_tags: Optional[list[str]] = None,
+        limit: int = 20,
+        strict_first: bool = True,
+    ) -> dict:
+        """Context-aware retrieval with strict->fallback matching.
+
+        Phase 4 behavior:
+        - strict pass: require overlap with requested context_tags
+        - fallback pass: fill remaining slots by recency if strict underflows
+        """
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        beads = list(index.get("beads", {}).values())
+        beads = [b for b in beads if str(b.get("status", "")).lower() != "superseded"]
+
+        req_tags = [str(t).strip().lower() for t in (context_tags or []) if str(t).strip()]
+        req_set = set(req_tags)
+        query_tokens = self._tokenize(query_text)
+
+        def score(bead: dict) -> tuple:
+            bead_tags = set([str(t).strip().lower() for t in (bead.get("context_tags") or []) if str(t).strip()])
+            tag_overlap = len(req_set.intersection(bead_tags)) if req_set else 0
+            text_tokens = self._tokenize((bead.get("title") or "") + " " + " ".join(bead.get("summary") or []))
+            text_overlap = len(query_tokens.intersection(text_tokens)) if query_tokens else 0
+            ts = bead.get("promoted_at") or bead.get("created_at") or ""
+            return (tag_overlap, text_overlap, ts)
+
+        ranked = sorted(beads, key=score, reverse=True)
+
+        strict = []
+        fallback = []
+        for b in ranked:
+            bead_tags = set([str(t).strip().lower() for t in (b.get("context_tags") or []) if str(t).strip()])
+            tag_overlap = len(req_set.intersection(bead_tags)) if req_set else 0
+            row = {
+                "id": b.get("id"),
+                "type": b.get("type"),
+                "title": b.get("title"),
+                "summary": (b.get("summary") or [])[:2],
+                "status": b.get("status"),
+                "context_tags": b.get("context_tags") or [],
+                "tag_overlap": tag_overlap,
+                "created_at": b.get("created_at"),
+            }
+            if req_set and tag_overlap > 0:
+                strict.append(row)
+            else:
+                fallback.append(row)
+
+        selected = []
+        mode = "strict"
+        if strict_first and req_set:
+            selected.extend(strict[:limit])
+            if len(selected) < limit:
+                mode = "strict+fallback"
+                selected.extend(fallback[: max(0, limit - len(selected))])
+        else:
+            mode = "fallback" if req_set else "global"
+            selected = (strict + fallback)[:limit]
+
+        return {
+            "ok": True,
+            "mode": mode,
+            "requested_context_tags": req_tags,
+            "strict_count": len(strict),
+            "fallback_count": len(fallback),
+            "results": selected[:limit],
+        }
+
+    def active_constraints(self, limit: int = 100) -> list[dict]:
+        """Return active constraints from decision/design_principle/goal beads.
+
+        Advisory source set for planner compliance checks.
+        """
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        beads = list(index.get("beads", {}).values())
+        beads = sorted(beads, key=lambda b: b.get("created_at", ""), reverse=True)
+        rows: list[dict] = []
+        for b in beads:
+            if str(b.get("status", "")).lower() in {"superseded"}:
+                continue
+            if b.get("type") not in {"decision", "design_principle", "goal"}:
+                continue
+            constraints = b.get("constraints") or []
+            if not constraints:
+                # Avoid extracting policy from raw sidecar narrative noise unless explicitly set.
+                tags = set([str(t).strip().lower() for t in (b.get("tags") or [])])
+                if "sidecar" in tags and "turn-finalized" in tags:
+                    continue
+                text = " ".join([b.get("title", "")] + list(b.get("summary") or []))
+                constraints = self.extract_constraints(text)
+            if not constraints:
+                continue
+            rows.append(
+                {
+                    "bead_id": b.get("id"),
+                    "type": b.get("type"),
+                    "title": b.get("title"),
+                    "constraints": constraints[:5],
+                    "created_at": b.get("created_at"),
+                }
+            )
+            if len(rows) >= max(1, int(limit)):
+                break
+        return rows
+
+    def check_plan_constraints(self, plan: str, limit: int = 20) -> dict:
+        """Advisory compliance check: map active constraints to satisfied/violated/unknown.
+
+        Heuristic only; no hard enforcement in Phase 3.
+        """
+        plan_text = (plan or "").lower().strip()
+        plan_tokens = set(shlex.split(plan_text)) if plan_text else set()
+        active = self.active_constraints(limit=limit)
+        satisfied = []
+        violated = []
+        unknown = []
+
+        def _hits(constraint: str) -> bool:
+            c = re.sub(r"\s+", " ", constraint.lower()).strip()
+            if not c:
+                return False
+            # token overlap heuristic
+            ctoks = set([t for t in re.findall(r"[a-z0-9_\-]+", c) if len(t) > 2])
+            if not ctoks:
+                return False
+            return len(ctoks.intersection(plan_tokens)) >= max(1, min(2, len(ctoks) // 3))
+
+        for row in active:
+            row_s = {"bead_id": row["bead_id"], "title": row["title"], "constraints": []}
+            row_v = {"bead_id": row["bead_id"], "title": row["title"], "constraints": []}
+            row_u = {"bead_id": row["bead_id"], "title": row["title"], "constraints": []}
+            for c in row.get("constraints", []):
+                cl = c.lower()
+                has_not = any(x in cl for x in ["must not", "never", "do not", "avoid"])
+                hit = _hits(c)
+                if has_not:
+                    if hit:
+                        row_v["constraints"].append(c)
+                    else:
+                        row_s["constraints"].append(c)
+                else:
+                    if hit:
+                        row_s["constraints"].append(c)
+                    else:
+                        row_u["constraints"].append(c)
+            if row_s["constraints"]:
+                satisfied.append(row_s)
+            if row_v["constraints"]:
+                violated.append(row_v)
+            if row_u["constraints"]:
+                unknown.append(row_u)
+
+        return {
+            "ok": True,
+            "mode": "advisory",
+            "plan": plan,
+            "active_constraints": len(active),
+            "satisfied": satisfied,
+            "violated": violated,
+            "unknown": unknown,
+            "recommendation": "review" if violated else "proceed",
+        }
 
     def _read_metrics_state(self) -> dict:
         default = {
@@ -277,6 +574,11 @@ class MemoryStore:
         if m["compression_ratio"] <= 0 and m["beads_created"] > 0 and m["turns_processed"] > 0:
             m["compression_ratio"] = round(m["turns_processed"] / m["beads_created"], 6)
 
+        # pass-through extensibility for KPI fields (phase-specific)
+        for k, v in record.items():
+            if k.startswith("kpi_") and k not in m:
+                m[k] = v
+
         events.append_metric(self.root, m)
         return m
 
@@ -405,6 +707,98 @@ class MemoryStore:
             "rationale_recall_avg": round(sum(rr) / len(rr), 4) if rr else 0.0,
         }
 
+    def append_autonomy_kpi(
+        self,
+        *,
+        run_id: str,
+        repeat_failure: bool = False,
+        contradiction_resolved: bool = False,
+        contradiction_latency_turns: int = 0,
+        unjustified_flip: bool = False,
+        constraint_violation: bool = False,
+        wrong_transfer: bool = False,
+        goal_carryover: bool = False,
+    ) -> dict:
+        """Append one autonomy KPI row (Phase 5 proof loop)."""
+        rec = {
+            "run_id": run_id,
+            "mode": "core_memory",
+            "task_id": "autonomy_kpi",
+            "result": "success",
+            "steps": 0,
+            "tool_calls": 0,
+            "beads_created": 0,
+            "beads_recalled": 0,
+            "repeat_failure": bool(repeat_failure),
+            "decision_conflicts": 1 if contradiction_resolved else 0,
+            "unjustified_flips": 1 if unjustified_flip else 0,
+            "rationale_recall_score": 0,
+            "turns_processed": 1,
+            "compression_ratio": 0.0,
+            "phase": "autonomy",
+            "kpi_contradiction_resolved": bool(contradiction_resolved),
+            "kpi_contradiction_latency_turns": max(0, int(contradiction_latency_turns)),
+            "kpi_constraint_violation": bool(constraint_violation),
+            "kpi_wrong_transfer": bool(wrong_transfer),
+            "kpi_goal_carryover": bool(goal_carryover),
+        }
+        return self.append_metric(rec)
+
+    def autonomy_report(self, since: str = "7d") -> dict:
+        """Aggregate autonomy KPIs from metrics stream."""
+        window_start = None
+        m = re.fullmatch(r"(\d+)([dh])", (since or "").strip().lower())
+        if m:
+            n = int(m.group(1))
+            unit = m.group(2)
+            delta = timedelta(days=n) if unit == "d" else timedelta(hours=n)
+            window_start = datetime.now(timezone.utc) - delta
+
+        rows = []
+        for row in events.iter_metrics(self.root) or []:
+            if row.get("task_id") != "autonomy_kpi":
+                continue
+            ts = row.get("ts")
+            if window_start and ts:
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if dt < window_start:
+                        continue
+                except ValueError:
+                    continue
+            rows.append(row)
+
+        rows = sorted(rows, key=lambda r: (r.get("ts", ""), r.get("run_id", "")))
+        total = len(rows)
+        if total == 0:
+            return {
+                "runs": 0,
+                "repeat_failure_rate": 0.0,
+                "unjustified_flip_rate": 0.0,
+                "constraint_violation_rate": 0.0,
+                "wrong_transfer_rate": 0.0,
+                "goal_carryover_rate": 0.0,
+                "contradiction_resolution_rate": 0.0,
+                "contradiction_latency_avg": 0.0,
+            }
+
+        def rate(pred):
+            return round(sum(1 for r in rows if pred(r)) / total, 4)
+
+        lat = [int(r.get("kpi_contradiction_latency_turns", 0) or 0) for r in rows if r.get("kpi_contradiction_resolved")]
+        lat_avg = round(sum(lat) / len(lat), 4) if lat else 0.0
+
+        return {
+            "runs": total,
+            "repeat_failure_rate": rate(lambda r: bool(r.get("repeat_failure"))),
+            "unjustified_flip_rate": rate(lambda r: bool(r.get("unjustified_flips"))),
+            "constraint_violation_rate": rate(lambda r: bool(r.get("kpi_constraint_violation"))),
+            "wrong_transfer_rate": rate(lambda r: bool(r.get("kpi_wrong_transfer"))),
+            "goal_carryover_rate": rate(lambda r: bool(r.get("kpi_goal_carryover"))),
+            "contradiction_resolution_rate": rate(lambda r: bool(r.get("kpi_contradiction_resolved"))),
+            "contradiction_latency_avg": lat_avg,
+        }
+
     def _validate_bead_fields(self, bead: dict):
         """Lightweight per-type causal validation (backward-compatible)."""
         t = bead.get("type")
@@ -420,6 +814,28 @@ class MemoryStore:
         if t == "evidence":
             if not source_turn_ids and not summary and not detail:
                 raise ValueError("evidence beads require provenance: provide --source-turn-ids or summary/detail")
+
+        if t == "goal":
+            goal_id = (bead.get("goal_id") or "").strip() if isinstance(bead.get("goal_id"), str) else ""
+            if not goal_id:
+                raise ValueError("goal beads require goal_id")
+            goal_status = bead.get("goal_status")
+            allowed = {"active", "paused", "done"}
+            if goal_status and goal_status not in allowed:
+                raise ValueError("goal_status must be one of: active|paused|done")
+
+        if t == "reversal":
+            supersedes = (bead.get("supersedes_bead_id") or "").strip() if isinstance(bead.get("supersedes_bead_id"), str) else ""
+            if not supersedes:
+                raise ValueError("reversal beads require supersedes_bead_id")
+
+        context_tags = bead.get("context_tags")
+        if context_tags is not None:
+            if not isinstance(context_tags, list):
+                raise ValueError("context_tags must be a list of strings")
+            for tag in context_tags:
+                if not isinstance(tag, str):
+                    raise ValueError("context_tags entries must be strings")
 
     def _title_tokens(self, text: str) -> set[str]:
         return {t for t in self._tokenize(text) if t not in {"the", "and", "for", "with", "this", "that"}}
@@ -586,6 +1002,13 @@ class MemoryStore:
         # conservative secret redaction (high-confidence patterns only)
         bead = self._sanitize_bead_content(bead)
 
+        # Phase 3 advisory constraint extraction for commitments/principles
+        if bead.get("type") in {"decision", "design_principle", "goal"} and not bead.get("constraints"):
+            basis = " ".join([bead.get("title", "")] + list(bead.get("summary") or []))
+            extracted = self.extract_constraints(basis)
+            if extracted:
+                bead["constraints"] = extracted
+
         # stable failure signature for FAILED_HYPOTHESIS beads
         if bead.get("type") == "failed_hypothesis":
             basis = " ".join(bead.get("summary", [])) or bead.get("title", "") or bead.get("detail", "")
@@ -675,6 +1098,11 @@ class MemoryStore:
             )
             index["stats"]["total_associations"] = len(index.get("associations", []))
             self._write_json(index_file, index)
+
+            # Update canonical HEAD pointers (topic/goal identity)
+            heads = self._read_heads()
+            heads = self._update_heads_for_bead(heads, bead)
+            self._write_heads(heads)
 
             # Append audit event (minimal - just id + timestamp for rebuild)
             events.event_bead_created(self.root, session_id, bead_id, now, use_lock=False)

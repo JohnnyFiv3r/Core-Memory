@@ -33,6 +33,7 @@ def main():
     add_parser.add_argument("--because", nargs="*", help="Structured rationale points")
     add_parser.add_argument("--source-turn-ids", nargs="*", help="Provenance turn IDs")
     add_parser.add_argument("--tags", nargs="*", help="Tags")
+    add_parser.add_argument("--context-tags", nargs="*", help="Environment/context tags")
     add_parser.add_argument("--session-id", help="Session ID")
     
     # query command
@@ -44,6 +45,32 @@ def main():
     
     # stats command
     subparsers.add_parser("stats", help="Show statistics")
+
+    # heads command
+    heads_parser = subparsers.add_parser("heads", help="Show topic/goal HEAD pointers")
+    heads_parser.add_argument("--topic-id", help="Lookup specific topic HEAD")
+    heads_parser.add_argument("--goal-id", help="Lookup specific goal HEAD")
+
+    # preflight failure check (warn-only)
+    preflight_parser = subparsers.add_parser("preflight", help="Warn-only failure-signature preflight check")
+    preflight_parser.add_argument("--plan", required=True, help="Normalized plan text to check")
+    preflight_parser.add_argument("--context-tags", nargs="*", help="Optional environment/context tags")
+    preflight_parser.add_argument("--limit", type=int, default=5)
+
+    # phase-3 advisory constraints
+    constraints_parser = subparsers.add_parser("constraints", help="List active extracted constraints")
+    constraints_parser.add_argument("--limit", type=int, default=20)
+
+    check_plan_parser = subparsers.add_parser("check-plan", help="Advisory constraint compliance check")
+    check_plan_parser.add_argument("--plan", required=True)
+    check_plan_parser.add_argument("--limit", type=int, default=20)
+
+    # phase-4 environment scoped retrieval
+    retrieve_ctx_parser = subparsers.add_parser("retrieve-context", help="Retrieve beads with context tag matching and fallback")
+    retrieve_ctx_parser.add_argument("--query", default="")
+    retrieve_ctx_parser.add_argument("--context-tags", nargs="*", help="Requested environment tags")
+    retrieve_ctx_parser.add_argument("--limit", type=int, default=20)
+    retrieve_ctx_parser.add_argument("--no-strict-first", action="store_true")
     
     # dream command
     subparsers.add_parser("dream", help="Run Dreamer analysis")
@@ -95,6 +122,9 @@ def main():
     sc_turn.add_argument("--assistant-final", required=True)
     sc_turn.add_argument("--trace-depth", type=int, default=0)
     sc_turn.add_argument("--origin", default="USER_TURN")
+    sc_turn.add_argument("--meta-constraint-violation", action="store_true")
+    sc_turn.add_argument("--meta-wrong-transfer", action="store_true")
+    sc_turn.add_argument("--meta-goal-carryover", action="store_true")
 
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
@@ -147,6 +177,19 @@ def main():
     metrics_log.add_argument("--turns-processed", type=int, default=0)
     metrics_log.add_argument("--compression-ratio", type=float, default=0.0)
     metrics_log.add_argument("--phase", default="core_memory")
+
+    metrics_auto = metrics_sub.add_parser("autonomy-log", help="Append one autonomy KPI record")
+    metrics_auto.add_argument("--run-id", required=True)
+    metrics_auto.add_argument("--repeat-failure", action="store_true")
+    metrics_auto.add_argument("--contradiction-resolved", action="store_true")
+    metrics_auto.add_argument("--contradiction-latency-turns", type=int, default=0)
+    metrics_auto.add_argument("--unjustified-flip", action="store_true")
+    metrics_auto.add_argument("--constraint-violation", action="store_true")
+    metrics_auto.add_argument("--wrong-transfer", action="store_true")
+    metrics_auto.add_argument("--goal-carryover", action="store_true")
+
+    metrics_auto_report = metrics_sub.add_parser("autonomy-report", help="Aggregate autonomy KPIs")
+    metrics_auto_report.add_argument("--since", default="7d")
     
     args = parser.parse_args()
     
@@ -160,6 +203,7 @@ def main():
             because=args.because,
             source_turn_ids=args.source_turn_ids,
             tags=args.tags,
+            context_tags=args.context_tags,
             session_id=args.session_id
         )
         print(f"Created bead: {bead_id}")
@@ -177,6 +221,39 @@ def main():
     elif args.command == "stats":
         stats = memory.stats()
         print(json.dumps(stats, indent=2))
+
+    elif args.command == "heads":
+        heads = memory._read_heads()
+        if args.topic_id:
+            print(json.dumps({"topic_id": args.topic_id, "head": (heads.get("topics") or {}).get(args.topic_id)}, indent=2))
+        elif args.goal_id:
+            print(json.dumps({"goal_id": args.goal_id, "head": (heads.get("goals") or {}).get(args.goal_id)}, indent=2))
+        else:
+            print(json.dumps(heads, indent=2))
+
+    elif args.command == "preflight":
+        result = memory.preflight_failure_check(
+            plan=args.plan,
+            limit=args.limit,
+            context_tags=args.context_tags,
+        )
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "constraints":
+        print(json.dumps({"ok": True, "constraints": memory.active_constraints(limit=args.limit)}, indent=2))
+
+    elif args.command == "check-plan":
+        result = memory.check_plan_constraints(plan=args.plan, limit=args.limit)
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "retrieve-context":
+        result = memory.retrieve_with_context(
+            query_text=args.query,
+            context_tags=args.context_tags,
+            limit=args.limit,
+            strict_first=not args.no_strict_first,
+        )
+        print(json.dumps(result, indent=2))
     
     elif args.command == "dream":
         results = memory.dream()
@@ -222,6 +299,11 @@ def main():
             result = process_pending_memory_events(args.root, max_events=args.max_events)
             print(json.dumps(result, indent=2))
         elif args.sidecar_cmd == "turn":
+            metadata = {
+                "constraint_violation": bool(args.meta_constraint_violation),
+                "wrong_transfer": bool(args.meta_wrong_transfer),
+                "goal_carryover": bool(args.meta_goal_carryover),
+            }
             result = finalize_and_process_turn(
                 root=args.root,
                 session_id=args.session_id,
@@ -232,6 +314,7 @@ def main():
                 assistant_final=args.assistant_final,
                 trace_depth=args.trace_depth,
                 origin=args.origin,
+                metadata=metadata,
             )
             print(json.dumps(result, indent=2))
         else:
@@ -285,6 +368,20 @@ def main():
                 "phase": args.phase,
             })
             print(json.dumps(rec, indent=2))
+        elif args.metrics_cmd == "autonomy-log":
+            rec = memory.append_autonomy_kpi(
+                run_id=args.run_id,
+                repeat_failure=args.repeat_failure,
+                contradiction_resolved=args.contradiction_resolved,
+                contradiction_latency_turns=args.contradiction_latency_turns,
+                unjustified_flip=args.unjustified_flip,
+                constraint_violation=args.constraint_violation,
+                wrong_transfer=args.wrong_transfer,
+                goal_carryover=args.goal_carryover,
+            )
+            print(json.dumps(rec, indent=2))
+        elif args.metrics_cmd == "autonomy-report":
+            print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
         else:
             metrics_parser.print_help()
 
