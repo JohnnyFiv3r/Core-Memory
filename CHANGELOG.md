@@ -4,6 +4,7 @@
 
 ### Fixed
 - Removed broken legacy association runner scripts that still depended on removed `mem_beads` runtime path (`associate.py`, `run_association.py`, `run_association.sh`).
+- Removed archived `core_memory/adapter_cli.py` compatibility scaffold to eliminate command-path ambiguity.
 - Cleaned CLI module text to reflect canonical `core-memory` command.
 
 ### Changed
@@ -11,6 +12,9 @@
   - `core-memory` is canonical and sole CLI
   - `mem-beads` alias is removed
   - legacy store import remains via `migrate-store`
+
+### Note
+- Historical RC sections below (1.0.0-rc1/rc2) intentionally mention `mem-beads` alias validation because that alias existed during migration testing; alias removal is final as of 1.0.1.
 
 ## [1.0.0-core-migration-rc1] - 2026-03-02
 

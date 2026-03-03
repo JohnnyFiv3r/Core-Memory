@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "core-memory"
-version = "1.0.0"
+version = "1.0.1"
 description = "Persistent causal agent memory with lossless compaction"
 readme = "README.md"
 requires-python = ">=3.10"

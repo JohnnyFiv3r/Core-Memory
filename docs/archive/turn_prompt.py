@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# ARCHIVED / NOT USED
+# Historical prompt artifact from pre-core-memory migration.
+# Paths and commands in this file are legacy references and not active.
 """
 Generate a sub-agent prompt for per-turn bead analysis.
 Called with turn context, outputs the prompt to stdout.
