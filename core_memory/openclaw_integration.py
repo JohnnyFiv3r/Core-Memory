@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .sidecar import get_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import process_memory_event, SidecarPolicy
 
@@ -79,6 +80,12 @@ def process_pending_memory_events(root: str, max_events: int = 50, policy: Sidec
 
             # Skip memory-origin events for recursion safety
             if (envelope.get("origin") or "").upper() == "MEMORY_PASS":
+                continue
+
+            session_id = envelope.get("session_id", "")
+            turn_id = envelope.get("turn_id", "")
+            prior = get_memory_pass(Path(root), session_id, turn_id)
+            if prior and prior.get("status") == "done":
                 continue
 
             try:

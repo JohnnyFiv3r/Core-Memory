@@ -35,6 +35,10 @@ class TestOpenClawIntegration(unittest.TestCase):
         proc = process_pending_memory_events(self.tmp, max_events=10, policy=SidecarPolicy(create_threshold=0.6))
         self.assertGreaterEqual(proc["processed"], 1)
 
+        # idempotent: re-processing same queue should not create duplicates
+        proc2 = process_pending_memory_events(self.tmp, max_events=10, policy=SidecarPolicy(create_threshold=0.6))
+        self.assertEqual(proc2["processed"], 0)
+
         stats = self.store.stats()
         self.assertGreaterEqual(stats["total_beads"], 1)
 
