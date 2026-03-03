@@ -8,6 +8,7 @@ Index-first with event audit log:
 """
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,6 +50,17 @@ class MemoryStore:
         self.root = Path(root)
         self.beads_dir = self.root / BEADS_DIR
         self.turns_dir = self.root / TURNS_DIR
+
+        # Per-add association controls (fast derived links)
+        self.associate_on_add = os.environ.get("CORE_MEMORY_ASSOCIATE_ON_ADD", "1") != "0"
+        try:
+            self.assoc_lookback = max(1, int(os.environ.get("CORE_MEMORY_ASSOCIATE_LOOKBACK", "40")))
+        except ValueError:
+            self.assoc_lookback = 40
+        try:
+            self.assoc_top_k = max(0, int(os.environ.get("CORE_MEMORY_ASSOCIATE_TOP_K", "3")))
+        except ValueError:
+            self.assoc_top_k = 3
         
         # Ensure directories exist
         self.beads_dir.mkdir(parents=True, exist_ok=True)
@@ -202,7 +214,15 @@ class MemoryStore:
             index["stats"]["total_beads"] = len(index["beads"])
 
             # Fast per-add association pass (derived, deterministic, bounded)
-            candidates = self._quick_association_candidates(index, bead)
+            candidates = []
+            if self.associate_on_add and self.assoc_top_k > 0:
+                candidates = self._quick_association_candidates(
+                    index,
+                    bead,
+                    max_lookback=self.assoc_lookback,
+                    top_k=self.assoc_top_k,
+                )
+
             bead["association_preview"] = [
                 {
                     "bead_id": c["other_id"],

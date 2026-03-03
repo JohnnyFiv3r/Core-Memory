@@ -105,6 +105,10 @@ core-memory --root "$CORE_MEMORY_ROOT" migrate-store --legacy-root /path/to/lega
 - Primary: `CORE_MEMORY_ROOT` (recommended)
 - Compatibility accepted by migration tooling: `MEMBEADS_ROOT`, `MEMBEADS_DIR`
 - CLI default root when unset: `./memory`
+- Fast per-add association controls:
+  - `CORE_MEMORY_ASSOCIATE_ON_ADD` (`1` default, set `0` to disable)
+  - `CORE_MEMORY_ASSOCIATE_LOOKBACK` (default `40`)
+  - `CORE_MEMORY_ASSOCIATE_TOP_K` (default `3`)
 
 ## Platform note
 
