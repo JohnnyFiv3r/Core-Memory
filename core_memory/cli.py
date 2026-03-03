@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Use relative import to avoid circular import
 from .store import MemoryStore, DEFAULT_ROOT
+from .openclaw_integration import coordinator_finalize_hook, process_pending_memory_events
 
 
 def main():
@@ -63,6 +64,23 @@ def main():
     migrate_parser = subparsers.add_parser("migrate-store", help="Migrate legacy mem_beads store")
     migrate_parser.add_argument("--legacy-root", required=True, help="Path to legacy .mem-beads store")
     migrate_parser.add_argument("--no-backup", action="store_true", help="Disable backup before import")
+
+    # sidecar integration command
+    sidecar_parser = subparsers.add_parser("sidecar", help="Coordinator integration helpers")
+    sidecar_sub = sidecar_parser.add_subparsers(dest="sidecar_cmd")
+
+    sc_finalize = sidecar_sub.add_parser("finalize", help="Emit finalize memory event (coordinator shim)")
+    sc_finalize.add_argument("--session-id", required=True)
+    sc_finalize.add_argument("--turn-id", required=True)
+    sc_finalize.add_argument("--transaction-id", required=True)
+    sc_finalize.add_argument("--trace-id", required=True)
+    sc_finalize.add_argument("--user-query", required=True)
+    sc_finalize.add_argument("--assistant-final", required=True)
+    sc_finalize.add_argument("--trace-depth", type=int, default=0)
+    sc_finalize.add_argument("--origin", default="USER_TURN")
+
+    sc_process = sidecar_sub.add_parser("process", help="Process queued memory events")
+    sc_process.add_argument("--max-events", type=int, default=50)
 
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
@@ -171,6 +189,26 @@ def main():
     elif args.command == "migrate-store":
         result = memory.migrate_legacy_store(args.legacy_root, backup=not args.no_backup)
         print(json.dumps(result, indent=2))
+
+    elif args.command == "sidecar":
+        if args.sidecar_cmd == "finalize":
+            result = coordinator_finalize_hook(
+                root=args.root,
+                session_id=args.session_id,
+                turn_id=args.turn_id,
+                transaction_id=args.transaction_id,
+                trace_id=args.trace_id,
+                user_query=args.user_query,
+                assistant_final=args.assistant_final,
+                trace_depth=args.trace_depth,
+                origin=args.origin,
+            )
+            print(json.dumps(result, indent=2))
+        elif args.sidecar_cmd == "process":
+            result = process_pending_memory_events(args.root, max_events=args.max_events)
+            print(json.dumps(result, indent=2))
+        else:
+            sidecar_parser.print_help()
 
     elif args.command == "metrics":
         if args.metrics_cmd == "report":
