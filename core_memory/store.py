@@ -280,6 +280,71 @@ class MemoryStore:
         events.append_metric(self.root, m)
         return m
 
+    def _infer_target_bead_for_question(self, question: str) -> Optional[dict]:
+        """Infer target decision bead for a rationale question using token overlap."""
+        idx = self._read_json(self.beads_dir / INDEX_FILE)
+        q_tokens = self._title_tokens(question or "")
+        best = None
+        best_score = 0
+        for bead in idx.get("beads", {}).values():
+            if bead.get("type") != "decision":
+                continue
+            b_tokens = self._title_tokens(bead.get("title", ""))
+            score = len(q_tokens.intersection(b_tokens))
+            if score > best_score:
+                best_score = score
+                best = bead
+        return best
+
+    def evaluate_rationale_recall(self, question: str, answer: str, bead_id: Optional[str] = None) -> dict:
+        """Deterministic 0/1/2 rationale recall scorer.
+
+        0 = incorrect/no grounding
+        1 = partial (either citation or rationale overlap)
+        2 = correct bead citation + rationale overlap
+        """
+        idx = self._read_json(self.beads_dir / INDEX_FILE)
+        target = None
+        if bead_id:
+            target = (idx.get("beads") or {}).get(bead_id)
+        if target is None:
+            target = self._infer_target_bead_for_question(question)
+
+        if not target:
+            return {
+                "score": 0,
+                "target_bead_id": None,
+                "reason": "no_target_bead",
+                "cited_ids": [],
+                "overlap_tokens": [],
+            }
+
+        target_id = target.get("id")
+        cited_ids = re.findall(r"bead-[A-Za-z0-9]{8,}", answer or "")
+        cited_match = target_id in cited_ids
+
+        rationale_text = " ".join(target.get("because", []))
+        rationale_text += " " + (target.get("mechanism") or "")
+        rationale_text += " " + " ".join(target.get("summary", []))
+
+        answer_tokens = self._tokenize(answer or "")
+        rationale_tokens = self._tokenize(rationale_text)
+        overlap = sorted(answer_tokens.intersection(rationale_tokens))
+
+        score = 0
+        if cited_match and len(overlap) >= 2:
+            score = 2
+        elif cited_match or len(overlap) >= 2:
+            score = 1
+
+        return {
+            "score": score,
+            "target_bead_id": target_id,
+            "reason": "ok" if score > 0 else "insufficient_grounding",
+            "cited_ids": cited_ids,
+            "overlap_tokens": overlap[:20],
+        }
+
     def metrics_report(self, since: str = "7d") -> dict:
         """Deterministic metrics aggregation from metrics.jsonl."""
         window_start = None

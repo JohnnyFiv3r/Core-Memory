@@ -93,6 +93,12 @@ def main():
     metrics_finalize = metrics_sub.add_parser("finalize-run", help="Append final KPI row with derived compression ratio")
     metrics_finalize.add_argument("--result", default="success")
 
+    metrics_recall = metrics_sub.add_parser("recall-eval", help="Score rationale recall (0/1/2) deterministically")
+    metrics_recall.add_argument("--question", required=True)
+    metrics_recall.add_argument("--answer", required=True)
+    metrics_recall.add_argument("--bead-id")
+    metrics_recall.add_argument("--no-log", action="store_true")
+
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
     metrics_log.add_argument("--mode", default="core_memory")
@@ -186,6 +192,15 @@ def main():
             print(json.dumps(cur, indent=2))
         elif args.metrics_cmd == "finalize-run":
             print(json.dumps(memory.finalize_task_run(result=args.result), indent=2))
+        elif args.metrics_cmd == "recall-eval":
+            result = memory.evaluate_rationale_recall(args.question, args.answer, bead_id=args.bead_id)
+            if not args.no_log:
+                memory.append_metric({
+                    "task_id": "rationale_recall",
+                    "result": "success" if result.get("score", 0) > 0 else "fail",
+                    "rationale_recall_score": result.get("score", 0),
+                })
+            print(json.dumps(result, indent=2))
         elif args.metrics_cmd == "log":
             rec = memory.append_metric({
                 "run_id": args.run_id,
