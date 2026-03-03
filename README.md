@@ -33,6 +33,8 @@ A bead is a small, structured memory unit:
 ### Associations
 Associations connect beads explicitly with a named relationship (e.g. `derives-from`, `supersedes`, `validates`).
 
+Core Memory also performs a fast bounded lookback when new beads are added, writing lightweight **derived** associations and a per-bead `association_preview` field for near-term rolling-window relevance.
+
 #### Authority
 - **authored**: created explicitly by agent/user (canonical truth, immutable)
 - **derived**: inferred by analysis/crawlers (optional, pruneable via myelination)

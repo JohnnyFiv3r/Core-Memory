@@ -84,6 +84,51 @@ class MemoryStore:
     def _generate_id(self) -> str:
         """Generate a short random bead ID (UUID-derived, non-ULID)."""
         return f"bead-{uuid.uuid4().hex[:12].upper()}"
+
+    def _tokenize(self, text: str) -> set[str]:
+        return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
+
+    def _quick_association_candidates(self, index: dict, bead: dict, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
+        """Fast, deterministic association inference for newly added beads."""
+        candidates = []
+        new_tags = set((bead.get("tags") or []))
+        new_tokens = self._tokenize(bead.get("title", "") + " " + " ".join(bead.get("summary", [])))
+
+        prior = [b for b in index.get("beads", {}).values() if b.get("id") != bead.get("id")]
+        prior = sorted(prior, key=lambda b: b.get("created_at", ""), reverse=True)[:max_lookback]
+
+        for other in prior:
+            score = 0
+            shared_tags = sorted(list(new_tags.intersection(set(other.get("tags") or []))))
+            if shared_tags:
+                score += 3 + min(2, len(shared_tags))
+
+            other_tokens = self._tokenize(other.get("title", "") + " " + " ".join(other.get("summary", [])))
+            overlap = len(new_tokens.intersection(other_tokens))
+            if overlap:
+                score += min(3, overlap)
+
+            if bead.get("session_id") and bead.get("session_id") == other.get("session_id"):
+                score += 1
+
+            if score <= 0:
+                continue
+
+            relationship = "related"
+            if shared_tags:
+                relationship = "shared_tag"
+            elif bead.get("session_id") and bead.get("session_id") == other.get("session_id"):
+                relationship = "follows"
+
+            candidates.append({
+                "other_id": other.get("id"),
+                "relationship": relationship,
+                "score": score,
+                "shared_tags": shared_tags,
+            })
+
+        candidates = sorted(candidates, key=lambda c: (-c["score"], c["other_id"] or ""))
+        return candidates[:top_k]
     
     # === Core API ===
     
@@ -151,7 +196,54 @@ class MemoryStore:
             append_jsonl(bead_file, bead)
 
             # Update index after durable archive write
-            self._update_index(bead)
+            index_file = self.beads_dir / INDEX_FILE
+            index = self._read_json(index_file)
+            index["beads"][bead["id"]] = bead
+            index["stats"]["total_beads"] = len(index["beads"])
+
+            # Fast per-add association pass (derived, deterministic, bounded)
+            candidates = self._quick_association_candidates(index, bead)
+            bead["association_preview"] = [
+                {
+                    "bead_id": c["other_id"],
+                    "relationship": c["relationship"],
+                    "score": c["score"],
+                }
+                for c in candidates
+            ]
+            index["beads"][bead["id"]] = bead
+
+            for c in candidates:
+                assoc = {
+                    "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
+                    "type": "association",
+                    "source_bead": bead_id,
+                    "target_bead": c["other_id"],
+                    "relationship": c["relationship"],
+                    "explanation": "auto: quick per-turn lookback",
+                    "edge_class": "derived",
+                    "created_at": now,
+                    "score": c["score"],
+                    "shared_tags": c["shared_tags"],
+                }
+                # de-dup against existing same pair+relationship
+                exists = any(
+                    a.get("source_bead") == assoc["source_bead"]
+                    and a.get("target_bead") == assoc["target_bead"]
+                    and a.get("relationship") == assoc["relationship"]
+                    for a in index.get("associations", [])
+                )
+                if exists:
+                    continue
+                index["associations"].append(assoc)
+                events.event_association_created(self.root, assoc, use_lock=False)
+
+            index["associations"] = sorted(
+                index.get("associations", []),
+                key=lambda a: (a.get("created_at", ""), a.get("id", "")),
+            )
+            index["stats"]["total_associations"] = len(index.get("associations", []))
+            self._write_json(index_file, index)
 
             # Append audit event (minimal - just id + timestamp for rebuild)
             events.event_bead_created(self.root, session_id, bead_id, now, use_lock=False)
