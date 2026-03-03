@@ -147,6 +147,36 @@ For native Windows support, a lock fallback implementation is still needed.
 
 ---
 
+## Integrations
+
+Wave 1 adapters are thin wrappers over one stable port:
+
+- `core_memory.integrations.api.emit_turn_finalized(...)`
+
+Supported:
+- OpenClaw (native sidecar integration)
+- PydanticAI (in-process wrapper)
+- SpringAI (HTTP ingress -> Python core)
+
+Invariant:
+- one event per finalized top-level turn
+
+Minimal payload fields:
+- `session_id`, `turn_id`, `user_query`, `assistant_final`
+
+Privacy modes:
+- `store_full_text=true`: keep full assistant text inline
+- `store_full_text=false`: store `assistant_final_ref` + hashes with redacted inline snippet
+
+Not in Wave 1:
+- streaming adapters
+- deep tool-trace parity across all frameworks
+
+See:
+- `docs/integration/core-adapters.md`
+- `docs/springai_adapter.md`
+- `docs/core_adapters_architecture.md`
+
 ## How context injection works
 
 1. Read beads + authored associations from store

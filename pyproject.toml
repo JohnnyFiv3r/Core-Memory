@@ -25,7 +25,7 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
-dev = ["pytest", "ruff", "mypy"]
+dev = ["pytest", "ruff", "mypy", "fastapi", "uvicorn", "httpx"]
 
 [project.scripts]
 core-memory = "core_memory.cli:main"
