@@ -51,6 +51,111 @@ def coordinator_finalize_hook(
     )
 
 
+def finalize_and_process_turn(
+    *,
+    root: str,
+    session_id: str,
+    turn_id: str,
+    transaction_id: str,
+    trace_id: str,
+    user_query: str,
+    assistant_final: str,
+    trace_depth: int = 0,
+    origin: str = "USER_TURN",
+    tools_trace: list[dict] | None = None,
+    mesh_trace: list[dict] | None = None,
+    window_turn_ids: list[str] | None = None,
+    window_bead_ids: list[str] | None = None,
+    metadata: dict[str, Any] | None = None,
+    policy: SidecarPolicy | None = None,
+) -> dict[str, Any]:
+    """Atomically emit + process one finalized turn.
+
+    Simpler native path for chat-triggered execution: avoids detached two-step
+    finalize/process races while preserving sidecar contracts and idempotency.
+    """
+    emitted = coordinator_finalize_hook(
+        root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        transaction_id=transaction_id,
+        trace_id=trace_id,
+        user_query=user_query,
+        assistant_final=assistant_final,
+        trace_depth=trace_depth,
+        origin=origin,
+        tools_trace=tools_trace,
+        mesh_trace=mesh_trace,
+        window_turn_ids=window_turn_ids,
+        window_bead_ids=window_bead_ids,
+        metadata=metadata,
+    )
+
+    if not emitted.get("emitted"):
+        return {
+            "ok": True,
+            "mode": "turn",
+            "emitted": emitted,
+            "processed": 0,
+            "failed": 0,
+        }
+
+    events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
+    if not events_file.exists():
+        return {
+            "ok": False,
+            "mode": "turn",
+            "emitted": emitted,
+            "processed": 0,
+            "failed": 1,
+            "error": "events_file_missing_after_emit",
+        }
+
+    last_row: dict[str, Any] | None = None
+    with open(events_file, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            env = row.get("envelope") or {}
+            if env.get("session_id") == session_id and env.get("turn_id") == turn_id:
+                last_row = row
+
+    if not last_row:
+        return {
+            "ok": False,
+            "mode": "turn",
+            "emitted": emitted,
+            "processed": 0,
+            "failed": 1,
+            "error": "event_row_not_found",
+        }
+
+    try:
+        delta = process_memory_event(root, last_row, policy=policy)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "mode": "turn",
+            "emitted": emitted,
+            "processed": 0,
+            "failed": 1,
+            "error": str(exc),
+        }
+
+    return {
+        "ok": True,
+        "mode": "turn",
+        "emitted": emitted,
+        "processed": 1,
+        "failed": 0,
+        "delta": delta,
+    }
+
+
 def process_pending_memory_events(root: str, max_events: int = 50, policy: SidecarPolicy | None = None) -> dict[str, Any]:
     """Process pending TURN_FINALIZED memory events from local JSONL queue.
 

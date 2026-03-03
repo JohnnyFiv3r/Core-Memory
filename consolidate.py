@@ -39,16 +39,26 @@ def bead_sort_key(bead: dict):
     return bead.get("promoted_at") or bead.get("created_at") or ""
 
 
-def render_rolling_window(store: MemoryStore, token_budget: int = 2000, max_beads: int = 200) -> tuple[str, dict]:
-    # Pull a broad set then enforce rolling budget ourselves.
-    promoted = store.query(status="promoted", limit=max_beads)
-    promoted = sorted(promoted, key=bead_sort_key, reverse=True)
+def render_rolling_window(
+    store: MemoryStore, token_budget: int = 2000, max_beads: int = 200
+) -> tuple[str, dict, list[str], list[str]]:
+    # Pull from full bead set and enforce pure time-series recency ordering
+    # irrespective of status.
+    index = store._read_json(store.beads_dir / "index.json")
+    all_beads = [
+        b for b in (index.get("beads") or {}).values() if str(b.get("status", "")).lower() != "superseded"
+    ]
+
+    candidates = sorted(all_beads, key=bead_sort_key, reverse=True)[:max_beads]
+    promoted = [b for b in candidates if str(b.get("status", "")).lower() == "promoted"]
+    non_promoted = [b for b in candidates if str(b.get("status", "")).lower() != "promoted"]
 
     lines = ["# Rolling Window (Core Memory)", ""]
     used = estimate_tokens("\n".join(lines))
     included = 0
+    included_ids: list[str] = []
 
-    for bead in promoted:
+    for bead in candidates:
         block = bead_render(bead)
         cost = estimate_tokens(block + "\n")
         if used + cost > token_budget:
@@ -56,41 +66,83 @@ def render_rolling_window(store: MemoryStore, token_budget: int = 2000, max_bead
         lines.append(block)
         used += cost
         included += 1
+        if bead.get("id"):
+            included_ids.append(bead["id"])
 
     if included == 0:
-        lines.append("- (no promoted beads fit current token budget)")
+        lines.append("- (no beads fit current token budget)")
+
+    excluded_ids = [b.get("id") for b in candidates if b.get("id") and b.get("id") not in set(included_ids)]
 
     meta = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "token_budget": token_budget,
         "estimated_tokens_used": used,
+        "candidate_beads": len(candidates),
         "candidate_promoted": len(promoted),
+        "candidate_non_promoted": len(non_promoted),
         "included": included,
-        "excluded": max(0, len(promoted) - included),
+        "excluded": max(0, len(candidates) - included),
     }
     lines.append("")
     lines.append(f"_meta: {json.dumps(meta, ensure_ascii=False)}_")
 
-    return "\n".join(lines) + "\n", meta
+    return "\n".join(lines) + "\n", meta, included_ids, excluded_ids
 
 
 def cmd_consolidate(args):
     store = MemoryStore(root=store_root())
-    result = store.compact(session_id=args.session, promote=args.promote)
 
-    rw, meta = render_rolling_window(store, token_budget=args.token_budget, max_beads=args.max_beads)
+    # Optional session-local compact/promote pass first.
+    session_result = store.compact(session_id=args.session, promote=args.promote)
+
+    # Build rolling window from promoted set and compact only historical (excluded) promoted beads.
+    rw, meta, included_ids, excluded_ids = render_rolling_window(
+        store, token_budget=args.token_budget, max_beads=args.max_beads
+    )
+    historical_result = store.compact(only_bead_ids=excluded_ids, skip_bead_ids=included_ids)
+
     out = workspace_root() / "promoted-context.md"
     out.write_text(rw)
 
-    print(json.dumps({"ok": True, "consolidate": result, "rolling_window": str(out), "window_meta": meta}))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "consolidate": session_result,
+                "session_compact": session_result,
+                "historical_compact": historical_result,
+                "rolling_window": str(out),
+                "window_meta": meta,
+                "window_ids": {
+                    "included": len(included_ids),
+                    "excluded": len(excluded_ids),
+                },
+            }
+        )
+    )
 
 
 def cmd_rolling_window(args):
     store = MemoryStore(root=store_root())
-    rw, meta = render_rolling_window(store, token_budget=args.token_budget, max_beads=args.max_beads)
+    rw, meta, included_ids, excluded_ids = render_rolling_window(
+        store, token_budget=args.token_budget, max_beads=args.max_beads
+    )
     out = workspace_root() / "promoted-context.md"
     out.write_text(rw)
-    print(json.dumps({"ok": True, "rolling_window": str(out), "window_meta": meta}))
+    print(
+        json.dumps(
+            {
+                "ok": True,
+                "rolling_window": str(out),
+                "window_meta": meta,
+                "window_ids": {
+                    "included": len(included_ids),
+                    "excluded": len(excluded_ids),
+                },
+            }
+        )
+    )
 
 
 def main():

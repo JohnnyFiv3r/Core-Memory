@@ -906,19 +906,44 @@ class MemoryStore:
                 "total_associations": len(existing.get("associations", [])),
             }
 
-    def compact(self, session_id: Optional[str] = None, promote: bool = False) -> dict:
-        """Core-native compact: archive detail text losslessly and optionally promote."""
+    def compact(
+        self,
+        session_id: Optional[str] = None,
+        promote: bool = False,
+        only_bead_ids: Optional[list[str]] = None,
+        skip_bead_ids: Optional[list[str]] = None,
+    ) -> dict:
+        """Core-native compact: archive detail text losslessly and optionally promote.
+
+        - only_bead_ids: if provided, compact only this explicit set
+        - skip_bead_ids: if provided, skip compacting these IDs
+        """
         with store_lock(self.root):
             index = self._read_json(self.beads_dir / INDEX_FILE)
             archive_file = self.beads_dir / "archive.jsonl"
             compacted = 0
+            only = set(only_bead_ids or [])
+            skip = set(skip_bead_ids or [])
 
             for bead_id in sorted(index.get("beads", {}).keys()):
                 bead = index["beads"][bead_id]
                 if session_id and bead.get("session_id") != session_id:
                     continue
+                if only and bead_id not in only:
+                    continue
+                if bead_id in skip:
+                    continue
+
+                # Invariants:
+                # - promoted beads always keep full detail
+                # - session boundary beads always keep full detail
+                bead_type = str(bead.get("type", "")).lower()
+                bead_status = str(bead.get("status", "")).lower()
+                is_session_boundary = bead_type in {"session_start", "session_end"}
+                is_promoted = bead_status == "promoted"
+
                 detail = bead.get("detail", "")
-                if detail:
+                if detail and not is_promoted and not is_session_boundary:
                     archive = {
                         "bead_id": bead_id,
                         "detail": detail,
@@ -927,6 +952,8 @@ class MemoryStore:
                     }
                     append_jsonl(archive_file, archive)
                     bead["detail"] = ""
+                    # Non-promoted compacted beads become archived/minimal context.
+                    bead["status"] = "archived"
                     compacted += 1
                 if promote and bead.get("status") != "promoted":
                     bead["status"] = "promoted"
@@ -934,7 +961,13 @@ class MemoryStore:
                 index["beads"][bead_id] = bead
 
             self._write_json(self.beads_dir / INDEX_FILE, index)
-            return {"ok": True, "compacted": compacted, "session": session_id}
+            return {
+                "ok": True,
+                "compacted": compacted,
+                "session": session_id,
+                "only_bead_ids": len(only),
+                "skip_bead_ids": len(skip),
+            }
 
     def uncompact(self, bead_id: str) -> dict:
         """Restore compacted bead detail from core archive."""

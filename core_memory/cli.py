@@ -11,7 +11,11 @@ from pathlib import Path
 
 # Use relative import to avoid circular import
 from .store import MemoryStore, DEFAULT_ROOT
-from .openclaw_integration import coordinator_finalize_hook, process_pending_memory_events
+from .openclaw_integration import (
+    coordinator_finalize_hook,
+    finalize_and_process_turn,
+    process_pending_memory_events,
+)
 
 
 def main():
@@ -81,6 +85,16 @@ def main():
 
     sc_process = sidecar_sub.add_parser("process", help="Process queued memory events")
     sc_process.add_argument("--max-events", type=int, default=50)
+
+    sc_turn = sidecar_sub.add_parser("turn", help="Atomically finalize and process one turn")
+    sc_turn.add_argument("--session-id", required=True)
+    sc_turn.add_argument("--turn-id", required=True)
+    sc_turn.add_argument("--transaction-id", required=True)
+    sc_turn.add_argument("--trace-id", required=True)
+    sc_turn.add_argument("--user-query", required=True)
+    sc_turn.add_argument("--assistant-final", required=True)
+    sc_turn.add_argument("--trace-depth", type=int, default=0)
+    sc_turn.add_argument("--origin", default="USER_TURN")
 
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
@@ -206,6 +220,19 @@ def main():
             print(json.dumps(result, indent=2))
         elif args.sidecar_cmd == "process":
             result = process_pending_memory_events(args.root, max_events=args.max_events)
+            print(json.dumps(result, indent=2))
+        elif args.sidecar_cmd == "turn":
+            result = finalize_and_process_turn(
+                root=args.root,
+                session_id=args.session_id,
+                turn_id=args.turn_id,
+                transaction_id=args.transaction_id,
+                trace_id=args.trace_id,
+                user_query=args.user_query,
+                assistant_final=args.assistant_final,
+                trace_depth=args.trace_depth,
+                origin=args.origin,
+            )
             print(json.dumps(result, indent=2))
         else:
             sidecar_parser.print_help()
