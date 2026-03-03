@@ -1,3 +1,7 @@
-from .server import app
+def get_app():
+    from .server import app
 
-__all__ = ["app"]
+    return app
+
+
+__all__ = ["get_app"]

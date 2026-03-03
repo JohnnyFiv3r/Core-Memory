@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import os
 import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 from core_memory.sidecar_hook import maybe_emit_finalize_memory_event
+from core_memory.store import DEFAULT_ROOT
 
 
 @dataclass
@@ -21,9 +23,13 @@ class IntegrationContext:
         return {k: v for k, v in md.items() if v is not None}
 
 
+def _resolve_root(root: Optional[str]) -> str:
+    return (root or os.environ.get("CORE_MEMORY_ROOT") or DEFAULT_ROOT).strip()
+
+
 def emit_turn_finalized(
     *,
-    root: str,
+    root: Optional[str] = None,
     session_id: str,
     turn_id: str,
     transaction_id: str,
@@ -37,15 +43,18 @@ def emit_turn_finalized(
     window_turn_ids: Optional[list[str]] = None,
     window_bead_ids: Optional[list[str]] = None,
     metadata: Optional[dict[str, Any]] = None,
-) -> str:
+    strict: bool = False,
+) -> Optional[str]:
     """Stable integration port for external orchestrators.
 
-    Emits exactly one TURN_FINALIZED memory event for a top-level turn and
-    returns event_id when emitted. Raises ValueError when emission is skipped.
+    Emits one TURN_FINALIZED memory event for a top-level turn.
+    - strict=False (default): return None when emission is skipped
+    - strict=True: raise ValueError when skipped
     """
+    root_final = _resolve_root(root)
     trace_id_final = (trace_id or f"tr-{turn_id}-{uuid.uuid4().hex[:8]}").strip()
     result = maybe_emit_finalize_memory_event(
-        root,
+        root_final,
         session_id=session_id,
         turn_id=turn_id,
         transaction_id=transaction_id,
@@ -61,14 +70,18 @@ def emit_turn_finalized(
         metadata=metadata,
     )
     if not result.get("emitted"):
-        raise ValueError(f"turn not emitted: {result.get('reason')}")
+        if strict:
+            raise ValueError(f"turn not emitted: {result.get('reason')}")
+        return None
     event_id = result.get("event_id")
     if not event_id:
-        raise ValueError("missing event_id after emit")
+        if strict:
+            raise ValueError("missing event_id after emit")
+        return None
     return str(event_id)
 
 
-def emit_turn_finalized_from_envelope(*, root: str, envelope: dict[str, Any]) -> str:
+def emit_turn_finalized_from_envelope(*, root: Optional[str] = None, envelope: dict[str, Any], strict: bool = False) -> Optional[str]:
     return emit_turn_finalized(
         root=root,
         session_id=str(envelope.get("session_id") or "main"),
@@ -84,4 +97,5 @@ def emit_turn_finalized_from_envelope(*, root: str, envelope: dict[str, Any]) ->
         window_turn_ids=envelope.get("window_turn_ids") or [],
         window_bead_ids=envelope.get("window_bead_ids") or [],
         metadata=envelope.get("metadata") or {},
+        strict=strict,
     )

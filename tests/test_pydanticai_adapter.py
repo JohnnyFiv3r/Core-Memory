@@ -1,10 +1,11 @@
 import asyncio
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.integrations.pydanticai import run_with_memory
+from core_memory.integrations.pydanticai import run_with_memory, run_with_memory_sync
 
 
 class FakeResult:
@@ -14,6 +15,11 @@ class FakeResult:
 
 class FakeAgent:
     async def run(self, user_query: str):
+        return FakeResult(output=f"ok:{user_query}")
+
+
+class FakeSyncAgent:
+    def run_sync(self, user_query: str):
         return FakeResult(output=f"ok:{user_query}")
 
 
@@ -42,6 +48,20 @@ class TestPydanticAiAdapter(unittest.TestCase):
                 self.assertIn("s1:t1", state)
 
         asyncio.run(_run())
+
+    def test_pydanticai_sync_wrapper_and_default_root(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            os.environ["CORE_MEMORY_ROOT"] = root
+            try:
+                agent = FakeSyncAgent()
+                result = run_with_memory_sync(agent, "hello", session_id="s-sync", turn_id="t-sync")
+                self.assertEqual("ok:hello", result.output)
+                events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
+                rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+                self.assertEqual(1, len(rows))
+            finally:
+                os.environ.pop("CORE_MEMORY_ROOT", None)
 
 
 if __name__ == "__main__":
