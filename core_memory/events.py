@@ -114,8 +114,13 @@ def iter_events(
             continue
         with open(event_file, 'r') as f:
             for line in f:
-                if line.strip():
+                if not line.strip():
+                    continue
+                try:
                     yield json.loads(line)
+                except json.JSONDecodeError:
+                    # tolerate partial/corrupt lines for durable replay
+                    continue
 
 
 def rebuild_index(root: Path) -> dict:
@@ -154,22 +159,30 @@ def rebuild_index(root: Path) -> dict:
     for session_file in sorted(beads_dir.glob("session-*.jsonl")):
         with open(session_file, 'r') as f:
             for line in f:
-                if line.strip():
+                if not line.strip():
+                    continue
+                try:
                     bead = json.loads(line)
-                    bead_id = bead.get("id")
-                    if bead_id:
-                        index["beads"][bead_id] = bead
+                except json.JSONDecodeError:
+                    continue
+                bead_id = bead.get("id")
+                if bead_id:
+                    index["beads"][bead_id] = bead
     
     # Also check global.jsonl
     global_file = beads_dir / "global.jsonl"
     if global_file.exists():
         with open(global_file, 'r') as f:
             for line in f:
-                if line.strip():
+                if not line.strip():
+                    continue
+                try:
                     bead = json.loads(line)
-                    bead_id = bead.get("id")
-                    if bead_id:
-                        index["beads"][bead_id] = bead
+                except json.JSONDecodeError:
+                    continue
+                bead_id = bead.get("id")
+                if bead_id:
+                    index["beads"][bead_id] = bead
     
     # Rebuild associations from event logs
     for ev in iter_events(root):

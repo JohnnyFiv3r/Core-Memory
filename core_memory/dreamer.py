@@ -116,7 +116,7 @@ def score_association(bead1: dict, bead2: dict, distance: float) -> dict:
             relationship = "contradicts"
 
     # Check for reinforcement
-    elif any(w in s1.split() for w in s2.split()) if s2 else False:
+    elif bool(set(s1.split()) & set(s2.split())):
         relationship = "reinforces"
     
     return {
