@@ -30,12 +30,12 @@ A bead is a small, structured memory unit:
 - tags/scope/session metadata
 - lifecycle state (`open` / `promoted` / `compacted` / `superseded` / `tombstoned`)
 
-### Links (Edges)
-Links connect beads explicitly (e.g. `derives-from`, `supersedes`, `validates`).
+### Associations
+Associations connect beads explicitly with a named relationship (e.g. `derives-from`, `supersedes`, `validates`).
 
-#### Edge authority
-- `edge_class="authored"`: written by the agent/model (canonical causal truth)
-- `edge_class="derived"`: inferred by crawlers/associators (optional, pruneable)
+#### Authority
+- **authored**: created explicitly by agent/user (canonical truth, immutable)
+- **derived**: inferred by analysis/crawlers (optional, pruneable via myelination)
 
 ### Sessions
 Beads are grouped into sessions. Core Memory maintains a session index to support rolling-window selection and compaction.
@@ -48,7 +48,7 @@ Compaction is render-layer only (store remains lossless):
 - tombstoned (not injected; still traversable for audit)
 
 ### Context Packet
-Each turn, Core Memory produces a Context Packet: an ordered, token-budgeted set of compacted bead renders drawn from the last N sessions and relevant causal chains.
+Each turn, Core Memory produces a Context Packet: an ordered, token-budgeted set of compacted bead renders drawn from the last N sessions and relevant association chains.
 
 ---
 
@@ -139,7 +139,7 @@ For native Windows support, a lock fallback implementation is still needed.
 
 ## How context injection works
 
-1. Read beads + authored edges from store
+1. Read beads + authored associations from store
 2. Select relevant sessions/chains under token budget
 3. Apply compaction tiers (render-only)
 4. Emit deterministic Context Packet
@@ -150,19 +150,14 @@ Given the same store + config, packet assembly is deterministic.
 
 ## Myelination (optional)
 
-Myelination operates on **derived** edges only.
-It can reinforce frequently useful derived links and prune weak/noisy ones without mutating authored causal truth.
+Myelination operates on **derived** associations only.
+It can reinforce frequently useful derived associations and prune weak/noisy ones without mutating authored causal truth.
 
 ---
 
 ## Contributing
 
-### Design invariants (do not break)
-- Lossless storage: compaction is render-layer only
-- Authored edges are immutable truth
-- Derived edges are pruneable
-- Context Packet must be deterministic for same store + config
-- Links persist through compaction
+See [CONTRIBUTING.md](CONTRIBUTING.md) for design invariants, terminology, and development setup.
 
 Run tests:
 
@@ -175,10 +170,11 @@ pytest -q
 ## Roadmap
 
 - Graph DB backend (optional)
-- Edge myelination (derived edges only)
+- Myelination policy expansion (derived associations)
 - Session digest bead
 - Better token estimation based on render formats
 - Pluggable retrieval strategies
+- Windows lock fallback (cross-platform)
 
 ---
 
