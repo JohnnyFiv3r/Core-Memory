@@ -1,35 +1,24 @@
 # Deprecation Plan: `mem_beads` → `core_memory`
 
 ## Status
-In progress (post-canonical flip).
+Completed.
 
-## Policy
-- `core-memory` is the canonical CLI and package.
-- `mem-beads` remains as a temporary command alias only.
-- `mem_beads` Python module internals are deprecated.
+## Final Policy (current)
+- `core-memory` is the only supported CLI.
+- Legacy `mem-beads` command alias has been removed.
+- Legacy `mem_beads` runtime module path has been removed.
+- Legacy stores can be imported with:
+  - `core-memory --root <new_root> migrate-store --legacy-root <legacy_root>`
 
-## Schedule
-- **Current release (N):**
-  - `core-memory` default in docs/automation
-  - `mem-beads` emits deprecation warning
-  - no legacy runtime fallback in `mem_beads.cli`
-- **Next release (N+1):**
-  - reduce `mem_beads` package to minimal import shim + compatibility error messages
-  - keep command alias if needed for operator convenience
-- **Following release (N+2):**
-  - remove `mem_beads` package internals entirely (optionally keep command alias wrapper)
+## Compatibility Notes
+- Environment compatibility inputs are still accepted where relevant:
+  - `MEMBEADS_ROOT`
+  - `MEMBEADS_DIR`
+- Preferred environment variable is:
+  - `CORE_MEMORY_ROOT`
 
-## Migration guidance
-1. Replace all automation with `core-memory` invocations.
-2. For legacy stores, run:
-   - `core-memory --root <new_root> migrate-store --legacy-root <legacy_root>`
-3. Validate with:
-   - query parity and count checks
-   - compact/uncompact round-trip
-   - idempotent second migration run
-
-## Acceptance criteria for full deprecation
-- no internal scripts reference `tools/mem-beads/*`
-- no runtime path depends on legacy fallback
-- migration drill documented and repeatable
-- tests green on `master`
+## Acceptance criteria (met)
+- no runtime code depends on `mem_beads`
+- canonical package path is `core_memory`
+- canonical CLI is `core-memory`
+- migration flow is explicit and tested (`migrate-store`)

@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.0.1] - 2026-03-03
+
+### Fixed
+- Removed broken legacy association runner scripts that still depended on removed `mem_beads` runtime path (`associate.py`, `run_association.py`, `run_association.sh`).
+- Cleaned CLI module text to reflect canonical `core-memory` command.
+
+### Changed
+- Finalized compatibility/deprecation docs for post-migration reality:
+  - `core-memory` is canonical and sole CLI
+  - `mem-beads` alias is removed
+  - legacy store import remains via `migrate-store`
+
 ## [1.0.0-core-migration-rc1] - 2026-03-02
 
 ### Added
