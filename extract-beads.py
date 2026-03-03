@@ -2,8 +2,8 @@
 """
 extract-beads.py: Extract bead markers from session transcript.
 
-Runs post-session (via memoryFlush). Parses transcript JSONL for [[BEAD:...]] 
-markers, writes valid beads to session .bd file via mem-beads CLI.
+Runs post-session (via memoryFlush). Parses transcript JSONL for bead markers,
+and writes them into Core Memory via core_memory CLI.
 
 Usage:
     python3 extract-beads.py <session-id>
@@ -16,7 +16,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-# Bead types from mem_beads.py
+# Supported bead types
 VALID_BEAD_TYPES = {
     "session_start", "session_end",
     "goal", "decision", "tool_call", "evidence",
@@ -35,8 +35,8 @@ VALID_AUTHORITIES = {"agent_inferred", "user_confirmed", "system"}
 BEAD_MARKER = re.compile(r'(?:<!--\s*BEAD:\s*(\{.*?\})\s*-->|\{::bead\s+(.*?)\s*/::\})', re.DOTALL)
 
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/home/node/.openclaw/workspace")
-MEMBEADS_DIR = os.environ.get("MEMBEADS_DIR", f"{WORKSPACE}/.mem-beads")
-CORE_MEMORY_CLI = os.environ.get("CORE_MEMORY_CLI", "core-memory")
+STORE_ROOT = os.environ.get("CORE_MEMORY_ROOT") or os.environ.get("MEMBEADS_ROOT") or f"{WORKSPACE}/memory"
+CORE_MEMORY_CMD = os.environ.get("CORE_MEMORY_CMD", "").strip()
 
 # OpenClaw stores session transcripts in agents/<agentId>/sessions/
 def get_latest_transcript(agent_id: str = "main") -> tuple[str, str]:
@@ -44,7 +44,7 @@ def get_latest_transcript(agent_id: str = "main") -> tuple[str, str]:
     sessions_dir = Path(f"/home/node/.openclaw/agents/{agent_id}/sessions")
     
     if not sessions_dir.exists():
-        return get_latest_session(), f"{MEMBEADS_DIR}/session-{get_latest_session()}.jsonl"
+        return get_latest_session(), f"{STORE_ROOT}/.beads/session-{get_latest_session()}.jsonl"
     
     # Find most recent JSONL file (not sessions.json)
     transcript_files = sorted(
@@ -59,7 +59,7 @@ def get_latest_transcript(agent_id: str = "main") -> tuple[str, str]:
         return session_id, str(transcript_files[0])
     
     # Fallback
-    return get_latest_session(), f"{MEMBEADS_DIR}/session-{get_latest_session()}.jsonl"
+    return get_latest_session(), f"{STORE_ROOT}/.beads/session-{get_latest_session()}.jsonl"
 
 
 def _parse_attribute_format(attr_string: str) -> dict:
@@ -163,14 +163,17 @@ def extract_beads_from_transcript(transcript_path: str) -> list[dict]:
 
 
 def write_beads(beads: list[dict], session_id: str) -> int:
-    """Write beads via mem-beads CLI."""
+    """Write beads via core_memory CLI."""
     written = 0
-    
+
     for bead in beads:
         # Build CLI args
-        args = [
-            CORE_MEMORY_CLI,
-            '--root', MEMBEADS_DIR,
+        if CORE_MEMORY_CMD:
+            args = CORE_MEMORY_CMD.split()
+        else:
+            args = [sys.executable, "-m", "core_memory.cli"]
+        args += [
+            '--root', STORE_ROOT,
             'add',
             '--type', bead.get('type', 'context'),
             '--title', bead.get('title', 'Untitled')[:100],  # Limit title length
@@ -219,11 +222,11 @@ def main():
     # Get session ID from args or find latest transcript
     if len(sys.argv) >= 2:
         session_id = sys.argv[1]
-        # If it's a UUID, construct path; otherwise use .mem-beads format
+        # If it's a UUID, construct path; otherwise use store session archive
         if "-" in session_id and len(session_id) > 20:
             transcript = f"/home/node/.openclaw/agents/main/sessions/{session_id}.jsonl"
         else:
-            transcript = f"{MEMBEADS_DIR}/session-{session_id}.jsonl"
+            transcript = f"{STORE_ROOT}/.beads/session-{session_id}.jsonl"
     else:
         session_id, transcript = get_latest_transcript()
         print(f"No session ID provided, using latest: {session_id}")

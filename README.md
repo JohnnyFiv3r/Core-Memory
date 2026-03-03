@@ -62,7 +62,7 @@ python3 -m venv .venv
 Configure store root:
 
 ```bash
-export MEMBEADS_ROOT="$PWD/.mem-beads"
+export CORE_MEMORY_ROOT="$PWD/memory"
 ```
 
 ---
@@ -72,39 +72,50 @@ export MEMBEADS_ROOT="$PWD/.mem-beads"
 Create a bead:
 
 ```bash
-core-memory --root "$MEMBEADS_ROOT" add --type decision --title "Use stdlib only" --session-id main --tags mem-beads
+core-memory --root "$CORE_MEMORY_ROOT" add --type decision --title "Use stdlib only" --session-id main --tags core-memory
 ```
 
-Link beads:
+Query beads:
 
 ```bash
-core-memory --root "$MEMBEADS_ROOT" query --type decision --limit 5
-mem-beads --root "$MEMBEADS_ROOT" link --from <newer_bead_id> --to <older_bead_id> --type derives-from
+core-memory --root "$CORE_MEMORY_ROOT" query --type decision --limit 5
 ```
 
 Compaction + restore:
 
 ```bash
-core-memory --root "$MEMBEADS_ROOT" compact --session main --promote
-core-memory --root "$MEMBEADS_ROOT" uncompact --id <bead_id>
+core-memory --root "$CORE_MEMORY_ROOT" compact --session main --promote
+core-memory --root "$CORE_MEMORY_ROOT" uncompact --id <bead_id>
 ```
 
 Migrate legacy store:
 
 ```bash
-core-memory --root "$MEMBEADS_ROOT" migrate-store --legacy-root /path/to/legacy/.mem-beads
+core-memory --root "$CORE_MEMORY_ROOT" migrate-store --legacy-root /path/to/legacy/.mem-beads
 ```
 
 ---
 
+## Environment
+
+- Primary: `CORE_MEMORY_ROOT` (recommended)
+- Compatibility accepted by migration tooling: `MEMBEADS_ROOT`, `MEMBEADS_DIR`
+- CLI default root when unset: `./memory`
+
 ## Store layout
 
 ```text
-.mem-beads/
-  index.json
-  global.jsonl
-  edges.jsonl
-  sessions/
+<root>/
+  .beads/
+    index.json
+    global.jsonl
+    session-<id>.jsonl
+    archive.jsonl
+    .lock
+    events/
+      global.jsonl
+      session-<id>.jsonl
+  .turns/
     session-<id>.jsonl
 ```
 
@@ -113,12 +124,11 @@ core-memory --root "$MEMBEADS_ROOT" migrate-store --legacy-root /path/to/legacy/
 ## CLI reference (most-used)
 
 - `core-memory add ...` — create bead
-- `mem-beads link ...` — create authored edge (compat path)
+- `core-memory query ...` — inspect memory state
 - `core-memory compact ...` — compact bead detail (lossless via archive)
 - `core-memory uncompact ...` — restore compacted detail
 - `core-memory myelinate ...` — deterministic myelination pass output
 - `core-memory migrate-store ...` — import legacy mem_beads stores
-- `core-memory query ...` — inspect memory state
 
 ---
 
@@ -167,12 +177,11 @@ pytest -q
 
 ---
 
-## Deprecation note (`mem_beads`)
+## Compatibility note
 
 - `core-memory` is canonical.
-- `mem-beads` command remains as a compatibility alias and emits a deprecation warning.
-- Direct `mem_beads` module internals are deprecated and will be removed after migration window.
-- See `DEPRECATION_PLAN.md` for timeline.
+- Legacy `mem_beads` runtime code and `mem-beads` command alias have been removed.
+- Use `core-memory migrate-store` to import older `.mem-beads` stores.
 
 ## License
 
