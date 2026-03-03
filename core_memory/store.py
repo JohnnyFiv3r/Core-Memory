@@ -1138,6 +1138,17 @@ class MemoryStore:
             # Append audit event (rebuild support)
             events.event_bead_recalled(self.root, bead_id, use_lock=False)
 
+            # Edge traversal telemetry for myelination/reinforcement modeling
+            for assoc in index.get("associations", []):
+                if assoc.get("source_bead") == bead_id or assoc.get("target_bead") == bead_id:
+                    events.event_edge_traversed(
+                        self.root,
+                        edge_id=assoc.get("id", ""),
+                        source_bead=assoc.get("source_bead"),
+                        target_bead=assoc.get("target_bead"),
+                        use_lock=False,
+                    )
+
         self.track_bead_recalled(1)
         return True
     

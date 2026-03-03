@@ -30,6 +30,7 @@ EVENT_BEAD_RECALLED = "bead_recalled"
 EVENT_ASSOCIATION_CREATED = "association_created"
 EVENT_BEAD_COMPACTED = "bead_compacted"
 EVENT_BEAD_SUPERSEDED = "bead_superseded"
+EVENT_EDGE_TRAVERSED = "edge_traversed"
 
 
 def get_events_dir(root: Path) -> Path:
@@ -302,5 +303,28 @@ def event_association_created(
         session_id=None,
         event_type=EVENT_ASSOCIATION_CREATED,
         payload={"association": association},
+        use_lock=use_lock,
+    )
+
+
+def event_edge_traversed(
+    root: Path,
+    edge_id: str,
+    source_bead: str | None = None,
+    target_bead: str | None = None,
+    use_lock: bool = True,
+) -> str:
+    """Create an edge_traversed event for future reinforcement/decay modeling."""
+    return append_event(
+        root=root,
+        session_id=None,
+        event_type=EVENT_EDGE_TRAVERSED,
+        payload={
+            "edge_id": edge_id,
+            "event": "traversed",
+            "source_bead": source_bead,
+            "target_bead": target_bead,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        },
         use_lock=use_lock,
     )
