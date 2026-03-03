@@ -16,6 +16,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Iterator
 
+from .io_utils import store_lock, append_jsonl, atomic_write_json
+
 # Constants
 EVENTS_DIR = ".beads/events"
 SESSION_FILE = "session-{id}.jsonl"
@@ -38,7 +40,8 @@ def append_event(
     root: Path,
     session_id: Optional[str],
     event_type: str,
-    payload: dict
+    payload: dict,
+    use_lock: bool = True,
 ) -> str:
     """
     Append an event to the event log.
@@ -71,8 +74,11 @@ def append_event(
     else:
         event_file = events_dir / "global.jsonl"
     
-    with open(event_file, 'a') as f:
-        f.write(json.dumps(event) + "\n")
+    if use_lock:
+        with store_lock(root):
+            append_jsonl(event_file, event)
+    else:
+        append_jsonl(event_file, event)
     
     return event_id
 
@@ -165,9 +171,9 @@ def rebuild_index(root: Path) -> dict:
     # Update stats
     index["stats"]["total_beads"] = len(index["beads"])
     
-    # Write index
-    with open(index_file, 'w') as f:
-        json.dump(index, f, indent=2)
+    # Write index atomically under store lock
+    with store_lock(root):
+        atomic_write_json(index_file, index)
     
     return index
 
@@ -178,51 +184,59 @@ def event_bead_created(
     root: Path,
     session_id: Optional[str],
     bead_id: str,
-    created_at: str
+    created_at: str,
+    use_lock: bool = True,
 ) -> str:
     """Create a bead_created event (minimal - just id + timestamp)."""
     return append_event(
         root=root,
         session_id=session_id,
         event_type=EVENT_BEAD_CREATED,
-        payload={"bead_id": bead_id, "created_at": created_at}
+        payload={"bead_id": bead_id, "created_at": created_at},
+        use_lock=use_lock,
     )
 
 
 def event_bead_promoted(
     root: Path,
-    bead_id: str
+    bead_id: str,
+    use_lock: bool = True,
 ) -> str:
     """Create a bead_promoted event."""
     return append_event(
         root=root,
         session_id=None,
         event_type=EVENT_BEAD_PROMOTED,
-        payload={"bead_id": bead_id}
+        payload={"bead_id": bead_id},
+        use_lock=use_lock,
     )
 
 
 def event_bead_recalled(
     root: Path,
-    bead_id: str
+    bead_id: str,
+    use_lock: bool = True,
 ) -> str:
     """Create a bead_recalled event."""
     return append_event(
         root=root,
         session_id=None,
         event_type=EVENT_BEAD_RECALLED,
-        payload={"bead_id": bead_id}
+        payload={"bead_id": bead_id},
+        use_lock=use_lock,
     )
 
 
 def event_association_created(
     root: Path,
-    association: dict
+    association: dict,
+    use_lock: bool = True,
 ) -> str:
     """Create an association_created event."""
     return append_event(
         root=root,
         session_id=None,
         event_type=EVENT_ASSOCIATION_CREATED,
-        payload={"association": association}
+        payload={"association": association},
+        use_lock=use_lock,
     )

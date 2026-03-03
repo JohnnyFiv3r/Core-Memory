@@ -15,6 +15,7 @@ from typing import Optional
 
 from .models import BeadType, Scope, Status, Authority
 from . import events
+from .io_utils import store_lock, atomic_write_json, append_jsonl
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "./memory"
@@ -60,16 +61,17 @@ class MemoryStore:
     def _init_index(self):
         """Initialize the index file if it doesn't exist."""
         index_file = self.beads_dir / INDEX_FILE
-        if not index_file.exists():
-            self._write_json(index_file, {
-                "beads": {},
-                "associations": [],
-                "stats": {
-                    "total_beads": 0,
-                    "total_associations": 0,
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                }
-            })
+        with store_lock(self.root):
+            if not index_file.exists():
+                self._write_json(index_file, {
+                    "beads": {},
+                    "associations": [],
+                    "stats": {
+                        "total_beads": 0,
+                        "total_associations": 0,
+                        "created_at": datetime.now(timezone.utc).isoformat()
+                    }
+                })
     
     def _read_json(self, path: Path) -> dict:
         """Read a JSON file."""
@@ -77,9 +79,8 @@ class MemoryStore:
             return json.load(f)
     
     def _write_json(self, path: Path, data: dict):
-        """Write a JSON file."""
-        with open(path, 'w') as f:
-            json.dump(data, f, indent=2)
+        """Write JSON atomically."""
+        atomic_write_json(path, data)
     
     def _generate_id(self) -> str:
         """Generate a ULID-style ID."""
@@ -142,20 +143,19 @@ class MemoryStore:
             **kwargs
         }
         
-        # Update index first (canonical)
-        self._update_index(bead)
-        
-        # Write to session archive (full bead for rebuild)
-        if session_id:
-            bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
-        else:
-            bead_file = self.beads_dir / "global.jsonl"
-        
-        with open(bead_file, 'a') as f:
-            f.write(json.dumps(bead) + "\n")
-        
-        # Append audit event (minimal - just id + timestamp for rebuild)
-        events.event_bead_created(self.root, session_id, bead_id, now)
+        with store_lock(self.root):
+            # Update index first (canonical)
+            self._update_index(bead)
+
+            # Write to session archive (full bead for rebuild)
+            if session_id:
+                bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
+            else:
+                bead_file = self.beads_dir / "global.jsonl"
+            append_jsonl(bead_file, bead)
+
+            # Append audit event (minimal - just id + timestamp for rebuild)
+            events.event_bead_created(self.root, session_id, bead_id, now, use_lock=False)
         
         return bead_id
     
@@ -190,9 +190,8 @@ class MemoryStore:
         
         # Write to turns directory (separate from beads)
         turn_file = self.turns_dir / SESSION_FILE.format(id=session_id)
-        
-        with open(turn_file, 'a') as f:
-            f.write(json.dumps(turn) + "\n")
+        with store_lock(self.root):
+            append_jsonl(turn_file, turn)
     
     def consolidate(self, session_id: str = "default") -> dict:
         """
@@ -261,15 +260,16 @@ class MemoryStore:
         if not legacy_index_path.exists():
             raise FileNotFoundError(f"Legacy index not found: {legacy_index_path}")
 
-        if backup:
-            idx_path = self.beads_dir / INDEX_FILE
-            if idx_path.exists():
-                stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-                backup_path = self.beads_dir / f"index.backup.{stamp}.json"
-                backup_path.write_text(idx_path.read_text())
+        with store_lock(self.root):
+            if backup:
+                idx_path = self.beads_dir / INDEX_FILE
+                if idx_path.exists():
+                    stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+                    backup_path = self.beads_dir / f"index.backup.{stamp}.json"
+                    atomic_write_json(backup_path, self._read_json(idx_path))
 
-        legacy_index = json.loads(legacy_index_path.read_text())
-        existing = self._read_json(self.beads_dir / INDEX_FILE)
+            legacy_index = json.loads(legacy_index_path.read_text())
+            existing = self._read_json(self.beads_dir / INDEX_FILE)
 
         imported_beads = 0
         for bead_id, rec in sorted(legacy_index.get("beads", {}).items()):
@@ -347,7 +347,8 @@ class MemoryStore:
 
         existing.setdefault("stats", {})["total_beads"] = len(existing.get("beads", {}))
         existing.setdefault("stats", {})["total_associations"] = len(existing.get("associations", []))
-        self._write_json(self.beads_dir / INDEX_FILE, existing)
+        with store_lock(self.root):
+            self._write_json(self.beads_dir / INDEX_FILE, existing)
 
         return {
             "ok": True,
@@ -360,64 +361,65 @@ class MemoryStore:
 
     def compact(self, session_id: Optional[str] = None, promote: bool = False) -> dict:
         """Core-native compact: archive detail text losslessly and optionally promote."""
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        archive_file = self.beads_dir / "archive.jsonl"
-        compacted = 0
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            archive_file = self.beads_dir / "archive.jsonl"
+            compacted = 0
 
-        for bead_id in sorted(index.get("beads", {}).keys()):
-            bead = index["beads"][bead_id]
-            if session_id and bead.get("session_id") != session_id:
-                continue
-            detail = bead.get("detail", "")
-            if detail:
-                archive = {
-                    "bead_id": bead_id,
-                    "detail": detail,
-                    "summary": bead.get("summary", []),
-                    "archived_at": datetime.now(timezone.utc).isoformat(),
-                }
-                with open(archive_file, "a") as f:
-                    f.write(json.dumps(archive) + "\n")
-                bead["detail"] = ""
-                compacted += 1
-            if promote and bead.get("status") != "promoted":
-                bead["status"] = "promoted"
-                bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
-            index["beads"][bead_id] = bead
+            for bead_id in sorted(index.get("beads", {}).keys()):
+                bead = index["beads"][bead_id]
+                if session_id and bead.get("session_id") != session_id:
+                    continue
+                detail = bead.get("detail", "")
+                if detail:
+                    archive = {
+                        "bead_id": bead_id,
+                        "detail": detail,
+                        "summary": bead.get("summary", []),
+                        "archived_at": datetime.now(timezone.utc).isoformat(),
+                    }
+                    append_jsonl(archive_file, archive)
+                    bead["detail"] = ""
+                    compacted += 1
+                if promote and bead.get("status") != "promoted":
+                    bead["status"] = "promoted"
+                    bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
+                index["beads"][bead_id] = bead
 
-        self._write_json(self.beads_dir / INDEX_FILE, index)
-        return {"ok": True, "compacted": compacted, "session": session_id}
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+            return {"ok": True, "compacted": compacted, "session": session_id}
 
     def uncompact(self, bead_id: str) -> dict:
         """Restore compacted bead detail from core archive."""
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        if bead_id not in index.get("beads", {}):
-            return {"ok": False, "error": f"Bead not found: {bead_id}"}
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            if bead_id not in index.get("beads", {}):
+                return {"ok": False, "error": f"Bead not found: {bead_id}"}
 
-        archive_file = self.beads_dir / "archive.jsonl"
-        if not archive_file.exists():
-            return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
+            archive_file = self.beads_dir / "archive.jsonl"
+            if not archive_file.exists():
+                return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
 
-        found = None
-        with open(archive_file, "r") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                row = json.loads(line)
-                if row.get("bead_id") == bead_id:
-                    found = row
+            found = None
+            with open(archive_file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    row = json.loads(line)
+                    if row.get("bead_id") == bead_id:
+                        found = row
 
-        if not found:
-            return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
+            if not found:
+                return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
 
-        bead = index["beads"][bead_id]
-        bead["detail"] = found.get("detail", "")
-        if found.get("summary"):
-            bead["summary"] = found.get("summary")
-        index["beads"][bead_id] = bead
-        self._write_json(self.beads_dir / INDEX_FILE, index)
-        return {"ok": True, "id": bead_id}
+            bead = index["beads"][bead_id]
+            bead["detail"] = found.get("detail", "")
+            if found.get("summary"):
+                bead["summary"] = found.get("summary")
+            index["beads"][bead_id] = bead
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+            return {"ok": True, "id": bead_id}
 
     def myelinate(self, apply: bool = False) -> dict:
         """Core-native myelination scaffold (deterministic)."""
@@ -503,23 +505,23 @@ class MemoryStore:
         Returns:
             Success
         """
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        
-        if bead_id not in index["beads"]:
-            return False
-        
-        bead = index["beads"][bead_id]
-        bead["status"] = "promoted"
-        bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
-        
-        index["beads"][bead_id] = bead
-        self._write_json(self.beads_dir / INDEX_FILE, index)
-        
-        # Append audit event (rebuild support)
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
 
-        events.event_bead_promoted(self.root, bead_id)
-        
-        return True
+            if bead_id not in index["beads"]:
+                return False
+
+            bead = index["beads"][bead_id]
+            bead["status"] = "promoted"
+            bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
+
+            index["beads"][bead_id] = bead
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+
+            # Append audit event (rebuild support)
+            events.event_bead_promoted(self.root, bead_id, use_lock=False)
+
+            return True
     
     def link(
         self,
@@ -552,16 +554,16 @@ class MemoryStore:
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        index["associations"].append(assoc)
-        index["stats"]["total_associations"] += 1
-        self._write_json(self.beads_dir / INDEX_FILE, index)
-        
-        # Append audit event (rebuild support)
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            index["associations"].append(assoc)
+            index["stats"]["total_associations"] += 1
+            self._write_json(self.beads_dir / INDEX_FILE, index)
 
-        events.event_association_created(self.root, assoc)
-        
-        return assoc_id
+            # Append audit event (rebuild support)
+            events.event_association_created(self.root, assoc, use_lock=False)
+
+            return assoc_id
     
     def recall(self, bead_id: str) -> bool:
         """
@@ -573,23 +575,23 @@ class MemoryStore:
         Returns:
             Success
         """
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        
-        if bead_id not in index["beads"]:
-            return False
-        
-        bead = index["beads"][bead_id]
-        bead["recall_count"] = bead.get("recall_count", 0) + 1
-        bead["last_recalled"] = datetime.now(timezone.utc).isoformat()
-        
-        index["beads"][bead_id] = bead
-        self._write_json(self.beads_dir / INDEX_FILE, index)
-        
-        # Append audit event (rebuild support)
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
 
-        events.event_bead_recalled(self.root, bead_id)
-        
-        return True
+            if bead_id not in index["beads"]:
+                return False
+
+            bead = index["beads"][bead_id]
+            bead["recall_count"] = bead.get("recall_count", 0) + 1
+            bead["last_recalled"] = datetime.now(timezone.utc).isoformat()
+
+            index["beads"][bead_id] = bead
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+
+            # Append audit event (rebuild support)
+            events.event_bead_recalled(self.root, bead_id, use_lock=False)
+
+            return True
     
     def dream(self) -> list:
         """

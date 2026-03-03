@@ -1,4 +1,4 @@
-# Core Memory (mem-beads)
+# Core Memory
 
 A deterministic, causal memory system for AI agents: **“beads for memory.”**
 
