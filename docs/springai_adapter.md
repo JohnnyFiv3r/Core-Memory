@@ -13,12 +13,16 @@ Body (minimal):
 - `assistant_final`
 
 Optional:
+- `root` (omit to use server-side env/default resolution)
 - `transaction_id`
 - `metadata`
-- `traces`
+- `traces` (`{"tools":[...], "mesh":[...]}`)
 - `window_turn_ids`
 - `window_bead_ids`
 - `origin` (default `USER_TURN`)
+
+Health probe:
+- `GET /healthz` -> `{ "ok": true }`
 
 ## Deterministic IDs
 

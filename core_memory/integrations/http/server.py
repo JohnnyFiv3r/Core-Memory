@@ -12,7 +12,7 @@ MAX_BODY_BYTES = 256_000
 
 
 class TurnFinalizedRequest(BaseModel):
-    root: str = "./memory"
+    root: Optional[str] = None
     session_id: str
     turn_id: str
     transaction_id: Optional[str] = None
@@ -27,6 +27,11 @@ class TurnFinalizedRequest(BaseModel):
 
 
 app = FastAPI(title="Core Memory HTTP Ingress", version="1.0")
+
+
+@app.get("/healthz")
+async def healthz():
+    return {"ok": True}
 
 
 @app.post("/v1/memory/turn-finalized")
