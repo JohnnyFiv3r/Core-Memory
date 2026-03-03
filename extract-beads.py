@@ -14,6 +14,7 @@ import os
 import re
 import subprocess
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 # Supported bead types
@@ -37,6 +38,28 @@ BEAD_MARKER = re.compile(r'(?:<!--\s*BEAD:\s*(\{.*?\})\s*-->|\{::bead\s+(.*?)\s*
 WORKSPACE = os.environ.get("OPENCLAW_WORKSPACE", "/home/node/.openclaw/workspace")
 STORE_ROOT = os.environ.get("CORE_MEMORY_ROOT") or os.environ.get("MEMBEADS_ROOT") or f"{WORKSPACE}/memory"
 CORE_MEMORY_CMD = os.environ.get("CORE_MEMORY_CMD", "").strip()
+IDEMPOTENT = os.environ.get("CORE_MEMORY_EXTRACT_ONCE", "1") != "0"
+
+
+def marker_path(session_id: str) -> Path:
+    safe = re.sub(r"[^a-zA-Z0-9._-]", "_", session_id)
+    return Path(STORE_ROOT) / ".beads" / ".extracted" / f"session-{safe}.json"
+
+
+def already_extracted(session_id: str) -> bool:
+    return marker_path(session_id).exists()
+
+
+def write_marker(session_id: str, transcript: str, written: int) -> None:
+    p = marker_path(session_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    payload = {
+        "session_id": session_id,
+        "transcript": transcript,
+        "written": written,
+        "completed_at": datetime.now(timezone.utc).isoformat(),
+    }
+    p.write_text(json.dumps(payload, indent=2), encoding="utf-8")
 
 # OpenClaw stores session transcripts in agents/<agentId>/sessions/
 def get_latest_transcript(agent_id: str = "main") -> tuple[str, str]:
@@ -233,14 +256,22 @@ def main():
         print(f"Transcript: {transcript}")
     
     print(f"\n=== Extracting beads from session: {session_id} ===\n")
-    
+
+    if IDEMPOTENT and already_extracted(session_id):
+        print(f"Session already extracted, skipping: {session_id}")
+        return
+
+    if not os.path.exists(transcript):
+        print(f"Transcript not found: {transcript}", file=sys.stderr)
+        raise SystemExit(1)
+
     beads = extract_beads_from_transcript(transcript)
     print(f"\nTotal bead markers found: {len(beads)}")
     
     if beads:
         written = write_beads(beads, session_id)
         print(f"\n=== Wrote {written} beads ===")
-        
+
         # Optionally run consolidation after extraction
         if len(sys.argv) >= 3 and sys.argv[2] == '--consolidate':
             print("\nRunning consolidation...")
@@ -252,8 +283,10 @@ def main():
                 print("Consolidation complete")
             else:
                 print(f"Consolidation failed: {result.stderr}", file=sys.stderr)
+        write_marker(session_id, transcript, written)
     else:
         print("No beads to write")
+        write_marker(session_id, transcript, 0)
 
 
 if __name__ == "__main__":

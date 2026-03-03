@@ -13,6 +13,17 @@ On automation/heartbeat cycles:
    - `python3 /home/node/.openclaw/workspace/consolidate.py rolling-window --limit 20`
    - Stay silent unless this fails.
 
+## Phase 2 Session-End Extraction (enabled)
+
+On session-end / memoryFlush:
+
+1. Run extraction + consolidation:
+   - `python3 /home/node/.openclaw/workspace/extract-beads.py <session-id> --consolidate`
+2. If `<session-id>` is unavailable, run:
+   - `python3 /home/node/.openclaw/workspace/extract-beads.py --consolidate`
+3. Idempotency is enforced by extraction markers under:
+   - `<CORE_MEMORY_ROOT>/.beads/.extracted/session-<id>.json`
+4. Stay silent unless extraction/consolidation fails.
+
 ## Deferred (not yet enabled)
-- Session-end extraction idempotency rules.
 - Association crawler automation (blocked on legacy script migration).
