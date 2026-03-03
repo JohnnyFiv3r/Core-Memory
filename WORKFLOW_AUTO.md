@@ -9,8 +9,8 @@ On automation/heartbeat cycles:
 3. Run Core Memory health check:
    - `.venv/bin/core-memory --root /home/node/.openclaw/workspace/memory stats`
    - Stay silent unless this fails.
-4. Refresh rolling context once per day:
-   - `python3 /home/node/.openclaw/workspace/consolidate.py rolling-window --limit 20`
+4. Refresh rolling context on each automation cycle (dynamic budget):
+   - `python3 /home/node/.openclaw/workspace/consolidate.py rolling-window --token-budget 2000 --max-beads 200`
    - Stay silent unless this fails.
 
 ## Phase 2 Session-End Extraction (enabled)

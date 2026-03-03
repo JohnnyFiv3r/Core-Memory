@@ -50,6 +50,8 @@ Compaction is render-layer only (store remains lossless):
 ### Context Packet
 Each turn, Core Memory produces a Context Packet: an ordered, token-budgeted set of compacted bead renders drawn from the last N sessions and relevant association chains.
 
+`promoted-context.md` is an optional debug artifact for human inspection. It is regenerated from current store state and is not canonical memory state.
+
 ---
 
 ## Install
