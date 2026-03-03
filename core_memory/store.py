@@ -52,6 +52,7 @@ class MemoryStore:
         self.root = Path(root)
         self.beads_dir = self.root / BEADS_DIR
         self.turns_dir = self.root / TURNS_DIR
+        self.metrics_state_file = self.root / ".beads" / "events" / "metrics-state.json"
 
         # Per-add association controls (fast derived links)
         self.associate_on_add = os.environ.get("CORE_MEMORY_ASSOCIATE_ON_ADD", "1") != "0"
@@ -136,27 +137,146 @@ class MemoryStore:
         norm = re.sub(r"\s+", " ", (plan or "").strip().lower())
         return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
 
+    def _read_metrics_state(self) -> dict:
+        default = {
+            "current": {
+                "run_id": None,
+                "task_id": None,
+                "mode": "core_memory",
+                "phase": "core_memory",
+                "steps": 0,
+                "tool_calls": 0,
+                "turns_processed": 0,
+                "beads_created": 0,
+                "beads_recalled": 0,
+            }
+        }
+        if not self.metrics_state_file.exists():
+            return default
+        try:
+            data = json.loads(self.metrics_state_file.read_text(encoding="utf-8"))
+            data.setdefault("current", {})
+            for k, v in default["current"].items():
+                data["current"].setdefault(k, v)
+            return data
+        except json.JSONDecodeError:
+            return default
+
+    def _write_metrics_state(self, state: dict):
+        self.metrics_state_file.parent.mkdir(parents=True, exist_ok=True)
+        tmp = self.metrics_state_file.with_suffix(".tmp")
+        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        tmp.replace(self.metrics_state_file)
+
+    def start_task_run(self, run_id: str, task_id: str, mode: str = "core_memory", phase: str = "core_memory") -> dict:
+        """Start/reset current metrics run context for step/tool aggregation."""
+        with store_lock(self.root):
+            state = self._read_metrics_state()
+            state["current"] = {
+                "run_id": run_id,
+                "task_id": task_id,
+                "mode": mode,
+                "phase": phase,
+                "steps": 0,
+                "tool_calls": 0,
+                "turns_processed": 0,
+                "beads_created": 0,
+                "beads_recalled": 0,
+            }
+            self._write_metrics_state(state)
+            return state["current"]
+
+    def track_step(self, count: int = 1) -> dict:
+        with store_lock(self.root):
+            state = self._read_metrics_state()
+            state.setdefault("current", {}).setdefault("steps", 0)
+            state["current"]["steps"] += max(0, int(count))
+            self._write_metrics_state(state)
+            return state["current"]
+
+    def track_tool_call(self, count: int = 1) -> dict:
+        with store_lock(self.root):
+            state = self._read_metrics_state()
+            state.setdefault("current", {}).setdefault("tool_calls", 0)
+            state["current"]["tool_calls"] += max(0, int(count))
+            self._write_metrics_state(state)
+            return state["current"]
+
+    def track_turn_processed(self, count: int = 1) -> dict:
+        with store_lock(self.root):
+            state = self._read_metrics_state()
+            state.setdefault("current", {}).setdefault("turns_processed", 0)
+            state["current"]["turns_processed"] += max(0, int(count))
+            self._write_metrics_state(state)
+            return state["current"]
+
+    def track_bead_created(self, count: int = 1) -> dict:
+        with store_lock(self.root):
+            state = self._read_metrics_state()
+            state.setdefault("current", {}).setdefault("beads_created", 0)
+            state["current"]["beads_created"] += max(0, int(count))
+            self._write_metrics_state(state)
+            return state["current"]
+
+    def track_bead_recalled(self, count: int = 1) -> dict:
+        with store_lock(self.root):
+            state = self._read_metrics_state()
+            state.setdefault("current", {}).setdefault("beads_recalled", 0)
+            state["current"]["beads_recalled"] += max(0, int(count))
+            self._write_metrics_state(state)
+            return state["current"]
+
+    def current_run_metrics(self) -> dict:
+        with store_lock(self.root):
+            return self._read_metrics_state().get("current", {})
+
+    def finalize_task_run(self, result: str = "success", **extra) -> dict:
+        """Append final KPI row using current counters and derived compression ratio."""
+        cur = self.current_run_metrics()
+        turns = int(cur.get("turns_processed", 0) or 0)
+        beads_created = int(cur.get("beads_created", 0) or 0)
+        compression_ratio = (turns / beads_created) if beads_created > 0 else 0.0
+        rec = {
+            "run_id": cur.get("run_id"),
+            "task_id": cur.get("task_id"),
+            "mode": cur.get("mode"),
+            "phase": cur.get("phase"),
+            "result": result,
+            "steps": cur.get("steps", 0),
+            "tool_calls": cur.get("tool_calls", 0),
+            "beads_created": beads_created,
+            "beads_recalled": int(cur.get("beads_recalled", 0) or 0),
+            "turns_processed": turns,
+            "compression_ratio": compression_ratio,
+        }
+        rec.update(extra)
+        return self.append_metric(rec)
+
     def append_metric(self, record: dict) -> dict:
         """Append a metrics KPI record (v1 schema defaults applied)."""
         now = datetime.now(timezone.utc).isoformat()
+        current = self.current_run_metrics()
         m = {
             "ts": record.get("ts", now),
-            "run_id": record.get("run_id", f"run-{uuid.uuid4().hex[:12]}"),
-            "mode": record.get("mode", "core_memory"),
-            "task_id": record.get("task_id", "unknown"),
+            "run_id": record.get("run_id") or current.get("run_id") or f"run-{uuid.uuid4().hex[:12]}",
+            "mode": record.get("mode") or current.get("mode") or "core_memory",
+            "task_id": record.get("task_id") or current.get("task_id") or "unknown",
             "result": record.get("result", "success"),
-            "steps": int(record.get("steps", 0) or 0),
-            "tool_calls": int(record.get("tool_calls", 0) or 0),
-            "beads_created": int(record.get("beads_created", 0) or 0),
-            "beads_recalled": int(record.get("beads_recalled", 0) or 0),
+            "steps": int(record.get("steps", current.get("steps", 0)) or 0),
+            "tool_calls": int(record.get("tool_calls", current.get("tool_calls", 0)) or 0),
+            "beads_created": int(record.get("beads_created", current.get("beads_created", 0)) or 0),
+            "beads_recalled": int(record.get("beads_recalled", current.get("beads_recalled", 0)) or 0),
             "repeat_failure": bool(record.get("repeat_failure", False)),
             "decision_conflicts": int(record.get("decision_conflicts", 0) or 0),
             "unjustified_flips": int(record.get("unjustified_flips", 0) or 0),
             "rationale_recall_score": int(record.get("rationale_recall_score", 0) or 0),
-            "turns_processed": int(record.get("turns_processed", 0) or 0),
+            "turns_processed": int(record.get("turns_processed", current.get("turns_processed", 0)) or 0),
             "compression_ratio": float(record.get("compression_ratio", 0) or 0),
-            "phase": record.get("phase", "core_memory"),
+            "phase": record.get("phase") or current.get("phase") or "core_memory",
         }
+        if m["compression_ratio"] <= 0 and m["beads_created"] > 0 and m["turns_processed"] > 0:
+            m["compression_ratio"] = round(m["turns_processed"] / m["beads_created"], 6)
+
         events.append_metric(self.root, m)
         return m
 
@@ -235,6 +355,65 @@ class MemoryStore:
         if t == "evidence":
             if not source_turn_ids and not summary and not detail:
                 raise ValueError("evidence beads require provenance: provide --source-turn-ids or summary/detail")
+
+    def _title_tokens(self, text: str) -> set[str]:
+        return {t for t in self._tokenize(text) if t not in {"the", "and", "for", "with", "this", "that"}}
+
+    def _is_contradictory_decision(self, a_title: str, b_title: str) -> bool:
+        a = (a_title or "").lower()
+        b = (b_title or "").lower()
+        neg = [" not ", " don't ", " never ", " avoid ", " disable ", " remove "]
+        a_neg = any(x in f" {a} " for x in neg)
+        b_neg = any(x in f" {b} " for x in neg)
+        if a_neg != b_neg:
+            return True
+        antonym_pairs = [("enable", "disable"), ("use", "avoid"), ("allow", "deny")]
+        for p, q in antonym_pairs:
+            if (p in a and q in b) or (q in a and p in b):
+                return True
+        return False
+
+    def _detect_decision_conflicts(self, index: dict, bead: dict) -> tuple[int, int, list[str]]:
+        """Heuristic conflict detector for new decision bead.
+
+        Returns: (decision_conflicts, unjustified_flips, conflicting_bead_ids)
+        """
+        if bead.get("type") != "decision":
+            return 0, 0, []
+
+        new_tokens = self._title_tokens(bead.get("title", ""))
+        if not new_tokens:
+            return 0, 0, []
+
+        conflicts = []
+        assocs = index.get("associations", [])
+
+        for prior in index.get("beads", {}).values():
+            if prior.get("id") == bead.get("id"):
+                continue
+            if prior.get("type") != "decision":
+                continue
+            overlap = len(new_tokens.intersection(self._title_tokens(prior.get("title", ""))))
+            if overlap < 2:
+                continue
+            if not self._is_contradictory_decision(bead.get("title", ""), prior.get("title", "")):
+                continue
+
+            # justified if prior already superseded/reversed in history
+            prior_id = prior.get("id")
+            justified = (prior.get("status") == "superseded") or any(
+                (
+                    (a.get("source_bead") == prior_id or a.get("target_bead") == prior_id)
+                    and a.get("relationship") in {"supersedes", "reversal", "reversed_by"}
+                )
+                for a in assocs
+            )
+            if not justified:
+                conflicts.append(prior_id)
+
+        if not conflicts:
+            return 0, 0, []
+        return len(conflicts), 1, sorted(conflicts)
 
     def _quick_association_candidates(self, index: dict, bead: dict, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
         """Fast, deterministic association inference for newly added beads."""
@@ -350,6 +529,8 @@ class MemoryStore:
         self._validate_bead_fields(bead)
 
         repeat_failure = False
+        decision_conflicts = 0
+        unjustified_flips = 0
 
         with store_lock(self.root):
             # Write to session archive first (durability/rebuild source)
@@ -369,6 +550,11 @@ class MemoryStore:
                     b.get("failure_signature") == sig
                     for b in index.get("beads", {}).values()
                 )
+
+            decision_conflicts, unjustified_flips, conflict_ids = self._detect_decision_conflicts(index, bead)
+            if conflict_ids:
+                bead["decision_conflict_with"] = conflict_ids
+                bead["unjustified_flip"] = bool(unjustified_flips)
 
             index["beads"][bead["id"]] = bead
             index["stats"]["total_beads"] = len(index["beads"])
@@ -440,13 +626,16 @@ class MemoryStore:
                 "beads_created": 1,
                 "beads_recalled": 0,
                 "repeat_failure": repeat_failure,
-                "decision_conflicts": 0,
-                "unjustified_flips": 0,
+                "decision_conflicts": decision_conflicts,
+                "unjustified_flips": unjustified_flips,
                 "rationale_recall_score": 0,
                 "turns_processed": 1,
                 "compression_ratio": 1.0,
                 "phase": "core_memory",
             }, use_lock=False)
+
+        # aggregate run counters (outside lock helper has its own lock)
+        self.track_bead_created(1)
 
         return bead_id
     
@@ -483,6 +672,8 @@ class MemoryStore:
         turn_file = self.turns_dir / SESSION_FILE.format(id=session_id)
         with store_lock(self.root):
             append_jsonl(turn_file, turn)
+
+        self.track_turn_processed(1)
     
     def consolidate(self, session_id: str = "default") -> dict:
         """
@@ -882,7 +1073,8 @@ class MemoryStore:
             # Append audit event (rebuild support)
             events.event_bead_recalled(self.root, bead_id, use_lock=False)
 
-            return True
+        self.track_bead_recalled(1)
+        return True
     
     def dream(self) -> list:
         """

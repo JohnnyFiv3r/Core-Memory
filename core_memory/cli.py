@@ -71,6 +71,28 @@ def main():
     metrics_report = metrics_sub.add_parser("report", help="Aggregate metrics.jsonl deterministically")
     metrics_report.add_argument("--since", default="7d", help="Window, e.g. 7d or 48h")
 
+    metrics_start = metrics_sub.add_parser("start-run", help="Start/reset aggregated run counters")
+    metrics_start.add_argument("--run-id", required=True)
+    metrics_start.add_argument("--task-id", required=True)
+    metrics_start.add_argument("--mode", default="core_memory")
+    metrics_start.add_argument("--phase", default="core_memory")
+
+    metrics_step = metrics_sub.add_parser("step", help="Increment step counter for current run")
+    metrics_step.add_argument("--count", type=int, default=1)
+
+    metrics_tool = metrics_sub.add_parser("tool", help="Increment tool-call counter for current run")
+    metrics_tool.add_argument("--count", type=int, default=1)
+
+    metrics_turn = metrics_sub.add_parser("turn", help="Increment turns-processed counter for current run")
+    metrics_turn.add_argument("--count", type=int, default=1)
+
+    metrics_bead = metrics_sub.add_parser("bead", help="Increment bead counters for current run")
+    metrics_bead.add_argument("--created", type=int, default=0)
+    metrics_bead.add_argument("--recalled", type=int, default=0)
+
+    metrics_finalize = metrics_sub.add_parser("finalize-run", help="Append final KPI row with derived compression ratio")
+    metrics_finalize.add_argument("--result", default="success")
+
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
     metrics_log.add_argument("--mode", default="core_memory")
@@ -147,6 +169,23 @@ def main():
     elif args.command == "metrics":
         if args.metrics_cmd == "report":
             print(json.dumps(memory.metrics_report(since=args.since), indent=2))
+        elif args.metrics_cmd == "start-run":
+            print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
+        elif args.metrics_cmd == "step":
+            print(json.dumps(memory.track_step(args.count), indent=2))
+        elif args.metrics_cmd == "tool":
+            print(json.dumps(memory.track_tool_call(args.count), indent=2))
+        elif args.metrics_cmd == "turn":
+            print(json.dumps(memory.track_turn_processed(args.count), indent=2))
+        elif args.metrics_cmd == "bead":
+            cur = memory.current_run_metrics()
+            if args.created:
+                cur = memory.track_bead_created(args.created)
+            if args.recalled:
+                cur = memory.track_bead_recalled(args.recalled)
+            print(json.dumps(cur, indent=2))
+        elif args.metrics_cmd == "finalize-run":
+            print(json.dumps(memory.finalize_task_run(result=args.result), indent=2))
         elif args.metrics_cmd == "log":
             rec = memory.append_metric({
                 "run_id": args.run_id,
