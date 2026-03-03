@@ -12,6 +12,7 @@ import re
 
 from .sidecar import mark_memory_pass
 from .store import MemoryStore
+from .io_utils import append_jsonl
 
 
 @dataclass
@@ -68,6 +69,12 @@ def _promotion_gates(envelope: dict[str, Any], score: float) -> dict[str, bool]:
     }
 
 
+def _enqueue_promotion_candidates(root: str, rows: list[dict[str, Any]]) -> None:
+    q = Path(root) / ".beads" / "events" / "promotion-candidates.jsonl"
+    for r in rows:
+        append_jsonl(q, r)
+
+
 def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPolicy | None = None) -> dict[str, Any]:
     """Process one memory event payload and return a MemoryDelta-like result."""
     policy = policy or SidecarPolicy()
@@ -84,6 +91,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
 
     created = []
     promoted = []
+    promotion_candidates = []
     suppressed = []
 
     # Create budgeted bead (0..1)
@@ -115,23 +123,61 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
         or gates.get("repeated_pattern", False)
     )
     if gate_pass and policy.max_promote_per_turn > 0:
-        # deterministic: first available window bead that is open
+        # deterministic: open beads in provided window order
         idx = store._read_json(store.beads_dir / "index.json")
+        open_window = []
         for bid in window_bead_ids:
             bead = (idx.get("beads") or {}).get(bid)
             if not bead:
                 continue
             if bead.get("status") == "open":
+                open_window.append(bid)
+
+        for bid in open_window[: policy.max_promote_per_turn]:
+            try:
                 if store.promote(bid):
                     promoted.append({"bead_id": bid, "score": score, "reason": "promotion_gate"})
-                break
+            except Exception:
+                promotion_candidates.append(
+                    {
+                        "bead_id": bid,
+                        "score": score,
+                        "reason": "promote_error_deferred",
+                    }
+                )
+
+        # If more candidates existed than budget, defer remainder.
+        deferred_budget = open_window[policy.max_promote_per_turn :]
+        for bid in deferred_budget:
+            promotion_candidates.append(
+                {
+                    "bead_id": bid,
+                    "score": score,
+                    "reason": "budget_exhausted",
+                }
+            )
+
+        if promotion_candidates:
+            _enqueue_promotion_candidates(
+                root,
+                [
+                    {
+                        "ts": envelope.get("ts"),
+                        "session_id": session_id,
+                        "turn_id": turn_id,
+                        "candidate": c,
+                        "gates": gates,
+                    }
+                    for c in promotion_candidates
+                ],
+            )
 
     delta = {
         "session_id": session_id,
         "turn_id": turn_id,
         "created": created,
         "promoted": promoted,
-        "promotion_candidates": [],
+        "promotion_candidates": promotion_candidates,
         "promotion_gates": gates,
         "suppressed": suppressed,
         "metrics": {
@@ -143,7 +189,15 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
 
     # mark pass done + metrics row
     env_hash = envelope.get("envelope_hash", "")
-    mark_memory_pass(Path(root), session_id, turn_id, "done", env_hash)
+    supersedes = (envelope.get("metadata") or {}).get("supersedes_envelope_hash", "")
+    mark_memory_pass(
+        Path(root),
+        session_id,
+        turn_id,
+        "done",
+        env_hash,
+        supersedes_envelope_hash=str(supersedes or ""),
+    )
     store.append_metric({
         "run_id": f"sidecar-{session_id}-{turn_id}",
         "mode": "core_memory",

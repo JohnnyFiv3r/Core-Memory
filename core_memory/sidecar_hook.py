@@ -141,7 +141,19 @@ def maybe_emit_finalize_memory_event(
         if prior.get("envelope_hash") == envelope.envelope_hash:
             return {"emitted": False, "reason": "idempotent_done"}
         # same turn_id, changed final output -> mutation/amend path
-        mark_memory_pass(root_path, session_id, turn_id, "pending", envelope.envelope_hash)
+        previous_envelope_hash = str(prior.get("envelope_hash") or "")
+        envelope.metadata = dict(envelope.metadata or {})
+        if previous_envelope_hash:
+            envelope.metadata["supersedes_envelope_hash"] = previous_envelope_hash
+        mark_memory_pass(
+            root_path,
+            session_id,
+            turn_id,
+            "pending",
+            envelope.envelope_hash,
+            reason="turn_mutation",
+            supersedes_envelope_hash=previous_envelope_hash,
+        )
         event = emit_memory_event(root_path, envelope)
         payload = {"event": event.to_dict(), "envelope": envelope.to_dict()}
         return {
@@ -149,6 +161,7 @@ def maybe_emit_finalize_memory_event(
             "reason": "turn_mutation",
             "event_id": event.event_id,
             "assistant_final_hash": envelope.assistant_final_hash,
+            "supersedes_envelope_hash": previous_envelope_hash,
             "payload": payload,
         }
 

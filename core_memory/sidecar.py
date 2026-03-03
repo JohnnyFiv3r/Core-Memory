@@ -9,7 +9,7 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass, asdict, field
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -22,6 +22,21 @@ def _iso_now() -> str:
 
 def _ts_ms() -> int:
     return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def _parse_iso(ts: str | None) -> Optional[datetime]:
+    if not ts:
+        return None
+    try:
+        return datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _compute_next_retry_at(retry_count: int) -> str:
+    # Exponential backoff: 5s, 10s, 20s, ... capped at 5m.
+    seconds = min(300, max(5, 5 * (2 ** max(0, int(retry_count) - 1))))
+    return (datetime.now(timezone.utc) + timedelta(seconds=seconds)).isoformat()
 
 
 def _canon_json(value: Any) -> str:
@@ -135,6 +150,7 @@ def _append_status_unlocked(
     reason: str = "",
     error: str = "",
     next_retry_at: str = "",
+    supersedes_envelope_hash: str = "",
 ) -> None:
     append_jsonl(
         _status_log_file(root),
@@ -148,6 +164,7 @@ def _append_status_unlocked(
             "reason": reason,
             "error": error,
             "next_retry_at": next_retry_at,
+            "supersedes_envelope_hash": supersedes_envelope_hash,
         },
     )
 
@@ -162,6 +179,7 @@ def mark_memory_pass(
     reason: str = "",
     error: str = "",
     next_retry_at: str = "",
+    supersedes_envelope_hash: str = "",
 ) -> None:
     """Persist pass status atomically under store lock + append status log."""
     state_file = _state_file(root)
@@ -172,6 +190,12 @@ def mark_memory_pass(
         retry_count = int(prior.get("retry_count", 0) or 0)
         if status == "failed":
             retry_count += 1
+            if not next_retry_at:
+                next_retry_at = _compute_next_retry_at(retry_count)
+        elif status in {"running", "done", "pending"}:
+            # clear stale retry schedule on active/success states
+            next_retry_at = ""
+
         state[key] = {
             "status": status,
             "envelope_hash": envelope_hash,
@@ -179,6 +203,7 @@ def mark_memory_pass(
             "retry_count": retry_count,
             "error": error,
             "next_retry_at": next_retry_at,
+            "supersedes_envelope_hash": supersedes_envelope_hash,
         }
         _write_state_unlocked(state_file, state)
         _append_status_unlocked(
@@ -191,6 +216,7 @@ def mark_memory_pass(
             reason=reason,
             error=error,
             next_retry_at=next_retry_at,
+            supersedes_envelope_hash=supersedes_envelope_hash,
         )
 
 
@@ -210,6 +236,11 @@ def try_claim_memory_pass(root: Path, session_id: str, turn_id: str) -> tuple[bo
         if st not in {"pending", "failed"}:
             return False, prior
 
+        if st == "failed":
+            due = _parse_iso(prior.get("next_retry_at"))
+            if due and datetime.now(timezone.utc) < due:
+                return False, prior
+
         claimed = {
             **prior,
             "status": "running",
@@ -225,6 +256,7 @@ def try_claim_memory_pass(root: Path, session_id: str, turn_id: str) -> tuple[bo
             envelope_hash=str(claimed.get("envelope_hash", "")),
             retry_count=int(claimed.get("retry_count", 0) or 0),
             reason="claim",
+            supersedes_envelope_hash=str(claimed.get("supersedes_envelope_hash", "") or ""),
         )
         return True, claimed
 
