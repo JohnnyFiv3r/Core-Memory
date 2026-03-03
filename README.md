@@ -128,6 +128,7 @@ For native Windows support, a lock fallback implementation is still needed.
     events/
       global.jsonl
       session-<id>.jsonl
+      metrics.jsonl
   .turns/
     session-<id>.jsonl
 ```
@@ -142,6 +143,7 @@ For native Windows support, a lock fallback implementation is still needed.
 - `core-memory uncompact ...` — restore compacted detail
 - `core-memory myelinate ...` — deterministic myelination pass output
 - `core-memory migrate-store ...` — import legacy mem_beads stores
+- `core-memory metrics report --since 7d` — deterministic KPI aggregation from metrics events
 
 ---
 

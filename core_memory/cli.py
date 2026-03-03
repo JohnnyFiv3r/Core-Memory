@@ -63,6 +63,30 @@ def main():
     migrate_parser = subparsers.add_parser("migrate-store", help="Migrate legacy mem_beads store")
     migrate_parser.add_argument("--legacy-root", required=True, help="Path to legacy .mem-beads store")
     migrate_parser.add_argument("--no-backup", action="store_true", help="Disable backup before import")
+
+    # metrics command
+    metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
+    metrics_sub = metrics_parser.add_subparsers(dest="metrics_cmd")
+
+    metrics_report = metrics_sub.add_parser("report", help="Aggregate metrics.jsonl deterministically")
+    metrics_report.add_argument("--since", default="7d", help="Window, e.g. 7d or 48h")
+
+    metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
+    metrics_log.add_argument("--run-id", required=True)
+    metrics_log.add_argument("--mode", default="core_memory")
+    metrics_log.add_argument("--task-id", required=True)
+    metrics_log.add_argument("--result", default="success")
+    metrics_log.add_argument("--steps", type=int, default=0)
+    metrics_log.add_argument("--tool-calls", type=int, default=0)
+    metrics_log.add_argument("--beads-created", type=int, default=0)
+    metrics_log.add_argument("--beads-recalled", type=int, default=0)
+    metrics_log.add_argument("--repeat-failure", action="store_true")
+    metrics_log.add_argument("--decision-conflicts", type=int, default=0)
+    metrics_log.add_argument("--unjustified-flips", type=int, default=0)
+    metrics_log.add_argument("--rationale-recall-score", type=int, default=0)
+    metrics_log.add_argument("--turns-processed", type=int, default=0)
+    metrics_log.add_argument("--compression-ratio", type=float, default=0.0)
+    metrics_log.add_argument("--phase", default="core_memory")
     
     args = parser.parse_args()
     
@@ -119,6 +143,31 @@ def main():
     elif args.command == "migrate-store":
         result = memory.migrate_legacy_store(args.legacy_root, backup=not args.no_backup)
         print(json.dumps(result, indent=2))
+
+    elif args.command == "metrics":
+        if args.metrics_cmd == "report":
+            print(json.dumps(memory.metrics_report(since=args.since), indent=2))
+        elif args.metrics_cmd == "log":
+            rec = memory.append_metric({
+                "run_id": args.run_id,
+                "mode": args.mode,
+                "task_id": args.task_id,
+                "result": args.result,
+                "steps": args.steps,
+                "tool_calls": args.tool_calls,
+                "beads_created": args.beads_created,
+                "beads_recalled": args.beads_recalled,
+                "repeat_failure": args.repeat_failure,
+                "decision_conflicts": args.decision_conflicts,
+                "unjustified_flips": args.unjustified_flips,
+                "rationale_recall_score": args.rationale_recall_score,
+                "turns_processed": args.turns_processed,
+                "compression_ratio": args.compression_ratio,
+                "phase": args.phase,
+            })
+            print(json.dumps(rec, indent=2))
+        else:
+            metrics_parser.print_help()
 
     else:
         parser.print_help()

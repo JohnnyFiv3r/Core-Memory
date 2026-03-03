@@ -7,10 +7,12 @@ Index-first with event audit log:
 - Events provide audit trail and rebuild capability
 """
 
+import hashlib
 import json
 import os
+import re
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -99,6 +101,95 @@ class MemoryStore:
 
     def _tokenize(self, text: str) -> set[str]:
         return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
+
+    def compute_failure_signature(self, plan: str) -> str:
+        """Compute a stable failure signature hash from a plan string."""
+        norm = re.sub(r"\s+", " ", (plan or "").strip().lower())
+        return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+
+    def append_metric(self, record: dict) -> dict:
+        """Append a metrics KPI record (v1 schema defaults applied)."""
+        now = datetime.now(timezone.utc).isoformat()
+        m = {
+            "ts": record.get("ts", now),
+            "run_id": record.get("run_id", f"run-{uuid.uuid4().hex[:12]}"),
+            "mode": record.get("mode", "core_memory"),
+            "task_id": record.get("task_id", "unknown"),
+            "result": record.get("result", "success"),
+            "steps": int(record.get("steps", 0) or 0),
+            "tool_calls": int(record.get("tool_calls", 0) or 0),
+            "beads_created": int(record.get("beads_created", 0) or 0),
+            "beads_recalled": int(record.get("beads_recalled", 0) or 0),
+            "repeat_failure": bool(record.get("repeat_failure", False)),
+            "decision_conflicts": int(record.get("decision_conflicts", 0) or 0),
+            "unjustified_flips": int(record.get("unjustified_flips", 0) or 0),
+            "rationale_recall_score": int(record.get("rationale_recall_score", 0) or 0),
+            "turns_processed": int(record.get("turns_processed", 0) or 0),
+            "compression_ratio": float(record.get("compression_ratio", 0) or 0),
+            "phase": record.get("phase", "core_memory"),
+        }
+        events.append_metric(self.root, m)
+        return m
+
+    def metrics_report(self, since: str = "7d") -> dict:
+        """Deterministic metrics aggregation from metrics.jsonl."""
+        window_start = None
+        m = re.fullmatch(r"(\d+)([dh])", (since or "").strip().lower())
+        if m:
+            n = int(m.group(1))
+            unit = m.group(2)
+            delta = timedelta(days=n) if unit == "d" else timedelta(hours=n)
+            window_start = datetime.now(timezone.utc) - delta
+
+        rows = []
+        for row in events.iter_metrics(self.root) or []:
+            ts = row.get("ts")
+            if window_start and ts:
+                try:
+                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    if dt < window_start:
+                        continue
+                except ValueError:
+                    continue
+            rows.append(row)
+
+        rows = sorted(rows, key=lambda r: (r.get("ts", ""), r.get("run_id", "")))
+        if not rows:
+            return {
+                "runs": 0,
+                "repeat_failure_rate": 0.0,
+                "decision_flip_rate": 0.0,
+                "median_steps": 0,
+                "median_tool_calls": 0,
+                "compression_ratio": 0.0,
+                "rationale_recall_avg": 0.0,
+            }
+
+        def median(values):
+            s = sorted(values)
+            n = len(s)
+            return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
+
+        runs = len(rows)
+        repeat_fail = sum(1 for r in rows if r.get("repeat_failure")) / runs
+        flips = sum(int(r.get("unjustified_flips", 0) or 0) for r in rows)
+        decision_conflicts = sum(int(r.get("decision_conflicts", 0) or 0) for r in rows)
+        flip_rate = (flips / decision_conflicts) if decision_conflicts else 0.0
+
+        steps = [int(r.get("steps", 0) or 0) for r in rows]
+        tools = [int(r.get("tool_calls", 0) or 0) for r in rows]
+        cr = [float(r.get("compression_ratio", 0) or 0) for r in rows if float(r.get("compression_ratio", 0) or 0) > 0]
+        rr = [int(r.get("rationale_recall_score", 0) or 0) for r in rows]
+
+        return {
+            "runs": runs,
+            "repeat_failure_rate": round(repeat_fail, 4),
+            "decision_flip_rate": round(flip_rate, 4),
+            "median_steps": median(steps),
+            "median_tool_calls": median(tools),
+            "compression_ratio": round(sum(cr) / len(cr), 4) if cr else 0.0,
+            "rationale_recall_avg": round(sum(rr) / len(rr), 4) if rr else 0.0,
+        }
 
     def _validate_bead_fields(self, bead: dict):
         """Lightweight per-type causal validation (backward-compatible)."""
@@ -219,7 +310,14 @@ class MemoryStore:
             **kwargs
         }
 
+        # stable failure signature for FAILED_HYPOTHESIS beads
+        if bead.get("type") == "failed_hypothesis":
+            basis = " ".join(bead.get("summary", [])) or bead.get("title", "") or bead.get("detail", "")
+            bead["failure_signature"] = self.compute_failure_signature(basis)
+
         self._validate_bead_fields(bead)
+
+        repeat_failure = False
 
         with store_lock(self.root):
             # Write to session archive first (durability/rebuild source)
@@ -232,6 +330,14 @@ class MemoryStore:
             # Update index after durable archive write
             index_file = self.beads_dir / INDEX_FILE
             index = self._read_json(index_file)
+
+            if bead.get("type") == "failed_hypothesis" and bead.get("failure_signature"):
+                sig = bead.get("failure_signature")
+                repeat_failure = any(
+                    b.get("failure_signature") == sig
+                    for b in index.get("beads", {}).values()
+                )
+
             index["beads"][bead["id"]] = bead
             index["stats"]["total_beads"] = len(index["beads"])
 
@@ -289,7 +395,27 @@ class MemoryStore:
 
             # Append audit event (minimal - just id + timestamp for rebuild)
             events.event_bead_created(self.root, session_id, bead_id, now, use_lock=False)
-        
+
+            # Append metrics event (append-only, no index mutation)
+            events.append_metric(self.root, {
+                "ts": now,
+                "run_id": f"bead-{bead_id}",
+                "mode": "core_memory",
+                "task_id": bead.get("type", "unknown"),
+                "result": "success",
+                "steps": 1,
+                "tool_calls": 0,
+                "beads_created": 1,
+                "beads_recalled": 0,
+                "repeat_failure": repeat_failure,
+                "decision_conflicts": 0,
+                "unjustified_flips": 0,
+                "rationale_recall_score": 0,
+                "turns_processed": 1,
+                "compression_ratio": 1.0,
+                "phase": "core_memory",
+            }, use_lock=False)
+
         return bead_id
     
     def capture_turn(

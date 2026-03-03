@@ -32,9 +32,11 @@ class TestCoreMemoryE2E(unittest.TestCase):
 
         # inject detail directly then compact/uncompact round-trip
         idx_path = os.path.join(self.tmp, ".beads", "index.json")
-        idx = json.loads(open(idx_path).read())
+        with open(idx_path, "r", encoding="utf-8") as f:
+            idx = json.load(f)
         idx["beads"][bead_id]["detail"] = "long detail"
-        open(idx_path, "w").write(json.dumps(idx, indent=2))
+        with open(idx_path, "w", encoding="utf-8") as f:
+            json.dump(idx, f, indent=2)
 
         c = self.run_cli("compact", "--session", "s1", "--promote")
         self.assertEqual(c.returncode, 0, c.stderr)

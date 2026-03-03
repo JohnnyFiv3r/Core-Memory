@@ -21,6 +21,7 @@ from .io_utils import store_lock, append_jsonl, atomic_write_json
 # Constants
 EVENTS_DIR = ".beads/events"
 SESSION_FILE = "session-{id}.jsonl"
+METRICS_FILE = "metrics.jsonl"
 
 # Event types
 EVENT_BEAD_CREATED = "bead_created"
@@ -34,6 +35,35 @@ EVENT_BEAD_SUPERSEDED = "bead_superseded"
 def get_events_dir(root: Path) -> Path:
     """Get the events directory."""
     return root / EVENTS_DIR
+
+
+def append_metric(root: Path, record: dict, use_lock: bool = True) -> None:
+    """Append a metrics record to metrics.jsonl (append-only)."""
+    events_dir = get_events_dir(root)
+    events_dir.mkdir(parents=True, exist_ok=True)
+    metric_file = events_dir / METRICS_FILE
+
+    if use_lock:
+        with store_lock(root):
+            append_jsonl(metric_file, record)
+    else:
+        append_jsonl(metric_file, record)
+
+
+def iter_metrics(root: Path) -> Iterator[dict]:
+    """Iterate metrics records in deterministic order, skipping corrupt lines."""
+    metric_file = get_events_dir(root) / METRICS_FILE
+    if not metric_file.exists():
+        return
+
+    with open(metric_file, "r", encoding="utf-8") as f:
+        for line in f:
+            if not line.strip():
+                continue
+            try:
+                yield json.loads(line)
+            except json.JSONDecodeError:
+                continue
 
 
 def append_event(
