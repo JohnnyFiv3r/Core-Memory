@@ -250,7 +250,41 @@ Phase C (tighten)
 
 ---
 
-## 12) Open Questions (for sign-off)
+## 12) Reference Coordinator Wiring (minimal)
+
+Use this at coordinator finalize/commit:
+
+```python
+from core_memory.openclaw_integration import coordinator_finalize_hook, process_pending_memory_events
+
+# 1) after final user-visible response is assembled
+coordinator_finalize_hook(
+    root=CORE_MEMORY_ROOT,
+    session_id=session_id,
+    turn_id=turn_id,                 # stable user-turn id
+    transaction_id=transaction_id,   # execution instance id
+    trace_id=trace_id,
+    user_query=user_query,
+    assistant_final=assistant_final,
+    trace_depth=trace_depth,
+    origin=origin,
+    tools_trace=tools_trace,
+    mesh_trace=mesh_trace,
+    window_turn_ids=window_turn_ids,
+    window_bead_ids=window_bead_ids,
+    metadata=metadata,
+)
+
+# 2) async sidecar worker tick (or immediate post-commit in dev)
+process_pending_memory_events(CORE_MEMORY_ROOT, max_events=50)
+```
+
+Rules:
+- call finalize once per top-level turn
+- do not emit when `origin == MEMORY_PASS`
+- keep `turn_id` stable across retries
+
+## 13) Open Questions (for sign-off)
 
 1. Privacy default: full assistant text off (hash+ref only) — agree?
 2. Flush budget default (`50ms`) acceptable for chat UX?
