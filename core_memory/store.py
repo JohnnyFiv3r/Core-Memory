@@ -25,11 +25,10 @@ EVENTS_DIR = ".beads/events"
 SESSION_FILE = "session-{id}.jsonl"
 INDEX_FILE = "index.json"
 
-# NOTE: Write-order tradeoff
-# For performance, we write to index.json first, then append events.
-# In rare crash windows between these operations, index may reflect
-# state not yet present in events. rebuild_index() can reconcile.
-# This is a deliberate performance tradeoff vs true event-sourcing.
+# NOTE: durability model
+# Archive/event writes happen under a store lock with fsync; index writes are atomic.
+# We prefer archive-first for bead persistence so rebuild_index() can recover safely
+# from archived JSONL + event logs.
 
 
 class MemoryStore:
@@ -83,7 +82,7 @@ class MemoryStore:
         atomic_write_json(path, data)
     
     def _generate_id(self) -> str:
-        """Generate a ULID-style ID."""
+        """Generate a short random bead ID (UUID-derived, non-ULID)."""
         return f"bead-{uuid.uuid4().hex[:12].upper()}"
     
     # === Core API ===
@@ -144,15 +143,15 @@ class MemoryStore:
         }
         
         with store_lock(self.root):
-            # Update index first (canonical)
-            self._update_index(bead)
-
-            # Write to session archive (full bead for rebuild)
+            # Write to session archive first (durability/rebuild source)
             if session_id:
                 bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
             else:
                 bead_file = self.beads_dir / "global.jsonl"
             append_jsonl(bead_file, bead)
+
+            # Update index after durable archive write
+            self._update_index(bead)
 
             # Append audit event (minimal - just id + timestamp for rebuild)
             events.event_bead_created(self.root, session_id, bead_id, now, use_lock=False)

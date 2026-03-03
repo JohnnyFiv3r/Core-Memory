@@ -102,6 +102,11 @@ core-memory --root "$CORE_MEMORY_ROOT" migrate-store --legacy-root /path/to/lega
 - Compatibility accepted by migration tooling: `MEMBEADS_ROOT`, `MEMBEADS_DIR`
 - CLI default root when unset: `./memory`
 
+## Platform note
+
+Current file-locking uses POSIX `fcntl`, so write-lock behavior is POSIX-first (Linux/macOS/WSL).
+For native Windows support, a lock fallback implementation is still needed.
+
 ## Store layout
 
 ```text

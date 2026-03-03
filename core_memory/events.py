@@ -168,9 +168,27 @@ def rebuild_index(root: Path) -> dict:
                     if bead_id:
                         index["beads"][bead_id] = bead
     
+    # Rebuild associations from event logs
+    for ev in iter_events(root):
+        if ev.get("event_type") == EVENT_ASSOCIATION_CREATED:
+            assoc = (ev.get("payload") or {}).get("association")
+            if assoc:
+                index["associations"].append(assoc)
+
+    # Deterministic ordering + de-dup by id where available
+    dedup = {}
+    for a in index["associations"]:
+        key = a.get("id") or f"{a.get('source_bead')}->{a.get('target_bead')}:{a.get('relationship')}"
+        dedup[key] = a
+    index["associations"] = sorted(
+        dedup.values(),
+        key=lambda a: (a.get("created_at", ""), a.get("id", ""), a.get("source_bead", ""), a.get("target_bead", "")),
+    )
+
     # Update stats
     index["stats"]["total_beads"] = len(index["beads"])
-    
+    index["stats"]["total_associations"] = len(index["associations"])
+
     # Write index atomically under store lock
     with store_lock(root):
         atomic_write_json(index_file, index)
