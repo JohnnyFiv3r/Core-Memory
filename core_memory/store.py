@@ -102,6 +102,35 @@ class MemoryStore:
     def _tokenize(self, text: str) -> set[str]:
         return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
 
+    def _redact_text(self, text: str) -> str:
+        """Conservative secret redaction for high-confidence credential patterns only."""
+        if not text:
+            return text
+
+        patterns = [
+            (r"github_pat_[A-Za-z0-9_]{20,}", "github_pat"),
+            (r"ghp_[A-Za-z0-9]{20,}", "github_pat_classic"),
+            (r"x-access-token:[^\s@]{12,}", "x_access_token"),
+            (r"AKIA[0-9A-Z]{16}", "aws_access_key_id"),
+            (r"\bBearer\s+[A-Za-z0-9._\-]{20,}\b", "bearer_token"),
+        ]
+
+        redacted = text
+        for pattern, kind in patterns:
+            def repl(m):
+                h = hashlib.sha256(m.group(0).encode("utf-8")).hexdigest()[:10]
+                return f"[REDACTED_SECRET:{kind}:{h}]"
+            redacted = re.sub(pattern, repl, redacted)
+
+        return redacted
+
+    def _sanitize_bead_content(self, bead: dict) -> dict:
+        bead["title"] = self._redact_text(bead.get("title", ""))
+        bead["detail"] = self._redact_text(bead.get("detail", ""))
+        bead["summary"] = [self._redact_text(str(s)) for s in (bead.get("summary") or [])]
+        bead["because"] = [self._redact_text(str(s)) for s in (bead.get("because") or [])]
+        return bead
+
     def compute_failure_signature(self, plan: str) -> str:
         """Compute a stable failure signature hash from a plan string."""
         norm = re.sub(r"\s+", " ", (plan or "").strip().lower())
@@ -309,6 +338,9 @@ class MemoryStore:
             "last_recalled": None,
             **kwargs
         }
+
+        # conservative secret redaction (high-confidence patterns only)
+        bead = self._sanitize_bead_content(bead)
 
         # stable failure signature for FAILED_HYPOTHESIS beads
         if bead.get("type") == "failed_hypothesis":
