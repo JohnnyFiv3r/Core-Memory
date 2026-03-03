@@ -78,6 +78,7 @@ def main():
     ap.add_argument("--sessions-dir", default="/home/node/.openclaw/agents/main/sessions")
     ap.add_argument("--window", type=int, default=100)
     ap.add_argument("--diagnose", action="store_true", help="Include uncovered turn diagnostics")
+    ap.add_argument("--finalized-only", action="store_true", help="Exclude turns without finalized assistant response")
     args = ap.parse_args()
 
     sid = load_main_session_id(Path(args.sessions_json))
@@ -85,6 +86,8 @@ def main():
         raise SystemExit("Could not resolve active main session id")
 
     turn_rows = collect_turns(Path(args.sessions_dir) / f"{sid}.jsonl", args.window)
+    if args.finalized_only:
+        turn_rows = [t for t in turn_rows if t.get("has_assistant_final", False)]
     turns = [t["turn_id"] for t in turn_rows]
 
     state_file = Path(args.root) / ".beads" / "events" / "memory-pass-state.json"
