@@ -279,6 +279,16 @@ coordinator_finalize_hook(
 process_pending_memory_events(CORE_MEMORY_ROOT, max_events=50)
 ```
 
+Temporary bridge (until coordinator wiring lands):
+
+```bash
+cd /home/node/.openclaw/workspace
+PYTHONPATH=. python3 scripts/sidecar_sync_session.py --max-turns 80
+```
+
+This bridge replays finalized user/assistant turns from the active main-session transcript
+into sidecar events and processes them with idempotency safeguards.
+
 Rules:
 - call finalize once per top-level turn
 - do not emit when `origin == MEMORY_PASS`
