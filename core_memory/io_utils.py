@@ -44,7 +44,7 @@ def atomic_write_json(path: Path, data: dict):
 
 def append_jsonl(path: Path, row: dict):
     path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "a") as f:
+    with open(path, "a", encoding="utf-8") as f:
         f.write(json.dumps(row) + "\n")
         f.flush()
         os.fsync(f.fileno())

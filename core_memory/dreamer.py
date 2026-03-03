@@ -61,7 +61,7 @@ def extract_mechanism(bead: dict) -> str:
 
 
 def compute_distance(bead1: dict, bead2: dict) -> float:
-    """Compute distance between two beads (0=distance, 1=far)."""
+    """Compute distance between two beads (0=close, 1=far)."""
     score = 0.0
     
     # Different scope = higher distance
@@ -105,18 +105,19 @@ def score_association(bead1: dict, bead2: dict, distance: float) -> dict:
     summary1 = " ".join(bead1.get("summary", []))
     summary2 = " ".join(bead2.get("summary", []))
     
+    relationship = "similar_pattern"
+
+    s1 = summary1.lower()
+    s2 = summary2.lower()
+
     # Check for contradiction
-    if any(w in summary1.lower() for w in ["not", "no", "don't", "never"]):
-        if any(w in summary2.lower() for w in ["yes", "always", "do", "need"]):
+    if any(w in s1 for w in ["not", "no", "don't", "never"]):
+        if any(w in s2 for w in ["yes", "always", "do", "need"]):
             relationship = "contradicts"
-    
+
     # Check for reinforcement
-    elif any(w in summary1 for w in summary2.split()) if summary2 else False:
+    elif any(w in s1.split() for w in s2.split()) if s2 else False:
         relationship = "reinforces"
-    
-    # Default
-    else:
-        relationship = "similar_pattern"
     
     return {
         "relationship": relationship,
@@ -191,42 +192,14 @@ def run_analysis(beads_dir: str = None, store=None) -> list:
     return associations[:5]  # Return top 5
 
 
-def record_association(beads_dir: str, source: str, target: str, relationship: str, 
+def record_association(beads_dir: str, source: str, target: str, relationship: str,
                       explanation: str, novelty: float, confidence: float) -> str:
-    """Record a confirmed association as a bead."""
-    import uuid
-    
-    beads_path = Path(beads_dir)
-    index_file = beads_path / "index.json"
-    
-    assoc_id = f"assoc-{uuid.uuid4().hex[:12].upper()}"
-    
-    from datetime import datetime, timezone
-    
-    assoc = {
-        "id": assoc_id,
-        "type": "association",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "source_bead": source,
-        "target_bead": target,
-        "relationship": relationship,
-        "explanation": explanation,
-        "novelty": novelty,
-        "confidence": confidence,
-        "reinforced_count": 0,
-        "decay_score": 1.0,
-        "status": "open",
-    }
-    
-    # Update index
-    index = load_index(beads_path)
-    index["associations"] = index.get("associations", [])
-    index["associations"].append(assoc)
-    
-    with open(index_file, 'w') as f:
-        json.dump(index, f, indent=2)
-    
-    return assoc_id
+    """Record a confirmed association via canonical MemoryStore path."""
+    root = str(Path(beads_dir).parent)
+    from .store import MemoryStore
+
+    store = MemoryStore(root=root)
+    return store.link(source, target, relationship, explanation=explanation)
 
 
 def prompt_template() -> str:

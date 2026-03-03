@@ -365,6 +365,7 @@ class MemoryStore:
         - optional backup of current core index
         - id-preserving import from legacy index + JSONL files
         - deterministic association import order
+        - full operation under store lock (admin path)
         """
         legacy = Path(legacy_root)
         legacy_index_path = legacy / "index.json"
@@ -382,93 +383,92 @@ class MemoryStore:
             legacy_index = json.loads(legacy_index_path.read_text())
             existing = self._read_json(self.beads_dir / INDEX_FILE)
 
-        imported_beads = 0
-        for bead_id, rec in sorted(legacy_index.get("beads", {}).items()):
-            if bead_id in existing.get("beads", {}):
-                continue
+            imported_beads = 0
+            for bead_id, rec in sorted(legacy_index.get("beads", {}).items()):
+                if bead_id in existing.get("beads", {}):
+                    continue
 
-            bead_file = legacy / rec.get("file", "")
-            line_no = rec.get("line", 0)
-            full = None
-            if bead_file.exists():
-                with open(bead_file, "r") as f:
-                    for i, line in enumerate(f):
-                        if i == line_no:
-                            full = json.loads(line)
-                            break
+                bead_file = legacy / rec.get("file", "")
+                line_no = rec.get("line", 0)
+                full = None
+                if bead_file.exists():
+                    with open(bead_file, "r") as f:
+                        for i, line in enumerate(f):
+                            if i == line_no:
+                                full = json.loads(line)
+                                break
 
-            bead = {
-                "id": bead_id,
-                "type": rec.get("type", "context"),
-                "created_at": rec.get("created_at", datetime.now(timezone.utc).isoformat()),
-                "session_id": rec.get("session_id"),
-                "title": rec.get("title", ""),
-                "summary": (full or {}).get("summary", []),
-                "detail": (full or {}).get("detail", ""),
-                "scope": rec.get("scope", "project"),
-                "authority": (full or {}).get("authority", "agent_inferred"),
-                "confidence": (full or {}).get("confidence", 0.8),
-                "tags": rec.get("tags", []),
-                "links": (full or {}).get("links", {}),
-                "status": rec.get("status", "open"),
-                "recall_count": rec.get("recall_count", 0),
-                "last_recalled": rec.get("last_recalled"),
-            }
-            if "promoted_at" in rec:
-                bead["promoted_at"] = rec["promoted_at"]
+                bead = {
+                    "id": bead_id,
+                    "type": rec.get("type", "context"),
+                    "created_at": rec.get("created_at", datetime.now(timezone.utc).isoformat()),
+                    "session_id": rec.get("session_id"),
+                    "title": rec.get("title", ""),
+                    "summary": (full or {}).get("summary", []),
+                    "detail": (full or {}).get("detail", ""),
+                    "scope": rec.get("scope", "project"),
+                    "authority": (full or {}).get("authority", "agent_inferred"),
+                    "confidence": (full or {}).get("confidence", 0.8),
+                    "tags": rec.get("tags", []),
+                    "links": (full or {}).get("links", {}),
+                    "status": rec.get("status", "open"),
+                    "recall_count": rec.get("recall_count", 0),
+                    "last_recalled": rec.get("last_recalled"),
+                }
+                if "promoted_at" in rec:
+                    bead["promoted_at"] = rec["promoted_at"]
 
-            existing["beads"][bead_id] = bead
-            imported_beads += 1
+                existing["beads"][bead_id] = bead
+                imported_beads += 1
 
-        # import edges as associations if available
-        edge_file = legacy / "edges.jsonl"
-        imported_assocs = 0
-        if edge_file.exists():
-            existing_assocs = existing.setdefault("associations", [])
-            seen = {
-                (a.get("id"), a.get("source_bead"), a.get("target_bead"), a.get("relationship"))
-                for a in existing_assocs
-            }
-            with open(edge_file, "r") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    e = json.loads(line)
-                    assoc = {
-                        "id": e.get("id", f"assoc-{uuid.uuid4().hex[:12].upper()}"),
-                        "type": "association",
-                        "source_bead": e.get("source_id"),
-                        "target_bead": e.get("target_id"),
-                        "relationship": e.get("type", "related"),
-                        "explanation": "",
-                        "created_at": e.get("created_at", datetime.now(timezone.utc).isoformat()),
-                    }
-                    key = (assoc.get("id"), assoc.get("source_bead"), assoc.get("target_bead"), assoc.get("relationship"))
-                    if key in seen:
-                        continue
-                    existing_assocs.append(assoc)
-                    seen.add(key)
-                    imported_assocs += 1
+            # import edges as associations if available
+            edge_file = legacy / "edges.jsonl"
+            imported_assocs = 0
+            if edge_file.exists():
+                existing_assocs = existing.setdefault("associations", [])
+                seen = {
+                    (a.get("id"), a.get("source_bead"), a.get("target_bead"), a.get("relationship"))
+                    for a in existing_assocs
+                }
+                with open(edge_file, "r") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        e = json.loads(line)
+                        assoc = {
+                            "id": e.get("id", f"assoc-{uuid.uuid4().hex[:12].upper()}"),
+                            "type": "association",
+                            "source_bead": e.get("source_id"),
+                            "target_bead": e.get("target_id"),
+                            "relationship": e.get("type", "related"),
+                            "explanation": "",
+                            "created_at": e.get("created_at", datetime.now(timezone.utc).isoformat()),
+                        }
+                        key = (assoc.get("id"), assoc.get("source_bead"), assoc.get("target_bead"), assoc.get("relationship"))
+                        if key in seen:
+                            continue
+                        existing_assocs.append(assoc)
+                        seen.add(key)
+                        imported_assocs += 1
 
-            existing["associations"] = sorted(
-                existing.get("associations", []),
-                key=lambda a: (a.get("created_at", ""), a.get("id", "")),
-            )
+                existing["associations"] = sorted(
+                    existing.get("associations", []),
+                    key=lambda a: (a.get("created_at", ""), a.get("id", "")),
+                )
 
-        existing.setdefault("stats", {})["total_beads"] = len(existing.get("beads", {}))
-        existing.setdefault("stats", {})["total_associations"] = len(existing.get("associations", []))
-        with store_lock(self.root):
+            existing.setdefault("stats", {})["total_beads"] = len(existing.get("beads", {}))
+            existing.setdefault("stats", {})["total_associations"] = len(existing.get("associations", []))
             self._write_json(self.beads_dir / INDEX_FILE, existing)
 
-        return {
-            "ok": True,
-            "legacy_root": str(legacy),
-            "imported_beads": imported_beads,
-            "imported_associations": imported_assocs,
-            "total_beads": len(existing.get("beads", {})),
-            "total_associations": len(existing.get("associations", [])),
-        }
+            return {
+                "ok": True,
+                "legacy_root": str(legacy),
+                "imported_beads": imported_beads,
+                "imported_associations": imported_assocs,
+                "total_beads": len(existing.get("beads", {})),
+                "total_associations": len(existing.get("associations", [])),
+            }
 
     def compact(self, session_id: Optional[str] = None, promote: bool = False) -> dict:
         """Core-native compact: archive detail text losslessly and optionally promote."""

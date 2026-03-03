@@ -106,8 +106,8 @@ def iter_events(
     if session_id:
         files = [events_dir / SESSION_FILE.format(id=session_id)]
     else:
-        # Read all event files
-        files = list(events_dir.glob("*.jsonl"))
+        # Read all event files (deterministic order)
+        files = sorted(events_dir.glob("*.jsonl"))
     
     for event_file in files:
         if not event_file.exists():
@@ -124,6 +124,9 @@ def rebuild_index(root: Path) -> dict:
     
     Since events are now minimal (just id + timestamp),
     we rebuild from the session JSONL files which contain full bead data.
+
+    Note: transient index-only enrichment fields (e.g. association_preview)
+    are not replayed from archives and may be recomputed later.
     
     Args:
         root: Root memory directory
@@ -147,8 +150,8 @@ def rebuild_index(root: Path) -> dict:
         }
     }
     
-    # Read all session JSONL files (archive layer)
-    for session_file in beads_dir.glob("session-*.jsonl"):
+    # Read all session JSONL files (archive layer, deterministic order)
+    for session_file in sorted(beads_dir.glob("session-*.jsonl")):
         with open(session_file, 'r') as f:
             for line in f:
                 if line.strip():
