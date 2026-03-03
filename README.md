@@ -156,6 +156,10 @@ Given the same store + config, packet assembly is deterministic.
 
 ---
 
+## Dreamer (optional)
+
+Dreamer periodically scans the bead graph (every 12 hours by default, configurable) to propose new causal associations. Inspired by Turn 37 — where a failed hypothesis revealed hidden structural relationships — it looks for reinforcing, contradicting, and derivative patterns across artifacts. All suggestions are deterministic and human-reviewable.
+
 ## Myelination (optional)
 
 Myelination operates on **derived** associations only.
