@@ -53,8 +53,8 @@ class TurnEnvelope:
     window_bead_ids: list[str] = field(default_factory=list)
     metadata: dict = field(default_factory=dict)
 
-    def finalize_hashes(self) -> None:
-        final = self.assistant_final or ""
+    def finalize_hashes(self, full_text_override: Optional[str] = None) -> None:
+        final = full_text_override if full_text_override is not None else (self.assistant_final or "")
         self.assistant_final_hash = sha256_hex(final)
         envelope_basis = {
             "session_id": self.session_id,
@@ -104,31 +104,139 @@ def _events_file(root: Path) -> Path:
     return root / ".beads" / "events" / "memory-events.jsonl"
 
 
-def mark_memory_pass(root: Path, session_id: str, turn_id: str, status: str, envelope_hash: str = "") -> None:
-    """Persist pass status atomically under store lock."""
+def _status_log_file(root: Path) -> Path:
+    return root / ".beads" / "events" / "memory-pass-status.jsonl"
+
+
+def _read_state_unlocked(state_file: Path) -> dict:
+    if not state_file.exists():
+        return {}
+    try:
+        return json.loads(state_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return {}
+
+
+def _write_state_unlocked(state_file: Path, state: dict) -> None:
+    state_file.parent.mkdir(parents=True, exist_ok=True)
+    tmp = state_file.with_suffix(".tmp")
+    tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
+    tmp.replace(state_file)
+
+
+def _append_status_unlocked(
+    root: Path,
+    *,
+    session_id: str,
+    turn_id: str,
+    status: str,
+    envelope_hash: str = "",
+    retry_count: int = 0,
+    reason: str = "",
+    error: str = "",
+    next_retry_at: str = "",
+) -> None:
+    append_jsonl(
+        _status_log_file(root),
+        {
+            "ts": _iso_now(),
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "status": status,
+            "envelope_hash": envelope_hash,
+            "retry_count": retry_count,
+            "reason": reason,
+            "error": error,
+            "next_retry_at": next_retry_at,
+        },
+    )
+
+
+def mark_memory_pass(
+    root: Path,
+    session_id: str,
+    turn_id: str,
+    status: str,
+    envelope_hash: str = "",
+    *,
+    reason: str = "",
+    error: str = "",
+    next_retry_at: str = "",
+) -> None:
+    """Persist pass status atomically under store lock + append status log."""
     state_file = _state_file(root)
     with store_lock(root):
-        if state_file.exists():
-            state = json.loads(state_file.read_text(encoding="utf-8"))
-        else:
-            state = {}
+        state = _read_state_unlocked(state_file)
         key = memory_pass_key(session_id, turn_id)
+        prior = state.get(key) or {}
+        retry_count = int(prior.get("retry_count", 0) or 0)
+        if status == "failed":
+            retry_count += 1
         state[key] = {
             "status": status,
             "envelope_hash": envelope_hash,
             "updated_at": _iso_now(),
+            "retry_count": retry_count,
+            "error": error,
+            "next_retry_at": next_retry_at,
         }
-        state_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = state_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        tmp.replace(state_file)
+        _write_state_unlocked(state_file, state)
+        _append_status_unlocked(
+            root,
+            session_id=session_id,
+            turn_id=turn_id,
+            status=status,
+            envelope_hash=envelope_hash,
+            retry_count=retry_count,
+            reason=reason,
+            error=error,
+            next_retry_at=next_retry_at,
+        )
+
+
+def try_claim_memory_pass(root: Path, session_id: str, turn_id: str) -> tuple[bool, Optional[dict]]:
+    """Atomically claim a pending/failed pass by transitioning to running.
+
+    Returns (claimed, current_state_after_or_existing).
+    """
+    state_file = _state_file(root)
+    with store_lock(root):
+        state = _read_state_unlocked(state_file)
+        key = memory_pass_key(session_id, turn_id)
+        prior = state.get(key)
+        if not prior:
+            return False, None
+        st = str(prior.get("status", ""))
+        if st not in {"pending", "failed"}:
+            return False, prior
+
+        claimed = {
+            **prior,
+            "status": "running",
+            "updated_at": _iso_now(),
+        }
+        state[key] = claimed
+        _write_state_unlocked(state_file, state)
+        _append_status_unlocked(
+            root,
+            session_id=session_id,
+            turn_id=turn_id,
+            status="running",
+            envelope_hash=str(claimed.get("envelope_hash", "")),
+            retry_count=int(claimed.get("retry_count", 0) or 0),
+            reason="claim",
+        )
+        return True, claimed
 
 
 def get_memory_pass(root: Path, session_id: str, turn_id: str) -> Optional[dict]:
     state_file = _state_file(root)
     if not state_file.exists():
         return None
-    state = json.loads(state_file.read_text(encoding="utf-8"))
+    try:
+        state = json.loads(state_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError:
+        return None
     return state.get(memory_pass_key(session_id, turn_id))
 
 

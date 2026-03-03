@@ -8,6 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+import re
 
 from .sidecar import mark_memory_pass
 from .store import MemoryStore
@@ -40,6 +41,31 @@ def _bead_type_for_text(user_query: str, assistant_final: str) -> str:
     if "evidence" in t or "source" in t:
         return "evidence"
     return "context"
+
+
+def _tokenize(text: str) -> set[str]:
+    return {t for t in re.findall(r"[a-z0-9_\-]+", (text or "").lower()) if len(t) >= 4}
+
+
+def _promotion_gates(envelope: dict[str, Any], score: float) -> dict[str, bool]:
+    user_query = envelope.get("user_query") or ""
+    assistant_final = envelope.get("assistant_final") or ""
+    text = f"{user_query} {assistant_final}".lower()
+
+    explicit_emphasis = any(k in text for k in ["important", "must", "never", "always", "decision", "lesson"]) 
+    confirmed_outcome = any(k in text for k in ["resolved", "fixed", "completed", "confirmed", "working"]) 
+
+    # Cheap repetition proxy: if rolling window turn context exists and we have recurring tokens
+    # in this turn, consider it a repeated pattern signal.
+    rep_tokens = _tokenize(text)
+    repeated_pattern = bool((envelope.get("window_turn_ids") or [])) and len(rep_tokens) >= 4
+
+    return {
+        "score_threshold": score >= 0.85,
+        "explicit_emphasis": explicit_emphasis,
+        "confirmed_outcome": confirmed_outcome,
+        "repeated_pattern": repeated_pattern,
+    }
 
 
 def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPolicy | None = None) -> dict[str, Any]:
@@ -80,8 +106,15 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
     else:
         suppressed.append({"candidate": "create_bead", "reason": "below_threshold_or_budget"})
 
+    gates = _promotion_gates(envelope, score)
+
     # Promotion budgeted pass (0..1)
-    if score >= policy.promote_threshold and policy.max_promote_per_turn > 0:
+    gate_pass = gates.get("score_threshold", False) and (
+        gates.get("explicit_emphasis", False)
+        or gates.get("confirmed_outcome", False)
+        or gates.get("repeated_pattern", False)
+    )
+    if gate_pass and policy.max_promote_per_turn > 0:
         # deterministic: first available window bead that is open
         idx = store._read_json(store.beads_dir / "index.json")
         for bid in window_bead_ids:
@@ -99,6 +132,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
         "created": created,
         "promoted": promoted,
         "promotion_candidates": [],
+        "promotion_gates": gates,
         "suppressed": suppressed,
         "metrics": {
             "runtime_ms": 0,

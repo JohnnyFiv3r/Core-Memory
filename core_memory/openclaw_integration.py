@@ -10,7 +10,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .sidecar import get_memory_pass
+from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import process_memory_event, SidecarPolicy
 from .store import MemoryStore
@@ -101,29 +101,30 @@ def finalize_and_process_turn(
             "failed": 0,
         }
 
-    events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
-    if not events_file.exists():
-        return {
-            "ok": False,
-            "mode": "turn",
-            "emitted": emitted,
-            "processed": 0,
-            "failed": 1,
-            "error": "events_file_missing_after_emit",
-        }
-
-    last_row: dict[str, Any] | None = None
-    with open(events_file, "r", encoding="utf-8") as f:
-        for line in f:
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            env = row.get("envelope") or {}
-            if env.get("session_id") == session_id and env.get("turn_id") == turn_id:
-                last_row = row
+    last_row = emitted.get("payload") if isinstance(emitted, dict) else None
+    if not last_row:
+        # Backward-compat fallback for older emitters without inline payload.
+        events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
+        if not events_file.exists():
+            return {
+                "ok": False,
+                "mode": "turn",
+                "emitted": emitted,
+                "processed": 0,
+                "failed": 1,
+                "error": "events_file_missing_after_emit",
+            }
+        with open(events_file, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                env = row.get("envelope") or {}
+                if env.get("session_id") == session_id and env.get("turn_id") == turn_id:
+                    last_row = row
 
     if not last_row:
         return {
@@ -135,9 +136,29 @@ def finalize_and_process_turn(
             "error": "event_row_not_found",
         }
 
+    claimed, state_after = try_claim_memory_pass(Path(root), session_id, turn_id)
+    if not claimed:
+        return {
+            "ok": True,
+            "mode": "turn",
+            "emitted": emitted,
+            "processed": 0,
+            "failed": 0,
+            "reason": "not_claimed",
+        }
+
     try:
         delta = process_memory_event(root, last_row, policy=policy)
     except Exception as exc:  # noqa: BLE001
+        mark_memory_pass(
+            Path(root),
+            session_id,
+            turn_id,
+            "failed",
+            envelope_hash=(state_after or {}).get("envelope_hash", ""),
+            reason="direct_turn_exception",
+            error=str(exc),
+        )
         return {
             "ok": False,
             "mode": "turn",
@@ -218,10 +239,24 @@ def process_pending_memory_events(root: str, max_events: int = 50, policy: Sidec
             if prior and prior.get("status") == "done":
                 continue
 
+            claimed, state_after = try_claim_memory_pass(Path(root), session_id, turn_id)
+            if not claimed:
+                # owned by another worker (running) or not claimable
+                continue
+
             try:
                 process_memory_event(root, row, policy=policy)
                 processed += 1
-            except Exception:
+            except Exception as exc:
                 failed += 1
+                mark_memory_pass(
+                    Path(root),
+                    session_id,
+                    turn_id,
+                    "failed",
+                    envelope_hash=(state_after or {}).get("envelope_hash", ""),
+                    reason="worker_exception",
+                    error=str(exc),
+                )
 
     return {"processed": processed, "failed": failed}

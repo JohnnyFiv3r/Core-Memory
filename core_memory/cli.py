@@ -125,6 +125,7 @@ def main():
     sc_turn.add_argument("--meta-constraint-violation", action="store_true")
     sc_turn.add_argument("--meta-wrong-transfer", action="store_true")
     sc_turn.add_argument("--meta-goal-carryover", action="store_true")
+    sc_turn.add_argument("--store-full-text", choices=["true", "false"], default="true")
 
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
@@ -303,6 +304,7 @@ def main():
                 "constraint_violation": bool(args.meta_constraint_violation),
                 "wrong_transfer": bool(args.meta_wrong_transfer),
                 "goal_carryover": bool(args.meta_goal_carryover),
+                "store_full_text": (args.store_full_text == "true"),
             }
             result = finalize_and_process_turn(
                 root=args.root,
