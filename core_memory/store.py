@@ -1118,9 +1118,7 @@ class MemoryStore:
         }
         return allow, meta
 
-    def promotion_slate(self, limit: int = 20, query_text: str = "") -> dict:
-        """Build bounded candidate promotion slate with advisory recommendations."""
-        index = self._read_json(self.beads_dir / INDEX_FILE)
+    def _candidate_recommendation_rows(self, index: dict, query_text: str = "") -> tuple[list[dict], float]:
         beads = list((index.get("beads") or {}).values())
         threshold = self._adaptive_promotion_threshold(index)
         q_tokens = self._expand_query_tokens(query_text, self._tokenize(query_text), max_extra=12)
@@ -1157,6 +1155,12 @@ class MemoryStore:
             })
 
         rows = sorted(rows, key=lambda r: (r.get("query_overlap", 0), r.get("promotion_score", 0.0), r.get("created_at") or ""), reverse=True)
+        return rows, threshold
+
+    def promotion_slate(self, limit: int = 20, query_text: str = "") -> dict:
+        """Build bounded candidate promotion slate with advisory recommendations."""
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        rows, threshold = self._candidate_recommendation_rows(index, query_text=query_text)
         return {
             "ok": True,
             "candidate_total": len(rows),
@@ -1164,6 +1168,33 @@ class MemoryStore:
             "query": query_text,
             "results": rows[: max(1, int(limit))],
         }
+
+    def evaluate_candidates(self, limit: int = 200, query_text: str = "") -> dict:
+        """Refresh advisory recommendation fields for candidates (called each turn)."""
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            rows, threshold = self._candidate_recommendation_rows(index, query_text=query_text)
+            now = datetime.now(timezone.utc).isoformat()
+            updated = 0
+            for row in rows[: max(1, int(limit))]:
+                bid = str(row.get("bead_id") or "")
+                bead = (index.get("beads") or {}).get(bid)
+                if not bead:
+                    continue
+                bead["promotion_score"] = row.get("promotion_score")
+                bead["promotion_threshold"] = row.get("promotion_threshold")
+                bead["promotion_recommendation"] = row.get("recommendation")
+                bead["promotion_last_evaluated_at"] = now
+                bead["promotion_last_query_overlap"] = row.get("query_overlap", 0)
+                index["beads"][bid] = bead
+                updated += 1
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+            return {
+                "ok": True,
+                "candidate_total": len(rows),
+                "evaluated": updated,
+                "adaptive_threshold": round(threshold, 4),
+            }
 
     def decide_promotion(
         self,
