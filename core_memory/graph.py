@@ -287,6 +287,16 @@ def build_graph(root: Path, *, write_snapshot: bool = True, semantic_active_k: i
                 deactivate_semantic_edge(root, edge_id=eid, reason="evicted_from_active_cache")
                 evicted_semantic += 1
 
+    # Simple centrality (degree) from active graph heads.
+    centrality: dict[str, int] = {}
+    for e in edge_head.values():
+        src = str(e.get("src_id") or "")
+        dst = str(e.get("dst_id") or "")
+        if src:
+            centrality[src] = centrality.get(src, 0) + 1
+        if dst:
+            centrality[dst] = centrality.get(dst, 0) + 1
+
     out = {
         "ok": True,
         "nodes": len(node_meta),
@@ -301,6 +311,7 @@ def build_graph(root: Path, *, write_snapshot: bool = True, semantic_active_k: i
         "adj_structural_out": adj_structural_out,
         "adj_semantic_out": adj_semantic_out,
         "edge_head": edge_head,
+        "node_centrality": centrality,
     }
 
     if write_snapshot:
@@ -355,6 +366,8 @@ def causal_traverse(
     g = build_graph(root, write_snapshot=False)
     edge_head = g.get("edge_head") or {}
     node_meta = g.get("node_meta") or {}
+    node_centrality = g.get("node_centrality") or {}
+    max_cent = max([int(v) for v in node_centrality.values()] or [1])
     s_adj = g.get("adj_structural_out") or {}
     sem_adj = g.get("adj_semantic_out") or {}
 
@@ -376,7 +389,9 @@ def causal_traverse(
                 ni = NODE_IMPORTANCE.get(str((node_meta.get(dst) or {}).get("type") or "").lower(), 0.3)
                 ew = EDGE_WEIGHT.get(rel, 0.4)
                 rf = _recency_factor(str((node_meta.get(dst) or {}).get("created_at") or ""))
-                step = ew * ni * rf
+                cent = float(node_centrality.get(dst, 0)) / float(max_cent or 1)
+                cent_factor = 0.85 + 0.15 * max(0.0, min(1.0, cent))
+                step = ew * ni * rf * cent_factor
                 p2 = path + [{"edge_id": eid, "src": node, "dst": dst, "rel": rel, "class": "structural", "step_score": round(step, 6)}]
                 s2 = score + step
                 chains.append({
@@ -486,6 +501,8 @@ def reinforce_semantic_edges(root: Path, edge_ids: list[str], alpha: float = 0.1
 def graph_stats(root: Path) -> dict:
     k = int(os.environ.get("CORE_MEMORY_SEMANTIC_ACTIVE_K", "50"))
     g = build_graph(root, write_snapshot=False, semantic_active_k=k)
+    cent = g.get("node_centrality") or {}
+    top_cent = sorted(cent.items(), key=lambda kv: kv[1], reverse=True)[:10]
     return {
         "ok": True,
         "nodes": g.get("nodes", 0),
@@ -494,4 +511,5 @@ def graph_stats(root: Path) -> dict:
         "semantic_edges_active": g.get("semantic_edges_active", 0),
         "semantic_edges_inactive": g.get("semantic_edges_inactive", 0),
         "warnings": len(g.get("warnings") or []),
+        "top_central_nodes": top_cent,
     }
