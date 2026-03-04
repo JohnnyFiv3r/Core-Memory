@@ -257,8 +257,21 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         hydrated.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
 
     out_chains = _select_diverse_chains(hydrated, top_n=3)
+    fallback_struct = _radius1_structural_fallback(store, anchors, limit=3)
+
     if not out_chains:
-        out_chains = _select_diverse_chains(_radius1_structural_fallback(store, anchors, limit=3), top_n=3)
+        out_chains = _select_diverse_chains(fallback_struct, top_n=3)
+    else:
+        # If selected chains are weak/non-structural, enrich with radius-1 structural fallback.
+        allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+        has_struct = any(
+            any((str(e.get("class") or "") == "structural") or (str(e.get("rel") or "") in allowed) for e in (c.get("edges") or []))
+            for c in out_chains
+        )
+        if not has_struct and fallback_struct:
+            merged = list(out_chains) + list(fallback_struct)
+            out_chains = _select_diverse_chains(merged, top_n=3)
+
     citations, used_semantic = _collect_citations_from_chains(out_chains)
     reinforce_semantic_edges(root_p, used_semantic, alpha=0.15)
 
