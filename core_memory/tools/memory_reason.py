@@ -151,6 +151,42 @@ def _radius1_structural_fallback(store: MemoryStore, anchor_ids: list[str], limi
     out = []
     allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
 
+    # Prefer graph structural heads (immutable) when available.
+    graph_file = store.beads_dir / "bead_graph.json"
+    graph = store._read_json(graph_file) if graph_file.exists() else {}
+    edge_head = graph.get("edge_head") or {}
+    adj: dict[str, list[dict]] = {}
+    for e in edge_head.values():
+        if str(e.get("class") or "") != "structural" or not bool(e.get("immutable", False)):
+            continue
+        rel = str(e.get("rel") or "")
+        if rel not in allowed:
+            continue
+        src = str(e.get("src_id") or "")
+        dst = str(e.get("dst_id") or "")
+        if src and dst:
+            adj.setdefault(src, []).append({"dst": dst, "rel": rel})
+            adj.setdefault(dst, []).append({"dst": src, "rel": rel})
+
+    for aid in anchor_ids[:8]:
+        for row in adj.get(str(aid), [])[:3]:
+            dst = str(row.get("dst") or "")
+            rel = str(row.get("rel") or "")
+            if not dst or dst not in beads:
+                continue
+            out.append(
+                {
+                    "score": 0.3,
+                    "path": [str(aid), dst],
+                    "edges": [{"src": str(aid), "dst": dst, "rel": rel, "class": "structural"}],
+                    "beads": [_hydrate_bead(store, str(aid)), _hydrate_bead(store, dst)],
+                    "semantic_edge_ids": [],
+                }
+            )
+            if len(out) >= max(1, int(limit)):
+                return out
+
+    # Fallback to explicit bead links.
     for aid in anchor_ids[:8]:
         b = beads.get(str(aid)) or {}
         links = b.get("links") or []
