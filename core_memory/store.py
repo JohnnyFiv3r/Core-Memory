@@ -1193,6 +1193,21 @@ class MemoryStore:
 
             before = str(bead.get("status") or "")
             now = datetime.now(timezone.utc).isoformat()
+
+            # Snapshot advisory recommendation at decision time.
+            score, factors = self._promotion_score(index, bead)
+            threshold = self._adaptive_promotion_threshold(index)
+            reinf = int((factors.get("reinforcement") or {}).get("count", 0))
+            if score >= threshold and reinf >= 1:
+                recommendation = "strong"
+            elif score >= max(0.6, threshold - 0.08):
+                recommendation = "review"
+            else:
+                recommendation = "hold"
+            bead["promotion_score"] = round(score, 4)
+            bead["promotion_threshold"] = round(threshold, 4)
+            bead["promotion_recommendation"] = recommendation
+
             if decision_n == "promote":
                 bead["status"] = "promoted"
                 bead["promoted_at"] = now
@@ -1268,6 +1283,60 @@ class MemoryStore:
             "requested": len(rows),
             "applied": len(out),
             "results": out,
+        }
+
+    def promotion_kpis(self, limit: int = 500) -> dict:
+        """Report promotion decision volume, reasons, and rec-vs-decision alignment."""
+        idx = self._read_json(self.beads_dir / INDEX_FILE)
+        beads = idx.get("beads") or {}
+        decision_log = self.beads_dir / "events" / "promotion-decisions.jsonl"
+
+        decisions = []
+        if decision_log.exists():
+            with open(decision_log, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        decisions.append(json.loads(line))
+                    except json.JSONDecodeError:
+                        continue
+        decisions = decisions[-max(1, int(limit)) :]
+
+        by_decision: dict[str, int] = {}
+        reason_hist: dict[str, int] = {}
+        aligned = 0
+        compared = 0
+
+        for d in decisions:
+            dec = str(d.get("decision") or "")
+            by_decision[dec] = by_decision.get(dec, 0) + 1
+            reason = str(d.get("reason") or "").strip()
+            if reason:
+                reason_hist[reason] = reason_hist.get(reason, 0) + 1
+
+            bid = str(d.get("bead_id") or "")
+            bead = beads.get(bid) or {}
+            rec = str(bead.get("promotion_recommendation") or "").strip().lower()
+            if rec:
+                compared += 1
+                # coarse alignment mapping
+                if (rec == "strong" and dec == "promote") or (rec == "hold" and dec in {"archive", "keep_candidate"}) or (rec == "review"):
+                    aligned += 1
+
+        agreement = round(aligned / compared, 4) if compared else None
+
+        return {
+            "ok": True,
+            "decision_count": len(decisions),
+            "by_decision": by_decision,
+            "top_reasons": sorted(reason_hist.items(), key=lambda kv: kv[1], reverse=True)[:20],
+            "recommendation_alignment": {
+                "compared": compared,
+                "aligned": aligned,
+                "agreement_rate": agreement,
+            },
         }
 
     def rebalance_promotions(self, apply: bool = False) -> dict:

@@ -187,6 +187,9 @@ def main():
     metrics_decide_bulk = metrics_sub.add_parser("decide-promotion-bulk", help="Apply agent promotion decisions from JSON file")
     metrics_decide_bulk.add_argument("--file", required=True, help="Path to JSON array of {bead_id,decision,reason?,considerations?}")
 
+    metrics_promo_kpis = metrics_sub.add_parser("promotion-kpis", help="Report promotion decision KPIs and recommendation alignment")
+    metrics_promo_kpis.add_argument("--limit", type=int, default=500)
+
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
     metrics_log.add_argument("--mode", default="core_memory")
@@ -375,6 +378,8 @@ def main():
             if not isinstance(payload, list):
                 raise SystemExit("--file must contain a JSON array")
             print(json.dumps(memory.decide_promotion_bulk(payload), indent=2))
+        elif args.metrics_cmd == "promotion-kpis":
+            print(json.dumps(memory.promotion_kpis(limit=args.limit), indent=2))
         elif args.metrics_cmd == "start-run":
             print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
         elif args.metrics_cmd == "step":
