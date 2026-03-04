@@ -24,7 +24,8 @@ class TestPhaseBPromotion(unittest.TestCase):
             idx = s._read_json(s.beads_dir / "index.json")
             self.assertNotEqual("promoted", idx["beads"][bid]["status"])
 
-            # Add reinforcement via linked outcome, then compact+promote should pass.
+            # Add reinforcement via linked outcome, then bead becomes promotable,
+            # but promotion remains agent-authoritative (no automatic promote by default).
             s.add_bead(
                 type="outcome",
                 title="Integration path validated",
@@ -38,8 +39,10 @@ class TestPhaseBPromotion(unittest.TestCase):
             )
             s.compact(session_id="main", promote=True)
             idx2 = s._read_json(s.beads_dir / "index.json")
-            self.assertEqual("promoted", idx2["beads"][bid]["status"])
-            self.assertIn("promotion_score", idx2["beads"][bid])
+            allow, meta = s._candidate_promotable(idx2, idx2["beads"][bid])
+            self.assertTrue(allow)
+            self.assertGreaterEqual(meta.get("score", 0.0), meta.get("threshold", 0.0))
+            self.assertEqual("candidate", idx2["beads"][bid]["status"])
 
     def test_rebalance_promotions_dry_run(self):
         with tempfile.TemporaryDirectory() as td:

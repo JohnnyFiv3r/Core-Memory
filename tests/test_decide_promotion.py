@@ -38,6 +38,18 @@ class TestDecidePromotion(unittest.TestCase):
             log = Path(td) / ".beads" / "events" / "promotion-decisions.jsonl"
             self.assertTrue(log.exists())
 
+    def test_bulk_decision(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="decision", title="A", summary=["a"], status="candidate", session_id="main", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="context", title="B", summary=["b"], status="candidate", session_id="main", source_turn_ids=["t2"])
+            out = s.decide_promotion_bulk([
+                {"bead_id": b1, "decision": "keep_candidate"},
+                {"bead_id": b2, "decision": "archive", "reason": "noise"},
+            ])
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(2, out.get("applied"))
+
 
 if __name__ == "__main__":
     unittest.main()

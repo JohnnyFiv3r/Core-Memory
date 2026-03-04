@@ -69,6 +69,8 @@ class MemoryStore:
 
         # Required-field rollout: warn-first by default; strict raises when enabled.
         self.strict_required_fields = os.environ.get("CORE_MEMORY_STRICT_REQUIRED_FIELDS", "0") == "1"
+        # Agent-authoritative promotion: auto-promotion on compact is disabled by default.
+        self.auto_promote_on_compact = os.environ.get("CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT", "0") == "1"
 
         # Ensure directories exist
         self.beads_dir.mkdir(parents=True, exist_ok=True)
@@ -1248,6 +1250,26 @@ class MemoryStore:
                 "decision": decision_n,
             }
 
+    def decide_promotion_bulk(self, decisions: list[dict]) -> dict:
+        """Apply a bounded batch of agent promotion decisions."""
+        rows = decisions or []
+        out = []
+        for row in rows[:100]:
+            out.append(
+                self.decide_promotion(
+                    bead_id=str(row.get("bead_id") or row.get("id") or "").strip(),
+                    decision=str(row.get("decision") or "").strip(),
+                    reason=str(row.get("reason") or "").strip(),
+                    considerations=[str(x) for x in (row.get("considerations") or [])],
+                )
+            )
+        return {
+            "ok": True,
+            "requested": len(rows),
+            "applied": len(out),
+            "results": out,
+        }
+
     def rebalance_promotions(self, apply: bool = False) -> dict:
         """Phase B: score promoted beads and demote weakly-supported promotions."""
         with store_lock(self.root):
@@ -1955,8 +1977,8 @@ class MemoryStore:
                 if bead_id in skip:
                     continue
 
-                # Optional promote pass first (candidate-only; never blanket).
-                if promote and bead.get("status") != "promoted":
+                # Optional auto-promote pass (disabled by default; agent-led decisions preferred).
+                if promote and self.auto_promote_on_compact and bead.get("status") != "promoted":
                     btype = str(bead.get("type") or "").lower()
                     curr_status = str(bead.get("status") or "").lower()
                     because = bead.get("because") or []
