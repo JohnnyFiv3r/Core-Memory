@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from .types import Candidate
 from .lexical import lexical_lookup
 from core_memory.semantic_index import semantic_lookup
+from core_memory.incidents import matched_incident_ids
 
 
 def _normalize(scores: list[float]) -> list[float]:
@@ -49,9 +51,23 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         c.lex_rank = i + 1
         by_id[bid] = c
 
+    incident_matches = matched_incident_ids(query, root)
+    incident_by_bead = {}
+    idx_file = root / ".beads" / "index.json"
+    if idx_file.exists():
+        try:
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            for bid, b in (idx.get("beads") or {}).items():
+                incident_by_bead[str(bid)] = str((b or {}).get("incident_id") or "")
+        except Exception:
+            incident_by_bead = {}
+
     out = []
     for c in by_id.values():
         c.fused_score = (w_sem * c.sem_score) + (w_lex * c.lex_score)
+        iid = incident_by_bead.get(c.bead_id, "")
+        if iid and iid in incident_matches:
+            c.fused_score += 0.12
         out.append(c)
 
     out = sorted(out, key=lambda c: c.bead_id)
@@ -62,5 +78,6 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         "query": query,
         "weights": {"semantic": w_sem, "lexical": w_lex},
         "semantic_backend": sem.get("backend"),
+        "matched_incidents": incident_matches,
         "results": [c.to_dict() for c in out[: max(1, int(k))]],
     }

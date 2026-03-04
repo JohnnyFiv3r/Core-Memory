@@ -298,7 +298,7 @@ def _quality_score(result: dict) -> float:
     return round(max(0.0, min(1.0, (0.55 * avg_chain) + (0.45 * grounded) - (0.35 * low_info))), 4)
 
 
-def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = False) -> dict:
+def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = False, explain: bool = False) -> dict:
     root_p = Path(root)
     store = MemoryStore(root)
 
@@ -353,4 +353,27 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         "chain_confidences": chain_confs,
         "quality_score": primary_q,
     }
+
+    if explain:
+        import hashlib
+        import json
+        from datetime import datetime, timezone
+
+        payload = {
+            "query": query,
+            "normalized_query": " ".join((query or "").lower().split()),
+            "k": int(k),
+            "intent": primary.get("intent"),
+            "confidence": primary.get("confidence"),
+            "retrieval_debug": primary.get("retrieval_debug"),
+            "final_bead_ids": [str(c.get("bead_id") or "") for c in ((primary.get("retrieval_debug") or {}).get("results") or [])],
+        }
+        stable = json.dumps(payload, ensure_ascii=False, sort_keys=True)
+        replay_hash = hashlib.sha256(stable.encode("utf-8")).hexdigest()[:16]
+        ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        run_dir = Path(root) / "runs" / "reason" / f"{ts}_{replay_hash}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+        (run_dir / "report.json").write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+        primary["explain"] = {"replay_hash": replay_hash, "report": str(run_dir / "report.json")}
+
     return primary

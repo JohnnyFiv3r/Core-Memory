@@ -15,6 +15,7 @@ from .archive_index import rebuild_archive_index
 from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges
 from .semantic_index import build_semantic_index, semantic_lookup
 from .tools.memory_reason import memory_reason
+from .incidents import tag_incident
 from .openclaw_integration import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
@@ -143,6 +144,11 @@ def main():
     reason_parser.add_argument("--k", type=int, default=8)
     reason_parser.add_argument("--retrieve", action="store_true", help="Return retrieval output mode")
     reason_parser.add_argument("--debug", action="store_true", help="Include retrieval scoring breakdown")
+    reason_parser.add_argument("--explain", action="store_true", help="Write deterministic explain report artifact")
+
+    tag_parser = subparsers.add_parser("tag", help="Tag beads with metadata")
+    tag_parser.add_argument("--incident", required=True, help="Incident ID")
+    tag_parser.add_argument("bead_ids", nargs="+", help="Bead IDs to update")
 
     # graph command
     graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
@@ -387,8 +393,17 @@ def main():
             sidecar_parser.print_help()
 
     elif args.command == "reason":
-        out = memory_reason(args.query, k=args.k, root=str(memory.root), debug=bool(args.debug or args.retrieve))
+        out = memory_reason(
+            args.query,
+            k=args.k,
+            root=str(memory.root),
+            debug=bool(args.debug or args.retrieve or args.explain),
+            explain=bool(args.explain),
+        )
         print(json.dumps(out, indent=2))
+
+    elif args.command == "tag":
+        print(json.dumps(tag_incident(memory.root, incident_id=args.incident, bead_ids=args.bead_ids), indent=2))
 
     elif args.command == "graph":
         if args.graph_cmd == "build":
