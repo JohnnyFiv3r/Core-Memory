@@ -116,13 +116,20 @@ def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list
     citations = []
     used_semantic: list[str] = []
     for c in chains:
+        chain_conf = float(c.get("confidence") or 0.0)
         for b in c.get("beads") or []:
+            b_type = str(b.get("type") or "")
+            grounded_role = b_type in {"decision", "precedent", "evidence", "lesson", "outcome"}
             citations.append(
                 {
                     "bead_id": b.get("id"),
+                    "type": b_type,
+                    "title": b.get("title") or b.get("snapshot_title"),
                     "session_id": b.get("session_id") or b.get("snapshot_session_id"),
                     "turn_ids": b.get("source_turn_ids") or b.get("snapshot_turn_ids") or [],
                     "archive_ptr": b.get("archive_ptr"),
+                    "grounded_role": grounded_role,
+                    "confidence": round(min(1.0, chain_conf + (0.1 if grounded_role else 0.0)), 4),
                 }
             )
         used_semantic.extend([str(x) for x in (c.get("semantic_edge_ids") or []) if x])
@@ -262,5 +269,12 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
         fallback = _plan_remember(store, root_p, query, k)
         primary = fallback if fallback.get("ok") else primary
 
+    chain_confs = [float(c.get("confidence") or 0.0) for c in (primary.get("chains") or [])]
+    overall = max(chain_confs) if chain_confs else 0.0
     primary["intent"] = {"selected": selected, "confidence": intent.get("confidence"), "scores": intent.get("scores")}
+    primary["confidence"] = {
+        "overall": round(overall, 4),
+        "grounded": bool(overall >= 0.5),
+        "chain_confidences": chain_confs,
+    }
     return primary
