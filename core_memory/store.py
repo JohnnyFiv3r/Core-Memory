@@ -1116,6 +1116,53 @@ class MemoryStore:
         }
         return allow, meta
 
+    def promotion_slate(self, limit: int = 20, query_text: str = "") -> dict:
+        """Build bounded candidate promotion slate with advisory recommendations."""
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        beads = list((index.get("beads") or {}).values())
+        threshold = self._adaptive_promotion_threshold(index)
+        q_tokens = self._expand_query_tokens(query_text, self._tokenize(query_text), max_extra=12)
+
+        rows = []
+        for bead in beads:
+            if str(bead.get("status") or "") != "candidate":
+                continue
+            score, factors = self._promotion_score(index, bead)
+            reinf = int((factors.get("reinforcement") or {}).get("count", 0))
+            text_tokens = self._tokenize((bead.get("title") or "") + " " + " ".join(bead.get("summary") or []))
+            q_overlap = len(q_tokens.intersection(text_tokens)) if q_tokens else 0
+            if score >= threshold and reinf >= 1:
+                rec = "strong"
+            elif score >= max(0.6, threshold - 0.08):
+                rec = "review"
+            else:
+                rec = "hold"
+
+            rows.append({
+                "bead_id": bead.get("id"),
+                "type": bead.get("type"),
+                "title": bead.get("title"),
+                "summary": (bead.get("summary") or [])[:2],
+                "promotion_score": round(score, 4),
+                "promotion_threshold": round(threshold, 4),
+                "recommendation": rec,
+                "query_overlap": q_overlap,
+                "reinforcement": factors.get("reinforcement") or {},
+                "has_evidence": bool(factors.get("has_evidence")),
+                "has_link": bool(factors.get("has_link")),
+                "detail_len": int(factors.get("detail_len") or 0),
+                "created_at": bead.get("created_at"),
+            })
+
+        rows = sorted(rows, key=lambda r: (r.get("query_overlap", 0), r.get("promotion_score", 0.0), r.get("created_at") or ""), reverse=True)
+        return {
+            "ok": True,
+            "candidate_total": len(rows),
+            "adaptive_threshold": round(threshold, 4),
+            "query": query_text,
+            "results": rows[: max(1, int(limit))],
+        }
+
     def rebalance_promotions(self, apply: bool = False) -> dict:
         """Phase B: score promoted beads and demote weakly-supported promotions."""
         with store_lock(self.root):

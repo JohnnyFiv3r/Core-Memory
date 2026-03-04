@@ -174,6 +174,10 @@ def main():
     metrics_rebalance = metrics_sub.add_parser("rebalance-promotions", help="Phase-B scoring rebalance for promoted beads")
     metrics_rebalance.add_argument("--apply", action="store_true", help="Apply demotions; default is dry-run")
 
+    metrics_slate = metrics_sub.add_parser("promotion-slate", help="Build bounded candidate promotion slate (advisory)")
+    metrics_slate.add_argument("--limit", type=int, default=20)
+    metrics_slate.add_argument("--query", default="")
+
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
     metrics_log.add_argument("--mode", default="core_memory")
@@ -348,6 +352,8 @@ def main():
             print(json.dumps(memory.schema_quality_report(write_path=args.write), indent=2))
         elif args.metrics_cmd == "rebalance-promotions":
             print(json.dumps(memory.rebalance_promotions(apply=args.apply), indent=2))
+        elif args.metrics_cmd == "promotion-slate":
+            print(json.dumps(memory.promotion_slate(limit=args.limit, query_text=args.query), indent=2))
         elif args.metrics_cmd == "start-run":
             print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
         elif args.metrics_cmd == "step":
