@@ -145,6 +145,37 @@ def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list
     return list(dedup.values()), sorted(set(used_semantic))
 
 
+def _radius1_structural_fallback(store: MemoryStore, anchor_ids: list[str], limit: int = 3) -> list[dict]:
+    idx = store._read_json(store.beads_dir / "index.json")
+    beads = idx.get("beads") or {}
+    out = []
+    allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+
+    for aid in anchor_ids[:8]:
+        b = beads.get(str(aid)) or {}
+        links = b.get("links") or []
+        for l in links:
+            if not isinstance(l, dict):
+                continue
+            rel = str(l.get("type") or "")
+            if rel not in allowed:
+                continue
+            dst = str(l.get("bead_id") or "")
+            if not dst or dst not in beads:
+                continue
+            ch = {
+                "score": 0.25,
+                "path": [str(aid), dst],
+                "edges": [{"src": str(aid), "dst": dst, "rel": rel, "class": "structural"}],
+                "beads": [_hydrate_bead(store, str(aid)), _hydrate_bead(store, dst)],
+                "semantic_edge_ids": [],
+            }
+            out.append(ch)
+            if len(out) >= max(1, int(limit)):
+                return out
+    return out
+
+
 def _retrieve_ranked(root_p: Path, query: str, k: int) -> dict:
     first = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
     if not first.get("ok"):
@@ -190,6 +221,8 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         hydrated.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
 
     out_chains = _select_diverse_chains(hydrated, top_n=3)
+    if not out_chains:
+        out_chains = _select_diverse_chains(_radius1_structural_fallback(store, anchors, limit=3), top_n=3)
     citations, used_semantic = _collect_citations_from_chains(out_chains)
     reinforce_semantic_edges(root_p, used_semantic, alpha=0.15)
 
