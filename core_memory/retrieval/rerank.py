@@ -68,16 +68,19 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
         out.append(c2)
         dbg.append({"bead_id": bid, "fused_score": fused, "rerank_score": c2["rerank_score"], "features": f})
 
-    out = sorted(out, key=lambda r: str(r.get("bead_id") or ""))
     out = sorted(
         out,
         key=lambda r: (
-            float(r.get("rerank_score") or 0.0),
-            float(r.get("fused_score") or 0.0),
-            float(r.get("sem_score") or 0.0),
-            float(r.get("lex_score") or 0.0),
+            -float(r.get("rerank_score") or 0.0),
+            -float(r.get("fused_score") or 0.0),
+            -float(r.get("sem_score") or 0.0),
+            -float(r.get("lex_score") or 0.0),
+            str(r.get("bead_id") or ""),
         ),
-        reverse=True,
     )
+
+    for i, r in enumerate(out, start=1):
+        r["rerank_rank"] = i
+        r["rerank_tie_break_policy"] = "rerank>fused>sem>lex>bead_id"
 
     return {"ok": True, "results": out, "debug": dbg}

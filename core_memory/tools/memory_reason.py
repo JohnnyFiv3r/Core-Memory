@@ -8,7 +8,7 @@ from core_memory.semantic_index import semantic_lookup
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.retrieval.quality_gate import quality_gate_decision
-from core_memory.retrieval.config import RETRY_APPEND_HINT
+from core_memory.retrieval.config import RETRY_APPEND_HINT, QUALITY_THRESHOLD
 from core_memory.archive_index import read_snapshot
 from core_memory.store import MemoryStore
 
@@ -320,7 +320,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
 
     primary_q = _quality_score(primary)
     no_hits = len(primary.get("citations") or []) == 0 or len(primary.get("chains") or []) == 0
-    low_quality = primary_q < 0.45
+    low_quality = primary_q < float(QUALITY_THRESHOLD)
 
     used_retry = False
     chosen_route = primary_route
@@ -359,14 +359,35 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         import json
         from datetime import datetime, timezone
 
+        rdbg = primary.get("retrieval_debug") or {}
+        rinner = rdbg.get("debug") or {}
+        ranked = rdbg.get("results") or []
         payload = {
             "query": query,
             "normalized_query": " ".join((query or "").lower().split()),
             "k": int(k),
             "intent": primary.get("intent"),
             "confidence": primary.get("confidence"),
-            "retrieval_debug": primary.get("retrieval_debug"),
-            "final_bead_ids": [str(c.get("bead_id") or "") for c in ((primary.get("retrieval_debug") or {}).get("results") or [])],
+            "retrievers": {
+                "first_pass": (rinner.get("first") or {}).get("results") if isinstance(rinner.get("first"), dict) else None,
+                "retry_pass": (rinner.get("retry") or {}).get("results") if isinstance(rinner.get("retry"), dict) else None,
+                "gate": rinner.get("gate"),
+            },
+            "rank_decisions": [
+                {
+                    "bead_id": r.get("bead_id"),
+                    "rank": r.get("rerank_rank") or r.get("rank"),
+                    "fused_score": r.get("fused_score"),
+                    "sem_score": r.get("sem_score"),
+                    "lex_score": r.get("lex_score"),
+                    "rerank_score": r.get("rerank_score"),
+                    "features": r.get("features"),
+                    "tie_break_policy": r.get("rerank_tie_break_policy") or r.get("tie_break_policy"),
+                }
+                for r in ranked
+            ],
+            "retrieval_debug": rdbg,
+            "final_bead_ids": [str(c.get("bead_id") or "") for c in ranked],
         }
         stable = json.dumps(payload, ensure_ascii=False, sort_keys=True)
         replay_hash = hashlib.sha256(stable.encode("utf-8")).hexdigest()[:16]

@@ -70,8 +70,24 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
             c.fused_score += 0.12
         out.append(c)
 
-    out = sorted(out, key=lambda c: c.bead_id)
-    out = sorted(out, key=lambda c: (c.fused_score, c.sem_score, c.lex_score), reverse=True)
+    # Explicit deterministic tie policy:
+    # 1) fused_score desc, 2) sem_score desc, 3) lex_score desc, 4) bead_id asc
+    out = sorted(
+        out,
+        key=lambda c: (
+            -float(c.fused_score),
+            -float(c.sem_score),
+            -float(c.lex_score),
+            str(c.bead_id),
+        ),
+    )
+
+    ranked = []
+    for rank, c in enumerate(out[: max(1, int(k))], start=1):
+        row = c.to_dict()
+        row["rank"] = rank
+        row["tie_break_policy"] = "fused>sem>lex>bead_id"
+        ranked.append(row)
 
     return {
         "ok": True,
@@ -79,5 +95,5 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         "weights": {"semantic": w_sem, "lexical": w_lex},
         "semantic_backend": sem.get("backend"),
         "matched_incidents": incident_matches,
-        "results": [c.to_dict() for c in out[: max(1, int(k))]],
+        "results": ranked,
     }

@@ -9,40 +9,27 @@ def _norm(s: str) -> str:
     return " ".join((s or "").lower().replace("_", " ").replace("-", " ").split())
 
 
-def load_incidents(root: Path) -> list[dict]:
-    p = Path(__file__).parent / "data" / "incidents.yml"
-    if not p.exists():
-        return []
+def _default_incidents_path() -> Path:
+    return Path(__file__).parent / "data" / "incidents.json"
 
-    # tiny YAML reader for constrained schema
-    rows = []
-    cur = None
-    in_aliases = False
-    for raw in p.read_text(encoding="utf-8").splitlines():
-        line = raw.rstrip()
-        if not line.strip() or line.strip().startswith("#"):
+
+def load_incidents(root: Path) -> list[dict]:
+    # Allow per-memory-root override, then fallback to packaged defaults.
+    candidates = [
+        root / "incidents.json",
+        root / ".beads" / "incidents.json",
+        _default_incidents_path(),
+    ]
+    for p in candidates:
+        if not p.exists():
             continue
-        if line.startswith("- incident_id:"):
-            if cur:
-                rows.append(cur)
-            cur = {"incident_id": line.split(":", 1)[1].strip(), "aliases": [], "notes": ""}
-            in_aliases = False
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                return data
+        except Exception:
             continue
-        if cur is None:
-            continue
-        if line.strip().startswith("aliases:"):
-            in_aliases = True
-            continue
-        if in_aliases and line.strip().startswith("-"):
-            cur["aliases"].append(line.strip()[1:].strip())
-            continue
-        if line.strip().startswith("notes:"):
-            cur["notes"] = line.split(":", 1)[1].strip().strip('"')
-            in_aliases = False
-            continue
-    if cur:
-        rows.append(cur)
-    return rows
+    return []
 
 
 def matched_incident_ids(query: str, root: Path) -> list[str]:
@@ -75,6 +62,5 @@ def tag_incident(root: Path, incident_id: str, bead_ids: list[str]) -> dict:
 
     idx_file.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8")
 
-    # deterministic change hash
     h = hashlib.sha256((incident_id + "|" + "|".join(sorted(changed))).encode("utf-8")).hexdigest()[:16]
     return {"ok": True, "incident_id": incident_id, "changed": changed, "changed_count": len(changed), "change_hash": h}

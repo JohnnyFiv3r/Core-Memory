@@ -8,3 +8,5 @@ Deterministic baseline targets for hybrid retrieval rollout.
 - Determinism: identical ordered top-5 across 5 repeated runs
 
 These are initial guardrails and should be tightened after first stable pass.
+
+KPI fixtures in `eval/kpi_set.json` should remain human-reviewed gold cases; avoid auto-derived expected IDs.
