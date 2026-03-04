@@ -137,7 +137,13 @@ def _normalize_links(v) -> list[dict]:
 
 
 def backfill_structural_edges(root: Path) -> dict:
-    """Backfill structural edge_add events from current index links/associations."""
+    """Backfill structural edge_add events from current index explicit links/associations.
+
+    Safety hardening:
+    - never convert derived/weak association rows into structural edges
+    - for association-based backfill, require non-derived edge_class and at least one endpoint
+      in candidate/promoted status.
+    """
     edges_file, _, index_file = _paths(root)
     edges_file.parent.mkdir(parents=True, exist_ok=True)
     if not index_file.exists():
@@ -180,14 +186,26 @@ def backfill_structural_edges(root: Path) -> dict:
             existing_keys.add(key)
             added += 1
 
+    bead_status = {str(bid): str((b or {}).get("status") or "") for bid, b in (index.get("beads") or {}).items()}
     for assoc in (index.get("associations") or []):
         rel = str(assoc.get("relationship") or "").strip()
         if rel not in STRUCTURAL_RELS:
             continue
+        # hardening: do not auto-upgrade weak/derived associations to structural
+        edge_class = str(assoc.get("edge_class") or "").strip().lower()
+        if edge_class in {"derived", "weak", "auto"}:
+            continue
+
         src = str(assoc.get("source_bead") or "").strip()
         dst = str(assoc.get("target_bead") or "").strip()
         if not src or not dst:
             continue
+
+        src_st = bead_status.get(src, "")
+        dst_st = bead_status.get(dst, "")
+        if src_st not in {"candidate", "promoted"} and dst_st not in {"candidate", "promoted"}:
+            continue
+
         key = _edge_identity(src, dst, rel, "structural")
         if key in existing_keys:
             continue
@@ -203,13 +221,102 @@ def backfill_structural_edges(root: Path) -> dict:
                 "immutable": True,
                 "created_at": _now(),
                 "created_by": "system",
-                "evidence": [],
+                "evidence": [{"reason": "association_backfill", "association_id": assoc.get("id")}],
             },
         )
         existing_keys.add(key)
         added += 1
 
     return {"ok": True, "added": added}
+
+
+def infer_structural_edges(root: Path, *, min_confidence: float = 0.9, apply: bool = False) -> dict:
+    """Deterministic structural inference with strict safety gates.
+
+    Rules:
+    - only rel in {supports, derived_from}
+    - at least one endpoint status in {candidate, promoted}
+    - require deterministic provenance (shared source_turn_ids)
+    - confidence must meet threshold
+    """
+    _, _, index_file = _paths(root)
+    if not index_file.exists():
+        return {"ok": True, "candidates": 0, "applied": 0}
+
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+    beads = index.get("beads") or {}
+    by_turn: dict[str, list[dict]] = {}
+    for b in beads.values():
+        for tid in (b.get("source_turn_ids") or []):
+            by_turn.setdefault(str(tid), []).append(b)
+
+    candidates: list[dict] = []
+    for tid, rows in by_turn.items():
+        if len(rows) < 2:
+            continue
+        # pairwise within turn, deterministic ordering
+        rows = sorted(rows, key=lambda x: str(x.get("id") or ""))
+        for i, a in enumerate(rows):
+            for b in rows[i + 1 :]:
+                a_id = str(a.get("id") or "")
+                b_id = str(b.get("id") or "")
+                if not a_id or not b_id:
+                    continue
+                a_type = str(a.get("type") or "")
+                b_type = str(b.get("type") or "")
+                a_st = str(a.get("status") or "")
+                b_st = str(b.get("status") or "")
+                if a_st not in {"candidate", "promoted"} and b_st not in {"candidate", "promoted"}:
+                    continue
+
+                rel = None
+                conf = 0.0
+                if a_type == "evidence" and b_type in {"decision", "lesson", "outcome"}:
+                    rel = "supports"; conf = 0.95; src, dst = a_id, b_id
+                elif b_type == "evidence" and a_type in {"decision", "lesson", "outcome"}:
+                    rel = "supports"; conf = 0.95; src, dst = b_id, a_id
+                elif a_type == "lesson" and b_type == "decision":
+                    rel = "derived_from"; conf = 0.9; src, dst = b_id, a_id
+                elif b_type == "lesson" and a_type == "decision":
+                    rel = "derived_from"; conf = 0.9; src, dst = a_id, b_id
+                else:
+                    continue
+
+                if conf < float(min_confidence):
+                    continue
+
+                candidates.append({
+                    "src_id": src,
+                    "dst_id": dst,
+                    "rel": rel,
+                    "confidence": conf,
+                    "turn_id": tid,
+                })
+
+    # dedupe
+    seen = set()
+    uniq = []
+    for c in candidates:
+        k = (c["src_id"], c["dst_id"], c["rel"])
+        if k in seen:
+            continue
+        seen.add(k)
+        uniq.append(c)
+
+    applied = 0
+    if apply:
+        for c in uniq:
+            add_structural_edge(
+                root,
+                src_id=c["src_id"],
+                dst_id=c["dst_id"],
+                rel=c["rel"],
+                created_by="system",
+                evidence=[{"turn_id": c.get("turn_id"), "confidence": c.get("confidence"), "reason": "deterministic_inference"}],
+            )
+            applied += 1
+
+    return {"ok": True, "candidates": len(uniq), "applied": applied, "sample": uniq[:50]}
 
 
 def build_graph(root: Path, *, write_snapshot: bool = True, semantic_active_k: int = 50) -> dict:
