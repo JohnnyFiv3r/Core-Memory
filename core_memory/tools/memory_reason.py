@@ -23,6 +23,7 @@ def _hydrate_bead(store: MemoryStore, bead_id: str) -> dict[str, Any]:
         "session_id": bead.get("session_id"),
         "source_turn_ids": bead.get("source_turn_ids") or [],
         "status": bead.get("status"),
+        "created_at": bead.get("created_at"),
         "archive_ptr": bead.get("archive_ptr"),
     }
 
@@ -48,10 +49,50 @@ def _choose_anchor(results: list[dict]) -> str | None:
     return str((top or {}).get("bead_id") or "") or None
 
 
-def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
-    root_p = Path(root)
-    store = MemoryStore(root)
+def _detect_intent(query: str) -> dict:
+    q = (query or "").lower()
+    why_cues = ["why did we", "why was", "reason", "because", "rationale"]
+    when_cues = ["when did", "what date", "what time", "timeline"]
+    changed_cues = ["what changed", "changed about", "supersed", "updated from", "replaced"]
+    remember_cues = ["remember", "recall", "what do you remember"]
 
+    scores = {
+        "why": sum(1 for c in why_cues if c in q),
+        "when": sum(1 for c in when_cues if c in q),
+        "what_changed": sum(1 for c in changed_cues if c in q),
+        "remember": sum(1 for c in remember_cues if c in q),
+    }
+    best = max(scores.items(), key=lambda kv: kv[1])
+    if best[1] <= 0:
+        return {"intent": "remember", "confidence": 0.35, "scores": scores}
+    total = sum(scores.values())
+    conf = best[1] / max(1, total)
+    return {"intent": best[0], "confidence": round(conf, 3), "scores": scores}
+
+
+def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list[str]]:
+    citations = []
+    used_semantic: list[str] = []
+    for c in chains:
+        for b in c.get("beads") or []:
+            citations.append(
+                {
+                    "bead_id": b.get("id"),
+                    "session_id": b.get("session_id") or b.get("snapshot_session_id"),
+                    "turn_ids": b.get("source_turn_ids") or b.get("snapshot_turn_ids") or [],
+                    "archive_ptr": b.get("archive_ptr"),
+                }
+            )
+        used_semantic.extend([str(x) for x in (c.get("semantic_edge_ids") or []) if x])
+    dedup = {}
+    for c in citations:
+        key = str(c.get("bead_id") or "")
+        if key and key not in dedup:
+            dedup[key] = c
+    return list(dedup.values()), sorted(set(used_semantic))
+
+
+def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
     sem = semantic_lookup(root_p, query=query, k=max(1, int(k)))
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
@@ -64,42 +105,16 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
 
     trav = causal_traverse(root_p, anchor_ids=anchors[:8], max_depth=4, max_chains=50)
     chains = trav.get("chains") or []
-    top = chains[:3]
-
-    used_semantic: list[str] = []
-    citations = []
     out_chains = []
+    for c in chains[:3]:
+        beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
+        out_chains.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
 
-    for c in top:
-        beads = []
-        for bid in c.get("path") or []:
-            b = _hydrate_bead(store, str(bid))
-            beads.append(b)
-            citations.append(
-                {
-                    "bead_id": b.get("id"),
-                    "session_id": b.get("session_id") or b.get("snapshot_session_id"),
-                    "turn_ids": b.get("source_turn_ids") or b.get("snapshot_turn_ids") or [],
-                    "archive_ptr": b.get("archive_ptr"),
-                }
-            )
-        used_semantic.extend([str(x) for x in (c.get("semantic_edge_ids") or []) if x])
-        out_chains.append(
-            {
-                "score": c.get("score"),
-                "path": c.get("path"),
-                "edges": c.get("edges"),
-                "beads": beads,
-            }
-        )
-
-    # reinforce only semantic edges that contributed to final selected chains
-    used_semantic = sorted(set(used_semantic))
+    citations, used_semantic = _collect_citations_from_chains(out_chains)
     reinforce_semantic_edges(root_p, used_semantic, alpha=0.15)
 
     grounded = bool(trav.get("grounded"))
     if grounded and out_chains:
-        answer = "I remember this and can ground it causally: "
         first = out_chains[0]
         labels = []
         for b in first.get("beads") or []:
@@ -107,22 +122,97 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
             title = str(b.get("title") or b.get("snapshot_title") or "")
             if t in {"decision", "precedent", "evidence", "lesson", "outcome"} and title:
                 labels.append(f"{t}: {title}")
-        answer += " | ".join(labels[:4]) if labels else "grounded chain found."
+        answer = "I remember this and can ground it causally: " + (" | ".join(labels[:4]) if labels else "grounded chain found.")
     else:
         answer = "I remember related context, but I don’t have a grounded decision chain for that yet."
-
-    # dedupe citations
-    dedup = {}
-    for c in citations:
-        key = str(c.get("bead_id") or "")
-        if key and key not in dedup:
-            dedup[key] = c
 
     return {
         "ok": True,
         "answer": answer,
         "anchor_bead_id": anchor,
         "chains": out_chains,
-        "citations": list(dedup.values()),
+        "citations": citations,
         "reinforced_semantic_edges": used_semantic,
     }
+
+
+def _plan_when(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
+    sem = semantic_lookup(root_p, query=query, k=max(1, int(k)))
+    if not sem.get("ok"):
+        return {"ok": False, "error": sem.get("error")}
+    ids = [str(r.get("bead_id") or "") for r in (sem.get("results") or []) if r.get("bead_id")]
+    beads = [_hydrate_bead(store, bid) for bid in ids]
+    beads = sorted(beads, key=lambda b: str(b.get("created_at") or ""))
+    top = beads[:3]
+    if top:
+        answer = "Timeline context: " + " | ".join([f"{b.get('created_at')}: {b.get('title')}" for b in top])
+    else:
+        answer = "I remember related context, but I couldn’t establish a clear timeline yet."
+    citations, _ = _collect_citations_from_chains([{"beads": top, "semantic_edge_ids": []}])
+    return {"ok": True, "answer": answer, "anchor_bead_id": (top[0].get("id") if top else None), "chains": [{"score": 0.0, "path": [b.get("id") for b in top], "edges": [], "beads": top}], "citations": citations, "reinforced_semantic_edges": []}
+
+
+def _plan_changed(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
+    sem = semantic_lookup(root_p, query=query, k=max(1, int(k)))
+    if not sem.get("ok"):
+        return {"ok": False, "error": sem.get("error")}
+    idx = store._read_json(store.beads_dir / "index.json")
+    beads_map = idx.get("beads") or {}
+    ids = [str(r.get("bead_id") or "") for r in (sem.get("results") or []) if r.get("bead_id")]
+    chains = []
+    for bid in ids[:5]:
+        b = beads_map.get(bid) or {}
+        links = b.get("links") or []
+        supers = []
+        for l in links:
+            if isinstance(l, dict) and str(l.get("type") or "") in {"supersedes", "superseded_by"}:
+                supers.append(str(l.get("bead_id") or ""))
+        path = [bid] + [x for x in supers if x]
+        beads = [_hydrate_bead(store, x) for x in path]
+        chains.append({"score": 0.0, "path": path, "edges": [], "beads": beads, "semantic_edge_ids": []})
+    citations, _ = _collect_citations_from_chains(chains)
+    answer = "I found change/supersession context in related beads." if chains else "I remember related context, but I don’t have a clear change chain yet."
+    return {"ok": True, "answer": answer, "anchor_bead_id": (ids[0] if ids else None), "chains": chains[:3], "citations": citations, "reinforced_semantic_edges": []}
+
+
+def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
+    sem = semantic_lookup(root_p, query=query, k=max(1, int(k)))
+    if not sem.get("ok"):
+        return {"ok": False, "error": sem.get("error")}
+    ids = [str(r.get("bead_id") or "") for r in (sem.get("results") or []) if r.get("bead_id")]
+    beads = [_hydrate_bead(store, bid) for bid in ids[:3]]
+    citations, _ = _collect_citations_from_chains([{"beads": beads, "semantic_edge_ids": []}])
+    answer = "I remember related context from memory beads." if beads else "I don’t have a strong memory match yet."
+    return {"ok": True, "answer": answer, "anchor_bead_id": (beads[0].get("id") if beads else None), "chains": [{"score": 0.0, "path": [b.get("id") for b in beads], "edges": [], "beads": beads}], "citations": citations, "reinforced_semantic_edges": []}
+
+
+def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
+    root_p = Path(root)
+    store = MemoryStore(root)
+
+    intent = _detect_intent(query)
+    selected = str(intent.get("intent") or "remember")
+
+    planners = {
+        "why": _plan_why,
+        "when": _plan_when,
+        "what_changed": _plan_changed,
+        "remember": _plan_remember,
+    }
+
+    # Soft routing: if confidence is low, prefer WHY planner as richer default,
+    # then fall back to remember planner if needed.
+    if float(intent.get("confidence") or 0.0) < 0.5:
+        selected = "why"
+
+    primary = planners.get(selected, _plan_remember)(store, root_p, query, k)
+    if not primary.get("ok"):
+        return primary
+
+    # Fallback if no chains from selected route.
+    if not (primary.get("chains") or []):
+        fallback = _plan_remember(store, root_p, query, k)
+        primary = fallback if fallback.get("ok") else primary
+
+    primary["intent"] = {"selected": selected, "confidence": intent.get("confidence"), "scores": intent.get("scores")}
+    return primary
