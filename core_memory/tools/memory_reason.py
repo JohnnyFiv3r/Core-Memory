@@ -70,6 +70,48 @@ def _detect_intent(query: str) -> dict:
     return {"intent": best[0], "confidence": round(conf, 3), "scores": scores}
 
 
+def _chain_signature(chain: dict) -> str:
+    p = [str(x) for x in (chain.get("path") or [])]
+    e = [f"{str(x.get('src'))}>{str(x.get('rel'))}>{str(x.get('dst'))}" for x in (chain.get("edges") or [])]
+    return "|".join(p + e)
+
+
+def _chain_confidence(chain: dict) -> float:
+    score = float(chain.get("score") or 0.0)
+    beads = chain.get("beads") or []
+    if not beads:
+        return 0.0
+    types = [str(b.get("type") or "") for b in beads]
+    grounded = ("decision" in types or "precedent" in types) and any(t in {"evidence", "lesson", "outcome"} for t in types)
+    depth = max(1, len(chain.get("path") or []))
+    base = min(1.0, score / max(1.0, float(depth)))
+    if grounded:
+        base = min(1.0, base + 0.2)
+    return round(base, 4)
+
+
+def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
+    selected = []
+    seen_sig = set()
+    seen_nodes = set()
+    for c in sorted(chains, key=lambda x: float(x.get("score") or 0.0), reverse=True):
+        sig = _chain_signature(c)
+        if sig in seen_sig:
+            continue
+        nodes = set([str(x) for x in (c.get("path") or [])])
+        overlap = len(nodes.intersection(seen_nodes))
+        if selected and overlap >= max(2, len(nodes) // 2):
+            continue
+        c2 = dict(c)
+        c2["confidence"] = _chain_confidence(c2)
+        selected.append(c2)
+        seen_sig.add(sig)
+        seen_nodes.update(nodes)
+        if len(selected) >= max(1, int(top_n)):
+            break
+    return selected
+
+
 def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list[str]]:
     citations = []
     used_semantic: list[str] = []
@@ -105,11 +147,12 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
 
     trav = causal_traverse(root_p, anchor_ids=anchors[:8], max_depth=4, max_chains=50)
     chains = trav.get("chains") or []
-    out_chains = []
-    for c in chains[:3]:
+    hydrated = []
+    for c in chains:
         beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
-        out_chains.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
+        hydrated.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
 
+    out_chains = _select_diverse_chains(hydrated, top_n=3)
     citations, used_semantic = _collect_citations_from_chains(out_chains)
     reinforce_semantic_edges(root_p, used_semantic, alpha=0.15)
 
@@ -149,7 +192,9 @@ def _plan_when(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
     else:
         answer = "I remember related context, but I couldn’t establish a clear timeline yet."
     citations, _ = _collect_citations_from_chains([{"beads": top, "semantic_edge_ids": []}])
-    return {"ok": True, "answer": answer, "anchor_bead_id": (top[0].get("id") if top else None), "chains": [{"score": 0.0, "path": [b.get("id") for b in top], "edges": [], "beads": top}], "citations": citations, "reinforced_semantic_edges": []}
+    c = {"score": 0.0, "path": [b.get("id") for b in top], "edges": [], "beads": top}
+    c["confidence"] = _chain_confidence(c)
+    return {"ok": True, "answer": answer, "anchor_bead_id": (top[0].get("id") if top else None), "chains": [c], "citations": citations, "reinforced_semantic_edges": []}
 
 
 def _plan_changed(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
@@ -170,9 +215,10 @@ def _plan_changed(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
         path = [bid] + [x for x in supers if x]
         beads = [_hydrate_bead(store, x) for x in path]
         chains.append({"score": 0.0, "path": path, "edges": [], "beads": beads, "semantic_edge_ids": []})
+    chains = _select_diverse_chains(chains, top_n=3)
     citations, _ = _collect_citations_from_chains(chains)
     answer = "I found change/supersession context in related beads." if chains else "I remember related context, but I don’t have a clear change chain yet."
-    return {"ok": True, "answer": answer, "anchor_bead_id": (ids[0] if ids else None), "chains": chains[:3], "citations": citations, "reinforced_semantic_edges": []}
+    return {"ok": True, "answer": answer, "anchor_bead_id": (ids[0] if ids else None), "chains": chains, "citations": citations, "reinforced_semantic_edges": []}
 
 
 def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
@@ -181,9 +227,11 @@ def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int) -> dict
         return {"ok": False, "error": sem.get("error")}
     ids = [str(r.get("bead_id") or "") for r in (sem.get("results") or []) if r.get("bead_id")]
     beads = [_hydrate_bead(store, bid) for bid in ids[:3]]
-    citations, _ = _collect_citations_from_chains([{"beads": beads, "semantic_edge_ids": []}])
+    c = {"score": 0.0, "path": [b.get("id") for b in beads], "edges": [], "beads": beads, "semantic_edge_ids": []}
+    c["confidence"] = _chain_confidence(c)
+    citations, _ = _collect_citations_from_chains([c])
     answer = "I remember related context from memory beads." if beads else "I don’t have a strong memory match yet."
-    return {"ok": True, "answer": answer, "anchor_bead_id": (beads[0].get("id") if beads else None), "chains": [{"score": 0.0, "path": [b.get("id") for b in beads], "edges": [], "beads": beads}], "citations": citations, "reinforced_semantic_edges": []}
+    return {"ok": True, "answer": answer, "anchor_bead_id": (beads[0].get("id") if beads else None), "chains": [c], "citations": citations, "reinforced_semantic_edges": []}
 
 
 def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
