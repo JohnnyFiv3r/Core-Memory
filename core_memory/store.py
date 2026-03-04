@@ -66,7 +66,10 @@ class MemoryStore:
             self.assoc_top_k = max(0, int(os.environ.get("CORE_MEMORY_ASSOCIATE_TOP_K", "3")))
         except ValueError:
             self.assoc_top_k = 3
-        
+
+        # Required-field rollout: warn-first by default; strict raises when enabled.
+        self.strict_required_fields = os.environ.get("CORE_MEMORY_STRICT_REQUIRED_FIELDS", "0") == "1"
+
         # Ensure directories exist
         self.beads_dir.mkdir(parents=True, exist_ok=True)
         self.turns_dir.mkdir(parents=True, exist_ok=True)
@@ -906,36 +909,123 @@ class MemoryStore:
             "contradiction_latency_avg": lat_avg,
         }
 
-    def _validate_bead_fields(self, bead: dict):
-        """Lightweight per-type causal validation (backward-compatible)."""
-        t = bead.get("type")
-        because = bead.get("because") or []
+    def _normalize_links(self, links) -> list[dict]:
+        """Normalize links to canonical list[{type, bead_id}] format."""
+        if links is None:
+            return []
+        out: list[dict] = []
+        if isinstance(links, list):
+            for row in links:
+                if not isinstance(row, dict):
+                    continue
+                ltype = str(row.get("type") or "").strip()
+                bid = str(row.get("bead_id") or row.get("id") or "").strip()
+                if ltype and bid:
+                    out.append({"type": ltype, "bead_id": bid})
+            return out
+        if isinstance(links, dict):
+            for k, v in links.items():
+                if isinstance(v, list):
+                    for bid in v:
+                        b = str(bid or "").strip()
+                        if b:
+                            out.append({"type": str(k), "bead_id": b})
+                else:
+                    b = str(v or "").strip()
+                    if b:
+                        out.append({"type": str(k), "bead_id": b})
+        return out
+
+    def _has_evidence(self, bead: dict) -> bool:
+        return bool((bead.get("evidence_refs") or []) or (bead.get("tool_output_ids") or []) or (bead.get("tool_output_id") or "").strip())
+
+    def _required_field_issues(self, bead: dict) -> list[str]:
+        issues: list[str] = []
+        t = str(bead.get("type") or "").strip()
+        title = str(bead.get("title") or "").strip()
         summary = bead.get("summary") or []
+        session_id = str(bead.get("session_id") or "").strip()
         source_turn_ids = bead.get("source_turn_ids") or []
+        status = str(bead.get("status") or "").strip()
+        created_at = str(bead.get("created_at") or "").strip()
+        because = bead.get("because") or []
         detail = (bead.get("detail") or "").strip()
+        links = bead.get("links") or []
 
-        if t in {"decision", "lesson"}:
-            if not because and not summary and not detail:
-                raise ValueError(f"{t} beads require rationale: provide --because or summary/detail")
+        # Global baseline
+        if not t:
+            issues.append("missing:type")
+        if not title:
+            issues.append("missing:title")
+        if not isinstance(summary, list) or len(summary) == 0:
+            issues.append("missing:summary")
+        if not session_id:
+            issues.append("missing:session_id")
+        if not isinstance(source_turn_ids, list) or len(source_turn_ids) == 0:
+            issues.append("missing:source_turn_ids")
+        if not status:
+            issues.append("missing:status")
+        if not created_at:
+            issues.append("missing:created_at")
 
-        if t == "evidence":
-            if not source_turn_ids and not summary and not detail:
-                raise ValueError("evidence beads require provenance: provide --source-turn-ids or summary/detail")
+        # bounded summary
+        if isinstance(summary, list):
+            if len(summary) > 3:
+                issues.append("bounds:summary>3")
+            for s in summary:
+                if len(str(s)) > 220:
+                    issues.append("bounds:summary_item>220")
+                    break
 
-        if t == "goal":
-            goal_id = (bead.get("goal_id") or "").strip() if isinstance(bead.get("goal_id"), str) else ""
-            if not goal_id:
-                raise ValueError("goal beads require goal_id")
-            goal_status = bead.get("goal_status")
-            allowed = {"active", "paused", "done"}
-            if goal_status and goal_status not in allowed:
-                raise ValueError("goal_status must be one of: active|paused|done")
+        # type-specific
+        has_evidence = self._has_evidence(bead)
+        if t == "decision":
+            if not (because or has_evidence or detail):
+                issues.append("decision:need_because_or_evidence_or_detail")
+        elif t == "lesson":
+            if not because:
+                issues.append("lesson:missing_because")
+        elif t == "outcome":
+            result = str(bead.get("result") or "").strip().lower()
+            if result not in {"resolved", "failed", "partial", "confirmed"}:
+                issues.append("outcome:invalid_result")
+            linked = str(bead.get("linked_bead_id") or "").strip() or bool(links)
+            if not (linked or has_evidence):
+                issues.append("outcome:need_link_or_evidence")
+        elif t == "evidence":
+            supports = bead.get("supports_bead_ids") or []
+            if not (has_evidence or len(detail) >= 60):
+                issues.append("evidence:need_reference_or_detail")
+            if not isinstance(supports, list) or len(supports) == 0:
+                issues.append("evidence:missing_supports_bead_ids")
+        elif t == "goal":
+            if not str(bead.get("goal_id") or "").strip():
+                issues.append("goal:missing_goal_id")
+            if not str(bead.get("success_criteria") or "").strip():
+                issues.append("goal:missing_success_criteria")
+        elif t == "precedent":
+            if not str(bead.get("condition") or "").strip():
+                issues.append("precedent:missing_condition")
+            if not str(bead.get("action") or "").strip():
+                issues.append("precedent:missing_action")
+        elif t == "design_principle":
+            if not because:
+                issues.append("design_principle:missing_because")
+        elif t == "failed_hypothesis":
+            tested_by = str(bead.get("tested_by") or "").strip().lower()
+            if tested_by and tested_by not in {"tool", "reasoning", "observation"}:
+                issues.append("failed_hypothesis:invalid_tested_by")
+        elif t == "tool_call":
+            if not str(bead.get("tool") or bead.get("capability") or "").strip():
+                issues.append("tool_call:missing_tool_or_capability")
+            result_status = str(bead.get("tool_result_status") or "").strip().lower()
+            if result_status and result_status not in {"success", "failure"}:
+                issues.append("tool_call:invalid_tool_result_status")
 
-        if t == "reversal":
-            supersedes = (bead.get("supersedes_bead_id") or "").strip() if isinstance(bead.get("supersedes_bead_id"), str) else ""
-            if not supersedes:
-                raise ValueError("reversal beads require supersedes_bead_id")
+        return sorted(set(issues))
 
+    def _validate_bead_fields(self, bead: dict):
+        """Required-fields validation with warn-first rollout."""
         context_tags = bead.get("context_tags")
         if context_tags is not None:
             if not isinstance(context_tags, list):
@@ -943,6 +1033,12 @@ class MemoryStore:
             for tag in context_tags:
                 if not isinstance(tag, str):
                     raise ValueError("context_tags entries must be strings")
+
+        issues = self._required_field_issues(bead)
+        if issues and self.strict_required_fields:
+            raise ValueError("required field validation failed: " + ", ".join(issues))
+        if issues:
+            bead["validation_warnings"] = issues
 
     def _title_tokens(self, text: str) -> set[str]:
         return {t for t in self._tokenize(text) if t not in {"the", "and", "for", "with", "this", "that"}}
@@ -1099,7 +1195,7 @@ class MemoryStore:
             "authority": "agent_inferred",
             "confidence": 0.8,
             "tags": tags or [],
-            "links": links or {},
+            "links": self._normalize_links(links),
             "status": "open",
             "recall_count": 0,
             "last_recalled": None,
@@ -1491,8 +1587,26 @@ class MemoryStore:
                     bead["status"] = "archived"
                     compacted += 1
                 if promote and bead.get("status") != "promoted":
-                    bead["status"] = "promoted"
-                    bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
+                    btype = str(bead.get("type") or "").lower()
+                    because = bead.get("because") or []
+                    has_evidence = self._has_evidence(bead)
+                    detail_now = (bead.get("detail") or "").strip()
+                    allow_promote = True
+                    if btype == "decision":
+                        allow_promote = bool(because and (has_evidence or detail_now))
+                    elif btype == "lesson":
+                        allow_promote = bool(because)
+                    elif btype == "outcome":
+                        result = str(bead.get("result") or "").strip().lower()
+                        has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+                        allow_promote = result in {"resolved", "failed", "partial", "confirmed"} and (has_link or has_evidence)
+                    elif btype == "precedent":
+                        allow_promote = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
+
+                    if allow_promote:
+                        bead["status"] = "promoted"
+                        bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
+                        bead["promotion_reason"] = str(bead.get("promotion_reason") or "policy_auto_promote")
                 index["beads"][bead_id] = bead
 
             self._write_json(self.beads_dir / INDEX_FILE, index)
@@ -1610,15 +1724,11 @@ class MemoryStore:
         
         return results
     
-    def promote(self, bead_id: str) -> bool:
+    def promote(self, bead_id: str, promotion_reason: Optional[str] = None) -> bool:
         """
         Promote a bead to long-term memory.
-        
-        Args:
-            bead_id: ID of bead to promote
-            
-        Returns:
-            Success
+
+        High-value types enforce stricter promotion quality gates.
         """
         with store_lock(self.root):
             index = self._read_json(self.beads_dir / INDEX_FILE)
@@ -1627,8 +1737,31 @@ class MemoryStore:
                 return False
 
             bead = index["beads"][bead_id]
+            btype = str(bead.get("type") or "").lower()
+            because = bead.get("because") or []
+            detail = (bead.get("detail") or "").strip()
+            has_evidence = self._has_evidence(bead)
+
+            # Strict promotion gates for high-value beads
+            if btype in {"decision", "lesson", "outcome", "precedent"}:
+                if btype == "decision" and not (because and (has_evidence or detail)):
+                    return False
+                if btype == "lesson" and not because:
+                    return False
+                if btype == "outcome":
+                    result = str(bead.get("result") or "").strip().lower()
+                    has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+                    if result not in {"resolved", "failed", "partial", "confirmed"}:
+                        return False
+                    if not (has_link or has_evidence):
+                        return False
+                if btype == "precedent":
+                    if not (str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip()):
+                        return False
+
             bead["status"] = "promoted"
             bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
+            bead["promotion_reason"] = (promotion_reason or bead.get("promotion_reason") or "policy_auto_promote").strip()
 
             index["beads"][bead_id] = bead
             self._write_json(self.beads_dir / INDEX_FILE, index)
