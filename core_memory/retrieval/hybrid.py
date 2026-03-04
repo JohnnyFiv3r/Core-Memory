@@ -6,7 +6,7 @@ from pathlib import Path
 from .types import Candidate
 from .lexical import lexical_lookup
 from core_memory.semantic_index import semantic_lookup
-from core_memory.incidents import matched_incident_ids, load_incidents
+from core_memory.incidents import matched_incident_ids, incident_match_strength
 from .config import INCIDENT_FLOOR, NORM_EPS
 
 
@@ -21,26 +21,6 @@ def _normalize(scores: list[float]) -> tuple[list[float], str]:
     if k <= 1:
         return [1.0], "rank"
     return [1.0 - (i / (k - 1)) for i in range(k)], "rank"
-
-
-def _incident_match_strength(query: str, incident_id: str, root: Path) -> float:
-    if not incident_id:
-        return 0.0
-    q = " ".join((query or "").lower().replace("_", " ").replace("-", " ").split())
-    rows = load_incidents(root)
-    for row in rows:
-        if str(row.get("incident_id") or "") != incident_id:
-            continue
-        aliases = [" ".join(str(a).lower().replace("_", " ").replace("-", " ").split()) for a in (row.get("aliases") or [])]
-        for a in aliases:
-            if a and a in q:
-                return 1.0
-        q_tokens = set(q.split())
-        for a in aliases:
-            a_tokens = set(a.split())
-            if a_tokens and len(q_tokens.intersection(a_tokens)) > 0:
-                return 0.5
-    return 0.0
 
 
 def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex: float = 0.45) -> dict:
@@ -91,7 +71,7 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         c.fused_score = (w_sem * c.sem_score) + (w_lex * c.lex_score)
         iid = incident_by_bead.get(c.bead_id, "")
         if iid and iid in incident_matches and c.fused_score >= INCIDENT_FLOOR:
-            c.fused_score += 0.12 * _incident_match_strength(query, iid, root)
+            c.fused_score += 0.12 * incident_match_strength(query, iid, root)
         out.append(c)
 
     out = sorted(

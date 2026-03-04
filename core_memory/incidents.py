@@ -32,13 +32,31 @@ def load_incidents(root: Path) -> list[dict]:
     return []
 
 
-def matched_incident_ids(query: str, root: Path) -> list[str]:
+def incident_match_strength(query: str, incident_id: str, root: Path) -> float:
+    if not incident_id:
+        return 0.0
     q = _norm(query)
+    q_tokens = set(q.split())
+    for row in load_incidents(root):
+        iid = str(row.get("incident_id") or "")
+        if iid != incident_id:
+            continue
+        aliases = [_norm(str(a)) for a in (row.get("aliases") or [])]
+        for a in aliases:
+            if a and a in q:
+                return 1.0
+        for a in aliases:
+            at = set(a.split())
+            if at and q_tokens.intersection(at):
+                return 0.5
+    return 0.0
+
+
+def matched_incident_ids(query: str, root: Path) -> list[str]:
     out = []
     for row in load_incidents(root):
         iid = str(row.get("incident_id") or "")
-        aliases = [str(a) for a in (row.get("aliases") or [])]
-        if any(_norm(a) in q for a in aliases if a):
+        if incident_match_strength(query, iid, root) > 0:
             out.append(iid)
     return sorted(set(out))
 

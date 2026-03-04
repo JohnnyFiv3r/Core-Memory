@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from core_memory.incidents import load_incidents
+from core_memory.incidents import incident_match_strength
 
 from .config import (
     LOW_INFO_ALNUM_RATIO_MIN,
@@ -117,25 +117,6 @@ def _low_info_score(bead: dict) -> float:
     return max(0.0, min(1.0, (0.3 * low_title) + (0.25 * low_summary) + (0.2 * low_alnum) + (0.25 * templ)))
 
 
-def _incident_strength_for(root: Path, query: str, incident_id: str) -> float:
-    if not incident_id:
-        return 0.0
-    q = " ".join((query or "").lower().replace("_", " ").replace("-", " ").split())
-    q_tokens = set(_tokenize(q))
-    for row in load_incidents(root):
-        if str(row.get("incident_id") or "") != incident_id:
-            continue
-        aliases = [" ".join(str(a).lower().replace("_", " ").replace("-", " ").split()) for a in (row.get("aliases") or [])]
-        for a in aliases:
-            if a and a in q:
-                return 1.0
-        for a in aliases:
-            at = set(_tokenize(a))
-            if at and q_tokens.intersection(at):
-                return 0.5
-    return 0.0
-
-
 def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
     idx_file = root / ".beads" / "index.json"
     if not idx_file.exists():
@@ -155,7 +136,7 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
         ch = _chain_features(beads, bid, adj)
         coverage = _weighted_coverage(bead, q_tokens)
         low_info = _low_info_score(bead)
-        incident_strength = _incident_strength_for(root, query, str(bead.get("incident_id") or ""))
+        incident_strength = incident_match_strength(query, str(bead.get("incident_id") or ""), root)
 
         structural_quality = (ch["chain_has_decision"] + ch["chain_has_evidence"] + ch["chain_has_outcome"]) / 3.0
         edge_support = (0.5 * ch["has_grounding_structural_edge"]) + (0.5 * (ch["structural_edge_count_clipped"] / 3.0))

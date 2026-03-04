@@ -363,6 +363,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         rinner = rdbg.get("debug") or {}
         ranked = rdbg.get("results") or []
         payload = {
+            "schema_version": "reason_explain.v1",
             "query": query,
             "normalized_query": " ".join((query or "").lower().split()),
             "k": int(k),

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import json
 import statistics
-import sys
 import time
 from pathlib import Path
 
 from core_memory.retrieval.hybrid import hybrid_lookup
+from core_memory.tools.memory_reason import memory_reason
 
 ROOT = Path("/home/node/.openclaw/workspace/memory")
 KPI_FILE = Path("/home/node/.openclaw/workspace/eval/kpi_set.json")
@@ -19,12 +19,33 @@ def _rr(results: list[str], expected: set[str]) -> float:
     return 0.0
 
 
+def _causal_grounded(reason_out: dict) -> bool:
+    cits = reason_out.get("citations") or []
+    chains = reason_out.get("chains") or []
+    has_decision_like = any(str(c.get("type") or "") in {"decision", "precedent"} for c in cits)
+    has_evidence_like = any(str(c.get("type") or "") in {"evidence", "lesson", "outcome"} for c in cits)
+    has_structural = any(len(c.get("edges") or []) > 0 for c in chains)
+    return bool(has_decision_like and has_evidence_like and has_structural)
+
+
+def _low_info_rate(reason_out: dict) -> float:
+    cits = reason_out.get("citations") or []
+    if not cits:
+        return 1.0
+    def low(c: dict) -> bool:
+        t = str(c.get("title") or "").lower()
+        return (not t) or ("[[reply_to_current]]" in t) or ("auto-compaction complete" in t)
+    return sum(1 for c in cits if low(c)) / max(1, len(cits))
+
+
 def main() -> int:
     cases = json.loads(KPI_FILE.read_text(encoding="utf-8"))
     recalls = []
     rrs = []
     lats = []
     deterministic_ok = True
+    low_info_rates = []
+    grounded_hits = []
 
     for c in cases:
         q = c["query"]
@@ -47,19 +68,36 @@ def main() -> int:
                 deterministic_ok = False
                 break
 
+        m = memory_reason(q, k=5, root=str(ROOT), debug=False)
+        low_info_rates.append(_low_info_rate(m))
+        grounded_hits.append(1.0 if _causal_grounded(m) else 0.0)
+
     recall5 = sum(recalls) / max(1, len(recalls))
     mrr = sum(rrs) / max(1, len(rrs))
     med_lat = statistics.median(lats) if lats else 0.0
+    p95_lat = statistics.quantiles(lats, n=20)[-1] if len(lats) >= 2 else (lats[0] if lats else 0.0)
+    low_info = sum(low_info_rates) / max(1, len(low_info_rates))
+    grounded = sum(grounded_hits) / max(1, len(grounded_hits))
 
     print(json.dumps({
         "cases": len(cases),
         "recall_at_5": round(recall5, 4),
         "mrr": round(mrr, 4),
         "median_latency_s": round(med_lat, 4),
+        "p95_latency_s": round(p95_lat, 4),
         "deterministic": deterministic_ok,
+        "low_info_citation_rate": round(low_info, 4),
+        "causal_grounding_rate": round(grounded, 4),
     }, indent=2))
 
-    ok = recall5 >= 0.60 and mrr >= 0.50 and med_lat <= 0.50 and deterministic_ok
+    ok = (
+        recall5 >= 0.60
+        and mrr >= 0.50
+        and med_lat <= 0.50
+        and p95_lat <= 1.0
+        and deterministic_ok
+        and low_info <= 0.50
+    )
     return 0 if ok else 2
 
 
