@@ -229,11 +229,16 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
             )
 
     # Refresh candidate recommendations every turn (agent-led promotion loop support).
-    candidate_eval = {"ok": False, "evaluated": 0}
+    candidate_eval = {"ok": False, "evaluated": 0, "auto_archived": 0}
     try:
-        candidate_eval = store.evaluate_candidates(limit=200, query_text=f"{user_query} {assistant_final}")
+        candidate_eval = store.evaluate_candidates(
+            limit=50,
+            query_text=f"{user_query} {assistant_final}",
+            auto_archive_hold=True,
+            min_age_hours=12,
+        )
     except Exception:
-        candidate_eval = {"ok": False, "evaluated": 0}
+        candidate_eval = {"ok": False, "evaluated": 0, "auto_archived": 0}
 
     delta = {
         "session_id": session_id,
@@ -248,6 +253,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
             "created_count": len(created),
             "promoted_count": len(promoted),
             "candidates_evaluated": int(candidate_eval.get("evaluated", 0) if isinstance(candidate_eval, dict) else 0),
+            "candidates_auto_archived": int(candidate_eval.get("auto_archived", 0) if isinstance(candidate_eval, dict) else 0),
         },
     }
 

@@ -1169,30 +1169,96 @@ class MemoryStore:
             "results": rows[: max(1, int(limit))],
         }
 
-    def evaluate_candidates(self, limit: int = 200, query_text: str = "") -> dict:
-        """Refresh advisory recommendation fields for candidates (called each turn)."""
+    def evaluate_candidates(
+        self,
+        limit: int = 50,
+        query_text: str = "",
+        auto_archive_hold: bool = False,
+        min_age_hours: int = 12,
+    ) -> dict:
+        """Refresh advisory recommendation fields for candidates (called each turn).
+
+        If auto_archive_hold=True, same-turn archive low-signal hold candidates
+        (no reinforcement, no query overlap, age >= min_age_hours).
+        """
         with store_lock(self.root):
             index = self._read_json(self.beads_dir / INDEX_FILE)
             rows, threshold = self._candidate_recommendation_rows(index, query_text=query_text)
-            now = datetime.now(timezone.utc).isoformat()
+            now_dt = datetime.now(timezone.utc)
+            now = now_dt.isoformat()
             updated = 0
+            auto_archived = 0
+            archive_file = self.beads_dir / "archive.jsonl"
+            decision_log = self.beads_dir / "events" / "promotion-decisions.jsonl"
+
             for row in rows[: max(1, int(limit))]:
                 bid = str(row.get("bead_id") or "")
                 bead = (index.get("beads") or {}).get(bid)
                 if not bead:
                     continue
+
                 bead["promotion_score"] = row.get("promotion_score")
                 bead["promotion_threshold"] = row.get("promotion_threshold")
                 bead["promotion_recommendation"] = row.get("recommendation")
                 bead["promotion_last_evaluated_at"] = now
                 bead["promotion_last_query_overlap"] = row.get("query_overlap", 0)
+
+                rec = str(row.get("recommendation") or "")
+                reinf = int((row.get("reinforcement") or {}).get("count", 0))
+                q_overlap = int(row.get("query_overlap", 0) or 0)
+                age_ok = False
+                created = str(bead.get("created_at") or "")
+                if created:
+                    try:
+                        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
+                        age_ok = ((now_dt - dt).total_seconds() / 3600.0) >= max(0, int(min_age_hours))
+                    except ValueError:
+                        age_ok = True
+
+                if auto_archive_hold and rec == "hold" and reinf == 0 and q_overlap == 0 and age_ok and str(bead.get("status") or "") == "candidate":
+                    revision_id = f"rev-{uuid.uuid4().hex[:12]}"
+                    append_jsonl(
+                        archive_file,
+                        {
+                            "bead_id": bid,
+                            "revision_id": revision_id,
+                            "archived_at": now,
+                            "archived_from_status": bead.get("status"),
+                            "snapshot": dict(bead),
+                            "reason": "auto_archive_hold_same_turn",
+                        },
+                    )
+                    bead["archive_ptr"] = {"revision_id": revision_id}
+                    bead["detail"] = ""
+                    bead["summary"] = (bead.get("summary") or [])[:1]
+                    bead["status"] = "archived"
+                    bead["demotion_reason"] = "auto_archive_hold_no_reinforcement_same_turn"
+                    bead["promotion_decision"] = "archive"
+                    bead["promotion_reason"] = "auto_archive_hold_same_turn"
+                    bead["promotion_decided_at"] = now
+                    append_jsonl(
+                        decision_log,
+                        {
+                            "ts": now,
+                            "bead_id": bid,
+                            "before_status": "candidate",
+                            "after_status": "archived",
+                            "decision": "archive",
+                            "reason": "auto_archive_hold_same_turn",
+                            "considerations": ["no_reinforcement", "no_query_overlap", f"age_hours>={int(min_age_hours)}"],
+                        },
+                    )
+                    auto_archived += 1
+
                 index["beads"][bid] = bead
                 updated += 1
+
             self._write_json(self.beads_dir / INDEX_FILE, index)
             return {
                 "ok": True,
                 "candidate_total": len(rows),
                 "evaluated": updated,
+                "auto_archived": auto_archived,
                 "adaptive_threshold": round(threshold, 4),
             }
 
