@@ -139,6 +139,21 @@ class MemoryStore:
     def _tokenize(self, text: str) -> set[str]:
         return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
 
+    def _is_memory_intent(self, text: str) -> bool:
+        q = (text or "").lower()
+        cues = [
+            "remember",
+            "what did we decide",
+            "earlier",
+            "last time",
+            "previous",
+            "why did we",
+            "recall",
+            "history",
+            "find memory",
+        ]
+        return any(c in q for c in cues)
+
     def _redact_text(self, text: str) -> str:
         """Conservative secret redaction for high-confidence credential patterns only."""
         if not text:
@@ -274,12 +289,16 @@ class MemoryStore:
         context_tags: Optional[list[str]] = None,
         limit: int = 20,
         strict_first: bool = True,
+        deep_recall: bool = False,
+        max_uncompact_per_turn: int = 2,
+        auto_memory_intent: bool = True,
     ) -> dict:
-        """Context-aware retrieval with strict->fallback matching.
+        """Context-aware retrieval with strict->fallback matching + bounded deep recall.
 
-        Phase 4 behavior:
+        Behavior:
         - strict pass: require overlap with requested context_tags
         - fallback pass: fill remaining slots by recency if strict underflows
+        - deep recall (optional/heuristic): uncompact top compacted/archived hits when memory-intent detected
         """
         index = self._read_json(self.beads_dir / INDEX_FILE)
         beads = list(index.get("beads", {}).values())
@@ -313,6 +332,7 @@ class MemoryStore:
                 "context_tags": b.get("context_tags") or [],
                 "tag_overlap": tag_overlap,
                 "created_at": b.get("created_at"),
+                "detail_present": bool((b.get("detail") or "").strip()),
             }
             if req_set and tag_overlap > 0:
                 strict.append(row)
@@ -330,12 +350,56 @@ class MemoryStore:
             mode = "fallback" if req_set else "global"
             selected = (strict + fallback)[:limit]
 
+        should_deep_recall = bool(deep_recall or (auto_memory_intent and self._is_memory_intent(query_text)))
+        uncompact_budget = max(0, int(max_uncompact_per_turn))
+        uncompact_attempted = []
+        uncompact_applied = []
+
+        if should_deep_recall and uncompact_budget > 0:
+            candidates = []
+            for row in selected:
+                status = str(row.get("status") or "").lower()
+                if status in {"archived", "compacted"} and not row.get("detail_present"):
+                    candidates.append(row)
+
+            for row in candidates[:uncompact_budget]:
+                bid = str(row.get("id") or "")
+                if not bid:
+                    continue
+                uncompact_attempted.append(bid)
+                res = self.uncompact(bid)
+                if res.get("ok"):
+                    uncompact_applied.append(bid)
+
+            if uncompact_applied:
+                # Refresh selected rows to expose newly-restored detail snippets.
+                idx2 = self._read_json(self.beads_dir / INDEX_FILE)
+                bead_map = idx2.get("beads", {})
+                refreshed = []
+                for row in selected:
+                    bead = bead_map.get(str(row.get("id") or ""), {})
+                    detail = (bead.get("detail") or "").strip()
+                    row2 = dict(row)
+                    row2["detail_present"] = bool(detail)
+                    if detail:
+                        row2["detail_preview"] = detail[:240]
+                    refreshed.append(row2)
+                selected = refreshed
+
         return {
             "ok": True,
             "mode": mode,
             "requested_context_tags": req_tags,
             "strict_count": len(strict),
             "fallback_count": len(fallback),
+            "deep_recall": {
+                "enabled": should_deep_recall,
+                "auto_memory_intent": bool(auto_memory_intent),
+                "query_memory_intent": bool(self._is_memory_intent(query_text)),
+                "max_uncompact_per_turn": uncompact_budget,
+                "attempted": uncompact_attempted,
+                "applied": uncompact_applied,
+            },
             "results": selected[:limit],
         }
 

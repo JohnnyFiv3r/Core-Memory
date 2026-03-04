@@ -133,6 +133,10 @@ Privacy modes:
 - `store_full_text=true`: store inline assistant text
 - `store_full_text=false`: store `assistant_final_ref` + hashes
 
+Retrieval model:
+- Rolling window injection for bounded, always-on context
+- Deep recall path (`retrieve-context`) can search full history and bounded-uncompact archived beads when memory intent is detected
+
 ---
 
 ## Roadmap

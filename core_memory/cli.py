@@ -71,6 +71,9 @@ def main():
     retrieve_ctx_parser.add_argument("--context-tags", nargs="*", help="Requested environment tags")
     retrieve_ctx_parser.add_argument("--limit", type=int, default=20)
     retrieve_ctx_parser.add_argument("--no-strict-first", action="store_true")
+    retrieve_ctx_parser.add_argument("--deep-recall", action="store_true", help="Enable bounded deep recall (auto-uncompact compacted/archived beads)")
+    retrieve_ctx_parser.add_argument("--max-uncompact-per-turn", type=int, default=2, help="Bounded deep recall budget per call")
+    retrieve_ctx_parser.add_argument("--no-auto-memory-intent", action="store_true", help="Disable memory-intent heuristic trigger")
     
     # dream command
     dream_parser = subparsers.add_parser("dream", help="Run Dreamer analysis")
@@ -256,6 +259,9 @@ def main():
             context_tags=args.context_tags,
             limit=args.limit,
             strict_first=not args.no_strict_first,
+            deep_recall=args.deep_recall,
+            max_uncompact_per_turn=args.max_uncompact_per_turn,
+            auto_memory_intent=not args.no_auto_memory_intent,
         )
         print(json.dumps(result, indent=2))
     
