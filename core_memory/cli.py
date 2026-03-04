@@ -11,6 +11,7 @@ from pathlib import Path
 
 # Use relative import to avoid circular import
 from .store import MemoryStore, DEFAULT_ROOT
+from .archive_index import rebuild_archive_index
 from .openclaw_integration import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
@@ -189,6 +190,8 @@ def main():
 
     metrics_promo_kpis = metrics_sub.add_parser("promotion-kpis", help="Report promotion decision KPIs and recommendation alignment")
     metrics_promo_kpis.add_argument("--limit", type=int, default=500)
+
+    metrics_archive_rebuild = metrics_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index from archive.jsonl")
 
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
@@ -380,6 +383,8 @@ def main():
             print(json.dumps(memory.decide_promotion_bulk(payload), indent=2))
         elif args.metrics_cmd == "promotion-kpis":
             print(json.dumps(memory.promotion_kpis(limit=args.limit), indent=2))
+        elif args.metrics_cmd == "archive-index-rebuild":
+            print(json.dumps(rebuild_archive_index(memory.root), indent=2))
         elif args.metrics_cmd == "start-run":
             print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
         elif args.metrics_cmd == "step":
