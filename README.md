@@ -2,26 +2,7 @@
 
 Core Memory is a deterministic memory layer for agents. It stores structured memory events ("beads") and explicit links so recall stays inspectable and repeatable across context resets.
 
-```text
-Agent Turn
-   |
-   v
-Sidecar Hook
-   |
-   v
-Core Memory Store
-   |
-   v
-Association Engine
-   |
-   v
-Context Packet Builder
-   |
-   v
-Prompt Injection
-```
-
-![Core Memory architecture flow](docs/assets/core-memory-architecture-flow.jpg)
+![Core Memory architecture flow](docs/assets/core-memory-hero-flow.jpg)
 
 ---
 
