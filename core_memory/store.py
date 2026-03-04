@@ -1230,7 +1230,7 @@ class MemoryStore:
                     )
                     bead["archive_ptr"] = {"revision_id": revision_id}
                     bead["detail"] = ""
-                    bead["summary"] = (bead.get("summary") or [])[:1]
+                    bead["summary"] = (bead.get("summary") or [])[:2]
                     bead["status"] = "archived"
                     bead["demotion_reason"] = "auto_archive_hold_no_reinforcement_same_turn"
                     bead["promotion_decision"] = "archive"
@@ -1327,7 +1327,7 @@ class MemoryStore:
                 )
                 bead["archive_ptr"] = {"revision_id": revision_id}
                 bead["detail"] = ""
-                bead["summary"] = (bead.get("summary") or [])[:1]
+                bead["summary"] = (bead.get("summary") or [])[:2]
                 bead["status"] = "archived"
                 bead["demotion_reason"] = str(reason).strip()
 
@@ -1469,7 +1469,7 @@ class MemoryStore:
                     })
                     bead["archive_ptr"] = {"revision_id": revision_id}
                     bead["detail"] = ""
-                    bead["summary"] = (bead.get("summary") or [])[:1]
+                    bead["summary"] = (bead.get("summary") or [])[:2]
                     bead["status"] = "archived"
                     bead["demoted_at"] = datetime.now(timezone.utc).isoformat()
                     bead["demotion_reason"] = "phase_b_rebalance"
@@ -2213,7 +2213,7 @@ class MemoryStore:
 
                         # Compact into skeleton representation.
                         bead["detail"] = ""
-                        bead["summary"] = (bead.get("summary") or [])[:1]
+                        bead["summary"] = (bead.get("summary") or [])[:2]
                         bead["status"] = "archived"
                         compacted += 1
 

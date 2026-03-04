@@ -4,6 +4,10 @@
 Usage:
   python3 consolidate.py consolidate --session <id> [--promote] [--token-budget 2000]
   python3 consolidate.py rolling-window [--token-budget 2000] [--max-beads 200]
+
+Notes:
+  - Safe default: consolidation does NOT auto-promote unless --promote is explicitly passed.
+  - Even with --promote, only candidate beads can be auto-promoted when CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT=1.
 """
 
 import argparse
@@ -151,7 +155,7 @@ def main():
 
     p1 = sub.add_parser("consolidate", help="Compact one session and refresh rolling window")
     p1.add_argument("--session", required=True)
-    p1.add_argument("--promote", action="store_true")
+    p1.add_argument("--promote", action="store_true", help="Opt-in: attempt candidate-only auto-promotion (requires CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT=1)")
     p1.add_argument("--token-budget", type=int, default=int(os.environ.get("CORE_MEMORY_WINDOW_TOKENS", "2000")))
     p1.add_argument("--max-beads", type=int, default=200)
 
