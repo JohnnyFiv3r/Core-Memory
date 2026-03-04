@@ -73,7 +73,10 @@ def main():
     retrieve_ctx_parser.add_argument("--no-strict-first", action="store_true")
     
     # dream command
-    subparsers.add_parser("dream", help="Run Dreamer analysis")
+    dream_parser = subparsers.add_parser("dream", help="Run Dreamer analysis")
+    dream_parser.add_argument("--novel-only", action="store_true", help="Exclude previously surfaced bead pairs")
+    dream_parser.add_argument("--seen-window-runs", type=int, default=0, help="Only consider the last N Dreamer runs for novelty dedupe (0=all)")
+    dream_parser.add_argument("--max-exposure", type=int, default=-1, help="Skip candidates where either bead has been surfaced more than this count (-1=disabled)")
     
     # rebuild command
     subparsers.add_parser("rebuild", help="Rebuild index from events")
@@ -257,7 +260,11 @@ def main():
         print(json.dumps(result, indent=2))
     
     elif args.command == "dream":
-        results = memory.dream()
+        results = memory.dream(
+            novel_only=args.novel_only,
+            seen_window_runs=args.seen_window_runs,
+            max_exposure=args.max_exposure,
+        )
         print(json.dumps(results, indent=2))
     
     elif args.command == "rebuild":

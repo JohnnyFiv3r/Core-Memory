@@ -1613,17 +1613,27 @@ class MemoryStore:
         self.track_bead_recalled(1)
         return True
     
-    def dream(self) -> list:
+    def dream(self, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
         """
         Run Dreamer association analysis.
-        
+
+        Args:
+            novel_only: Exclude previously surfaced bead pairs
+            seen_window_runs: Use only last N runs when deduping seen pairs (0=all)
+            max_exposure: Skip candidates when either bead has been surfaced more than this count (-1=disabled)
+
         Returns:
             List of discovered associations
         """
         try:
             from . import dreamer
             # Pass the store instance for decoupled access
-            return dreamer.run_analysis(store=self)
+            return dreamer.run_analysis(
+                store=self,
+                novel_only=novel_only,
+                seen_window_runs=seen_window_runs,
+                max_exposure=max_exposure,
+            )
         except ImportError:
             return [{"error": "Dreamer not available"}]
     
