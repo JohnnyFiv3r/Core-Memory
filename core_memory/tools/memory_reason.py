@@ -298,6 +298,20 @@ def _quality_score(result: dict) -> float:
     return round(max(0.0, min(1.0, (0.55 * avg_chain) + (0.45 * grounded) - (0.35 * low_info))), 4)
 
 
+def _causal_intent(query: str) -> bool:
+    q = (query or "").lower()
+    return any(x in q for x in ["why", "decide", "because", "rationale", "what happened"])
+
+
+def _grounding_signal(result: dict) -> float:
+    chains = result.get("chains") or []
+    cits = result.get("citations") or []
+    has_structural = 1.0 if any(len(c.get("edges") or []) > 0 for c in chains) else 0.0
+    has_decision = 1.0 if any(str(c.get("type") or "") in {"decision", "precedent"} for c in cits) else 0.0
+    has_evidence = 1.0 if any(str(c.get("type") or "") in {"evidence", "lesson", "outcome"} for c in cits) else 0.0
+    return (0.5 * has_structural) + (0.25 * has_decision) + (0.25 * has_evidence)
+
+
 def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = False, explain: bool = False) -> dict:
     root_p = Path(root)
     store = MemoryStore(root)
@@ -332,7 +346,14 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         retry = planners.get(retry_route, _plan_remember)(store, root_p, query, k)
         if retry.get("ok"):
             retry_q = _quality_score(retry)
-            if retry_q >= primary_q:
+            causal = _causal_intent(query)
+            p_ground = _grounding_signal(primary)
+            r_ground = _grounding_signal(retry)
+            should_take = retry_q >= primary_q
+            # For causal questions, don't swap to a weaker non-grounded route.
+            if causal and r_ground < p_ground:
+                should_take = False
+            if should_take:
                 primary = retry
                 primary_q = retry_q
                 chosen_route = retry_route
