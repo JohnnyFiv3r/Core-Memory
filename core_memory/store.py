@@ -1163,6 +1163,91 @@ class MemoryStore:
             "results": rows[: max(1, int(limit))],
         }
 
+    def decide_promotion(
+        self,
+        *,
+        bead_id: str,
+        decision: str,
+        reason: str = "",
+        considerations: Optional[list[str]] = None,
+    ) -> dict:
+        """Apply agent-led promotion decision for a bead.
+
+        decision: promote | keep_candidate | archive
+        reason: required for promote/archive
+        """
+        decision_n = str(decision or "").strip().lower()
+        if decision_n not in {"promote", "keep_candidate", "archive"}:
+            return {"ok": False, "error": "invalid_decision"}
+
+        if decision_n in {"promote", "archive"} and not str(reason or "").strip():
+            return {"ok": False, "error": "reason_required_for_promote_or_archive"}
+
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            bead = (index.get("beads") or {}).get(bead_id)
+            if not bead:
+                return {"ok": False, "error": f"bead_not_found:{bead_id}"}
+
+            before = str(bead.get("status") or "")
+            now = datetime.now(timezone.utc).isoformat()
+            if decision_n == "promote":
+                bead["status"] = "promoted"
+                bead["promoted_at"] = now
+                bead["promotion_reason"] = str(reason).strip()
+            elif decision_n == "keep_candidate":
+                bead["status"] = "candidate"
+            elif decision_n == "archive":
+                archive_file = self.beads_dir / "archive.jsonl"
+                revision_id = f"rev-{uuid.uuid4().hex[:12]}"
+                append_jsonl(
+                    archive_file,
+                    {
+                        "bead_id": bead_id,
+                        "revision_id": revision_id,
+                        "archived_at": now,
+                        "archived_from_status": bead.get("status"),
+                        "snapshot": dict(bead),
+                        "reason": "agent_decision_archive",
+                    },
+                )
+                bead["archive_ptr"] = {"revision_id": revision_id}
+                bead["detail"] = ""
+                bead["summary"] = (bead.get("summary") or [])[:1]
+                bead["status"] = "archived"
+                bead["demotion_reason"] = str(reason).strip()
+
+            bead["promotion_decision"] = decision_n
+            bead["promotion_decided_at"] = now
+            if considerations:
+                bead["promotion_considerations"] = [str(c) for c in considerations][:8]
+
+            index["beads"][bead_id] = bead
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+
+            # append audit row
+            decision_log = self.beads_dir / "events" / "promotion-decisions.jsonl"
+            append_jsonl(
+                decision_log,
+                {
+                    "ts": now,
+                    "bead_id": bead_id,
+                    "before_status": before,
+                    "after_status": bead.get("status"),
+                    "decision": decision_n,
+                    "reason": str(reason or ""),
+                    "considerations": [str(c) for c in (considerations or [])][:8],
+                },
+            )
+
+            return {
+                "ok": True,
+                "bead_id": bead_id,
+                "before_status": before,
+                "after_status": bead.get("status"),
+                "decision": decision_n,
+            }
+
     def rebalance_promotions(self, apply: bool = False) -> dict:
         """Phase B: score promoted beads and demote weakly-supported promotions."""
         with store_lock(self.root):

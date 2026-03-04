@@ -178,6 +178,12 @@ def main():
     metrics_slate.add_argument("--limit", type=int, default=20)
     metrics_slate.add_argument("--query", default="")
 
+    metrics_decide = metrics_sub.add_parser("decide-promotion", help="Apply agent promotion decision for one bead")
+    metrics_decide.add_argument("--id", required=True, help="Bead ID")
+    metrics_decide.add_argument("--decision", required=True, choices=["promote", "keep_candidate", "archive"])
+    metrics_decide.add_argument("--reason", default="", help="Required for promote/archive")
+    metrics_decide.add_argument("--consideration", nargs="*", help="Optional decision considerations")
+
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
     metrics_log.add_argument("--mode", default="core_memory")
@@ -354,6 +360,13 @@ def main():
             print(json.dumps(memory.rebalance_promotions(apply=args.apply), indent=2))
         elif args.metrics_cmd == "promotion-slate":
             print(json.dumps(memory.promotion_slate(limit=args.limit, query_text=args.query), indent=2))
+        elif args.metrics_cmd == "decide-promotion":
+            print(json.dumps(memory.decide_promotion(
+                bead_id=args.id,
+                decision=args.decision,
+                reason=args.reason,
+                considerations=args.consideration or [],
+            ), indent=2))
         elif args.metrics_cmd == "start-run":
             print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
         elif args.metrics_cmd == "step":
