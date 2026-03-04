@@ -44,6 +44,7 @@ class Scope(Enum):
 class Status(Enum):
     """Status of a bead in the lifecycle."""
     OPEN = "open"
+    CANDIDATE = "candidate"
     CLOSED = "closed"
     PROMOTED = "promoted"
     COMPACTED = "compacted"

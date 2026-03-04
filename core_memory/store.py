@@ -1642,6 +1642,33 @@ class MemoryStore:
                 if bead_id in skip:
                     continue
 
+                # Optional promote pass first (candidate-only; never blanket).
+                if promote and bead.get("status") != "promoted":
+                    btype = str(bead.get("type") or "").lower()
+                    curr_status = str(bead.get("status") or "").lower()
+                    because = bead.get("because") or []
+                    has_evidence = self._has_evidence(bead)
+                    detail_now = (bead.get("detail") or "").strip()
+                    has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+                    allow_promote = False
+                    if curr_status == "candidate":
+                        if btype == "decision":
+                            allow_promote = bool(because and (has_evidence or detail_now or has_link))
+                        elif btype == "lesson":
+                            allow_promote = bool(because and (has_evidence or detail_now or has_link))
+                        elif btype == "outcome":
+                            result = str(bead.get("result") or "").strip().lower()
+                            allow_promote = result in {"resolved", "failed", "partial", "confirmed"} and (has_link or has_evidence or detail_now)
+                        elif btype == "precedent":
+                            allow_promote = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
+                        elif btype in {"evidence", "design_principle", "failed_hypothesis"}:
+                            allow_promote = bool(has_evidence or detail_now or has_link)
+
+                    if allow_promote:
+                        bead["status"] = "promoted"
+                        bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
+                        bead["promotion_reason"] = str(bead.get("promotion_reason") or "policy_auto_promote")
+
                 # Invariants:
                 # - promoted beads always keep full detail
                 # - session boundary beads always keep full detail
@@ -1650,40 +1677,29 @@ class MemoryStore:
                 is_session_boundary = bead_type in {"session_start", "session_end"}
                 is_promoted = bead_status == "promoted"
 
-                detail = bead.get("detail", "")
-                if detail and not is_promoted and not is_session_boundary:
-                    archive = {
-                        "bead_id": bead_id,
-                        "detail": detail,
-                        "summary": bead.get("summary", []),
-                        "archived_at": datetime.now(timezone.utc).isoformat(),
-                    }
-                    append_jsonl(archive_file, archive)
-                    bead["detail"] = ""
-                    # Non-promoted compacted beads become archived/minimal context.
-                    bead["status"] = "archived"
-                    compacted += 1
-                if promote and bead.get("status") != "promoted":
-                    btype = str(bead.get("type") or "").lower()
-                    because = bead.get("because") or []
-                    has_evidence = self._has_evidence(bead)
-                    detail_now = (bead.get("detail") or "").strip()
-                    allow_promote = True
-                    if btype == "decision":
-                        allow_promote = bool(because and (has_evidence or detail_now))
-                    elif btype == "lesson":
-                        allow_promote = bool(because)
-                    elif btype == "outcome":
-                        result = str(bead.get("result") or "").strip().lower()
-                        has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-                        allow_promote = result in {"resolved", "failed", "partial", "confirmed"} and (has_link or has_evidence)
-                    elif btype == "precedent":
-                        allow_promote = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
+                if not is_promoted and not is_session_boundary:
+                    already_archived = str(bead.get("status") or "").lower() == "archived"
+                    has_ptr = isinstance(bead.get("archive_ptr"), dict) and bool((bead.get("archive_ptr") or {}).get("revision_id"))
+                    has_detail = bool((bead.get("detail") or "").strip())
+                    if not (already_archived and has_ptr and not has_detail):
+                        # Archive full pre-compaction snapshot as append-only revision.
+                        revision_id = f"rev-{uuid.uuid4().hex[:12]}"
+                        archive = {
+                            "bead_id": bead_id,
+                            "revision_id": revision_id,
+                            "archived_at": datetime.now(timezone.utc).isoformat(),
+                            "archived_from_status": bead.get("status"),
+                            "snapshot": dict(bead),
+                        }
+                        append_jsonl(archive_file, archive)
+                        bead["archive_ptr"] = {"revision_id": revision_id}
 
-                    if allow_promote:
-                        bead["status"] = "promoted"
-                        bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
-                        bead["promotion_reason"] = str(bead.get("promotion_reason") or "policy_auto_promote")
+                        # Compact into skeleton representation.
+                        bead["detail"] = ""
+                        bead["summary"] = (bead.get("summary") or [])[:1]
+                        bead["status"] = "archived"
+                        compacted += 1
+
                 index["beads"][bead_id] = bead
 
             self._write_json(self.beads_dir / INDEX_FILE, index)
@@ -1696,7 +1712,7 @@ class MemoryStore:
             }
 
     def uncompact(self, bead_id: str) -> dict:
-        """Restore compacted bead detail from core archive."""
+        """Restore compacted bead detail from append-only archive revisions."""
         with store_lock(self.root):
             index = self._read_json(self.beads_dir / INDEX_FILE)
             if bead_id not in index.get("beads", {}):
@@ -1706,26 +1722,43 @@ class MemoryStore:
             if not archive_file.exists():
                 return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
 
+            bead = index["beads"][bead_id]
+            wanted_rev = ((bead.get("archive_ptr") or {}).get("revision_id") if isinstance(bead.get("archive_ptr"), dict) else None)
+
             found = None
-            with open(archive_file, "r") as f:
+            with open(archive_file, "r", encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
                     row = json.loads(line)
-                    if row.get("bead_id") == bead_id:
-                        found = row
+                    if row.get("bead_id") != bead_id:
+                        continue
+                    if wanted_rev and row.get("revision_id") != wanted_rev:
+                        continue
+                    found = row
 
             if not found:
                 return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
 
-            bead = index["beads"][bead_id]
-            bead["detail"] = found.get("detail", "")
-            if found.get("summary"):
-                bead["summary"] = found.get("summary")
-            index["beads"][bead_id] = bead
+            # New format: full snapshot. Legacy fallback: detail/summary fields.
+            snapshot = found.get("snapshot") if isinstance(found.get("snapshot"), dict) else None
+            if snapshot:
+                restored = dict(snapshot)
+                restored["status"] = "open" if bead.get("status") == "archived" else bead.get("status")
+                restored["uncompacted_at"] = datetime.now(timezone.utc).isoformat()
+                index["beads"][bead_id] = restored
+            else:
+                bead["detail"] = found.get("detail", "")
+                if found.get("summary"):
+                    bead["summary"] = found.get("summary")
+                if bead.get("status") == "archived":
+                    bead["status"] = "open"
+                bead["uncompacted_at"] = datetime.now(timezone.utc).isoformat()
+                index["beads"][bead_id] = bead
+
             self._write_json(self.beads_dir / INDEX_FILE, index)
-            return {"ok": True, "id": bead_id}
+            return {"ok": True, "id": bead_id, "revision_id": found.get("revision_id")}
 
     def myelinate(self, apply: bool = False) -> dict:
         """Core-native myelination scaffold (deterministic)."""

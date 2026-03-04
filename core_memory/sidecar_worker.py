@@ -158,6 +158,8 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
             kwargs["result"] = _infer_outcome_result(user_query, assistant_final)
             if window_bead_ids:
                 kwargs["linked_bead_id"] = str(window_bead_ids[0])
+        if bead_type in {"decision", "lesson", "outcome", "precedent", "design_principle", "failed_hypothesis", "evidence"} and score >= policy.promote_threshold:
+            kwargs["status"] = "candidate"
         if bead_type == "evidence":
             if not kwargs["summary"]:
                 kwargs["summary"] = ["evidence from finalized turn"]
