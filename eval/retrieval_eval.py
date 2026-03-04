@@ -19,13 +19,19 @@ def _rr(results: list[str], expected: set[str]) -> float:
     return 0.0
 
 
-def _causal_grounded(reason_out: dict) -> bool:
+def _causal_grounding_components(reason_out: dict) -> dict:
     cits = reason_out.get("citations") or []
     chains = reason_out.get("chains") or []
     has_decision_like = any(str(c.get("type") or "") in {"decision", "precedent"} for c in cits)
     has_evidence_like = any(str(c.get("type") or "") in {"evidence", "lesson", "outcome"} for c in cits)
     has_structural = any(len(c.get("edges") or []) > 0 for c in chains)
-    return bool(has_decision_like and has_evidence_like and has_structural)
+    grounded = bool(has_decision_like and has_evidence_like and has_structural)
+    return {
+        "grounded": grounded,
+        "has_decision_like": bool(has_decision_like),
+        "has_evidence_like": bool(has_evidence_like),
+        "has_structural": bool(has_structural),
+    }
 
 
 def _low_info_rate(reason_out: dict) -> float:
@@ -46,6 +52,7 @@ def main() -> int:
     deterministic_ok = True
     low_info_rates = []
     grounded_hits = []
+    details = []
 
     for c in cases:
         q = c["query"]
@@ -69,8 +76,19 @@ def main() -> int:
                 break
 
         m = memory_reason(q, k=5, root=str(ROOT), debug=False)
-        low_info_rates.append(_low_info_rate(m))
-        grounded_hits.append(1.0 if _causal_grounded(m) else 0.0)
+        low_info = _low_info_rate(m)
+        comps = _causal_grounding_components(m)
+        low_info_rates.append(low_info)
+        grounded_hits.append(1.0 if comps.get("grounded") else 0.0)
+        details.append({
+            "id": c.get("id"),
+            "query": q,
+            "top_ids": ids1,
+            "hit_at_5": hit,
+            "rr": _rr(ids1, exp),
+            "low_info_rate": round(low_info, 4),
+            "grounding": comps,
+        })
 
     recall5 = sum(recalls) / max(1, len(recalls))
     mrr = sum(rrs) / max(1, len(rrs))
@@ -88,6 +106,7 @@ def main() -> int:
         "deterministic": deterministic_ok,
         "low_info_citation_rate": round(low_info, 4),
         "causal_grounding_rate": round(grounded, 4),
+        "details": details,
     }, indent=2))
 
     ok = (
