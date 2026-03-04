@@ -67,8 +67,8 @@ class TestCompactionPhaseA(unittest.TestCase):
             idx = s._read_json(s.beads_dir / "index.json")
             # context should never be blanket-promoted
             self.assertNotEqual("promoted", idx["beads"][bid_context]["status"])
-            # candidate decision can be promoted under gate
-            self.assertEqual("promoted", idx["beads"][bid_candidate]["status"])
+            # candidate remains candidate without reinforcement (Phase B rule)
+            self.assertEqual("candidate", idx["beads"][bid_candidate]["status"])
 
 
 if __name__ == "__main__":

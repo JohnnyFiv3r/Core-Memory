@@ -986,6 +986,187 @@ class MemoryStore:
 
         return report
 
+    def _reinforcement_signals(self, index: dict, bead: dict) -> dict:
+        bead_id = str(bead.get("id") or "")
+        if not bead_id:
+            return {"count": 0}
+
+        bead_links = self._normalize_links(bead.get("links"))
+        links_in = 0
+        links_out = len(bead_links)
+        for other in (index.get("beads") or {}).values():
+            if other.get("id") == bead_id:
+                continue
+            if str(other.get("linked_bead_id") or "") == bead_id:
+                links_in += 1
+                continue
+            for l in self._normalize_links(other.get("links")):
+                if str((l or {}).get("bead_id") or "") == bead_id:
+                    links_in += 1
+                    break
+
+        assoc_deg = 0
+        for a in (index.get("associations") or []):
+            if not (a.get("source_bead") == bead_id or a.get("target_bead") == bead_id):
+                continue
+            edge_class = str(a.get("edge_class") or "").lower()
+            rel = str(a.get("relationship") or "").lower()
+            # Count only stronger/non-derived reinforcement signals.
+            if edge_class == "derived" and rel in {"shared_tag", "follows", "related"}:
+                continue
+            assoc_deg += 1
+
+        recurrence = len(bead.get("source_turn_ids") or []) >= 2
+        recalled = int(bead.get("recall_count") or 0) > 0
+
+        cnt = 0
+        for v in [links_in > 0 or links_out > 0, assoc_deg > 0, recurrence, recalled]:
+            cnt += 1 if v else 0
+
+        return {
+            "links_in": links_in,
+            "links_out": links_out,
+            "association_degree": assoc_deg,
+            "recurrence": recurrence,
+            "recalled": recalled,
+            "count": cnt,
+        }
+
+    def _promotion_score(self, index: dict, bead: dict) -> tuple[float, dict]:
+        t = str(bead.get("type") or "").lower()
+        priors = {
+            "design_principle": 0.72,
+            "precedent": 0.7,
+            "decision": 0.66,
+            "lesson": 0.62,
+            "outcome": 0.6,
+            "evidence": 0.58,
+            "goal": 0.56,
+            "context": 0.35,
+            "checkpoint": 0.35,
+        }
+        score = priors.get(t, 0.4)
+
+        has_evidence = self._has_evidence(bead)
+        detail_len = len((bead.get("detail") or "").strip())
+        has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+        if has_evidence:
+            score += 0.12
+        if detail_len >= 80:
+            score += 0.1
+        if has_link:
+            score += 0.08
+
+        rs = self._reinforcement_signals(index, bead)
+        score += min(0.16, 0.03 * float(rs.get("association_degree", 0)))
+        if rs.get("recurrence"):
+            score += 0.06
+        if rs.get("recalled"):
+            score += 0.05
+        if rs.get("links_in", 0) > 0:
+            score += 0.05
+
+        # outcome coupling boost
+        if t == "outcome" and str(bead.get("linked_bead_id") or "").strip():
+            score += 0.05
+
+        # age/decay: small freshness bonus only
+        created_at = str(bead.get("created_at") or "")
+        freshness = 0.0
+        if created_at:
+            try:
+                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+                age_days = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+                freshness = 0.05 if age_days <= 2.0 else 0.0
+            except ValueError:
+                freshness = 0.0
+        score += freshness
+
+        score = max(0.0, min(1.0, score))
+        return score, {
+            "has_evidence": has_evidence,
+            "detail_len": detail_len,
+            "has_link": has_link,
+            "freshness": freshness,
+            "reinforcement": rs,
+        }
+
+    def _adaptive_promotion_threshold(self, index: dict) -> float:
+        beads = list((index.get("beads") or {}).values())
+        if not beads:
+            return 0.72
+        promoted = sum(1 for b in beads if str(b.get("status") or "") == "promoted")
+        ratio = promoted / max(1, len(beads))
+        thr = 0.72
+        if ratio > 0.25:
+            thr += min(0.2, (ratio - 0.25) * 0.6)
+        return max(0.68, min(0.92, thr))
+
+    def _candidate_promotable(self, index: dict, bead: dict) -> tuple[bool, dict]:
+        score, factors = self._promotion_score(index, bead)
+        threshold = self._adaptive_promotion_threshold(index)
+        reinforcement_count = int((factors.get("reinforcement") or {}).get("count", 0))
+        allow = score >= threshold and reinforcement_count >= 1
+        reason = "score+reinforcement" if allow else "insufficient_score_or_reinforcement"
+        meta = {
+            "score": round(score, 4),
+            "threshold": round(threshold, 4),
+            "reinforcement_count": reinforcement_count,
+            "reason": reason,
+        }
+        return allow, meta
+
+    def rebalance_promotions(self, apply: bool = False) -> dict:
+        """Phase B: score promoted beads and demote weakly-supported promotions."""
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            promoted_ids = [bid for bid, b in (index.get("beads") or {}).items() if str(b.get("status") or "") == "promoted"]
+            threshold = self._adaptive_promotion_threshold(index)
+            demote: list[dict] = []
+
+            for bid in promoted_ids:
+                bead = index["beads"][bid]
+                score, factors = self._promotion_score(index, bead)
+                reinf = int((factors.get("reinforcement") or {}).get("count", 0))
+                if score < threshold and reinf == 0 and str(bead.get("type") or "") != "session_end" and str(bead.get("type") or "") != "session_start":
+                    demote.append({"bead_id": bid, "score": round(score, 4), "reinforcement": reinf})
+
+            applied = 0
+            if apply:
+                archive_file = self.beads_dir / "archive.jsonl"
+                for row in demote:
+                    bid = row["bead_id"]
+                    bead = index["beads"].get(bid)
+                    if not bead:
+                        continue
+                    revision_id = f"rev-{uuid.uuid4().hex[:12]}"
+                    append_jsonl(archive_file, {
+                        "bead_id": bid,
+                        "revision_id": revision_id,
+                        "archived_at": datetime.now(timezone.utc).isoformat(),
+                        "archived_from_status": bead.get("status"),
+                        "snapshot": dict(bead),
+                    })
+                    bead["archive_ptr"] = {"revision_id": revision_id}
+                    bead["detail"] = ""
+                    bead["summary"] = (bead.get("summary") or [])[:1]
+                    bead["status"] = "archived"
+                    bead["demoted_at"] = datetime.now(timezone.utc).isoformat()
+                    bead["demotion_reason"] = "phase_b_rebalance"
+                    index["beads"][bid] = bead
+                    applied += 1
+
+                self._write_json(self.beads_dir / INDEX_FILE, index)
+
+            return {
+                "ok": True,
+                "promoted_total": len(promoted_ids),
+                "adaptive_threshold": round(threshold, 4),
+                "demote_candidates": len(demote),
+                "applied": applied,
+                "sample": demote[:50],
+            }
+
     def _normalize_links(self, links) -> list[dict]:
         """Normalize links to canonical list[{type, bead_id}] format."""
         if links is None:
@@ -1651,23 +1832,34 @@ class MemoryStore:
                     detail_now = (bead.get("detail") or "").strip()
                     has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
                     allow_promote = False
+                    score_meta = None
                     if curr_status == "candidate":
+                        # Keep minimum quality pre-check per type.
+                        quality_gate = False
                         if btype == "decision":
-                            allow_promote = bool(because and (has_evidence or detail_now or has_link))
+                            quality_gate = bool(because and (has_evidence or detail_now or has_link))
                         elif btype == "lesson":
-                            allow_promote = bool(because and (has_evidence or detail_now or has_link))
+                            quality_gate = bool(because and (has_evidence or detail_now or has_link))
                         elif btype == "outcome":
                             result = str(bead.get("result") or "").strip().lower()
-                            allow_promote = result in {"resolved", "failed", "partial", "confirmed"} and (has_link or has_evidence or detail_now)
+                            quality_gate = result in {"resolved", "failed", "partial", "confirmed"} and (has_link or has_evidence or detail_now)
                         elif btype == "precedent":
-                            allow_promote = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
+                            quality_gate = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
                         elif btype in {"evidence", "design_principle", "failed_hypothesis"}:
-                            allow_promote = bool(has_evidence or detail_now or has_link)
+                            quality_gate = bool(has_evidence or detail_now or has_link)
+
+                        if quality_gate:
+                            allow_promote, score_meta = self._candidate_promotable(index, bead)
 
                     if allow_promote:
                         bead["status"] = "promoted"
                         bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
-                        bead["promotion_reason"] = str(bead.get("promotion_reason") or "policy_auto_promote")
+                        if score_meta:
+                            bead["promotion_score"] = score_meta.get("score")
+                            bead["promotion_threshold"] = score_meta.get("threshold")
+                            bead["promotion_reason"] = str(bead.get("promotion_reason") or f"{score_meta.get('reason')}:{score_meta.get('score')}")
+                        else:
+                            bead["promotion_reason"] = str(bead.get("promotion_reason") or "policy_auto_promote")
 
                 # Invariants:
                 # - promoted beads always keep full detail
@@ -1676,6 +1868,11 @@ class MemoryStore:
                 bead_status = str(bead.get("status", "")).lower()
                 is_session_boundary = bead_type in {"session_start", "session_end"}
                 is_promoted = bead_status == "promoted"
+
+                # Keep candidates active for reinforcement window (Phase B).
+                if bead_status == "candidate":
+                    index["beads"][bead_id] = bead
+                    continue
 
                 if not is_promoted and not is_session_boundary:
                     already_archived = str(bead.get("status") or "").lower() == "archived"
