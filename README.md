@@ -153,3 +153,11 @@ See:
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 - [LICENSE](LICENSE)
+
+---
+
+## Inspiration
+
+The concept of "beads" as small units of causal memory was inspired in part by Steve Yegge’s writing on software architecture and memory systems. This project explores a different application of that idea in the context of AI agents and deterministic prompt memory.
+
+You can find his work at https://github.com/steveyegge/beads
