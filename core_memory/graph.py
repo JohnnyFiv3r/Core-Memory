@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -211,7 +212,7 @@ def backfill_structural_edges(root: Path) -> dict:
     return {"ok": True, "added": added}
 
 
-def build_graph(root: Path, *, write_snapshot: bool = True) -> dict:
+def build_graph(root: Path, *, write_snapshot: bool = True, semantic_active_k: int = 50) -> dict:
     edges_file, graph_file, index_file = _paths(root)
     node_meta: dict[str, dict[str, Any]] = {}
     if index_file.exists():
@@ -257,7 +258,7 @@ def build_graph(root: Path, *, write_snapshot: bool = True) -> dict:
             current["deactivate_reason"] = e.get("reason")
 
     adj_structural_out: dict[str, list[str]] = {}
-    adj_semantic_out: dict[str, list[str]] = {}
+    sem_all_out: dict[str, list[str]] = {}
 
     for eid, edge in sorted(edge_head.items(), key=lambda kv: kv[0]):
         src = str(edge.get("src_id") or "")
@@ -267,7 +268,24 @@ def build_graph(root: Path, *, write_snapshot: bool = True) -> dict:
         if klass == "structural":
             adj_structural_out.setdefault(src, []).append(eid)
         elif klass == "semantic" and bool(edge.get("active", True)):
-            adj_semantic_out.setdefault(src, []).append(eid)
+            sem_all_out.setdefault(src, []).append(eid)
+
+    # Active semantic cache: top-K per source by weight, tie-break by edge_id
+    adj_semantic_out: dict[str, list[str]] = {}
+    evicted_semantic = 0
+    for src, eids in sem_all_out.items():
+        ranked = sorted(
+            eids,
+            key=lambda eid: (float((edge_head.get(eid) or {}).get("w") or 0.0), eid),
+            reverse=True,
+        )
+        kept = ranked[: max(0, int(semantic_active_k))]
+        adj_semantic_out[src] = kept
+        for eid in ranked[max(0, int(semantic_active_k)) :]:
+            # emit deactivation only if still active
+            if bool((edge_head.get(eid) or {}).get("active", True)):
+                deactivate_semantic_edge(root, edge_id=eid, reason="evicted_from_active_cache")
+                evicted_semantic += 1
 
     out = {
         "ok": True,
@@ -276,6 +294,8 @@ def build_graph(root: Path, *, write_snapshot: bool = True) -> dict:
         "structural_edges": sum(1 for e in edge_head.values() if str(e.get("class") or "") == "structural"),
         "semantic_edges_active": sum(1 for e in edge_head.values() if str(e.get("class") or "") == "semantic" and bool(e.get("active", True))),
         "semantic_edges_inactive": sum(1 for e in edge_head.values() if str(e.get("class") or "") == "semantic" and not bool(e.get("active", True))),
+        "semantic_active_k": int(semantic_active_k),
+        "semantic_evicted": int(evicted_semantic),
         "warnings": warnings,
         "node_meta": node_meta,
         "adj_structural_out": adj_structural_out,
@@ -464,7 +484,8 @@ def reinforce_semantic_edges(root: Path, edge_ids: list[str], alpha: float = 0.1
 
 
 def graph_stats(root: Path) -> dict:
-    g = build_graph(root, write_snapshot=False)
+    k = int(os.environ.get("CORE_MEMORY_SEMANTIC_ACTIVE_K", "50"))
+    g = build_graph(root, write_snapshot=False, semantic_active_k=k)
     return {
         "ok": True,
         "nodes": g.get("nodes", 0),
