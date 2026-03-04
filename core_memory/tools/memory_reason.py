@@ -241,12 +241,33 @@ def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int) -> dict
     return {"ok": True, "answer": answer, "anchor_bead_id": (beads[0].get("id") if beads else None), "chains": [c], "citations": citations, "reinforced_semantic_edges": []}
 
 
+def _is_low_info_citation(c: dict) -> bool:
+    t = str(c.get("title") or "").strip().lower()
+    if not t:
+        return True
+    if "[[reply_to_current]]" in t or "auto-compaction complete" in t:
+        return True
+    return False
+
+
+def _quality_score(result: dict) -> float:
+    chains = result.get("chains") or []
+    cits = result.get("citations") or []
+    if not chains or not cits:
+        return 0.0
+    chain_confs = [float(c.get("confidence") or 0.0) for c in chains]
+    avg_chain = sum(chain_confs) / max(1, len(chain_confs))
+    grounded = sum(1 for c in cits if bool(c.get("grounded_role"))) / max(1, len(cits))
+    low_info = sum(1 for c in cits if _is_low_info_citation(c)) / max(1, len(cits))
+    return round(max(0.0, min(1.0, (0.55 * avg_chain) + (0.45 * grounded) - (0.35 * low_info))), 4)
+
+
 def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
     root_p = Path(root)
     store = MemoryStore(root)
 
     intent = _detect_intent(query)
-    selected = str(intent.get("intent") or "remember")
+    hint_route = str(intent.get("intent") or "remember")
 
     planners = {
         "why": _plan_why,
@@ -255,26 +276,45 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
         "remember": _plan_remember,
     }
 
-    # Soft routing: if confidence is low, prefer WHY planner as richer default,
-    # then fall back to remember planner if needed.
-    if float(intent.get("confidence") or 0.0) < 0.5:
-        selected = "why"
-
-    primary = planners.get(selected, _plan_remember)(store, root_p, query, k)
+    # Primary route is robust default; intent router is fallback hint only.
+    primary_route = "why"
+    primary = planners.get(primary_route, _plan_why)(store, root_p, query, k)
     if not primary.get("ok"):
         return primary
 
-    # Fallback if no chains from selected route.
-    if not (primary.get("chains") or []):
-        fallback = _plan_remember(store, root_p, query, k)
-        primary = fallback if fallback.get("ok") else primary
+    primary_q = _quality_score(primary)
+    no_hits = len(primary.get("citations") or []) == 0 or len(primary.get("chains") or []) == 0
+    low_quality = primary_q < 0.45
+
+    used_retry = False
+    chosen_route = primary_route
+
+    if no_hits or low_quality:
+        retry_route = hint_route if hint_route in planners else "remember"
+        if retry_route == primary_route:
+            retry_route = "remember"
+        retry = planners.get(retry_route, _plan_remember)(store, root_p, query, k)
+        if retry.get("ok"):
+            retry_q = _quality_score(retry)
+            if retry_q >= primary_q:
+                primary = retry
+                primary_q = retry_q
+                chosen_route = retry_route
+            used_retry = True
 
     chain_confs = [float(c.get("confidence") or 0.0) for c in (primary.get("chains") or [])]
     overall = max(chain_confs) if chain_confs else 0.0
-    primary["intent"] = {"selected": selected, "confidence": intent.get("confidence"), "scores": intent.get("scores")}
+    primary["intent"] = {
+        "selected": chosen_route,
+        "hint": hint_route,
+        "hint_confidence": intent.get("confidence"),
+        "scores": intent.get("scores"),
+        "used_hint_retry": used_retry,
+    }
     primary["confidence"] = {
         "overall": round(overall, 4),
         "grounded": bool(overall >= 0.5),
         "chain_confidences": chain_confs,
+        "quality_score": primary_q,
     }
     return primary

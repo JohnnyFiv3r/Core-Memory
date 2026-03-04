@@ -96,8 +96,12 @@ def build_semantic_index(root: Path) -> dict:
         import faiss  # type: ignore
 
         if provider:
-            vecs = _provider_vectors(texts, provider=provider, model=model)
-            backend = f"faiss-{provider}"
+            try:
+                vecs = _provider_vectors(texts, provider=provider, model=model)
+                backend = f"faiss-{provider}"
+            except Exception:
+                vecs = _hash_vectors(texts, dim=256)
+                backend = "faiss-hash"
         else:
             vecs = _hash_vectors(texts, dim=256)
             backend = "faiss-hash"
