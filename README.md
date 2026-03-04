@@ -1,58 +1,124 @@
 # Core Memory
 
-A deterministic, causal memory system for AI agents: **“beads for memory.”**
+Core Memory is a deterministic memory layer for agents. It stores structured memory events ("beads") and explicit links so recall stays inspectable and repeatable across context resets.
 
-Core Memory stores durable **beads** (decisions, lessons, outcomes, evidence, etc.) and explicit links between them, then compacts and injects the most relevant prior memory into the agent context via a **Context Packet**.
+```text
+Agent Turn
+   |
+   v
+Sidecar Hook
+   |
+   v
+Core Memory Store
+   |
+   v
+Association Engine
+   |
+   v
+Context Packet Builder
+   |
+   v
+Prompt Injection
+```
 
-![Core Memory overview](docs/assets/core-memory-overview.jpg)
+![Core Memory architecture flow](docs/assets/core-memory-architecture-flow.jpg)
 
 ---
 
-## Why
+## Why Core Memory Exists
 
-Most "agent memory" is either:
-- raw chat logs (bloats context, low signal), or
-- vector similarity recall (non-deterministic, hard to debug)
+Most memory approaches fail for different reasons:
 
-Core Memory is different:
-- explicit causal structure (graph of beads + links)
-- lossless storage + lossy injection (compaction tiers)
-- debuggable and reproducible (store-backed, deterministic assembly)
+| Approach | Problem |
+|---|---|
+| Chat log replay | Context grows uncontrollably |
+| Vector memory | Non-deterministic recall |
+| Tool logs | No causal reasoning |
+
+Core Memory stores explicit causal memory events (**beads**) and relationships so retrieval is deterministic and debuggable.
+
+Typical bead types include:
+- `lesson`
+- `decision`
+- `outcome`
+- `hypothesis`
+- `association`
 
 ---
 
-## Concepts
+## Quick Example
 
-### Beads
-A bead is a small, structured memory unit:
-- type: `decision`, `lesson`, `outcome`, `goal`, `evidence`, ...
-- title + summary bullets
-- tags/scope/session metadata
-- lifecycle state (`open` / `promoted` / `compacted` / `superseded` / `tombstoned`)
+```python
+from core_memory import MemoryStore
 
-### Associations
-Associations connect beads explicitly with a named relationship (e.g. `derives-from`, `supersedes`, `validates`).
+memory = MemoryStore("./memory")
+memory.add_bead(type="lesson", title="Redis timeouts under high load", summary=["Worker count exceeded Redis connection pool"])
+memory.add_bead(type="outcome", title="Increased Redis connection pool", summary=["Raising max connections resolved timeouts"])
 
-Core Memory also performs a fast bounded lookback when new beads are added, writing lightweight **derived** associations and a per-bead `association_preview` field for near-term rolling-window relevance.
+packet = memory.query(limit=5)
+print("Relevant Memory")
+for bead in packet:
+    print(f"- [{bead['type']}] {bead['title']}")
+```
 
-#### Authority
-- **authored**: created explicitly by agent/user (canonical truth, immutable)
-- **derived**: inferred by analysis/crawlers (optional, pruneable via myelination)
+Example output:
 
-### Sessions
-Beads are grouped into sessions. Core Memory maintains a session index to support rolling-window selection and compaction.
+```text
+Relevant Memory
+- [lesson] Redis timeouts under high load
+- [outcome] Increased Redis connection pool
+```
 
-### Compaction tiers
-Compaction is render-layer only (store remains lossless):
-- full (new/recent)
-- summary (older)
-- minimal (anchors)
-- tombstoned (not injected; still traversable for audit)
+---
+
+## Core Concepts
+
+### Bead
+A bead is a structured memory event.
+
+Example:
+```text
+Type: lesson
+Title: Redis pool exhaustion
+Summary: Worker count exceeded connection pool limit
+```
+
+### Association
+An association links beads with explicit causality or relationship.
+
+Example:
+```text
+lesson -> outcome
+Redis pool exhaustion -> Increased Redis connection pool
+```
 
 ### Context Packet
-Each turn, Core Memory produces a Context Packet: an ordered, token-budgeted set of compacted bead renders drawn from the last N sessions and relevant association chains.
+A context packet is the bounded set of recalled beads prepared for prompt injection.
 
-`promoted-context.md` is an optional debug artifact for human inspection. It is regenerated from current store state and is not canonical memory state.
+Example:
+```text
+Relevant Memory
+- Redis pool exhaustion caused timeouts previously
+- Increasing max connections resolved the issue
+```
+
+### Compaction
+Compaction preserves durable history while shrinking prompt-facing detail.
+
+Example:
+```text
+Before: full incident narrative + logs
+After: compact summary + causal links retained
+```
+
+---
+
+## Concepts and Behavior
+
+- **Store is durable and lock-protected**.
+- **Recall is deterministic** from indexed state.
+- **Compaction is lossless to archive, lossy to prompt render**.
+- **Causal links remain queryable for audit/debugging**.
 
 ---
 
@@ -71,169 +137,38 @@ export CORE_MEMORY_ROOT="$PWD/memory"
 
 ---
 
-## Quickstart
-
-Create a bead:
-
-```bash
-core-memory --root "$CORE_MEMORY_ROOT" add --type decision --title "Use stdlib only" --because "Reduce dependency risk" --session-id main --tags core-memory
-```
-
-Query beads:
-
-```bash
-core-memory --root "$CORE_MEMORY_ROOT" query --type decision --limit 5
-```
-
-Compaction + restore:
-
-```bash
-core-memory --root "$CORE_MEMORY_ROOT" compact --session main --promote
-core-memory --root "$CORE_MEMORY_ROOT" uncompact --id <bead_id>
-```
-
-Migrate legacy store:
-
-```bash
-core-memory --root "$CORE_MEMORY_ROOT" migrate-store --legacy-root /path/to/legacy/.mem-beads
-```
-
----
-
-## Environment
-
-- Primary: `CORE_MEMORY_ROOT` (recommended)
-- Compatibility accepted by migration tooling: `MEMBEADS_ROOT`, `MEMBEADS_DIR`
-- CLI default root when unset: `./memory`
-- Fast per-add association controls:
-  - `CORE_MEMORY_ASSOCIATE_ON_ADD` (`1` default, set `0` to disable)
-  - `CORE_MEMORY_ASSOCIATE_LOOKBACK` (default `40`)
-  - `CORE_MEMORY_ASSOCIATE_TOP_K` (default `3`)
-
-## Platform note
-
-Current file-locking uses POSIX `fcntl`, so write-lock behavior is POSIX-first (Linux/macOS/WSL).
-For native Windows support, a lock fallback implementation is still needed.
-
-## Store layout
-
-```text
-<root>/
-  .beads/
-    index.json
-    global.jsonl
-    session-<id>.jsonl
-    archive.jsonl
-    .lock
-    events/
-      global.jsonl
-      session-<id>.jsonl
-      metrics.jsonl
-  .turns/
-    session-<id>.jsonl
-```
-
----
-
-## CLI reference (most-used)
-
-- `core-memory add ...` — create bead
-- `core-memory query ...` — inspect memory state
-- `core-memory compact ...` — compact bead detail (lossless via archive)
-- `core-memory uncompact ...` — restore compacted detail
-- `core-memory myelinate ...` — deterministic myelination pass output
-- `core-memory migrate-store ...` — import legacy mem_beads stores
-- `core-memory metrics report --since 7d` — deterministic KPI aggregation from metrics events
-
----
-
 ## Integrations
 
 Wave 1 adapters are thin wrappers over one stable port:
 
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
-Supported:
-- OpenClaw (native sidecar integration)
-- PydanticAI (in-process wrapper)
-- SpringAI (HTTP ingress -> Python core)
-
-Invariant:
-- one event per finalized top-level turn
-
-Minimal payload fields:
-- `session_id`, `turn_id`, `user_query`, `assistant_final`
+Current integrations:
+- OpenClaw
+- PydanticAI
+- SpringAI (HTTP ingress)
 
 Privacy modes:
-- `store_full_text=true`: keep full assistant text inline
-- `store_full_text=false`: store `assistant_final_ref` + hashes with redacted inline snippet
-
-Not in Wave 1:
-- streaming adapters
-- deep tool-trace parity across all frameworks
-
-See:
-- `docs/integration/core-adapters.md`
-- `docs/springai_adapter.md`
-- `docs/core_adapters_architecture.md`
-
-## How context injection works
-
-1. Read beads + authored associations from store
-2. Select relevant sessions/chains under token budget
-3. Apply compaction tiers (render-only)
-4. Emit deterministic Context Packet
-
-Given the same store + config, packet assembly is deterministic.
-
----
-
-## Dreamer (optional)
-
-Dreamer periodically scans the bead graph (every 12 hours by default, configurable) to propose new causal associations. Inspired by Turn 37 — where a failed hypothesis revealed hidden structural relationships — it looks for reinforcing, contradicting, and derivative patterns across artifacts. All suggestions are deterministic and human-reviewable.
-
-## Myelination (optional)
-
-Myelination operates on **derived** associations only.
-It can reinforce frequently useful derived associations and prune weak/noisy ones without mutating authored causal truth.
-
----
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for design invariants, terminology, and development setup.
-
-Run tests:
-
-```bash
-pytest -q
-```
+- `store_full_text=true`: store inline assistant text
+- `store_full_text=false`: store `assistant_final_ref` + hashes
 
 ---
 
 ## Roadmap
 
-- Graph DB backend (optional)
-- Myelination policy expansion (derived associations)
-- Session digest bead
-- Better token estimation based on render formats
-- Pluggable retrieval strategies
-- Windows lock fallback (cross-platform)
+- Association inference
+- Memory compaction strategies
+- Graph-based storage backends
+- Multi-agent shared memory
+- Framework integrations (OpenClaw, PydanticAI, SpringAI)
+
+Core Memory is intentionally early-stage and open to experimentation.
 
 ---
 
-## Validation note
+## Contributing
 
-Lightweight per-type validation is enabled:
-- `decision` and `lesson` beads require rationale (`--because` or summary/detail)
-- `evidence` beads require provenance (`--source-turn-ids` or summary/detail)
-
-## Compatibility note
-
-- `core-memory` is canonical.
-- Legacy `mem_beads` runtime code and `mem-beads` command alias have been removed.
-- Use `core-memory migrate-store` to import older `.mem-beads` stores.
-
-## License
-
-MIT
+See:
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [LICENSE](LICENSE)
