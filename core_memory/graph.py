@@ -290,6 +290,171 @@ def build_graph(root: Path, *, write_snapshot: bool = True) -> dict:
     return out
 
 
+EDGE_WEIGHT = {
+    "supports": 1.0,
+    "causes": 0.9,
+    "derived_from": 0.8,
+    "precedent": 0.7,
+    "contradicts": 0.6,
+    "supersedes": 0.6,
+}
+NODE_IMPORTANCE = {
+    "decision": 1.0,
+    "outcome": 0.95,
+    "precedent": 0.9,
+    "evidence": 0.9,
+    "lesson": 0.85,
+    "design_principle": 0.85,
+    "failed_hypothesis": 0.75,
+    "goal": 0.7,
+    "checkpoint": 0.55,
+    "context": 0.4,
+    "tool_call": 0.4,
+}
+
+
+def _recency_factor(ts: str, half_life_days: float = 30.0) -> float:
+    if not ts:
+        return 1.0
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        age_days = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+        return 0.5 ** (age_days / max(1e-6, half_life_days))
+    except ValueError:
+        return 1.0
+
+
+def causal_traverse(
+    root: Path,
+    anchor_ids: list[str],
+    max_depth: int = 4,
+    max_chains: int = 50,
+    semantic_expansion_hops: int = 1,
+    semantic_w_min: float = 0.35,
+) -> dict:
+    g = build_graph(root, write_snapshot=False)
+    edge_head = g.get("edge_head") or {}
+    node_meta = g.get("node_meta") or {}
+    s_adj = g.get("adj_structural_out") or {}
+    sem_adj = g.get("adj_semantic_out") or {}
+
+    chains = []
+
+    def expand_from(start: str):
+        stack = [(start, [], 0, 0.0)]  # node, path_edges, depth, score
+        while stack:
+            node, path, depth, score = stack.pop()
+            if depth >= max_depth:
+                continue
+            for eid in s_adj.get(node, []):
+                e = edge_head.get(eid) or {}
+                dst = str(e.get("dst_id") or "")
+                rel = str(e.get("rel") or "")
+                if not dst or dst in [p.get("src") for p in path] or dst in [p.get("dst") for p in path]:
+                    continue
+                ni = NODE_IMPORTANCE.get(str((node_meta.get(dst) or {}).get("type") or "").lower(), 0.3)
+                ew = EDGE_WEIGHT.get(rel, 0.4)
+                rf = _recency_factor(str((node_meta.get(dst) or {}).get("created_at") or ""))
+                step = ew * ni * rf
+                p2 = path + [{"edge_id": eid, "src": node, "dst": dst, "rel": rel, "class": "structural", "step_score": round(step, 6)}]
+                s2 = score + step
+                chains.append({"score": round(s2, 6), "path": [start] + [x["dst"] for x in p2], "edges": p2})
+                stack.append((dst, p2, depth + 1, s2))
+
+    for a in anchor_ids[:8]:
+        expand_from(str(a))
+
+    def grounded(c):
+        types = [str((node_meta.get(bid) or {}).get("type") or "") for bid in c.get("path") or []]
+        return ("decision" in types or "precedent" in types) and any(t in {"evidence", "lesson", "outcome"} for t in types)
+
+    grounded_chains = [c for c in chains if grounded(c)]
+
+    # semantic expansion only if insufficient grounding
+    if not grounded_chains and semantic_expansion_hops > 0:
+        sem_anchors = []
+        for a in anchor_ids[:8]:
+            for eid in sem_adj.get(str(a), []):
+                e = edge_head.get(eid) or {}
+                if float(e.get("w") or 0.0) < semantic_w_min:
+                    continue
+                sem_anchors.append(str(e.get("dst_id") or ""))
+        sem_anchors = [x for x in sem_anchors if x]
+        for a in sem_anchors[:16]:
+            expand_from(a)
+        grounded_chains = [c for c in chains if grounded(c)]
+
+    ranked = sorted(grounded_chains if grounded_chains else chains, key=lambda c: (c.get("score", 0.0), len(c.get("path") or [])), reverse=True)
+    ranked = ranked[: max(1, int(max_chains))]
+
+    return {
+        "ok": True,
+        "anchors": anchor_ids,
+        "grounded": bool(grounded_chains),
+        "chains": ranked,
+    }
+
+
+def decay_semantic_edges(
+    root: Path,
+    *,
+    w_drop: float = 0.08,
+    half_life_days: float = 14.0,
+) -> dict:
+    g = build_graph(root, write_snapshot=False)
+    edge_head = g.get("edge_head") or {}
+    updated = 0
+    deactivated = 0
+    now = datetime.now(timezone.utc)
+
+    for eid, e in edge_head.items():
+        if str(e.get("class") or "") != "semantic" or not bool(e.get("active", True)):
+            continue
+        w = float(e.get("w") or 0.0)
+        ts = str(e.get("last_reinforced_at") or e.get("created_at") or "")
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            age_days = max(0.0, (now - dt).total_seconds() / 86400.0)
+        except ValueError:
+            age_days = 0.0
+        decayed = w * (0.5 ** (age_days / max(1e-6, half_life_days)))
+        if decayed < w_drop:
+            deactivate_semantic_edge(root, edge_id=eid, reason="decayed_below_threshold")
+            deactivated += 1
+        else:
+            update_semantic_edge(
+                root,
+                edge_id=eid,
+                w=decayed,
+                reinforcement_count=int(e.get("reinforcement_count") or 0),
+                last_reinforced_at=str(e.get("last_reinforced_at") or e.get("created_at") or _now()),
+            )
+            updated += 1
+
+    return {"ok": True, "updated": updated, "deactivated": deactivated}
+
+
+def reinforce_semantic_edges(root: Path, edge_ids: list[str], alpha: float = 0.15) -> dict:
+    g = build_graph(root, write_snapshot=False)
+    edge_head = g.get("edge_head") or {}
+    reinforced = 0
+    for eid in edge_ids:
+        e = edge_head.get(str(eid)) or {}
+        if str(e.get("class") or "") != "semantic" or not bool(e.get("active", True)):
+            continue
+        w = float(e.get("w") or 0.0)
+        w2 = w + float(alpha) * (1.0 - w)
+        update_semantic_edge(
+            root,
+            edge_id=str(eid),
+            w=w2,
+            reinforcement_count=int(e.get("reinforcement_count") or 0) + 1,
+            last_reinforced_at=_now(),
+        )
+        reinforced += 1
+    return {"ok": True, "reinforced": reinforced}
+
+
 def graph_stats(root: Path) -> dict:
     g = build_graph(root, write_snapshot=False)
     return {
