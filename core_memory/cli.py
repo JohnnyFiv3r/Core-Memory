@@ -12,6 +12,7 @@ from pathlib import Path
 # Use relative import to avoid circular import
 from .store import MemoryStore, DEFAULT_ROOT
 from .archive_index import rebuild_archive_index
+from .graph import backfill_structural_edges, build_graph, graph_stats
 from .openclaw_integration import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
@@ -133,6 +134,12 @@ def main():
     sc_turn.add_argument("--meta-wrong-transfer", action="store_true")
     sc_turn.add_argument("--meta-goal-carryover", action="store_true")
     sc_turn.add_argument("--store-full-text", choices=["true", "false"], default="true")
+
+    # graph command
+    graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
+    graph_sub = graph_parser.add_subparsers(dest="graph_cmd")
+    graph_sub.add_parser("build", help="Backfill structural edges and rebuild graph snapshot")
+    graph_sub.add_parser("stats", help="Show graph edge/node stats")
 
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
@@ -359,6 +366,16 @@ def main():
             print(json.dumps(result, indent=2))
         else:
             sidecar_parser.print_help()
+
+    elif args.command == "graph":
+        if args.graph_cmd == "build":
+            b = backfill_structural_edges(memory.root)
+            g = build_graph(memory.root, write_snapshot=True)
+            print(json.dumps({"ok": True, "backfill": b, "graph": graph_stats(memory.root), "snapshot": g.get("snapshot")}, indent=2))
+        elif args.graph_cmd == "stats":
+            print(json.dumps(graph_stats(memory.root), indent=2))
+        else:
+            graph_parser.print_help()
 
     elif args.command == "metrics":
         if args.metrics_cmd == "report":
