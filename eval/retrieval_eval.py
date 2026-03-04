@@ -19,18 +19,44 @@ def _rr(results: list[str], expected: set[str]) -> float:
     return 0.0
 
 
-def _causal_grounding_components(reason_out: dict) -> dict:
+def _causal_grounding_components(reason_out: dict, root: Path) -> dict:
     cits = reason_out.get("citations") or []
     chains = reason_out.get("chains") or []
     has_decision_like = any(str(c.get("type") or "") in {"decision", "precedent"} for c in cits)
     has_evidence_like = any(str(c.get("type") or "") in {"evidence", "lesson", "outcome"} for c in cits)
-    has_structural = any(len(c.get("edges") or []) > 0 for c in chains)
+
+    # Structural signal from returned chain edges OR radius-1 structural links among cited beads.
+    has_structural_edges = any(len(c.get("edges") or []) > 0 for c in chains)
+    has_structural_links = False
+    cited_ids = {str(c.get("bead_id") or "") for c in cits if c.get("bead_id")}
+    if cited_ids:
+        idx_file = root / ".beads" / "index.json"
+        if idx_file.exists():
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            beads = idx.get("beads") or {}
+            allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+            for bid in cited_ids:
+                b = beads.get(bid) or {}
+                for l in (b.get("links") or []):
+                    if not isinstance(l, dict):
+                        continue
+                    rel = str(l.get("type") or "")
+                    tgt = str(l.get("bead_id") or "")
+                    if rel in allowed and tgt in cited_ids:
+                        has_structural_links = True
+                        break
+                if has_structural_links:
+                    break
+
+    has_structural = bool(has_structural_edges or has_structural_links)
     grounded = bool(has_decision_like and has_evidence_like and has_structural)
     return {
         "grounded": grounded,
         "has_decision_like": bool(has_decision_like),
         "has_evidence_like": bool(has_evidence_like),
         "has_structural": bool(has_structural),
+        "has_structural_edges": bool(has_structural_edges),
+        "has_structural_links": bool(has_structural_links),
     }
 
 
@@ -77,7 +103,7 @@ def main() -> int:
 
         m = memory_reason(q, k=5, root=str(ROOT), debug=False)
         low_info = _low_info_rate(m)
-        comps = _causal_grounding_components(m)
+        comps = _causal_grounding_components(m, ROOT)
         low_info_rates.append(low_info)
         grounded_hits.append(1.0 if comps.get("grounded") else 0.0)
         details.append({

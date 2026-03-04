@@ -94,6 +94,17 @@ def _chain_confidence(chain: dict) -> float:
     return round(base, 4)
 
 
+def _chain_why_priority(chain: dict) -> float:
+    edges = chain.get("edges") or []
+    beads = chain.get("beads") or []
+    has_struct = any(str(e.get("class") or "") == "structural" or str(e.get("rel") or "") in {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"} for e in edges)
+    types = {str(b.get("type") or "") for b in beads}
+    has_dec = bool(types.intersection({"decision", "precedent"}))
+    has_evd = bool(types.intersection({"evidence", "lesson", "outcome"}))
+    base = float(chain.get("score") or 0.0)
+    return base + (0.35 if has_struct else 0.0) + (0.2 if has_dec else 0.0) + (0.2 if has_evd else 0.0)
+
+
 def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
     selected = []
     seen_sig = set()
@@ -186,6 +197,40 @@ def _radius1_structural_fallback(store: MemoryStore, anchor_ids: list[str], limi
             if len(out) >= max(1, int(limit)):
                 return out
 
+    # Fallback to explicit association rows in index.
+    assocs = idx.get("associations") or []
+    for aid in anchor_ids[:8]:
+        for a in assocs:
+            if not isinstance(a, dict):
+                continue
+            rel = str(a.get("relationship") or "")
+            if rel not in allowed:
+                continue
+            src = str(a.get("source_bead") or "")
+            dst = str(a.get("target_bead") or "")
+            if src == str(aid) and dst in beads:
+                out.append(
+                    {
+                        "score": 0.28,
+                        "path": [str(aid), dst],
+                        "edges": [{"src": str(aid), "dst": dst, "rel": rel, "class": "structural"}],
+                        "beads": [_hydrate_bead(store, str(aid)), _hydrate_bead(store, dst)],
+                        "semantic_edge_ids": [],
+                    }
+                )
+            elif dst == str(aid) and src in beads:
+                out.append(
+                    {
+                        "score": 0.28,
+                        "path": [str(aid), src],
+                        "edges": [{"src": str(aid), "dst": src, "rel": rel, "class": "structural"}],
+                        "beads": [_hydrate_bead(store, str(aid)), _hydrate_bead(store, src)],
+                        "semantic_edge_ids": [],
+                    }
+                )
+            if len(out) >= max(1, int(limit)):
+                return out
+
     # Fallback to explicit bead links.
     for aid in anchor_ids[:8]:
         b = beads.get(str(aid)) or {}
@@ -256,11 +301,12 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
         hydrated.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
 
-    out_chains = _select_diverse_chains(hydrated, top_n=3)
+    ranked_hydrated = sorted(hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
+    out_chains = _select_diverse_chains(ranked_hydrated, top_n=3)
     fallback_struct = _radius1_structural_fallback(store, anchors, limit=3)
 
     if not out_chains:
-        out_chains = _select_diverse_chains(fallback_struct, top_n=3)
+        out_chains = _select_diverse_chains(sorted(fallback_struct, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3)
     else:
         # If selected chains are weak/non-structural, enrich with radius-1 structural fallback.
         allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
@@ -270,6 +316,7 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         )
         if not has_struct and fallback_struct:
             merged = list(out_chains) + list(fallback_struct)
+            merged = sorted(merged, key=lambda c: _chain_why_priority(c), reverse=True)
             out_chains = _select_diverse_chains(merged, top_n=3)
 
     citations, used_semantic = _collect_citations_from_chains(out_chains)
@@ -422,13 +469,18 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
     chosen_route = primary_route
 
     if no_hits or low_quality:
+        causal = _causal_intent(query)
         retry_route = hint_route if hint_route in planners else "remember"
+        if causal and retry_route == "remember" and not no_hits:
+            retry_route = "why"
         if retry_route == primary_route:
             retry_route = "remember"
-        retry = planners.get(retry_route, _plan_remember)(store, root_p, query, k)
-        if retry.get("ok"):
+        if causal and retry_route == "remember" and not no_hits:
+            retry_route = ""  # skip non-causal downgrade retry on low-quality-only cases
+
+        retry = planners.get(retry_route, _plan_remember)(store, root_p, query, k) if retry_route else {"ok": False}
+        if retry_route and retry.get("ok"):
             retry_q = _quality_score(retry)
-            causal = _causal_intent(query)
             p_ground = _grounding_signal(primary)
             r_ground = _grounding_signal(retry)
             should_take = retry_q >= primary_q

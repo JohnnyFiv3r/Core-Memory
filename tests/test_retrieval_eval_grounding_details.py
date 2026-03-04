@@ -1,4 +1,3 @@
-import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -8,12 +7,14 @@ from eval.retrieval_eval import _causal_grounding_components
 
 class TestRetrievalEvalGroundingDetails(unittest.TestCase):
     def test_grounding_components_shape(self):
-        out = _causal_grounding_components(
-            {
-                "chains": [{"edges": [{"src": "a", "dst": "b", "rel": "supports"}]}],
-                "citations": [{"type": "decision"}, {"type": "evidence"}],
-            }
-        )
+        with tempfile.TemporaryDirectory() as td:
+            out = _causal_grounding_components(
+                {
+                    "chains": [{"edges": [{"src": "a", "dst": "b", "rel": "supports"}]}],
+                    "citations": [{"type": "decision"}, {"type": "evidence"}],
+                },
+                Path(td),
+            )
         self.assertIn("grounded", out)
         self.assertIn("has_decision_like", out)
         self.assertIn("has_evidence_like", out)
