@@ -48,6 +48,38 @@ def _tokenize(text: str) -> set[str]:
     return {t for t in re.findall(r"[a-z0-9_\-]+", (text or "").lower()) if len(t) >= 4}
 
 
+def _canonical_tags_from_text(user_query: str, assistant_final: str, max_tags: int = 8) -> list[str]:
+    text = f"{user_query} {assistant_final}".lower()
+    tags: list[str] = []
+
+    def add(tag: str) -> None:
+        if tag not in tags and len(tags) < max_tags:
+            tags.append(tag)
+
+    if "openclaw" in text:
+        add("openclaw")
+    if "pydanticai" in text:
+        add("pydanticai")
+    if "springai" in text:
+        add("springai")
+    if "orchestrator" in text or "framework" in text:
+        add("orchestrator")
+    if "multi orchestrator" in text or "multiple orchestrator" in text or "cross-framework" in text:
+        add("multi-orchestrator")
+    if "emit_turn_finalized" in text or "integration port" in text:
+        add("emit-turn-finalized")
+    if "adapter" in text:
+        add("adapter")
+    if "migrat" in text or "switch" in text or "transition" in text:
+        add("migration")
+    if "decision" in text:
+        add("decision")
+    if "lesson" in text:
+        add("lesson")
+
+    return tags
+
+
 def _promotion_gates(envelope: dict[str, Any], score: float) -> dict[str, bool]:
     user_query = envelope.get("user_query") or ""
     assistant_final = envelope.get("assistant_final") or ""
@@ -98,6 +130,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
     if score >= policy.create_threshold and policy.max_create_per_turn > 0:
         bead_type = _bead_type_for_text(user_query, assistant_final)
         title = (assistant_final.strip().splitlines()[0] if assistant_final.strip() else user_query.strip())[:120] or "Turn memory"
+        canonical_tags = _canonical_tags_from_text(user_query, assistant_final, max_tags=8)
         kwargs = {
             "type": bead_type,
             "title": title,
@@ -105,7 +138,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
             "because": ["captured from finalized turn sidecar pass"] if bead_type in {"decision", "lesson"} else [],
             "source_turn_ids": [turn_id],
             "session_id": session_id,
-            "tags": ["sidecar", "turn-finalized"],
+            "tags": (["sidecar", "turn-finalized"] + canonical_tags)[:10],
         }
         if bead_type == "evidence" and not kwargs["summary"]:
             kwargs["summary"] = ["evidence from finalized turn"]

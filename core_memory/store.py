@@ -154,6 +154,48 @@ class MemoryStore:
         ]
         return any(c in q for c in cues)
 
+    def _expand_query_tokens(self, text: str, base_tokens: set[str], max_extra: int = 24) -> set[str]:
+        """Bounded synonym/entity expansion for better deterministic recall hits."""
+        q = (text or "").lower()
+        expanded = set(base_tokens)
+
+        phrase_map = {
+            "openclaw only": {"single", "orchestrator", "openclaw", "migration", "adapter"},
+            "single orchestrator": {"openclaw", "migration", "multi", "orchestrator"},
+            "multi orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
+            "multiple orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
+            "core adapters": {"adapter", "integration", "emit_turn_finalized", "pydanticai", "springai"},
+            "switch": {"migration", "transition"},
+            "migrate": {"migration", "transition"},
+            "transition": {"migration", "switch"},
+        }
+
+        token_map = {
+            "openclaw": {"orchestrator", "adapter"},
+            "pydanticai": {"adapter", "integration"},
+            "springai": {"adapter", "integration"},
+            "emit_turn_finalized": {"integration", "port", "adapter"},
+            "orchestrator": {"framework", "adapter"},
+            "adapter": {"integration", "orchestrator"},
+            "migration": {"transition", "switch"},
+        }
+
+        extras: list[str] = []
+        for phrase, words in phrase_map.items():
+            if phrase in q:
+                extras.extend(list(words))
+
+        for t in list(base_tokens):
+            for w in token_map.get(t, set()):
+                extras.append(w)
+
+        for w in extras:
+            if len(expanded) >= len(base_tokens) + max(0, int(max_extra)):
+                break
+            expanded.add(w)
+
+        return expanded
+
     def _redact_text(self, text: str) -> str:
         """Conservative secret redaction for high-confidence credential patterns only."""
         if not text:
@@ -306,7 +348,7 @@ class MemoryStore:
 
         req_tags = [str(t).strip().lower() for t in (context_tags or []) if str(t).strip()]
         req_set = set(req_tags)
-        query_tokens = self._tokenize(query_text)
+        query_tokens = self._expand_query_tokens(query_text, self._tokenize(query_text), max_extra=24)
 
         def score(bead: dict) -> tuple:
             bead_tags = set([str(t).strip().lower() for t in (bead.get("context_tags") or []) if str(t).strip()])
@@ -390,6 +432,7 @@ class MemoryStore:
             "ok": True,
             "mode": mode,
             "requested_context_tags": req_tags,
+            "query_token_count": len(query_tokens),
             "strict_count": len(strict),
             "fallback_count": len(fallback),
             "deep_recall": {
