@@ -5,6 +5,7 @@ from typing import Any
 
 from core_memory.graph import causal_traverse, reinforce_semantic_edges
 from core_memory.semantic_index import semantic_lookup
+from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.archive_index import read_snapshot
 from core_memory.store import MemoryStore
 
@@ -141,8 +142,8 @@ def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list
     return list(dedup.values()), sorted(set(used_semantic))
 
 
-def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
-    sem = semantic_lookup(root_p, query=query, k=max(1, int(k)))
+def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False) -> dict:
+    sem = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
 
@@ -176,7 +177,7 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
     else:
         answer = "I remember related context, but I don’t have a grounded decision chain for that yet."
 
-    return {
+    out = {
         "ok": True,
         "answer": answer,
         "anchor_bead_id": anchor,
@@ -184,6 +185,9 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
         "citations": citations,
         "reinforced_semantic_edges": used_semantic,
     }
+    if debug:
+        out["retrieval_debug"] = sem
+    return out
 
 
 def _plan_when(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
@@ -228,8 +232,8 @@ def _plan_changed(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
     return {"ok": True, "answer": answer, "anchor_bead_id": (ids[0] if ids else None), "chains": chains, "citations": citations, "reinforced_semantic_edges": []}
 
 
-def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
-    sem = semantic_lookup(root_p, query=query, k=max(1, int(k)))
+def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False) -> dict:
+    sem = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
     ids = [str(r.get("bead_id") or "") for r in (sem.get("results") or []) if r.get("bead_id")]
@@ -238,7 +242,10 @@ def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int) -> dict
     c["confidence"] = _chain_confidence(c)
     citations, _ = _collect_citations_from_chains([c])
     answer = "I remember related context from memory beads." if beads else "I don’t have a strong memory match yet."
-    return {"ok": True, "answer": answer, "anchor_bead_id": (beads[0].get("id") if beads else None), "chains": [c], "citations": citations, "reinforced_semantic_edges": []}
+    out = {"ok": True, "answer": answer, "anchor_bead_id": (beads[0].get("id") if beads else None), "chains": [c], "citations": citations, "reinforced_semantic_edges": []}
+    if debug:
+        out["retrieval_debug"] = sem
+    return out
 
 
 def _is_low_info_citation(c: dict) -> bool:
@@ -262,7 +269,7 @@ def _quality_score(result: dict) -> float:
     return round(max(0.0, min(1.0, (0.55 * avg_chain) + (0.45 * grounded) - (0.35 * low_info))), 4)
 
 
-def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
+def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = False) -> dict:
     root_p = Path(root)
     store = MemoryStore(root)
 
@@ -270,10 +277,10 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory") -> dict:
     hint_route = str(intent.get("intent") or "remember")
 
     planners = {
-        "why": _plan_why,
+        "why": lambda s, r, q, kk: _plan_why(s, r, q, kk, debug=debug),
         "when": _plan_when,
         "what_changed": _plan_changed,
-        "remember": _plan_remember,
+        "remember": lambda s, r, q, kk: _plan_remember(s, r, q, kk, debug=debug),
     }
 
     # Primary route is robust default; intent router is fallback hint only.

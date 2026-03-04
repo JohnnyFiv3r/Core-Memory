@@ -1,0 +1,10 @@
+# Retrieval KPI Targets (Slice 1)
+
+Deterministic baseline targets for hybrid retrieval rollout.
+
+- Recall@5 >= 0.60
+- MRR >= 0.50
+- Median latency (single query local) <= 0.50s
+- Determinism: identical ordered top-5 across 5 repeated runs
+
+These are initial guardrails and should be tightened after first stable pass.

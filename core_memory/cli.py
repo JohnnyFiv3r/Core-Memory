@@ -141,6 +141,8 @@ def main():
     reason_parser = subparsers.add_parser("reason", help="Reasoned memory recall (semantic + causal)")
     reason_parser.add_argument("query", help="Natural language query")
     reason_parser.add_argument("--k", type=int, default=8)
+    reason_parser.add_argument("--retrieve", action="store_true", help="Return retrieval output mode")
+    reason_parser.add_argument("--debug", action="store_true", help="Include retrieval scoring breakdown")
 
     # graph command
     graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
@@ -385,7 +387,8 @@ def main():
             sidecar_parser.print_help()
 
     elif args.command == "reason":
-        print(json.dumps(memory_reason(args.query, k=args.k, root=str(memory.root)), indent=2))
+        out = memory_reason(args.query, k=args.k, root=str(memory.root), debug=bool(args.debug or args.retrieve))
+        print(json.dumps(out, indent=2))
 
     elif args.command == "graph":
         if args.graph_cmd == "build":
