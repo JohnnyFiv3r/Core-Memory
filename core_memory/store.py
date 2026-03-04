@@ -909,6 +909,83 @@ class MemoryStore:
             "contradiction_latency_avg": lat_avg,
         }
 
+    def schema_quality_report(self, write_path: Optional[str] = None) -> dict:
+        """Report required-field warnings and promotion gate blockers."""
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        beads = list((index.get("beads") or {}).values())
+
+        total_by_type: dict[str, int] = {}
+        status_counts: dict[str, int] = {}
+        warnings_by_type: dict[str, int] = {}
+        warning_keys: dict[str, int] = {}
+        promotion_block_reasons: dict[str, int] = {}
+
+        def inc(d: dict[str, int], k: str, n: int = 1):
+            d[k] = d.get(k, 0) + n
+
+        for bead in beads:
+            t = str(bead.get("type") or "")
+            st = str(bead.get("status") or "")
+            inc(total_by_type, t)
+            inc(status_counts, st)
+
+            for w in (bead.get("validation_warnings") or []):
+                inc(warnings_by_type, t)
+                inc(warning_keys, str(w))
+
+            if st != "open" or t not in {"decision", "lesson", "outcome", "precedent"}:
+                continue
+
+            because = bool(bead.get("because"))
+            detail = bool((bead.get("detail") or "").strip())
+            has_evidence = self._has_evidence(bead)
+            has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+
+            if t == "decision" and not (because and (has_evidence or detail)):
+                inc(promotion_block_reasons, "decision_missing_because_and_evidence_or_detail")
+            elif t == "lesson" and not because:
+                inc(promotion_block_reasons, "lesson_missing_because")
+            elif t == "outcome":
+                result = str(bead.get("result") or "").strip().lower()
+                if result not in {"resolved", "failed", "partial", "confirmed"}:
+                    inc(promotion_block_reasons, "outcome_invalid_result")
+                if not (has_link or has_evidence):
+                    inc(promotion_block_reasons, "outcome_missing_link_or_evidence")
+            elif t == "precedent":
+                if not (str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip()):
+                    inc(promotion_block_reasons, "precedent_missing_condition_action")
+
+        report = {
+            "ok": True,
+            "total_beads": len(beads),
+            "status_counts": status_counts,
+            "total_by_type": total_by_type,
+            "warnings_by_type": warnings_by_type,
+            "top_warning_keys": sorted(warning_keys.items(), key=lambda kv: kv[1], reverse=True)[:20],
+            "promotion_block_reasons": promotion_block_reasons,
+        }
+
+        if write_path:
+            out = Path(write_path)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            lines = [
+                f"# Schema Quality Report ({datetime.now(timezone.utc).isoformat()})",
+                "",
+                f"- Total beads: {report['total_beads']}",
+                f"- Status counts: {report['status_counts']}",
+                f"- Type counts: {report['total_by_type']}",
+                "",
+                "## Validation warnings",
+                str(report["top_warning_keys"] or "none"),
+                "",
+                "## Promotion block reasons",
+                str(report["promotion_block_reasons"] or "none"),
+            ]
+            out.write_text("\n".join(lines), encoding="utf-8")
+            report["written"] = str(out)
+
+        return report
+
     def _normalize_links(self, links) -> list[dict]:
         """Normalize links to canonical list[{type, bead_id}] format."""
         if links is None:

@@ -168,6 +168,9 @@ def main():
     metrics_recall.add_argument("--bead-id")
     metrics_recall.add_argument("--no-log", action="store_true")
 
+    metrics_schema = metrics_sub.add_parser("schema-quality", help="Report required-field warnings and promotion gate blocks")
+    metrics_schema.add_argument("--write", help="Optional path to write markdown report")
+
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
     metrics_log.add_argument("--mode", default="core_memory")
@@ -338,6 +341,8 @@ def main():
     elif args.command == "metrics":
         if args.metrics_cmd == "report":
             print(json.dumps(memory.metrics_report(since=args.since), indent=2))
+        elif args.metrics_cmd == "schema-quality":
+            print(json.dumps(memory.schema_quality_report(write_path=args.write), indent=2))
         elif args.metrics_cmd == "start-run":
             print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
         elif args.metrics_cmd == "step":
