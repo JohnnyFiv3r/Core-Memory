@@ -6,6 +6,9 @@ from typing import Any
 from core_memory.graph import causal_traverse, reinforce_semantic_edges
 from core_memory.semantic_index import semantic_lookup
 from core_memory.retrieval.hybrid import hybrid_lookup
+from core_memory.retrieval.rerank import rerank_candidates
+from core_memory.retrieval.quality_gate import quality_gate_decision
+from core_memory.retrieval.config import RETRY_APPEND_HINT
 from core_memory.archive_index import read_snapshot
 from core_memory.store import MemoryStore
 
@@ -142,8 +145,34 @@ def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list
     return list(dedup.values()), sorted(set(used_semantic))
 
 
+def _retrieve_ranked(root_p: Path, query: str, k: int) -> dict:
+    first = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
+    if not first.get("ok"):
+        return first
+    rr1 = rerank_candidates(root_p, query=query, candidates=first.get("results") or [])
+    ranked1 = rr1.get("results") or []
+    gate = quality_gate_decision(ranked1)
+
+    if not gate.get("retry"):
+        return {"ok": True, "query_used": query, "results": ranked1, "debug": {"first": rr1, "gate": gate, "retry": None}}
+
+    retry_query = (query or "") + RETRY_APPEND_HINT
+    second = hybrid_lookup(root_p, query=retry_query, k=max(1, int(k)))
+    if not second.get("ok"):
+        return {"ok": True, "query_used": query, "results": ranked1, "debug": {"first": rr1, "gate": gate, "retry": {"ok": False, "error": second.get("error")}}}
+
+    rr2 = rerank_candidates(root_p, query=retry_query, candidates=second.get("results") or [])
+    ranked2 = rr2.get("results") or []
+    # deterministic keep-better: compare top rerank score
+    top1 = float((ranked1[0].get("rerank_score") if ranked1 else 0.0) or 0.0)
+    top2 = float((ranked2[0].get("rerank_score") if ranked2 else 0.0) or 0.0)
+    if top2 >= top1:
+        return {"ok": True, "query_used": retry_query, "results": ranked2, "debug": {"first": rr1, "gate": gate, "retry": rr2, "used_retry": True}}
+    return {"ok": True, "query_used": query, "results": ranked1, "debug": {"first": rr1, "gate": gate, "retry": rr2, "used_retry": False}}
+
+
 def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False) -> dict:
-    sem = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
+    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)))
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
 
@@ -233,7 +262,7 @@ def _plan_changed(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
 
 
 def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False) -> dict:
-    sem = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
+    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)))
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
     ids = [str(r.get("bead_id") or "") for r in (sem.get("results") or []) if r.get("bead_id")]
