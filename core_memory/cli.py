@@ -14,6 +14,7 @@ from .store import MemoryStore, DEFAULT_ROOT
 from .archive_index import rebuild_archive_index
 from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse
 from .semantic_index import build_semantic_index, semantic_lookup
+from .tools.memory_reason import memory_reason
 from .openclaw_integration import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
@@ -135,6 +136,11 @@ def main():
     sc_turn.add_argument("--meta-wrong-transfer", action="store_true")
     sc_turn.add_argument("--meta-goal-carryover", action="store_true")
     sc_turn.add_argument("--store-full-text", choices=["true", "false"], default="true")
+
+    # reason command
+    reason_parser = subparsers.add_parser("reason", help="Reasoned memory recall (semantic + causal)")
+    reason_parser.add_argument("query", help="Natural language query")
+    reason_parser.add_argument("--k", type=int, default=8)
 
     # graph command
     graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
@@ -374,6 +380,9 @@ def main():
             print(json.dumps(result, indent=2))
         else:
             sidecar_parser.print_help()
+
+    elif args.command == "reason":
+        print(json.dumps(memory_reason(args.query, k=args.k, root=str(memory.root)), indent=2))
 
     elif args.command == "graph":
         if args.graph_cmd == "build":

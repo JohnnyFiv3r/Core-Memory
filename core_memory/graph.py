@@ -340,7 +340,8 @@ def causal_traverse(
 
     chains = []
 
-    def expand_from(start: str):
+    def expand_from(start: str, semantic_used: list[str] | None = None):
+        semantic_used = semantic_used or []
         stack = [(start, [], 0, 0.0)]  # node, path_edges, depth, score
         while stack:
             node, path, depth, score = stack.pop()
@@ -358,11 +359,16 @@ def causal_traverse(
                 step = ew * ni * rf
                 p2 = path + [{"edge_id": eid, "src": node, "dst": dst, "rel": rel, "class": "structural", "step_score": round(step, 6)}]
                 s2 = score + step
-                chains.append({"score": round(s2, 6), "path": [start] + [x["dst"] for x in p2], "edges": p2})
+                chains.append({
+                    "score": round(s2, 6),
+                    "path": [start] + [x["dst"] for x in p2],
+                    "edges": p2,
+                    "semantic_edge_ids": list(semantic_used),
+                })
                 stack.append((dst, p2, depth + 1, s2))
 
     for a in anchor_ids[:8]:
-        expand_from(str(a))
+        expand_from(str(a), [])
 
     def grounded(c):
         types = [str((node_meta.get(bid) or {}).get("type") or "") for bid in c.get("path") or []]
@@ -378,10 +384,12 @@ def causal_traverse(
                 e = edge_head.get(eid) or {}
                 if float(e.get("w") or 0.0) < semantic_w_min:
                     continue
-                sem_anchors.append(str(e.get("dst_id") or ""))
-        sem_anchors = [x for x in sem_anchors if x]
-        for a in sem_anchors[:16]:
-            expand_from(a)
+                dst = str(e.get("dst_id") or "")
+                if not dst:
+                    continue
+                sem_anchors.append((dst, str(eid)))
+        for a, sem_eid in sem_anchors[:16]:
+            expand_from(a, [sem_eid])
         grounded_chains = [c for c in chains if grounded(c)]
 
     ranked = sorted(grounded_chains if grounded_chains else chains, key=lambda c: (c.get("score", 0.0), len(c.get("path") or [])), reverse=True)

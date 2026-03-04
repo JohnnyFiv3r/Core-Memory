@@ -241,6 +241,9 @@ Retrieval model:
 
 Core Memory is intentionally early-stage and open to experimentation.
 
+See also:
+- [Graph retrieval architecture](docs/graph_memory.md)
+
 ---
 
 ## Contributing
