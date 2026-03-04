@@ -18,14 +18,16 @@ class TestRerankerFeatureExtraction(unittest.TestCase):
             r0 = (rr.get("results") or [])[0]
             f = r0.get("features") or {}
             for key in [
-                "has_decision",
-                "has_evidence",
-                "has_outcome",
-                "has_structural_edges",
+                "chain_has_decision",
+                "chain_has_evidence",
+                "chain_has_outcome",
+                "has_grounding_structural_edge",
+                "structural_edge_count_clipped",
                 "query_term_coverage",
-                "penalty_low_info_title",
-                "penalty_orphan",
-                "penalty_superseded_only",
+                "low_info_score",
+                "is_superseded",
+                "has_active_chain_support",
+                "incident_match_strength",
             ]:
                 self.assertIn(key, f)
 

@@ -15,8 +15,8 @@
     "id": "candidate_gating_1",
     "query": "why did we move to candidate-first promotion",
     "expected_ids": [
-      "bead-D79E7DC98B89",
-      "bead-E8E15CEC00BB"
+      "bead-FEA7B833E949",
+      "bead-F63F349DFE4C"
     ],
     "notes": "Candidate-only promotion rationale",
     "tags": ["causal"],

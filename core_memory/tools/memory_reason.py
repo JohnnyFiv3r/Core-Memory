@@ -8,7 +8,7 @@ from core_memory.semantic_index import semantic_lookup
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.retrieval.quality_gate import quality_gate_decision
-from core_memory.retrieval.config import RETRY_APPEND_HINT, QUALITY_THRESHOLD
+from core_memory.retrieval.config import RETRY_APPEND_HINT, QUALITY_THRESHOLD_LONG
 from core_memory.archive_index import read_snapshot
 from core_memory.store import MemoryStore
 
@@ -151,7 +151,7 @@ def _retrieve_ranked(root_p: Path, query: str, k: int) -> dict:
         return first
     rr1 = rerank_candidates(root_p, query=query, candidates=first.get("results") or [])
     ranked1 = rr1.get("results") or []
-    gate = quality_gate_decision(ranked1)
+    gate = quality_gate_decision(ranked1, query=query)
 
     if not gate.get("retry"):
         return {"ok": True, "query_used": query, "results": ranked1, "debug": {"first": rr1, "gate": gate, "retry": None}}
@@ -320,7 +320,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
 
     primary_q = _quality_score(primary)
     no_hits = len(primary.get("citations") or []) == 0 or len(primary.get("chains") or []) == 0
-    low_quality = primary_q < float(QUALITY_THRESHOLD)
+    low_quality = primary_q < float(QUALITY_THRESHOLD_LONG)
 
     used_retry = False
     chosen_route = primary_route

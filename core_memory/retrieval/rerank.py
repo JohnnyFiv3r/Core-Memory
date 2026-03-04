@@ -3,41 +3,137 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from .config import W_COVERAGE, W_FUSED, W_PENALTY, W_STRUCTURAL
+from core_memory.incidents import load_incidents
+
+from .config import (
+    LOW_INFO_ALNUM_RATIO_MIN,
+    LOW_INFO_SUMMARY_LEN,
+    LOW_INFO_TEMPLATES,
+    LOW_INFO_TITLE_LEN,
+    W_COVERAGE,
+    W_EDGE_SUPPORT,
+    W_FUSED,
+    W_INCIDENT,
+    W_PENALTY,
+    W_STRUCTURAL,
+)
 
 
-def _tokenize(text: str) -> set[str]:
-    return {t for t in (text or "").lower().replace("_", " ").replace("-", " ").split() if len(t) >= 3}
+def _tokenize(text: str) -> list[str]:
+    stop = {"the", "and", "for", "with", "that", "this", "what", "when", "why", "did", "was", "are"}
+    toks = []
+    for t in (text or "").lower().replace("_", " ").replace("-", " ").split():
+        if len(t) < 3:
+            continue
+        if t in stop:
+            continue
+        if t.endswith("ing") and len(t) > 5:
+            t = t[:-3]
+        elif t.endswith("ed") and len(t) > 4:
+            t = t[:-2]
+        elif t.endswith("s") and len(t) > 4:
+            t = t[:-1]
+        toks.append(t)
+    return toks
 
 
-def _bead_text(bead: dict) -> str:
-    return " ".join([
-        str(bead.get("title") or ""),
-        " ".join(bead.get("summary") or []),
-        " ".join(bead.get("tags") or []),
-    ])
+def _ratio_alnum(s: str) -> float:
+    if not s:
+        return 0.0
+    n = sum(1 for c in s if c.isalnum() or c.isspace())
+    return n / max(1, len(s))
 
 
-def _features_for(bead: dict, query_tokens: set[str]) -> dict:
-    btype = str(bead.get("type") or "")
-    text_toks = _tokenize(_bead_text(bead))
-    cov = len(query_tokens.intersection(text_toks)) / max(1, len(query_tokens)) if query_tokens else 0.0
+def _weighted_coverage(bead: dict, query_tokens: set[str]) -> float:
+    if not query_tokens:
+        return 0.0
+    title_t = set(_tokenize(str(bead.get("title") or "")))
+    summ_t = set(_tokenize(" ".join(bead.get("summary") or [])))
+    tags_t = set(_tokenize(" ".join(bead.get("tags") or [])))
+    cov_title = len(query_tokens.intersection(title_t)) / max(1, len(query_tokens))
+    cov_summ = len(query_tokens.intersection(summ_t)) / max(1, len(query_tokens))
+    cov_tags = len(query_tokens.intersection(tags_t)) / max(1, len(query_tokens))
+    return max(0.0, min(1.0, (0.5 * cov_title) + (0.35 * cov_summ) + (0.15 * cov_tags)))
 
-    title = str(bead.get("title") or "").lower()
-    low_info = (not title) or ("[[reply_to_current]]" in title) or ("auto-compaction complete" in title)
-    has_edges = bool((bead.get("links") or []))
 
-    feats = {
-        "has_decision": 1 if btype == "decision" else 0,
-        "has_evidence": 1 if btype == "evidence" else 0,
-        "has_outcome": 1 if btype == "outcome" else 0,
-        "has_structural_edges": 1 if has_edges else 0,
-        "query_term_coverage": round(max(0.0, min(1.0, cov)), 4),
-        "penalty_low_info_title": 1 if low_info else 0,
-        "penalty_orphan": 1 if (not has_edges and low_info) else 0,
-        "penalty_superseded_only": 1 if str(bead.get("status") or "") == "superseded" and not has_edges else 0,
+def _load_structural_adjacency(root: Path) -> dict[str, set[str]]:
+    snap = root / ".beads" / "bead_graph.json"
+    if not snap.exists():
+        return {}
+    try:
+        g = json.loads(snap.read_text(encoding="utf-8"))
+        edge_head = g.get("edge_head") or {}
+        adj: dict[str, set[str]] = {}
+        for e in edge_head.values():
+            if str(e.get("class") or "") != "structural":
+                continue
+            if not bool(e.get("immutable", False)):
+                continue
+            s = str(e.get("src_id") or "")
+            d = str(e.get("dst_id") or "")
+            if not s or not d:
+                continue
+            adj.setdefault(s, set()).add(d)
+            adj.setdefault(d, set()).add(s)
+        return adj
+    except Exception:
+        return {}
+
+
+def _chain_features(beads: dict, center_id: str, adj: dict[str, set[str]]) -> dict:
+    center = beads.get(center_id) or {}
+    nbrs = sorted(list(adj.get(center_id) or set()))
+    one_hop = [center_id] + nbrs
+    types = [str((beads.get(i) or {}).get("type") or "") for i in one_hop]
+
+    has_decision = 1 if any(t in {"decision", "precedent"} for t in types) else 0
+    has_evidence = 1 if any(t in {"evidence", "lesson"} for t in types) else 0
+    has_outcome = 1 if any(t == "outcome" for t in types) else 0
+
+    structural_edge_count_clipped = min(3, len(nbrs))
+    has_grounding_structural_edge = 1 if structural_edge_count_clipped > 0 else 0
+
+    is_superseded = 1 if str(center.get("status") or "") == "superseded" else 0
+    has_active_chain_support = 1 if (is_superseded and structural_edge_count_clipped > 0) else 0
+
+    return {
+        "chain_has_decision": has_decision,
+        "chain_has_evidence": has_evidence,
+        "chain_has_outcome": has_outcome,
+        "has_grounding_structural_edge": has_grounding_structural_edge,
+        "structural_edge_count_clipped": structural_edge_count_clipped,
+        "is_superseded": is_superseded,
+        "has_active_chain_support": has_active_chain_support,
     }
-    return feats
+
+
+def _low_info_score(bead: dict) -> float:
+    title = str(bead.get("title") or "")
+    summary = " ".join(bead.get("summary") or [])
+    low_title = 1.0 if len(title.strip()) < LOW_INFO_TITLE_LEN else 0.0
+    low_summary = 1.0 if len(summary.strip()) < LOW_INFO_SUMMARY_LEN else 0.0
+    low_alnum = 1.0 if _ratio_alnum(title + " " + summary) < LOW_INFO_ALNUM_RATIO_MIN else 0.0
+    templ = 1.0 if any(t in (title + " " + summary).lower() for t in LOW_INFO_TEMPLATES) else 0.0
+    return max(0.0, min(1.0, (0.3 * low_title) + (0.25 * low_summary) + (0.2 * low_alnum) + (0.25 * templ)))
+
+
+def _incident_strength_for(root: Path, query: str, incident_id: str) -> float:
+    if not incident_id:
+        return 0.0
+    q = " ".join((query or "").lower().replace("_", " ").replace("-", " ").split())
+    q_tokens = set(_tokenize(q))
+    for row in load_incidents(root):
+        if str(row.get("incident_id") or "") != incident_id:
+            continue
+        aliases = [" ".join(str(a).lower().replace("_", " ").replace("-", " ").split()) for a in (row.get("aliases") or [])]
+        for a in aliases:
+            if a and a in q:
+                return 1.0
+        for a in aliases:
+            at = set(_tokenize(a))
+            if at and q_tokens.intersection(at):
+                return 0.5
+    return 0.0
 
 
 def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
@@ -47,26 +143,54 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
 
     idx = json.loads(idx_file.read_text(encoding="utf-8"))
     beads = idx.get("beads") or {}
-    q_tokens = _tokenize(query)
+    q_tokens = set(_tokenize(query))
+    adj = _load_structural_adjacency(root)
 
     out = []
     dbg = []
     for c in candidates:
         bid = str(c.get("bead_id") or "")
         bead = beads.get(bid) or {}
-        f = _features_for(bead, q_tokens)
-        structural_quality = (f["has_decision"] + f["has_evidence"] + f["has_outcome"]) / 3.0
-        penalties = f["penalty_low_info_title"] + f["penalty_orphan"] + f["penalty_superseded_only"]
-        fused = float(c.get("fused_score") or 0.0)
 
-        score = (fused * W_FUSED) + (structural_quality * W_STRUCTURAL) + (float(f["query_term_coverage"]) * W_COVERAGE) - (penalties * W_PENALTY)
+        ch = _chain_features(beads, bid, adj)
+        coverage = _weighted_coverage(bead, q_tokens)
+        low_info = _low_info_score(bead)
+        incident_strength = _incident_strength_for(root, query, str(bead.get("incident_id") or ""))
+
+        structural_quality = (ch["chain_has_decision"] + ch["chain_has_evidence"] + ch["chain_has_outcome"]) / 3.0
+        edge_support = (0.5 * ch["has_grounding_structural_edge"]) + (0.5 * (ch["structural_edge_count_clipped"] / 3.0))
+        superseded_penalty = 1.0 if (ch["is_superseded"] == 1 and ch["has_active_chain_support"] == 0) else 0.0
+        penalties = (0.6 * low_info) + (0.4 * superseded_penalty)
+
+        fused = float(c.get("fused_score") or 0.0)
+        score = (
+            (fused * W_FUSED)
+            + (structural_quality * W_STRUCTURAL)
+            + (edge_support * W_EDGE_SUPPORT)
+            + (coverage * W_COVERAGE)
+            + (incident_strength * W_INCIDENT)
+            - (penalties * W_PENALTY)
+        )
         score = max(0.0, min(1.0, float(score)))
+
+        features = {
+            **ch,
+            "query_term_coverage": round(coverage, 4),
+            "low_info_score": round(low_info, 4),
+            "incident_match_strength": round(incident_strength, 4),
+        }
 
         c2 = dict(c)
         c2["rerank_score"] = round(score, 4)
-        c2["features"] = f
+        c2["features"] = features
+        c2["derived"] = {
+            "structural_quality": round(structural_quality, 4),
+            "edge_support": round(edge_support, 4),
+            "penalties": round(penalties, 4),
+            "superseded_penalty": round(superseded_penalty, 4),
+        }
         out.append(c2)
-        dbg.append({"bead_id": bid, "fused_score": fused, "rerank_score": c2["rerank_score"], "features": f})
+        dbg.append({"bead_id": bid, "fused_score": fused, "rerank_score": c2["rerank_score"], "features": features, "derived": c2["derived"]})
 
     out = sorted(
         out,

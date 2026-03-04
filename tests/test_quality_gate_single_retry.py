@@ -22,8 +22,8 @@ class TestQualityGateSingleRetry(unittest.TestCase):
 
     def test_gate_reason_low_score(self):
         gate = quality_gate_decision([
-            {"rerank_score": 0.1, "features": {"has_decision": 0, "has_evidence": 0, "has_outcome": 0}}
-        ])
+            {"rerank_score": 0.1, "derived": {"structural_quality": 0.0}}
+        ], query="why this")
         self.assertTrue(gate.get("retry"))
 
 
