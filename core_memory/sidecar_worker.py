@@ -35,6 +35,8 @@ def _score_signal(user_query: str, assistant_final: str) -> float:
 
 def _bead_type_for_text(user_query: str, assistant_final: str) -> str:
     t = f"{user_query} {assistant_final}".lower()
+    if any(k in t for k in ["resolved", "fixed", "failed", "completed", "confirmed", "outcome"]):
+        return "outcome"
     if "decision" in t or "decide" in t:
         return "decision"
     if "lesson" in t or "learn" in t:
@@ -78,6 +80,17 @@ def _canonical_tags_from_text(user_query: str, assistant_final: str, max_tags: i
         add("lesson")
 
     return tags
+
+
+def _infer_outcome_result(user_query: str, assistant_final: str) -> str:
+    t = f"{user_query} {assistant_final}".lower()
+    if any(k in t for k in ["resolved", "fixed", "completed", "confirmed", "working"]):
+        return "resolved"
+    if any(k in t for k in ["failed", "broken", "regression", "error persists"]):
+        return "failed"
+    if any(k in t for k in ["partial", "partially", "some improvement"]):
+        return "partial"
+    return "confirmed"
 
 
 def _promotion_gates(envelope: dict[str, Any], score: float) -> dict[str, bool]:
@@ -139,9 +152,17 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
             "source_turn_ids": [turn_id],
             "session_id": session_id,
             "tags": (["sidecar", "turn-finalized"] + canonical_tags)[:10],
+            "detail": (assistant_final or user_query)[:900],
         }
-        if bead_type == "evidence" and not kwargs["summary"]:
-            kwargs["summary"] = ["evidence from finalized turn"]
+        if bead_type == "outcome":
+            kwargs["result"] = _infer_outcome_result(user_query, assistant_final)
+            if window_bead_ids:
+                kwargs["linked_bead_id"] = str(window_bead_ids[0])
+        if bead_type == "evidence":
+            if not kwargs["summary"]:
+                kwargs["summary"] = ["evidence from finalized turn"]
+            if window_bead_ids:
+                kwargs["supports_bead_ids"] = [str(window_bead_ids[0])]
         bead_id = store.add_bead(**kwargs)
         created.append({"bead_id": bead_id, "type": bead_type, "score": score, "reason": "threshold_met"})
     else:
