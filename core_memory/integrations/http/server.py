@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import emit_turn_finalized
 from core_memory.tools import memory as memory_tools
+from core_memory.retrieval.query_norm import classify_intent
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
@@ -54,6 +55,10 @@ class MemoryExecuteRequest(BaseModel):
     root: Optional[str] = None
     request: dict[str, Any]
     explain: bool = True
+
+
+class MemoryClassifyIntentRequest(BaseModel):
+    query: str
 
 
 app = FastAPI(title="Core Memory HTTP Ingress", version="1.1")
@@ -187,3 +192,13 @@ async def memory_execute(
         root=_resolve_root(payload.root),
         explain=bool(payload.explain),
     )
+
+
+@app.post("/v1/memory/classify-intent")
+async def memory_classify_intent(
+    payload: MemoryClassifyIntentRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return classify_intent(str(payload.query or ""))

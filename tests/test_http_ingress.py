@@ -70,6 +70,17 @@ class TestHttpIngress(unittest.TestCase):
             self.assertTrue(data.get("results"))
             self.assertIn("grounding", data)
 
+    def test_http_classify_intent_endpoint(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        c = TestClient(app)
+        r = c.post('/v1/memory/classify-intent', json={'query': 'why did promotion inflation happen'})
+        self.assertEqual(200, r.status_code)
+        data = r.json()
+        self.assertEqual('causal', data.get('intent_class'))
+        self.assertTrue(bool(data.get('causal_intent')))
+
     def test_http_auth_token_protection(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http import server as srv

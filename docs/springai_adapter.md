@@ -23,6 +23,11 @@ Optional:
 
 ## Runtime tool path (sync)
 
+### 0) Intent classification (optional canonical router)
+- `POST /v1/memory/classify-intent`
+- Body:
+  - `query`
+
 ### 1) Search form discovery
 - `GET /v1/memory/search-form?root=<optional>`
 
