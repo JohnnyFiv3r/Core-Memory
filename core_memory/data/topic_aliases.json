@@ -1,0 +1,27 @@
+[
+  {
+    "topic_key": "promotion_workflow",
+    "aliases": [
+      "candidate-first promotion",
+      "candidate only promotion",
+      "agent-authoritative promotion",
+      "promotion workflow"
+    ]
+  },
+  {
+    "topic_key": "structural_sync",
+    "aliases": [
+      "structural sync",
+      "associations links edges graph",
+      "immutable causal sync"
+    ]
+  },
+  {
+    "topic_key": "graph_archive_retrieval",
+    "aliases": [
+      "graph archive retrieval",
+      "retrieval hardening",
+      "memory reason"
+    ]
+  }
+]

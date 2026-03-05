@@ -9,7 +9,7 @@ from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.retrieval.quality_gate import quality_gate_decision
 from core_memory.retrieval.config import RETRY_APPEND_HINT, QUALITY_THRESHOLD_LONG
-from core_memory.retrieval.query_norm import classify_intent
+from core_memory.retrieval.query_norm import classify_intent, resolve_query_anchors
 from core_memory.archive_index import read_snapshot
 from core_memory.store import MemoryStore
 
@@ -486,6 +486,9 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
 
     intent = _detect_intent(query)
     intent_meta = classify_intent(query)
+    anchor_meta = resolve_query_anchors(query, root_p)
+    retrieval_query = str(anchor_meta.get("expanded_query") or query)
+
     intent_class = str(intent_meta.get("intent_class") or "remember")
     hint_route = intent_class if intent_class in {"why", "when", "what_changed", "remember"} else str(intent.get("intent") or "remember")
     if intent_class == "causal":
@@ -500,7 +503,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
 
     # Primary route is robust default; intent router is fallback hint only.
     primary_route = "why"
-    primary = planners.get(primary_route, _plan_why)(store, root_p, query, k)
+    primary = planners.get(primary_route, _plan_why)(store, root_p, retrieval_query, k)
     if not primary.get("ok"):
         return primary
 
@@ -518,7 +521,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         retry_route = hint_route if hint_route in planners else "remember"
         if retry_route == primary_route:
             retry_route = "remember"
-        retry = planners.get(retry_route, _plan_remember)(store, root_p, query, k) if retry_route else {"ok": False}
+        retry = planners.get(retry_route, _plan_remember)(store, root_p, retrieval_query, k) if retry_route else {"ok": False}
         if retry_route and retry.get("ok"):
             retry_q = _quality_score(retry)
             p_ground = _grounding_signal(primary)
@@ -567,6 +570,8 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         "hint_confidence": intent.get("confidence"),
         "scores": intent.get("scores"),
         "used_hint_retry": used_retry,
+        "matched_incidents": anchor_meta.get("matched_incidents") or [],
+        "matched_topics": anchor_meta.get("matched_topics") or [],
     }
     primary["confidence"] = {
         "overall": round(overall, 4),
@@ -589,6 +594,9 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
             "normalized_query": str((intent_meta.get("normalized") or {}).get("raw_normalized") or ""),
             "query_tokens": (intent_meta.get("normalized") or {}).get("tokens") or [],
             "query_phrases": (intent_meta.get("normalized") or {}).get("phrases") or [],
+            "expanded_query": retrieval_query,
+            "matched_incidents": anchor_meta.get("matched_incidents") or [],
+            "matched_topics": anchor_meta.get("matched_topics") or [],
             "k": int(k),
             "intent": primary.get("intent"),
             "confidence": primary.get("confidence"),
