@@ -72,11 +72,19 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
         })
 
     chains = []
+    relation_filter = set([str(x) for x in (form.get("relation_types") or [])])
     if form.get("require_structural") and result_rows:
         anchors = [x["bead_id"] for x in result_rows[:5]]
         trav = causal_traverse(root, anchor_ids=anchors, max_depth=2, max_chains=5)
-        for c in (trav.get("chains") or [])[:3]:
-            chains.append({"path": c.get("path") or [], "edges": c.get("edges") or [], "score": c.get("score")})
+        for c in (trav.get("chains") or []):
+            edges = c.get("edges") or []
+            if relation_filter:
+                rels = set([str(e.get("rel") or "") for e in edges])
+                if not rels.intersection(relation_filter):
+                    continue
+            chains.append({"path": c.get("path") or [], "edges": edges, "score": c.get("score")})
+            if len(chains) >= 3:
+                break
 
     warnings = []
     if not form.get("incident_id") and not (form.get("topic_keys") or []):
@@ -84,8 +92,24 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
     if form.get("require_structural") and not chains:
         warnings.append("require_structural_requested_but_no_chains")
 
-    confidence = "high" if len(result_rows) >= min(3, k) else ("medium" if result_rows else "low")
-    suggested_next = "answer" if confidence == "high" else ("broaden" if result_rows else "ask_clarifying")
+    avg_score = 0.0
+    if result_rows:
+        avg_score = sum(float(r.get("score") or 0.0) for r in result_rows[: min(3, len(result_rows))]) / max(1, min(3, len(result_rows)))
+
+    has_anchor = bool(form.get("incident_id")) or bool(form.get("topic_keys") or [])
+    if len(result_rows) >= min(3, k) and avg_score >= 0.45 and has_anchor:
+        confidence = "high"
+    elif result_rows:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    if confidence == "high":
+        suggested_next = "answer"
+    elif result_rows:
+        suggested_next = "broaden"
+    else:
+        suggested_next = "ask_clarifying"
 
     out = {
         "ok": True,
