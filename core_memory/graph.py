@@ -186,6 +186,128 @@ def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[i
     return scanned, added
 
 
+def _text_tokens(bead: dict) -> set[str]:
+    txt = " ".join([
+        str(bead.get("title") or ""),
+        " ".join(bead.get("summary") or []),
+        " ".join(bead.get("tags") or []),
+    ])
+    stop = {"the", "and", "for", "with", "that", "this", "what", "when", "why", "did", "was", "are", "from"}
+    out = set()
+    for t in txt.lower().replace("_", " ").replace("-", " ").split():
+        if len(t) < 4 or t in stop:
+            continue
+        out.add(t)
+    return out
+
+
+def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: int = 3, min_overlap: int = 2, require_shared_turn: bool = True) -> dict:
+    """Deterministic causal backfill for existing content.
+
+    Rule set (conservative):
+    - source type in {evidence, lesson}
+    - target type in {decision, outcome, precedent}
+    - same session_id
+    - lexical overlap >= min_overlap
+    - per target keep top-N by overlap then src bead_id
+    """
+    edges_file, _, index_file = _paths(root)
+    if not index_file.exists():
+        return {"ok": False, "error": "index_missing"}
+
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+    beads = index.get("beads") or {}
+
+    by_session: dict[str, list[dict]] = {}
+    for bid, b in beads.items():
+        row = dict(b)
+        row["id"] = bid
+        sid = str(b.get("session_id") or "")
+        by_session.setdefault(sid, []).append(row)
+
+    proposals: list[dict] = []
+    for sid, rows in by_session.items():
+        sources = [r for r in rows if str(r.get("type") or "") in {"evidence", "lesson"}]
+        targets = [r for r in rows if str(r.get("type") or "") in {"decision", "outcome", "precedent"}]
+        src_toks = {r["id"]: _text_tokens(r) for r in sources}
+        tgt_toks = {r["id"]: _text_tokens(r) for r in targets}
+
+        for t in targets:
+            cands = []
+            t_id = str(t.get("id") or "")
+            for s in sources:
+                s_id = str(s.get("id") or "")
+                if not s_id or s_id == t_id:
+                    continue
+                ov = len(src_toks.get(s_id, set()).intersection(tgt_toks.get(t_id, set())))
+                if ov < int(min_overlap):
+                    continue
+                if require_shared_turn:
+                    st = set([str(x) for x in (s.get("source_turn_ids") or [])])
+                    tt = set([str(x) for x in (t.get("source_turn_ids") or [])])
+                    shared_turn = bool(st.intersection(tt))
+                    if not shared_turn:
+                        # fallback gate: same UTC date and stronger overlap
+                        sc = str(s.get("created_at") or "")[:10]
+                        tc = str(t.get("created_at") or "")[:10]
+                        if not (sc and tc and sc == tc and ov >= int(min_overlap) + 2):
+                            continue
+                rel = "supports" if str(s.get("type") or "") == "evidence" else "derived_from"
+                cands.append((ov, s_id, t_id, rel, sid))
+            cands = sorted(cands, key=lambda x: (-x[0], x[1]))[: max(1, int(max_per_target))]
+            for ov, s_id, t_id, rel, sid in cands:
+                proposals.append({"src_id": s_id, "dst_id": t_id, "rel": rel, "session_id": sid, "overlap": ov})
+
+    # dedupe against existing links and existing structural edges
+    existing_link = set()
+    for bid, b in beads.items():
+        for l in _normalize_links((b or {}).get("links")):
+            existing_link.add((str(bid), str(l.get("dst_id") or ""), str(l.get("rel") or "")))
+
+    existing_edge = set()
+    for e in _iter_events(edges_file) or []:
+        if str(e.get("event") or "") == "edge_add" and str(e.get("class") or "") == "structural":
+            existing_edge.add((str(e.get("src_id") or ""), str(e.get("dst_id") or ""), str(e.get("rel") or "")))
+
+    final = []
+    seen = set()
+    for p in sorted(proposals, key=lambda x: (-int(x.get("overlap") or 0), str(x.get("src_id") or ""), str(x.get("dst_id") or ""), str(x.get("rel") or ""))):
+        key = (str(p.get("src_id") or ""), str(p.get("dst_id") or ""), str(p.get("rel") or ""))
+        if key in seen or key in existing_link and key in existing_edge:
+            continue
+        seen.add(key)
+        final.append(p)
+
+    links_added = 0
+    edges_added = 0
+    if apply:
+        for p in final:
+            src = str(p.get("src_id") or "")
+            dst = str(p.get("dst_id") or "")
+            rel = str(p.get("rel") or "")
+            b = beads.get(src) or {}
+            links = b.setdefault("links", [])
+            if not any(isinstance(l, dict) and str(l.get("type") or "") == rel and str(l.get("bead_id") or "") == dst for l in links):
+                links.append({"type": rel, "bead_id": dst, "source": "causal_backfill", "overlap": int(p.get("overlap") or 0)})
+                links_added += 1
+            if (src, dst, rel) not in existing_edge:
+                add_structural_edge(root, src_id=src, dst_id=dst, rel=rel, created_by="system", evidence=[{"reason": "causal_backfill", "overlap": int(p.get("overlap") or 0)}])
+                edges_added += 1
+                existing_edge.add((src, dst, rel))
+        atomic_write_json(index_file, index)
+        build_graph(root, write_snapshot=True)
+
+    return {
+        "ok": True,
+        "apply": bool(apply),
+        "require_shared_turn": bool(require_shared_turn),
+        "proposed": len(final),
+        "links_added": links_added,
+        "edges_added": edges_added,
+        "sample": final[:50],
+    }
+
+
 def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = False) -> dict:
     """Deterministic pipeline: associations -> links -> immutable structural edges -> graph snapshot."""
     edges_file, _, index_file = _paths(root)
