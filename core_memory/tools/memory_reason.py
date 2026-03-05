@@ -432,10 +432,21 @@ def _causal_intent(query: str) -> bool:
     return any(x in q for x in ["why", "decide", "because", "rationale", "what happened"])
 
 
+def _has_structural_chain(result: dict) -> bool:
+    allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves", "caused_by"}
+    for c in (result.get("chains") or []):
+        for e in (c.get("edges") or []):
+            if str(e.get("class") or "") == "structural":
+                return True
+            if str(e.get("rel") or "") in allowed:
+                return True
+    return False
+
+
 def _grounding_signal(result: dict) -> float:
     chains = result.get("chains") or []
     cits = result.get("citations") or []
-    has_structural = 1.0 if any(len(c.get("edges") or []) > 0 for c in chains) else 0.0
+    has_structural = 1.0 if _has_structural_chain(result) else 0.0
     has_decision = 1.0 if any(str(c.get("type") or "") in {"decision", "precedent"} for c in cits) else 0.0
     has_evidence = 1.0 if any(str(c.get("type") or "") in {"evidence", "lesson", "outcome"} for c in cits) else 0.0
     return (0.5 * has_structural) + (0.25 * has_decision) + (0.25 * has_evidence)
@@ -467,31 +478,51 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
 
     used_retry = False
     chosen_route = primary_route
+    causal_query = _causal_intent(query)
+    retry = {"ok": False}
+    retry_route = ""
 
     if no_hits or low_quality:
-        causal = _causal_intent(query)
         retry_route = hint_route if hint_route in planners else "remember"
-        if causal and retry_route == "remember" and not no_hits:
-            retry_route = "why"
         if retry_route == primary_route:
             retry_route = "remember"
-        if causal and retry_route == "remember" and not no_hits:
-            retry_route = ""  # skip non-causal downgrade retry on low-quality-only cases
-
         retry = planners.get(retry_route, _plan_remember)(store, root_p, query, k) if retry_route else {"ok": False}
         if retry_route and retry.get("ok"):
             retry_q = _quality_score(retry)
             p_ground = _grounding_signal(primary)
             r_ground = _grounding_signal(retry)
             should_take = retry_q >= primary_q
-            # For causal questions, don't swap to a weaker non-grounded route.
-            if causal and r_ground < p_ground:
+            if causal_query and r_ground < p_ground:
                 should_take = False
             if should_take:
                 primary = retry
                 primary_q = retry_q
                 chosen_route = retry_route
             used_retry = True
+
+    # Structural grounding constraint for causal queries.
+    primary_struct = _has_structural_chain(primary)
+    retry_struct = bool(retry.get("ok")) and _has_structural_chain(retry)
+    if causal_query:
+        structural_candidates_found = int(primary_struct) + int(retry_struct)
+        if structural_candidates_found > 0 and not primary_struct and retry_struct:
+            primary = retry
+            primary_q = _quality_score(retry)
+            chosen_route = retry_route or chosen_route
+            primary_struct = True
+        primary["grounding"] = {
+            "causal_intent": True,
+            "structural_candidates_found": structural_candidates_found,
+            "selected_has_structural": bool(primary_struct),
+            "reason": "no_structural_candidates" if structural_candidates_found == 0 else "structural_constraint_applied",
+        }
+    else:
+        primary["grounding"] = {
+            "causal_intent": False,
+            "structural_candidates_found": int(primary_struct) + int(retry_struct),
+            "selected_has_structural": bool(primary_struct),
+            "reason": "non_causal_query",
+        }
 
     chain_confs = [float(c.get("confidence") or 0.0) for c in (primary.get("chains") or [])]
     overall = max(chain_confs) if chain_confs else 0.0
