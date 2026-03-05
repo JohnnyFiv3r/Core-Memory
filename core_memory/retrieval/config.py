@@ -8,6 +8,33 @@ W_COVERAGE = 0.10
 W_INCIDENT = 0.05
 W_PENALTY = 0.10
 
+INTENT_WEIGHT_OVERRIDES = {
+    "causal": {
+        "W_STRUCTURAL": 0.24,
+        "W_EDGE_SUPPORT": 0.17,
+        "W_COVERAGE": 0.08,
+        "W_INCIDENT": 0.06,
+    },
+    "remember": {
+        "W_STRUCTURAL": 0.10,
+        "W_EDGE_SUPPORT": 0.08,
+        "W_COVERAGE": 0.20,
+        "W_INCIDENT": 0.10,
+    },
+    "what_changed": {
+        "W_STRUCTURAL": 0.18,
+        "W_EDGE_SUPPORT": 0.14,
+        "W_COVERAGE": 0.15,
+        "W_INCIDENT": 0.07,
+    },
+    "when": {
+        "W_STRUCTURAL": 0.10,
+        "W_EDGE_SUPPORT": 0.08,
+        "W_COVERAGE": 0.22,
+        "W_INCIDENT": 0.08,
+    },
+}
+
 # Quality gate buckets
 SHORT_QUERY_TOKENS = 3
 QUALITY_THRESHOLD_SHORT = 0.30

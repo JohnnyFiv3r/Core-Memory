@@ -266,7 +266,7 @@ def _retrieve_ranked(root_p: Path, query: str, k: int, intent_class: str = "reme
     first = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
     if not first.get("ok"):
         return first
-    rr1 = rerank_candidates(root_p, query=query, candidates=first.get("results") or [])
+    rr1 = rerank_candidates(root_p, query=query, candidates=first.get("results") or [], intent_class=intent_class)
     ranked1 = rr1.get("results") or []
 
     # Intent-normalized selector gating: for causal/what_changed, prioritize structurally rich candidates.
@@ -291,7 +291,7 @@ def _retrieve_ranked(root_p: Path, query: str, k: int, intent_class: str = "reme
     if not second.get("ok"):
         return {"ok": True, "query_used": query, "results": ranked1, "debug": {"first": rr1, "gate": gate, "retry": {"ok": False, "error": second.get("error")}}}
 
-    rr2 = rerank_candidates(root_p, query=retry_query, candidates=second.get("results") or [])
+    rr2 = rerank_candidates(root_p, query=retry_query, candidates=second.get("results") or [], intent_class=intent_class)
     ranked2 = rr2.get("results") or []
     if intent_class in {"causal", "what_changed"}:
         ranked2 = sorted(

@@ -16,6 +16,7 @@ from .config import (
     W_INCIDENT,
     W_PENALTY,
     W_STRUCTURAL,
+    INTENT_WEIGHT_OVERRIDES,
 )
 
 
@@ -117,7 +118,7 @@ def _low_info_score(bead: dict) -> float:
     return max(0.0, min(1.0, (0.3 * low_title) + (0.25 * low_summary) + (0.2 * low_alnum) + (0.25 * templ)))
 
 
-def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
+def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_class: str = "remember") -> dict:
     idx_file = root / ".beads" / "index.json"
     if not idx_file.exists():
         return {"ok": True, "results": candidates, "debug": []}
@@ -126,6 +127,12 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
     beads = idx.get("beads") or {}
     q_tokens = set(_tokenize(query))
     adj = _load_structural_adjacency(root)
+
+    ow = INTENT_WEIGHT_OVERRIDES.get(str(intent_class or "remember"), {})
+    w_structural = float(ow.get("W_STRUCTURAL", W_STRUCTURAL))
+    w_edge = float(ow.get("W_EDGE_SUPPORT", W_EDGE_SUPPORT))
+    w_cov = float(ow.get("W_COVERAGE", W_COVERAGE))
+    w_inc = float(ow.get("W_INCIDENT", W_INCIDENT))
 
     out = []
     dbg = []
@@ -146,10 +153,10 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
         fused = float(c.get("fused_score") or 0.0)
         score = (
             (fused * W_FUSED)
-            + (structural_quality * W_STRUCTURAL)
-            + (edge_support * W_EDGE_SUPPORT)
-            + (coverage * W_COVERAGE)
-            + (incident_strength * W_INCIDENT)
+            + (structural_quality * w_structural)
+            + (edge_support * w_edge)
+            + (coverage * w_cov)
+            + (incident_strength * w_inc)
             - (penalties * W_PENALTY)
         )
         score = max(0.0, min(1.0, float(score)))
@@ -165,10 +172,19 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict]) -> dict:
         c2["rerank_score"] = round(score, 4)
         c2["features"] = features
         c2["derived"] = {
+            "intent_class": str(intent_class or "remember"),
             "structural_quality": round(structural_quality, 4),
             "edge_support": round(edge_support, 4),
             "penalties": round(penalties, 4),
             "superseded_penalty": round(superseded_penalty, 4),
+            "weights": {
+                "W_FUSED": W_FUSED,
+                "W_STRUCTURAL": w_structural,
+                "W_EDGE_SUPPORT": w_edge,
+                "W_COVERAGE": w_cov,
+                "W_INCIDENT": w_inc,
+                "W_PENALTY": W_PENALTY,
+            },
         }
         out.append(c2)
         dbg.append({"bead_id": bid, "fused_score": fused, "rerank_score": c2["rerank_score"], "features": features, "derived": c2["derived"]})

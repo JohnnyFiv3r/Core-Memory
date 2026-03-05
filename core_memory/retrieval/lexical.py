@@ -10,15 +10,14 @@ def _tokenize(text: str) -> list[str]:
     return [t for t in (text or "").lower().replace("_", " ").replace("-", " ").split() if len(t) >= 3]
 
 
-def _bead_text(bead: dict) -> str:
-    return " ".join(
-        [
-            str(bead.get("type") or ""),
-            str(bead.get("title") or ""),
-            " ".join(bead.get("summary") or []),
-            " ".join(bead.get("tags") or []),
-        ]
-    )
+def _field_tokens(bead: dict) -> dict[str, list[str]]:
+    return {
+        "type": _tokenize(str(bead.get("type") or "")),
+        "title": _tokenize(str(bead.get("title") or "")),
+        "summary": _tokenize(" ".join(bead.get("summary") or [])),
+        "tags": _tokenize(" ".join(bead.get("tags") or [])),
+        "incident": _tokenize(str(bead.get("incident_id") or "")),
+    }
 
 
 def lexical_lookup(root: Path, query: str, k: int = 8) -> dict:
@@ -29,14 +28,26 @@ def lexical_lookup(root: Path, query: str, k: int = 8) -> dict:
     beads = list((idx.get("beads") or {}).values())
     q_tokens = _tokenize(query)
     if not q_tokens:
-        return {"ok": True, "backend": "lexical-tfidf", "query": query, "results": []}
+        return {"ok": True, "backend": "lexical-field-tfidf", "query": query, "results": []}
+
+    field_weights = {
+        "title": 2.6,
+        "tags": 3.0,
+        "incident": 3.0,
+        "summary": 1.2,
+        "type": 1.0,
+    }
 
     docs = []
     df = Counter()
     for b in beads:
-        toks = _tokenize(_bead_text(b))
-        docs.append((str(b.get("id") or ""), str(b.get("type") or ""), str(b.get("status") or ""), toks))
-        for t in set(toks):
+        f = _field_tokens(b)
+        merged = []
+        for fk, toks in f.items():
+            w = int(round(field_weights.get(fk, 1.0) * 10))
+            merged.extend(toks * max(1, w))
+        docs.append((str(b.get("id") or ""), str(b.get("type") or ""), str(b.get("status") or ""), merged))
+        for t in set(merged):
             df[t] += 1
 
     N = max(1, len(docs))
@@ -55,4 +66,4 @@ def lexical_lookup(root: Path, query: str, k: int = 8) -> dict:
             scored.append({"bead_id": bead_id, "score": float(score), "type": typ, "status": status})
 
     scored = sorted(scored, key=lambda x: (x.get("score", 0.0), x.get("bead_id", "")), reverse=True)
-    return {"ok": True, "backend": "lexical-tfidf", "query": query, "results": scored[: max(1, int(k))]}
+    return {"ok": True, "backend": "lexical-field-tfidf", "query": query, "results": scored[: max(1, int(k))]}
