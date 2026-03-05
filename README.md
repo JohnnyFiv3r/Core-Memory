@@ -1,47 +1,8 @@
 # Core Memory
 
-<svg width="1280" height="300" viewBox="0 0 1280 300" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Core Memory terminal banner">
-  <defs>
-    <linearGradient id="termBg" x1="0" y1="0" x2="1280" y2="300" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#0E1014"></stop>
-      <stop offset="1" stop-color="#0B0D10"></stop>
-    </linearGradient>
-    <filter id="titleGlow" x="-50%" y="-50%" width="200%" height="200%">
-      <feGaussianBlur in="SourceGraphic" stdDeviation="1.8" result="blur"></feGaussianBlur>
-      <feMerge>
-        <feMergeNode in="blur"></feMergeNode>
-        <feMergeNode in="SourceGraphic"></feMergeNode>
-      </feMerge>
-    </filter>
-    <style>
-      .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; font-weight: 600; letter-spacing: 0.01em; }
-    </style>
-  </defs>
-  <!-- terminal window -->
-  <rect width="1280" height="300" rx="18" fill="url(#termBg)"></rect>
-  <!-- top bar -->
-  <rect x="0" y="0" width="1280" height="46" rx="18" fill="#2A2D33"></rect>
-  <rect x="0" y="28" width="1280" height="18" fill="#2A2D33"></rect>
-  <!-- traffic lights -->
-  <circle cx="32" cy="23" r="8" fill="#FF5F57"></circle>
-  <circle cx="60" cy="23" r="8" fill="#FEBC2E"></circle>
-  <circle cx="88" cy="23" r="8" fill="#28C840"></circle>
-  <!-- inner panel -->
-  <rect x="22" y="62" width="1236" height="214" rx="12" fill="none" stroke="#1D2128" stroke-width="1"></rect>
-  <!-- ASCII title block (multi-line via tspans; no stray tags) -->
-  <text x="100" y="110" class="mono" font-size="14" xml:space="preserve">
-    <tspan x="240" dy="0" fill="#33FF33" filter="url(#titleGlow)"> ██████╗ ██████╗ ██████╗ ███████╗ ███╗ ███╗███████╗███╗ ███╗ ██████╗ ██████╗ ██╗ ██╗</tspan>
-    <tspan x="240" dy="18" fill="#33FF33" filter="url(#titleGlow)"> ██╔════╝ ██╔═══██╗██╔══██╗██╔════╝ ████╗ ████║██╔════╝████╗ ████║██╔═══██╗██╔══██╗╚██╗ ██╔╝</tspan>
-    <tspan x="240" dy="18" fill="#33FF33" filter="url(#titleGlow)"> ██║ ██║ ██║██████╔╝█████╗ ██╔████╔██║█████╗ ██╔████╔██║██║ ██║██████╔╝ ╚████╔╝ </tspan>
-    <tspan x="240" dy="18" fill="#A8FFB0" filter="url(#titleGlow)"> ██║ ██║ ██║██╔══██╗██╔══╝ ██║╚██╔╝██║██╔══╝ ██║╚██╔╝██║██║ ██║██╔══██╗ ╚██╔╝ </tspan>
-    <tspan x="240" dy="18" fill="#A8FFB0" filter="url(#titleGlow)"> ╚██████╗ ╚██████╔╝██║ ██║███████╗ ██║ ╚═╝ ██║███████╗██║ ╚═╝ ██║╚██████╔╝██║ ██║ ██║ </tspan>
-    <tspan x="240" dy="18" fill="#A8FFB0" filter="url(#titleGlow)"> ╚═════╝ ╚═════╝ ╚═╝ ╚═╝╚══════╝ ╚═╝ ╚═╝╚══════╝╚═╝ ╚═╝ ╚═════╝ ╚═╝ ╚═╝ ╚═╝ </tspan>
-  </text>
-  <!-- subtitle (single instance) -->
-  <text x="640" y="240" class="mono" font-size="18" fill="#E8EEF7" opacity="0.92" text-anchor="middle">
-    Structured memory for agents | Remembers the what AND the why
-  </text>
-</svg>
+<p align="center">
+  <img src="docs/assets/core-memory-banner.svg" alt="Core Memory terminal banner" width="100%" />
+</p>
 
 Core Memory is a deterministic memory layer for agents. It stores structured memory events ("beads") and explicit links so recall stays inspectable and repeatable across context resets.
 
