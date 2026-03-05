@@ -16,6 +16,85 @@ def _mk_request_id(req: dict) -> str:
     return "mrq_" + hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
 
 
+def _load_beads(root: Path) -> dict:
+    p = root / ".beads" / "index.json"
+    if not p.exists():
+        return {}
+    try:
+        return (json.loads(p.read_text(encoding="utf-8")) or {}).get("beads") or {}
+    except Exception:
+        return {}
+
+
+def _anchor_rank(results: list[dict], incident_id: str, topic_keys: set[str], beads: dict) -> int:
+    if not results:
+        return 999
+    for i, r in enumerate(results[:10], start=1):
+        b = beads.get(str(r.get("bead_id") or "")) or {}
+        if incident_id and str(b.get("incident_id") or "") == incident_id:
+            return i
+        tags = set([str(t) for t in (b.get("tags") or [])])
+        if topic_keys and tags.intersection(topic_keys):
+            return i
+    return 999
+
+
+def _cluster_coherence(results: list[dict], beads: dict) -> tuple[float, int]:
+    top = results[:5]
+    if not top:
+        return 0.0, 0
+    labels = []
+    for r in top:
+        b = beads.get(str(r.get("bead_id") or "")) or {}
+        iid = str(b.get("incident_id") or "")
+        if iid:
+            labels.append("i:" + iid)
+            continue
+        tags = sorted([str(t) for t in (b.get("tags") or []) if str(t)])
+        labels.append("t:" + (tags[0] if tags else "none"))
+    counts = {}
+    for x in labels:
+        counts[x] = counts.get(x, 0) + 1
+    dominant = max(counts.values()) if counts else 0
+    clusters = sum(1 for v in counts.values() if v >= 2)
+    return round(dominant / max(1, len(top)), 4), clusters
+
+
+def _confidence_and_next(intent: str, results: list[dict], chains: list[dict], snapped: dict, beads: dict) -> tuple[str, str, dict]:
+    if not results:
+        return "low", "ask_clarifying", {"reason": "no_results"}
+
+    top1 = float((results[0] or {}).get("score") or 0.0)
+    top2 = float((results[1] or {}).get("score") or 0.0) if len(results) > 1 else 0.0
+    margin = round(top1 - top2, 4)
+
+    incident_id = str(snapped.get("incident_id") or "")
+    topic_keys = set([str(x) for x in (snapped.get("topic_keys") or []) if str(x)])
+    arank = _anchor_rank(results, incident_id, topic_keys, beads)
+    coh, cluster_count = _cluster_coherence(results, beads)
+
+    if intent in {"remember", "what_changed", "when", "other"}:
+        high = (arank == 1) or (margin >= 0.12) or (coh >= 0.6)
+        medium = (arank <= 3) or (margin >= 0.06) or (coh >= 0.4)
+        if high:
+            return "high", "answer", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+        if medium:
+            return "medium", "answer", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+        if cluster_count >= 2:
+            return "low", "ask_clarifying", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+        return "low", "broaden", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+
+    # causal
+    grounded = bool(chains)
+    if grounded:
+        if (margin >= 0.06) or (arank <= 3):
+            return "high", "answer", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+        return "medium", "answer", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+    if cluster_count >= 2:
+        return "low", "ask_clarifying", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+    return "low", "broaden", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+
+
 def execute_request(request: dict, root: str = "./memory", explain: bool = True) -> dict:
     req = dict(request or {})
     raw_query = str(req.get("raw_query") or req.get("query_text") or "").strip()
@@ -67,6 +146,7 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         sres["explain"] = build_explain(sres.get("snapped_query") or {}, snapped.get("decisions") or {}, sres.get("warnings") or [], sres.get("retrieval_debug") or {})
     results = sres.get("results") or []
     chains = sres.get("chains") or []
+    beads = _load_beads(rp)
 
     grounding_required = bool(mem_req["constraints"].get("require_structural")) or intent == "causal"
     grounding_achieved = bool(chains)
@@ -118,8 +198,23 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
                 }
             )
 
-    confidence = sres.get("confidence") or ("medium" if results else "low")
-    next_action = sres.get("suggested_next") or ("answer" if results else "ask_clarifying")
+    confidence, next_action, conf_diag = _confidence_and_next(intent, results, chains, sres.get("snapped_query") or typed_form, beads)
+
+    # For non-causal low-confidence with no clear ambiguity, do one deterministic broaden pass then answer.
+    if intent in {"remember", "what_changed", "when", "other"} and next_action == "broaden":
+        broader_form = dict(sres.get("snapped_query") or typed_form)
+        broader_form["incident_id"] = None
+        broader_form["topic_keys"] = []
+        broader_form["bead_types"] = []
+        broader_form["relation_types"] = []
+        broader_form["k"] = max(mem_req["k"], 12)
+        broad = search_typed(rp, broader_form, include_explain=False)
+        bres = broad.get("results") or []
+        if bres:
+            results = bres[: mem_req["k"]]
+            # preserve chains from prior pass unless causal reasoner added stronger evidence
+            confidence, next_action, conf_diag = _confidence_and_next(intent, results, chains, broader_form, beads)
+            next_action = "answer" if next_action != "ask_clarifying" else next_action
 
     out = {
         "ok": True,
@@ -140,5 +235,6 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         out["explain"] = {
             "search": sres.get("explain") or {},
             "reason_fallback_used": bool(reason_payload is not None),
+            "confidence_diagnostics": conf_diag,
         }
     return out
