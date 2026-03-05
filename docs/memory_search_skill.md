@@ -6,6 +6,7 @@ This branch introduces a tool-oriented boundary for memory retrieval.
 
 - `core_memory.tools.memory_search.get_search_form(root="./memory")`
 - `core_memory.tools.memory_search.search_typed(submission, root="./memory", explain=True)`
+- `core_memory.tools.memory.execute(request, root="./memory", explain=True)` (unified facade)
 
 ## Contract
 

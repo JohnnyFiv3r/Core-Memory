@@ -22,7 +22,7 @@ from .openclaw_integration import (
     finalize_and_process_turn,
     process_pending_memory_events,
 )
-from .memory_skill import memory_get_search_form, memory_search_typed
+from .memory_skill import memory_get_search_form, memory_search_typed, memory_execute
 
 
 def main():
@@ -164,6 +164,9 @@ def main():
     mem_search = mem_sub.add_parser("search", help="Run typed memory search")
     mem_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
     mem_search.add_argument("--explain", action="store_true")
+    mem_exec = mem_sub.add_parser("execute", help="Run unified MemoryRequest execution")
+    mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
+    mem_exec.add_argument("--explain", action="store_true")
 
     # graph command
     graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
@@ -454,6 +457,13 @@ def main():
             else:
                 payload = json.loads(Path(typed).read_text(encoding="utf-8"))
             print(json.dumps(memory_search_typed(str(memory.root), payload, explain=bool(args.explain)), indent=2))
+        elif args.memory_cmd == "execute":
+            req = str(args.request or "")
+            if req.strip().startswith("{"):
+                payload = json.loads(req)
+            else:
+                payload = json.loads(Path(req).read_text(encoding="utf-8"))
+            print(json.dumps(memory_execute(str(memory.root), payload, explain=bool(args.explain)), indent=2))
         else:
             mem_parser.print_help()
 

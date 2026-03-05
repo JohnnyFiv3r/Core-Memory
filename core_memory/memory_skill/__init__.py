@@ -7,6 +7,7 @@ from .form import get_search_form
 from .snap import snap_form
 from .search import search_typed
 from .explain import build_explain
+from .execute import execute_request
 
 
 def memory_get_search_form(root: str) -> dict:
@@ -24,3 +25,7 @@ def memory_search_typed(root: str, submission: dict, explain: bool = False) -> d
     if explain:
         out["explain"] = build_explain(out.get("snapped_query") or {}, snapped.get("decisions") or {}, out.get("warnings") or [], out.get("retrieval_debug") or {})
     return out
+
+
+def memory_execute(root: str, request: dict, explain: bool = True) -> dict:
+    return execute_request(request=request, root=root, explain=bool(explain))
