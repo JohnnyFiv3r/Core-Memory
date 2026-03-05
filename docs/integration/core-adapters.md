@@ -1,12 +1,13 @@
-# Core Adapters (Wave 1)
+# Core Adapters (Wave 2)
 
 This document describes the thin adapter surface for non-OpenClaw orchestrators.
 
-## Stable Python Port
+Canonical HTTP/API contract artifact:
+- `docs/contracts/http_api.v1.json`
 
-Use `core_memory.integrations.api.emit_turn_finalized(...)`.
+## Stable Python port
 
-It emits exactly one `TURN_FINALIZED` event and returns `event_id`.
+Use `core_memory.integrations.api.emit_turn_finalized(...)` for write-path ingestion.
 
 ## PydanticAI (in-process)
 
@@ -21,33 +22,34 @@ result = await run_with_memory(
 )
 ```
 
-## SpringAI (JVM -> HTTP ingress)
+## SpringAI (JVM -> HTTP)
 
-Run ingress server:
+Run server:
 
 ```bash
-python3 -m core_memory.integrations.http_ingress
+python3 -m core_memory.integrations.http.server
 ```
 
-POST:
+### Write path (async, non-blocking)
 
-```http
-POST /v1/memory/turn-finalized
-Content-Type: application/json
-
-{
-  "root": "./memory",
-  "session_id": "s1",
-  "turn_id": "t1",
-  "transaction_id": "tx1",
-  "user_query": "...",
-  "assistant_final": "...",
-  "metadata": {"tenant_id": "acme"}
-}
-```
+`POST /v1/memory/turn-finalized`
 
 Response:
 
 ```json
-{"ok": true, "event_id": "mev-..."}
+{"accepted": true, "event_id": "mev-..."}
 ```
+
+### Runtime tool path (sync)
+
+- `POST /v1/memory/classify-intent` (optional pre-call; telemetry/UX only)
+- `GET /v1/memory/search-form`
+- `POST /v1/memory/search`
+- `POST /v1/memory/reason`
+- `POST /v1/memory/execute` (preferred single-call correctness path)
+
+## Notes
+
+- `/v1/memory/execute` is the preferred SpringAI runtime endpoint.
+- `/v1/memory/classify-intent` is optional and not required for correctness.
+- When `CORE_MEMORY_HTTP_TOKEN` is set, auth is required.

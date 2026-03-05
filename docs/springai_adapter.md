@@ -2,6 +2,9 @@
 
 SpringAI runs on JVM, so integration remains HTTP -> Python service.
 
+Canonical contract:
+- `docs/contracts/http_api.v1.json`
+
 ## Write path (non-blocking)
 
 `POST /v1/memory/turn-finalized`
@@ -23,10 +26,12 @@ Optional:
 
 ## Runtime tool path (sync)
 
-### 0) Intent classification (optional canonical router)
+### 0) Intent classification (optional)
 - `POST /v1/memory/classify-intent`
 - Body:
   - `query`
+- Use for telemetry/UX routing if desired.
+- Not required for correctness; `POST /v1/memory/execute` is the preferred single-call path.
 
 ### 1) Search form discovery
 - `GET /v1/memory/search-form?root=<optional>`

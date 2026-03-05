@@ -81,6 +81,70 @@ class TestHttpIngress(unittest.TestCase):
         self.assertEqual('causal', data.get('intent_class'))
         self.assertTrue(bool(data.get('causal_intent')))
 
+    def test_http_reason_endpoint_with_pins(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+        from core_memory.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            s = MemoryStore(root)
+            bid = s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+
+            c = TestClient(app)
+            r = c.post(
+                "/v1/memory/reason",
+                json={
+                    "root": root,
+                    "query": "why candidate-first promotion",
+                    "k": 6,
+                    "pinned_incident_ids": ["promotion_inflation_2026q1"],
+                    "pinned_topic_keys": ["promotion_workflow"],
+                    "pinned_bead_ids": [bid],
+                },
+            )
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertTrue(bool(data.get("ok")))
+            intent = data.get("intent") or {}
+            self.assertIn("pinned_incident_ids", intent)
+            self.assertIn("pinned_topic_keys", intent)
+            self.assertIn("pinned_bead_ids", intent)
+
+    def test_http_execute_deterministic_response(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+        from core_memory.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            s = MemoryStore(root)
+            s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+            c = TestClient(app)
+            body = {
+                "root": root,
+                "request": {
+                    "raw_query": "remember candidate-first promotion",
+                    "intent": "remember",
+                    "constraints": {"require_structural": False},
+                    "facets": {"topic_keys": ["promotion_workflow"]},
+                    "k": 5,
+                },
+                "explain": True,
+            }
+            r1 = c.post('/v1/memory/execute', json=body)
+            r2 = c.post('/v1/memory/execute', json=body)
+            self.assertEqual(200, r1.status_code)
+            self.assertEqual(200, r2.status_code)
+            d1 = r1.json()
+            d2 = r2.json()
+            self.assertEqual(d1.get('snapped'), d2.get('snapped'))
+            self.assertEqual(d1.get('confidence'), d2.get('confidence'))
+            self.assertEqual(d1.get('warnings'), d2.get('warnings'))
+            self.assertEqual(d1.get('next_action'), d2.get('next_action'))
+            self.assertEqual(d1.get('results'), d2.get('results'))
+            self.assertEqual(d1.get('chains'), d2.get('chains'))
+
     def test_http_auth_token_protection(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http import server as srv

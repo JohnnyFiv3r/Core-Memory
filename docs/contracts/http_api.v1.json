@@ -1,0 +1,74 @@
+{
+  "version": "v1",
+  "service": "core_memory.integrations.http.server",
+  "auth": {
+    "env": "CORE_MEMORY_HTTP_TOKEN",
+    "modes": ["Authorization: Bearer <token>", "X-Memory-Token: <token>"],
+    "required_when_env_set": true
+  },
+  "endpoints": [
+    {
+      "method": "GET",
+      "path": "/healthz",
+      "authRequired": false,
+      "response": {"ok": "bool"},
+      "errors": []
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/turn-finalized",
+      "authRequired": "conditional",
+      "requestSchema": "TurnFinalizedRequest",
+      "requiredFields": ["session_id", "turn_id", "user_query", "assistant_final"],
+      "response": {"accepted": "bool", "event_id": "string"},
+      "errors": ["400 invalid_payload|invalid_content_length", "401 unauthorized", "413 payload_too_large"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/classify-intent",
+      "authRequired": "conditional",
+      "requestSchema": "MemoryClassifyIntentRequest",
+      "requiredFields": ["query"],
+      "response": {"intent_class": "string", "causal_intent": "bool", "query_type_bucket": "string", "normalized": "object"},
+      "errors": ["401 unauthorized"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/search-form",
+      "authRequired": "conditional",
+      "requestSchema": "query param root?",
+      "requiredFields": [],
+      "response": {"schema_version": "memory_search_form.v1", "fields": "object", "catalog": "object"},
+      "errors": ["401 unauthorized"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/search",
+      "authRequired": "conditional",
+      "requestSchema": "MemorySearchRequest",
+      "requiredFields": ["form_submission"],
+      "response": {"ok": "bool", "results": "array", "chains": "array", "confidence": "string", "suggested_next": "string", "warnings": "array"},
+      "errors": ["401 unauthorized"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/reason",
+      "authRequired": "conditional",
+      "requestSchema": "MemoryReasonRequest",
+      "requiredFields": ["query"],
+      "notes": ["Supports pinning fields: pinned_incident_ids, pinned_topic_keys, pinned_bead_ids"],
+      "response": {"ok": "bool", "chains": "array", "citations": "array", "intent": "object", "grounding": "object"},
+      "errors": ["401 unauthorized"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/execute",
+      "authRequired": "conditional",
+      "requestSchema": "MemoryExecuteRequest",
+      "requiredFields": ["request"],
+      "notes": ["Single-call correctness path for SpringAI", "Supports request.facets.pinned_bead_ids and pinned routing via reason fallback"],
+      "response": {"ok": "bool", "request": "object", "snapped": "object", "results": "array", "chains": "array", "grounding": "object", "confidence": "string", "next_action": "string", "warnings": "array", "explain": "object?"},
+      "errors": ["401 unauthorized", "memory_execute_disabled", "memory_execute_causal_disabled"]
+    }
+  ]
+}
