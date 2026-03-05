@@ -19,8 +19,11 @@ class TestExplainReportFields(unittest.TestCase):
             p = Path(ex.get("report"))
             self.assertTrue(p.exists())
             data = json.loads(p.read_text(encoding="utf-8"))
-            for key in ["query", "normalized_query", "intent", "confidence", "retrieval_debug", "final_bead_ids", "rank_decisions", "retrievers"]:
+            for key in ["query", "normalized_query", "intent", "confidence", "retrieval_debug", "final_bead_ids", "rank_decisions", "retrievers", "anchor_diagnostics"]:
                 self.assertIn(key, data)
+            ad = data.get("anchor_diagnostics") or {}
+            for key in ["anchor_hit_top5", "why_no_anchor_hit", "top_semantic_hits", "top_lexical_hits", "expanded_neighbors", "penalties_applied"]:
+                self.assertIn(key, ad)
 
 
 if __name__ == "__main__":

@@ -593,6 +593,52 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         rdbg = primary.get("retrieval_debug") or {}
         rinner = rdbg.get("debug") or {}
         ranked = rdbg.get("results") or []
+        idx_file = Path(root) / ".beads" / "index.json"
+        beads = {}
+        if idx_file.exists():
+            try:
+                beads = (json.loads(idx_file.read_text(encoding="utf-8")) or {}).get("beads") or {}
+            except Exception:
+                beads = {}
+
+        def _row(bid: str) -> dict:
+            b = beads.get(str(bid)) or {}
+            return {
+                "bead_id": str(bid),
+                "title": str(b.get("title") or b.get("snapshot_title") or ""),
+                "tags": [str(t) for t in (b.get("tags") or [])],
+                "incident_id": str(b.get("incident_id") or ""),
+            }
+
+        top_sem = sorted(ranked, key=lambda r: (-float(r.get("sem_score") or 0.0), str(r.get("bead_id") or "")))[:5]
+        top_lex = sorted(ranked, key=lambda r: (-float(r.get("lex_score") or 0.0), str(r.get("bead_id") or "")))[:5]
+        incident_targets = {str(x.get("incident_id") or "") for x in (anchor_meta.get("matched_incidents") or []) if x.get("incident_id")}
+        topic_targets = {str(x.get("topic_key") or "") for x in (anchor_meta.get("matched_topics") or []) if x.get("topic_key")}
+        top5_ids = [str(r.get("bead_id") or "") for r in ranked[:5] if r.get("bead_id")]
+        anchor_hit_top5 = False
+        for bid in top5_ids:
+            b = beads.get(str(bid)) or {}
+            if incident_targets and str(b.get("incident_id") or "") in incident_targets:
+                anchor_hit_top5 = True
+                break
+            btags = set([str(t) for t in (b.get("tags") or [])])
+            if topic_targets and btags.intersection(topic_targets):
+                anchor_hit_top5 = True
+                break
+
+        penalties_applied = []
+        for r in ranked:
+            d = r.get("derived") or {}
+            p = float(d.get("penalties") or 0.0)
+            if p <= 0:
+                continue
+            penalties_applied.append({
+                "bead_id": str(r.get("bead_id") or ""),
+                "penalties": p,
+                "low_info_score": float((r.get("features") or {}).get("low_info_score") or 0.0),
+                "superseded_penalty": float(d.get("superseded_penalty") or 0.0),
+            })
+
         payload = {
             "schema_version": "reason_explain.v1",
             "query": query,
@@ -623,6 +669,16 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
                 }
                 for r in ranked
             ],
+            "anchor_diagnostics": {
+                "matched_incidents": sorted(incident_targets),
+                "matched_topics": sorted(topic_targets),
+                "anchor_hit_top5": bool(anchor_hit_top5),
+                "why_no_anchor_hit": "none" if anchor_hit_top5 else ("no_anchor_matches" if (not incident_targets and not topic_targets) else "top5_missing_anchor"),
+                "top_semantic_hits": [dict(_row(str(r.get("bead_id") or "")), sem_score=float(r.get("sem_score") or 0.0)) for r in top_sem],
+                "top_lexical_hits": [dict(_row(str(r.get("bead_id") or "")), lex_score=float(r.get("lex_score") or 0.0)) for r in top_lex],
+                "expanded_neighbors": any(len((c.get("path") or [])) > 1 for c in (primary.get("chains") or [])),
+                "penalties_applied": penalties_applied,
+            },
             "retrieval_debug": rdbg,
             "final_bead_ids": [str(c.get("bead_id") or "") for c in ranked],
         }
