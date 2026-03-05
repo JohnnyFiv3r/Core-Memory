@@ -16,6 +16,7 @@ from .graph import backfill_structural_edges, build_graph, graph_stats, decay_se
 from .semantic_index import build_semantic_index, semantic_lookup
 from .tools.memory_reason import memory_reason
 from .incidents import tag_incident
+from .hygiene import curated_type_title_hygiene
 from .openclaw_integration import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
@@ -149,6 +150,11 @@ def main():
     tag_parser = subparsers.add_parser("tag", help="Tag beads with metadata")
     tag_parser.add_argument("--incident", required=True, help="Incident ID")
     tag_parser.add_argument("bead_ids", nargs="+", help="Bead IDs to update")
+
+    hygiene_parser = subparsers.add_parser("hygiene", help="Curated metadata hygiene tools")
+    hygiene_parser.add_argument("--bead-id", action="append", help="Target bead id (repeatable)")
+    hygiene_parser.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs")
+    hygiene_parser.add_argument("--apply", action="store_true")
 
     # graph command
     graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
@@ -414,6 +420,15 @@ def main():
 
     elif args.command == "tag":
         print(json.dumps(tag_incident(memory.root, incident_id=args.incident, bead_ids=args.bead_ids), indent=2))
+
+    elif args.command == "hygiene":
+        target_ids = list(args.bead_id or [])
+        if args.bead_ids_file:
+            payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
+            if not isinstance(payload, list):
+                raise SystemExit("--bead-ids-file must contain a JSON array")
+            target_ids.extend([str(x) for x in payload])
+        print(json.dumps(curated_type_title_hygiene(memory.root, target_ids, apply=args.apply), indent=2))
 
     elif args.command == "graph":
         if args.graph_cmd == "build":
