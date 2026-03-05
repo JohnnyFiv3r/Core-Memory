@@ -257,12 +257,36 @@ def _radius1_structural_fallback(store: MemoryStore, anchor_ids: list[str], limi
     return out
 
 
-def _retrieve_ranked(root_p: Path, query: str, k: int) -> dict:
+def _intent_class_from_query(query: str) -> str:
+    q = (query or "").lower()
+    if any(x in q for x in ["why", "because", "rationale", "what happened", "caused"]):
+        return "causal"
+    if any(x in q for x in ["what changed", "changed", "updated", "replaced", "supersed"]):
+        return "what_changed"
+    if any(x in q for x in ["when", "date", "time", "timeline"]):
+        return "when"
+    return "remember"
+
+
+def _retrieve_ranked(root_p: Path, query: str, k: int, intent_class: str = "remember") -> dict:
     first = hybrid_lookup(root_p, query=query, k=max(1, int(k)))
     if not first.get("ok"):
         return first
     rr1 = rerank_candidates(root_p, query=query, candidates=first.get("results") or [])
     ranked1 = rr1.get("results") or []
+
+    # Intent-normalized selector gating: for causal/what_changed, prioritize structurally rich candidates.
+    if intent_class in {"causal", "what_changed"}:
+        ranked1 = sorted(
+            ranked1,
+            key=lambda r: (
+                -float((r.get("derived") or {}).get("structural_quality") or 0.0),
+                -float((r.get("derived") or {}).get("edge_support") or 0.0),
+                -float(r.get("rerank_score") or 0.0),
+                str(r.get("bead_id") or ""),
+            ),
+        )
+
     gate = quality_gate_decision(ranked1, query=query)
 
     if not gate.get("retry"):
@@ -275,6 +299,16 @@ def _retrieve_ranked(root_p: Path, query: str, k: int) -> dict:
 
     rr2 = rerank_candidates(root_p, query=retry_query, candidates=second.get("results") or [])
     ranked2 = rr2.get("results") or []
+    if intent_class in {"causal", "what_changed"}:
+        ranked2 = sorted(
+            ranked2,
+            key=lambda r: (
+                -float((r.get("derived") or {}).get("structural_quality") or 0.0),
+                -float((r.get("derived") or {}).get("edge_support") or 0.0),
+                -float(r.get("rerank_score") or 0.0),
+                str(r.get("bead_id") or ""),
+            ),
+        )
     # deterministic keep-better: compare top rerank score
     top1 = float((ranked1[0].get("rerank_score") if ranked1 else 0.0) or 0.0)
     top2 = float((ranked2[0].get("rerank_score") if ranked2 else 0.0) or 0.0)
@@ -284,7 +318,7 @@ def _retrieve_ranked(root_p: Path, query: str, k: int) -> dict:
 
 
 def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False) -> dict:
-    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)))
+    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)), intent_class="causal")
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
 
@@ -391,7 +425,7 @@ def _plan_changed(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
 
 
 def _plan_remember(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False) -> dict:
-    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)))
+    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)), intent_class="remember")
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
     ids = [str(r.get("bead_id") or "") for r in (sem.get("results") or []) if r.get("bead_id")]
@@ -458,6 +492,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
 
     intent = _detect_intent(query)
     hint_route = str(intent.get("intent") or "remember")
+    intent_class = _intent_class_from_query(query)
 
     planners = {
         "why": lambda s, r, q, kk: _plan_why(s, r, q, kk, debug=debug),
@@ -529,6 +564,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
     primary["intent"] = {
         "selected": chosen_route,
         "hint": hint_route,
+        "intent_class": intent_class,
         "hint_confidence": intent.get("confidence"),
         "scores": intent.get("scores"),
         "used_hint_retry": used_retry,
