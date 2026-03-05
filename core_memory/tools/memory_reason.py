@@ -311,13 +311,16 @@ def _retrieve_ranked(root_p: Path, query: str, k: int, intent_class: str = "reme
     return {"ok": True, "query_used": query, "results": ranked1, "debug": {"first": rr1, "gate": gate, "retry": rr2, "used_retry": False}}
 
 
-def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False) -> dict:
+def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False, pinned_bead_ids: list[str] | None = None) -> dict:
     sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)), intent_class="causal")
     if not sem.get("ok"):
         return {"ok": False, "error": sem.get("error")}
 
     sem_results = sem.get("results") or []
     anchors = [str(r.get("bead_id") or "") for r in sem_results if r.get("bead_id")]
+    pinned = [str(x) for x in (pinned_bead_ids or []) if str(x)]
+    if pinned:
+        anchors = pinned + [a for a in anchors if a not in set(pinned)]
     anchor = _choose_anchor(sem_results)
     if anchor and anchor not in anchors:
         anchors = [anchor] + anchors
@@ -480,14 +483,50 @@ def _grounding_signal(result: dict) -> float:
     return (0.5 * has_structural) + (0.25 * has_decision) + (0.25 * has_evidence)
 
 
-def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = False, explain: bool = False) -> dict:
+def memory_reason(
+    query: str,
+    k: int = 8,
+    root: str = "./memory",
+    debug: bool = False,
+    explain: bool = False,
+    pinned_incident_ids: list[str] | None = None,
+    pinned_topic_keys: list[str] | None = None,
+    pinned_bead_ids: list[str] | None = None,
+) -> dict:
     root_p = Path(root)
     store = MemoryStore(root)
 
     intent = _detect_intent(query)
     intent_meta = classify_intent(query)
     anchor_meta = resolve_query_anchors(query, root_p)
+
+    pin_inc = [str(x) for x in (pinned_incident_ids or []) if str(x)]
+    pin_top = [str(x) for x in (pinned_topic_keys or []) if str(x)]
+    pin_beads = [str(x) for x in (pinned_bead_ids or []) if str(x)]
+
+    if pin_inc:
+        existing = {str(x.get("incident_id") or "") for x in (anchor_meta.get("matched_incidents") or [])}
+        merged = list(anchor_meta.get("matched_incidents") or [])
+        for iid in pin_inc:
+            if iid not in existing:
+                merged.append({"incident_id": iid, "strength": 1.0, "source": "pinned"})
+        anchor_meta["matched_incidents"] = merged
+
+    if pin_top:
+        existing = {str(x.get("topic_key") or "") for x in (anchor_meta.get("matched_topics") or [])}
+        merged = list(anchor_meta.get("matched_topics") or [])
+        for tk in pin_top:
+            if tk not in existing:
+                merged.append({"topic_key": tk, "strength": 1.0, "source": "pinned"})
+        anchor_meta["matched_topics"] = merged
+
     retrieval_query = str(anchor_meta.get("expanded_query") or query)
+    if pin_inc or pin_top:
+        retrieval_query = " ".join(
+            [retrieval_query]
+            + [x.replace("_", " ") for x in pin_inc]
+            + [x.replace("_", " ") for x in pin_top]
+        ).strip()
 
     intent_class = str(intent_meta.get("intent_class") or "remember")
     hint_route = intent_class if intent_class in {"why", "when", "what_changed", "remember"} else str(intent.get("intent") or "remember")
@@ -495,7 +534,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         hint_route = "why"
 
     planners = {
-        "why": lambda s, r, q, kk: _plan_why(s, r, q, kk, debug=debug),
+        "why": lambda s, r, q, kk: _plan_why(s, r, q, kk, debug=debug, pinned_bead_ids=pin_beads),
         "when": _plan_when,
         "what_changed": _plan_changed,
         "remember": lambda s, r, q, kk: _plan_remember(s, r, q, kk, debug=debug),
@@ -577,6 +616,9 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         "used_hint_retry": used_retry,
         "matched_incidents": anchor_meta.get("matched_incidents") or [],
         "matched_topics": anchor_meta.get("matched_topics") or [],
+        "pinned_incident_ids": pin_inc,
+        "pinned_topic_keys": pin_top,
+        "pinned_bead_ids": pin_beads,
     }
     primary["confidence"] = {
         "overall": round(overall, 4),

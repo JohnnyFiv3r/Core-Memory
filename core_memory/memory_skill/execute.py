@@ -36,6 +36,9 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
             "bead_types": [str(x) for x in (facets.get("bead_types") or [])][:3],
             "relation_types": [str(x) for x in (facets.get("relation_types") or [])][:3],
             "pinned_bead_ids": [str(x) for x in (facets.get("pinned_bead_ids") or [])][:5],
+            "must_terms": [str(x) for x in (facets.get("must_terms") or [])][:5],
+            "avoid_terms": [str(x) for x in (facets.get("avoid_terms") or [])][:5],
+            "time_range": dict(facets.get("time_range") or {}),
         },
         "k": max(1, min(30, int(req.get("k") or 10))),
     }
@@ -47,6 +50,9 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         "topic_keys": mem_req["facets"]["topic_keys"],
         "bead_types": mem_req["facets"]["bead_types"],
         "relation_types": mem_req["facets"]["relation_types"],
+        "must_terms": mem_req["facets"]["must_terms"],
+        "avoid_terms": mem_req["facets"]["avoid_terms"],
+        "time_range": mem_req["facets"]["time_range"],
         "k": mem_req["k"],
         # agent/user controlled: not auto-forced by intent
         "require_structural": bool(mem_req["constraints"].get("require_structural")),
@@ -70,7 +76,16 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
     # while preserving never-empty results contract from typed search.
     reason_payload = None
     if grounding_required and not grounding_achieved:
-        reason_payload = memory_reason(raw_query, root=root, k=max(6, mem_req["k"]), debug=bool(explain), explain=False)
+        reason_payload = memory_reason(
+            raw_query,
+            root=root,
+            k=max(6, mem_req["k"]),
+            debug=bool(explain),
+            explain=False,
+            pinned_incident_ids=mem_req["facets"]["incident_ids"],
+            pinned_topic_keys=mem_req["facets"]["topic_keys"],
+            pinned_bead_ids=mem_req["facets"]["pinned_bead_ids"],
+        )
         rchains = reason_payload.get("chains") or []
         if rchains:
             chains = rchains[:3]
@@ -80,7 +95,16 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
     # never-empty contract (if corpus has beads): keep typed results, fallback to reason citations
     if not results:
         if reason_payload is None:
-            reason_payload = memory_reason(raw_query, root=root, k=max(6, mem_req["k"]), debug=bool(explain), explain=False)
+            reason_payload = memory_reason(
+                raw_query,
+                root=root,
+                k=max(6, mem_req["k"]),
+                debug=bool(explain),
+                explain=False,
+                pinned_incident_ids=mem_req["facets"]["incident_ids"],
+                pinned_topic_keys=mem_req["facets"]["topic_keys"],
+                pinned_bead_ids=mem_req["facets"]["pinned_bead_ids"],
+            )
         cits = reason_payload.get("citations") or []
         for c in cits[: mem_req["k"]]:
             results.append(
