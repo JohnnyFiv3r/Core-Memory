@@ -1,11 +1,24 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.graph import causal_traverse
+
+
+def _parse_iso(ts: str) -> datetime | None:
+    s = str(ts or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
 
 
 def _load_beads(root: Path) -> dict:
@@ -40,6 +53,9 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
     topic_keys = set([str(x) for x in (form.get("topic_keys") or [])])
     bead_types = set([str(x) for x in (form.get("bead_types") or [])])
     avoid_terms = [str(x).lower() for x in (form.get("avoid_terms") or [])]
+    time_range = dict(form.get("time_range") or {})
+    tr_from = _parse_iso(str(time_range.get("from") or ""))
+    tr_to = _parse_iso(str(time_range.get("to") or ""))
 
     filtered = []
     for r in ranked:
@@ -53,6 +69,14 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
                 continue
         if bead_types and str(b.get("type") or "") not in bead_types:
             continue
+        if tr_from or tr_to:
+            bts = _parse_iso(str(b.get("created_at") or ""))
+            if bts is None:
+                continue
+            if tr_from and bts < tr_from:
+                continue
+            if tr_to and bts > tr_to:
+                continue
         txt = (str(b.get("title") or "") + " " + " ".join(b.get("summary") or [])).lower()
         if any(t and t in txt for t in avoid_terms):
             continue
@@ -87,6 +111,8 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
                 break
 
     warnings = []
+    if time_range and ((str(time_range.get("from") or "") and tr_from is None) or (str(time_range.get("to") or "") and tr_to is None)):
+        warnings.append("invalid_time_range_ignored")
     if not form.get("incident_id") and not (form.get("topic_keys") or []):
         warnings.append("no_strong_anchor_match_free_text_mode")
     if form.get("require_structural") and not chains:

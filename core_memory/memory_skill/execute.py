@@ -69,7 +69,7 @@ def _chain_quality(chains: list[dict]) -> float:
     return round(sum(scores) / max(1, len(scores)), 4)
 
 
-def _confidence_and_next(intent: str, results: list[dict], chains: list[dict], snapped: dict, beads: dict) -> tuple[str, str, dict]:
+def _confidence_and_next_base(intent: str, results: list[dict], chains: list[dict], snapped: dict, beads: dict) -> tuple[str, str, dict]:
     if not results:
         return "low", "ask_clarifying", {"reason": "no_results"}
 
@@ -102,6 +102,35 @@ def _confidence_and_next(intent: str, results: list[dict], chains: list[dict], s
     if cluster_count >= 2:
         return "low", "ask_clarifying", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
     return "low", "broaden", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
+
+
+def evaluate_confidence_next(intent: str, results: list[dict], chains: list[dict], snapped: dict, beads: dict, warnings: list[str] | None = None) -> tuple[str, str, dict]:
+    confidence, next_action, diag = _confidence_and_next_base(intent, results, chains, snapped, beads)
+    warnings = list(warnings or [])
+    benign_warnings = {"require_structural_requested_but_no_chains"}
+    only_benign = all(str(w) in benign_warnings for w in warnings)
+    anchor_present = bool((snapped or {}).get("incident_id")) or bool((snapped or {}).get("topic_keys") or [])
+    chq = _chain_quality(chains)
+
+    if confidence == "high":
+        warning_ok = (not warnings) or only_benign
+        causal_ok = bool(chains) and (chq >= 0.2)
+        non_causal_ok = anchor_present
+        if not warning_ok:
+            confidence = "medium"
+        elif intent == "causal" and not causal_ok:
+            confidence = "medium"
+        elif intent != "causal" and not non_causal_ok:
+            confidence = "medium"
+
+    diag = dict(diag or {})
+    diag.update({
+        "warnings": warnings,
+        "only_benign_warnings": only_benign,
+        "anchor_present": anchor_present,
+        "chain_quality": chq,
+    })
+    return confidence, next_action, diag
 
 
 def execute_request(request: dict, root: str = "./memory", explain: bool = True) -> dict:
@@ -207,7 +236,14 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
                 }
             )
 
-    confidence, next_action, conf_diag = _confidence_and_next(intent, results, chains, sres.get("snapped_query") or typed_form, beads)
+    confidence, next_action, conf_diag = evaluate_confidence_next(
+        intent=intent,
+        results=results,
+        chains=chains,
+        snapped=(sres.get("snapped_query") or typed_form),
+        beads=beads,
+        warnings=(sres.get("warnings") or []),
+    )
 
     # For non-causal low-confidence with no clear ambiguity, do one deterministic broaden pass then answer.
     if intent in {"remember", "what_changed", "when", "other"} and next_action == "broaden":
@@ -222,26 +258,17 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         if bres:
             results = bres[: mem_req["k"]]
             # preserve chains from prior pass unless causal reasoner added stronger evidence
-            confidence, next_action, conf_diag = _confidence_and_next(intent, results, chains, broader_form, beads)
+            confidence, next_action, conf_diag = evaluate_confidence_next(
+                intent=intent,
+                results=results,
+                chains=chains,
+                snapped=broader_form,
+                beads=beads,
+                warnings=(sres.get("warnings") or []),
+            )
             next_action = "answer" if next_action != "ask_clarifying" else next_action
 
     warnings = sres.get("warnings") or []
-    benign_warnings = {"require_structural_requested_but_no_chains"}
-    only_benign = all(str(w) in benign_warnings for w in warnings)
-    anchor_present = bool((sres.get("snapped_query") or typed_form).get("incident_id")) or bool((sres.get("snapped_query") or typed_form).get("topic_keys") or [])
-    chq = _chain_quality(chains)
-
-    # Confidence semantics guardrail: high must reflect warning/grounding reality.
-    if confidence == "high":
-        warning_ok = (not warnings) or only_benign
-        causal_ok = bool(grounding_achieved) and (chq >= 0.2)
-        non_causal_ok = anchor_present
-        if not warning_ok:
-            confidence = "medium"
-        elif intent == "causal" and not causal_ok:
-            confidence = "medium"
-        elif intent != "causal" and not non_causal_ok:
-            confidence = "medium"
 
     out = {
         "ok": True,
@@ -259,13 +286,6 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         "warnings": warnings,
     }
     if explain:
-        conf_diag = dict(conf_diag or {})
-        conf_diag.update({
-            "warnings": warnings,
-            "only_benign_warnings": only_benign,
-            "anchor_present": anchor_present,
-            "chain_quality": chq,
-        })
         out["explain"] = {
             "search": sres.get("explain") or {},
             "reason_fallback_used": bool(reason_payload is not None),
