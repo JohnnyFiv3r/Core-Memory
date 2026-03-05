@@ -9,6 +9,7 @@ from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.retrieval.quality_gate import quality_gate_decision
 from core_memory.retrieval.config import RETRY_APPEND_HINT, QUALITY_THRESHOLD_LONG
+from core_memory.retrieval.query_norm import classify_intent
 from core_memory.archive_index import read_snapshot
 from core_memory.store import MemoryStore
 
@@ -258,14 +259,7 @@ def _radius1_structural_fallback(store: MemoryStore, anchor_ids: list[str], limi
 
 
 def _intent_class_from_query(query: str) -> str:
-    q = (query or "").lower()
-    if any(x in q for x in ["why", "because", "rationale", "what happened", "caused"]):
-        return "causal"
-    if any(x in q for x in ["what changed", "changed", "updated", "replaced", "supersed"]):
-        return "what_changed"
-    if any(x in q for x in ["when", "date", "time", "timeline"]):
-        return "when"
-    return "remember"
+    return str((classify_intent(query) or {}).get("intent_class") or "remember")
 
 
 def _retrieve_ranked(root_p: Path, query: str, k: int, intent_class: str = "remember") -> dict:
@@ -491,8 +485,11 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
     store = MemoryStore(root)
 
     intent = _detect_intent(query)
-    hint_route = str(intent.get("intent") or "remember")
-    intent_class = _intent_class_from_query(query)
+    intent_meta = classify_intent(query)
+    intent_class = str(intent_meta.get("intent_class") or "remember")
+    hint_route = intent_class if intent_class in {"why", "when", "what_changed", "remember"} else str(intent.get("intent") or "remember")
+    if intent_class == "causal":
+        hint_route = "why"
 
     planners = {
         "why": lambda s, r, q, kk: _plan_why(s, r, q, kk, debug=debug),
@@ -513,7 +510,7 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
 
     used_retry = False
     chosen_route = primary_route
-    causal_query = _causal_intent(query)
+    causal_query = bool(intent_meta.get("causal_intent"))
     retry = {"ok": False}
     retry_route = ""
 
@@ -565,6 +562,8 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         "selected": chosen_route,
         "hint": hint_route,
         "intent_class": intent_class,
+        "causal_intent": bool(intent_meta.get("causal_intent")),
+        "query_type_bucket": intent_meta.get("query_type_bucket"),
         "hint_confidence": intent.get("confidence"),
         "scores": intent.get("scores"),
         "used_hint_retry": used_retry,
@@ -587,7 +586,9 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         payload = {
             "schema_version": "reason_explain.v1",
             "query": query,
-            "normalized_query": " ".join((query or "").lower().split()),
+            "normalized_query": str((intent_meta.get("normalized") or {}).get("raw_normalized") or ""),
+            "query_tokens": (intent_meta.get("normalized") or {}).get("tokens") or [],
+            "query_phrases": (intent_meta.get("normalized") or {}).get("phrases") or [],
             "k": int(k),
             "intent": primary.get("intent"),
             "confidence": primary.get("confidence"),
