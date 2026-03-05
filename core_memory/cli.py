@@ -173,6 +173,8 @@ def main():
     g_backfill_causal.add_argument("--max-per-target", type=int, default=3)
     g_backfill_causal.add_argument("--min-overlap", type=int, default=2)
     g_backfill_causal.add_argument("--no-require-shared-turn", action="store_true")
+    g_backfill_causal.add_argument("--bead-id", action="append", help="Limit proposals to pairs touching these bead IDs")
+    g_backfill_causal.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs for targeted mode")
 
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
@@ -436,12 +438,19 @@ def main():
             if args.strict and not out.get("ok"):
                 raise SystemExit(2)
         elif args.graph_cmd == "backfill-causal-links":
+            target_ids = list(args.bead_id or [])
+            if args.bead_ids_file:
+                payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
+                if not isinstance(payload, list):
+                    raise SystemExit("--bead-ids-file must contain a JSON array")
+                target_ids.extend([str(x) for x in payload])
             print(json.dumps(backfill_causal_links(
                 memory.root,
                 apply=args.apply,
                 max_per_target=args.max_per_target,
                 min_overlap=args.min_overlap,
                 require_shared_turn=not bool(args.no_require_shared_turn),
+                include_bead_ids=target_ids,
             ), indent=2))
         else:
             graph_parser.print_help()

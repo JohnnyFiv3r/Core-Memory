@@ -201,7 +201,7 @@ def _text_tokens(bead: dict) -> set[str]:
     return out
 
 
-def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: int = 3, min_overlap: int = 2, require_shared_turn: bool = True) -> dict:
+def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: int = 3, min_overlap: int = 2, require_shared_turn: bool = True, include_bead_ids: list[str] | None = None) -> dict:
     """Deterministic causal backfill for existing content.
 
     Rule set (conservative):
@@ -217,6 +217,8 @@ def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: in
 
     index = json.loads(index_file.read_text(encoding="utf-8"))
     beads = index.get("beads") or {}
+
+    include_set = set([str(x) for x in (include_bead_ids or []) if str(x)])
 
     by_session: dict[str, list[dict]] = {}
     for bid, b in beads.items():
@@ -238,6 +240,8 @@ def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: in
             for s in sources:
                 s_id = str(s.get("id") or "")
                 if not s_id or s_id == t_id:
+                    continue
+                if include_set and (s_id not in include_set or t_id not in include_set):
                     continue
                 ov = len(src_toks.get(s_id, set()).intersection(tgt_toks.get(t_id, set())))
                 if ov < int(min_overlap):
@@ -286,6 +290,11 @@ def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: in
             dst = str(p.get("dst_id") or "")
             rel = str(p.get("rel") or "")
             b = beads.get(src) or {}
+            cur_links = b.get("links")
+            if not isinstance(cur_links, list):
+                cur_links = _normalize_links(cur_links)
+                cur_links = [{"type": str(x.get("rel") or ""), "bead_id": str(x.get("dst_id") or "")} for x in cur_links]
+                b["links"] = cur_links
             links = b.setdefault("links", [])
             if not any(isinstance(l, dict) and str(l.get("type") or "") == rel and str(l.get("bead_id") or "") == dst for l in links):
                 links.append({"type": rel, "bead_id": dst, "source": "causal_backfill", "overlap": int(p.get("overlap") or 0)})
@@ -301,6 +310,8 @@ def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: in
         "ok": True,
         "apply": bool(apply),
         "require_shared_turn": bool(require_shared_turn),
+        "targeted": bool(include_set),
+        "target_bead_count": len(include_set),
         "proposed": len(final),
         "links_added": links_added,
         "edges_added": edges_added,
