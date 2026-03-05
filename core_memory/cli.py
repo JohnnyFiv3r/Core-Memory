@@ -12,7 +12,7 @@ from pathlib import Path
 # Use relative import to avoid circular import
 from .store import MemoryStore, DEFAULT_ROOT
 from .archive_index import rebuild_archive_index
-from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges
+from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline
 from .semantic_index import build_semantic_index, semantic_lookup
 from .tools.memory_reason import memory_reason
 from .incidents import tag_incident
@@ -165,6 +165,9 @@ def main():
     g_infer = graph_sub.add_parser("infer-structural", help="Run deterministic structural edge inference (safe-gated)")
     g_infer.add_argument("--min-confidence", type=float, default=0.9)
     g_infer.add_argument("--apply", action="store_true")
+    g_sync = graph_sub.add_parser("sync-structural", help="Sync associations->links->immutable structural edges->graph")
+    g_sync.add_argument("--apply", action="store_true")
+    g_sync.add_argument("--strict", action="store_true")
 
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
@@ -422,6 +425,11 @@ def main():
             print(json.dumps(causal_traverse(memory.root, anchor_ids=args.anchor), indent=2))
         elif args.graph_cmd == "infer-structural":
             print(json.dumps(infer_structural_edges(memory.root, min_confidence=args.min_confidence, apply=args.apply), indent=2))
+        elif args.graph_cmd == "sync-structural":
+            out = sync_structural_pipeline(memory.root, apply=args.apply, strict=args.strict)
+            print(json.dumps(out, indent=2))
+            if args.strict and not out.get("ok"):
+                raise SystemExit(2)
         else:
             graph_parser.print_help()
 

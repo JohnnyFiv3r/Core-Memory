@@ -9,7 +9,7 @@ from typing import Any
 
 from .io_utils import append_jsonl, atomic_write_json
 
-STRUCTURAL_RELS = {"supports", "causes", "derived_from", "precedent", "contradicts", "supersedes"}
+STRUCTURAL_RELS = {"caused_by", "supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
 
 
 def _paths(root: Path) -> tuple[Path, Path, Path]:
@@ -134,6 +134,150 @@ def _normalize_links(v) -> list[dict]:
                 if d:
                     out.append({"rel": str(rel), "dst_id": d})
     return out
+
+
+def _relation_map_path() -> Path:
+    return Path(__file__).parent / "data" / "structural_relation_map.json"
+
+
+def _load_structural_relation_map() -> dict[str, str]:
+    p = _relation_map_path()
+    if not p.exists():
+        return {r: r for r in sorted(STRUCTURAL_RELS)}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            out = {}
+            for k, v in data.items():
+                sk = str(k or "").strip()
+                sv = str(v or "").strip()
+                if sk and sv:
+                    out[sk] = sv
+            return out or {r: r for r in sorted(STRUCTURAL_RELS)}
+    except Exception:
+        pass
+    return {r: r for r in sorted(STRUCTURAL_RELS)}
+
+
+def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[int, int]:
+    beads = index.get("beads") or {}
+    assocs = index.get("associations") or []
+    scanned = 0
+    added = 0
+    for a in assocs:
+        if not isinstance(a, dict):
+            continue
+        rel0 = str(a.get("relationship") or "").strip()
+        rel = rel_map.get(rel0, rel0)
+        if rel not in STRUCTURAL_RELS:
+            continue
+        edge_class = str(a.get("edge_class") or "").strip().lower()
+        if edge_class in {"derived", "weak", "auto"}:
+            continue
+        src = str(a.get("source_bead") or "").strip()
+        dst = str(a.get("target_bead") or "").strip()
+        if not src or not dst or src not in beads or dst not in beads:
+            continue
+        scanned += 1
+        links = beads[src].setdefault("links", [])
+        if not any(isinstance(l, dict) and str(l.get("type") or "") == rel and str(l.get("bead_id") or "") == dst for l in links):
+            links.append({"type": rel, "bead_id": dst, "source": "association_sync"})
+            added += 1
+    return scanned, added
+
+
+def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = False) -> dict:
+    """Deterministic pipeline: associations -> links -> immutable structural edges -> graph snapshot."""
+    edges_file, _, index_file = _paths(root)
+    if not index_file.exists():
+        return {"ok": False, "error": "index_missing"}
+
+    rel_map = _load_structural_relation_map()
+    index = json.loads(index_file.read_text(encoding="utf-8"))
+
+    scanned_assoc, links_added = _sync_associations_to_links(index, rel_map)
+
+    if apply and links_added > 0:
+        atomic_write_json(index_file, index)
+
+    existing_struct = set()
+    for e in _iter_events(edges_file) or []:
+        if str(e.get("event") or "") != "edge_add":
+            continue
+        if str(e.get("class") or "") != "structural":
+            continue
+        existing_struct.add((str(e.get("src_id") or ""), str(e.get("dst_id") or ""), str(e.get("rel") or "")))
+
+    beads = index.get("beads") or {}
+    missing_edges = []
+    for src, b in sorted(beads.items()):
+        for l in _normalize_links((b or {}).get("links")):
+            rel = rel_map.get(str(l.get("rel") or ""), str(l.get("rel") or ""))
+            dst = str(l.get("dst_id") or "")
+            if rel not in STRUCTURAL_RELS or not dst:
+                continue
+            key = (str(src), dst, rel)
+            if key not in existing_struct:
+                missing_edges.append({"src_id": str(src), "dst_id": dst, "rel": rel})
+
+    applied_edges = 0
+    if apply:
+        for m in missing_edges:
+            add_structural_edge(root, src_id=m["src_id"], dst_id=m["dst_id"], rel=m["rel"], created_by="system", evidence=[{"reason": "sync_structural_pipeline"}])
+            applied_edges += 1
+
+    g = build_graph(root, write_snapshot=apply)
+
+    # invariants report (post-index state)
+    idx2 = json.loads(index_file.read_text(encoding="utf-8"))
+    beads2 = idx2.get("beads") or {}
+    assocs2 = idx2.get("associations") or []
+    missing_link_from_association = 0
+    for a in assocs2:
+        if not isinstance(a, dict):
+            continue
+        rel0 = str(a.get("relationship") or "").strip()
+        rel = rel_map.get(rel0, rel0)
+        if rel not in STRUCTURAL_RELS:
+            continue
+        src = str(a.get("source_bead") or "").strip()
+        dst = str(a.get("target_bead") or "").strip()
+        if src not in beads2 or dst not in beads2:
+            continue
+        links = beads2[src].get("links") or []
+        if not any(isinstance(l, dict) and str(l.get("type") or "") == rel and str(l.get("bead_id") or "") == dst for l in links):
+            missing_link_from_association += 1
+
+    edge_head = g.get("edge_head") or {}
+    head_struct = set()
+    for e in edge_head.values():
+        if str(e.get("class") or "") == "structural":
+            head_struct.add((str(e.get("src_id") or ""), str(e.get("dst_id") or ""), str(e.get("rel") or "")))
+
+    missing_graph_head_from_edge = 0
+    if apply:
+        for m in missing_edges:
+            if (m["src_id"], m["dst_id"], m["rel"]) not in head_struct:
+                missing_graph_head_from_edge += 1
+
+    report = {
+        "ok": True,
+        "apply": bool(apply),
+        "strict": bool(strict),
+        "associations_scanned": scanned_assoc,
+        "links_added": links_added,
+        "missing_edge_from_link": len(missing_edges),
+        "edges_applied": applied_edges,
+        "invariants": {
+            "missing_link_from_association": missing_link_from_association,
+            "missing_graph_head_from_edge": missing_graph_head_from_edge,
+        },
+    }
+
+    if strict and (missing_link_from_association > 0 or (apply and missing_graph_head_from_edge > 0)):
+        report["ok"] = False
+        report["error"] = "structural_invariant_violation"
+    return report
 
 
 def backfill_structural_edges(root: Path) -> dict:
