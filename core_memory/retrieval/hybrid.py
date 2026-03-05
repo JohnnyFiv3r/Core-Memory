@@ -8,6 +8,7 @@ from .lexical import lexical_lookup
 from core_memory.semantic_index import semantic_lookup
 from core_memory.incidents import matched_incident_ids, incident_match_strength
 from .config import INCIDENT_FLOOR, NORM_EPS
+from .query_norm import resolve_query_anchors
 
 
 def _normalize(scores: list[float]) -> tuple[list[float], str]:
@@ -55,16 +56,21 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         c.lex_rank = i + 1
         by_id[bid] = c
 
+    anchor_meta = resolve_query_anchors(query, root)
     incident_matches = matched_incident_ids(query, root)
+    topic_matches = {str(x.get("topic_key") or "") for x in (anchor_meta.get("matched_topics") or []) if x.get("topic_key")}
     incident_by_bead = {}
+    tags_by_bead = {}
     idx_file = root / ".beads" / "index.json"
     if idx_file.exists():
         try:
             idx = json.loads(idx_file.read_text(encoding="utf-8"))
             for bid, b in (idx.get("beads") or {}).items():
                 incident_by_bead[str(bid)] = str((b or {}).get("incident_id") or "")
+                tags_by_bead[str(bid)] = [str(t) for t in ((b or {}).get("tags") or [])]
         except Exception:
             incident_by_bead = {}
+            tags_by_bead = {}
 
     out = []
     for c in by_id.values():
@@ -72,6 +78,10 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         iid = incident_by_bead.get(c.bead_id, "")
         if iid and iid in incident_matches and c.fused_score >= INCIDENT_FLOOR:
             c.fused_score += 0.12 * incident_match_strength(query, iid, root)
+        if topic_matches:
+            bt = set(tags_by_bead.get(c.bead_id, []))
+            if bt.intersection(topic_matches):
+                c.fused_score += 0.08
         out.append(c)
 
     out = sorted(
@@ -97,6 +107,7 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         "weights": {"semantic": w_sem, "lexical": w_lex},
         "semantic_backend": sem.get("backend"),
         "matched_incidents": incident_matches,
+        "matched_topics": sorted(topic_matches),
         "normalization": {"semantic": sem_mode, "lexical": lex_mode},
         "results": ranked,
     }

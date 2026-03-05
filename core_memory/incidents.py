@@ -61,12 +61,18 @@ def matched_incident_ids(query: str, root: Path) -> list[str]:
     return sorted(set(out))
 
 
-def tag_incident(root: Path, incident_id: str, bead_ids: list[str]) -> dict:
+def _load_index(root: Path) -> tuple[dict, dict, Path]:
     idx_file = root / ".beads" / "index.json"
     if not idx_file.exists():
-        return {"ok": False, "error": "index_missing"}
+        return {}, {}, idx_file
     idx = json.loads(idx_file.read_text(encoding="utf-8"))
-    beads = idx.get("beads") or {}
+    return idx, (idx.get("beads") or {}), idx_file
+
+
+def tag_incident(root: Path, incident_id: str, bead_ids: list[str]) -> dict:
+    idx, beads, idx_file = _load_index(root)
+    if not idx:
+        return {"ok": False, "error": "index_missing"}
 
     changed = []
     for bid in bead_ids:
@@ -82,3 +88,25 @@ def tag_incident(root: Path, incident_id: str, bead_ids: list[str]) -> dict:
 
     h = hashlib.sha256((incident_id + "|" + "|".join(sorted(changed))).encode("utf-8")).hexdigest()[:16]
     return {"ok": True, "incident_id": incident_id, "changed": changed, "changed_count": len(changed), "change_hash": h}
+
+
+def tag_topic_key(root: Path, topic_key: str, bead_ids: list[str]) -> dict:
+    idx, beads, idx_file = _load_index(root)
+    if not idx:
+        return {"ok": False, "error": "index_missing"}
+
+    changed = []
+    for bid in bead_ids:
+        b = beads.get(str(bid))
+        if not b:
+            continue
+        tags = [str(t) for t in (b.get("tags") or [])]
+        if topic_key in tags:
+            continue
+        b["tags"] = sorted(set(tags + [topic_key]))
+        changed.append(str(bid))
+
+    idx_file.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8")
+
+    h = hashlib.sha256((topic_key + "|" + "|".join(sorted(changed))).encode("utf-8")).hexdigest()[:16]
+    return {"ok": True, "topic_key": topic_key, "changed": changed, "changed_count": len(changed), "change_hash": h}

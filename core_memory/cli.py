@@ -15,7 +15,7 @@ from .archive_index import rebuild_archive_index
 from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
 from .semantic_index import build_semantic_index, semantic_lookup
 from .tools.memory_reason import memory_reason
-from .incidents import tag_incident
+from .incidents import tag_incident, tag_topic_key
 from .hygiene import curated_type_title_hygiene
 from .openclaw_integration import (
     coordinator_finalize_hook,
@@ -148,7 +148,8 @@ def main():
     reason_parser.add_argument("--explain", action="store_true", help="Write deterministic explain report artifact")
 
     tag_parser = subparsers.add_parser("tag", help="Tag beads with metadata")
-    tag_parser.add_argument("--incident", required=True, help="Incident ID")
+    tag_parser.add_argument("--incident", help="Incident ID")
+    tag_parser.add_argument("--topic-key", help="Topic key tag")
     tag_parser.add_argument("bead_ids", nargs="+", help="Bead IDs to update")
 
     hygiene_parser = subparsers.add_parser("hygiene", help="Curated metadata hygiene tools")
@@ -419,7 +420,12 @@ def main():
         print(json.dumps(out, indent=2))
 
     elif args.command == "tag":
-        print(json.dumps(tag_incident(memory.root, incident_id=args.incident, bead_ids=args.bead_ids), indent=2))
+        if bool(args.incident) == bool(args.topic_key):
+            raise SystemExit("tag requires exactly one of --incident or --topic-key")
+        if args.incident:
+            print(json.dumps(tag_incident(memory.root, incident_id=args.incident, bead_ids=args.bead_ids), indent=2))
+        else:
+            print(json.dumps(tag_topic_key(memory.root, topic_key=args.topic_key, bead_ids=args.bead_ids), indent=2))
 
     elif args.command == "hygiene":
         target_ids = list(args.bead_id or [])
