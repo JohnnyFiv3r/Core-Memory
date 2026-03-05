@@ -1,0 +1,33 @@
+import tempfile
+import unittest
+
+from core_memory.store import MemoryStore
+from core_memory.tools.memory_search import get_search_form, search_typed
+
+
+class TestMemorySearchToolWrapper(unittest.TestCase):
+    def test_tool_wrapper_form_and_search(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+
+            form = get_search_form(td)
+            self.assertEqual("memory_search_form.v1", form.get("schema_version"))
+
+            out = search_typed(
+                {
+                    "intent": "causal",
+                    "query_text": "why candidate-first promotion",
+                    "topic_keys": ["promotion_workflow"],
+                    "k": 5,
+                },
+                root=td,
+                explain=True,
+            )
+            self.assertTrue(out.get("ok"))
+            self.assertTrue(out.get("results"))
+            self.assertIn("explain", out)
+
+
+if __name__ == "__main__":
+    unittest.main()
