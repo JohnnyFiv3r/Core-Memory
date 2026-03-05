@@ -1,12 +1,8 @@
-# Core Memory
-
 <p align="center">
-  <img src="docs/assets/core-memory-banner.png" alt="Core Memory terminal banner" width="100%" />
+  <img src="docs/assets/core-memory-banner.png" alt="Core Memory" width="100%" />
 </p>
 
 Core Memory is a deterministic memory layer for agents. It stores structured memory events ("beads") and explicit links so recall stays inspectable and repeatable across context resets.
-
-![Core Memory flow (simple)](docs/assets/core-memory-flow-combined.jpg)
 
 ---
 
