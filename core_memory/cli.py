@@ -22,6 +22,7 @@ from .openclaw_integration import (
     finalize_and_process_turn,
     process_pending_memory_events,
 )
+from .memory_skill import memory_get_search_form, memory_search_typed
 
 
 def main():
@@ -156,6 +157,13 @@ def main():
     hygiene_parser.add_argument("--bead-id", action="append", help="Target bead id (repeatable)")
     hygiene_parser.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs")
     hygiene_parser.add_argument("--apply", action="store_true")
+
+    mem_parser = subparsers.add_parser("memory", help="Typed memory-search skill interface")
+    mem_sub = mem_parser.add_subparsers(dest="memory_cmd")
+    mem_sub.add_parser("form", help="Get machine-readable search form + catalog")
+    mem_search = mem_sub.add_parser("search", help="Run typed memory search")
+    mem_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
+    mem_search.add_argument("--explain", action="store_true")
 
     # graph command
     graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
@@ -435,6 +443,19 @@ def main():
                 raise SystemExit("--bead-ids-file must contain a JSON array")
             target_ids.extend([str(x) for x in payload])
         print(json.dumps(curated_type_title_hygiene(memory.root, target_ids, apply=args.apply), indent=2))
+
+    elif args.command == "memory":
+        if args.memory_cmd == "form":
+            print(json.dumps(memory_get_search_form(str(memory.root)), indent=2))
+        elif args.memory_cmd == "search":
+            typed = str(args.typed or "")
+            if typed.strip().startswith("{"):
+                payload = json.loads(typed)
+            else:
+                payload = json.loads(Path(typed).read_text(encoding="utf-8"))
+            print(json.dumps(memory_search_typed(str(memory.root), payload, explain=bool(args.explain)), indent=2))
+        else:
+            mem_parser.print_help()
 
     elif args.command == "graph":
         if args.graph_cmd == "build":
