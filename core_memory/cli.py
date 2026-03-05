@@ -11,11 +11,18 @@ from pathlib import Path
 
 # Use relative import to avoid circular import
 from .store import MemoryStore, DEFAULT_ROOT
+from .archive_index import rebuild_archive_index
+from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
+from .semantic_index import build_semantic_index, semantic_lookup
+from .tools.memory_reason import memory_reason
+from .incidents import tag_incident, tag_topic_key
+from .hygiene import curated_type_title_hygiene
 from .openclaw_integration import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
     process_pending_memory_events,
 )
+from .memory_skill import memory_get_search_form, memory_search_typed, memory_execute
 
 
 def main():
@@ -133,6 +140,60 @@ def main():
     sc_turn.add_argument("--meta-goal-carryover", action="store_true")
     sc_turn.add_argument("--store-full-text", choices=["true", "false"], default="true")
 
+    # reason command
+    reason_parser = subparsers.add_parser("reason", help="Reasoned memory recall (semantic + causal)")
+    reason_parser.add_argument("query", help="Natural language query")
+    reason_parser.add_argument("--k", type=int, default=8)
+    reason_parser.add_argument("--retrieve", action="store_true", help="Return retrieval output mode")
+    reason_parser.add_argument("--debug", action="store_true", help="Include retrieval scoring breakdown")
+    reason_parser.add_argument("--explain", action="store_true", help="Write deterministic explain report artifact")
+
+    tag_parser = subparsers.add_parser("tag", help="Tag beads with metadata")
+    tag_parser.add_argument("--incident", help="Incident ID")
+    tag_parser.add_argument("--topic-key", help="Topic key tag")
+    tag_parser.add_argument("bead_ids", nargs="+", help="Bead IDs to update")
+
+    hygiene_parser = subparsers.add_parser("hygiene", help="Curated metadata hygiene tools")
+    hygiene_parser.add_argument("--bead-id", action="append", help="Target bead id (repeatable)")
+    hygiene_parser.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs")
+    hygiene_parser.add_argument("--apply", action="store_true")
+
+    mem_parser = subparsers.add_parser("memory", help="Typed memory-search skill interface")
+    mem_sub = mem_parser.add_subparsers(dest="memory_cmd")
+    mem_sub.add_parser("form", help="Get machine-readable search form + catalog")
+    mem_search = mem_sub.add_parser("search", help="Run typed memory search")
+    mem_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
+    mem_search.add_argument("--explain", action="store_true")
+    mem_exec = mem_sub.add_parser("execute", help="Run unified MemoryRequest execution")
+    mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
+    mem_exec.add_argument("--explain", action="store_true")
+
+    # graph command
+    graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
+    graph_sub = graph_parser.add_subparsers(dest="graph_cmd")
+    graph_sub.add_parser("build", help="Backfill structural edges and rebuild graph snapshot")
+    graph_sub.add_parser("stats", help="Show graph edge/node stats")
+    graph_sub.add_parser("decay", help="Run semantic edge decay pass")
+    g_sem_build = graph_sub.add_parser("semantic-build", help="Build semantic lookup index")
+    g_sem_lookup = graph_sub.add_parser("semantic-lookup", help="Semantic lookup by query")
+    g_sem_lookup.add_argument("--query", required=True)
+    g_sem_lookup.add_argument("--k", type=int, default=8)
+    g_traverse = graph_sub.add_parser("traverse", help="Run structural-first causal traversal from anchors")
+    g_traverse.add_argument("--anchor", nargs="+", required=True)
+    g_infer = graph_sub.add_parser("infer-structural", help="Run deterministic structural edge inference (safe-gated)")
+    g_infer.add_argument("--min-confidence", type=float, default=0.9)
+    g_infer.add_argument("--apply", action="store_true")
+    g_sync = graph_sub.add_parser("sync-structural", help="Sync associations->links->immutable structural edges->graph")
+    g_sync.add_argument("--apply", action="store_true")
+    g_sync.add_argument("--strict", action="store_true")
+    g_backfill_causal = graph_sub.add_parser("backfill-causal-links", help="Programmatic causal backfill for existing content")
+    g_backfill_causal.add_argument("--apply", action="store_true")
+    g_backfill_causal.add_argument("--max-per-target", type=int, default=3)
+    g_backfill_causal.add_argument("--min-overlap", type=int, default=2)
+    g_backfill_causal.add_argument("--no-require-shared-turn", action="store_true")
+    g_backfill_causal.add_argument("--bead-id", action="append", help="Limit proposals to pairs touching these bead IDs")
+    g_backfill_causal.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs for targeted mode")
+
     # metrics command
     metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
     metrics_sub = metrics_parser.add_subparsers(dest="metrics_cmd")
@@ -189,6 +250,8 @@ def main():
 
     metrics_promo_kpis = metrics_sub.add_parser("promotion-kpis", help="Report promotion decision KPIs and recommendation alignment")
     metrics_promo_kpis.add_argument("--limit", type=int, default=500)
+
+    metrics_archive_rebuild = metrics_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index from archive.jsonl")
 
     metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
     metrics_log.add_argument("--run-id", required=True)
@@ -357,6 +420,93 @@ def main():
         else:
             sidecar_parser.print_help()
 
+    elif args.command == "reason":
+        out = memory_reason(
+            args.query,
+            k=args.k,
+            root=str(memory.root),
+            debug=bool(args.debug or args.retrieve or args.explain),
+            explain=bool(args.explain),
+        )
+        print(json.dumps(out, indent=2))
+
+    elif args.command == "tag":
+        if bool(args.incident) == bool(args.topic_key):
+            raise SystemExit("tag requires exactly one of --incident or --topic-key")
+        if args.incident:
+            print(json.dumps(tag_incident(memory.root, incident_id=args.incident, bead_ids=args.bead_ids), indent=2))
+        else:
+            print(json.dumps(tag_topic_key(memory.root, topic_key=args.topic_key, bead_ids=args.bead_ids), indent=2))
+
+    elif args.command == "hygiene":
+        target_ids = list(args.bead_id or [])
+        if args.bead_ids_file:
+            payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
+            if not isinstance(payload, list):
+                raise SystemExit("--bead-ids-file must contain a JSON array")
+            target_ids.extend([str(x) for x in payload])
+        print(json.dumps(curated_type_title_hygiene(memory.root, target_ids, apply=args.apply), indent=2))
+
+    elif args.command == "memory":
+        if args.memory_cmd == "form":
+            print(json.dumps(memory_get_search_form(str(memory.root)), indent=2))
+        elif args.memory_cmd == "search":
+            typed = str(args.typed or "")
+            if typed.strip().startswith("{"):
+                payload = json.loads(typed)
+            else:
+                payload = json.loads(Path(typed).read_text(encoding="utf-8"))
+            print(json.dumps(memory_search_typed(str(memory.root), payload, explain=bool(args.explain)), indent=2))
+        elif args.memory_cmd == "execute":
+            req = str(args.request or "")
+            if req.strip().startswith("{"):
+                payload = json.loads(req)
+            else:
+                payload = json.loads(Path(req).read_text(encoding="utf-8"))
+            print(json.dumps(memory_execute(str(memory.root), payload, explain=bool(args.explain)), indent=2))
+        else:
+            mem_parser.print_help()
+
+    elif args.command == "graph":
+        if args.graph_cmd == "build":
+            b = backfill_structural_edges(memory.root)
+            g = build_graph(memory.root, write_snapshot=True)
+            print(json.dumps({"ok": True, "backfill": b, "graph": graph_stats(memory.root), "snapshot": g.get("snapshot")}, indent=2))
+        elif args.graph_cmd == "stats":
+            print(json.dumps(graph_stats(memory.root), indent=2))
+        elif args.graph_cmd == "decay":
+            print(json.dumps(decay_semantic_edges(memory.root), indent=2))
+        elif args.graph_cmd == "semantic-build":
+            print(json.dumps(build_semantic_index(memory.root), indent=2))
+        elif args.graph_cmd == "semantic-lookup":
+            print(json.dumps(semantic_lookup(memory.root, query=args.query, k=args.k), indent=2))
+        elif args.graph_cmd == "traverse":
+            print(json.dumps(causal_traverse(memory.root, anchor_ids=args.anchor), indent=2))
+        elif args.graph_cmd == "infer-structural":
+            print(json.dumps(infer_structural_edges(memory.root, min_confidence=args.min_confidence, apply=args.apply), indent=2))
+        elif args.graph_cmd == "sync-structural":
+            out = sync_structural_pipeline(memory.root, apply=args.apply, strict=args.strict)
+            print(json.dumps(out, indent=2))
+            if args.strict and not out.get("ok"):
+                raise SystemExit(2)
+        elif args.graph_cmd == "backfill-causal-links":
+            target_ids = list(args.bead_id or [])
+            if args.bead_ids_file:
+                payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
+                if not isinstance(payload, list):
+                    raise SystemExit("--bead-ids-file must contain a JSON array")
+                target_ids.extend([str(x) for x in payload])
+            print(json.dumps(backfill_causal_links(
+                memory.root,
+                apply=args.apply,
+                max_per_target=args.max_per_target,
+                min_overlap=args.min_overlap,
+                require_shared_turn=not bool(args.no_require_shared_turn),
+                include_bead_ids=target_ids,
+            ), indent=2))
+        else:
+            graph_parser.print_help()
+
     elif args.command == "metrics":
         if args.metrics_cmd == "report":
             print(json.dumps(memory.metrics_report(since=args.since), indent=2))
@@ -380,6 +530,8 @@ def main():
             print(json.dumps(memory.decide_promotion_bulk(payload), indent=2))
         elif args.metrics_cmd == "promotion-kpis":
             print(json.dumps(memory.promotion_kpis(limit=args.limit), indent=2))
+        elif args.metrics_cmd == "archive-index-rebuild":
+            print(json.dumps(rebuild_archive_index(memory.root), indent=2))
         elif args.metrics_cmd == "start-run":
             print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
         elif args.metrics_cmd == "step":

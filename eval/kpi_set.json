@@ -1,0 +1,26 @@
+[
+  {
+    "id": "promotion_inflation_1",
+    "query": "when we had almost all promoted beads what happened",
+    "expected_ids": [
+      "bead-676A030651CF",
+      "bead-FA471BD25D61"
+    ],
+    "notes": "Promotion inflation / compaction starvation episode",
+    "tags": ["historical", "causal"],
+    "verified_by": "human-review",
+    "verified_at": "2026-03-04"
+  },
+  {
+    "id": "candidate_gating_1",
+    "query": "why did we move to candidate-first promotion",
+    "expected_ids": [
+      "bead-FEA7B833E949",
+      "bead-F63F349DFE4C"
+    ],
+    "notes": "Candidate-only promotion rationale",
+    "tags": ["causal"],
+    "verified_by": "human-review",
+    "verified_at": "2026-03-04"
+  }
+]

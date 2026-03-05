@@ -1,0 +1,9 @@
+{
+  "caused_by": "caused_by",
+  "supports": "supports",
+  "derived_from": "derived_from",
+  "supersedes": "supersedes",
+  "superseded_by": "superseded_by",
+  "contradicts": "contradicts",
+  "resolves": "resolves"
+}

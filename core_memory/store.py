@@ -20,6 +20,7 @@ from typing import Optional
 from .models import BeadType, Scope, Status, Authority
 from . import events
 from .io_utils import store_lock, atomic_write_json, append_jsonl
+from .archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "./memory"
@@ -1188,7 +1189,6 @@ class MemoryStore:
             now = now_dt.isoformat()
             updated = 0
             auto_archived = 0
-            archive_file = self.beads_dir / "archive.jsonl"
             decision_log = self.beads_dir / "events" / "promotion-decisions.jsonl"
 
             for row in rows[: max(1, int(limit))]:
@@ -1217,8 +1217,8 @@ class MemoryStore:
 
                 if auto_archive_hold and rec == "hold" and reinf == 0 and q_overlap == 0 and age_ok and str(bead.get("status") or "") == "candidate":
                     revision_id = f"rev-{uuid.uuid4().hex[:12]}"
-                    append_jsonl(
-                        archive_file,
+                    append_archive_snapshot(
+                        self.root,
                         {
                             "bead_id": bid,
                             "revision_id": revision_id,
@@ -1312,10 +1312,9 @@ class MemoryStore:
             elif decision_n == "keep_candidate":
                 bead["status"] = "candidate"
             elif decision_n == "archive":
-                archive_file = self.beads_dir / "archive.jsonl"
                 revision_id = f"rev-{uuid.uuid4().hex[:12]}"
-                append_jsonl(
-                    archive_file,
+                append_archive_snapshot(
+                    self.root,
                     {
                         "bead_id": bead_id,
                         "revision_id": revision_id,
@@ -1453,14 +1452,13 @@ class MemoryStore:
 
             applied = 0
             if apply:
-                archive_file = self.beads_dir / "archive.jsonl"
                 for row in demote:
                     bid = row["bead_id"]
                     bead = index["beads"].get(bid)
                     if not bead:
                         continue
                     revision_id = f"rev-{uuid.uuid4().hex[:12]}"
-                    append_jsonl(archive_file, {
+                    append_archive_snapshot(self.root, {
                         "bead_id": bid,
                         "revision_id": revision_id,
                         "archived_at": datetime.now(timezone.utc).isoformat(),
@@ -2129,7 +2127,6 @@ class MemoryStore:
         """
         with store_lock(self.root):
             index = self._read_json(self.beads_dir / INDEX_FILE)
-            archive_file = self.beads_dir / "archive.jsonl"
             compacted = 0
             only = set(only_bead_ids or [])
             skip = set(skip_bead_ids or [])
@@ -2208,7 +2205,7 @@ class MemoryStore:
                             "archived_from_status": bead.get("status"),
                             "snapshot": dict(bead),
                         }
-                        append_jsonl(archive_file, archive)
+                        append_archive_snapshot(self.root, archive)
                         bead["archive_ptr"] = {"revision_id": revision_id}
 
                         # Compact into skeleton representation.
@@ -2235,25 +2232,30 @@ class MemoryStore:
             if bead_id not in index.get("beads", {}):
                 return {"ok": False, "error": f"Bead not found: {bead_id}"}
 
-            archive_file = self.beads_dir / "archive.jsonl"
-            if not archive_file.exists():
-                return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
-
             bead = index["beads"][bead_id]
             wanted_rev = ((bead.get("archive_ptr") or {}).get("revision_id") if isinstance(bead.get("archive_ptr"), dict) else None)
 
-            found = None
-            with open(archive_file, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    row = json.loads(line)
-                    if row.get("bead_id") != bead_id:
-                        continue
-                    if wanted_rev and row.get("revision_id") != wanted_rev:
-                        continue
-                    found = row
+            found = read_snapshot(self.root, str(wanted_rev or "")) if wanted_rev else None
+
+            if not found:
+                # Fallback for legacy rows / missing index: linear scan then optionally rebuild index.
+                archive_file = self.beads_dir / "archive.jsonl"
+                if not archive_file.exists():
+                    return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
+                with open(archive_file, "r", encoding="utf-8") as f:
+                    for line in f:
+                        line = line.strip()
+                        if not line:
+                            continue
+                        row = json.loads(line)
+                        if row.get("bead_id") != bead_id:
+                            continue
+                        if wanted_rev and row.get("revision_id") != wanted_rev:
+                            continue
+                        found = row
+
+                if wanted_rev and not read_snapshot(self.root, str(wanted_rev or "")):
+                    rebuild_archive_index(self.root)
 
             if not found:
                 return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
