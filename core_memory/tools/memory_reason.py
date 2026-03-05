@@ -501,8 +501,13 @@ def memory_reason(query: str, k: int = 8, root: str = "./memory", debug: bool = 
         "remember": lambda s, r, q, kk: _plan_remember(s, r, q, kk, debug=debug),
     }
 
-    # Primary route is robust default; intent router is fallback hint only.
-    primary_route = "why"
+    route_by_intent = {
+        "causal": "why",
+        "when": "when",
+        "what_changed": "what_changed",
+        "remember": "remember",
+    }
+    primary_route = route_by_intent.get(intent_class, "remember")
     primary = planners.get(primary_route, _plan_why)(store, root_p, retrieval_query, k)
     if not primary.get("ok"):
         return primary

@@ -59,6 +59,9 @@ def main() -> int:
     all_cons5 = []
     all_cons10 = []
     all_anchor_hit = []
+    all_intent_match = []
+    non_causal_total = 0
+    non_causal_why = 0
 
     for fam in families:
         intent_id = str(fam.get("intent_id") or "")
@@ -95,6 +98,7 @@ def main() -> int:
         all_cons10.append(cons10)
 
         route_counts = Counter([r["route"] for r in runs])
+        intent_match_ratio = sum(1 for r in runs if str(r.get("intent_class") or "") == str(fam.get("intent_class") or "")) / max(1, len(runs))
         sig_counts = Counter([r["chain_signature"] for r in runs])
         cit_counts = Counter()
         for r in runs:
@@ -103,6 +107,10 @@ def main() -> int:
         structural_hits = sum(1 for r in runs if bool((r.get("grounding") or {}).get("selected_has_structural")))
         anchor_hit_ratio = sum(1 for r in runs if bool(r.get("anchor_hit"))) / max(1, len(runs))
         all_anchor_hit.append(anchor_hit_ratio)
+        all_intent_match.append(intent_match_ratio)
+        if str(fam.get("intent_class") or "") != "causal":
+            non_causal_total += len(runs)
+            non_causal_why += sum(1 for r in runs if str(r.get("route") or "") == "why")
 
         per_family.append(
             {
@@ -117,6 +125,7 @@ def main() -> int:
                 },
                 "grounding_structural_ratio": round(structural_hits / max(1, len(runs)), 4),
                 "anchor_hit_rate": round(anchor_hit_ratio, 4),
+                "intent_match_rate": round(intent_match_ratio, 4),
                 "citation_type_mix": dict(cit_counts),
                 "runs": runs,
             }
@@ -129,6 +138,8 @@ def main() -> int:
             "paraphrase_consistency_at_5": round(sum(all_cons5) / max(1, len(all_cons5)), 4),
             "paraphrase_consistency_at_10": round(sum(all_cons10) / max(1, len(all_cons10)), 4),
             "anchor_hit_rate": round(sum(all_anchor_hit) / max(1, len(all_anchor_hit)), 4),
+            "intent_match_rate": round(sum(all_intent_match) / max(1, len(all_intent_match)), 4),
+            "non_causal_why_rate": round((non_causal_why / max(1, non_causal_total)), 4),
         },
         "per_family": per_family,
     }

@@ -1,5 +1,5 @@
 {
-  "version": "v1",
+  "version": "v2",
   "families": [
     {
       "intent_id": "promotion_inflation_history",
@@ -10,7 +10,9 @@
       "phrasings": [
         "when we had almost all promoted beads what happened",
         "what caused the promotion inflation episode",
-        "why did compaction get starved during promotion"
+        "why did compaction get starved during promotion",
+        "promotion blow-up what happened",
+        "remind me what went wrong when everything got promoted"
       ]
     },
     {
@@ -22,7 +24,9 @@
       "phrasings": [
         "why did we move to candidate-first promotion",
         "why is promotion agent-authoritative now",
-        "what was the rationale for candidate-only promotion"
+        "what was the rationale for candidate-only promotion",
+        "why did we stop auto promoting everything",
+        "explain why candidate gate became required"
       ]
     },
     {
@@ -34,7 +38,9 @@
       "phrasings": [
         "what changed in the structural sync pipeline",
         "what did we implement for associations links edges graph",
-        "summarize the immutable causal sync work"
+        "summarize the immutable causal sync work",
+        "what changed in the link edge graph sync",
+        "quick recap of structural pipeline updates"
       ]
     },
     {
@@ -46,7 +52,9 @@
       "phrasings": [
         "remember the retrieval hardening work",
         "recall what we changed in memory reason",
-        "what do you remember about graph archive retrieval"
+        "what do you remember about graph archive retrieval",
+        "memory reason retrieval updates",
+        "remind me what we shipped for graph+archive recall"
       ]
     }
   ]
