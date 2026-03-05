@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 from core_memory.memory_skill import memory_get_search_form, memory_search_typed, memory_execute
 from core_memory.tools.memory_reason import memory_reason
 
@@ -35,4 +37,9 @@ def reason(
 
 
 def execute(request: dict, root: str = "./memory", explain: bool = True) -> dict:
+    if str(os.getenv("MEMORY_EXECUTE_ENABLED", "1")).lower() in {"0", "false", "off", "no"}:
+        return {"ok": False, "error": "memory_execute_disabled"}
+    intent = str((request or {}).get("intent") or "")
+    if intent == "causal" and str(os.getenv("MEMORY_EXECUTE_CAUSAL_ENABLED", "1")).lower() in {"0", "false", "off", "no"}:
+        return {"ok": False, "error": "memory_execute_causal_disabled", "suggested_next": "use_memory_reason"}
     return memory_execute(root=root, request=request, explain=bool(explain))
