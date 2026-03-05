@@ -1,14 +1,17 @@
 from __future__ import annotations
 
+import os
 import uuid
 from typing import Any, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import emit_turn_finalized
+from core_memory.tools import memory as memory_tools
 
 MAX_BODY_BYTES = 256_000
+HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
 
 
 class TurnFinalizedRequest(BaseModel):
@@ -26,7 +29,56 @@ class TurnFinalizedRequest(BaseModel):
     origin: str = "USER_TURN"
 
 
-app = FastAPI(title="Core Memory HTTP Ingress", version="1.0")
+class MemorySearchFormRequest(BaseModel):
+    root: Optional[str] = None
+
+
+class MemorySearchRequest(BaseModel):
+    root: Optional[str] = None
+    form_submission: dict[str, Any]
+    explain: bool = True
+
+
+class MemoryReasonRequest(BaseModel):
+    root: Optional[str] = None
+    query: str
+    k: int = 8
+    debug: bool = False
+    explain: bool = False
+    pinned_incident_ids: list[str] = Field(default_factory=list)
+    pinned_topic_keys: list[str] = Field(default_factory=list)
+    pinned_bead_ids: list[str] = Field(default_factory=list)
+
+
+class MemoryExecuteRequest(BaseModel):
+    root: Optional[str] = None
+    request: dict[str, Any]
+    explain: bool = True
+
+
+app = FastAPI(title="Core Memory HTTP Ingress", version="1.1")
+
+
+def _auth_required() -> str:
+    return str(os.getenv(HTTP_TOKEN_ENV, "")).strip()
+
+
+def _check_auth(authorization: Optional[str], x_memory_token: Optional[str]) -> None:
+    tok = _auth_required()
+    if not tok:
+        return
+    bearer = ""
+    if authorization:
+        parts = authorization.split(" ", 1)
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            bearer = parts[1].strip()
+    presented = (x_memory_token or bearer or "").strip()
+    if presented != tok:
+        raise HTTPException(status_code=401, detail="unauthorized")
+
+
+def _resolve_root(root: Optional[str]) -> str:
+    return str(root or "./memory")
 
 
 @app.get("/healthz")
@@ -35,7 +87,13 @@ async def healthz():
 
 
 @app.post("/v1/memory/turn-finalized")
-async def turn_finalized(req: Request):
+async def turn_finalized(
+    req: Request,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+
     content_length = req.headers.get("content-length")
     if content_length:
         try:
@@ -56,7 +114,6 @@ async def turn_finalized(req: Request):
     transaction_id = payload.transaction_id or f"tx-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
     trace_id = payload.trace_id or f"tr-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
 
-    # Emit only (no processing) to keep ingress thin and non-blocking for caller semantics.
     event_id = emit_turn_finalized(
         root=payload.root,
         session_id=payload.session_id,
@@ -73,3 +130,60 @@ async def turn_finalized(req: Request):
         metadata=payload.metadata,
     )
     return {"accepted": True, "event_id": event_id}
+
+
+@app.get("/v1/memory/search-form")
+async def memory_search_form(
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return memory_tools.get_search_form(root=_resolve_root(root))
+
+
+@app.post("/v1/memory/search")
+async def memory_search_typed(
+    payload: MemorySearchRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return memory_tools.search(
+        form_submission=payload.form_submission,
+        root=_resolve_root(payload.root),
+        explain=bool(payload.explain),
+    )
+
+
+@app.post("/v1/memory/reason")
+async def memory_reason(
+    payload: MemoryReasonRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return memory_tools.reason(
+        query=payload.query,
+        root=_resolve_root(payload.root),
+        k=int(payload.k),
+        debug=bool(payload.debug),
+        explain=bool(payload.explain),
+        pinned_incident_ids=payload.pinned_incident_ids,
+        pinned_topic_keys=payload.pinned_topic_keys,
+        pinned_bead_ids=payload.pinned_bead_ids,
+    )
+
+
+@app.post("/v1/memory/execute")
+async def memory_execute(
+    payload: MemoryExecuteRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return memory_tools.execute(
+        request=payload.request,
+        root=_resolve_root(payload.root),
+        explain=bool(payload.explain),
+    )

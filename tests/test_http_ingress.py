@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -37,6 +38,56 @@ class TestHttpIngress(unittest.TestCase):
             events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
             rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
             self.assertEqual(1, len(rows))
+
+    def test_http_runtime_execute_endpoint(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+        from core_memory.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            s = MemoryStore(root)
+            s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+
+            c = TestClient(app)
+            r = c.post(
+                "/v1/memory/execute",
+                json={
+                    "root": root,
+                    "request": {
+                        "raw_query": "remember candidate-first promotion",
+                        "intent": "remember",
+                        "constraints": {"require_structural": False},
+                        "facets": {"topic_keys": ["promotion_workflow"]},
+                        "k": 5,
+                    },
+                    "explain": True,
+                },
+            )
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertTrue(data.get("ok"))
+            self.assertTrue(data.get("results"))
+            self.assertIn("grounding", data)
+
+    def test_http_auth_token_protection(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http import server as srv
+
+        old = os.environ.get("CORE_MEMORY_HTTP_TOKEN")
+        os.environ["CORE_MEMORY_HTTP_TOKEN"] = "secret"
+        try:
+            c = TestClient(srv.app)
+            r1 = c.get("/v1/memory/search-form")
+            self.assertEqual(401, r1.status_code)
+            r2 = c.get("/v1/memory/search-form", headers={"Authorization": "Bearer secret"})
+            self.assertEqual(200, r2.status_code)
+            self.assertEqual("memory_search_form.v1", (r2.json() or {}).get("schema_version"))
+        finally:
+            if old is None:
+                os.environ.pop("CORE_MEMORY_HTTP_TOKEN", None)
+            else:
+                os.environ["CORE_MEMORY_HTTP_TOKEN"] = old
 
     def test_http_idempotent_same_turn_id(self):
         from fastapi.testclient import TestClient

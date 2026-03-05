@@ -1,8 +1,8 @@
-# SpringAI Adapter (Wave 1, HTTP ingress)
+# SpringAI Adapter (Wave 2, HTTP ingress + runtime memory tools)
 
-SpringAI runs on JVM, so Wave 1 uses HTTP -> Python ingress.
+SpringAI runs on JVM, so integration remains HTTP -> Python service.
 
-## Endpoint
+## Write path (non-blocking)
 
 `POST /v1/memory/turn-finalized`
 
@@ -21,8 +21,50 @@ Optional:
 - `window_bead_ids`
 - `origin` (default `USER_TURN`)
 
-Health probe:
+## Runtime tool path (sync)
+
+### 1) Search form discovery
+- `GET /v1/memory/search-form?root=<optional>`
+
+### 2) Typed search
+- `POST /v1/memory/search`
+- Body:
+  - `root` (optional)
+  - `form_submission` (typed form fields)
+  - `explain` (bool)
+
+### 3) Causal reason
+- `POST /v1/memory/reason`
+- Body:
+  - `root` (optional)
+  - `query`
+  - `k`
+  - `debug`
+  - `explain`
+  - `pinned_incident_ids[]`
+  - `pinned_topic_keys[]`
+  - `pinned_bead_ids[]`
+
+### 4) Unified execution (recommended)
+- `POST /v1/memory/execute`
+- Body:
+  - `root` (optional)
+  - `request` (MemoryRequest object)
+  - `explain` (bool)
+
+## Health probe
 - `GET /healthz` -> `{ "ok": true }`
+
+## Auth
+
+Set server env:
+- `CORE_MEMORY_HTTP_TOKEN=<shared-secret>`
+
+Then clients send either:
+- `Authorization: Bearer <shared-secret>`
+- or `X-Memory-Token: <shared-secret>`
+
+If token env is unset, endpoints are open (local/dev mode).
 
 ## Deterministic IDs
 
@@ -31,9 +73,8 @@ Health probe:
 
 ## Failure behavior
 
-- POST asynchronously.
-- Never block user response on memory POST failures.
-- Future: local spool/retry queue in JVM side.
+- Write path is async; never block user response on turn-finalized POST failures.
+- Runtime tool calls are sync; apply client timeout and retry policy.
 
 ## Advisor/interceptor pseudocode
 
@@ -56,4 +97,8 @@ CompletableFuture.runAsync(() -> {
     // non-blocking by design
   }
 });
+
+// Runtime tool call (sync)
+MemoryExecuteRequest req = ...;
+MemoryExecuteResponse res = http.post("http://memory-ingress:8765/v1/memory/execute", req);
 ```
