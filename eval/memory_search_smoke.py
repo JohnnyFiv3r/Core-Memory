@@ -14,7 +14,7 @@ CASES = [
             'intent': 'causal',
             'query_text': 'why did we move to candidate-first promotion',
             'topic_keys': ['promotion_workflow'],
-            'require_structural': True,
+            'require_structural': False,
             'k': 8,
         },
     },

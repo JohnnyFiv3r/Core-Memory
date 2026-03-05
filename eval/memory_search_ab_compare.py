@@ -22,7 +22,8 @@ def _typed_submission(intent_class: str, query: str) -> dict:
         'incident_id': (incidents[0].get('incident_id') if incidents else None),
         'topic_keys': [t.get('topic_key') for t in topics[:2] if t.get('topic_key')],
         'k': 8,
-        'require_structural': intent == 'causal',
+        # Agent-controlled knob: do not auto-force structural for causal intent.
+        'require_structural': False,
     }
 
 

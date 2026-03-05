@@ -31,8 +31,8 @@ When the user asks about prior work, decisions, causes, timelines, or "remember 
   - when/date/timeline -> when
   - remember/recall/remind me -> remember
 - require_structural:
-  - true for causal queries
-  - false otherwise unless user asks for cause/evidence chain
+  - **agent-chosen**, default false
+  - set true only when user explicitly asks for causal/evidence chain grounding
 - must_terms:
   - include 1-3 high-signal nouns from user text
 - avoid_terms:
