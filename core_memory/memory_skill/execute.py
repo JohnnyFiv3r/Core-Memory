@@ -60,6 +60,15 @@ def _cluster_coherence(results: list[dict], beads: dict) -> tuple[float, int]:
     return round(dominant / max(1, len(top)), 4), clusters
 
 
+def _chain_quality(chains: list[dict]) -> float:
+    if not chains:
+        return 0.0
+    scores = [float(c.get("score") or 0.0) for c in chains[:3]]
+    if not scores:
+        return 0.0
+    return round(sum(scores) / max(1, len(scores)), 4)
+
+
 def _confidence_and_next(intent: str, results: list[dict], chains: list[dict], snapped: dict, beads: dict) -> tuple[str, str, dict]:
     if not results:
         return "low", "ask_clarifying", {"reason": "no_results"}
@@ -216,6 +225,24 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
             confidence, next_action, conf_diag = _confidence_and_next(intent, results, chains, broader_form, beads)
             next_action = "answer" if next_action != "ask_clarifying" else next_action
 
+    warnings = sres.get("warnings") or []
+    benign_warnings = {"require_structural_requested_but_no_chains"}
+    only_benign = all(str(w) in benign_warnings for w in warnings)
+    anchor_present = bool((sres.get("snapped_query") or typed_form).get("incident_id")) or bool((sres.get("snapped_query") or typed_form).get("topic_keys") or [])
+    chq = _chain_quality(chains)
+
+    # Confidence semantics guardrail: high must reflect warning/grounding reality.
+    if confidence == "high":
+        warning_ok = (not warnings) or only_benign
+        causal_ok = bool(grounding_achieved) and (chq >= 0.2)
+        non_causal_ok = anchor_present
+        if not warning_ok:
+            confidence = "medium"
+        elif intent == "causal" and not causal_ok:
+            confidence = "medium"
+        elif intent != "causal" and not non_causal_ok:
+            confidence = "medium"
+
     out = {
         "ok": True,
         "request": mem_req,
@@ -229,9 +256,16 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         },
         "confidence": confidence,
         "next_action": next_action,
-        "warnings": sres.get("warnings") or [],
+        "warnings": warnings,
     }
     if explain:
+        conf_diag = dict(conf_diag or {})
+        conf_diag.update({
+            "warnings": warnings,
+            "only_benign_warnings": only_benign,
+            "anchor_present": anchor_present,
+            "chain_quality": chq,
+        })
         out["explain"] = {
             "search": sres.get("explain") or {},
             "reason_fallback_used": bool(reason_payload is not None),
