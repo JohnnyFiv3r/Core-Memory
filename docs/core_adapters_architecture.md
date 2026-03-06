@@ -1,5 +1,12 @@
 # Core Adapters Architecture
 
+Status: Canonical
+Canonical surfaces: adapter architecture overview, finalized-turn write path, runtime skill bridge
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/contracts/http_api.v1.json`
+
 Canonical HTTP/API contract artifact:
 - `docs/contracts/http_api.v1.json`
 

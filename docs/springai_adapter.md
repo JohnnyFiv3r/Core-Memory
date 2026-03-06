@@ -1,5 +1,12 @@
 # SpringAI Adapter (Wave 2, HTTP ingress + runtime memory tools)
 
+Status: Canonical
+Canonical surfaces: `/v1/memory/execute`, `/v1/memory/turn-finalized`, `/v1/memory/classify-intent`
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/contracts/http_api.v1.json`
+
 SpringAI runs on JVM, so integration remains HTTP -> Python service.
 
 Canonical contract:

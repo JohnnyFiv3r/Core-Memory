@@ -4,6 +4,9 @@
 
 Core Memory is a deterministic memory layer for agents. It stores structured memory events ("beads") and explicit links so recall stays inspectable and repeatable across context resets.
 
+- Documentation index: `docs/index.md`
+- Canonical surfaces: `docs/canonical_surfaces.md`
+
 ---
 
 ## Why Core Memory Exists

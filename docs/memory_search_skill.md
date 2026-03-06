@@ -1,6 +1,13 @@
 # Memory Search Skill (Typed Tool Boundary)
 
-This branch introduces a tool-oriented boundary for memory retrieval.
+Status: Canonical
+Canonical surfaces: `core_memory.tools.memory.*`, typed search contract, unified memory facade
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/memory_search_agent_playbook.md`
+
+This document describes the tool-oriented boundary for memory retrieval.
 
 ## Tool endpoints
 

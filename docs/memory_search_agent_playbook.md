@@ -1,5 +1,12 @@
 # Memory Search Agent Playbook (Tool-First Boundary)
 
+Status: Supporting
+Canonical surfaces: agent-side usage guidance for `memory.search` / `memory.execute`
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/memory_search_skill.md`
+
 Use this in orchestrators/prompts so the agent consistently uses the typed memory-search tool.
 
 ## Required policy

@@ -1,5 +1,13 @@
 # Core Adapters (Wave 2)
 
+Status: Supporting
+Canonical surfaces: non-OpenClaw adapter overview
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/core_adapters_architecture.md`
+- `docs/springai_adapter.md`
+
 This document describes the thin adapter surface for non-OpenClaw orchestrators.
 
 Canonical HTTP/API contract artifact:
