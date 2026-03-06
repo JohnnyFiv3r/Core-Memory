@@ -1,5 +1,12 @@
 # A/B Test Report — memory_reason vs typed memory_search
 
+Status: Historical Snapshot
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/integrations/shared/validation-common.md`
+
+
 Date: 2026-03-05 (UTC)
 Schema: memory_search_ab_compare.v1
 Total queries: 20

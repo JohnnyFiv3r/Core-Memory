@@ -1,5 +1,12 @@
 # Full Skill-Based Test Report — memory.execute (Post-Tuning)
 
+Status: Historical Snapshot
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/integrations/shared/validation-common.md`
+
+
 Date: 2026-03-05 (UTC)
 Scope: Same 15 test queries, unified memory skill after confidence/next-action tuning.
 

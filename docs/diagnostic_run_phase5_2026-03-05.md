@@ -1,5 +1,12 @@
 # Diagnostic Run Report — Phase 5 Explainability Sweep
 
+Status: Historical Snapshot
+See also:
+- `docs/index.md`
+- `docs/canonical_surfaces.md`
+- `docs/integrations/shared/validation-common.md`
+
+
 Date: 2026-03-05 (UTC)
 Queries: 15 (messy, user-like variants)
 
