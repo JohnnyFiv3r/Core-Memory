@@ -1,0 +1,42 @@
+# PydanticAI Quickstart
+
+Status: Canonical
+See also:
+- `README.md`
+- `integration-guide.md`
+- `../shared/concepts.md`
+
+## Goal
+Run Core Memory in-process with a PydanticAI-based agent.
+
+## 1) Install
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e .
+```
+
+## 2) Use the integration helper
+```python
+from core_memory.integrations.pydanticai import run_with_memory
+
+result = await run_with_memory(
+    agent,
+    "user query",
+    root="./memory",
+    session_id="session-1",
+)
+```
+
+## 3) Runtime memory usage
+PydanticAI can use the runtime memory tools directly in-process:
+- `core_memory.tools.memory.execute`
+- `core_memory.tools.memory.search`
+- `core_memory.tools.memory.reason`
+
+## 4) Validate
+```bash
+python -m unittest tests.test_memory_search_tool_wrapper
+python eval/memory_execute_eval.py
+```
