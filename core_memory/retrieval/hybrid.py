@@ -25,8 +25,13 @@ def _normalize(scores: list[float]) -> tuple[list[float], str]:
 
 
 def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex: float = 0.45) -> dict:
-    sem = semantic_lookup(root, query=query, k=max(10, int(k) * 3))
-    lex = lexical_lookup(root, query=query, k=max(10, int(k) * 3))
+    anchor_meta = resolve_query_anchors(query, root)
+    retrieval_query = str(anchor_meta.get("expanded_query") or query or "").strip()
+    if not retrieval_query:
+        retrieval_query = str(query or "")
+
+    sem = semantic_lookup(root, query=retrieval_query, k=max(10, int(k) * 3))
+    lex = lexical_lookup(root, query=retrieval_query, k=max(10, int(k) * 3))
     if not sem.get("ok") and not lex.get("ok"):
         return {"ok": False, "error": sem.get("error") or lex.get("error")}
 
@@ -56,7 +61,6 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         c.lex_rank = i + 1
         by_id[bid] = c
 
-    anchor_meta = resolve_query_anchors(query, root)
     incident_matches = matched_incident_ids(query, root)
     topic_matches = {str(x.get("topic_key") or "") for x in (anchor_meta.get("matched_topics") or []) if x.get("topic_key")}
     incident_by_bead = {}
@@ -104,6 +108,7 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
     return {
         "ok": True,
         "query": query,
+        "retrieval_query": retrieval_query,
         "weights": {"semantic": w_sem, "lexical": w_lex},
         "semantic_backend": sem.get("backend"),
         "matched_incidents": incident_matches,

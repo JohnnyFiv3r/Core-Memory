@@ -15,6 +15,7 @@ class TestHybridDeterminism(unittest.TestCase):
             a = hybrid_lookup(Path(td), "promotion inflation", k=5)
             b = hybrid_lookup(Path(td), "promotion inflation", k=5)
             self.assertEqual([x["bead_id"] for x in a.get("results")], [x["bead_id"] for x in b.get("results")])
+            self.assertTrue(str(a.get("retrieval_query") or "").strip())
 
 
 if __name__ == "__main__":
