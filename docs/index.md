@@ -9,7 +9,10 @@ Start here for current Core Memory documentation.
 - `core_adapters_architecture.md` — integration architecture overview
 - `contracts/http_api.v1.json` — canonical HTTP/API contract artifact
 - `transition_roadmap_locked.md` — locked transition execution roadmap
-- `phase1_closeout_checklist.md` — phase readiness checklist
+- `phase1_closeout_checklist.md` — phase 1 readiness checklist
+- `schema_inventory_baseline.md` — phase 2 schema baseline
+- `schema_canonical_spec.md` — canonical schema specification
+- `phase2_closeout_checklist.md` — phase 2 readiness checklist
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point

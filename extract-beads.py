@@ -17,14 +17,15 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# Supported bead types
+from core_memory.schema import normalize_bead_type, is_allowed_bead_type
+
+# Supported bead types (canonical; legacy aliases normalize before validation)
 VALID_BEAD_TYPES = {
     "session_start", "session_end",
     "goal", "decision", "tool_call", "evidence",
     "outcome", "lesson", "checkpoint", "precedent",
-    "context", "association",
-    "promoted_lesson", "promoted_decision",
-    "failed_hypothesis", "reversal", "misjudgment", 
+    "context", "association", "correction",
+    "failed_hypothesis", "reversal", "misjudgment",
     "overfitted_pattern", "abandoned_path",
     "reflection", "design_principle",
 }
@@ -169,11 +170,15 @@ def extract_beads_from_transcript(transcript_path: str) -> list[dict]:
                         print(f"Line {line_num}: Skipping bead - no type", file=sys.stderr)
                         continue
                     
-                    bead_type = bead_data['type']
-                    if bead_type not in VALID_BEAD_TYPES:
-                        print(f"Line {line_num}: Skipping bead - invalid type: {bead_type}", file=sys.stderr)
+                    raw_type = bead_data['type']
+                    bead_type = normalize_bead_type(raw_type)
+                    if (bead_type not in VALID_BEAD_TYPES) or (not is_allowed_bead_type(bead_type)):
+                        print(f"Line {line_num}: Skipping bead - invalid type: {raw_type}", file=sys.stderr)
                         continue
-                    
+
+                    # Canonicalize legacy aliases (e.g. promoted_lesson -> lesson)
+                    bead_data['type'] = bead_type
+
                     # Keep all beads - causal linear time series, no dedup needed
                     beads.append(bead_data)
                     print(f"Extracted: [{bead_type}] {bead_data.get('title', 'untitled')}")
