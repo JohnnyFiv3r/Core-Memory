@@ -106,7 +106,7 @@ def _confidence_and_next_base(intent: str, results: list[dict], chains: list[dic
 
 def evaluate_confidence_next(intent: str, results: list[dict], chains: list[dict], snapped: dict, beads: dict, warnings: list[str] | None = None) -> tuple[str, str, dict]:
     confidence, next_action, diag = _confidence_and_next_base(intent, results, chains, snapped, beads)
-    warnings = list(warnings or [])
+    warnings = sorted({str(w) for w in (warnings or [])})
     benign_warnings = {"require_structural_requested_but_no_chains"}
     only_benign = all(str(w) in benign_warnings for w in warnings)
     anchor_present = bool((snapped or {}).get("incident_id")) or bool((snapped or {}).get("topic_keys") or [])
@@ -131,6 +131,26 @@ def evaluate_confidence_next(intent: str, results: list[dict], chains: list[dict
         "chain_quality": chq,
     })
     return confidence, next_action, diag
+
+
+def _normalize_results(results: list[dict]) -> list[dict]:
+    return sorted(
+        [dict(r or {}) for r in (results or [])],
+        key=lambda r: (
+            -float(r.get("score") or 0.0),
+            str(r.get("bead_id") or ""),
+            str(r.get("title") or ""),
+        ),
+    )
+
+
+def _normalize_chains(chains: list[dict]) -> list[dict]:
+    def _chain_key(c: dict) -> tuple:
+        path = tuple(str(x) for x in (c.get("path") or []))
+        rels = tuple(str((e or {}).get("rel") or "") for e in (c.get("edges") or []))
+        return (-float(c.get("score") or 0.0), path, rels)
+
+    return sorted([dict(c or {}) for c in (chains or [])], key=_chain_key)
 
 
 def execute_request(request: dict, root: str = "./memory", explain: bool = True) -> dict:
@@ -237,6 +257,9 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
                 }
             )
 
+    results = _normalize_results(results)
+    chains = _normalize_chains(chains)
+
     confidence, next_action, conf_diag = evaluate_confidence_next(
         intent=intent,
         results=results,
@@ -257,7 +280,8 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         broad = search_typed(rp, broader_form, include_explain=False)
         bres = broad.get("results") or []
         if bres:
-            results = bres[: mem_req["k"]]
+            results = _normalize_results(bres[: mem_req["k"]])
+            chains = _normalize_chains(chains)
             # preserve chains from prior pass unless causal reasoner added stronger evidence
             confidence, next_action, conf_diag = evaluate_confidence_next(
                 intent=intent,

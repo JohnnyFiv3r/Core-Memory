@@ -21,6 +21,7 @@ Start here for current Core Memory documentation.
 - `truth_hierarchy_policy.md` — deterministic truth hierarchy policy
 - `write_side_artifacts_semantics.md` — write-side artifact surface semantics
 - `phase5_closeout_checklist.md` — phase 5 readiness checklist
+- `phase6_runtime_hardening_progress.md` — phase 6 runtime hardening progress
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
