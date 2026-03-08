@@ -25,6 +25,7 @@ Start here for current Core Memory documentation.
 - `runtime_contract_clarity.md` — runtime confidence/next_action/grounding semantics
 - `phase6_closeout_checklist.md` — phase 6 readiness checklist
 - `adapter_layer_inventory.md` — adapter vs canonical semantics clarification
+- `transition_roadmap_v2.md` — superseding roadmap draft aligned to event-native write authority
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
