@@ -24,6 +24,7 @@ Start here for current Core Memory documentation.
 - `phase6_runtime_hardening_progress.md` — phase 6 runtime hardening progress
 - `runtime_contract_clarity.md` — runtime confidence/next_action/grounding semantics
 - `phase6_closeout_checklist.md` — phase 6 readiness checklist
+- `adapter_layer_inventory.md` — adapter vs canonical semantics clarification
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
