@@ -28,6 +28,10 @@ Start here for current Core Memory documentation.
 - `transition_roadmap_v2.md` — superseding roadmap draft aligned to event-native write authority
 - `v2_execution_plan.md` — phased execution plan for V2 cutover and legacy deprecation
 - `v2_p0_kickoff.md` — V2 baseline and execution readiness snapshot
+- `v2_invariants.md` — non-negotiable V2 architecture and behavior invariants
+- `v2_flush_transaction_spec.md` — staged idempotent flush transaction specification
+- `v2_surface_authority_matrix.md` — canonical authority/role matrix across memory surfaces
+- `v2_deprecation_inventory.md` — legacy path deprecation/removal inventory for V2
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
