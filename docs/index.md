@@ -32,6 +32,9 @@ Start here for current Core Memory documentation.
 - `v2_flush_transaction_spec.md` — staged idempotent flush transaction specification
 - `v2_surface_authority_matrix.md` — canonical authority/role matrix across memory surfaces
 - `v2_deprecation_inventory.md` — legacy path deprecation/removal inventory for V2
+- `v2_p2_kickoff.md` — V2-P2 kickoff and implementation sequence
+- `v2_p2_trigger_map.md` — canonical trigger authority map for per-turn + flush paths
+- `v2_p2_enforcement_test_matrix.md` — required enforcement tests for P2 closeout
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
