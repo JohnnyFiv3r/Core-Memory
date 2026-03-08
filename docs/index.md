@@ -27,6 +27,7 @@ Start here for current Core Memory documentation.
 - `adapter_layer_inventory.md` — adapter vs canonical semantics clarification
 - `transition_roadmap_v2.md` — superseding roadmap draft aligned to event-native write authority
 - `v2_execution_plan.md` — phased execution plan for V2 cutover and legacy deprecation
+- `v2_p0_kickoff.md` — V2 baseline and execution readiness snapshot
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
