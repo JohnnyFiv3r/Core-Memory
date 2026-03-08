@@ -143,6 +143,9 @@ Exit:
 - Rolling window remains continuity projection and may contain compressed non-promoted copies.
 - Same bead IDs preserved across surfaces where represented.
 - Add before remove; compatibility wrappers remain until explicit cutover.
+- Core Memory is fully isolated from OpenClaw built-in memory surfaces.
+- Core Memory must not read, write, index, or depend on `MEMORY.md`.
+- OpenClaw default memory system remains parallel/semantic-first and complementary, not an execution dependency of Core Memory.
 
 ---
 

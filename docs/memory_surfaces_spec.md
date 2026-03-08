@@ -56,3 +56,7 @@ Authoritative for:
 
 Not authoritative for:
 - canonical structured Core Memory bead/graph truth
+
+Boundary rule:
+- Core Memory must not read, write, index, or depend on `MEMORY.md`.
+- This surface remains parallel/complementary to Core Memory, not part of Core Memory runtime/storage paths.
