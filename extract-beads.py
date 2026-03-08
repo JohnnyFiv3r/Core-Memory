@@ -19,6 +19,7 @@ from pathlib import Path
 
 from core_memory.schema import normalize_bead_type, is_allowed_bead_type
 from core_memory.write_triggers import emit_write_trigger
+from core_memory.write_pipeline.orchestrate import run_extract_pipeline
 
 # Supported bead types (canonical; legacy aliases normalize before validation)
 VALID_BEAD_TYPES = {

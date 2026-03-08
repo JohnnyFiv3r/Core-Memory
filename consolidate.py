@@ -18,6 +18,7 @@ from pathlib import Path
 
 from core_memory.store import MemoryStore
 from core_memory.write_triggers import emit_write_trigger
+from core_memory.write_pipeline.orchestrate import run_consolidate_pipeline, run_rolling_window_pipeline
 
 
 def workspace_root() -> Path:

@@ -1,0 +1,78 @@
+from __future__ import annotations
+
+import json
+import re
+from pathlib import Path
+
+from core_memory.schema import normalize_bead_type, is_allowed_bead_type
+
+BEAD_PATTERN = re.compile(r'<!--\s*BEAD:(.*?)-->', re.DOTALL)
+VALID_SCOPES = {"local", "project", "global", "identity"}
+VALID_AUTHORITIES = {"agent", "user", "system"}
+
+
+def _extract_assistant_text(obj: dict) -> str:
+    if str(obj.get("role") or "") != "assistant":
+        return ""
+    content = obj.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for x in content:
+            if isinstance(x, str):
+                parts.append(x)
+            elif isinstance(x, dict):
+                t = x.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+        return "\n".join(parts)
+    return ""
+
+
+def _parse_bead_match(raw: str) -> dict | None:
+    try:
+        bead_data = json.loads(raw.strip())
+    except Exception:
+        return None
+    if not isinstance(bead_data, dict) or "type" not in bead_data:
+        return None
+
+    raw_type = bead_data.get("type")
+    btype = normalize_bead_type(str(raw_type))
+    if not is_allowed_bead_type(btype):
+        return None
+    bead_data["type"] = btype
+
+    scope = str(bead_data.get("scope") or "project").strip().lower()
+    if scope not in VALID_SCOPES:
+        return None
+    bead_data["scope"] = scope
+
+    authority = str(bead_data.get("authority") or "agent").strip().lower()
+    if authority not in VALID_AUTHORITIES:
+        return None
+    bead_data["authority"] = authority
+
+    return bead_data
+
+
+def extract_beads_from_transcript(path: Path) -> list[dict]:
+    beads: list[dict] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            txt = _extract_assistant_text(obj)
+            if not txt:
+                continue
+            for m in BEAD_PATTERN.findall(txt):
+                bead = _parse_bead_match(m)
+                if bead is not None:
+                    beads.append(bead)
+    return beads

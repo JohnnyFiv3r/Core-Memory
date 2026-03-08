@@ -15,6 +15,7 @@ Start here for current Core Memory documentation.
 - `phase2_closeout_checklist.md` — phase 2 readiness checklist
 - `phase3_trigger_model_progress.md` — phase 3 trigger-model convergence progress
 - `phase3_closeout_checklist.md` — phase 3 readiness checklist
+- `phase4_internalization_progress.md` — phase 4 internalization progress
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
