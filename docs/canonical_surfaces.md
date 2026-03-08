@@ -51,12 +51,18 @@ Current canonical memory-related commands:
 
 ## Canonical integration guides
 
-Current top-level canonical docs:
-- `docs/springai_adapter.md`
+Current canonical docs:
+- `docs/integrations/springai/quickstart.md`
+- `docs/integrations/springai/integration-guide.md`
+- `docs/integrations/openclaw/integration-guide.md`
+- `docs/integrations/pydanticai/integration-guide.md`
 - `docs/core_adapters_architecture.md`
-- `docs/integration/core-adapters.md`
+- `docs/integration/core-adapters.md` (supporting overview)
 - `docs/memory_search_skill.md`
 - `docs/memory_search_agent_playbook.md`
+
+Transitional stub retained:
+- `docs/springai_adapter.md`
 
 ## Canonical evaluation entry points
 

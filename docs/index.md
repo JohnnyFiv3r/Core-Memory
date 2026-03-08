@@ -8,10 +8,14 @@ Start here for current Core Memory documentation.
 - `canonical_surfaces.md` — current supported public surfaces
 - `core_adapters_architecture.md` — integration architecture overview
 - `contracts/http_api.v1.json` — canonical HTTP/API contract artifact
+- `transition_roadmap_locked.md` — locked transition execution roadmap
+- `phase1_closeout_checklist.md` — phase readiness checklist
 
 ## Integration guides
-- `springai_adapter.md` — SpringAI write-path + runtime tool integration
-- `integration/core-adapters.md` — adapter overview across orchestrators
+- `integrations/springai/quickstart.md` — SpringAI integration start point
+- `integrations/openclaw/quickstart.md` — OpenClaw integration start point
+- `integrations/pydanticai/quickstart.md` — PydanticAI integration start point
+- `integration/core-adapters.md` — adapter overview across orchestrators (supporting)
 - `memory_search_skill.md` — memory skill runtime surface
 - `memory_search_agent_playbook.md` — agent-side usage guidance
 
@@ -29,5 +33,5 @@ Start here for current Core Memory documentation.
 ## Suggested reading order for contributors
 1. `canonical_surfaces.md`
 2. `contracts/http_api.v1.json`
-3. `springai_adapter.md` or relevant integration guide
+3. relevant integration quickstart under `integrations/`
 4. validation/eval scripts if changing behavior
