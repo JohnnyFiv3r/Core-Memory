@@ -233,6 +233,7 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
                     "snippet": "",
                     "score": float(c.get("confidence") or 0.0),
                     "source": "reason_fallback",
+                    "source_surface": "archive_graph",
                 }
             )
 
@@ -270,6 +271,12 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
 
     warnings = sres.get("warnings") or []
 
+    # Surface provenance metadata (additive, non-breaking)
+    source_surfaces = [str(r.get("source_surface") or "") for r in results if str(r.get("source_surface") or "")]
+    primary_surface = source_surfaces[0] if source_surfaces else "archive_graph"
+    source_scope = "durable" if intent in {"remember", "causal", "what_changed", "when"} else "immediate"
+    source_priority_applied = ["archive_graph", "session_bead", "rolling_window", "transcript", "memory_md"]
+
     out = {
         "ok": True,
         "request": mem_req,
@@ -281,6 +288,9 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
             "achieved": bool(grounding_achieved),
             "reason": grounding_reason,
         },
+        "source_surface": primary_surface,
+        "source_scope": source_scope,
+        "source_priority_applied": source_priority_applied,
         "confidence": confidence,
         "next_action": next_action,
         "warnings": warnings,

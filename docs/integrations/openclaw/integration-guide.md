@@ -39,7 +39,8 @@ OpenClaw is uniquely positioned to access:
 
 Policy guideline:
 - same-session recent recall may use transcript-first
-- durable/cross-session memory should prefer Core Memory surfaces
+- durable/cross-session memory should prefer Core Memory archive-graph-oriented surfaces (`memory.execute`)
+- rolling window is continuity-first, not canonical specificity source
 
 ## Config and models
 The OpenClaw runtime selects models and allowlists through OpenClaw config, not Core Memory itself. Core Memory relies on those runtime selections for agent execution and reasoning behavior.

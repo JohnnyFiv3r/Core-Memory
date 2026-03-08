@@ -17,6 +17,10 @@ Start here for current Core Memory documentation.
 - `phase3_closeout_checklist.md` — phase 3 readiness checklist
 - `phase4_internalization_progress.md` — phase 4 internalization progress
 - `phase4_closeout_checklist.md` — phase 4 readiness checklist
+- `memory_surfaces_spec.md` — canonical memory surfaces specification
+- `truth_hierarchy_policy.md` — deterministic truth hierarchy policy
+- `write_side_artifacts_semantics.md` — write-side artifact surface semantics
+- `phase5_closeout_checklist.md` — phase 5 readiness checklist
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point

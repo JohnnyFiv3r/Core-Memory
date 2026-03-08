@@ -27,6 +27,10 @@ Behavior:
 Preferred endpoint:
 - `POST /v1/memory/execute`
 
+Surface usage policy:
+- immediate verbatim recall -> transcript-first behavior on caller side when available
+- durable recall/causal/history -> `memory.execute` (archive-graph-oriented path)
+
 Why preferred:
 - one canonical MemoryRequest object
 - one canonical MemoryResponse shape

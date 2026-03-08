@@ -87,12 +87,15 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
     for r in sel:
         bid = str(r.get("bead_id") or "")
         b = beads.get(bid) or {}
+        status = str(b.get("status") or "")
+        source_surface = "archive_graph" if status in {"archived", "compacted", "superseded"} else "session_bead"
         result_rows.append({
             "bead_id": bid,
             "title": str(b.get("title") or b.get("snapshot_title") or ""),
             "type": str(b.get("type") or ""),
             "snippet": " ".join((b.get("summary") or [])[:2]),
             "score": float(r.get("rerank_score") or r.get("fused_score") or 0.0),
+            "source_surface": source_surface,
         })
 
     chains = []

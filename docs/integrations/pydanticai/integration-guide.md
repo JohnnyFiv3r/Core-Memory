@@ -37,5 +37,6 @@ Optional direct surfaces:
 
 ## Recommended usage model
 - use `run_with_memory(...)` or equivalent finalized-turn emission for writes
-- use `memory.execute` as the main runtime retrieval/reasoning facade
+- use `memory.execute` as the main runtime retrieval/reasoning facade for durable memory
+- use transcript-first behavior only for immediate/verbatim same-session recall
 - use lower-level memory operations only when you need specialized control

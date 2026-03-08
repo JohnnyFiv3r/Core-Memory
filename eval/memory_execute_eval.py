@@ -74,11 +74,16 @@ def main() -> int:
                 'grounding_reason': g.get('reason'),
                 'chain_quality': float(cd.get('chain_quality') or 0.0),
                 'warnings': out.get('warnings') or [],
+                'source_surface': str(out.get('source_surface') or ''),
+                'source_scope': str(out.get('source_scope') or ''),
             }
         )
 
     non_c = [r for r in rows if r['intent'] in {'remember', 'what_changed', 'when', 'other'}]
     ca = [r for r in rows if r['intent'] == 'causal']
+
+    immediate = [r for r in rows if r['source_scope'] == 'immediate']
+    durable = [r for r in rows if r['source_scope'] == 'durable']
 
     summary = {
         'count': len(rows),
@@ -92,6 +97,10 @@ def main() -> int:
         'answerable_rate_non_causal': round(sum(1 for r in non_c if r['next_action'] == 'answer') / max(1, len(non_c)), 4),
         'causal_grounding_achieved_rate': round(sum(1 for r in ca if r['grounding_achieved']) / max(1, len(ca)), 4),
         'causal_strong_grounding_rate': round(sum(1 for r in ca if r['chain_quality'] >= 0.2) / max(1, len(ca)), 4),
+        'surface_alignment_rate': round(sum(1 for r in rows if (r['source_scope'] == 'durable' and r['source_surface'] in {'archive_graph', 'session_bead'}) or (r['source_scope'] == 'immediate')) / len(rows), 4),
+        'durable_query_archive_hit_rate': round(sum(1 for r in durable if r['source_surface'] == 'archive_graph') / max(1, len(durable)), 4),
+        'immediate_query_transcript_preference_rate': round(sum(1 for r in immediate if r['source_surface'] == 'transcript') / max(1, len(immediate)), 4),
+        'ungrounded_causal_surface_mismatch_rate': round(sum(1 for r in ca if (not r['grounding_achieved']) and r['source_surface'] != 'archive_graph') / max(1, len(ca)), 4),
     }
 
     print(json.dumps({'summary': summary, 'rows': rows}, indent=2))
