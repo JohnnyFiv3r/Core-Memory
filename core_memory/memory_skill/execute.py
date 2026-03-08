@@ -299,6 +299,6 @@ def execute_request(request: dict, root: str = "./memory", explain: bool = True)
         out["explain"] = {
             "search": sres.get("explain") or {},
             "reason_fallback_used": bool(reason_payload is not None),
-            "confidence_diagnostics": conf_diag,
+            "confidence_diagnostics": dict(conf_diag, source_surface=primary_surface, source_scope=source_scope),
         }
     return out
