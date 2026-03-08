@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core_memory.store import MemoryStore
+from core_memory.write_triggers import emit_write_trigger
 
 
 def workspace_root() -> Path:

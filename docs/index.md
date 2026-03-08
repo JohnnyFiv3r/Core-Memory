@@ -13,6 +13,7 @@ Start here for current Core Memory documentation.
 - `schema_inventory_baseline.md` — phase 2 schema baseline
 - `schema_canonical_spec.md` — canonical schema specification
 - `phase2_closeout_checklist.md` — phase 2 readiness checklist
+- `phase3_trigger_model_progress.md` — phase 3 trigger-model convergence progress
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
