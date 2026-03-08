@@ -26,6 +26,7 @@ Start here for current Core Memory documentation.
 - `phase6_closeout_checklist.md` — phase 6 readiness checklist
 - `adapter_layer_inventory.md` — adapter vs canonical semantics clarification
 - `transition_roadmap_v2.md` — superseding roadmap draft aligned to event-native write authority
+- `v2_execution_plan.md` — phased execution plan for V2 cutover and legacy deprecation
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
