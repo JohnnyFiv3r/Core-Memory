@@ -123,6 +123,10 @@ def evaluate_confidence_next(intent: str, results: list[dict], chains: list[dict
         elif intent != "causal" and not non_causal_ok:
             confidence = "medium"
 
+    # Causal safety calibration: if ungrounded, prefer clarifying over broaden.
+    if intent == "causal" and not chains and next_action == "broaden":
+        next_action = "ask_clarifying"
+
     diag = dict(diag or {})
     diag.update({
         "warnings": warnings,

@@ -23,7 +23,15 @@ Phase T6 focuses on read-side/runtime hardening, not write-side refactoring.
 
 All passing.
 
+## Completed in this slice
+- Added confidence edge-case calibration:
+  - causal + ungrounded paths now prefer `ask_clarifying` over `broaden`
+  - preserves deterministic calibration guardrails
+- Added confidence edge-case regression tests:
+  - `tests/test_memory_execute_confidence_edge_cases.py`
+- Added contributor-facing runtime contract note:
+  - `docs/runtime_contract_clarity.md`
+
 ## Next T6 work
-- confidence edge-case calibration pass (warning/anchor/grounding interactions)
-- contributor-facing contract clarity docs for execute/search/reason semantics
+- full validation/eval sweep with T6 delta summary
 - phase 6 closeout checklist
