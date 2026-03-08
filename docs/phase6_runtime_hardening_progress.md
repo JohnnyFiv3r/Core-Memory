@@ -32,6 +32,10 @@ All passing.
 - Added contributor-facing runtime contract note:
   - `docs/runtime_contract_clarity.md`
 
-## Next T6 work
-- full validation/eval sweep with T6 delta summary
-- phase 6 closeout checklist
+## Completed in final sweep
+- full regression suite slice executed across read-side + write-side compatibility tests (29 tests, all passing)
+- eval executed (`eval/memory_execute_eval.py`) with stable quality metrics and surface-aware metrics
+- phase closeout checklist authored (`docs/phase6_closeout_checklist.md`)
+
+## Status
+T6 complete.

@@ -16,7 +16,7 @@ def run_session_consolidation(
     max_beads: int,
 ):
     memory = MemoryStore(root=root)
-    comp = memory.compact(session_id=session_id, keep_promoted_full=True, promote=bool(promote))
+    comp = memory.compact(session_id=session_id, promote=bool(promote))
 
     text, meta, included_ids, excluded_ids = build_rolling_window(
         root=root,
@@ -27,7 +27,6 @@ def run_session_consolidation(
 
     hist = memory.compact(
         session_id=None,
-        keep_promoted_full=True,
         promote=False,
         only_bead_ids=excluded_ids,
         skip_bead_ids=included_ids,
