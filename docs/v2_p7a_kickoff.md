@@ -7,7 +7,7 @@ Status: Active
 2. Engine-first orchestration ownership expansion ✅
 3. Session-authority propagation into key write/read paths ✅
 4. Index projection demotion hardening ✅
-5. Full sweep + P7A closeout
+5. Full sweep + P7A closeout ✅
 
 ## Step 1 completion notes
 - Updated store architecture posture to session-first live authority + index projection/cache semantics.
@@ -41,3 +41,9 @@ Status: Active
 - Added regression coverage:
   - `tests/test_index_projection_cache.py`
   - validates projection rebuild from session files and projection metadata invariants
+
+## Step 5 completion notes
+- Ran full regression suite: `186 passed / 0 failed`
+- Ran eval snapshots (`memory_execute_eval`, `paraphrase_eval`) and confirmed stable metrics
+- Authored closeout gate artifact:
+  - `docs/v2_p7a_closeout_checklist.md`
