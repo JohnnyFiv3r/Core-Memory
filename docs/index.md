@@ -64,6 +64,7 @@ Start here for current Core Memory documentation.
 - `v2_p7c_kickoff.md` — P7C final cleanup kickoff and step tracker
 - `v2_p7c_test_matrix.md` — P7C shim-retirement validation matrix
 - `v2_p7c_shim_inventory.md` — explicit compatibility shim inventory
+- `v2_p7c_usage_audit.md` — compatibility usage audit and Step 3 migration map
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point

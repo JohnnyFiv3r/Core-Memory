@@ -4,7 +4,7 @@ Status: Active
 
 ## Step plan (5)
 1. Shim inventory + explicit deprecation markers ✅
-2. Compatibility path usage audit + migration map
+2. Compatibility path usage audit + migration map ✅
 3. Low-risk shim retirements (where no callers remain)
 4. Canonical-path-only docs finalization
 5. Full sweep + P7C closeout
@@ -17,6 +17,14 @@ Status: Active
   - `docs/v2_p7c_shim_inventory.md`
 - Added shim marker regression test:
   - `tests/test_p7c_shim_markers.py`
+
+## Step 2 completion notes
+- Performed compatibility path usage audit across core code/tests/docs.
+- Authored migration map artifact:
+  - `docs/v2_p7c_usage_audit.md`
+- Identified low-risk Step 3 retirements:
+  - migrate remaining internal callsites to primary modules
+  - retain shim modules as compatibility shells in this phase
 
 ## Objective
 Reduce remaining transitional seams by making shim/deprecated paths explicit and retiring safe ones without breaking mainline behavior.
