@@ -1,7 +1,11 @@
 from __future__ import annotations
 
-# Transitional compatibility wrapper.
+# Transitional compatibility wrapper (P7C deprecation marker).
 # Canonical rolling surface owner: core_memory.rolling_surface
+# Status: deprecated shim; retained for migration safety.
+
+LEGACY_SHIM = True
+SHIM_REPLACEMENT = "core_memory.rolling_surface"
 
 from core_memory.rolling_surface import (
     estimate_tokens,

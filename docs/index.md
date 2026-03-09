@@ -61,6 +61,9 @@ Start here for current Core Memory documentation.
 - `v2_p7b_kickoff.md` — P7B semantic/store completion kickoff and step tracker
 - `v2_p7b_closeout_checklist.md` — P7B completion and semantic/store validation gate
 - `v2_post_p7_gap_summary.md` — post-P7 architecture gap summary snapshot
+- `v2_p7c_kickoff.md` — P7C final cleanup kickoff and step tracker
+- `v2_p7c_test_matrix.md` — P7C shim-retirement validation matrix
+- `v2_p7c_shim_inventory.md` — explicit compatibility shim inventory
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
