@@ -203,15 +203,17 @@ def emit_turn_finalized(
     return out
 
 
-def crawler_turn_context(*, root: str, session_id: str, limit: int = 200) -> dict[str, Any]:
-    out = build_crawler_context(root=root, session_id=session_id, limit=limit)
+def crawler_turn_context(*, root: str, session_id: str, limit: int = 200, carry_in_bead_ids: list[str] | None = None) -> dict[str, Any]:
+    out = build_crawler_context(root=root, session_id=session_id, limit=limit, carry_in_bead_ids=carry_in_bead_ids)
     out.setdefault("engine", {})
     out["engine"].update({"entry": "crawler_turn_context"})
     return out
 
 
-def apply_crawler_turn_updates(*, root: str, session_id: str, updates: dict[str, Any]) -> dict[str, Any]:
-    out = apply_crawler_updates(root=root, session_id=session_id, updates=updates)
+def apply_crawler_turn_updates(
+    *, root: str, session_id: str, updates: dict[str, Any], visible_bead_ids: list[str] | None = None
+) -> dict[str, Any]:
+    out = apply_crawler_updates(root=root, session_id=session_id, updates=updates, visible_bead_ids=visible_bead_ids)
     out.setdefault("engine", {})
     out["engine"].update({"entry": "apply_crawler_turn_updates"})
     return out
