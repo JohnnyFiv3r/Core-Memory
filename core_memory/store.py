@@ -1,10 +1,11 @@
 """
 Core-Memory store implementation.
 
-This module contains the MemoryStore class which handles all persistence.
-Index-first with event audit log:
-- index.json is primary (fast queries)
-- Events provide audit trail and rebuild capability
+This module contains the MemoryStore class which handles persistence.
+Session-first live authority with index projection:
+- session JSONL is the live append authority surface
+- index.json is a fast projection/cache for retrieval convenience
+- events provide audit trail and rebuild capability
 """
 
 import hashlib
@@ -21,6 +22,7 @@ from .models import BeadType, Scope, Status, Authority
 from . import events
 from .io_utils import store_lock, atomic_write_json, append_jsonl
 from .archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
+from .session_surface import read_session_surface
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "./memory"
@@ -40,10 +42,12 @@ HEADS_FILE = "heads.json"
 class MemoryStore:
     """
     Persistent causal agent memory with lossless compaction.
-    Index-first with event audit log:
-    - index.json is the primary source of truth (fast queries)
-    - Events are appended to .beads/events/ for audit/rebuild
-    
+
+    Live authority model:
+    - session JSONL is authoritative for active-session writes/reads
+    - index.json is maintained as projection/cache
+    - events are append-only audit/rebuild logs
+
     Usage:
         memory = MemoryStore(root="./memory")
         memory.capture_turn(role="assistant", content="...")
@@ -1795,10 +1799,20 @@ class MemoryStore:
             index["stats"]["total_beads"] = len(index["beads"])
 
             # Fast per-add association pass (derived, deterministic, bounded)
+            # Session-first authority: build pass input from session surface first,
+            # then fall back to index projection for missing ids.
             candidates = []
             if self.associate_on_add and self.assoc_top_k > 0:
+                assoc_index = dict(index)
+                assoc_beads = dict(index.get("beads") or {})
+                if session_id:
+                    for row in read_session_surface(self.root, session_id):
+                        rid = str((row or {}).get("id") or "")
+                        if rid:
+                            assoc_beads[rid] = row
+                assoc_index["beads"] = assoc_beads
                 candidates = self._quick_association_candidates(
-                    index,
+                    assoc_index,
                     bead,
                     max_lookback=self.assoc_lookback,
                     top_k=self.assoc_top_k,
