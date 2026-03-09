@@ -103,6 +103,7 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 },
             )
             self.assertTrue(upd.get("ok"))
+            self.assertEqual("session_side_log", upd.get("authority_path"))
             self.assertGreaterEqual(upd.get("promotions_marked", 0), 1)
             self.assertGreaterEqual(upd.get("associations_appended", 0), 1)
 

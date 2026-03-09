@@ -1,5 +1,7 @@
+import json
 import tempfile
 import unittest
+from pathlib import Path
 
 from core_memory.memory_engine import crawler_turn_context, apply_crawler_turn_updates
 from core_memory.store import MemoryStore
@@ -43,11 +45,18 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertEqual("apply_crawler_turn_updates", (out.get("engine") or {}).get("entry"))
             self.assertEqual(1, out.get("promotions_marked"))
             self.assertEqual(1, out.get("associations_appended"))
+            self.assertEqual("session_side_log", out.get("authority_path"))
 
             idx = s._read_json(s.beads_dir / "index.json")
-            self.assertTrue((idx.get("beads", {}).get(b1) or {}).get("promotion_marked"))
-            self.assertEqual("rolling_continuity", (idx.get("beads", {}).get(b1) or {}).get("promotion_scope"))
-            self.assertTrue(any(a.get("source_bead") == b1 and a.get("target_bead") == b2 for a in idx.get("associations", [])))
+            self.assertFalse((idx.get("beads", {}).get(b1) or {}).get("promotion_marked"))
+            self.assertFalse(any(a.get("source_bead") == b1 and a.get("target_bead") == b2 for a in idx.get("associations", [])))
+
+            log_path = Path(out.get("queued_to") or "")
+            self.assertTrue(log_path.exists())
+            rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertEqual(2, len(rows))
+            self.assertTrue(any(r.get("kind") == "promotion_mark" and r.get("bead_id") == b1 for r in rows))
+            self.assertTrue(any(r.get("kind") == "association_append" and r.get("source_bead") == b1 and r.get("target_bead") == b2 for r in rows))
 
     def test_association_target_must_be_visible(self):
         with tempfile.TemporaryDirectory() as td:

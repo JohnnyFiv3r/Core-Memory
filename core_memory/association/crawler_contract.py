@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.io_utils import store_lock
+from core_memory.io_utils import append_jsonl, store_lock
 from core_memory.session_surface import read_session_surface
 
 
@@ -69,6 +69,12 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
     }
 
 
+def _crawler_updates_log_path(root: str, session_id: str) -> Path:
+    sid = str(session_id or "main").strip() or "main"
+    sid = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in sid)
+    return Path(root) / ".beads" / "events" / f"crawler-updates-{sid}.jsonl"
+
+
 def apply_crawler_updates(
     root: str,
     session_id: str,
@@ -76,14 +82,17 @@ def apply_crawler_updates(
     *,
     visible_bead_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Apply append-only crawler updates from agent judgments."""
+    """Queue append-only crawler updates into a session-local side log.
+
+    P8A Step 3: crawler-applied updates are no longer written directly to index.json.
+    They are validated and appended to a session-local side log for later flush-merge.
+    """
     idx_file = Path(root) / ".beads" / "index.json"
     with store_lock(Path(root)):
         if not idx_file.exists():
             return {"ok": False, "error": "index_missing"}
         index = json.loads(idx_file.read_text(encoding="utf-8"))
         beads = index.get("beads") or {}
-        assoc = list(index.get("associations") or [])
 
         session_bead_ids = {
             str((r or {}).get("id") or "")
@@ -93,18 +102,26 @@ def apply_crawler_updates(
         allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
 
         promotions, assoc_rows = _normalize_review_rows(updates or {})
+        now = datetime.now(timezone.utc).isoformat()
+        log_path = _crawler_updates_log_path(root, session_id)
 
         promoted = 0
         for bid in promotions:
             b = beads.get(str(bid))
             if not b or str(b.get("session_id") or "") != str(session_id) or str(bid) not in session_bead_ids:
                 continue
-            if not b.get("promotion_marked"):
-                b["promotion_marked"] = True
-                b["promotion_marked_at"] = datetime.now(timezone.utc).isoformat()
-                b["promotion_scope"] = "rolling_continuity"
-                beads[str(bid)] = b
-                promoted += 1
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "promotion_mark",
+                    "session_id": str(session_id),
+                    "bead_id": str(bid),
+                    "promotion_scope": "rolling_continuity",
+                    "created_at": now,
+                },
+            )
+            promoted += 1
 
         appended = 0
         for row in assoc_rows:
@@ -125,30 +142,28 @@ def apply_crawler_updates(
                 continue
             if tgt not in allowed_targets:
                 continue
-            exists = any(
-                a.get("source_bead") == src and a.get("target_bead") == tgt and a.get("relationship") == rel
-                for a in assoc
-            )
-            if exists:
-                continue
-            assoc.append(
+            append_jsonl(
+                log_path,
                 {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "association_append",
+                    "session_id": str(session_id),
                     "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
-                    "type": "association",
                     "source_bead": src,
                     "target_bead": tgt,
                     "relationship": rel,
                     "edge_class": "agent_judged",
                     "confidence": row.get("confidence"),
                     "rationale": row.get("rationale"),
-                    "created_at": datetime.now(timezone.utc).isoformat(),
-                }
+                    "created_at": now,
+                },
             )
             appended += 1
 
-        index["beads"] = beads
-        index["associations"] = sorted(assoc, key=lambda a: (a.get("created_at", ""), a.get("id", "")))
-        index.setdefault("stats", {})["total_associations"] = len(index["associations"])
-        idx_file.write_text(json.dumps(index, indent=2), encoding="utf-8")
-
-    return {"ok": True, "promotions_marked": promoted, "associations_appended": appended}
+    return {
+        "ok": True,
+        "promotions_marked": promoted,
+        "associations_appended": appended,
+        "queued_to": str(log_path),
+        "authority_path": "session_side_log",
+    }

@@ -5,9 +5,20 @@ Status: Active
 ## Step plan (5)
 1. Move ordered turn+flush sequencing into `memory_engine.py` ✅
 2. Reduce `trigger_orchestrator.py` to thin helper compatibility layer
-3. Shift crawler-applied updates to session-local side logs
+3. Shift crawler-applied updates to session-local side logs ✅
 4. Flush merge path: session beads + promotions + associations -> archive/projection
 5. Full sweep + P8A closeout
+
+## Step 3 completion notes
+- Updated `core_memory.association.crawler_contract.apply_crawler_updates(...)` to stop mutating `index.json` directly.
+- Crawler judgments are now validated and queued into a session-local side log:
+  - `.beads/events/crawler-updates-<session_id>.jsonl`
+- Side-log rows are append-only and typed:
+  - `kind=promotion_mark`
+  - `kind=association_append`
+- Return envelope now marks side-log authority:
+  - `authority_path=session_side_log`
+- Updated regression coverage to assert side-log writes and non-mutation of `index.json` at apply time.
 
 ## Step 1 completion notes
 - `memory_engine.process_turn_finalized(...)` now owns ordered turn sequencing directly:
