@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .sidecar import mark_memory_pass, try_claim_memory_pass
+from .sidecar import mark_memory_pass, try_claim_memory_pass, get_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import SidecarPolicy, process_memory_event
 from .store import MemoryStore
@@ -182,6 +183,42 @@ def _flush_ckpt(root: str, payload: dict[str, Any]) -> None:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
 
 
+def _latest_turn_id_for_session(root: str, session_id: str) -> str:
+    events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
+    if not events_file.exists():
+        return ""
+    latest_ts = -1
+    latest_turn = ""
+    for line in events_file.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        env = row.get("envelope") or {}
+        if str(env.get("session_id") or "") != str(session_id):
+            continue
+        ts = int(env.get("ts_ms") or 0)
+        if ts >= latest_ts:
+            latest_ts = ts
+            latest_turn = str(env.get("turn_id") or "")
+    return latest_turn
+
+
+def _enrichment_barrier_status(root: str, session_id: str) -> tuple[bool, dict[str, Any]]:
+    latest_turn = _latest_turn_id_for_session(root, session_id)
+    if not latest_turn:
+        return True, {"reason": "no_turn_events_for_session"}
+    st = get_memory_pass(Path(root), session_id, latest_turn) or {}
+    ok = str(st.get("status") or "") == "done"
+    return ok, {
+        "latest_turn_id": latest_turn,
+        "latest_turn_status": str(st.get("status") or "unknown"),
+        "envelope_hash": str(st.get("envelope_hash") or ""),
+    }
+
+
 def run_flush_pipeline(
     *,
     root: str,
@@ -208,8 +245,39 @@ def run_flush_pipeline(
         },
     )
 
-    # Stage: enrichment barrier (placeholder marker in step 2; hard-enforced in later step)
-    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "enrichment_ready", "status": "done"})
+    # Stage: enrichment barrier (strict in V2-P3 Step 3)
+    enforce_barrier = str(os.getenv("CORE_MEMORY_ENFORCE_ENRICHMENT_BARRIER", "1")).lower() not in {"0", "false", "off", "no"}
+    barrier_ok, barrier_meta = _enrichment_barrier_status(root, session_id)
+    if enforce_barrier and not barrier_ok:
+        _flush_ckpt(
+            root,
+            {
+                "flush_tx_id": tx,
+                "session_id": session_id,
+                "stage": "enrichment_ready",
+                "status": "failed",
+                **barrier_meta,
+            },
+        )
+        _flush_ckpt(
+            root,
+            {
+                "flush_tx_id": tx,
+                "session_id": session_id,
+                "stage": "failed",
+                "status": "failed",
+                "error": "enrichment_barrier_not_satisfied",
+            },
+        )
+        return {
+            "ok": False,
+            "authority_path": "canonical_in_process",
+            "flush_tx_id": tx,
+            "error": "enrichment_barrier_not_satisfied",
+            "barrier": barrier_meta,
+        }
+
+    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "enrichment_ready", "status": "done", **barrier_meta})
 
     out = run_consolidate_pipeline(
         session_id=session_id,

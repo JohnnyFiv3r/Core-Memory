@@ -9,7 +9,7 @@ Implement transactionalization + authority hardening workstream.
 ## Step plan (5)
 1. Canonical runtime center module definition ✅
 2. Session authority cutover groundwork ✅
-3. Enrichment barrier strict enforcement before flush
+3. Enrichment barrier strict enforcement before flush ✅
 4. Replay/idempotency hardening for trigger paths
 5. Flush stage failure-injection + resume behavior validation
 
@@ -27,3 +27,13 @@ Implement transactionalization + authority hardening workstream.
   - `session_bead_count`
 - Added regression coverage: `tests/test_session_surface.py`
 - Extended flush checkpoint test to assert session-surface marker
+
+## Step 3 completion notes
+- Implemented strict enrichment barrier in `run_flush_pipeline(...)` (default on via `CORE_MEMORY_ENFORCE_ENRICHMENT_BARRIER=1`)
+- Flush now checks latest session turn memory-pass status before progressing
+- If barrier not satisfied, flush fails deterministically with:
+  - `error: enrichment_barrier_not_satisfied`
+  - failed checkpoints for `enrichment_ready` and overall `failed`
+- Added regression coverage in `tests/test_trigger_orchestrator_flush.py`:
+  - fails when latest turn is emitted but not processed
+  - passes after finalize+process path completes
