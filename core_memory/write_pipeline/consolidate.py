@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core_memory.store import MemoryStore
-from .window import build_rolling_window, write_promoted_context
+from core_memory.rolling_surface import build_rolling_surface as build_rolling_window, write_rolling_surface as write_promoted_context
 
 
 def run_session_consolidation(

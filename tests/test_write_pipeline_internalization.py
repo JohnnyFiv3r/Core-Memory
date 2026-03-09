@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.store import MemoryStore
-from core_memory.write_pipeline.window import build_rolling_window
+from core_memory.rolling_surface import build_rolling_surface as build_rolling_window
 from core_memory.write_pipeline.consolidate import run_rolling_window_refresh
 
 

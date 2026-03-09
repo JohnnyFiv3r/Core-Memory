@@ -5,7 +5,7 @@ Status: Active
 ## Step plan (5)
 1. Shim inventory + explicit deprecation markers ✅
 2. Compatibility path usage audit + migration map ✅
-3. Low-risk shim retirements (where no callers remain)
+3. Low-risk shim retirements (where no callers remain) ✅
 4. Canonical-path-only docs finalization
 5. Full sweep + P7C closeout
 
@@ -25,6 +25,13 @@ Status: Active
 - Identified low-risk Step 3 retirements:
   - migrate remaining internal callsites to primary modules
   - retain shim modules as compatibility shells in this phase
+
+## Step 3 completion notes
+- Migrated internal rolling callsites to canonical primary module:
+  - `core_memory.rolling_surface`
+- Updated internal/test imports that previously depended on `write_pipeline.window` shim.
+- Preserved shim module for compatibility (`write_pipeline.window`) with explicit deprecation marker.
+- Verified shim marker test and primary-path tests remain green.
 
 ## Objective
 Reduce remaining transitional seams by making shim/deprecated paths explicit and retiring safe ones without breaking mainline behavior.
