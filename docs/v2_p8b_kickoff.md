@@ -10,7 +10,14 @@ Eliminate ambiguity in continuity read/write authority so runtime continuity inj
 2. Derived artifact demotion + metadata normalization ✅
 3. Read-path purification sweep ✅
 4. Regression and invariants ✅
-5. Full sweep + P8B closeout
+5. Full sweep + P8B closeout ✅
+
+## Step 5 completion notes
+- Completed Step 5 regression sweep and closeout validation.
+- Added closeout artifact:
+  - `docs/v2_p8b_closeout_checklist.md`
+- Sweep result: 15 passed / 0 failed for P8B + adjacent continuity/trigger contract coverage.
+- P8B is now closed.
 
 ## Step 4 completion notes
 - Expanded continuity authority regression coverage in `tests/test_continuity_injection_authority.py`.
