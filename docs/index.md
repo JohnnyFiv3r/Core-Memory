@@ -35,6 +35,7 @@ Start here for current Core Memory documentation.
 - `v2_p2_kickoff.md` — V2-P2 kickoff and implementation sequence
 - `v2_p2_trigger_map.md` — canonical trigger authority map for per-turn + flush paths
 - `v2_p2_enforcement_test_matrix.md` — required enforcement tests for P2 closeout
+- `v2_p2_closeout_checklist.md` — V2-P2 completion and validation gate
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
