@@ -11,7 +11,7 @@ Finalize integration framing and legacy cleanup/deprecation resolution while pre
 2. SpringAI bridge framing cleanup (docs-first, low-risk aliases) ✅
 3. Legacy path classification + explicit deprecation markers ✅
 4. Canonical-path enforcement checks ✅
-5. Full sweep + P5 closeout
+5. Full sweep + P5 closeout ✅
 
 ## Guardrails
 - No silent contract drift for `memory.execute/search/reason`.
@@ -50,3 +50,10 @@ Finalize integration framing and legacy cleanup/deprecation resolution while pre
   - canonical turn-finalized route remains default authority path
   - legacy poller path cannot double-process canonical-completed turns
   - core runtime response contract keys remain stable for `memory.execute`
+
+## Step 5 completion notes
+- Ran full regression sweep: `173 passed / 0 failed`
+- Ran eval snapshots (`memory_execute_eval`, `paraphrase_eval`) and confirmed stability vs prior phase
+- Authored closeout artifacts:
+  - `docs/v2_p5_closeout_checklist.md`
+  - `docs/v2_legacy_resolution_summary.md`

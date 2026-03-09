@@ -47,6 +47,8 @@ Start here for current Core Memory documentation.
 - `v2_p5_kickoff.md` — V2-P5 kickoff and step tracker
 - `v2_p5_integration_inventory.md` — integration framing inventory and target map
 - `v2_p5_legacy_classification.md` — canonical/compat/deprecated classification matrix
+- `v2_p5_closeout_checklist.md` — V2-P5 completion and validation gate
+- `v2_legacy_resolution_summary.md` — resolved/deprecated legacy path summary snapshot
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
