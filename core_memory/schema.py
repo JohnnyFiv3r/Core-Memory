@@ -7,12 +7,11 @@ Phase T1 intent:
 - Preserve legacy input compatibility via explicit normalization.
 """
 
-# Association type policy (P6B Step 2 long-term closure)
-# edge_primary_explicit_bead_only:
-# - association remains in canonical bead types for explicit/audit use only
-# - derived association behavior is edge-primary
-# - implicit association bead creation is disallowed unless compatibility override is enabled
-ASSOCIATION_TYPE_POLICY = "edge_primary_explicit_bead_only"
+# Association type policy (P7 confirmed decision)
+# edge_primary_no_association_bead:
+# - associations are modeled as a separate class (edges/association records)
+# - association is not a canonical bead type
+ASSOCIATION_TYPE_POLICY = "edge_primary_no_association_bead"
 
 
 # Canonical bead types
@@ -27,7 +26,6 @@ CANONICAL_BEAD_TYPES = {
     "lesson",
     "checkpoint",
     "precedent",
-    "association",
     "failed_hypothesis",
     "reversal",
     "misjudgment",

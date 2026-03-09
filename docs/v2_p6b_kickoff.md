@@ -31,17 +31,16 @@ P6A must be complete and stable before P6B execution.
 
 ## Step 2 completion notes
 - Closed long-term association bead-type policy with decisive implementation:
-  - policy updated to `edge_primary_explicit_bead_only`
+  - policy updated to `edge_primary_no_association_bead`
 - Updated schema policy constant:
   - `core_memory/schema.py::ASSOCIATION_TYPE_POLICY`
-- Enforced default behavior in store write path:
-  - implicit `type="association"` bead creation now requires explicit flag
-  - compatibility override available via `CORE_MEMORY_ALLOW_IMPLICIT_ASSOCIATION_BEAD=1`
-- Updated ADR with superseding decision details:
+- Removed `association` from canonical bead type set and models enum.
+- Store write path now rejects `type="association"` bead creation.
+- Updated ADR with final decision details:
   - `docs/adr_association_type_policy.md`
-- Expanded policy tests:
+- Updated policy tests:
   - `tests/test_association_type_policy.py`
-  - verifies policy value, default enforcement, and compat override behavior
+  - verifies policy value, canonical set exclusion, and rejection behavior
 
 ## Step 3 completion notes
 - Finalized SpringAI-first framing while preserving HTTP compatibility:

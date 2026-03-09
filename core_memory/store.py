@@ -1719,11 +1719,9 @@ class MemoryStore:
         type_value = self._normalize_enum(type, BeadType)
         scope_value = self._normalize_enum(scope, Scope)
 
-        # P6B Step 2: association bead long-term closure policy
-        explicit_assoc = bool(kwargs.pop("explicit_association_bead", False))
-        allow_implicit_assoc = os.environ.get("CORE_MEMORY_ALLOW_IMPLICIT_ASSOCIATION_BEAD", "0") == "1"
-        if type_value == "association" and not explicit_assoc and not allow_implicit_assoc:
-            raise ValueError("association_bead_requires_explicit_flag")
+        # P7 confirmed decision: association is not a bead type.
+        if type_value == "association":
+            raise ValueError("association_is_not_a_bead_type")
         bead_id = self._generate_id()
         now = datetime.now(timezone.utc).isoformat()
         

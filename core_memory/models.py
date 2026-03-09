@@ -24,7 +24,6 @@ class BeadType(Enum):
     LESSON = "lesson"
     CHECKPOINT = "checkpoint"
     PRECEDENT = "precedent"
-    ASSOCIATION = "association"
     FAILED_HYPOTHESIS = "failed_hypothesis"
     REVERSAL = "reversal"
     MISJUDGMENT = "misjudgment"
