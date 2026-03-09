@@ -1677,45 +1677,9 @@ class MemoryStore:
 
     def _quick_association_candidates(self, index: dict, bead: dict, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
         """Fast, deterministic association inference for newly added beads."""
-        candidates = []
-        new_tags = set((bead.get("tags") or []))
-        new_tokens = self._tokenize(bead.get("title", "") + " " + " ".join(bead.get("summary", [])))
+        from .association import run_association_pass
 
-        prior = [b for b in index.get("beads", {}).values() if b.get("id") != bead.get("id")]
-        prior = sorted(prior, key=lambda b: b.get("created_at", ""), reverse=True)[:max_lookback]
-
-        for other in prior:
-            score = 0
-            shared_tags = sorted(list(new_tags.intersection(set(other.get("tags") or []))))
-            if shared_tags:
-                score += 3 + min(2, len(shared_tags))
-
-            other_tokens = self._tokenize(other.get("title", "") + " " + " ".join(other.get("summary", [])))
-            overlap = len(new_tokens.intersection(other_tokens))
-            if overlap:
-                score += min(3, overlap)
-
-            if bead.get("session_id") and bead.get("session_id") == other.get("session_id"):
-                score += 1
-
-            if score <= 0:
-                continue
-
-            relationship = "related"
-            if shared_tags:
-                relationship = "shared_tag"
-            elif bead.get("session_id") and bead.get("session_id") == other.get("session_id"):
-                relationship = "follows"
-
-            candidates.append({
-                "other_id": other.get("id"),
-                "relationship": relationship,
-                "score": score,
-                "shared_tags": shared_tags,
-            })
-
-        candidates = sorted(candidates, key=lambda c: (-c["score"], c["other_id"] or ""))
-        return candidates[:top_k]
+        return run_association_pass(index, bead, max_lookback=max_lookback, top_k=top_k)
     
     # === Core API ===
     

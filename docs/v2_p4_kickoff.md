@@ -13,7 +13,7 @@ Close surface and schema embodiment gaps:
 ## Step plan (5)
 1. Rolling window first-class surface contract hardening ✅
 2. Rolling FIFO/token-budget determinism test expansion ✅
-3. Association subsystem extraction scaffold
+3. Association subsystem extraction scaffold ✅
 4. Schema reconciliation (`models.py` aligned to canonical `schema.py`)
 5. Association bead-type decision closure + P4 closeout
 
@@ -50,3 +50,15 @@ Close surface and schema embodiment gaps:
     - recency order verification
     - strict budget cutoff behavior
     - rebuild stability for same source state
+
+## Step 3 completion notes
+- Added association subsystem scaffold package:
+  - `core_memory/association/__init__.py`
+  - `core_memory/association/pass_engine.py`
+- Introduced canonical association pass entrypoint:
+  - `run_association_pass(index, bead, max_lookback, top_k)`
+- Rewired store quick-association path to use association subsystem pass
+  - `MemoryStore._quick_association_candidates(...)` now delegates to `run_association_pass(...)`
+- Added association pass contract tests:
+  - `tests/test_association_pass_contract.py`
+  - validates deterministic output, contract shape, and non-destructive behavior
