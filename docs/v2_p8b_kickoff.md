@@ -9,8 +9,16 @@ Eliminate ambiguity in continuity read/write authority so runtime continuity inj
 1. Surface authority contract hardening ✅
 2. Derived artifact demotion + metadata normalization ✅
 3. Read-path purification sweep ✅
-4. Regression and invariants
+4. Regression and invariants ✅
 5. Full sweep + P8B closeout
+
+## Step 4 completion notes
+- Expanded continuity authority regression coverage in `tests/test_continuity_injection_authority.py`.
+- Added invariants for edge/fallback states:
+  - record store corrupt + meta present -> meta fallback authority
+  - record store empty + meta present -> meta fallback authority
+  - no continuity surfaces -> `authority=none`
+- Retained authoritative-path assertions for record-store-first behavior.
 
 ## Step 1 completion notes
 - Added canonical continuity authority contract alignment across docs and runtime loader language.
