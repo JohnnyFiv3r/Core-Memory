@@ -17,6 +17,8 @@ class TestMemoryExecuteFeatureFlags(unittest.TestCase):
                 out = execute({'raw_query': 'remember x', 'intent': 'remember'}, root=td, explain=False)
                 self.assertFalse(out.get('ok'))
                 self.assertEqual('memory_execute_disabled', out.get('error'))
+                self.assertEqual('memory_execute_result.v1', out.get('schema_version'))
+                self.assertEqual('memory_execute', out.get('contract'))
             finally:
                 if old is None:
                     os.environ.pop('MEMORY_EXECUTE_ENABLED', None)

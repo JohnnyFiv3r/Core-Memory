@@ -25,6 +25,8 @@ class TestMemorySearchToolWrapper(unittest.TestCase):
                 explain=True,
             )
             self.assertTrue(out.get("ok"))
+            self.assertEqual("memory_search_result.v1", out.get("schema_version"))
+            self.assertEqual("typed_search", out.get("contract"))
             self.assertTrue(out.get("results"))
             self.assertIn("explain", out)
 

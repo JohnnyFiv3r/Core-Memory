@@ -9,8 +9,18 @@ Close retrieval schema ambiguity by pinning canonical schema ownership and expli
 1. Schema authority map hardening ✅
 2. Retrieval contract normalization ✅
 3. Read/write path purity sweep ✅
-4. Regression + compatibility invariants
+4. Regression + compatibility invariants ✅
 5. Full sweep + P8C closeout
+
+## Step 4 completion notes
+- Expanded retrieval contract invariants to lock schema/contract metadata in wrappers.
+- Added/updated compatibility regression checks:
+  - `tests/test_memory_search_tool_wrapper.py`
+  - `tests/test_memory_execute_feature_flags.py`
+- Compatibility wrapper `core_memory.tools.memory_search` now emits stable default metadata:
+  - `schema_version=memory_search_result.v1`
+  - `contract=typed_search`
+- Feature-flag execute disable path now asserted to retain execute contract markers.
 
 ## Step 1 completion notes
 - Established explicit retrieval schema authority anchors:
