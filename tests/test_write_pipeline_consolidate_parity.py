@@ -25,6 +25,7 @@ class TestWritePipelineConsolidateParity(unittest.TestCase):
             for k in ['compaction', 'historical_compaction', 'rolling_window', 'included_bead_ids', 'excluded_bead_ids', 'written']:
                 self.assertIn(k, out)
             self.assertTrue((Path(td) / 'promoted-context.md').exists())
+            self.assertTrue((Path(td) / 'promoted-context.meta.json').exists())
 
 
 if __name__ == '__main__':

@@ -23,7 +23,7 @@ def run_session_consolidation(
         token_budget=int(token_budget),
         max_beads=int(max_beads),
     )
-    out_path = write_promoted_context(workspace_root, text)
+    out_path = write_promoted_context(workspace_root, text, meta=meta, included_ids=included_ids, excluded_ids=excluded_ids)
 
     hist = memory.compact(
         session_id=None,
@@ -51,7 +51,7 @@ def run_rolling_window_refresh(*, root: str, workspace_root: str | Path, token_b
         token_budget=int(token_budget),
         max_beads=int(max_beads),
     )
-    out_path = write_promoted_context(workspace_root, text)
+    out_path = write_promoted_context(workspace_root, text, meta=meta, included_ids=included_ids, excluded_ids=excluded_ids)
     return {
         "ok": True,
         "rolling_window": meta,

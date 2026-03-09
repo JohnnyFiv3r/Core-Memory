@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from datetime import datetime, timezone
 from pathlib import Path
 
 from core_memory.store import MemoryStore
@@ -59,11 +61,24 @@ def build_rolling_window(root: str, token_budget: int = 3000, max_beads: int = 8
         "token_budget": int(token_budget),
         "max_beads": int(max_beads),
         "excluded_superseded": len(excluded_superseded),
+        "surface": "rolling_window",
+        "selection_policy": "strict_recency_fifo_with_budget",
+        "compression_scope": "rolling_only",
     }
     return text, meta, included_ids, excluded_ids
 
 
-def write_promoted_context(workspace_root: str | Path, text: str) -> str:
+def write_promoted_context(workspace_root: str | Path, text: str, meta: dict | None = None, included_ids: list[str] | None = None, excluded_ids: list[str] | None = None) -> str:
     p = Path(workspace_root) / "promoted-context.md"
     p.write_text(text, encoding="utf-8")
+
+    meta_path = Path(workspace_root) / "promoted-context.meta.json"
+    payload = {
+        "surface": "rolling_window",
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "meta": dict(meta or {}),
+        "included_bead_ids": [str(x) for x in (included_ids or [])],
+        "excluded_bead_ids": [str(x) for x in (excluded_ids or [])],
+    }
+    meta_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return str(p)

@@ -11,7 +11,7 @@ Close surface and schema embodiment gaps:
 - association bead-type decision closure
 
 ## Step plan (5)
-1. Rolling window first-class surface contract hardening
+1. Rolling window first-class surface contract hardening ✅
 2. Rolling FIFO/token-budget determinism test expansion
 3. Association subsystem extraction scaffold
 4. Schema reconciliation (`models.py` aligned to canonical `schema.py`)
@@ -28,3 +28,16 @@ Close surface and schema embodiment gaps:
 - Preserve mainline path stability at each step.
 - No silent contract drift in `memory.execute/search/reason`.
 - Keep compatibility wrappers until explicit deprecation step.
+
+## Step 1 completion notes
+- Hardened rolling surface contract metadata in `core_memory/write_pipeline/window.py`
+- Rolling metadata now includes explicit surface contract fields:
+  - `surface: rolling_window`
+  - `selection_policy: strict_recency_fifo_with_budget`
+  - `compression_scope: rolling_only`
+- Added first-class rolling surface metadata artifact:
+  - `promoted-context.meta.json`
+- Propagated metadata/id sets from write-pipeline consolidate/refresh paths
+- Added regression coverage:
+  - `tests/test_rolling_surface_contract.py`
+  - extended `tests/test_write_pipeline_consolidate_parity.py`
