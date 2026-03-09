@@ -12,6 +12,7 @@ from .sidecar_worker import SidecarPolicy, process_memory_event
 from .store import MemoryStore
 from .write_pipeline.orchestrate import run_consolidate_pipeline
 from .session_surface import read_session_surface
+from .io_utils import store_lock
 
 
 def run_turn_finalize_pipeline(
@@ -173,6 +174,12 @@ def _flush_checkpoint_file(root: str) -> Path:
     return p
 
 
+def _flush_state_file(root: str) -> Path:
+    p = Path(root) / ".beads" / "events" / "flush-state.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
 def _flush_ckpt(root: str, payload: dict[str, Any]) -> None:
     row = {
         "ts": datetime.now(timezone.utc).isoformat(),
@@ -181,6 +188,56 @@ def _flush_ckpt(root: str, payload: dict[str, Any]) -> None:
     p = _flush_checkpoint_file(root)
     with p.open("a", encoding="utf-8") as f:
         f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def _claim_flush_tx(root: str, session_id: str, flush_tx_id: str) -> tuple[bool, dict[str, Any]]:
+    """Idempotent claim for flush transaction processing.
+
+    Returns (claimed, state_row).
+    - claimed=False with status=committed means safe duplicate replay (skip).
+    - claimed=False with status=running means currently in-flight.
+    """
+    sf = _flush_state_file(root)
+    with store_lock(Path(root)):
+        try:
+            state = json.loads(sf.read_text(encoding="utf-8")) if sf.exists() else {}
+        except Exception:
+            state = {}
+        tx = (state.get("tx") or {})
+        key = str(flush_tx_id)
+        row = tx.get(key) or {}
+        st = str(row.get("status") or "")
+        if st in {"running", "committed"}:
+            return False, row
+        now = datetime.now(timezone.utc).isoformat()
+        row = {
+            "session_id": session_id,
+            "status": "running",
+            "updated_at": now,
+        }
+        tx[key] = row
+        state["tx"] = tx
+        sf.write_text(json.dumps(state, indent=2), encoding="utf-8")
+        return True, row
+
+
+def _mark_flush_tx(root: str, flush_tx_id: str, status: str, detail: dict[str, Any] | None = None) -> None:
+    sf = _flush_state_file(root)
+    with store_lock(Path(root)):
+        try:
+            state = json.loads(sf.read_text(encoding="utf-8")) if sf.exists() else {}
+        except Exception:
+            state = {}
+        tx = (state.get("tx") or {})
+        row = tx.get(str(flush_tx_id)) or {}
+        row.update({
+            "status": str(status),
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "detail": detail or {},
+        })
+        tx[str(flush_tx_id)] = row
+        state["tx"] = tx
+        sf.write_text(json.dumps(state, indent=2), encoding="utf-8")
 
 
 def _latest_turn_id_for_session(root: str, session_id: str) -> str:
@@ -231,6 +288,20 @@ def run_flush_pipeline(
 ) -> dict[str, Any]:
     """Canonical flush trigger pipeline entrypoint (V2-P2 Step 2)."""
     tx = str(flush_tx_id or f"flush-{session_id}-{int(datetime.now(timezone.utc).timestamp())}")
+
+    claimed, prior = _claim_flush_tx(root, session_id, tx)
+    if not claimed:
+        prior_status = str((prior or {}).get("status") or "unknown")
+        reason = "already_committed" if prior_status == "committed" else "already_running"
+        return {
+            "ok": True,
+            "authority_path": "canonical_in_process",
+            "flush_tx_id": tx,
+            "skipped": True,
+            "reason": reason,
+            "prior": prior,
+        }
+
     session_rows = read_session_surface(root, session_id)
     _flush_ckpt(
         root,
@@ -269,6 +340,7 @@ def run_flush_pipeline(
                 "error": "enrichment_barrier_not_satisfied",
             },
         )
+        _mark_flush_tx(root, tx, "failed", {"error": "enrichment_barrier_not_satisfied", "barrier": barrier_meta})
         return {
             "ok": False,
             "authority_path": "canonical_in_process",
@@ -287,10 +359,12 @@ def run_flush_pipeline(
     )
     if not out.get("ok"):
         _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "failed", "status": "failed", "error": out.get("error")})
+        _mark_flush_tx(root, tx, "failed", {"error": out.get("error")})
         return {"ok": False, "authority_path": "canonical_in_process", "flush_tx_id": tx, "error": out.get("error"), "result": out}
 
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "archive_persisted", "status": "done"})
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "rolling_written", "status": "done"})
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "committed", "status": "committed"})
+    _mark_flush_tx(root, tx, "committed", {"session_id": session_id})
 
     return {"ok": True, "authority_path": "canonical_in_process", "flush_tx_id": tx, "result": out}

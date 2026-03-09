@@ -10,7 +10,7 @@ Implement transactionalization + authority hardening workstream.
 1. Canonical runtime center module definition ✅
 2. Session authority cutover groundwork ✅
 3. Enrichment barrier strict enforcement before flush ✅
-4. Replay/idempotency hardening for trigger paths
+4. Replay/idempotency hardening for trigger paths ✅
 5. Flush stage failure-injection + resume behavior validation
 
 ## Step 1 completion notes
@@ -37,3 +37,12 @@ Implement transactionalization + authority hardening workstream.
 - Added regression coverage in `tests/test_trigger_orchestrator_flush.py`:
   - fails when latest turn is emitted but not processed
   - passes after finalize+process path completes
+
+## Step 4 completion notes
+- Added flush transaction idempotency state file: `.beads/events/flush-state.json`
+- Added lock-protected flush claim/mark flow in trigger orchestrator:
+  - `_claim_flush_tx(...)`
+  - `_mark_flush_tx(...)`
+- Flush replays with same `flush_tx_id` now skip safely with deterministic reason:
+  - `already_committed` or `already_running`
+- Added regression coverage for same-tx replay skip in `tests/test_trigger_orchestrator_flush.py`
