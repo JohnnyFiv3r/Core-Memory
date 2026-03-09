@@ -13,8 +13,14 @@ Purpose: single reference for primary runtime/data-flow paths.
 - Index role: projection/cache (`index.json`), rebuildable from authority surfaces
 
 ## Continuity surfaces
-- Canonical continuity store: `rolling-window.records.json`
-- Derived/operator artifact: `promoted-context.md`
+- Canonical continuity authority: `rolling-window.records.json`
+- Fallback metadata surface (non-authoritative): `promoted-context.meta.json`
+- Derived/operator artifact (non-authoritative): `promoted-context.md`
+
+Runtime continuity injection authority order:
+1. `rolling-window.records.json`
+2. `promoted-context.meta.json` fallback only
+3. empty (`authority=none`)
 
 ## Retrieval primary modules
 - Search form primary: `core_memory/retrieval/search_form.py`
