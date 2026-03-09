@@ -9,25 +9,41 @@ from core_memory.incidents import load_incidents
 
 def build_catalog(root: Path) -> dict:
     idx_file = root / ".beads" / "index.json"
-    beads = {}
+    idx_data = {}
     if idx_file.exists():
         try:
-            beads = (json.loads(idx_file.read_text(encoding="utf-8")) or {}).get("beads") or {}
+            idx_data = json.loads(idx_file.read_text(encoding="utf-8")) or {}
         except Exception:
-            beads = {}
+            idx_data = {}
+
+    beads = idx_data.get("beads") or {}
+    associations = idx_data.get("associations") or []
 
     topics = set()
     relation_types = set()
+
     for b in beads.values():
         for t in (b.get("tags") or []):
             ts = str(t)
             if ts and " " not in ts:
                 topics.add(ts)
-        for l in (b.get("links") or []):
-            if isinstance(l, dict):
-                rt = str(l.get("type") or "")
-                if rt:
-                    relation_types.add(rt)
+
+    # Canonical sourcing: relation types come from association records.
+    for a in associations:
+        if not isinstance(a, dict):
+            continue
+        rt = str(a.get("relationship") or a.get("rel") or "")
+        if rt:
+            relation_types.add(rt)
+
+    # Transitional fallback only if no association records available.
+    if not relation_types:
+        for b in beads.values():
+            for l in (b.get("links") or []):
+                if isinstance(l, dict):
+                    rt = str(l.get("type") or "")
+                    if rt:
+                        relation_types.add(rt)
 
     incidents = [str(r.get("incident_id") or "") for r in load_incidents(root) if str(r.get("incident_id") or "")]
     return {

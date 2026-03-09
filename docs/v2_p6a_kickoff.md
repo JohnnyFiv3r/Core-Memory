@@ -13,7 +13,7 @@ Move runtime/storage authority explicitly toward target architecture:
 ## Step plan (5)
 1. Session-first live authority cutover foundation ✅
 2. Memory engine orchestration ownership deepening ✅
-3. Retrieval catalog relation sourcing correction (canonical associations)
+3. Retrieval catalog relation sourcing correction (canonical associations) ✅
 4. Rolling surface ownership tightening
 5. Full sweep + P6A closeout gate
 
@@ -43,3 +43,11 @@ Move runtime/storage authority explicitly toward target architecture:
 - Added flush preflight context attachment via engine:
   - records live-session authority snapshot in flush output (`engine.live_session_*`)
 - Updated memory engine regression tests to validate engine-owned metadata behavior
+
+## Step 3 completion notes
+- Corrected retrieval catalog relation sourcing in `core_memory/memory_skill/catalog.py`
+  - primary source now: canonical association records (`index.associations[*].relationship`)
+  - transitional fallback to bead-local links only when no association relations present
+- Added regression coverage:
+  - `tests/test_catalog_relation_source.py`
+  - verifies relation types are populated from canonical association records
