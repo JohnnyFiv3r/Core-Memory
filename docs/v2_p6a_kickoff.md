@@ -15,7 +15,7 @@ Move runtime/storage authority explicitly toward target architecture:
 2. Memory engine orchestration ownership deepening ✅
 3. Retrieval catalog relation sourcing correction (canonical associations) ✅
 4. Rolling surface ownership tightening ✅
-5. Full sweep + P6A closeout gate
+5. Full sweep + P6A closeout gate ✅
 
 ## Guardrails
 - Preserve `memory.execute/search/reason` contracts.
@@ -64,3 +64,9 @@ Move runtime/storage authority explicitly toward target architecture:
 - Added regression coverage:
   - `tests/test_rolling_surface_owner.py`
   - verifies rolling output/meta are produced by canonical surface owner
+
+## Step 5 completion notes
+- Ran full regression suite: `178 passed / 0 failed`
+- Ran eval snapshots (`memory_execute_eval`, `paraphrase_eval`) and confirmed stable metrics
+- Authored P6A closeout artifact:
+  - `docs/v2_p6a_closeout_checklist.md`

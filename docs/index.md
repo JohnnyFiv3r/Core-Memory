@@ -51,6 +51,7 @@ Start here for current Core Memory documentation.
 - `v2_legacy_resolution_summary.md` — resolved/deprecated legacy path summary snapshot
 - `v2_p6a_kickoff.md` — P6A authority-cutover kickoff and step plan
 - `v2_p6a_test_matrix.md` — P6A authority-cutover validation matrix
+- `v2_p6a_closeout_checklist.md` — P6A completion and authority-cutover validation gate
 - `v2_p6b_kickoff.md` — P6B semantic-closure kickoff and step plan
 - `v2_p6b_test_matrix.md` — P6B semantic-closure validation matrix
 
