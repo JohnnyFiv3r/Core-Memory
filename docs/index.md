@@ -42,6 +42,8 @@ Start here for current Core Memory documentation.
 - `v2_p3_closeout_checklist.md` — V2-P3 completion and resilience validation gate
 - `v2_p4_kickoff.md` — V2-P4 kickoff and step tracker
 - `v2_p4_test_matrix.md` — V2-P4 rolling/association/schema validation matrix
+- `adr_association_type_policy.md` — association bead-type policy decision record
+- `v2_p4_closeout_checklist.md` — V2-P4 completion and validation gate
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point

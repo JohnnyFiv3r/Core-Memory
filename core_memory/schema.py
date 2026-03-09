@@ -7,6 +7,14 @@ Phase T1 intent:
 - Preserve legacy input compatibility via explicit normalization.
 """
 
+# Association type policy (V2-P4 Step 5 decision closure)
+# keep_as_bead_and_edge:
+# - association remains an allowed bead type for backward compatibility/history
+# - association edges remain canonical relation constructs
+# - new association subsystem should prefer edge semantics for derived links
+ASSOCIATION_TYPE_POLICY = "keep_as_bead_and_edge"
+
+
 # Canonical bead types
 CANONICAL_BEAD_TYPES = {
     "session_start",
@@ -108,3 +116,7 @@ def relation_kind(value: str | None) -> str:
     if r in DERIVED_RELATION_TYPES:
         return "derived"
     return "unknown"
+
+
+def association_policy() -> str:
+    return ASSOCIATION_TYPE_POLICY

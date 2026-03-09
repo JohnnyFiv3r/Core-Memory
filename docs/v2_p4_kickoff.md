@@ -15,7 +15,7 @@ Close surface and schema embodiment gaps:
 2. Rolling FIFO/token-budget determinism test expansion ✅
 3. Association subsystem extraction scaffold ✅
 4. Schema reconciliation (`models.py` aligned to canonical `schema.py`) ✅
-5. Association bead-type decision closure + P4 closeout
+5. Association bead-type decision closure + P4 closeout ✅
 
 ## Planned outputs
 - `docs/v2_p4_surface_contract.md`
@@ -71,3 +71,17 @@ Close surface and schema embodiment gaps:
 - Added schema-alignment regression tests:
   - `tests/test_models_schema_alignment.py`
   - asserts exact enum-set equality with canonical schema constants
+
+## Step 5 completion notes
+- Closed association type policy decision via explicit ADR:
+  - `docs/adr_association_type_policy.md`
+- Policy selected: `keep_as_bead_and_edge`
+  - keep association bead type for compatibility/history
+  - continue edge semantics for association relations
+- Added explicit policy constant and accessor in schema module:
+  - `ASSOCIATION_TYPE_POLICY`
+  - `association_policy()`
+- Added policy enforcement test:
+  - `tests/test_association_type_policy.py`
+- Authored phase closeout artifact:
+  - `docs/v2_p4_closeout_checklist.md`
