@@ -1,0 +1,24 @@
+# V2-P8A Kickoff (Runtime/State Authority Cutover)
+
+Status: Active
+
+## Step plan (5)
+1. Move ordered turn+flush sequencing into `memory_engine.py` ✅
+2. Reduce `trigger_orchestrator.py` to thin helper compatibility layer
+3. Shift crawler-applied updates to session-local side logs
+4. Flush merge path: session beads + promotions + associations -> archive/projection
+5. Full sweep + P8A closeout
+
+## Step 1 completion notes
+- `memory_engine.process_turn_finalized(...)` now owns ordered turn sequencing directly:
+  - emit finalized event
+  - locate event row
+  - idempotent claim
+  - process memory event
+  - return canonical engine-owned result envelope
+- `memory_engine.process_flush(...)` now owns ordered flush sequencing directly:
+  - live-session preflight snapshot
+  - enrichment barrier validation
+  - consolidate pipeline execution
+  - canonical engine-owned result envelope
+- This reduces reliance on `trigger_orchestrator.run_*` sequencing ownership.
