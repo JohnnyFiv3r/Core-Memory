@@ -5,7 +5,7 @@ Status: Active
 ## Step plan (5)
 1. Association crawler contract realignment (agent-judged, append-only) ✅
 2. Rolling record store as canonical continuity surface ✅
-3. Injection path authority switch to rolling record store
+3. Injection path authority switch to rolling record store ✅
 4. Search form physical structure cleanup (retrieval namespace primary)
 5. Full sweep + P7B closeout
 
@@ -35,3 +35,13 @@ Status: Active
   - `rolling_record_store` pointer + `record_count`
 - Added regression coverage:
   - `tests/test_rolling_record_store.py`
+
+## Step 3 completion notes
+- Added canonical continuity injection loader:
+  - `core_memory/continuity_injection.py`
+  - authority order: rolling record store -> meta fallback -> empty
+- Exposed engine entrypoint for session-start continuity context:
+  - `core_memory/memory_engine.py::continuity_injection_context(...)`
+- Added regression coverage:
+  - `tests/test_continuity_injection_authority.py`
+  - verifies record-store authority and meta fallback behavior

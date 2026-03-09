@@ -8,6 +8,7 @@ from typing import Any
 
 from .live_session import read_live_session_beads
 from .association import build_crawler_context, apply_crawler_updates
+from .continuity_injection import load_continuity_injection
 from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import SidecarPolicy, process_memory_event
@@ -216,6 +217,13 @@ def apply_crawler_turn_updates(
     out = apply_crawler_updates(root=root, session_id=session_id, updates=updates, visible_bead_ids=visible_bead_ids)
     out.setdefault("engine", {})
     out["engine"].update({"entry": "apply_crawler_turn_updates"})
+    return out
+
+
+def continuity_injection_context(*, workspace_root: str, max_items: int = 80) -> dict[str, Any]:
+    out = load_continuity_injection(workspace_root=workspace_root, max_items=max_items)
+    out.setdefault("engine", {})
+    out["engine"].update({"entry": "continuity_injection_context"})
     return out
 
 
