@@ -26,6 +26,7 @@ class TestTriggerOrchestratorFlush(unittest.TestCase):
             self.assertTrue(ck.exists())
             text = ck.read_text(encoding="utf-8")
             self.assertIn('"stage": "start"', text)
+            self.assertIn('"session_surface": "session_file"', text)
             self.assertIn('"stage": "committed"', text)
 
 

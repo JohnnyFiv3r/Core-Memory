@@ -10,6 +10,7 @@ from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import SidecarPolicy, process_memory_event
 from .store import MemoryStore
 from .write_pipeline.orchestrate import run_consolidate_pipeline
+from .session_surface import read_session_surface
 
 
 def run_turn_finalize_pipeline(
@@ -193,7 +194,19 @@ def run_flush_pipeline(
 ) -> dict[str, Any]:
     """Canonical flush trigger pipeline entrypoint (V2-P2 Step 2)."""
     tx = str(flush_tx_id or f"flush-{session_id}-{int(datetime.now(timezone.utc).timestamp())}")
-    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "start", "source": source, "status": "pending"})
+    session_rows = read_session_surface(root, session_id)
+    _flush_ckpt(
+        root,
+        {
+            "flush_tx_id": tx,
+            "session_id": session_id,
+            "stage": "start",
+            "source": source,
+            "status": "pending",
+            "session_surface": "session_file",
+            "session_bead_count": len(session_rows),
+        },
+    )
 
     # Stage: enrichment barrier (placeholder marker in step 2; hard-enforced in later step)
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "enrichment_ready", "status": "done"})

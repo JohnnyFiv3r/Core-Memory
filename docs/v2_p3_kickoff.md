@@ -7,8 +7,8 @@ Related: `docs/v2_phase_ticket_map.md`, `docs/v2_gap_checklist.md`
 Implement transactionalization + authority hardening workstream.
 
 ## Step plan (5)
-1. Canonical runtime center module definition
-2. Session authority cutover groundwork
+1. Canonical runtime center module definition ✅
+2. Session authority cutover groundwork ✅
 3. Enrichment barrier strict enforcement before flush
 4. Replay/idempotency hardening for trigger paths
 5. Flush stage failure-injection + resume behavior validation
@@ -18,3 +18,12 @@ Implement transactionalization + authority hardening workstream.
 - Routed turn-finalized integration path through memory engine entrypoint
 - Routed flush CLI path through memory engine entrypoint
 - Added regression tests: `tests/test_memory_engine.py`
+
+## Step 2 completion notes
+- Added explicit session surface module: `core_memory/session_surface.py`
+- Added `read_session_surface(...)` for append-only session file reads (`.beads/session-<id>.jsonl`)
+- Flush pipeline now records session-surface authority context in checkpoint start stage:
+  - `session_surface: session_file`
+  - `session_bead_count`
+- Added regression coverage: `tests/test_session_surface.py`
+- Extended flush checkpoint test to assert session-surface marker
