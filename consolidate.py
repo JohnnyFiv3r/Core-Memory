@@ -19,7 +19,7 @@ from pathlib import Path
 from core_memory.store import MemoryStore
 from core_memory.write_triggers import emit_write_trigger
 from core_memory.write_pipeline.orchestrate import run_rolling_window_pipeline
-from core_memory.trigger_orchestrator import run_flush_pipeline
+from core_memory.memory_engine import process_flush
 
 
 def workspace_root() -> Path:
@@ -98,7 +98,7 @@ def render_rolling_window(
 
 
 def cmd_consolidate(args, source: str = "flush_hook"):
-    out = run_flush_pipeline(
+    out = process_flush(
         root=store_root(),
         session_id=args.session,
         promote=bool(args.promote),

@@ -14,7 +14,7 @@ from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import process_memory_event, SidecarPolicy
 from .store import MemoryStore
-from .trigger_orchestrator import run_turn_finalize_pipeline
+from .memory_engine import process_turn_finalized
 
 
 def coordinator_finalize_hook(
@@ -72,7 +72,7 @@ def finalize_and_process_turn(
     policy: SidecarPolicy | None = None,
 ) -> dict[str, Any]:
     """Atomically emit + process one finalized turn via canonical trigger orchestrator."""
-    return run_turn_finalize_pipeline(
+    return process_turn_finalized(
         root=root,
         session_id=session_id,
         turn_id=turn_id,
