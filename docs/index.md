@@ -36,6 +36,8 @@ Start here for current Core Memory documentation.
 - `v2_p2_trigger_map.md` — canonical trigger authority map for per-turn + flush paths
 - `v2_p2_enforcement_test_matrix.md` — required enforcement tests for P2 closeout
 - `v2_p2_closeout_checklist.md` — V2-P2 completion and validation gate
+- `v2_gap_checklist.md` — realized/partial/missing/misaligned architecture gap assessment
+- `v2_phase_ticket_map.md` — mapped execution tickets for V2-P3/P4/P5
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
