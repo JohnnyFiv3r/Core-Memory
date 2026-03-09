@@ -12,7 +12,7 @@ Move runtime/storage authority explicitly toward target architecture:
 
 ## Step plan (5)
 1. Session-first live authority cutover foundation ✅
-2. Memory engine orchestration ownership deepening
+2. Memory engine orchestration ownership deepening ✅
 3. Retrieval catalog relation sourcing correction (canonical associations)
 4. Rolling surface ownership tightening
 5. Full sweep + P6A closeout gate
@@ -34,3 +34,12 @@ Move runtime/storage authority explicitly toward target architecture:
 - Added regression coverage:
   - `tests/test_live_session_authority.py`
   - validates session-surface-first behavior and deterministic fallback path
+
+## Step 2 completion notes
+- Deepened runtime center ownership in `core_memory/memory_engine.py`:
+  - engine now performs turn-finalized request normalization/defaulting
+  - auto-generates transaction/trace ids when absent
+  - emits engine metadata markers in outputs (`engine.entry`, `engine.normalized`)
+- Added flush preflight context attachment via engine:
+  - records live-session authority snapshot in flush output (`engine.live_session_*`)
+- Updated memory engine regression tests to validate engine-owned metadata behavior

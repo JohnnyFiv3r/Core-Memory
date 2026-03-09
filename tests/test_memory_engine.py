@@ -13,14 +13,13 @@ class TestMemoryEngine(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                transaction_id="tx1",
-                trace_id="tr1",
                 user_query="remember this",
                 assistant_final="Decision: use memory engine entrypoint",
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out.get("ok"))
             self.assertEqual("canonical_in_process", out.get("authority_path"))
+            self.assertTrue((out.get("engine") or {}).get("normalized"))
 
     def test_process_flush(self):
         with tempfile.TemporaryDirectory() as td:
@@ -36,6 +35,7 @@ class TestMemoryEngine(unittest.TestCase):
             )
             self.assertTrue(out.get("ok"))
             self.assertEqual("canonical_in_process", out.get("authority_path"))
+            self.assertEqual("process_flush", (out.get("engine") or {}).get("entry"))
 
 
 if __name__ == "__main__":
