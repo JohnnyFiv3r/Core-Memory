@@ -7,7 +7,7 @@ Status: Active
 2. Compatibility path usage audit + migration map ✅
 3. Low-risk shim retirements (where no callers remain) ✅
 4. Canonical-path-only docs finalization ✅
-5. Full sweep + P7C closeout
+5. Full sweep + P7C closeout ✅
 
 ## Step 1 completion notes
 - Added explicit `LEGACY_SHIM` / `SHIM_REPLACEMENT` markers to:
@@ -38,6 +38,15 @@ Status: Active
   - `docs/canonical_paths.md`
 - Updated shared integration canonical sources to include canonical-path reference.
 - Consolidated docs posture around primary authority modules and compatibility shim boundaries.
+
+## Step 5 completion notes
+- Ran full regression suite: `193 passed / 0 failed`
+- Ran eval snapshots and confirmed stable metrics:
+  - `memory_execute_eval`
+  - `paraphrase_eval`
+- Authored closeout artifacts:
+  - `docs/v2_p7c_closeout_checklist.md`
+  - `docs/v2_program_closeout.md`
 
 ## Objective
 Reduce remaining transitional seams by making shim/deprecated paths explicit and retiring safe ones without breaking mainline behavior.

@@ -66,6 +66,8 @@ Start here for current Core Memory documentation.
 - `v2_p7c_shim_inventory.md` — explicit compatibility shim inventory
 - `v2_p7c_usage_audit.md` — compatibility usage audit and Step 3 migration map
 - `canonical_paths.md` — canonical primary runtime/data-flow paths reference
+- `v2_p7c_closeout_checklist.md` — P7C completion and shim-cleanup validation gate
+- `v2_program_closeout.md` — end-to-end V2/P7 program closeout summary
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
