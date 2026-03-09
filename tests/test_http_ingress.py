@@ -169,29 +169,37 @@ class TestHttpIngress(unittest.TestCase):
         from core_memory.integrations.http.server import app
         from core_memory.openclaw_integration import process_pending_memory_events
 
-        with tempfile.TemporaryDirectory() as td:
-            root = str(Path(td) / "memory")
-            c = TestClient(app)
-            body = {
-                "root": root,
-                "session_id": "s1",
-                "turn_id": "t1",
-                "user_query": "important decision completed confirmed",
-                "assistant_final": "important decision completed confirmed",
-            }
-            r1 = c.post("/v1/memory/turn-finalized", json=body)
-            r2 = c.post("/v1/memory/turn-finalized", json=body)
-            self.assertEqual(200, r1.status_code)
-            self.assertEqual(200, r2.status_code)
+        old = os.environ.get("CORE_MEMORY_ENABLE_LEGACY_POLLER")
+        try:
+            os.environ["CORE_MEMORY_ENABLE_LEGACY_POLLER"] = "1"
+            with tempfile.TemporaryDirectory() as td:
+                root = str(Path(td) / "memory")
+                c = TestClient(app)
+                body = {
+                    "root": root,
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "user_query": "important decision completed confirmed",
+                    "assistant_final": "important decision completed confirmed",
+                }
+                r1 = c.post("/v1/memory/turn-finalized", json=body)
+                r2 = c.post("/v1/memory/turn-finalized", json=body)
+                self.assertEqual(200, r1.status_code)
+                self.assertEqual(200, r2.status_code)
 
-            p1 = process_pending_memory_events(root, max_events=50)
-            p2 = process_pending_memory_events(root, max_events=50)
-            self.assertGreaterEqual(int(p1.get("processed", 0)), 1)
-            self.assertEqual(0, int(p2.get("processed", 0)))
+                p1 = process_pending_memory_events(root, max_events=50)
+                p2 = process_pending_memory_events(root, max_events=50)
+                self.assertGreaterEqual(int(p1.get("processed", 0)), 1)
+                self.assertEqual(0, int(p2.get("processed", 0)))
 
-            state_file = Path(root) / ".beads" / "events" / "memory-pass-state.json"
-            state = json.loads(state_file.read_text(encoding="utf-8"))
-            self.assertEqual("done", (state.get("s1:t1") or {}).get("status"))
+                state_file = Path(root) / ".beads" / "events" / "memory-pass-state.json"
+                state = json.loads(state_file.read_text(encoding="utf-8"))
+                self.assertEqual("done", (state.get("s1:t1") or {}).get("status"))
+        finally:
+            if old is None:
+                os.environ.pop("CORE_MEMORY_ENABLE_LEGACY_POLLER", None)
+            else:
+                os.environ["CORE_MEMORY_ENABLE_LEGACY_POLLER"] = old
 
 
 if __name__ == "__main__":

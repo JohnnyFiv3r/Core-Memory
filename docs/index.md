@@ -54,6 +54,8 @@ Start here for current Core Memory documentation.
 - `v2_p6a_closeout_checklist.md` — P6A completion and authority-cutover validation gate
 - `v2_p6b_kickoff.md` — P6B semantic-closure kickoff and step plan
 - `v2_p6b_test_matrix.md` — P6B semantic-closure validation matrix
+- `v2_p6b_closeout_checklist.md` — P6B completion and semantic-closure validation gate
+- `v2_target_alignment_summary.md` — post-P6 architecture alignment snapshot
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point

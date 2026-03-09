@@ -14,7 +14,7 @@ Purpose: finalize semantic architecture and retire transitional debt after P6A c
 2. Association bead-type long-term closure decision implementation ✅
 3. SpringAI framing finalization (compat-preserving) ✅
 4. Legacy path retirement pass ✅
-5. Full sweep + P6B closeout
+5. Full sweep + P6B closeout ✅
 
 ## Precondition
 P6A must be complete and stable before P6B execution.
@@ -64,3 +64,10 @@ P6A must be complete and stable before P6B execution.
   - `tests/test_legacy_poller_fence.py`
   - `tests/test_trigger_authority_markers.py`
   - `tests/test_openclaw_integration.py` (legacy-poller path now explicitly env-enabled)
+
+## Step 5 completion notes
+- Ran full regression suite: `184 passed / 0 failed`
+- Ran eval snapshots (`memory_execute_eval`, `paraphrase_eval`) and confirmed stable metrics
+- Authored P6B closeout artifacts:
+  - `docs/v2_p6b_closeout_checklist.md`
+  - `docs/v2_target_alignment_summary.md`

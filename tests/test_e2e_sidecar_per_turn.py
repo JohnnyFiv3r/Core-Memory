@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import os
 import shutil
 import tempfile
 import unittest
@@ -13,8 +14,14 @@ class TestE2ESidecarPerTurn(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="core-e2e-sidecar-")
         self.store = MemoryStore(root=self.tmp)
+        self._old_legacy = os.environ.get("CORE_MEMORY_ENABLE_LEGACY_POLLER")
+        os.environ["CORE_MEMORY_ENABLE_LEGACY_POLLER"] = "1"
 
     def tearDown(self):
+        if self._old_legacy is None:
+            os.environ.pop("CORE_MEMORY_ENABLE_LEGACY_POLLER", None)
+        else:
+            os.environ["CORE_MEMORY_ENABLE_LEGACY_POLLER"] = self._old_legacy
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_bead_written_per_turn_with_finalize_process_flow(self):
