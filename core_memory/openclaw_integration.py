@@ -7,6 +7,7 @@ They keep integration explicit and non-invasive while enforcing one-pass-per-tur
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -96,7 +97,19 @@ def process_pending_memory_events(root: str, max_events: int = 50, policy: Sidec
 
     Legacy compatibility poller path for single-node/dev environments.
     Canonical authority is the in-process trigger orchestrator path.
+
+    P6B Step 4: hard-fenced by default; must be explicitly enabled.
     """
+    legacy_enabled = os.environ.get("CORE_MEMORY_ENABLE_LEGACY_POLLER", "0") == "1"
+    if not legacy_enabled:
+        return {
+            "processed": 0,
+            "failed": 0,
+            "skipped": True,
+            "reason": "legacy_poller_disabled",
+            "authority_path": "legacy_sidecar_compat",
+        }
+
     events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
     if not events_file.exists():
         return {"processed": 0, "failed": 0, "authority_path": "legacy_sidecar_compat"}

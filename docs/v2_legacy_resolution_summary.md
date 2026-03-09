@@ -9,7 +9,7 @@ Status: Snapshot (P5 closeout)
 - `core_memory/integrations/springai/bridge.py`
 
 ## Compatibility-only surfaces (non-authoritative)
-- `core_memory/openclaw_integration.py::process_pending_memory_events`
+- `core_memory/openclaw_integration.py::process_pending_memory_events` (hard-fenced; disabled by default)
 - `core_memory/sidecar_hook.py`
 - `core_memory/sidecar_worker.py`
 

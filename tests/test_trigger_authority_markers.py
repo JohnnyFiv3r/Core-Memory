@@ -24,6 +24,8 @@ class TestTriggerAuthorityMarkers(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             out = process_pending_memory_events(td, max_events=5)
             self.assertEqual("legacy_sidecar_compat", out.get("authority_path"))
+            self.assertTrue(out.get("skipped"))
+            self.assertEqual("legacy_poller_disabled", out.get("reason"))
 
 
 if __name__ == "__main__":

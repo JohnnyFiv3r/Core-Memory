@@ -24,8 +24,8 @@ Purpose: track legacy paths/components that will be deprecated or removed after 
 - Canonical replacement: V2 canonical trigger enforcement + flush authority path
 - Removal preconditions: V2-P2 trigger enforcement tests green + operator sanity path verified
 - Planned phase: deprecated in V2-P2, remove/further reduce in V2-P5
-- Status: deprecated
-- Notes: retained as compatibility wrapper; explicitly non-authoritative
+- Status: deprecated (hard-fenced)
+- Notes: retained as compatibility wrapper; explicitly non-authoritative and disabled by default (`CORE_MEMORY_ENABLE_LEGACY_POLLER=1` required)
 
 ### 2) Legacy compatibility wrappers beyond canonical flow
 - Component/path: any wrapper routing that duplicates canonical orchestrator behavior

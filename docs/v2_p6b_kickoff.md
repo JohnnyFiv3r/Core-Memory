@@ -13,7 +13,7 @@ Purpose: finalize semantic architecture and retire transitional debt after P6A c
 1. Association pass strengthening design + implementation ✅
 2. Association bead-type long-term closure decision implementation ✅
 3. SpringAI framing finalization (compat-preserving) ✅
-4. Legacy path retirement pass
+4. Legacy path retirement pass ✅
 5. Full sweep + P6B closeout
 
 ## Precondition
@@ -52,3 +52,15 @@ P6A must be complete and stable before P6B execution.
 - Extended bridge regression test:
   - `tests/test_springai_bridge.py`
   - verifies bridge framing is reflected in app metadata/title
+
+## Step 4 completion notes
+- Applied legacy poller hard-fence in OpenClaw integration layer:
+  - `process_pending_memory_events(...)` is now disabled by default
+  - explicit opt-in required: `CORE_MEMORY_ENABLE_LEGACY_POLLER=1`
+- Updated legacy/deprecation docs:
+  - `docs/v2_deprecation_inventory.md`
+  - `docs/v2_legacy_resolution_summary.md`
+- Added/updated regression coverage:
+  - `tests/test_legacy_poller_fence.py`
+  - `tests/test_trigger_authority_markers.py`
+  - `tests/test_openclaw_integration.py` (legacy-poller path now explicitly env-enabled)
