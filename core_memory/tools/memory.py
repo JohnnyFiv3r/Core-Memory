@@ -3,11 +3,19 @@ from __future__ import annotations
 import os
 
 from core_memory.memory_skill import memory_get_search_form, memory_search_typed, memory_execute
+from core_memory.retrieval.search_form import SEARCH_FORM_SCHEMA_VERSION
 from core_memory.tools.memory_reason import memory_reason
 
 
 def get_search_form(root: str = "./memory") -> dict:
-    return memory_get_search_form(root)
+    """Canonical typed-search form surface.
+
+    Schema authority is owned by core_memory.retrieval.search_form.
+    """
+    out = memory_get_search_form(root)
+    if isinstance(out, dict):
+        out.setdefault("schema_version", SEARCH_FORM_SCHEMA_VERSION)
+    return out
 
 
 def search(form_submission: dict, root: str = "./memory", explain: bool = True) -> dict:

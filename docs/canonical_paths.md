@@ -23,8 +23,10 @@ Runtime continuity injection authority order:
 3. empty (`authority=none`)
 
 ## Retrieval primary modules
-- Search form primary: `core_memory/retrieval/search_form.py`
-- Skill-form shim (deprecated): `core_memory/memory_skill/form.py`
+- Search form schema authority: `core_memory/retrieval/search_form.py`
+  - canonical ids: `SEARCH_FORM_SCHEMA_VERSION`, `SEARCH_FORM_TOOL_ID`
+- Runtime typed-search surface: `core_memory/tools/memory.py::get_search_form`
+- Skill-form shim (compat/deprecated): `core_memory/memory_skill/form.py`
 
 ## Integration framing
 - SpringAI primary bridge: `core_memory.integrations.springai.get_app()`
