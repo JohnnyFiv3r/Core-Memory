@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .catalog import build_catalog
-from .form import get_search_form
+from core_memory.retrieval.search_form import get_search_form
 from .snap import snap_form
 from .search import search_typed
 from .explain import build_explain
