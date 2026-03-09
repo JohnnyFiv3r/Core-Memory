@@ -6,6 +6,7 @@ This folder is the future home for shared integration concepts used by all orche
 
 ## Current canonical sources
 - `../../canonical_surfaces.md`
+- `../../canonical_paths.md`
 - `../../contracts/http_api.v1.json`
 - `../../memory_search_skill.md`
 - `../../memory_search_agent_playbook.md`

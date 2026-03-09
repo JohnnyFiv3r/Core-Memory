@@ -6,7 +6,7 @@ Status: Active
 1. Shim inventory + explicit deprecation markers ✅
 2. Compatibility path usage audit + migration map ✅
 3. Low-risk shim retirements (where no callers remain) ✅
-4. Canonical-path-only docs finalization
+4. Canonical-path-only docs finalization ✅
 5. Full sweep + P7C closeout
 
 ## Step 1 completion notes
@@ -32,6 +32,12 @@ Status: Active
 - Updated internal/test imports that previously depended on `write_pipeline.window` shim.
 - Preserved shim module for compatibility (`write_pipeline.window`) with explicit deprecation marker.
 - Verified shim marker test and primary-path tests remain green.
+
+## Step 4 completion notes
+- Added canonical-paths reference doc:
+  - `docs/canonical_paths.md`
+- Updated shared integration canonical sources to include canonical-path reference.
+- Consolidated docs posture around primary authority modules and compatibility shim boundaries.
 
 ## Objective
 Reduce remaining transitional seams by making shim/deprecated paths explicit and retiring safe ones without breaking mainline behavior.
