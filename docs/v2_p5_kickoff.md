@@ -10,7 +10,7 @@ Finalize integration framing and legacy cleanup/deprecation resolution while pre
 1. Integration framing inventory + target map ✅
 2. SpringAI bridge framing cleanup (docs-first, low-risk aliases) ✅
 3. Legacy path classification + explicit deprecation markers ✅
-4. Canonical-path enforcement checks
+4. Canonical-path enforcement checks ✅
 5. Full sweep + P5 closeout
 
 ## Guardrails
@@ -42,3 +42,11 @@ Finalize integration framing and legacy cleanup/deprecation resolution while pre
 - Locked marker policy:
   - canonical -> `authority_path=canonical_in_process`
   - compat legacy -> `authority_path=legacy_sidecar_compat`
+
+## Step 4 completion notes
+- Added canonical-path enforcement test suite:
+  - `tests/test_v2_p5_canonical_path_enforcement.py`
+- Verifies:
+  - canonical turn-finalized route remains default authority path
+  - legacy poller path cannot double-process canonical-completed turns
+  - core runtime response contract keys remain stable for `memory.execute`
