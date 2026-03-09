@@ -14,7 +14,7 @@ Move runtime/storage authority explicitly toward target architecture:
 1. Session-first live authority cutover foundation ✅
 2. Memory engine orchestration ownership deepening ✅
 3. Retrieval catalog relation sourcing correction (canonical associations) ✅
-4. Rolling surface ownership tightening
+4. Rolling surface ownership tightening ✅
 5. Full sweep + P6A closeout gate
 
 ## Guardrails
@@ -51,3 +51,16 @@ Move runtime/storage authority explicitly toward target architecture:
 - Added regression coverage:
   - `tests/test_catalog_relation_source.py`
   - verifies relation types are populated from canonical association records
+
+## Step 4 completion notes
+- Introduced explicit canonical rolling surface owner module:
+  - `core_memory/rolling_surface.py`
+  - owns rolling build/write behavior and surface metadata
+- Converted previous write-pipeline window module into compatibility wrapper:
+  - `core_memory/write_pipeline/window.py`
+  - delegates to canonical rolling surface module
+- Added ownership metadata field:
+  - `owner_module: core_memory.rolling_surface`
+- Added regression coverage:
+  - `tests/test_rolling_surface_owner.py`
+  - verifies rolling output/meta are produced by canonical surface owner
