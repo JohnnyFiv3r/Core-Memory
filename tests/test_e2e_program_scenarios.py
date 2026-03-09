@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -106,6 +107,22 @@ class TestE2EProgramScenarios(unittest.TestCase):
             self.assertEqual("session_side_log", upd.get("authority_path"))
             self.assertGreaterEqual(upd.get("promotions_marked", 0), 1)
             self.assertGreaterEqual(upd.get("associations_appended", 0), 1)
+
+            queued_to = Path(str(upd.get("queued_to") or ""))
+            self.assertTrue(queued_to.exists())
+            queued_rows = [json.loads(line) for line in queued_to.read_text(encoding="utf-8").splitlines() if line.strip()]
+            self.assertGreaterEqual(len(queued_rows), 2)
+
+            fl = process_flush(root=td, session_id="sB", promote=False, token_budget=900, max_beads=50, source="flush_hook")
+            self.assertTrue(fl.get("ok"))
+            self.assertEqual("flush_merge_projection", (fl.get("crawler_merge") or {}).get("authority_path"))
+            self.assertGreaterEqual((fl.get("crawler_merge") or {}).get("promotions_marked", 0), 1)
+            self.assertGreaterEqual((fl.get("crawler_merge") or {}).get("associations_appended", 0), 1)
+
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertTrue((idx.get("beads", {}).get(b1) or {}).get("promotion_marked"))
+            self.assertTrue(any(a.get("source_bead") == b1 and a.get("target_bead") == b2 for a in idx.get("associations", [])))
+            self.assertEqual("", queued_to.read_text(encoding="utf-8"))
 
     def test_scenario_c_continuity_record_store_authority(self):
         with tempfile.TemporaryDirectory() as td:

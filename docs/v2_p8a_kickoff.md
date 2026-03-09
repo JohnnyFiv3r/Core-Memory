@@ -6,8 +6,16 @@ Status: Active
 1. Move ordered turn+flush sequencing into `memory_engine.py` ✅
 2. Reduce `trigger_orchestrator.py` to thin helper compatibility layer
 3. Shift crawler-applied updates to session-local side logs ✅
-4. Flush merge path: session beads + promotions + associations -> archive/projection
+4. Flush merge path: session beads + promotions + associations -> archive/projection ✅
 5. Full sweep + P8A closeout
+
+## Step 4 completion notes
+- Added flush-merge path for session-local crawler side logs:
+  - `core_memory.association.crawler_contract.merge_crawler_updates_for_flush(...)`
+- `memory_engine.process_flush(...)` now runs crawler side-log merge before consolidate pipeline.
+- Merged updates are applied into index projection at flush-time and consumed side-log entries are cleared.
+- Flush result envelope now reports merge outcome under `crawler_merge`.
+- Added/updated regression assertions for queue -> flush-merge behavior.
 
 ## Step 3 completion notes
 - Updated `core_memory.association.crawler_contract.apply_crawler_updates(...)` to stop mutating `index.json` directly.

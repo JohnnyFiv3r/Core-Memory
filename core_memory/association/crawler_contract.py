@@ -75,6 +75,96 @@ def _crawler_updates_log_path(root: str, session_id: str) -> Path:
     return Path(root) / ".beads" / "events" / f"crawler-updates-{sid}.jsonl"
 
 
+def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any]:
+    """Flush-merge queued crawler side-log updates into index projection."""
+    idx_file = Path(root) / ".beads" / "index.json"
+    log_path = _crawler_updates_log_path(root, session_id)
+
+    with store_lock(Path(root)):
+        if not idx_file.exists():
+            return {"ok": False, "error": "index_missing"}
+        if not log_path.exists():
+            return {"ok": True, "merged": 0, "promotions_marked": 0, "associations_appended": 0}
+
+        lines = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+        rows: list[dict[str, Any]] = []
+        for ln in lines:
+            try:
+                r = json.loads(ln)
+            except Exception:
+                continue
+            if isinstance(r, dict) and str(r.get("session_id") or "") == str(session_id):
+                rows.append(r)
+
+        if not rows:
+            return {"ok": True, "merged": 0, "promotions_marked": 0, "associations_appended": 0}
+
+        index = json.loads(idx_file.read_text(encoding="utf-8"))
+        beads = index.get("beads") or {}
+        assoc = list(index.get("associations") or [])
+
+        promoted = 0
+        appended = 0
+
+        for row in rows:
+            kind = str(row.get("kind") or "")
+            if kind == "promotion_mark":
+                bid = str(row.get("bead_id") or "")
+                b = beads.get(bid)
+                if not b:
+                    continue
+                if not b.get("promotion_marked"):
+                    b["promotion_marked"] = True
+                    b["promotion_marked_at"] = str(row.get("created_at") or datetime.now(timezone.utc).isoformat())
+                    b["promotion_scope"] = str(row.get("promotion_scope") or "rolling_continuity")
+                    beads[bid] = b
+                    promoted += 1
+            elif kind == "association_append":
+                src = str(row.get("source_bead") or "")
+                tgt = str(row.get("target_bead") or "")
+                rel = str(row.get("relationship") or "").strip()
+                if not src or not tgt or not rel:
+                    continue
+                if src not in beads or tgt not in beads:
+                    continue
+                exists = any(
+                    a.get("source_bead") == src and a.get("target_bead") == tgt and a.get("relationship") == rel
+                    for a in assoc
+                )
+                if exists:
+                    continue
+                assoc.append(
+                    {
+                        "id": str(row.get("id") or f"assoc-{uuid.uuid4().hex[:12].upper()}"),
+                        "type": "association",
+                        "source_bead": src,
+                        "target_bead": tgt,
+                        "relationship": rel,
+                        "edge_class": str(row.get("edge_class") or "agent_judged"),
+                        "confidence": row.get("confidence"),
+                        "rationale": row.get("rationale"),
+                        "created_at": str(row.get("created_at") or datetime.now(timezone.utc).isoformat()),
+                    }
+                )
+                appended += 1
+
+        index["beads"] = beads
+        index["associations"] = sorted(assoc, key=lambda a: (a.get("created_at", ""), a.get("id", "")))
+        index.setdefault("stats", {})["total_associations"] = len(index["associations"])
+        idx_file.write_text(json.dumps(index, indent=2), encoding="utf-8")
+
+        # Clear consumed side log after successful projection merge.
+        log_path.write_text("", encoding="utf-8")
+
+    return {
+        "ok": True,
+        "merged": len(rows),
+        "promotions_marked": promoted,
+        "associations_appended": appended,
+        "authority_path": "flush_merge_projection",
+    }
+
+
 def apply_crawler_updates(
     root: str,
     session_id: str,

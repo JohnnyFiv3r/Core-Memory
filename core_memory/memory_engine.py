@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from .live_session import read_live_session_beads
-from .association import build_crawler_context, apply_crawler_updates
+from .association import build_crawler_context, apply_crawler_updates, merge_crawler_updates_for_flush
 from .continuity_injection import load_continuity_injection
 from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
@@ -239,6 +239,8 @@ def process_flush(
                 },
             }
 
+    merge_out = merge_crawler_updates_for_flush(root=root, session_id=str(session_id or ""))
+
     out = run_consolidate_pipeline(
         session_id=str(session_id or ""),
         promote=bool(promote),
@@ -251,6 +253,7 @@ def process_flush(
             "authority_path": "canonical_in_process",
             "error": out.get("error") or "flush_failed",
             "result": out,
+            "crawler_merge": merge_out,
             "engine": {
                 "entry": "process_flush",
                 "sequence_owner": "memory_engine",
@@ -263,6 +266,7 @@ def process_flush(
         "ok": True,
         "authority_path": "canonical_in_process",
         "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+        "crawler_merge": merge_out,
         "result": out,
         "engine": {
             "entry": "process_flush",
