@@ -7,7 +7,7 @@ Status: Active
 2. Rolling record store as canonical continuity surface ✅
 3. Injection path authority switch to rolling record store ✅
 4. Search form physical structure cleanup (retrieval namespace primary) ✅
-5. Full sweep + P7B closeout
+5. Full sweep + P7B closeout ✅
 
 ## Step 1 completion notes
 - Implemented association crawler contract module for agent-judged updates:
@@ -55,3 +55,12 @@ Status: Active
 - Added regression coverage:
   - `tests/test_search_form_module_primary.py`
   - verifies primary+shim parity and stable schema
+
+## Step 5 completion notes
+- Ran full regression suite: `192 passed / 0 failed`
+- Ran eval snapshots and confirmed stable metrics:
+  - `memory_execute_eval`
+  - `paraphrase_eval`
+- Authored closeout artifacts:
+  - `docs/v2_p7b_closeout_checklist.md`
+  - `docs/v2_post_p7_gap_summary.md`
