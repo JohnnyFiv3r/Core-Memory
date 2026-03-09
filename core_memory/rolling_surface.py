@@ -90,6 +90,8 @@ def write_rolling_surface(workspace_root: str | Path, text: str, meta: dict | No
     p.write_text(text, encoding="utf-8")
 
     meta = dict(meta or {})
+    meta.setdefault("authority", "rolling_record_store")
+    meta.setdefault("derived_artifact", "promoted-context.md")
     records = list(meta.pop("records", []) or [])
     write_rolling_records(
         workspace_root,
@@ -102,6 +104,8 @@ def write_rolling_surface(workspace_root: str | Path, text: str, meta: dict | No
     meta_path = Path(workspace_root) / "promoted-context.meta.json"
     payload = {
         "surface": "rolling_window",
+        "role": "derived_fallback_metadata",
+        "authority": "promoted_context_meta_fallback",
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "meta": meta,
         "included_bead_ids": [str(x) for x in (included_ids or [])],

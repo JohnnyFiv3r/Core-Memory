@@ -7,8 +7,19 @@ Eliminate ambiguity in continuity read/write authority so runtime continuity inj
 
 ## Step plan (5)
 1. Surface authority contract hardening
-2. Derived artifact demotion + metadata normalization
+2. Derived artifact demotion + metadata normalization ✅
 3. Read-path purification sweep
+
+## Step 2 completion notes
+- Normalized continuity metadata semantics across authority and derived surfaces.
+- `rolling-window.records.json` now explicitly tags:
+  - `authority=rolling_record_store`
+  - `role=runtime_continuity_authority`
+- `promoted-context.meta.json` now explicitly tags derived fallback role:
+  - `authority=promoted_context_meta_fallback`
+  - `role=derived_fallback_metadata`
+- `promoted-context.md` remains derived/operator-facing only.
+- Updated OpenClaw integration guidance to state continuity authority/fallback split.
 4. Regression and invariants
 5. Full sweep + P8B closeout
 
