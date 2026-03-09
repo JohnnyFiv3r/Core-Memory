@@ -16,4 +16,8 @@ Status: Canonical landing page
 - `../../integration/core-adapters.md`
 
 ## Notes
-This folder is the new canonical location for SpringAI integration documentation. The older top-level docs remain in place during migration.
+This folder is the canonical location for SpringAI integration documentation.
+
+Runtime framing:
+- primary bridge entrypoint: `core_memory.integrations.springai.get_app()`
+- HTTP compatibility entrypoint: `core_memory.integrations.http.get_app()`

@@ -61,7 +61,7 @@ class MemoryClassifyIntentRequest(BaseModel):
     query: str
 
 
-app = FastAPI(title="Core Memory HTTP Ingress", version="1.1")
+app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
 
 
 def _auth_required() -> str:

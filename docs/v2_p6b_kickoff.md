@@ -12,7 +12,7 @@ Purpose: finalize semantic architecture and retire transitional debt after P6A c
 ## Step plan (5)
 1. Association pass strengthening design + implementation ✅
 2. Association bead-type long-term closure decision implementation ✅
-3. SpringAI framing finalization (compat-preserving)
+3. SpringAI framing finalization (compat-preserving) ✅
 4. Legacy path retirement pass
 5. Full sweep + P6B closeout
 
@@ -42,3 +42,13 @@ P6A must be complete and stable before P6B execution.
 - Expanded policy tests:
   - `tests/test_association_type_policy.py`
   - verifies policy value, default enforcement, and compat override behavior
+
+## Step 3 completion notes
+- Finalized SpringAI-first framing while preserving HTTP compatibility:
+  - `core_memory/integrations/http/server.py` app title updated to SpringAI bridge-compatible framing
+  - `core_memory/integrations/http/__init__.py` now explicitly labeled compatibility ingress
+- Updated SpringAI docs landing page with explicit primary/compat entrypoints:
+  - `docs/integrations/springai/README.md`
+- Extended bridge regression test:
+  - `tests/test_springai_bridge.py`
+  - verifies bridge framing is reflected in app metadata/title
