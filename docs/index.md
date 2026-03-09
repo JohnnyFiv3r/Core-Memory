@@ -68,6 +68,7 @@ Start here for current Core Memory documentation.
 - `canonical_paths.md` — canonical primary runtime/data-flow paths reference
 - `v2_p7c_closeout_checklist.md` — P7C completion and shim-cleanup validation gate
 - `v2_program_closeout.md` — end-to-end V2/P7 program closeout summary
+- `v2_p8a_kickoff.md` — P8A runtime/state authority cutover kickoff and tracker
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point

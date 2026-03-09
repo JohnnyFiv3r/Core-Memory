@@ -7,12 +7,12 @@ from pathlib import Path
 from typing import Any
 
 from .live_session import read_live_session_beads
-from .association import build_crawler_context, apply_crawler_updates
+from .association import build_crawler_context, apply_crawler_updates, merge_crawler_updates_for_flush
 from .continuity_injection import load_continuity_injection
 from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import SidecarPolicy, process_memory_event
-from .trigger_orchestrator import run_flush_pipeline, run_turn_finalize_pipeline
+from .write_pipeline.orchestrate import run_consolidate_pipeline
 
 
 # Canonical runtime center.
@@ -92,8 +92,8 @@ def process_turn_finalized(
         metadata=metadata,
     )
 
-    out = run_turn_finalize_pipeline(
-        root=root,
+    emitted = maybe_emit_finalize_memory_event(
+        root,
         session_id=req["session_id"],
         turn_id=req["turn_id"],
         transaction_id=req["transaction_id"],
@@ -107,11 +107,88 @@ def process_turn_finalized(
         window_turn_ids=req["window_turn_ids"],
         window_bead_ids=req["window_bead_ids"],
         metadata=req["metadata"],
-        policy=policy,
     )
-    out.setdefault("engine", {})
-    out["engine"].update({"normalized": True, "entry": "process_turn_finalized"})
-    return out
+
+    if not emitted.get("emitted"):
+        return {
+            "ok": True,
+            "mode": "turn",
+            "authority_path": "canonical_in_process",
+            "processed": 0,
+            "failed": 0,
+            "emitted": emitted,
+            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+        }
+
+    row = emitted.get("payload")
+    if not row:
+        events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
+        if events_file.exists():
+            for line in events_file.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    r = json.loads(line)
+                except Exception:
+                    continue
+                env = r.get("envelope") or {}
+                if env.get("session_id") == req["session_id"] and env.get("turn_id") == req["turn_id"]:
+                    row = r
+        if not row:
+            return {
+                "ok": False,
+                "mode": "turn",
+                "authority_path": "canonical_in_process",
+                "processed": 0,
+                "failed": 1,
+                "error": "event_row_not_found",
+                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+            }
+
+    claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
+    if not claimed:
+        return {
+            "ok": True,
+            "mode": "turn",
+            "authority_path": "canonical_in_process",
+            "processed": 0,
+            "failed": 0,
+            "reason": "not_claimed",
+            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+        }
+
+    try:
+        delta = process_memory_event(root, row, policy=policy)
+    except Exception as exc:
+        mark_memory_pass(
+            Path(root),
+            req["session_id"],
+            req["turn_id"],
+            "failed",
+            envelope_hash=(state_after or {}).get("envelope_hash", ""),
+            reason="direct_turn_exception",
+            error=str(exc),
+        )
+        return {
+            "ok": False,
+            "mode": "turn",
+            "authority_path": "canonical_in_process",
+            "processed": 0,
+            "failed": 1,
+            "error": str(exc),
+            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+        }
+
+    return {
+        "ok": True,
+        "mode": "turn",
+        "authority_path": "canonical_in_process",
+        "processed": 1,
+        "failed": 0,
+        "delta": delta,
+        "emitted": emitted,
+        "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+    }
 
 
 def process_flush(
@@ -124,27 +201,80 @@ def process_flush(
     source: str = "flush_hook",
     flush_tx_id: str | None = None,
 ) -> dict[str, Any]:
-    # Engine-owned preflight: snapshot live-session authority context.
     live = read_live_session_beads(root, session_id)
 
-    out = run_flush_pipeline(
-        root=root,
+    # enrichment barrier check
+    latest_turn = ""
+    events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
+    if events_file.exists():
+        latest_ts = -1
+        for line in events_file.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            env = row.get("envelope") or {}
+            if str(env.get("session_id") or "") != str(session_id):
+                continue
+            ts = int(env.get("ts_ms") or 0)
+            if ts >= latest_ts:
+                latest_ts = ts
+                latest_turn = str(env.get("turn_id") or "")
+
+    if latest_turn:
+        st = get_memory_pass(Path(root), session_id, latest_turn) or {}
+        if str(st.get("status") or "") != "done":
+            return {
+                "ok": False,
+                "authority_path": "canonical_in_process",
+                "error": "enrichment_barrier_not_satisfied",
+                "barrier": {"latest_turn_id": latest_turn, "latest_turn_status": str(st.get("status") or "unknown")},
+                "engine": {
+                    "entry": "process_flush",
+                    "sequence_owner": "memory_engine",
+                    "live_session_authority": str(live.get("authority") or "unknown"),
+                    "live_session_count": int(live.get("count") or 0),
+                },
+            }
+
+    merge_out = merge_crawler_updates_for_flush(root=root, session_id=str(session_id or ""))
+
+    out = run_consolidate_pipeline(
         session_id=str(session_id or ""),
         promote=bool(promote),
         token_budget=int(token_budget),
         max_beads=int(max_beads),
-        source=str(source or "flush_hook"),
-        flush_tx_id=flush_tx_id,
     )
-    out.setdefault("engine", {})
-    out["engine"].update(
-        {
+    if not out.get("ok"):
+        return {
+            "ok": False,
+            "authority_path": "canonical_in_process",
+            "error": out.get("error") or "flush_failed",
+            "result": out,
+            "crawler_merge": merge_out,
+            "engine": {
+                "entry": "process_flush",
+                "sequence_owner": "memory_engine",
+                "live_session_authority": str(live.get("authority") or "unknown"),
+                "live_session_count": int(live.get("count") or 0),
+            },
+        }
+
+    return {
+        "ok": True,
+        "authority_path": "canonical_in_process",
+        "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+        "crawler_merge": merge_out,
+        "result": out,
+        "engine": {
             "entry": "process_flush",
+            "sequence_owner": "memory_engine",
             "live_session_authority": str(live.get("authority") or "unknown"),
             "live_session_count": int(live.get("count") or 0),
-        }
-    )
-    return out
+        },
+    }
 
 
 def read_live_session(*, root: str, session_id: str) -> dict[str, Any]:

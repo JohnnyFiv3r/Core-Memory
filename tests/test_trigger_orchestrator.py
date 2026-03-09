@@ -7,7 +7,7 @@ from core_memory.store import MemoryStore
 
 
 class TestTriggerOrchestrator(unittest.TestCase):
-    def test_run_turn_finalize_pipeline_processes_once(self):
+    def test_run_turn_finalize_pipeline_delegates_to_engine(self):
         with tempfile.TemporaryDirectory() as td:
             out1 = run_turn_finalize_pipeline(
                 root=td,
@@ -20,7 +20,7 @@ class TestTriggerOrchestrator(unittest.TestCase):
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out1.get("ok"))
-            self.assertEqual(1, out1.get("processed"))
+            self.assertEqual("core_memory.memory_engine", ((out1.get("shim") or {}).get("delegated_to")))
 
             # idempotent replay should not process again
             out2 = run_turn_finalize_pipeline(
