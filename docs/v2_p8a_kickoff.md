@@ -22,3 +22,11 @@ Status: Active
   - consolidate pipeline execution
   - canonical engine-owned result envelope
 - This reduces reliance on `trigger_orchestrator.run_*` sequencing ownership.
+
+## Step 2 completion notes
+- Replaced `core_memory/trigger_orchestrator.py` implementation with thin compatibility wrappers.
+- `run_turn_finalize_pipeline(...)` and `run_flush_pipeline(...)` now delegate to `core_memory.memory_engine`.
+- Added explicit shim markers in trigger orchestrator module:
+  - `LEGACY_SHIM=True`
+  - `SHIM_REPLACEMENT=core_memory.memory_engine`
+- Updated trigger-orchestrator regression tests to validate delegation behavior.
