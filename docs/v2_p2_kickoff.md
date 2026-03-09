@@ -20,7 +20,7 @@ Cut over write-side trigger authority to canonical in-process enforcement while 
 1. Introduce canonical trigger orchestration module (no contract changes) ✅
 2. Route finalize/flush entrypoints to canonical trigger executor ✅
 3. Keep sidecar as compatibility wrapper and add authority markers ✅
-4. Implement P2 matrix tests
+4. Implement P2 matrix tests ✅
 5. Run full regression/eval and closeout gate
 
 ## Step 1 completion notes
@@ -41,6 +41,13 @@ Cut over write-side trigger authority to canonical in-process enforcement while 
 - Marked sidecar poller path as legacy compatibility in integration docs/comments and return payload (`authority_path=legacy_sidecar_compat`)
 - Added regression coverage: `tests/test_trigger_authority_markers.py`
 - Verified no breakage in openclaw/sidecar/trigger tests
+
+## Step 4 completion notes
+- Implemented V2-P2 enforcement matrix test pack: `tests/test_v2_p2_enforcement_matrix.py`
+- Covered canonical per-turn trigger processing + idempotent replay behavior
+- Covered canonical flush trigger checkpoint progression
+- Covered admin CLI flush routing through canonical path
+- Covered no-dual-authority conflict behavior (legacy poller does not double-process canonical-completed turns)
 
 ## Stop condition
 If any change destabilizes mainline path or causes contract drift, halt and revert to previous stable commit before proceeding.
