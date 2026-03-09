@@ -6,16 +6,10 @@ They keep integration explicit and non-invasive while enforcing one-pass-per-tur
 
 from __future__ import annotations
 
-import json
-import os
-from pathlib import Path
 from typing import Any
 
-from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
-from .sidecar_hook import maybe_emit_finalize_memory_event
-from .sidecar_worker import process_memory_event, SidecarPolicy
-from .store import MemoryStore
-from .memory_engine import process_turn_finalized
+from .sidecar_worker import SidecarPolicy
+from .memory_engine import process_turn_finalized, emit_turn_finalized, process_pending_legacy_events
 
 
 def coordinator_finalize_hook(
@@ -36,8 +30,8 @@ def coordinator_finalize_hook(
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Call this at coordinator finalize to emit memory event once per top-level turn."""
-    return maybe_emit_finalize_memory_event(
-        root,
+    return emit_turn_finalized(
+        root=root,
         session_id=session_id,
         turn_id=turn_id,
         transaction_id=transaction_id,
@@ -93,73 +87,5 @@ def finalize_and_process_turn(
 
 
 def process_pending_memory_events(root: str, max_events: int = 50, policy: SidecarPolicy | None = None) -> dict[str, Any]:
-    """Process pending TURN_FINALIZED memory events from local JSONL queue.
-
-    Legacy compatibility poller path for single-node/dev environments.
-    Canonical authority is the in-process trigger orchestrator path.
-
-    P6B Step 4: hard-fenced by default; must be explicitly enabled.
-    """
-    legacy_enabled = os.environ.get("CORE_MEMORY_ENABLE_LEGACY_POLLER", "0") == "1"
-    if not legacy_enabled:
-        return {
-            "processed": 0,
-            "failed": 0,
-            "skipped": True,
-            "reason": "legacy_poller_disabled",
-            "authority_path": "legacy_sidecar_compat",
-        }
-
-    events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
-    if not events_file.exists():
-        return {"processed": 0, "failed": 0, "authority_path": "legacy_sidecar_compat"}
-
-    processed = 0
-    failed = 0
-
-    with open(events_file, "r", encoding="utf-8") as f:
-        for line in f:
-            if processed >= max_events:
-                break
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            envelope = row.get("envelope") or {}
-            if not envelope:
-                continue
-
-            # Skip memory-origin events for recursion safety
-            if (envelope.get("origin") or "").upper() == "MEMORY_PASS":
-                continue
-
-            session_id = envelope.get("session_id", "")
-            turn_id = envelope.get("turn_id", "")
-            prior = get_memory_pass(Path(root), session_id, turn_id)
-            if prior and prior.get("status") == "done":
-                continue
-
-            claimed, state_after = try_claim_memory_pass(Path(root), session_id, turn_id)
-            if not claimed:
-                # owned by another worker (running) or not claimable
-                continue
-
-            try:
-                process_memory_event(root, row, policy=policy)
-                processed += 1
-            except Exception as exc:
-                failed += 1
-                mark_memory_pass(
-                    Path(root),
-                    session_id,
-                    turn_id,
-                    "failed",
-                    envelope_hash=(state_after or {}).get("envelope_hash", ""),
-                    reason="worker_exception",
-                    error=str(exc),
-                )
-
-    return {"processed": processed, "failed": failed, "authority_path": "legacy_sidecar_compat"}
+    """Legacy compatibility wrapper routed through memory_engine ownership."""
+    return process_pending_legacy_events(root=root, max_events=max_events, policy=policy)
