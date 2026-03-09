@@ -13,6 +13,7 @@ from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import SidecarPolicy, process_memory_event
 from .write_pipeline.orchestrate import run_consolidate_pipeline
+from .io_utils import append_jsonl
 
 
 # Canonical runtime center.
@@ -239,6 +240,18 @@ def process_flush(
                 },
             }
 
+    checkpoints = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
+    append_jsonl(
+        checkpoints,
+        {
+            "schema": "openclaw.memory.flush_checkpoint.v1",
+            "stage": "start",
+            "session_id": str(session_id or ""),
+            "source": str(source or "flush_hook"),
+            "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+        },
+    )
+
     merge_out = merge_crawler_updates_for_flush(root=root, session_id=str(session_id or ""))
 
     out = run_consolidate_pipeline(
@@ -247,8 +260,20 @@ def process_flush(
         token_budget=int(token_budget),
         max_beads=int(max_beads),
         root=root,
+        workspace_root=root,
     )
     if not out.get("ok"):
+        append_jsonl(
+            checkpoints,
+            {
+                "schema": "openclaw.memory.flush_checkpoint.v1",
+                "stage": "failed",
+                "session_id": str(session_id or ""),
+                "source": str(source or "flush_hook"),
+                "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+                "error": out.get("error") or "flush_failed",
+            },
+        )
         return {
             "ok": False,
             "authority_path": "canonical_in_process",
@@ -262,6 +287,18 @@ def process_flush(
                 "live_session_count": int(live.get("count") or 0),
             },
         }
+
+    append_jsonl(
+        checkpoints,
+        {
+            "schema": "openclaw.memory.flush_checkpoint.v1",
+            "stage": "committed",
+            "session_id": str(session_id or ""),
+            "source": str(source or "flush_hook"),
+            "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+            "crawler_merge": merge_out,
+        },
+    )
 
     return {
         "ok": True,

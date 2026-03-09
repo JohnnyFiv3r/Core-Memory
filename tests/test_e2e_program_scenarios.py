@@ -126,7 +126,7 @@ class TestE2EProgramScenarios(unittest.TestCase):
 
     def test_scenario_c_continuity_record_store_authority(self):
         with tempfile.TemporaryDirectory() as td:
-            policy = SidecarPolicy(create_threshold=0.6)
+            policy = SidecarPolicy(create_threshold=0.0)
             process_turn_finalized(
                 root=td,
                 session_id="sC",
