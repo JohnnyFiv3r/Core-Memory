@@ -94,11 +94,12 @@ def finalize_and_process_turn(
 def process_pending_memory_events(root: str, max_events: int = 50, policy: SidecarPolicy | None = None) -> dict[str, Any]:
     """Process pending TURN_FINALIZED memory events from local JSONL queue.
 
-    This is a lightweight poller path for single-node/dev environments.
+    Legacy compatibility poller path for single-node/dev environments.
+    Canonical authority is the in-process trigger orchestrator path.
     """
     events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
     if not events_file.exists():
-        return {"processed": 0, "failed": 0}
+        return {"processed": 0, "failed": 0, "authority_path": "legacy_sidecar_compat"}
 
     processed = 0
     failed = 0
@@ -148,4 +149,4 @@ def process_pending_memory_events(root: str, max_events: int = 50, policy: Sidec
                     error=str(exc),
                 )
 
-    return {"processed": processed, "failed": failed}
+    return {"processed": processed, "failed": failed, "authority_path": "legacy_sidecar_compat"}

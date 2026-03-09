@@ -56,6 +56,7 @@ def run_turn_finalize_pipeline(
         return {
             "ok": True,
             "mode": "turn",
+            "authority_path": "canonical_in_process",
             "emitted": emitted,
             "processed": 0,
             "failed": 0,
@@ -68,6 +69,7 @@ def run_turn_finalize_pipeline(
             return {
                 "ok": False,
                 "mode": "turn",
+                "authority_path": "canonical_in_process",
                 "emitted": emitted,
                 "processed": 0,
                 "failed": 1,
@@ -89,6 +91,7 @@ def run_turn_finalize_pipeline(
         return {
             "ok": False,
             "mode": "turn",
+            "authority_path": "canonical_in_process",
             "emitted": emitted,
             "processed": 0,
             "failed": 1,
@@ -100,6 +103,7 @@ def run_turn_finalize_pipeline(
         return {
             "ok": True,
             "mode": "turn",
+            "authority_path": "canonical_in_process",
             "emitted": emitted,
             "processed": 0,
             "failed": 0,
@@ -121,6 +125,7 @@ def run_turn_finalize_pipeline(
         return {
             "ok": False,
             "mode": "turn",
+            "authority_path": "canonical_in_process",
             "emitted": emitted,
             "processed": 0,
             "failed": 1,
@@ -150,6 +155,7 @@ def run_turn_finalize_pipeline(
     return {
         "ok": True,
         "mode": "turn",
+        "authority_path": "canonical_in_process",
         "emitted": emitted,
         "processed": 1,
         "failed": 0,
@@ -200,10 +206,10 @@ def run_flush_pipeline(
     )
     if not out.get("ok"):
         _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "failed", "status": "failed", "error": out.get("error")})
-        return {"ok": False, "flush_tx_id": tx, "error": out.get("error"), "result": out}
+        return {"ok": False, "authority_path": "canonical_in_process", "flush_tx_id": tx, "error": out.get("error"), "result": out}
 
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "archive_persisted", "status": "done"})
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "rolling_written", "status": "done"})
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "committed", "status": "committed"})
 
-    return {"ok": True, "flush_tx_id": tx, "result": out}
+    return {"ok": True, "authority_path": "canonical_in_process", "flush_tx_id": tx, "result": out}
