@@ -18,7 +18,8 @@ from pathlib import Path
 
 from core_memory.store import MemoryStore
 from core_memory.write_triggers import emit_write_trigger
-from core_memory.write_pipeline.orchestrate import run_consolidate_pipeline, run_rolling_window_pipeline
+from core_memory.write_pipeline.orchestrate import run_rolling_window_pipeline
+from core_memory.trigger_orchestrator import run_flush_pipeline
 
 
 def workspace_root() -> Path:
@@ -96,37 +97,16 @@ def render_rolling_window(
     return "\n".join(lines) + "\n", meta, included_ids, excluded_ids
 
 
-def cmd_consolidate(args):
-    store = MemoryStore(root=store_root())
-
-    # Optional session-local compact/promote pass first.
-    session_result = store.compact(session_id=args.session, promote=args.promote)
-
-    # Build rolling window from promoted set and compact only historical (excluded) promoted beads.
-    rw, meta, included_ids, excluded_ids = render_rolling_window(
-        store, token_budget=args.token_budget, max_beads=args.max_beads
+def cmd_consolidate(args, source: str = "flush_hook"):
+    out = run_flush_pipeline(
+        root=store_root(),
+        session_id=args.session,
+        promote=bool(args.promote),
+        token_budget=int(args.token_budget),
+        max_beads=int(args.max_beads),
+        source=source,
     )
-    historical_result = store.compact(only_bead_ids=excluded_ids, skip_bead_ids=included_ids)
-
-    out = workspace_root() / "promoted-context.md"
-    out.write_text(rw)
-
-    print(
-        json.dumps(
-            {
-                "ok": True,
-                "consolidate": session_result,
-                "session_compact": session_result,
-                "historical_compact": historical_result,
-                "rolling_window": str(out),
-                "window_meta": meta,
-                "window_ids": {
-                    "included": len(included_ids),
-                    "excluded": len(excluded_ids),
-                },
-            }
-        )
-    )
+    print(json.dumps(out))
 
 
 def cmd_rolling_window(args):
@@ -165,9 +145,17 @@ def main():
     p2.add_argument("--token-budget", type=int, default=int(os.environ.get("CORE_MEMORY_WINDOW_TOKENS", "2000")))
     p2.add_argument("--max-beads", type=int, default=200)
 
+    p3 = sub.add_parser("flush", help="Manual admin flush trigger (canonical path)")
+    p3.add_argument("--session", required=True)
+    p3.add_argument("--promote", action="store_true")
+    p3.add_argument("--token-budget", type=int, default=int(os.environ.get("CORE_MEMORY_WINDOW_TOKENS", "2000")))
+    p3.add_argument("--max-beads", type=int, default=200)
+
     args = parser.parse_args()
     if args.command == "consolidate":
-        cmd_consolidate(args)
+        cmd_consolidate(args, source="flush_hook")
+    elif args.command == "flush":
+        cmd_consolidate(args, source="admin_cli")
     else:
         cmd_rolling_window(args)
 

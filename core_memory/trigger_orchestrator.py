@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -8,6 +9,7 @@ from .sidecar import mark_memory_pass, try_claim_memory_pass
 from .sidecar_hook import maybe_emit_finalize_memory_event
 from .sidecar_worker import SidecarPolicy, process_memory_event
 from .store import MemoryStore
+from .write_pipeline.orchestrate import run_consolidate_pipeline
 
 
 def run_turn_finalize_pipeline(
@@ -155,3 +157,53 @@ def run_turn_finalize_pipeline(
         "kpi_logged": kpi_logged,
         "kpi_error": kpi_error,
     }
+
+
+def _flush_checkpoint_file(root: str) -> Path:
+    p = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _flush_ckpt(root: str, payload: dict[str, Any]) -> None:
+    row = {
+        "ts": datetime.now(timezone.utc).isoformat(),
+        **payload,
+    }
+    p = _flush_checkpoint_file(root)
+    with p.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(row, ensure_ascii=False) + "\n")
+
+
+def run_flush_pipeline(
+    *,
+    root: str,
+    session_id: str,
+    promote: bool,
+    token_budget: int,
+    max_beads: int,
+    source: str = "flush_hook",
+    flush_tx_id: str | None = None,
+) -> dict[str, Any]:
+    """Canonical flush trigger pipeline entrypoint (V2-P2 Step 2)."""
+    tx = str(flush_tx_id or f"flush-{session_id}-{int(datetime.now(timezone.utc).timestamp())}")
+    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "start", "source": source, "status": "pending"})
+
+    # Stage: enrichment barrier (placeholder marker in step 2; hard-enforced in later step)
+    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "enrichment_ready", "status": "done"})
+
+    out = run_consolidate_pipeline(
+        session_id=session_id,
+        promote=bool(promote),
+        token_budget=int(token_budget),
+        max_beads=int(max_beads),
+    )
+    if not out.get("ok"):
+        _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "failed", "status": "failed", "error": out.get("error")})
+        return {"ok": False, "flush_tx_id": tx, "error": out.get("error"), "result": out}
+
+    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "archive_persisted", "status": "done"})
+    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "rolling_written", "status": "done"})
+    _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "committed", "status": "committed"})
+
+    return {"ok": True, "flush_tx_id": tx, "result": out}
