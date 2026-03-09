@@ -14,7 +14,7 @@ Close surface and schema embodiment gaps:
 1. Rolling window first-class surface contract hardening ✅
 2. Rolling FIFO/token-budget determinism test expansion ✅
 3. Association subsystem extraction scaffold ✅
-4. Schema reconciliation (`models.py` aligned to canonical `schema.py`)
+4. Schema reconciliation (`models.py` aligned to canonical `schema.py`) ✅
 5. Association bead-type decision closure + P4 closeout
 
 ## Planned outputs
@@ -62,3 +62,12 @@ Close surface and schema embodiment gaps:
 - Added association pass contract tests:
   - `tests/test_association_pass_contract.py`
   - validates deterministic output, contract shape, and non-destructive behavior
+
+## Step 4 completion notes
+- Reconciled model enums with canonical schema vocabulary in `core_memory/models.py`:
+  - `BeadType` now includes canonical `context` and `correction`
+  - `Status` removed non-canonical `closed`
+  - `RelationshipType` aligned to canonical relation set (including `supports`, `derived_from`, `resolves`, `follows`)
+- Added schema-alignment regression tests:
+  - `tests/test_models_schema_alignment.py`
+  - asserts exact enum-set equality with canonical schema constants

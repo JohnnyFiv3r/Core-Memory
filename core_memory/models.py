@@ -13,7 +13,7 @@ from typing import Optional
 # === Enums ===
 
 class BeadType(Enum):
-    """Types of beads in the memory system."""
+    """Canonical bead types (aligned to core_memory.schema)."""
     SESSION_START = "session_start"
     SESSION_END = "session_end"
     GOAL = "goal"
@@ -32,6 +32,8 @@ class BeadType(Enum):
     ABANDONED_PATH = "abandoned_path"
     REFLECTION = "reflection"
     DESIGN_PRINCIPLE = "design_principle"
+    CONTEXT = "context"
+    CORRECTION = "correction"
 
 
 class Scope(Enum):
@@ -42,10 +44,9 @@ class Scope(Enum):
 
 
 class Status(Enum):
-    """Status of a bead in the lifecycle."""
+    """Canonical bead status values (aligned to core_memory.schema)."""
     OPEN = "open"
     CANDIDATE = "candidate"
-    CLOSED = "closed"
     PROMOTED = "promoted"
     COMPACTED = "compacted"
     SUPERSEDED = "superseded"
@@ -60,7 +61,7 @@ class Authority(Enum):
 
 
 class RelationshipType(Enum):
-    """Types of relationships between beads."""
+    """Canonical relation values (aligned to core_memory.schema)."""
     CAUSED_BY = "caused_by"
     LED_TO = "led_to"
     BLOCKED_BY = "blocked_by"
@@ -76,11 +77,15 @@ class RelationshipType(Enum):
     CONSTRAINT_TRANSFORMED_INTO = "constraint_transformed_into"
     SOLVES_SAME_MECHANISM = "solves_same_mechanism"
     SIMILAR_PATTERN = "similar_pattern"
-    TRANSFERRABLE_LESSON = "transferable_lesson"
+    TRANSFERABLE_LESSON = "transferable_lesson"
     GENERALIZES = "generalizes"
     SPECIALIZES = "specializes"
     STRUCTURAL_SYMMETRY = "structural_symmetry"
     REVEALS_BIAS = "reveals_bias"
+    SUPPORTS = "supports"
+    DERIVED_FROM = "derived_from"
+    RESOLVES = "resolves"
+    FOLLOWS = "follows"
 
 
 class ImpactLevel(Enum):
