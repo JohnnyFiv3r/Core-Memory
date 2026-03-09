@@ -4,6 +4,7 @@ from typing import Any
 
 from .sidecar_worker import SidecarPolicy
 from .trigger_orchestrator import run_turn_finalize_pipeline, run_flush_pipeline
+from .live_session import read_live_session_beads
 
 
 # Canonical runtime center (V2-P3-T1): thin orchestration ownership surface.
@@ -67,3 +68,7 @@ def process_flush(
         source=source,
         flush_tx_id=flush_tx_id,
     )
+
+
+def read_live_session(*, root: str, session_id: str) -> dict[str, Any]:
+    return read_live_session_beads(root, session_id)
