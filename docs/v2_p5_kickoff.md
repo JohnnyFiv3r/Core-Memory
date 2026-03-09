@@ -9,7 +9,7 @@ Finalize integration framing and legacy cleanup/deprecation resolution while pre
 ## Step plan (5)
 1. Integration framing inventory + target map ✅
 2. SpringAI bridge framing cleanup (docs-first, low-risk aliases) ✅
-3. Legacy path classification + explicit deprecation markers
+3. Legacy path classification + explicit deprecation markers ✅
 4. Canonical-path enforcement checks
 5. Full sweep + P5 closeout
 
@@ -31,3 +31,14 @@ Finalize integration framing and legacy cleanup/deprecation resolution while pre
 - Bridge reuses canonical HTTP ingress while making SpringAI framing explicit.
 - Updated SpringAI integration guide with bridge-first entrypoint notes.
 - Added regression coverage: `tests/test_springai_bridge.py`
+
+## Step 3 completion notes
+- Updated deprecation inventory statuses in `docs/v2_deprecation_inventory.md`:
+  - sidecar-authority path -> deprecated
+  - duplicate wrapper authority paths -> deprecated
+  - pre-v2 active-plan references -> deprecated
+- Added explicit legacy/canonical classification artifact:
+  - `docs/v2_p5_legacy_classification.md`
+- Locked marker policy:
+  - canonical -> `authority_path=canonical_in_process`
+  - compat legacy -> `authority_path=legacy_sidecar_compat`
