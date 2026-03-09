@@ -6,7 +6,7 @@ Status: Active
 1. Session-write authority cutover foundation ✅
 2. Engine-first orchestration ownership expansion ✅
 3. Session-authority propagation into key write/read paths ✅
-4. Index projection demotion hardening
+4. Index projection demotion hardening ✅
 5. Full sweep + P7A closeout
 
 ## Step 1 completion notes
@@ -30,3 +30,14 @@ Status: Active
 - Added regression coverage:
   - `tests/test_session_first_query_authority.py`
   - verifies session query remains correct even when index projection is stale
+
+## Step 4 completion notes
+- Hardened index demotion semantics by formalizing index as projection cache:
+  - index now carries projection metadata (`projection.mode=session_first_projection_cache`)
+- Added explicit projection rebuild path:
+  - `MemoryStore.rebuild_index_projection_from_sessions()`
+  - rebuilds index bead map from session/global JSONL authority surfaces
+  - preserves association records and recalculates stats
+- Added regression coverage:
+  - `tests/test_index_projection_cache.py`
+  - validates projection rebuild from session files and projection metadata invariants

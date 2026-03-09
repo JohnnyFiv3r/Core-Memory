@@ -97,7 +97,11 @@ class MemoryStore:
                         "total_beads": 0,
                         "total_associations": 0,
                         "created_at": datetime.now(timezone.utc).isoformat()
-                    }
+                    },
+                    "projection": {
+                        "mode": "session_first_projection_cache",
+                        "rebuilt_at": None,
+                    },
                 })
             if not heads_file.exists():
                 self._write_json(heads_file, {
@@ -114,6 +118,58 @@ class MemoryStore:
     def _write_json(self, path: Path, data: dict):
         """Write JSON atomically."""
         atomic_write_json(path, data)
+
+    def rebuild_index_projection_from_sessions(self) -> dict:
+        """Rebuild index projection from session/global JSONL surfaces.
+
+        Authority model: session/global files are source; index is projection cache.
+        Associations are preserved from existing index projection.
+        """
+        with store_lock(self.root):
+            index_file = self.beads_dir / INDEX_FILE
+            existing = self._read_json(index_file)
+            associations = list(existing.get("associations") or [])
+
+            beads = {}
+            for p in sorted(self.beads_dir.glob("session-*.jsonl")):
+                for row in read_session_surface(self.root, p.stem.replace("session-", "")):
+                    bid = str((row or {}).get("id") or "")
+                    if bid:
+                        beads[bid] = row
+
+            global_file = self.beads_dir / "global.jsonl"
+            if global_file.exists():
+                for line in global_file.read_text(encoding="utf-8").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        row = json.loads(line)
+                    except Exception:
+                        continue
+                    bid = str((row or {}).get("id") or "")
+                    if bid:
+                        beads[bid] = row
+
+            out = {
+                "beads": beads,
+                "associations": associations,
+                "stats": {
+                    "total_beads": len(beads),
+                    "total_associations": len(associations),
+                    "created_at": str((existing.get("stats") or {}).get("created_at") or datetime.now(timezone.utc).isoformat()),
+                },
+                "projection": {
+                    "mode": "session_first_projection_cache",
+                    "rebuilt_at": datetime.now(timezone.utc).isoformat(),
+                },
+            }
+            self._write_json(index_file, out)
+            return {
+                "ok": True,
+                "mode": "session_first_projection_cache",
+                "total_beads": len(beads),
+                "total_associations": len(associations),
+            }
     
     def _generate_id(self) -> str:
         """Generate a short random bead ID (UUID-derived, non-ULID)."""
@@ -1858,6 +1914,10 @@ class MemoryStore:
                 key=lambda a: (a.get("created_at", ""), a.get("id", "")),
             )
             index["stats"]["total_associations"] = len(index.get("associations", []))
+            index["projection"] = {
+                "mode": "session_first_projection_cache",
+                "rebuilt_at": datetime.now(timezone.utc).isoformat(),
+            }
             self._write_json(index_file, index)
 
             # Update canonical HEAD pointers (topic/goal identity)
