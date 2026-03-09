@@ -11,7 +11,7 @@ Implement transactionalization + authority hardening workstream.
 2. Session authority cutover groundwork ✅
 3. Enrichment barrier strict enforcement before flush ✅
 4. Replay/idempotency hardening for trigger paths ✅
-5. Flush stage failure-injection + resume behavior validation
+5. Flush stage failure-injection + resume behavior validation ✅
 
 ## Step 1 completion notes
 - Added canonical runtime center module: `core_memory/memory_engine.py`
@@ -46,3 +46,11 @@ Implement transactionalization + authority hardening workstream.
 - Flush replays with same `flush_tx_id` now skip safely with deterministic reason:
   - `already_committed` or `already_running`
 - Added regression coverage for same-tx replay skip in `tests/test_trigger_orchestrator_flush.py`
+
+## Step 5 completion notes
+- Added induced failure injection hooks for flush stages via `CORE_MEMORY_FLUSH_FAIL_STAGE`:
+  - `before_archive`, `after_archive`, `before_commit`
+- Added recovery test proving same `flush_tx_id` can retry from failed state to committed state:
+  - `tests/test_trigger_orchestrator_flush_recovery.py`
+- Ran full regression sweep (`159 passed`) and eval snapshots (stable vs prior phase)
+- Authored closeout gate: `docs/v2_p3_closeout_checklist.md`

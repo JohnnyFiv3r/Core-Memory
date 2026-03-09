@@ -351,6 +351,12 @@ def run_flush_pipeline(
 
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "enrichment_ready", "status": "done", **barrier_meta})
 
+    fail_stage = str(os.getenv("CORE_MEMORY_FLUSH_FAIL_STAGE", "")).strip().lower()
+    if fail_stage == "before_archive":
+        _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "failed", "status": "failed", "error": "induced_failure_before_archive"})
+        _mark_flush_tx(root, tx, "failed", {"error": "induced_failure_before_archive"})
+        return {"ok": False, "authority_path": "canonical_in_process", "flush_tx_id": tx, "error": "induced_failure_before_archive"}
+
     out = run_consolidate_pipeline(
         session_id=session_id,
         promote=bool(promote),
@@ -363,7 +369,19 @@ def run_flush_pipeline(
         return {"ok": False, "authority_path": "canonical_in_process", "flush_tx_id": tx, "error": out.get("error"), "result": out}
 
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "archive_persisted", "status": "done"})
+
+    if fail_stage == "after_archive":
+        _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "failed", "status": "failed", "error": "induced_failure_after_archive"})
+        _mark_flush_tx(root, tx, "failed", {"error": "induced_failure_after_archive"})
+        return {"ok": False, "authority_path": "canonical_in_process", "flush_tx_id": tx, "error": "induced_failure_after_archive"}
+
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "rolling_written", "status": "done"})
+
+    if fail_stage == "before_commit":
+        _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "failed", "status": "failed", "error": "induced_failure_before_commit"})
+        _mark_flush_tx(root, tx, "failed", {"error": "induced_failure_before_commit"})
+        return {"ok": False, "authority_path": "canonical_in_process", "flush_tx_id": tx, "error": "induced_failure_before_commit"}
+
     _flush_ckpt(root, {"flush_tx_id": tx, "session_id": session_id, "stage": "committed", "status": "committed"})
     _mark_flush_tx(root, tx, "committed", {"session_id": session_id})
 
