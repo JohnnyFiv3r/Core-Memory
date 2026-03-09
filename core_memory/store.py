@@ -2292,7 +2292,8 @@ class MemoryStore:
         status: Optional[str] = None,
         tags: Optional[list] = None,
         scope: Optional[str] = None,
-        limit: int = 20
+        limit: int = 20,
+        session_id: Optional[str] = None,
     ) -> list:
         """
         Query beads with filters.
@@ -2303,6 +2304,7 @@ class MemoryStore:
             tags: Filter by tags
             scope: Filter by scope (Scope enum or string)
             limit: Max results
+            session_id: Optional session filter; when provided, query uses session surface first
             
         Returns:
             List of matching beads
@@ -2314,10 +2316,23 @@ class MemoryStore:
         status_filter = self._normalize_enum(status, Status)
         scope_filter = self._normalize_enum(scope, Scope)
         
-        index = self._read_json(self.beads_dir / INDEX_FILE)
         results = []
-        
-        for bead_id, bead in index.get("beads", {}).items():
+
+        if session_id:
+            # Session-first authority for session-scoped query reads.
+            source_rows = list(read_session_surface(self.root, session_id))
+            if not source_rows:
+                index = self._read_json(self.beads_dir / INDEX_FILE)
+                source_rows = [
+                    b for b in (index.get("beads") or {}).values()
+                    if str((b or {}).get("session_id") or "") == str(session_id)
+                ]
+            iterable = source_rows
+        else:
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            iterable = list((index.get("beads") or {}).values())
+
+        for bead in iterable:
             if type_filter and bead.get("type") != type_filter:
                 continue
             if status_filter and bead.get("status") != status_filter:
@@ -2329,7 +2344,7 @@ class MemoryStore:
                 if not bead_tags.intersection(set(tags)):
                     continue
             results.append(bead)
-            
+
             if len(results) >= limit:
                 break
         

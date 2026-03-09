@@ -5,7 +5,7 @@ Status: Active
 ## Step plan (5)
 1. Session-write authority cutover foundation ✅
 2. Engine-first orchestration ownership expansion ✅
-3. Session-authority propagation into key write/read paths
+3. Session-authority propagation into key write/read paths ✅
 4. Index projection demotion hardening
 5. Full sweep + P7A closeout
 
@@ -22,3 +22,11 @@ Status: Active
   - `coordinator_finalize_hook(...)` -> engine emit path
   - `process_pending_memory_events(...)` -> engine legacy-poller path
 - Result: integration adapters are thinner, and runtime orchestration ownership shifts further into `memory_engine.py`.
+
+## Step 3 completion notes
+- Propagated session-authority semantics into key query/read path in `MemoryStore.query(...)`:
+  - new `session_id` filter now uses session surface first
+  - index projection used only as fallback if session surface unavailable
+- Added regression coverage:
+  - `tests/test_session_first_query_authority.py`
+  - verifies session query remains correct even when index projection is stale
