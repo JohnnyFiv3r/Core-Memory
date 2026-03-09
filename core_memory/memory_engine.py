@@ -246,6 +246,7 @@ def process_flush(
         promote=bool(promote),
         token_budget=int(token_budget),
         max_beads=int(max_beads),
+        root=root,
     )
     if not out.get("ok"):
         return {
