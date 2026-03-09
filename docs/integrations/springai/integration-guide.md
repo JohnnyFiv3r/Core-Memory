@@ -9,6 +9,10 @@ Canonical surfaces:
 ## Architecture
 SpringAI runs on the JVM and uses Core Memory over HTTP.
 
+Bridge framing:
+- SpringAI-first ingress entrypoint: `core_memory.integrations.springai.get_app()`
+- Compatibility ingress remains available via: `core_memory.integrations.http.get_app()`
+
 Two paths exist:
 1. **Write path** — non-blocking finalized-turn ingestion
 2. **Runtime path** — synchronous memory tool calls

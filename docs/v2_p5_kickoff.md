@@ -7,8 +7,8 @@ Related: `docs/v2_phase_ticket_map.md`, `docs/v2_deprecation_inventory.md`
 Finalize integration framing and legacy cleanup/deprecation resolution while preserving mainline stability.
 
 ## Step plan (5)
-1. Integration framing inventory + target map
-2. SpringAI bridge framing cleanup (docs-first, low-risk aliases)
+1. Integration framing inventory + target map ✅
+2. SpringAI bridge framing cleanup (docs-first, low-risk aliases) ✅
 3. Legacy path classification + explicit deprecation markers
 4. Canonical-path enforcement checks
 5. Full sweep + P5 closeout
@@ -23,3 +23,11 @@ Finalize integration framing and legacy cleanup/deprecation resolution while pre
 - Added integration surface inventory with as-is -> target mapping.
 - Added path-level classification for canonical/compat/legacy semantics.
 - Identified low-risk framing changes for Step 2 implementation.
+
+## Step 2 completion notes
+- Added SpringAI bridge package entrypoint:
+  - `core_memory/integrations/springai/bridge.py`
+  - `core_memory/integrations/springai/__init__.py`
+- Bridge reuses canonical HTTP ingress while making SpringAI framing explicit.
+- Updated SpringAI integration guide with bridge-first entrypoint notes.
+- Added regression coverage: `tests/test_springai_bridge.py`
