@@ -45,8 +45,13 @@ def build_rolling_window(root: str, token_budget: int = 3000, max_beads: int = 8
             break
         chunk = render_bead(bead)
         t = estimate_tokens(chunk)
+        # Strict recency FIFO under budget: once we hit budget boundary,
+        # stop considering older beads.
         if included and (total + t > token_budget):
-            continue
+            break
+        if (not included) and (t > token_budget):
+            # allow first newest bead only if it individually fits
+            break
         included.append(bead)
         total += t
 

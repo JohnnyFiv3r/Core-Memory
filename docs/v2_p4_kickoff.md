@@ -12,7 +12,7 @@ Close surface and schema embodiment gaps:
 
 ## Step plan (5)
 1. Rolling window first-class surface contract hardening ✅
-2. Rolling FIFO/token-budget determinism test expansion
+2. Rolling FIFO/token-budget determinism test expansion ✅
 3. Association subsystem extraction scaffold
 4. Schema reconciliation (`models.py` aligned to canonical `schema.py`)
 5. Association bead-type decision closure + P4 closeout
@@ -41,3 +41,12 @@ Close surface and schema embodiment gaps:
 - Added regression coverage:
   - `tests/test_rolling_surface_contract.py`
   - extended `tests/test_write_pipeline_consolidate_parity.py`
+
+## Step 2 completion notes
+- Enforced strict FIFO budget cutoff behavior in rolling builder:
+  - once budget boundary is hit, stop (do not skip forward to older beads)
+- Added deterministic rolling behavior tests:
+  - `tests/test_rolling_fifo_determinism.py`
+    - recency order verification
+    - strict budget cutoff behavior
+    - rebuild stability for same source state
