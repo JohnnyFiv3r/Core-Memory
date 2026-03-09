@@ -4,7 +4,7 @@ Status: Active
 
 ## Step plan (5)
 1. Association crawler contract realignment (agent-judged, append-only) ✅
-2. Rolling record store as canonical continuity surface
+2. Rolling record store as canonical continuity surface ✅
 3. Injection path authority switch to rolling record store
 4. Search form physical structure cleanup (retrieval namespace primary)
 5. Full sweep + P7B closeout
@@ -23,3 +23,15 @@ Status: Active
   - `apply_crawler_turn_updates(...)`
 - Added regression test:
   - `tests/test_association_crawler_contract.py`
+
+## Step 2 completion notes
+- Added canonical rolling record store module:
+  - `core_memory/rolling_record_store.py`
+- Rolling surface now writes structured continuity records to:
+  - `rolling-window.records.json` (authoritative continuity record surface)
+- Markdown artifact remains derived output:
+  - `promoted-context.md` + `promoted-context.meta.json`
+- Added ownership/record metadata wiring in rolling surface module:
+  - `rolling_record_store` pointer + `record_count`
+- Added regression coverage:
+  - `tests/test_rolling_record_store.py`

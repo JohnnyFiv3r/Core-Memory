@@ -5,10 +5,23 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from core_memory.store import MemoryStore
+from core_memory.rolling_record_store import write_rolling_records
 
 
 def estimate_tokens(text: str) -> int:
     return max(1, len(text) // 4)
+
+
+def bead_to_record(bead: dict) -> dict:
+    return {
+        "id": bead.get("id"),
+        "type": bead.get("type"),
+        "status": bead.get("status"),
+        "title": bead.get("title") or bead.get("snapshot_title"),
+        "summary": list(bead.get("summary") or []),
+        "created_at": bead.get("created_at") or bead.get("promoted_at"),
+        "session_id": bead.get("session_id"),
+    }
 
 
 def render_bead(bead: dict) -> str:
@@ -53,6 +66,7 @@ def build_rolling_surface(root: str, token_budget: int = 3000, max_beads: int = 
     included_ids = [str(b.get("id") or "") for b in included]
 
     text = "\n".join(render_bead(b) for b in included)
+    records = [bead_to_record(b) for b in included]
     meta = {
         "selected": len(included),
         "available": len(filtered),
@@ -64,6 +78,9 @@ def build_rolling_surface(root: str, token_budget: int = 3000, max_beads: int = 
         "selection_policy": "strict_recency_fifo_with_budget",
         "compression_scope": "rolling_only",
         "owner_module": "core_memory.rolling_surface",
+        "rolling_record_store": "rolling-window.records.json",
+        "record_count": len(records),
+        "records": records,
     }
     return text, meta, included_ids, excluded_ids
 
@@ -72,11 +89,21 @@ def write_rolling_surface(workspace_root: str | Path, text: str, meta: dict | No
     p = Path(workspace_root) / "promoted-context.md"
     p.write_text(text, encoding="utf-8")
 
+    meta = dict(meta or {})
+    records = list(meta.pop("records", []) or [])
+    write_rolling_records(
+        workspace_root,
+        records=records,
+        meta=meta,
+        included_bead_ids=[str(x) for x in (included_ids or [])],
+        excluded_bead_ids=[str(x) for x in (excluded_ids or [])],
+    )
+
     meta_path = Path(workspace_root) / "promoted-context.meta.json"
     payload = {
         "surface": "rolling_window",
         "generated_at": datetime.now(timezone.utc).isoformat(),
-        "meta": dict(meta or {}),
+        "meta": meta,
         "included_bead_ids": [str(x) for x in (included_ids or [])],
         "excluded_bead_ids": [str(x) for x in (excluded_ids or [])],
     }
