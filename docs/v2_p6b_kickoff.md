@@ -10,7 +10,7 @@ Purpose: finalize semantic architecture and retire transitional debt after P6A c
 - retire deprecated legacy paths where safe
 
 ## Step plan (5)
-1. Association pass strengthening design + implementation
+1. Association pass strengthening design + implementation ✅
 2. Association bead-type long-term closure decision implementation
 3. SpringAI framing finalization (compat-preserving)
 4. Legacy path retirement pass
@@ -18,3 +18,13 @@ Purpose: finalize semantic architecture and retire transitional debt after P6A c
 
 ## Precondition
 P6A must be complete and stable before P6B execution.
+
+## Step 1 completion notes
+- Strengthened association subsystem pass in `core_memory/association/pass_engine.py`:
+  - session-relative weighting explicitly prioritized
+  - causal cue overlap scoring added
+  - relationship typing can emit `supports` under causal/session conditions
+- Preserved deterministic ordering + bounded top-k behavior
+- Added regression coverage:
+  - `tests/test_association_pass_strengthened.py`
+  - validates session-relative ranking and causal relationship typing behavior
