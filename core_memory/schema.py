@@ -7,12 +7,12 @@ Phase T1 intent:
 - Preserve legacy input compatibility via explicit normalization.
 """
 
-# Association type policy (V2-P4 Step 5 decision closure)
-# keep_as_bead_and_edge:
-# - association remains an allowed bead type for backward compatibility/history
-# - association edges remain canonical relation constructs
-# - new association subsystem should prefer edge semantics for derived links
-ASSOCIATION_TYPE_POLICY = "keep_as_bead_and_edge"
+# Association type policy (P6B Step 2 long-term closure)
+# edge_primary_explicit_bead_only:
+# - association remains in canonical bead types for explicit/audit use only
+# - derived association behavior is edge-primary
+# - implicit association bead creation is disallowed unless compatibility override is enabled
+ASSOCIATION_TYPE_POLICY = "edge_primary_explicit_bead_only"
 
 
 # Canonical bead types

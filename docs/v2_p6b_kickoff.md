@@ -11,7 +11,7 @@ Purpose: finalize semantic architecture and retire transitional debt after P6A c
 
 ## Step plan (5)
 1. Association pass strengthening design + implementation ✅
-2. Association bead-type long-term closure decision implementation
+2. Association bead-type long-term closure decision implementation ✅
 3. SpringAI framing finalization (compat-preserving)
 4. Legacy path retirement pass
 5. Full sweep + P6B closeout
@@ -28,3 +28,17 @@ P6A must be complete and stable before P6B execution.
 - Added regression coverage:
   - `tests/test_association_pass_strengthened.py`
   - validates session-relative ranking and causal relationship typing behavior
+
+## Step 2 completion notes
+- Closed long-term association bead-type policy with decisive implementation:
+  - policy updated to `edge_primary_explicit_bead_only`
+- Updated schema policy constant:
+  - `core_memory/schema.py::ASSOCIATION_TYPE_POLICY`
+- Enforced default behavior in store write path:
+  - implicit `type="association"` bead creation now requires explicit flag
+  - compatibility override available via `CORE_MEMORY_ALLOW_IMPLICIT_ASSOCIATION_BEAD=1`
+- Updated ADR with superseding decision details:
+  - `docs/adr_association_type_policy.md`
+- Expanded policy tests:
+  - `tests/test_association_type_policy.py`
+  - verifies policy value, default enforcement, and compat override behavior
