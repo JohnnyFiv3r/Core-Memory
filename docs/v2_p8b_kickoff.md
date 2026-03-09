@@ -6,9 +6,19 @@ Status: Active
 Eliminate ambiguity in continuity read/write authority so runtime continuity injection is deterministic and all non-authoritative continuity artifacts are explicitly demoted.
 
 ## Step plan (5)
-1. Surface authority contract hardening
+1. Surface authority contract hardening ✅
 2. Derived artifact demotion + metadata normalization ✅
-3. Read-path purification sweep
+3. Read-path purification sweep ✅
+4. Regression and invariants
+5. Full sweep + P8B closeout
+
+## Step 1 completion notes
+- Added canonical continuity authority contract alignment across docs and runtime loader language.
+- Established explicit continuity authority order:
+  1) `rolling-window.records.json` (authoritative)
+  2) `promoted-context.meta.json` (fallback metadata only)
+  3) empty
+- Clarified that `promoted-context.md` is derived/operator-facing and never runtime authority.
 
 ## Step 2 completion notes
 - Normalized continuity metadata semantics across authority and derived surfaces.
@@ -20,13 +30,13 @@ Eliminate ambiguity in continuity read/write authority so runtime continuity inj
   - `role=derived_fallback_metadata`
 - `promoted-context.md` remains derived/operator-facing only.
 - Updated OpenClaw integration guidance to state continuity authority/fallback split.
-4. Regression and invariants
-5. Full sweep + P8B closeout
 
-## Step 1 completion notes
-- Added canonical continuity authority contract alignment across docs and runtime loader language.
-- Established explicit continuity authority order:
-  1) `rolling-window.records.json` (authoritative)
-  2) `promoted-context.meta.json` (fallback metadata only)
-  3) empty
-- Clarified that `promoted-context.md` is derived/operator-facing and never runtime authority.
+## Step 3 completion notes
+- Completed source sweep for continuity surface path literals across `core_memory/*`.
+- Confirmed runtime continuity surface file access is centralized to canonical modules only:
+  - `core_memory.continuity_injection`
+  - `core_memory.rolling_record_store`
+  - `core_memory.rolling_surface`
+- Added regression guard:
+  - `tests/test_p8b_read_path_purification.py`
+  - Fails if non-canonical modules directly reference continuity surface artifacts.
