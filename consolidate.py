@@ -1,5 +1,8 @@
 #!/usr/bin/env python3
-"""Core Memory consolidation utility.
+"""Core Memory consolidation utility (thin operational wrapper).
+
+Canonical runtime authority is `core_memory.memory_engine.process_flush(...)`.
+This root script is retained for operational compatibility.
 
 Usage:
   python3 consolidate.py consolidate --session <id> [--promote] [--token-budget 2000]

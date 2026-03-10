@@ -1,7 +1,9 @@
-"""Memory sidecar contracts/utilities for coordinator integration.
+"""DEPRECATED transitional compatibility module.
 
-This module is coordinator-agnostic and provides deterministic envelope/event
-shapes plus idempotency helpers for one-memory-pass-per-turn workflows.
+Canonical replacement: `core_memory.event_state`.
+
+This file is retained temporarily as implementation backing for transition
+shims. New runtime-facing code should import `event_state` instead.
 """
 
 from __future__ import annotations

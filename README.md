@@ -128,7 +128,7 @@ While the agent interacts with the user or tools, Core Memory captures structure
 - outcomes of actions
 - hypotheses or observations
 
-The sidecar hook extracts these events at the end of the turn and appends them to the memory log. Memory storage is append-only, meaning the full history of events is preserved.
+The event ingress/runtime path captures finalized-turn events at turn end and appends structured records to memory. Memory storage is append-only, meaning the full history of events is preserved.
 
 #### Compaction
 After each turn, Core Memory runs a compaction step. Compaction ensures the context packet remains bounded while preserving important knowledge.
