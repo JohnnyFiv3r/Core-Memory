@@ -7,7 +7,12 @@ Status: Active
 2. Reduce `trigger_orchestrator.py` to thin helper compatibility layer
 3. Shift crawler-applied updates to session-local side logs ✅
 4. Flush merge path: session beads + promotions + associations -> archive/projection ✅
-5. Full sweep + P8A closeout
+5. Full sweep + P8A closeout ✅
+
+## Step 5 completion notes
+- Restored flush checkpoint emission from engine-owned flush path.
+- Stabilized continuity scenario sweep by enforcing deterministic test preconditions.
+- Completed targeted regression sweep for P8A-related contracts.
 
 ## Step 4 completion notes
 - Added flush-merge path for session-local crawler side logs:

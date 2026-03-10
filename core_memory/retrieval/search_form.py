@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+SEARCH_FORM_SCHEMA_VERSION = "memory_search_form.v1"
+SEARCH_FORM_TOOL_ID = "core.memory_search"
+
 
 def get_search_form(catalog: dict) -> dict:
     return {
-        "schema_version": "memory_search_form.v1",
-        "tool": "core.memory_search",
+        "schema_version": SEARCH_FORM_SCHEMA_VERSION,
+        "tool": SEARCH_FORM_TOOL_ID,
         "fields": {
             "intent": {"type": "enum", "allowed": ["remember", "causal", "what_changed", "when", "other"], "required": True},
             "query_text": {"type": "string", "required": True},

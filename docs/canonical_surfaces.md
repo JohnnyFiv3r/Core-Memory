@@ -6,6 +6,17 @@ Purpose: inventory the current public, supported surfaces of Core Memory without
 
 ## Canonical runtime APIs
 
+### Continuity injection surface
+- `core_memory.continuity_injection.load_continuity_injection(...)`
+
+Authority order:
+1. `rolling-window.records.json` (authoritative continuity surface)
+2. `promoted-context.meta.json` (fallback metadata only)
+3. empty
+
+Non-authoritative continuity artifacts:
+- `promoted-context.md` (derived operator-facing text)
+
 ### Unified memory skill surface
 - `core_memory.tools.memory.execute`
 - `core_memory.tools.memory.search`

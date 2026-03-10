@@ -49,10 +49,19 @@ def run_extract_pipeline(*, session_id: str | None, consolidate: bool) -> dict:
     return out
 
 
-def run_consolidate_pipeline(*, session_id: str, promote: bool, token_budget: int, max_beads: int) -> dict:
+def run_consolidate_pipeline(
+    *,
+    session_id: str,
+    promote: bool,
+    token_budget: int,
+    max_beads: int,
+    root: str | None = None,
+    workspace_root: str | None = None,
+) -> dict:
+    root_final = str(root or get_memory_root())
     return run_session_consolidation(
-        root=get_memory_root(),
-        workspace_root=Path(__file__).resolve().parents[2],
+        root=root_final,
+        workspace_root=str(workspace_root or root_final),
         session_id=session_id,
         promote=promote,
         token_budget=token_budget,

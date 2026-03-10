@@ -22,6 +22,8 @@ class TestMemoryExecuteContract(unittest.TestCase):
                 explain=True,
             )
             self.assertTrue(out.get('ok'))
+            self.assertEqual('memory_execute_result.v1', out.get('schema_version'))
+            self.assertEqual('memory_execute', out.get('contract'))
             for key in ['request', 'snapped', 'results', 'chains', 'grounding', 'confidence', 'next_action']:
                 self.assertIn(key, out)
             self.assertTrue((out.get('results') or []))

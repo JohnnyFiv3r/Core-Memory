@@ -31,6 +31,34 @@ class TestContinuityInjectionAuthority(unittest.TestCase):
             self.assertEqual("promoted_context_meta_fallback", out.get("authority"))
             self.assertEqual(["b1"], out.get("included_bead_ids"))
 
+    def test_fallback_to_meta_when_record_store_corrupt(self):
+        with tempfile.TemporaryDirectory() as td:
+            rp = Path(td) / "rolling-window.records.json"
+            rp.write_text("{not-json", encoding="utf-8")
+            mp = Path(td) / "promoted-context.meta.json"
+            mp.write_text(json.dumps({"included_bead_ids": ["b2"], "meta": {"surface": "rolling_window"}}), encoding="utf-8")
+
+            out = continuity_injection_context(workspace_root=td)
+            self.assertEqual("promoted_context_meta_fallback", out.get("authority"))
+            self.assertEqual(["b2"], out.get("included_bead_ids"))
+
+    def test_fallback_to_meta_when_record_store_empty(self):
+        with tempfile.TemporaryDirectory() as td:
+            rp = Path(td) / "rolling-window.records.json"
+            rp.write_text(json.dumps({"records": [], "included_bead_ids": []}), encoding="utf-8")
+            mp = Path(td) / "promoted-context.meta.json"
+            mp.write_text(json.dumps({"included_bead_ids": ["b3"], "meta": {"surface": "rolling_window"}}), encoding="utf-8")
+
+            out = continuity_injection_context(workspace_root=td)
+            self.assertEqual("promoted_context_meta_fallback", out.get("authority"))
+            self.assertEqual(["b3"], out.get("included_bead_ids"))
+
+    def test_none_authority_when_no_surfaces_exist(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = continuity_injection_context(workspace_root=td)
+            self.assertEqual("none", out.get("authority"))
+            self.assertEqual([], out.get("records") or [])
+
 
 if __name__ == "__main__":
     unittest.main()

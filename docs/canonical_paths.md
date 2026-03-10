@@ -13,12 +13,22 @@ Purpose: single reference for primary runtime/data-flow paths.
 - Index role: projection/cache (`index.json`), rebuildable from authority surfaces
 
 ## Continuity surfaces
-- Canonical continuity store: `rolling-window.records.json`
-- Derived/operator artifact: `promoted-context.md`
+- Canonical continuity authority: `rolling-window.records.json`
+- Fallback metadata surface (non-authoritative): `promoted-context.meta.json`
+- Derived/operator artifact (non-authoritative): `promoted-context.md`
+
+Runtime continuity injection authority order:
+1. `rolling-window.records.json`
+2. `promoted-context.meta.json` fallback only
+3. empty (`authority=none`)
 
 ## Retrieval primary modules
-- Search form primary: `core_memory/retrieval/search_form.py`
-- Skill-form shim (deprecated): `core_memory/memory_skill/form.py`
+- Search form schema authority: `core_memory/retrieval/search_form.py`
+  - canonical ids: `SEARCH_FORM_SCHEMA_VERSION`, `SEARCH_FORM_TOOL_ID`
+- Runtime typed-search surface: `core_memory/tools/memory.py::{get_search_form,search,execute}`
+- Compatibility shims (non-canonical runtime entry):
+  - `core_memory/tools/memory_search.py`
+  - `core_memory/memory_skill/form.py`
 
 ## Integration framing
 - SpringAI primary bridge: `core_memory.integrations.springai.get_app()`
