@@ -9,8 +9,18 @@ Complete single-judgment authority by making semantic bead creation canonical th
 1. Decision lock + canonical docs update ✅
 2. Worker semantic creation demotion ✅
 3. event_* import migration guardrails ✅
-4. Targeted invariants + matrix update
+4. Targeted invariants + matrix update ✅
 5. Sweep + closeout
+
+## Step 4 completion notes
+- Expanded pre-OSS matrix to include V2P13/V2P14 authority and import-migration invariants:
+  - `tests.test_p13_authority_enforcement`
+  - `tests.test_event_import_migration_guard`
+  - `tests.test_event_module_aliases`
+- Updated matrix manifest and one-command runner:
+  - `tests/test_pre_oss_matrix.py`
+  - `scripts/run_pre_oss_matrix.sh`
+- Validation result: 30 passed / 0 failed.
 
 ## Step 1 completion notes
 - Locked judgment authority in canonical docs:
