@@ -4,10 +4,10 @@ Core-Memory data models.
 This module contains all type definitions and enums.
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Any, Optional
 
 
 # === Enums ===
@@ -97,6 +97,11 @@ class ImpactLevel(Enum):
 
 # === Dataclasses ===
 
+def _known_dataclass_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
+    allowed = {f.name for f in fields(cls)}
+    return {k: v for k, v in (data or {}).items() if k in allowed}
+
+
 @dataclass
 class Bead:
     """A bead represents a discrete unit of memory."""
@@ -160,8 +165,8 @@ class Bead:
     
     @classmethod
     def from_dict(cls, data: dict) -> "Bead":
-        """Create from dictionary."""
-        return cls(**data)
+        """Create from dictionary, ignoring unknown keys."""
+        return cls(**_known_dataclass_kwargs(cls, data))
 
 
 @dataclass
@@ -195,8 +200,8 @@ class Association:
     
     @classmethod
     def from_dict(cls, data: dict) -> "Association":
-        """Create from dictionary."""
-        return cls(**data)
+        """Create from dictionary, ignoring unknown keys."""
+        return cls(**_known_dataclass_kwargs(cls, data))
 
 
 @dataclass
@@ -220,5 +225,5 @@ class Event:
     
     @classmethod
     def from_dict(cls, data: dict) -> "Event":
-        """Create from dictionary."""
-        return cls(**data)
+        """Create from dictionary, ignoring unknown keys."""
+        return cls(**_known_dataclass_kwargs(cls, data))
