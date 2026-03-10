@@ -31,7 +31,7 @@ class TestSidecarWorker(unittest.TestCase):
         self.assertEqual(len(delta["created"]), 0)
         self.assertEqual(len(delta["promoted"]), 0)
 
-    def test_budget_create_and_promote_max_one(self):
+    def test_budget_create_and_promotion_preview_only(self):
         b = self.store.add_bead(type="context", title="seed", summary=["x"], session_id="s1")
         payload = {
             "envelope": {
@@ -45,7 +45,8 @@ class TestSidecarWorker(unittest.TestCase):
         }
         delta = process_memory_event(self.tmp, payload, policy=SidecarPolicy())
         self.assertLessEqual(len(delta["created"]), 1)
-        self.assertLessEqual(len(delta["promoted"]), 1)
+        self.assertEqual(0, len(delta["promoted"]))
+        self.assertTrue(all(c.get("authoritative") is False for c in (delta.get("promotion_candidates") or [])))
 
 
 if __name__ == "__main__":

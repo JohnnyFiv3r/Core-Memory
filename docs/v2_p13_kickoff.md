@@ -7,8 +7,14 @@ Eliminate competing deterministic judgment authority so promotion/association de
 
 ## Step plan (6)
 1. Store association authority demotion ✅
-2. Worker deterministic-judgment demotion
+2. Worker deterministic-judgment demotion ✅
 3. Crawler-reviewed promotion/association authority enforcement
+
+## Step 2 completion notes
+- Demoted deterministic worker promotion logic to non-authoritative preview mode in `core_memory.sidecar_worker`.
+- Worker no longer mutates canonical promotion state via deterministic `store.promote(...)` path.
+- Promotion candidates emitted by worker are explicitly marked `authoritative=false` for agent/crawler review.
+- Candidate auto-archive/evaluation deterministic pass is disabled in canonical worker flow.
 4. pass_engine explicit non-primary deprecation lock
 5. sidecar naming transition to event-* canonical terms
 6. Sweep + closeout
