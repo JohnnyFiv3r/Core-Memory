@@ -23,7 +23,8 @@ class TestWriteTriggerDispatch(unittest.TestCase):
                 payload={'token_budget': 1234, 'max_beads': 12},
             )
             ev = {'event_id': eid, 'trigger_type': 'rolling_window_refresh', 'payload': {'token_budget': 1234, 'max_beads': 12}}
-            out = dispatch_write_trigger(root=td, event=ev, workspace_root='/home/node/.openclaw/workspace')
+            repo_root = str(Path(__file__).resolve().parents[1])
+            out = dispatch_write_trigger(root=td, event=ev, workspace_root=repo_root)
             self.assertTrue(out.get('ok'))
             self.assertEqual(0, out.get('returncode'))
             self.assertTrue(mrun.called)
