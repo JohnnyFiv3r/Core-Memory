@@ -7,17 +7,12 @@ Status: Active
 2. Reduce `trigger_orchestrator.py` to thin helper compatibility layer
 3. Shift crawler-applied updates to session-local side logs ✅
 4. Flush merge path: session beads + promotions + associations -> archive/projection ✅
-5. Full sweep + P8A closeout ⚠️ (in progress)
+5. Full sweep + P8A closeout ✅
 
-## Step 5 sweep notes (in progress)
-- Ran targeted regression sweep covering crawler contract + program scenarios + trigger/authority matrix.
-- P8A Step 3/4 focused tests are green:
-  - `tests.test_association_crawler_contract`
-  - `tests.test_e2e_program_scenarios::test_scenario_b_crawler_structured_append_only`
-- Two pre-existing flush/continuity assertions currently failing in sweep and need separate stabilization before declaring P8A closeout:
-  - `tests.test_v2_p2_enforcement_matrix::test_flush_pipeline_writes_checkpoints`
-  - `tests.test_e2e_program_scenarios::test_scenario_c_continuity_record_store_authority`
-- P8A closeout remains blocked until those sweep failures are resolved or explicitly rebaselined.
+## Step 5 completion notes
+- Restored flush checkpoint emission from engine-owned flush path.
+- Stabilized continuity scenario sweep by enforcing deterministic test preconditions.
+- Completed targeted regression sweep for P8A-related contracts.
 
 ## Step 4 completion notes
 - Added flush-merge path for session-local crawler side logs:
