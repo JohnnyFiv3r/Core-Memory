@@ -11,7 +11,14 @@ Eliminate competing deterministic judgment authority so promotion/association de
 3. Crawler-reviewed promotion/association authority enforcement ✅
 4. pass_engine explicit non-primary deprecation lock ✅
 5. sidecar naming transition to event-* canonical terms ✅
-6. Sweep + closeout
+6. Sweep + closeout ✅
+
+## Step 6 completion notes
+- Completed V2P13 sweep across authority, runtime, and integration invariants.
+- Added closeout artifact:
+  - `docs/v2_p13_closeout_checklist.md`
+- Sweep result: 27 passed / 0 failed.
+- V2P13 is now closed.
 
 ## Step 1 completion notes
 - Updated `core_memory.store.add_bead(...)` quick association path to preview-only.
