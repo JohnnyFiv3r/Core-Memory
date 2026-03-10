@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 
 from core_memory.rolling_record_store import read_rolling_records
+
+logger = logging.getLogger(__name__)
 
 
 AUTHORITY_RECORD_STORE = "rolling_record_store"
