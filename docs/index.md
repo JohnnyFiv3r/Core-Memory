@@ -85,6 +85,7 @@ Start here for current Core Memory documentation.
 - `v2_p12_kickoff.md` — P12 pre-OSS stabilization tracker
 - `v2_p13_kickoff.md` — P13 single-judgment authority cutover tracker
 - `v2_p14_kickoff.md` — P14 worker judgment final-cut tracker
+- `v2_p15_kickoff.md` — P15 worker mechanical-only cut tracker
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point

@@ -180,6 +180,19 @@ def process_turn_finalized(
             "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
         }
 
+    # V2P15 Step 2: enforce canonical crawler handoff framing from turn pipeline.
+    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
+    auto_apply = None
+    md = req.get("metadata") or {}
+    reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
+    if isinstance(reviewed_updates, dict) and reviewed_updates:
+        auto_apply = apply_crawler_updates(
+            root=root,
+            session_id=req["session_id"],
+            updates=reviewed_updates,
+            visible_bead_ids=list(crawler_ctx.get("visible_bead_ids") or []),
+        )
+
     return {
         "ok": True,
         "mode": "turn",
@@ -188,6 +201,11 @@ def process_turn_finalized(
         "failed": 0,
         "delta": delta,
         "emitted": emitted,
+        "crawler_handoff": {
+            "required": True,
+            "context_visible_count": len(crawler_ctx.get("visible_bead_ids") or []),
+            "auto_apply": auto_apply,
+        },
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
 

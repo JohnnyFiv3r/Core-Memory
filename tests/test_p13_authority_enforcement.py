@@ -46,7 +46,7 @@ class TestP13AuthorityEnforcement(unittest.TestCase):
             }
             delta = process_memory_event(td, payload, policy=SidecarPolicy())
             self.assertEqual(0, len(delta.get("created") or []))
-            self.assertGreaterEqual(len(delta.get("creation_candidates") or []), 1)
+            self.assertEqual(0, len(delta.get("creation_candidates") or []))
             self.assertEqual(0, len(delta.get("promoted") or []))
 
             idx = s._read_json(s.beads_dir / "index.json")
