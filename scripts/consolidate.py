@@ -2,7 +2,6 @@
 """Core Memory consolidation utility implementation.
 
 Canonical implementation module moved from repo root in V2P18.
-Operational compatibility wrapper remains at `consolidate.py`.
 """
 
 import argparse
@@ -107,7 +106,6 @@ def cmd_consolidate(args, source: str = "flush_hook"):
 
 
 def cmd_rolling_window(args):
-    # Route through canonical rolling-window pipeline for consistency.
     out = run_rolling_window_pipeline(token_budget=int(args.token_budget), max_beads=int(args.max_beads), root=store_root())
     print(json.dumps(out))
 
