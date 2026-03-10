@@ -8,8 +8,12 @@ Status: Canonical
 3. `emit_turn_finalized(...)` records canonical event envelope.
 4. `memory_engine.process_turn_finalized(...)` runs idempotent processing once per `session_id:turn_id`.
 
-## In-session association updates
-- Crawler/agent-reviewed updates queue to session-local side logs.
+## In-session semantic judgment updates
+- Agent-reviewed crawler outputs are canonical for:
+  - bead creation judgment
+  - promotion decisions
+  - association decisions
+- Outputs queue to session-local side logs.
 - Side logs are merged at flush-time into projection surfaces.
 
 ## Flush boundary
@@ -22,3 +26,4 @@ Status: Canonical
 - One finalized turn => one idempotent memory pass key
 - Fail-open on adapter/runtime integration boundary
 - No transcript/index-dump primary write path
+- Deterministic worker outputs are preview-only; canonical semantic writes are agent-reviewed

@@ -8,6 +8,11 @@ Core Memory is an event/session-first memory system.
 - `core_memory.memory_engine` — canonical runtime sequencing owner
 - `core_memory.integrations.api.emit_turn_finalized(...)` — canonical write ingress
 
+## Judgment authority lock (V2P14)
+- Semantic bead creation authority: agent-reviewed crawler path
+- Promotion/association authority: agent-reviewed crawler path
+- Deterministic worker logic may provide preview hints only (non-authoritative)
+
 ## Primary data surfaces
 - Live session authority: `.beads/session-<id>.jsonl`
 - Archive/projection surface: `.beads/index.json` (projection/cache, not live authority)
