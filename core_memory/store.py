@@ -1879,36 +1879,16 @@ class MemoryStore:
                     "bead_id": c["other_id"],
                     "relationship": c["relationship"],
                     "score": c["score"],
+                    "authoritative": False,
+                    "source": "store_quick_preview",
                 }
                 for c in candidates
             ]
             index["beads"][bead["id"]] = bead
 
-            for c in candidates:
-                assoc = {
-                    "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
-                    "type": "association",
-                    "source_bead": bead_id,
-                    "target_bead": c["other_id"],
-                    "relationship": c["relationship"],
-                    "explanation": "auto: quick per-turn lookback",
-                    "edge_class": "derived",
-                    "created_at": now,
-                    "score": c["score"],
-                    "shared_tags": c["shared_tags"],
-                }
-                # de-dup against existing same pair+relationship
-                exists = any(
-                    a.get("source_bead") == assoc["source_bead"]
-                    and a.get("target_bead") == assoc["target_bead"]
-                    and a.get("relationship") == assoc["relationship"]
-                    for a in index.get("associations", [])
-                )
-                if exists:
-                    continue
-                index["associations"].append(assoc)
-                events.event_association_created(self.root, assoc, use_lock=False)
-
+            # V2P13 Step 1: store-level quick association pass is preview-only.
+            # Canonical association authorship is owned by crawler-reviewed updates
+            # and flush-merge projection paths.
             index["associations"] = sorted(
                 index.get("associations", []),
                 key=lambda a: (a.get("created_at", ""), a.get("id", "")),
