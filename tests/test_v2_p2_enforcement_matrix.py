@@ -72,7 +72,7 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
             proc = subprocess.run(
                 [
                     "python3",
-                    "/home/node/.openclaw/workspace/consolidate.py",
+                    "/home/node/.openclaw/workspace/scripts/consolidate.py",
                     "flush",
                     "--session",
                     "main",

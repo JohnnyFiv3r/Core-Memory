@@ -8,8 +8,14 @@ Operational compatibility wrapper remains at `consolidate.py`.
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# Ensure repo root is importable when script is executed directly.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
 
 from core_memory.store import MemoryStore
 from core_memory.write_pipeline.orchestrate import run_rolling_window_pipeline
