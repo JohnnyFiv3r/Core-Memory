@@ -2,8 +2,11 @@
 """
 extract-beads.py: Extract bead markers from session transcript.
 
-Runs post-session (via memoryFlush). Parses transcript JSONL for bead markers,
-and writes them into Core Memory via core_memory CLI.
+Status: legacy/backfill bridge (non-canonical runtime path).
+Canonical live ingestion path is finalized-turn event processing.
+
+Runs post-session (via memoryFlush / replay workflows). Parses transcript JSONL
+for bead markers and writes them into Core Memory via core_memory CLI.
 
 Usage:
     python3 extract-beads.py <session-id>

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Legacy extraction idempotency markers for transcript backfill path."""
+
 import json
 from datetime import datetime, timezone
 from pathlib import Path

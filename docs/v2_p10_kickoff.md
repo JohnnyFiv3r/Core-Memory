@@ -7,8 +7,16 @@ Reduce transitional drift by removing safe shim files now, then tightening depre
 
 ## Step plan (4)
 1. Immediate removals + import/test cleanup ✅
-2. Transitional deprecation marking pass
+2. Transitional deprecation marking pass ✅
 3. Docs archive and surface cleanup
+
+## Step 2 completion notes
+- Marked transitional/deprecation intent explicitly in code for active compatibility modules:
+  - `core_memory.association.pass_engine` (legacy-primary marker + replacement target)
+  - `extract-beads.py` (legacy/backfill runtime note)
+  - `core_memory.write_pipeline.*` legacy transcript/backfill modules (module doc markers)
+- Added regression for deprecation markers:
+  - `tests/test_p10_deprecation_markers.py`
 4. Sweep + closeout
 
 ## Step 1 completion notes

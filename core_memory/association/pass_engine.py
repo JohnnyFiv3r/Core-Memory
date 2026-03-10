@@ -1,5 +1,14 @@
 from __future__ import annotations
 
+"""Deterministic association helper (transitional).
+
+Status: compatibility/deprecation candidate as crawler_contract + agent-reviewed
+session-local updates are the primary association path.
+"""
+
+LEGACY_PRIMARY = True
+PRIMARY_REPLACEMENT = "core_memory.association.crawler_contract"
+
 
 def _tokenize(text: str) -> set[str]:
     return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}

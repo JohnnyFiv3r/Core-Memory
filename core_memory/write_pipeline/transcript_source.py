@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Legacy transcript source resolver for backfill/replay flows."""
+
 from pathlib import Path
 
 
