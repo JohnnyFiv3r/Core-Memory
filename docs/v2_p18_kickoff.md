@@ -11,7 +11,14 @@ Finalize event-runtime ownership by moving implementation authority to canonical
 3. Remove `sidecar_*` files ✅
 4. Move `consolidate.py` implementation to scripts path + root shim ✅
 5. Update all consolidate references + remove root shim ✅
-6. Sweep + closeout
+6. Sweep + closeout ✅
+
+## Step 6 completion notes
+- Completed V2P18 sweep across event runtime ownership, consolidate relocation, and e2e/runtime invariants.
+- Added closeout artifact:
+  - `docs/v2_p18_closeout_checklist.md`
+- Sweep result: 20 passed / 0 failed.
+- V2P18 is now closed.
 
 ## Step 1 completion notes
 - Moved real implementation ownership into canonical modules:
