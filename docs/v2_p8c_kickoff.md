@@ -10,7 +10,14 @@ Close retrieval schema ambiguity by pinning canonical schema ownership and expli
 2. Retrieval contract normalization ✅
 3. Read/write path purity sweep ✅
 4. Regression + compatibility invariants ✅
-5. Full sweep + P8C closeout
+5. Full sweep + P8C closeout ✅
+
+## Step 5 completion notes
+- Completed P8C regression sweep and closeout validation.
+- Added closeout artifact:
+  - `docs/v2_p8c_closeout_checklist.md`
+- Sweep result: 12 passed / 0 failed.
+- P8C is now closed.
 
 ## Step 4 completion notes
 - Expanded retrieval contract invariants to lock schema/contract metadata in wrappers.
