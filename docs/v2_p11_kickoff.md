@@ -8,7 +8,14 @@ Retire transcript/index-dump as a supported primary write architecture and lock 
 ## Step plan (4)
 1. Decision lock + canonical docs update ✅
 2. Code removal of transcript dump path ✅
-3. Bridge-only clarification and residual cleanup
+3. Bridge-only clarification and residual cleanup ✅
+4. Sweep + closeout
+
+## Step 1 completion notes
+- Locked architectural decision in canonical/integration docs:
+  - transcript/index-dump is retired as primary write path
+  - transcript inputs are bridge-only into canonical finalized-turn ingestion
+- Updated canonical surfaces/paths references to match current repo shape and archive layout.
 
 ## Step 2 completion notes
 - Removed transcript/index-dump primary write-path files:
@@ -22,10 +29,10 @@ Retire transcript/index-dump as a supported primary write architecture and lock 
   - `tests/test_write_pipeline_extract_parity.py`
 - Updated orchestration exports to remove extract pipeline surface.
 - `extract_beads` write-trigger dispatch is now explicit retired path (`error=extract_path_retired`).
-4. Sweep + closeout
 
-## Step 1 completion notes
-- Locked architectural decision in canonical/integration docs:
-  - transcript/index-dump is retired as primary write path
-  - transcript inputs are bridge-only into canonical finalized-turn ingestion
-- Updated canonical surfaces/paths references to match current repo shape and archive layout.
+## Step 3 completion notes
+- Clarified transcript bridge semantics in `docs/integration/memory-sidecar.md`:
+  - transcript input is bridge-only
+  - no transcript/index-dump primary write path
+  - bridge feeds canonical finalized-turn event/session-first flow
+- Retained `scripts/sidecar_sync_session.py` as bridge utility only while native runtime finalize wiring maturity varies by deployment.
