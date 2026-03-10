@@ -1,5 +1,11 @@
 from __future__ import annotations
 
+"""Legacy transcript/backfill orchestration helpers.
+
+Status: compatibility path (non-canonical runtime lifecycle).
+Canonical runtime sequencing lives in `core_memory.memory_engine`.
+"""
+
 import os
 from pathlib import Path
 

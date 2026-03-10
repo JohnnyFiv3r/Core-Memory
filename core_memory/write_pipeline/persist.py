@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Legacy extraction persistence via CLI (compatibility path)."""
+
 import subprocess
 import sys
 from pathlib import Path

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Legacy marker parser used by transcript extraction bridge flows."""
+
 import json
 import re
 from pathlib import Path

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+"""Legacy extraction normalization helper (backfill compatibility path)."""
+
 
 def normalize_bead_for_cli(bead: dict) -> dict:
     b = dict(bead or {})

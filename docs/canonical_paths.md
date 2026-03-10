@@ -35,5 +35,5 @@ Runtime continuity injection authority order:
 - HTTP compatibility ingress: `core_memory.integrations.http.get_app()`
 
 ## Compatibility/deprecated notes
-- `core_memory.write_pipeline.window` is a compatibility shim (primary owner: `core_memory.rolling_surface`)
+- legacy transcript/backfill stack under `core_memory.write_pipeline/*` is compatibility-oriented
 - legacy poller path is compatibility-only and hard-fenced by env flag

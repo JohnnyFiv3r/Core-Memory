@@ -69,6 +69,10 @@ Start here for current Core Memory documentation.
 - `v2_p7c_closeout_checklist.md` — P7C completion and shim-cleanup validation gate
 - `v2_program_closeout.md` — end-to-end V2/P7 program closeout summary
 - `v2_p8a_kickoff.md` — P8A runtime/state authority cutover kickoff and tracker
+- `v2_p8_program_closeout.md` — consolidated P8 (P8A/B/C) closeout summary
+- `v2_p9_kickoff.md` — P9 session-purity and bridge-semantics tracker
+- `v2_p9_closeout_checklist.md` — P9 completion and validation gate
+- `v2_p10_kickoff.md` — P10 strict cleanup tracker
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
@@ -87,7 +91,7 @@ Start here for current Core Memory documentation.
 
 ## Historical / snapshot material
 - `archive/` — archived migration/deprecation/history docs
-- dated `*_2026-03-05.md` reports in `docs/` — point-in-time evaluation artifacts
+- `archive/reports/2026-03-05/` — point-in-time evaluation artifacts moved off primary docs surface
 
 ## Suggested reading order for contributors
 1. `canonical_surfaces.md`
