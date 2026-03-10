@@ -10,7 +10,14 @@ Complete single-judgment authority by making semantic bead creation canonical th
 2. Worker semantic creation demotion ✅
 3. event_* import migration guardrails ✅
 4. Targeted invariants + matrix update ✅
-5. Sweep + closeout
+5. Sweep + closeout ✅
+
+## Step 5 completion notes
+- Completed V2P14 sweep across worker-authority, import-guard, runtime and e2e contracts.
+- Added closeout artifact:
+  - `docs/v2_p14_closeout_checklist.md`
+- Sweep result: 15 passed / 0 failed.
+- V2P14 is now closed.
 
 ## Step 4 completion notes
 - Expanded pre-OSS matrix to include V2P13/V2P14 authority and import-migration invariants:
