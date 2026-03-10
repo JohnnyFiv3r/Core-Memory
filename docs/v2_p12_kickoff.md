@@ -10,7 +10,14 @@ Stabilize the public architecture surface for OSS promotion without adding featu
 2. Adapter consistency pass ✅
 3. Public import/surface cleanup ✅
 4. OSS trust test matrix ✅
-5. Sweep + pre-OSS closeout
+5. Sweep + pre-OSS closeout ✅
+
+## Step 5 completion notes
+- Executed pre-OSS sweep via `scripts/run_pre_oss_matrix.sh`.
+- Added closeout artifact:
+  - `docs/v2_p12_pre_oss_closeout.md`
+- Sweep result: 24 passed / 0 failed.
+- V2P12 is now closed.
 
 ## Step 4 completion notes
 - Added compact pre-OSS matrix runner:
