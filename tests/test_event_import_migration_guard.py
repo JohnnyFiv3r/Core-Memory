@@ -7,11 +7,8 @@ class TestEventImportMigrationGuard(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         core = root / "core_memory"
 
-        # sidecar modules themselves + canonical event aliases are allowed to reference sidecar.
+        # canonical event modules may contain transitional wording during migration.
         allow_sidecar_imports = {
-            core / "sidecar.py",
-            core / "sidecar_hook.py",
-            core / "sidecar_worker.py",
             core / "event_state.py",
             core / "event_ingress.py",
             core / "event_worker.py",
@@ -32,9 +29,6 @@ class TestEventImportMigrationGuard(unittest.TestCase):
 
         allow = {
             tests_dir / "test_event_import_migration_guard.py",
-            tests_dir / "test_sidecar_contracts.py",
-            tests_dir / "test_sidecar_hook.py",
-            tests_dir / "test_sidecar_worker.py",
         }
 
         offenders: list[str] = []
