@@ -9,8 +9,16 @@ Stabilize the public architecture surface for OSS promotion without adding featu
 1. Canonical docs lock ✅
 2. Adapter consistency pass ✅
 3. Public import/surface cleanup ✅
-4. OSS trust test matrix
+4. OSS trust test matrix ✅
 5. Sweep + pre-OSS closeout
+
+## Step 4 completion notes
+- Added compact pre-OSS matrix runner:
+  - `scripts/run_pre_oss_matrix.sh`
+- Added matrix manifest test:
+  - `tests/test_pre_oss_matrix.py`
+- Matrix covers core, retrieval, and adapter invariants and is runnable in one command.
+- Validation result: 24 passed / 0 failed.
 
 ## Step 1 completion notes
 - Added short canonical doc set for fast contributor orientation:
