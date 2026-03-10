@@ -5,6 +5,8 @@ Canonical replacement: `core_memory.event_worker`.
 This worker is mechanical/bookkeeping-only and retained as implementation
 backing during migration. New runtime-facing code should import
 `event_worker` instead.
+
+Canonical semantic authority lives in crawler-reviewed paths.
 """
 
 from __future__ import annotations
