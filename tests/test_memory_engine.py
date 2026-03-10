@@ -20,6 +20,7 @@ class TestMemoryEngine(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             self.assertEqual("canonical_in_process", out.get("authority_path"))
             self.assertTrue((out.get("engine") or {}).get("normalized"))
+            self.assertTrue((out.get("crawler_handoff") or {}).get("required"))
 
     def test_process_flush(self):
         with tempfile.TemporaryDirectory() as td:

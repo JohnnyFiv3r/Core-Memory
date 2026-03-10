@@ -7,8 +7,14 @@ Remove residual deterministic semantic judgment behavior from worker runtime pat
 
 ## Step plan (3)
 1. Worker mechanical-only cut ✅
-2. Crawler handoff enforcement
+2. Crawler handoff enforcement ✅
 3. Sweep + closeout
+
+## Step 2 completion notes
+- Enforced crawler handoff framing in `memory_engine.process_turn_finalized(...)`.
+- Turn pipeline now always records crawler handoff context metadata in result payload.
+- Added optional metadata-driven auto-apply path for crawler-reviewed updates (`metadata.crawler_updates`) using canonical apply path.
+- Updated memory-engine tests to validate required crawler-handoff marker.
 
 ## Step 1 completion notes
 - Reworked `core_memory.sidecar_worker.process_memory_event(...)` to mechanical/bookkeeping-only behavior.
