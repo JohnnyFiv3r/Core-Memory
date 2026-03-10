@@ -5,8 +5,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.sidecar import mark_memory_pass
-from core_memory.sidecar_hook import maybe_emit_finalize_memory_event, should_emit_memory_event
+from core_memory.event_state import mark_memory_pass
+from core_memory.event_ingress import maybe_emit_finalize_memory_event, should_emit_memory_event
 
 
 class TestSidecarHook(unittest.TestCase):

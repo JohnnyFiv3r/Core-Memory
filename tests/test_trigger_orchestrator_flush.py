@@ -4,7 +4,7 @@ import unittest
 from core_memory.store import MemoryStore
 from core_memory.trigger_orchestrator import run_flush_pipeline
 from core_memory.openclaw_integration import finalize_and_process_turn
-from core_memory.sidecar_worker import SidecarPolicy
+from core_memory.event_worker import SidecarPolicy
 
 
 class TestTriggerOrchestratorFlush(unittest.TestCase):

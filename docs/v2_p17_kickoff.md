@@ -7,9 +7,15 @@ Improve repository organization and public OSS surface clarity without changing 
 
 ## Step plan (4)
 1. Docs archival pass ✅
-2. sidecar/event replacement verification + cleanup
+2. sidecar/event replacement verification + cleanup ✅
 3. integration docs folder normalization
 4. consolidate.py relocation safety gate
+
+## Step 2 completion notes
+- Updated runtime/test references to canonical `event_*` modules (`event_ingress`, `event_worker`, `event_state`).
+- Verified public/current imports no longer depend on `sidecar_*` module names.
+- Kept `sidecar_*` files as explicit transitional compatibility implementation layer for now because `event_*` currently delegates to them internally.
+- Updated integration wording to event-runtime terminology in `core_memory/openclaw_integration.py`.
 
 ## Step 1 completion notes
 - Archived non-canonical historical loose docs into `docs/archive/history/`.
