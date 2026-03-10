@@ -25,7 +25,8 @@ def read_session_surface(root: str | Path, session_id: str) -> list[dict[str, An
             continue
         try:
             rec = json.loads(line)
-        except Exception:
+        except Exception as exc:
+            logger.warning("session_surface.read.invalid_json_line", exc_info=exc)
             continue
         if isinstance(rec, dict):
             rows.append(rec)

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+import logging
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +15,8 @@ from .event_ingress import maybe_emit_finalize_memory_event
 from .event_worker import SidecarPolicy, process_memory_event
 from .write_pipeline.orchestrate import run_consolidate_pipeline
 from .io_utils import append_jsonl
+
+logger = logging.getLogger(__name__)
 
 
 # Canonical runtime center.
@@ -191,6 +194,7 @@ def process_turn_finalized(
     try:
         delta = process_memory_event(root, row, policy=policy)
     except Exception as exc:
+        logger.warning("memory_engine.turn.process_memory_event_failed", exc_info=exc)
         mark_memory_pass(
             Path(root),
             req["session_id"],
