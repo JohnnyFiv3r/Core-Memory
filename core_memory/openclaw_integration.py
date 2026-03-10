@@ -1,4 +1,4 @@
-"""OpenClaw coordinator integration helpers for Core Memory sidecar.
+"""OpenClaw coordinator integration helpers for Core Memory event runtime.
 
 These helpers are designed to be called from coordinator finalize/commit points.
 They keep integration explicit and non-invasive while enforcing one-pass-per-turn.

@@ -99,7 +99,7 @@ def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_ro
     if ttype == "rolling_window_refresh":
         cmd = [
             sys.executable,
-            str(wr / "consolidate.py"),
+            str(wr / "scripts" / "consolidate.py"),
             "rolling-window",
             "--token-budget",
             str(int(payload.get("token_budget") or 3000)),
@@ -113,7 +113,7 @@ def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_ro
             return {"ok": False, "error": "missing_session"}
         cmd = [
             sys.executable,
-            str(wr / "consolidate.py"),
+            str(wr / "scripts" / "consolidate.py"),
             "consolidate",
             "--session",
             session,

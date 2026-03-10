@@ -28,7 +28,7 @@ class TestWriteTriggerDispatch(unittest.TestCase):
             self.assertEqual(0, out.get('returncode'))
             self.assertTrue(mrun.called)
             cmd = mrun.call_args[0][0]
-            self.assertIn('consolidate.py', ' '.join(cmd))
+            self.assertIn('scripts/consolidate.py', ' '.join(cmd))
             self.assertIn('rolling-window', cmd)
 
     @patch('core_memory.write_triggers.subprocess.run')

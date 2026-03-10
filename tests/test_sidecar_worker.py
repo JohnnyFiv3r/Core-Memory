@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import unittest
 
-from core_memory.sidecar_worker import process_memory_event, SidecarPolicy
+from core_memory.event_worker import process_memory_event, SidecarPolicy
 from core_memory.store import MemoryStore
 
 

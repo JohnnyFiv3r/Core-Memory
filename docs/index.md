@@ -30,6 +30,6 @@ Start here for current Core Memory documentation.
 - `../eval/retrieval_eval.py`
 
 ## Historical / migration material
-- `archive/` — archived docs and historical artifacts
+- `archive/history/` — archived phase/V2/process/migration documentation
+- `archive/history/integration-legacy/` — superseded pre-`docs/integrations` integration docs
 - `archive/reports/2026-03-05/` — dated report snapshots
-- `v2_p*.md`, `phase*.md`, and closeout/checklist docs — execution history (not canonical architecture surface)

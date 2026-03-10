@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.trigger_orchestrator import run_turn_finalize_pipeline
-from core_memory.sidecar_worker import SidecarPolicy
+from core_memory.event_worker import SidecarPolicy
 from core_memory.store import MemoryStore
 
 

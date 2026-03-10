@@ -10,7 +10,7 @@ from core_memory.memory_engine import (
     apply_crawler_turn_updates,
     continuity_injection_context,
 )
-from core_memory.sidecar_worker import SidecarPolicy
+from core_memory.event_worker import SidecarPolicy
 from core_memory.tools.memory import execute
 from core_memory.store import MemoryStore
 

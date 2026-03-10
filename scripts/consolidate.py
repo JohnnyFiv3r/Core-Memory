@@ -1,26 +1,22 @@
 #!/usr/bin/env python3
-"""Core Memory consolidation utility (thin operational wrapper).
+"""Core Memory consolidation utility implementation.
 
-Canonical runtime authority is `core_memory.memory_engine.process_flush(...)`.
-This root script is retained for operational compatibility.
-
-Usage:
-  python3 consolidate.py consolidate --session <id> [--promote] [--token-budget 2000]
-  python3 consolidate.py rolling-window [--token-budget 2000] [--max-beads 200]
-
-Notes:
-  - Safe default: consolidation does NOT auto-promote unless --promote is explicitly passed.
-  - Even with --promote, only candidate beads can be auto-promoted when CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT=1.
+Canonical implementation module moved from repo root in V2P18.
 """
 
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
+# Ensure repo root is importable when script is executed directly.
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from core_memory.store import MemoryStore
-from core_memory.write_triggers import emit_write_trigger
 from core_memory.write_pipeline.orchestrate import run_rolling_window_pipeline
 from core_memory.memory_engine import process_flush
 
@@ -34,7 +30,6 @@ def store_root() -> str:
 
 
 def estimate_tokens(text: str) -> int:
-    # Lightweight estimate: ~4 chars/token for English-like text.
     return max(1, (len(text) + 3) // 4)
 
 
@@ -52,8 +47,6 @@ def bead_sort_key(bead: dict):
 def render_rolling_window(
     store: MemoryStore, token_budget: int = 2000, max_beads: int = 200
 ) -> tuple[str, dict, list[str], list[str]]:
-    # Pull from full bead set and enforce pure time-series recency ordering
-    # irrespective of status.
     index = store._read_json(store.beads_dir / "index.json")
     all_beads = [
         b for b in (index.get("beads") or {}).values() if str(b.get("status", "")).lower() != "superseded"
@@ -113,25 +106,8 @@ def cmd_consolidate(args, source: str = "flush_hook"):
 
 
 def cmd_rolling_window(args):
-    store = MemoryStore(root=store_root())
-    rw, meta, included_ids, excluded_ids = render_rolling_window(
-        store, token_budget=args.token_budget, max_beads=args.max_beads
-    )
-    out = workspace_root() / "promoted-context.md"
-    out.write_text(rw)
-    print(
-        json.dumps(
-            {
-                "ok": True,
-                "rolling_window": str(out),
-                "window_meta": meta,
-                "window_ids": {
-                    "included": len(included_ids),
-                    "excluded": len(excluded_ids),
-                },
-            }
-        )
-    )
+    out = run_rolling_window_pipeline(token_budget=int(args.token_budget), max_beads=int(args.max_beads), root=store_root())
+    print(json.dumps(out))
 
 
 def main():
