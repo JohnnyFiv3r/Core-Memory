@@ -9,9 +9,9 @@ from typing import Any
 from .live_session import read_live_session_beads
 from .association import build_crawler_context, apply_crawler_updates, merge_crawler_updates_for_flush
 from .continuity_injection import load_continuity_injection
-from .sidecar import get_memory_pass, mark_memory_pass, try_claim_memory_pass
-from .sidecar_hook import maybe_emit_finalize_memory_event
-from .sidecar_worker import SidecarPolicy, process_memory_event
+from .event_state import get_memory_pass, mark_memory_pass, try_claim_memory_pass
+from .event_ingress import maybe_emit_finalize_memory_event
+from .event_worker import SidecarPolicy, process_memory_event
 from .write_pipeline.orchestrate import run_consolidate_pipeline
 from .io_utils import append_jsonl
 

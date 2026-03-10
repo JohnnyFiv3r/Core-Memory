@@ -10,16 +10,7 @@ Eliminate competing deterministic judgment authority so promotion/association de
 2. Worker deterministic-judgment demotion ✅
 3. Crawler-reviewed promotion/association authority enforcement ✅
 4. pass_engine explicit non-primary deprecation lock ✅
-5. sidecar naming transition to event-* canonical terms
-
-## Step 4 completion notes
-- Strengthened `core_memory.association.pass_engine` deprecation framing in code.
-- Added explicit non-authoritative markers:
-  - `DEPRECATED_PRIMARY = True`
-  - `NON_AUTHORITATIVE = True`
-- Clarified canonical replacement authority:
-  - `core_memory.association.crawler_contract`
-- Updated deprecation marker tests accordingly.
+5. sidecar naming transition to event-* canonical terms ✅
 6. Sweep + closeout
 
 ## Step 1 completion notes
@@ -40,3 +31,24 @@ Eliminate competing deterministic judgment authority so promotion/association de
 - Verified store add path no longer appends canonical association rows.
 - Verified worker path no longer mutates canonical promotion state for seed/window beads.
 - Canonical promotion/association mutation remains in crawler-reviewed apply + flush-merge path.
+
+## Step 4 completion notes
+- Strengthened `core_memory.association.pass_engine` deprecation framing in code.
+- Added explicit non-authoritative markers:
+  - `DEPRECATED_PRIMARY = True`
+  - `NON_AUTHORITATIVE = True`
+- Clarified canonical replacement authority:
+  - `core_memory.association.crawler_contract`
+- Updated deprecation marker tests accordingly.
+
+## Step 5 completion notes
+- Added canonical event naming surfaces:
+  - `core_memory.event_ingress`
+  - `core_memory.event_worker`
+  - `core_memory.event_state`
+- Switched core runtime imports to canonical `event_*` surfaces in:
+  - `core_memory.memory_engine`
+  - `core_memory.integrations.api`
+  - `core_memory.openclaw_integration`
+- Kept legacy `sidecar_*` modules as compatibility-backed implementations for transition.
+- Added alias coverage tests in `tests/test_event_module_aliases.py`.

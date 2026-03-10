@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .sidecar_worker import SidecarPolicy
+from .event_worker import SidecarPolicy
 from .memory_engine import process_turn_finalized, emit_turn_finalized, process_pending_legacy_events
 
 
