@@ -286,8 +286,13 @@ cd /home/node/.openclaw/workspace
 PYTHONPATH=. python3 scripts/sidecar_sync_session.py --max-turns 80
 ```
 
-This bridge replays finalized user/assistant turns from the active main-session transcript
-into sidecar events and processes them with idempotency safeguards.
+This bridge replays finalized user/assistant turns from transcript input into the
+canonical finalized-turn event/session-first engine path.
+
+Important (V2P11 decision):
+- transcript input is bridge-only
+- transcript/index-dump extraction is not a supported primary write architecture
+- no direct transcript -> index construction path should be used
 
 Rules:
 - call finalize once per top-level turn

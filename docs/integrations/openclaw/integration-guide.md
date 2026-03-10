@@ -22,6 +22,10 @@ Canonical write port:
 
 OpenClaw’s finalized-turn handling should converge here so exactly one deterministic memory event is emitted per top-level user turn.
 
+Decision lock (V2P11):
+- transcript/index-dump extraction is not a supported primary write architecture
+- transcript-derived workflows are bridge-only and must feed canonical finalized-turn ingestion
+
 ## Runtime path
 Canonical runtime surface:
 - `core_memory.tools.memory.execute`
