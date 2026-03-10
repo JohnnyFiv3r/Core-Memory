@@ -31,4 +31,5 @@ Start here for current Core Memory documentation.
 
 ## Historical / migration material
 - `archive/history/` — archived phase/V2/process/migration documentation
+- `archive/history/integration-legacy/` — superseded pre-`docs/integrations` integration docs
 - `archive/reports/2026-03-05/` — dated report snapshots

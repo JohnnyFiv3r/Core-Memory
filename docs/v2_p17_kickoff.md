@@ -8,8 +8,15 @@ Improve repository organization and public OSS surface clarity without changing 
 ## Step plan (4)
 1. Docs archival pass ✅
 2. sidecar/event replacement verification + cleanup ✅
-3. integration docs folder normalization
+3. integration docs folder normalization ✅
 4. consolidate.py relocation safety gate
+
+## Step 3 completion notes
+- Treated `docs/integration/` as superseded by `docs/integrations/`.
+- Archived legacy integration docs to:
+  - `docs/archive/history/integration-legacy/`
+- Removed active `docs/integration/` folder from main docs surface.
+- Updated canonical/current references to point to `docs/integrations/shared/README.md`.
 
 ## Step 2 completion notes
 - Updated runtime/test references to canonical `event_*` modules (`event_ingress`, `event_worker`, `event_state`).

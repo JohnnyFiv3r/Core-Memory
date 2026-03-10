@@ -13,7 +13,7 @@ Status: Canonical landing page
 - `../../springai_adapter.md`
 - `../../contracts/http_api.v1.json`
 - `../../core_adapters_architecture.md`
-- `../../integration/core-adapters.md`
+- `../shared/README.md`
 
 ## Notes
 This folder is the canonical location for SpringAI integration documentation.

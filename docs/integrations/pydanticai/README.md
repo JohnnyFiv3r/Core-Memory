@@ -10,7 +10,7 @@ Status: Canonical landing page
 - `validation.md`
 
 ## Legacy/current source docs
-- `../../integration/core-adapters.md`
+- `../shared/README.md`
 - `../../core_adapters_architecture.md`
 - `../../canonical_surfaces.md`
 
