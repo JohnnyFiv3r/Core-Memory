@@ -9,7 +9,14 @@ Retire transcript/index-dump as a supported primary write architecture and lock 
 1. Decision lock + canonical docs update ✅
 2. Code removal of transcript dump path ✅
 3. Bridge-only clarification and residual cleanup ✅
-4. Sweep + closeout
+4. Sweep + closeout ✅
+
+## Step 4 completion notes
+- Completed V2P11 regression sweep.
+- Added closeout artifact:
+  - `docs/v2_p11_closeout_checklist.md`
+- Sweep result: 25 passed / 0 failed.
+- V2P11 is now closed.
 
 ## Step 1 completion notes
 - Locked architectural decision in canonical/integration docs:
