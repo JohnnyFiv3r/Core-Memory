@@ -5,6 +5,7 @@
 Core Memory is a deterministic memory layer for agents. It stores structured memory events ("beads") and explicit links so recall stays inspectable and repeatable across context resets.
 
 - Documentation index: `docs/index.md`
+- OSS quick-start docs: `docs/architecture_overview.md`, `docs/public_surface.md`
 - Canonical surfaces: `docs/canonical_surfaces.md`
 
 ---
@@ -219,10 +220,10 @@ Wave 1 adapters are thin wrappers over one stable port:
 
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
-Current integrations:
-- OpenClaw
-- PydanticAI
-- SpringAI (HTTP ingress)
+Current launch integrations:
+- OpenClaw (bridge)
+- PydanticAI (native)
+- SpringAI (native HTTP ingress)
 
 Privacy modes:
 - `store_full_text=true`: store inline assistant text

@@ -10,6 +10,7 @@ Start here for current Core Memory documentation.
 - `retrieval_side_flow.md`
 - `truth_hierarchy.md`
 - `integration_contract.md`
+- `public_surface.md`
 
 ## Architecture and canonical interfaces
 - `canonical_surfaces.md` — current supported public surfaces

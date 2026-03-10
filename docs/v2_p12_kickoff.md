@@ -8,15 +8,7 @@ Stabilize the public architecture surface for OSS promotion without adding featu
 ## Step plan (5)
 1. Canonical docs lock ✅
 2. Adapter consistency pass ✅
-3. Public import/surface cleanup
-
-## Step 2 completion notes
-- Normalized adapter classification markers across launch adapter set:
-  - OpenClaw bridge (`bridge`, `production_bridge`)
-  - SpringAI bridge loader (`native`, `production_ready`)
-  - PydanticAI runtime adapter (`native`, `production_ready`)
-- Hardened PydanticAI adapter fail-open behavior around finalize emission.
-- Added adapter-level metadata assertions and fail-open invariant tests in `tests/test_pydanticai_adapter.py`.
+3. Public import/surface cleanup ✅
 4. OSS trust test matrix
 5. Sweep + pre-OSS closeout
 
@@ -28,3 +20,18 @@ Stabilize the public architecture surface for OSS promotion without adding featu
   - `docs/truth_hierarchy.md`
   - `docs/integration_contract.md`
 - Updated docs index with explicit OSS canonical quick-start set.
+
+## Step 2 completion notes
+- Normalized adapter classification markers across launch adapter set:
+  - OpenClaw bridge (`bridge`, `production_bridge`)
+  - SpringAI bridge loader (`native`, `production_ready`)
+  - PydanticAI runtime adapter (`native`, `production_ready`)
+- Hardened PydanticAI adapter fail-open behavior around finalize emission.
+- Added adapter-level metadata assertions and fail-open invariant tests in `tests/test_pydanticai_adapter.py`.
+
+## Step 3 completion notes
+- Added explicit public surface map for contributors:
+  - `docs/public_surface.md`
+- Updated docs index OSS quick-set to include public-surface map.
+- Updated `README.md` top-level pointers to OSS quick-start docs and launch adapter classification.
+- Updated `core_memory.__init__` module header to remove stale index-first wording and align with canonical event/session-first architecture.
