@@ -36,6 +36,68 @@ def _last_role_message(messages: list[dict[str, Any]], role: str) -> dict[str, A
     return None
 
 
+def _extract_from_key(source: dict[str, Any], key: str) -> str:
+    value = source.get(key)
+    if value is None:
+        return ""
+    if isinstance(value, dict):
+        for nested in ("content", "text", "message", "output", "response"):
+            if nested in value:
+                txt = _extract_text(value.get(nested))
+                if txt:
+                    return txt
+        return ""
+    return _extract_text(value)
+
+
+def _fallback_text(event: dict[str, Any], ctx: dict[str, Any], role: str) -> str:
+    if role == "user":
+        candidates = [
+            "user",
+            "user_text",
+            "userMessage",
+            "prompt",
+            "input",
+            "query",
+            "message",
+            "lastUserMessage",
+        ]
+    else:
+        candidates = [
+            "assistant",
+            "assistant_text",
+            "assistantMessage",
+            "response",
+            "output",
+            "reply",
+            "final",
+            "lastAssistantMessage",
+        ]
+
+    for key in candidates:
+        txt = _extract_from_key(event, key)
+        if txt:
+            return txt
+
+    # Try nested objects commonly used by wrappers.
+    for container_key in ("result", "data", "payload"):
+        container = event.get(container_key)
+        if isinstance(container, dict):
+            for key in candidates:
+                txt = _extract_from_key(container, key)
+                if txt:
+                    return txt
+
+    # Context fallback for user-side prompt text.
+    if role == "user":
+        for ctx_key in ("userMessage", "prompt", "query", "message"):
+            txt = _extract_from_key(ctx, ctx_key)
+            if txt:
+                return txt
+
+    return ""
+
+
 def _stable_turn_id(session_id: str, user_query: str, assistant_final: str, seed: str = "") -> str:
     h = hashlib.sha256()
     h.update(session_id.encode("utf-8", "ignore"))
@@ -89,20 +151,36 @@ def process_agent_end_event(
 
     messages = event.get("messages") or []
     if not isinstance(messages, list):
-        return {"ok": False, "emitted": False, "error": "invalid_messages"}
+        messages = []
 
-    last_user = _last_role_message(messages, "user")
-    last_assistant = _last_role_message(messages, "assistant")
-    if not last_user or not last_assistant:
-        return {"ok": True, "emitted": False, "reason": "missing_user_or_assistant"}
+    last_user = _last_role_message(messages, "user") if messages else None
+    last_assistant = _last_role_message(messages, "assistant") if messages else None
 
-    user_query = _extract_text(last_user.get("content"))
-    assistant_final = _extract_text(last_assistant.get("content"))
-    if not user_query or not assistant_final:
-        return {"ok": True, "emitted": False, "reason": "empty_user_or_assistant"}
+    user_query = _extract_text((last_user or {}).get("content"))
+    assistant_final = _extract_text((last_assistant or {}).get("content"))
+
+    if not user_query:
+        user_query = _fallback_text(event, ctx, "user")
+    if not assistant_final:
+        assistant_final = _fallback_text(event, ctx, "assistant")
+
+    # Some hooks provide only assistant output. Keep ingestion alive with a placeholder.
+    if not user_query and assistant_final:
+        user_query = "[agent_end:auto:user_missing]"
+
+    if not assistant_final:
+        return {"ok": True, "emitted": False, "reason": "missing_assistant_output"}
 
     session_id = str(ctx.get("sessionId") or ctx.get("sessionKey") or "main")
-    run_id = str(event.get("runId") or ctx.get("runId") or "")
+    result_obj = event.get("result") if isinstance(event.get("result"), dict) else {}
+    run_id = str(
+        event.get("runId")
+        or event.get("id")
+        or result_obj.get("runId")
+        or ctx.get("runId")
+        or ctx.get("turnId")
+        or ""
+    )
     turn_id = _stable_turn_id(session_id, user_query, assistant_final, seed=run_id)
     dedupe_key = f"{session_id}:{turn_id}"
 
