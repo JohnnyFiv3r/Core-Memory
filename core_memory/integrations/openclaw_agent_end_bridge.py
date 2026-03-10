@@ -10,6 +10,10 @@ from typing import Any
 from core_memory.integrations.api import emit_turn_finalized
 from core_memory.store import DEFAULT_ROOT
 
+ADAPTER_KIND = "bridge"
+ADAPTER_RUNTIME = "openclaw"
+ADAPTER_STATUS = "production_bridge"
+
 
 def _extract_text(content: Any) -> str:
     if isinstance(content, str):
