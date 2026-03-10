@@ -9,8 +9,17 @@ Eliminate competing deterministic judgment authority so promotion/association de
 1. Store association authority demotion ✅
 2. Worker deterministic-judgment demotion ✅
 3. Crawler-reviewed promotion/association authority enforcement ✅
-4. pass_engine explicit non-primary deprecation lock
+4. pass_engine explicit non-primary deprecation lock ✅
 5. sidecar naming transition to event-* canonical terms
+
+## Step 4 completion notes
+- Strengthened `core_memory.association.pass_engine` deprecation framing in code.
+- Added explicit non-authoritative markers:
+  - `DEPRECATED_PRIMARY = True`
+  - `NON_AUTHORITATIVE = True`
+- Clarified canonical replacement authority:
+  - `core_memory.association.crawler_contract`
+- Updated deprecation marker tests accordingly.
 6. Sweep + closeout
 
 ## Step 1 completion notes

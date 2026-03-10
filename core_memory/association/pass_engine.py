@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-"""Deterministic association helper (transitional).
+"""Deterministic association helper (deprecated primary path).
 
-Status: compatibility/deprecation candidate as crawler_contract + agent-reviewed
-session-local updates are the primary association path.
+Canonical live-session association authority is crawler-reviewed output via:
+- core_memory.association.crawler_contract
+
+This module is retained only as a deterministic helper for compatibility/preview
+workflows and must not be treated as canonical association authorship.
 """
 
-LEGACY_PRIMARY = True
+DEPRECATED_PRIMARY = True
+NON_AUTHORITATIVE = True
 PRIMARY_REPLACEMENT = "core_memory.association.crawler_contract"
 
 
