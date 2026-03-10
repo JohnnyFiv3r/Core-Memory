@@ -6,6 +6,10 @@ from typing import Any, Optional
 
 from core_memory.integrations.api import IntegrationContext, emit_turn_finalized
 
+ADAPTER_KIND = "native"
+ADAPTER_RUNTIME = "pydanticai"
+ADAPTER_STATUS = "production_ready"
+
 
 def _extract_assistant_final(result: Any) -> str:
     for attr in ("output", "data", "text"):
@@ -38,22 +42,34 @@ async def run_with_memory(
 
     ctx = IntegrationContext(framework="pydanticai", source="inproc")
     md = ctx.to_metadata()
+    md.update(
+        {
+            "adapter_kind": ADAPTER_KIND,
+            "adapter_runtime": ADAPTER_RUNTIME,
+            "adapter_status": ADAPTER_STATUS,
+            "fail_open": True,
+        }
+    )
     md.update(metadata or {})
 
-    emit_turn_finalized(
-        root=root,
-        session_id=session_id,
-        turn_id=turn_id_final,
-        transaction_id=tx_id,
-        user_query=user_query,
-        assistant_final=assistant_final,
-        metadata=md,
-        tools_trace=[],
-        mesh_trace=[],
-        window_turn_ids=window_turn_ids or [],
-        window_bead_ids=window_bead_ids or [],
-        strict=False,
-    )
+    try:
+        emit_turn_finalized(
+            root=root,
+            session_id=session_id,
+            turn_id=turn_id_final,
+            transaction_id=tx_id,
+            user_query=user_query,
+            assistant_final=assistant_final,
+            metadata=md,
+            tools_trace=[],
+            mesh_trace=[],
+            window_turn_ids=window_turn_ids or [],
+            window_bead_ids=window_bead_ids or [],
+            strict=False,
+        )
+    except Exception:
+        # Fail-open by contract: runtime result must still return.
+        pass
 
     return result
 
@@ -76,21 +92,33 @@ def run_with_memory_sync(
         assistant_final = _extract_assistant_final(result)
         ctx = IntegrationContext(framework="pydanticai", source="inproc")
         md = ctx.to_metadata()
-        md.update(metadata or {})
-        emit_turn_finalized(
-            root=root,
-            session_id=session_id,
-            turn_id=turn_id_final,
-            transaction_id=tx_id,
-            user_query=user_query,
-            assistant_final=assistant_final,
-            metadata=md,
-            tools_trace=[],
-            mesh_trace=[],
-            window_turn_ids=window_turn_ids or [],
-            window_bead_ids=window_bead_ids or [],
-            strict=False,
+        md.update(
+            {
+                "adapter_kind": ADAPTER_KIND,
+                "adapter_runtime": ADAPTER_RUNTIME,
+                "adapter_status": ADAPTER_STATUS,
+                "fail_open": True,
+            }
         )
+        md.update(metadata or {})
+        try:
+            emit_turn_finalized(
+                root=root,
+                session_id=session_id,
+                turn_id=turn_id_final,
+                transaction_id=tx_id,
+                user_query=user_query,
+                assistant_final=assistant_final,
+                metadata=md,
+                tools_trace=[],
+                mesh_trace=[],
+                window_turn_ids=window_turn_ids or [],
+                window_bead_ids=window_bead_ids or [],
+                strict=False,
+            )
+        except Exception:
+            # Fail-open by contract: runtime result must still return.
+            pass
         return result
 
     try:

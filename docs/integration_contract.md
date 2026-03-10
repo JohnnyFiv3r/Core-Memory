@@ -24,8 +24,8 @@ All adapters must converge on canonical finalized-turn ingestion.
 - **Fallback/polling**: compatibility-only, non-primary
 
 ## Launch adapter set
-- OpenClaw
-- SpringAI
-- PydanticAI
+- OpenClaw (`bridge`, `production_bridge`)
+- SpringAI (`native`, `production_ready`)
+- PydanticAI (`native`, `production_ready`)
 
 Additional adapters should be added only when they can satisfy this contract cleanly.

@@ -7,8 +7,16 @@ Stabilize the public architecture surface for OSS promotion without adding featu
 
 ## Step plan (5)
 1. Canonical docs lock ✅
-2. Adapter consistency pass
+2. Adapter consistency pass ✅
 3. Public import/surface cleanup
+
+## Step 2 completion notes
+- Normalized adapter classification markers across launch adapter set:
+  - OpenClaw bridge (`bridge`, `production_bridge`)
+  - SpringAI bridge loader (`native`, `production_ready`)
+  - PydanticAI runtime adapter (`native`, `production_ready`)
+- Hardened PydanticAI adapter fail-open behavior around finalize emission.
+- Added adapter-level metadata assertions and fail-open invariant tests in `tests/test_pydanticai_adapter.py`.
 4. OSS trust test matrix
 5. Sweep + pre-OSS closeout
 

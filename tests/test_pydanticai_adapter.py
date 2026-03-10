@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import core_memory.integrations.pydanticai.run as pyd_run
 from core_memory.integrations.pydanticai import run_with_memory, run_with_memory_sync
 
 
@@ -60,8 +61,26 @@ class TestPydanticAiAdapter(unittest.TestCase):
                 events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
                 rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
                 self.assertEqual(1, len(rows))
+                md = ((rows[0].get("envelope") or {}).get("metadata") or {})
+                self.assertEqual("native", md.get("adapter_kind"))
+                self.assertEqual("pydanticai", md.get("adapter_runtime"))
+                self.assertTrue(md.get("fail_open"))
             finally:
                 os.environ.pop("CORE_MEMORY_ROOT", None)
+
+    def test_pydanticai_fail_open_on_emit_error(self):
+        original_emit = pyd_run.emit_turn_finalized
+
+        def _boom(*args, **kwargs):
+            raise RuntimeError("emit failed")
+
+        pyd_run.emit_turn_finalized = _boom
+        try:
+            agent = FakeSyncAgent()
+            result = run_with_memory_sync(agent, "hello", session_id="s-sync", turn_id="t-sync")
+            self.assertEqual("ok:hello", result.output)
+        finally:
+            pyd_run.emit_turn_finalized = original_emit
 
 
 if __name__ == "__main__":
