@@ -7,8 +7,13 @@ Finalize event-runtime ownership by moving implementation authority to canonical
 
 ## Step plan (6)
 1. Move implementation authority to `event_*` modules ✅
-2. Global import migration + guardrails
+2. Global import migration + guardrails ✅
 3. Remove `sidecar_*` files
+
+## Step 2 completion notes
+- Verified runtime imports now use canonical `event_*` modules after Step 1 ownership cutover.
+- Expanded import guardrails to enforce sidecar-import absence in non-compat tests.
+- Kept sidecar-specific tests isolated as transition compatibility coverage only.
 4. Move `consolidate.py` implementation to scripts path + root shim
 5. Update all consolidate references + remove root shim
 6. Sweep + closeout
