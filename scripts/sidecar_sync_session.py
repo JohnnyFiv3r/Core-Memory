@@ -86,6 +86,19 @@ def iter_turns(session_file: Path):
         i = j
 
 
+def resolve_core_session_id(*, openclaw_session_id: str, core_session_id: str | None, collapse_to_main: bool) -> str:
+    """Resolve Core Memory session target for transcript sync.
+
+    Default behavior preserves true OpenClaw session boundaries.
+    Compatibility mode can collapse all sync into `main`.
+    """
+    if core_session_id and str(core_session_id).strip():
+        return str(core_session_id).strip()
+    if collapse_to_main:
+        return "main"
+    return str(openclaw_session_id or "main").strip() or "main"
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default="/home/node/.openclaw/workspace/memory")
@@ -93,16 +106,23 @@ def main():
     ap.add_argument("--sessions-dir", default="/home/node/.openclaw/agents/main/sessions")
     ap.add_argument("--max-turns", type=int, default=200)
     ap.add_argument("--emit-only", action="store_true")
+    ap.add_argument("--core-session-id", default=None, help="Force Core Memory session_id (override)")
+    ap.add_argument("--collapse-to-main", action="store_true", help="Compatibility mode: force all synced turns into session_id=main")
     args = ap.parse_args()
 
     sid = load_main_session_id(Path(args.sessions_json))
+    core_sid = resolve_core_session_id(
+        openclaw_session_id=sid,
+        core_session_id=args.core_session_id,
+        collapse_to_main=bool(args.collapse_to_main),
+    )
     session_file = Path(args.sessions_dir) / f"{sid}.jsonl"
 
     emitted = 0
     for t in list(iter_turns(session_file))[-args.max_turns :]:
         out = coordinator_finalize_hook(
             root=args.root,
-            session_id="main",
+            session_id=core_sid,
             turn_id=t["turn_id"],
             transaction_id=f"tx-{t['turn_id']}",
             trace_id=f"tr-{t['turn_id']}",
@@ -124,7 +144,8 @@ def main():
 
     print(json.dumps({
         "ok": True,
-        "session_id": sid,
+        "openclaw_session_id": sid,
+        "core_session_id": core_sid,
         "emitted": emitted,
         **processed,
     }, indent=2))
