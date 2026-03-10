@@ -9,8 +9,14 @@ Finalize event-runtime ownership by moving implementation authority to canonical
 1. Move implementation authority to `event_*` modules ✅
 2. Global import migration + guardrails ✅
 3. Remove `sidecar_*` files ✅
-4. Move `consolidate.py` implementation to scripts path + root shim
+4. Move `consolidate.py` implementation to scripts path + root shim ✅
 5. Update all consolidate references + remove root shim
+
+## Step 4 completion notes
+- Moved consolidation implementation to canonical script path:
+  - `scripts/consolidate.py`
+- Replaced root `consolidate.py` with thin compatibility wrapper that forwards to `scripts.consolidate:main` and emits deprecation warning.
+- Kept root command contract intact for one-cycle compatibility during reference migration.
 6. Sweep + closeout
 
 ## Step 1 completion notes
