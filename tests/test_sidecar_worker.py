@@ -45,10 +45,10 @@ class TestSidecarWorker(unittest.TestCase):
         }
         delta = process_memory_event(self.tmp, payload, policy=SidecarPolicy())
         self.assertEqual(0, len(delta["created"]))
-        self.assertGreaterEqual(len(delta.get("creation_candidates") or []), 1)
-        self.assertTrue(all(c.get("authoritative") is False for c in (delta.get("creation_candidates") or [])))
+        self.assertEqual(0, len(delta.get("creation_candidates") or []))
         self.assertEqual(0, len(delta["promoted"]))
-        self.assertTrue(all(c.get("authoritative") is False for c in (delta.get("promotion_candidates") or [])))
+        self.assertEqual(0, len(delta.get("promotion_candidates") or []))
+        self.assertEqual("mechanical_only", (delta.get("metrics") or {}).get("mode"))
 
 
 if __name__ == "__main__":
