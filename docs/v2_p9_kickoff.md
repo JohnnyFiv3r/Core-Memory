@@ -9,8 +9,15 @@ Close remaining session-purity gaps by preserving real session boundaries in bri
 1. Sidecar sync session semantics hardening ✅
 2. Live-session fallback gating ✅
 3. Rolling continuity separation (selection vs render/write) ✅
-4. Regression and invariants
+4. Regression and invariants ✅
 5. Full sweep + P9 closeout
+
+## Step 4 completion notes
+- Added explicit P9 invariants in `tests/test_p9_session_purity_invariants.py`:
+  - bridge default preserves real session id
+  - collapse-to-main behavior is explicit/opt-in
+  - live-session strict default vs opt-in index fallback behavior
+- Retained rolling separation and authority-step progress checks in kickoff documentation.
 
 ## Step 1 completion notes
 - Updated `scripts/sidecar_sync_session.py` to preserve real OpenClaw session IDs by default.
