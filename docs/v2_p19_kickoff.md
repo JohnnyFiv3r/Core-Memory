@@ -8,7 +8,14 @@ Restore canonical end-to-end behavior so finalized turns produce semantic beads 
 ## Step plan (3)
 1. Failing-first contract tests ✅
 2. Implement canonical semantic creation path ✅
-3. Sweep + closeout
+3. Sweep + closeout ✅
+
+## Step 3 completion notes
+- Executed V2P19 sweep across turn pipeline, crawler apply, e2e, pre-OSS and integration checks.
+- Added closeout artifact:
+  - `docs/v2_p19_closeout_checklist.md`
+- Sweep result: 14 passed / 0 failed.
+- V2P19 is now closed.
 
 ## Step 2 completion notes
 - Implemented canonical semantic bead creation handoff in `memory_engine.process_turn_finalized(...)` via crawler-reviewed update apply path.
