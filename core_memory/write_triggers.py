@@ -125,12 +125,18 @@ def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_ro
         if bool(payload.get("promote")):
             cmd.append("--promote")
     elif ttype == "extract_beads":
-        cmd = [sys.executable, str(wr / "extract-beads.py")]
-        sid = payload.get("session_id_arg")
-        if sid:
-            cmd.append(str(sid))
-        if bool(payload.get("consolidate")):
-            cmd.append("--consolidate")
+        _mark_processed(
+            root,
+            event_id or "",
+            "retired",
+            {"reason": "extract_path_retired", "trigger_type": ttype},
+        )
+        return {
+            "ok": False,
+            "event_id": event_id,
+            "error": "extract_path_retired",
+            "trigger_type": ttype,
+        }
     else:
         _mark_processed(root, event_id or "", "ignored", {"reason": "unknown_trigger_type", "trigger_type": ttype})
         return {"ok": False, "error": "unknown_trigger_type", "trigger_type": ttype}
