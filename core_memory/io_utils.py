@@ -7,7 +7,10 @@
 
 from __future__ import annotations
 
-import fcntl
+try:
+    import fcntl  # type: ignore
+except ImportError:  # pragma: no cover (platform-specific)
+    fcntl = None  # type: ignore
 import json
 import os
 import tempfile
