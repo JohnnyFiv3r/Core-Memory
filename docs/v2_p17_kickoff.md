@@ -9,7 +9,13 @@ Improve repository organization and public OSS surface clarity without changing 
 1. Docs archival pass ✅
 2. sidecar/event replacement verification + cleanup ✅
 3. integration docs folder normalization ✅
-4. consolidate.py relocation safety gate
+4. consolidate.py relocation safety gate ✅ (no-move)
+
+## Step 4 gate result
+- Ran cross-surface reference inventory for `consolidate.py` (runtime/workflow docs, tests, plans, skills).
+- Safety gate failed for atomic relocation in this pass.
+- Action taken: **no relocation**; keep root `consolidate.py` as thin wrapper.
+- Gate report: `docs/v2_p17_consolidate_gate.md`
 
 ## Step 3 completion notes
 - Treated `docs/integration/` as superseded by `docs/integrations/`.
