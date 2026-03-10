@@ -28,12 +28,12 @@ Runtime continuity injection authority order:
 - Runtime typed-search surface: `core_memory/tools/memory.py::{get_search_form,search,execute}`
 - Compatibility shims (non-canonical runtime entry):
   - `core_memory/tools/memory_search.py`
-  - `core_memory/memory_skill/form.py`
 
 ## Integration framing
 - SpringAI primary bridge: `core_memory.integrations.springai.get_app()`
 - HTTP compatibility ingress: `core_memory.integrations.http.get_app()`
 
 ## Compatibility/deprecated notes
-- legacy transcript/backfill stack under `core_memory.write_pipeline/*` is compatibility-oriented
+- transcript index-dump write path is retired as a supported primary architecture
+- transcript inputs are supported only as bridge/feed into canonical finalized-turn ingestion
 - legacy poller path is compatibility-only and hard-fenced by env flag

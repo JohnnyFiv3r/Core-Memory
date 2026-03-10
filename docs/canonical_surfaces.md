@@ -101,7 +101,7 @@ These remain for compatibility or migration support and should not be treated as
 ## Historical artifacts
 
 The following are historical snapshots, not living specs:
-- dated reports in `docs/*_2026-03-05.md`
+- dated reports in `docs/archive/reports/2026-03-05/`
 - archived migration/deprecation planning docs in `docs/archive/`
 
 ## Contributor rule of thumb

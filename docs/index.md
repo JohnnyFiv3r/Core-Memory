@@ -73,6 +73,7 @@ Start here for current Core Memory documentation.
 - `v2_p9_kickoff.md` — P9 session-purity and bridge-semantics tracker
 - `v2_p9_closeout_checklist.md` — P9 completion and validation gate
 - `v2_p10_kickoff.md` — P10 strict cleanup tracker
+- `v2_p11_kickoff.md` — P11 transcript index-dump retirement tracker
 
 ## Integration guides
 - `integrations/springai/quickstart.md` — SpringAI integration start point
