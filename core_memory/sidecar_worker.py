@@ -137,38 +137,34 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
     score = _score_signal(user_query, assistant_final)
 
     created = []
+    creation_candidates = []
     promoted = []
     promotion_candidates = []
     suppressed = []
 
-    # Create budgeted bead (0..1)
+    # V2P14 Step 2: semantic bead creation in worker is non-authoritative.
+    # Worker emits preview candidates for agent/crawler review; it does not create
+    # canonical beads directly.
     if score >= policy.create_threshold and policy.max_create_per_turn > 0:
         bead_type = _bead_type_for_text(user_query, assistant_final)
         title = (assistant_final.strip().splitlines()[0] if assistant_final.strip() else user_query.strip())[:120] or "Turn memory"
         canonical_tags = _canonical_tags_from_text(user_query, assistant_final, max_tags=8)
-        kwargs = {
+        candidate = {
+            "session_id": session_id,
+            "turn_id": turn_id,
             "type": bead_type,
             "title": title,
             "summary": [assistant_final[:220]] if assistant_final else [user_query[:220]],
-            "because": ["captured from finalized turn sidecar pass"] if bead_type in {"decision", "lesson"} else [],
-            "source_turn_ids": [turn_id],
-            "session_id": session_id,
-            "tags": (["sidecar", "turn-finalized"] + canonical_tags)[:10],
-            "detail": (assistant_final or user_query)[:900],
+            "tags": (["event_worker", "turn-finalized"] + canonical_tags)[:10],
+            "score": score,
+            "reason": "threshold_met_preview_only",
+            "authoritative": False,
         }
         if bead_type == "outcome":
-            kwargs["result"] = _infer_outcome_result(user_query, assistant_final)
+            candidate["result"] = _infer_outcome_result(user_query, assistant_final)
             if window_bead_ids:
-                kwargs["linked_bead_id"] = str(window_bead_ids[0])
-        if bead_type in {"decision", "lesson", "outcome", "precedent", "design_principle", "failed_hypothesis", "evidence"} and score >= policy.promote_threshold:
-            kwargs["status"] = "candidate"
-        if bead_type == "evidence":
-            if not kwargs["summary"]:
-                kwargs["summary"] = ["evidence from finalized turn"]
-            if window_bead_ids:
-                kwargs["supports_bead_ids"] = [str(window_bead_ids[0])]
-        bead_id = store.add_bead(**kwargs)
-        created.append({"bead_id": bead_id, "type": bead_type, "score": score, "reason": "threshold_met"})
+                candidate["linked_bead_id"] = str(window_bead_ids[0])
+        creation_candidates.append(candidate)
     else:
         suppressed.append({"candidate": "create_bead", "reason": "below_threshold_or_budget"})
 
@@ -240,6 +236,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
         "session_id": session_id,
         "turn_id": turn_id,
         "created": created,
+        "creation_candidates": creation_candidates,
         "promoted": promoted,
         "promotion_candidates": promotion_candidates,
         "promotion_gates": gates,
@@ -247,6 +244,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
         "metrics": {
             "runtime_ms": 0,
             "created_count": len(created),
+            "creation_candidate_count": len(creation_candidates),
             "promoted_count": len(promoted),
             "candidates_evaluated": int(candidate_eval.get("evaluated", 0) if isinstance(candidate_eval, dict) else 0),
             "candidates_auto_archived": int(candidate_eval.get("auto_archived", 0) if isinstance(candidate_eval, dict) else 0),

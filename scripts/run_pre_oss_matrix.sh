@@ -8,6 +8,8 @@ python3 -m unittest \
   tests.test_rolling_surface_contract \
   tests.test_rolling_surface_owner \
   tests.test_rolling_surface_separation \
+  tests.test_p13_authority_enforcement \
+  tests.test_event_import_migration_guard \
   tests.test_search_form_module_primary \
   tests.test_catalog_relation_source \
   tests.test_memory_search_tool_wrapper \
@@ -15,4 +17,5 @@ python3 -m unittest \
   tests.test_openclaw_agent_end_bridge \
   tests.test_adapter_contract_markers \
   tests.test_pydanticai_adapter \
+  tests.test_event_module_aliases \
   tests.test_pre_oss_matrix -v

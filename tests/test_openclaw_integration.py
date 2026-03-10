@@ -45,7 +45,7 @@ class TestOpenClawIntegration(unittest.TestCase):
             self.assertEqual(proc2["processed"], 0)
 
             stats = self.store.stats()
-            self.assertGreaterEqual(stats["total_beads"], 1)
+            self.assertEqual(0, stats["total_beads"])
         finally:
             if old is None:
                 os.environ.pop("CORE_MEMORY_ENABLE_LEGACY_POLLER", None)

@@ -12,6 +12,7 @@ from core_memory.memory_engine import (
 )
 from core_memory.sidecar_worker import SidecarPolicy
 from core_memory.tools.memory import execute
+from core_memory.store import MemoryStore
 
 
 class TestE2EProgramScenarios(unittest.TestCase):
@@ -38,6 +39,23 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 policy=policy,
             )
             self.assertTrue(t2.get("ok"))
+
+            # Semantic bead creation is agent-reviewed/crawler-authoritative (not worker-deterministic).
+            s = MemoryStore(td)
+            s.add_bead(
+                type="decision",
+                title="candidate-only promotion prevents inflation",
+                summary=["candidate-only promotion prevents inflation"],
+                session_id="sA",
+                source_turn_ids=["t1"],
+            )
+            s.add_bead(
+                type="decision",
+                title="archive graph for durable retrieval",
+                summary=["use archive graph for durable retrieval"],
+                session_id="sA",
+                source_turn_ids=["t2"],
+            )
 
             fl = process_flush(root=td, session_id="sA", promote=False, token_budget=1200, max_beads=80, source="flush_hook")
             self.assertTrue(fl.get("ok"))
@@ -74,6 +92,22 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 user_query="remember retrieval guardrails",
                 assistant_final="Decision: keep contract-safe retrieval.",
                 policy=policy,
+            )
+
+            s = MemoryStore(td)
+            s.add_bead(
+                type="decision",
+                title="narrow promotion usage",
+                summary=["narrow promotion usage"],
+                session_id="sB",
+                source_turn_ids=["t1"],
+            )
+            s.add_bead(
+                type="decision",
+                title="contract-safe retrieval",
+                summary=["keep contract-safe retrieval"],
+                session_id="sB",
+                source_turn_ids=["t2"],
             )
 
             ctx = crawler_turn_context(root=td, session_id="sB")
@@ -134,6 +168,14 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 user_query="remember continuity item one",
                 assistant_final="Outcome: continuity one captured.",
                 policy=policy,
+            )
+            s = MemoryStore(td)
+            s.add_bead(
+                type="outcome",
+                title="continuity one captured",
+                summary=["continuity one captured"],
+                session_id="sC",
+                source_turn_ids=["t1"],
             )
             process_flush(root=td, session_id="sC", promote=False, token_budget=800, max_beads=40, source="flush_hook")
 
