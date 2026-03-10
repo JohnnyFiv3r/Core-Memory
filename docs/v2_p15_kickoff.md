@@ -8,7 +8,14 @@ Remove residual deterministic semantic judgment behavior from worker runtime pat
 ## Step plan (3)
 1. Worker mechanical-only cut ✅
 2. Crawler handoff enforcement ✅
-3. Sweep + closeout
+3. Sweep + closeout ✅
+
+## Step 3 completion notes
+- Completed V2P15 sweep for worker, handoff, authority, runtime and e2e invariants.
+- Added closeout artifact:
+  - `docs/v2_p15_closeout_checklist.md`
+- Sweep result: 17 passed / 0 failed.
+- V2P15 is now closed.
 
 ## Step 2 completion notes
 - Enforced crawler handoff framing in `memory_engine.process_turn_finalized(...)`.
