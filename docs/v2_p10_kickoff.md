@@ -9,7 +9,14 @@ Reduce transitional drift by removing safe shim files now, then tightening depre
 1. Immediate removals + import/test cleanup ✅
 2. Transitional deprecation marking pass ✅
 3. Docs archive and surface cleanup ✅
-4. Sweep + closeout
+4. Sweep + closeout ✅
+
+## Step 4 completion notes
+- Completed V2P10 cleanup regression sweep.
+- Added closeout artifact:
+  - `docs/v2_p10_closeout_checklist.md`
+- Sweep result: 20 passed / 0 failed.
+- V2P10 is now closed.
 
 ## Step 1 completion notes
 - Removed shim files:
