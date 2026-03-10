@@ -29,6 +29,8 @@ Start here for current Core Memory documentation.
 - `../eval/memory_search_ab_compare.py`
 - `../eval/retrieval_eval.py`
 
+- `v2_p21_kickoff.md` — V2P21 integrity/packaging fix tracker
+
 ## Historical / migration material
 - `archive/history/` — archived phase/V2/process/migration documentation
 - `archive/history/integration-legacy/` — superseded pre-`docs/integrations` integration docs
