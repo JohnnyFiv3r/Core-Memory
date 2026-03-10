@@ -10,7 +10,14 @@ Close remaining session-purity gaps by preserving real session boundaries in bri
 2. Live-session fallback gating ✅
 3. Rolling continuity separation (selection vs render/write) ✅
 4. Regression and invariants ✅
-5. Full sweep + P9 closeout
+5. Full sweep + P9 closeout ✅
+
+## Step 5 completion notes
+- Completed V2P9 sweep and closeout validation.
+- Added closeout artifact:
+  - `docs/v2_p9_closeout_checklist.md`
+- Sweep result: 16 passed / 0 failed.
+- V2P9 is now closed.
 
 ## Step 4 completion notes
 - Added explicit P9 invariants in `tests/test_p9_session_purity_invariants.py`:
