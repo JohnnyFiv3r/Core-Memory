@@ -4,6 +4,13 @@ Status: Canonical
 
 Start here for current Core Memory documentation.
 
+## OSS canonical quick set (start here)
+- `architecture_overview.md`
+- `write_side_flow.md`
+- `retrieval_side_flow.md`
+- `truth_hierarchy.md`
+- `integration_contract.md`
+
 ## Architecture and canonical interfaces
 - `canonical_surfaces.md` — current supported public surfaces
 - `core_adapters_architecture.md` — integration architecture overview
