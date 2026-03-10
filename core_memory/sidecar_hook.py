@@ -1,7 +1,9 @@
-"""Coordinator finalize hook adapter for memory sidecar integration.
+"""DEPRECATED transitional compatibility module.
 
-Non-invasive shim: coordinator code can call these helpers at finalize/commit
-without importing persistence internals directly.
+Canonical replacement: `core_memory.event_ingress`.
+
+This file is retained as a temporary shim backing for migration. New
+runtime-facing ingress code should import `event_ingress` instead.
 """
 
 from __future__ import annotations

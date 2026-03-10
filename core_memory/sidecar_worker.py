@@ -1,9 +1,10 @@
-"""Memory sidecar worker (legacy compatibility worker).
+"""DEPRECATED transitional compatibility module.
 
-V2P15 Step 1:
-- worker is mechanical/bookkeeping only
-- no deterministic semantic memory judgment in canonical turn path
-- no deterministic bead-creation/promotion/association decisions
+Canonical replacement: `core_memory.event_worker`.
+
+This worker is mechanical/bookkeeping-only and retained as implementation
+backing during migration. New runtime-facing code should import
+`event_worker` instead.
 
 Canonical semantic authority lives in crawler-reviewed paths.
 """
