@@ -8,6 +8,7 @@ from typing import Any
 
 from core_memory.io_utils import append_jsonl, store_lock
 from core_memory.session_surface import read_session_surface
+from core_memory.store import MemoryStore
 
 
 def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
@@ -42,6 +43,33 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
             seen.add(p)
 
     return promotions_dedup, associations
+
+
+def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
+    rows = [x for x in (updates.get("beads_create") or []) if isinstance(x, dict)]
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        typ = str(r.get("type") or "context").strip() or "context"
+        title = str(r.get("title") or "").strip() or "Turn memory"
+        summary = r.get("summary")
+        if isinstance(summary, str):
+            summary = [summary]
+        if not isinstance(summary, list):
+            summary = []
+        summary = [str(x).strip() for x in summary if str(x).strip()][:5]
+        if not summary:
+            continue
+        out.append(
+            {
+                "type": typ,
+                "title": title[:200],
+                "summary": summary,
+                "tags": [str(x) for x in (r.get("tags") or []) if str(x)][:10],
+                "detail": str(r.get("detail") or "")[:1200],
+                "source_turn_ids": [str(x) for x in (r.get("source_turn_ids") or []) if str(x)][:5],
+            }
+        )
+    return out
 
 
 def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in_bead_ids: list[str] | None = None) -> dict[str, Any]:
@@ -172,11 +200,29 @@ def apply_crawler_updates(
     *,
     visible_bead_ids: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Queue append-only crawler updates into a session-local side log.
+    """Apply crawler-reviewed updates.
 
-    P8A Step 3: crawler-applied updates are no longer written directly to index.json.
-    They are validated and appended to a session-local side log for later flush-merge.
+    Canonical semantic authority:
+    - bead creation (session-local append)
+    - promotion marks (queued side-log)
+    - associations (queued side-log)
     """
+    created = 0
+    creation_rows = _normalize_creation_rows(updates or {})
+    if creation_rows:
+        store = MemoryStore(root)
+        for row in creation_rows:
+            store.add_bead(
+                type=str(row.get("type") or "context"),
+                title=str(row.get("title") or "Turn memory"),
+                summary=list(row.get("summary") or []),
+                session_id=str(session_id),
+                source_turn_ids=list(row.get("source_turn_ids") or []),
+                tags=list(row.get("tags") or []),
+                detail=str(row.get("detail") or "") or None,
+            )
+            created += 1
+
     idx_file = Path(root) / ".beads" / "index.json"
     with store_lock(Path(root)):
         if not idx_file.exists():
@@ -252,6 +298,7 @@ def apply_crawler_updates(
 
     return {
         "ok": True,
+        "beads_created": created,
         "promotions_marked": promoted,
         "associations_appended": appended,
         "queued_to": str(log_path),

@@ -7,8 +7,14 @@ Restore canonical end-to-end behavior so finalized turns produce semantic beads 
 
 ## Step plan (3)
 1. Failing-first contract tests ✅
-2. Implement canonical semantic creation path
+2. Implement canonical semantic creation path ✅
 3. Sweep + closeout
+
+## Step 2 completion notes
+- Implemented canonical semantic bead creation handoff in `memory_engine.process_turn_finalized(...)` via crawler-reviewed update apply path.
+- Added default crawler-reviewed creation updates when explicit `metadata.crawler_updates` are not provided.
+- Extended crawler apply path to support `beads_create` with session-local append semantics.
+- Verified previously failing turn->flush->retrieval contract tests now pass.
 
 ## Step 1 completion notes
 - Added failing-first contract suite:
