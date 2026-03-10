@@ -59,6 +59,36 @@ def _normalize_turn_request(
     }
 
 
+def _infer_semantic_bead_type(user_query: str, assistant_final: str) -> str:
+    text = f"{user_query} {assistant_final}".lower()
+    if any(k in text for k in ["decide", "decision", "we chose", "chose", "policy"]):
+        return "decision"
+    if any(k in text for k in ["outcome", "result", "completed", "done", "shipped"]):
+        return "outcome"
+    if any(k in text for k in ["lesson", "learned", "insight"]):
+        return "lesson"
+    return "context"
+
+
+def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
+    title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
+    summary = (req.get("assistant_final") or req.get("user_query") or "").strip()
+    if not summary:
+        summary = "turn memory"
+    return {
+        "beads_create": [
+            {
+                "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
+                "title": title or "Turn memory",
+                "summary": [summary[:240]],
+                "source_turn_ids": [str(req.get("turn_id") or "")],
+                "tags": ["crawler_reviewed", "turn_finalized"],
+                "detail": summary[:1200],
+            }
+        ]
+    }
+
+
 def process_turn_finalized(
     *,
     root: str,
@@ -185,13 +215,15 @@ def process_turn_finalized(
     auto_apply = None
     md = req.get("metadata") or {}
     reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
-    if isinstance(reviewed_updates, dict) and reviewed_updates:
-        auto_apply = apply_crawler_updates(
-            root=root,
-            session_id=req["session_id"],
-            updates=reviewed_updates,
-            visible_bead_ids=list(crawler_ctx.get("visible_bead_ids") or []),
-        )
+    if not isinstance(reviewed_updates, dict) or not reviewed_updates:
+        reviewed_updates = _default_crawler_updates(req)
+
+    auto_apply = apply_crawler_updates(
+        root=root,
+        session_id=req["session_id"],
+        updates=reviewed_updates,
+        visible_bead_ids=list(crawler_ctx.get("visible_bead_ids") or []),
+    )
 
     return {
         "ok": True,
