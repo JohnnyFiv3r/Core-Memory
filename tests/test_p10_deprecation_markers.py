@@ -10,7 +10,8 @@ class TestP10DeprecationMarkers(unittest.TestCase):
         self.assertEqual("core_memory.memory_engine", getattr(trigger_orch, "SHIM_REPLACEMENT", ""))
 
     def test_association_pass_engine_marked_transitional(self):
-        self.assertTrue(getattr(pass_engine, "LEGACY_PRIMARY", False))
+        self.assertTrue(getattr(pass_engine, "DEPRECATED_PRIMARY", False))
+        self.assertTrue(getattr(pass_engine, "NON_AUTHORITATIVE", False))
         self.assertEqual("core_memory.association.crawler_contract", getattr(pass_engine, "PRIMARY_REPLACEMENT", ""))
 
 

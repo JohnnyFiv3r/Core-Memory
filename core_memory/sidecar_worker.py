@@ -1,6 +1,8 @@
-"""Memory sidecar worker (Ticket 3 skeleton).
+"""Memory sidecar worker (legacy compatibility worker).
 
-Processes TURN_FINALIZED memory events with strict per-turn budgets.
+Processes TURN_FINALIZED memory events for compatibility execution.
+V2P13: deterministic promotion/association judgment here is non-authoritative.
+Canonical promotion/association authority lives in crawler-reviewed paths.
 """
 
 from __future__ import annotations
@@ -172,14 +174,15 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
 
     gates = _promotion_gates(envelope, score)
 
-    # Promotion budgeted pass (0..1)
+    # V2P13 Step 2: deterministic promotion in worker is non-authoritative.
+    # Worker may emit preview/deferred candidates for agent/crawler review,
+    # but it does not mutate canonical promotion state.
     gate_pass = gates.get("score_threshold", False) and (
         gates.get("explicit_emphasis", False)
         or gates.get("confirmed_outcome", False)
         or gates.get("repeated_pattern", False)
     )
     if gate_pass and policy.max_promote_per_turn > 0:
-        # deterministic: open beads in provided window order
         idx = store._read_json(store.beads_dir / "index.json")
         open_window = []
         for bid in window_bead_ids:
@@ -190,26 +193,23 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
                 open_window.append(bid)
 
         for bid in open_window[: policy.max_promote_per_turn]:
-            try:
-                if store.promote(bid):
-                    promoted.append({"bead_id": bid, "score": score, "reason": "promotion_gate"})
-            except Exception:
-                promotion_candidates.append(
-                    {
-                        "bead_id": bid,
-                        "score": score,
-                        "reason": "promote_error_deferred",
-                    }
-                )
+            promotion_candidates.append(
+                {
+                    "bead_id": bid,
+                    "score": score,
+                    "reason": "non_authoritative_preview_gate",
+                    "authoritative": False,
+                }
+            )
 
-        # If more candidates existed than budget, defer remainder.
         deferred_budget = open_window[policy.max_promote_per_turn :]
         for bid in deferred_budget:
             promotion_candidates.append(
                 {
                     "bead_id": bid,
                     "score": score,
-                    "reason": "budget_exhausted",
+                    "reason": "budget_exhausted_preview",
+                    "authoritative": False,
                 }
             )
 
@@ -223,22 +223,18 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
                         "turn_id": turn_id,
                         "candidate": c,
                         "gates": gates,
+                        "authoritative": False,
                     }
                     for c in promotion_candidates
                 ],
             )
 
-    # Refresh candidate recommendations every turn (agent-led promotion loop support).
-    candidate_eval = {"ok": False, "evaluated": 0, "auto_archived": 0}
-    try:
-        candidate_eval = store.evaluate_candidates(
-            limit=50,
-            query_text=f"{user_query} {assistant_final}",
-            auto_archive_hold=True,
-            min_age_hours=12,
-        )
-    except Exception:
-        candidate_eval = {"ok": False, "evaluated": 0, "auto_archived": 0}
+    candidate_eval = {
+        "ok": True,
+        "evaluated": 0,
+        "auto_archived": 0,
+        "mode": "disabled_non_authoritative",
+    }
 
     delta = {
         "session_id": session_id,

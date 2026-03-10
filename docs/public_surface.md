@@ -7,6 +7,9 @@ This is the supported import/integration surface for contributors.
 ## Runtime/write ingress
 - `core_memory.memory_engine`
 - `core_memory.integrations.api.emit_turn_finalized(...)`
+- `core_memory.event_ingress` (canonical ingress surface alias)
+- `core_memory.event_worker` (canonical worker surface alias)
+- `core_memory.event_state` (canonical pass-state surface alias)
 
 ## Retrieval/runtime tool surface
 - `core_memory.tools.memory.get_search_form`
