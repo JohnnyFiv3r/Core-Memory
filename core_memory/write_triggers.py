@@ -1,8 +1,12 @@
+"""
+Write trigger execution layer.
+
+DEPRECATED: This module previously used subprocess CLI execution.
+Replaced with direct function calls for easier debugging and testing.
+"""
 from __future__ import annotations
 
 import json
-import subprocess
-import sys
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -80,10 +84,12 @@ def _mark_processed(root: str | Path, event_id: str, status: str, detail: dict[s
 
 
 def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_root: str | Path = ".") -> dict[str, Any]:
-    """Dispatch a write trigger through compatibility entrypoints.
+    """Dispatch a write trigger via direct function calls.
 
-    This creates an explicit event-driven execution path while preserving
-    current root-script contracts.
+    Replaced subprocess execution with direct imports for:
+    - Easier debugging
+    - Fewer failure modes
+    - Better unit testing
     """
     event_id = str(event.get("event_id") or "")
     if event_id and _is_processed(root, event_id):
@@ -91,39 +97,43 @@ def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_ro
 
     ttype = str(event.get("trigger_type") or "")
     payload = dict(event.get("payload") or {})
-    wr = Path(workspace_root)
-
-    env = dict(**__import__("os").environ)
-    env["CORE_MEMORY_TRIGGER_DISPATCH"] = "1"
 
     if ttype == "rolling_window_refresh":
-        cmd = [
-            sys.executable,
-            str(wr / "scripts" / "consolidate.py"),
-            "rolling-window",
-            "--token-budget",
-            str(int(payload.get("token_budget") or 3000)),
-            "--max-beads",
-            str(int(payload.get("max_beads") or 80)),
-        ]
+        # Direct call instead of subprocess
+        from core_memory.write_pipeline.consolidate import consolidate_rolling_window
+        try:
+            result = consolidate_rolling_window(
+                root=str(root),
+                token_budget=int(payload.get("token_budget") or 3000),
+                max_beads=int(payload.get("max_beads") or 80),
+            )
+            _mark_processed(root, event_id or "", "done", {"trigger_type": ttype})
+            return {"ok": True, "event_id": event_id, "result": result}
+        except Exception as e:
+            _mark_processed(root, event_id or "", "failed", {"error": str(e)[:500]})
+            return {"ok": False, "event_id": event_id, "error": str(e)}
+
     elif ttype == "consolidate_session":
         session = str(payload.get("session") or "")
         if not session:
             _mark_processed(root, event_id or "", "failed", {"error": "missing_session"})
             return {"ok": False, "error": "missing_session"}
-        cmd = [
-            sys.executable,
-            str(wr / "scripts" / "consolidate.py"),
-            "consolidate",
-            "--session",
-            session,
-            "--token-budget",
-            str(int(payload.get("token_budget") or 3000)),
-            "--max-beads",
-            str(int(payload.get("max_beads") or 80)),
-        ]
-        if bool(payload.get("promote")):
-            cmd.append("--promote")
+
+        from core_memory.write_pipeline.consolidate import consolidate_session
+        try:
+            result = consolidate_session(
+                root=str(root),
+                session_id=session,
+                token_budget=int(payload.get("token_budget") or 3000),
+                max_beads=int(payload.get("max_beads") or 80),
+                promote=bool(payload.get("promote")),
+            )
+            _mark_processed(root, event_id or "", "done", {"trigger_type": ttype, "session": session})
+            return {"ok": True, "event_id": event_id, "result": result}
+        except Exception as e:
+            _mark_processed(root, event_id or "", "failed", {"error": str(e)[:500]})
+            return {"ok": False, "event_id": event_id, "error": str(e)}
+
     elif ttype == "extract_beads":
         _mark_processed(
             root,
@@ -140,11 +150,3 @@ def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_ro
     else:
         _mark_processed(root, event_id or "", "ignored", {"reason": "unknown_trigger_type", "trigger_type": ttype})
         return {"ok": False, "error": "unknown_trigger_type", "trigger_type": ttype}
-
-    proc = subprocess.run(cmd, env=env, capture_output=True, text=True)
-    if proc.returncode != 0:
-        _mark_processed(root, event_id or "", "failed", {"returncode": proc.returncode, "stderr": proc.stderr[-2000:]})
-        return {"ok": False, "event_id": event_id, "returncode": proc.returncode, "stderr": proc.stderr}
-
-    _mark_processed(root, event_id or "", "done", {"cmd": cmd})
-    return {"ok": True, "event_id": event_id, "returncode": 0}

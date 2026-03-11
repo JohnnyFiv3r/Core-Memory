@@ -206,67 +206,28 @@ class MemoryStore:
             }
         return heads
 
+    # LEGACY COMPATIBILITY - These methods delegate to extracted modules.
+    # See retrieval/query_norm, retrieval/failure_patterns, hygiene, policy/promotion.
+
     def _tokenize(self, text: str) -> set[str]:
-        return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
+        from .retrieval.query_norm import _tokenize as _tok
+        return _tok(text)
 
     def _is_memory_intent(self, text: str) -> bool:
-        q = (text or "").lower()
-        cues = [
-            "remember",
-            "what did we decide",
-            "earlier",
-            "last time",
-            "previous",
-            "why did we",
-            "recall",
-            "history",
-            "find memory",
-        ]
-        return any(c in q for c in cues)
+        from .retrieval.query_norm import _is_memory_intent as _imi
+        return _imi(text)
 
     def _expand_query_tokens(self, text: str, base_tokens: set[str], max_extra: int = 24) -> set[str]:
-        """Bounded synonym/entity expansion for better deterministic recall hits."""
-        q = (text or "").lower()
-        expanded = set(base_tokens)
-
-        phrase_map = {
-            "openclaw only": {"single", "orchestrator", "openclaw", "migration", "adapter"},
-            "single orchestrator": {"openclaw", "migration", "multi", "orchestrator"},
-            "multi orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
-            "multiple orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
-            "core adapters": {"adapter", "integration", "emit_turn_finalized", "pydanticai", "springai"},
-            "switch": {"migration", "transition"},
-            "migrate": {"migration", "transition"},
-            "transition": {"migration", "switch"},
-        }
-
-        token_map = {
-            "openclaw": {"orchestrator", "adapter"},
-            "pydanticai": {"adapter", "integration"},
-            "springai": {"adapter", "integration"},
-            "emit_turn_finalized": {"integration", "port", "adapter"},
-            "orchestrator": {"framework", "adapter"},
-            "adapter": {"integration", "orchestrator"},
-            "migration": {"transition", "switch"},
-        }
-
-        extras: list[str] = []
-        for phrase, words in phrase_map.items():
-            if phrase in q:
-                extras.extend(list(words))
-
-        for t in list(base_tokens):
-            for w in token_map.get(t, set()):
-                extras.append(w)
-
-        for w in extras:
-            if len(expanded) >= len(base_tokens) + max(0, int(max_extra)):
-                break
-            expanded.add(w)
-
-        return expanded
+        from .retrieval.query_norm import _expand_query_tokens as _eqt
+        return _eqt(text, base_tokens, max_extra)
 
     def _redact_text(self, text: str) -> str:
+        from .hygiene import _redact_text as _rt
+        return _rt(text)
+
+    def _sanitize_bead_content(self, bead: dict) -> dict:
+        from .hygiene import sanitize_bead_content as _sbc
+        return _sbc(bead)
         """Conservative secret redaction for high-confidence credential patterns only."""
         if not text:
             return text
@@ -295,104 +256,25 @@ class MemoryStore:
         bead["because"] = [self._redact_text(str(s)) for s in (bead.get("because") or [])]
         return bead
 
+    # Delegators to retrieval.failure_patterns
     def compute_failure_signature(self, plan: str) -> str:
-        """Compute a stable failure signature hash from a plan string."""
-        norm = re.sub(r"\s+", " ", (plan or "").strip().lower())
-        return hashlib.sha256(norm.encode("utf-8")).hexdigest()[:16]
+        from .retrieval.failure_patterns import compute_failure_signature as _cfs
+        return _cfs(plan)
 
     def find_failure_signature_matches(self, plan: str, limit: int = 5, context_tags: Optional[list[str]] = None) -> list[dict]:
-        """Find prior FAILED_HYPOTHESIS beads matching the normalized failure signature.
-
-        Warn-only preflight retrieval for Phase 2. Returns deterministic newest-first matches.
-        """
-        sig = self.compute_failure_signature(plan)
+        from .retrieval.failure_patterns import find_failure_signature_matches as _fsm
         index = self._read_json(self.beads_dir / INDEX_FILE)
-        matches = []
-        req_tags = set([str(t).strip() for t in (context_tags or []) if str(t).strip()])
-
-        for bead in index.get("beads", {}).values():
-            if bead.get("type") != "failed_hypothesis":
-                continue
-            if bead.get("failure_signature") != sig:
-                continue
-
-            bead_tags = set([str(t).strip() for t in (bead.get("tags") or []) if str(t).strip()])
-            tag_overlap = len(req_tags.intersection(bead_tags)) if req_tags else 0
-            matches.append(
-                {
-                    "bead_id": bead.get("id"),
-                    "title": bead.get("title"),
-                    "failure_signature": sig,
-                    "created_at": bead.get("created_at"),
-                    "summary": (bead.get("summary") or [])[:2],
-                    "tag_overlap": tag_overlap,
-                }
-            )
-
-        matches = sorted(matches, key=lambda m: (-(m.get("tag_overlap") or 0), m.get("created_at") or ""), reverse=False)
-        matches = list(reversed(matches))  # newest first within overlap bucket
-        return matches[: max(0, int(limit))]
+        return _fsm(index, plan, limit=limit, context_tags=context_tags)
 
     def preflight_failure_check(self, plan: str, limit: int = 5, context_tags: Optional[list[str]] = None) -> dict:
-        """Warn-only preflight check for repeated failure patterns.
+        from .retrieval.failure_patterns import preflight_failure_check as _pfc
+        index = self._read_json(self.beads_dir / INDEX_FILE)
+        return _pfc(index, plan, limit=limit, context_tags=context_tags)
 
-        No hard blocking here. Caller can escalate policy later.
-        """
-        sig = self.compute_failure_signature(plan)
-        matches = self.find_failure_signature_matches(plan, limit=limit, context_tags=context_tags)
-        return {
-            "ok": True,
-            "mode": "warn_only",
-            "failure_signature": sig,
-            "match_count": len(matches),
-            "matches": matches,
-            "recommendation": "warn" if matches else "proceed",
-        }
-
+    # Delegator to hygiene.extract_constraints
     def extract_constraints(self, text: str) -> list[str]:
-        """Deterministic, conservative constraint extraction.
-
-        Cleanup pass: avoid noisy matches from markdown fragments, ids, and
-        accidental snippets. Prefer explicit policy language only.
-        """
-        raw = (text or "").strip()
-        if not raw:
-            return []
-
-        # Keep only plain-ish sentence segments.
-        segments = [s.strip() for s in re.split(r"[\n.;]+", raw) if s.strip()]
-        cue_re = re.compile(r"\b(must(?:\s+not)?|never|do\s+not|avoid|requires?)\b", re.IGNORECASE)
-
-        out: list[str] = []
-        seen = set()
-        for seg in segments:
-            s = re.sub(r"`[^`]*`", " ", seg)  # drop code-ish inline blocks
-            s = re.sub(r"\[\[.*?\]\]", " ", s)  # drop reply tags
-            s = re.sub(r"\s+", " ", s).strip(" -:\t")
-            if not s:
-                continue
-            if len(s) < 12 or len(s) > 180:
-                continue
-            if not cue_re.search(s):
-                continue
-
-            # Remove obvious non-policy fragments.
-            low = s.lower()
-            banned = ["http://", "https://", "core_memory/", "--", "commit", "bead-"]
-            if any(b in low for b in banned):
-                continue
-
-            # Normalize and bound token count to keep concise constraints.
-            toks = re.findall(r"[a-z0-9_\-]+", low)
-            if len(toks) < 3 or len(toks) > 20:
-                continue
-            normalized = " ".join(toks)
-            if normalized in seen:
-                continue
-            seen.add(normalized)
-            out.append(normalized)
-
-        return out[:8]
+        from .hygiene import extract_constraints as _ec
+        return _ec(text)
 
     def retrieve_with_context(
         self,
