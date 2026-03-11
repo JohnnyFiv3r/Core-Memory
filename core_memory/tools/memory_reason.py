@@ -1,3 +1,14 @@
+"""Freeform memory reasoning engine for remember/why/when/changed-style queries.
+
+NOTE: This file is a candidate for splitting per Codex Phase 5 refactor:
+- tools/memory_reason_retrieval.py: retrieval helpers
+- tools/memory_reason_chains.py: chain building and analysis
+- tools/memory_reason_plans.py: intent-specific planning (why, when, changed)
+- tools/memory_reason.py: orchestrator (keep as-is for now)
+
+The file works as-is; splitting is optional for improved readability.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

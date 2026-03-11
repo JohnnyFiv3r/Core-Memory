@@ -1,4 +1,9 @@
-from __future__ import annotations
+"""Reranking stage for retrieval pipeline.
+
+Second-stage reranking using coverage, structure, chain support, and query intent.
+NOTE: Candidate for splitting into rerank_features.py if it grows further.
+Currently manageable at ~200 lines.
+"""
 
 import json
 from pathlib import Path

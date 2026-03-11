@@ -23,6 +23,10 @@ from . import events
 from .io_utils import store_lock, atomic_write_json, append_jsonl
 from .archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from .session_surface import read_session_surface
+from .retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
+from .retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
+from .hygiene import _redact_text, sanitize_bead_content, extract_constraints
+from .policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "./memory"
