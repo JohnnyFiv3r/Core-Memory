@@ -3,6 +3,21 @@ Core-Memory CLI.
 
 Canonical command-line interface for core-memory.
 Entry point only - does not export from __init__.py to avoid circular imports.
+
+Command families:
+    core        - add, query, stats, rebuild, compact, uncompact
+    retrieval   - reason, retrieve-context, constraints, check-plan, preflight
+    graph       - graph build/stats/decay/traverse/sync/infer
+    maintenance - hygiene, myelinate, migrate-store, archive-index-rebuild
+    integration - sidecar (coordinator hooks), memory (typed skill interface)
+    metrics     - comprehensive metrics/evaluation/promotion tooling
+    advanced    - dream (novel association discovery)
+
+Examples:
+    core-memory add --type decision --title "My decision" --summary "Point 1" "Point 2"
+    core-memory query --type decision --limit 10
+    core-memory graph build
+    core-memory metrics promotion-slate --query "memory"
 """
 
 import argparse

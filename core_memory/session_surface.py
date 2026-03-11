@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger("core_memory.session_surface")
 
 
 def session_file_path(root: str | Path, session_id: str) -> Path:

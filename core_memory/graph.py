@@ -1,3 +1,14 @@
+"""Graph operations for causal memory.
+
+NOTE: This file has been split for readability per Codex Phase 5 refactor.
+The implementation is now in:
+- graph_structural.py: sync, backfill, inference
+- graph_traversal.py: causal traversal and queries
+- graph_semantic.py: reinforcement, decay, deactivation
+
+This file is kept for backward compatibility and re-exports from the new modules.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -6,6 +17,25 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+# Re-export from split modules for backward compatibility
+from .graph_structural import (
+    backfill_causal_links,
+    sync_structural_pipeline,
+    backfill_structural_edges,
+    infer_structural_edges,
+)
+from .graph_traversal import (
+    causal_traverse,
+    causal_traverse_bidirectional,
+)
+from .graph_semantic import (
+    add_semantic_edge,
+    update_semantic_edge,
+    deactivate_semantic_edge,
+    decay_semantic_edges,
+    reinforce_semantic_edges,
+)
 
 from .io_utils import append_jsonl, atomic_write_json
 

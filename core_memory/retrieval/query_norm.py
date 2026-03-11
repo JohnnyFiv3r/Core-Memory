@@ -3,10 +3,76 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Optional
 
 from core_memory.incidents import load_incidents, incident_match_strength
 
 _STOP = {"the", "and", "for", "with", "that", "this", "what", "when", "why", "did", "was", "are", "about", "into", "from", "where"}
+
+
+def _tokenize(text: str) -> set[str]:
+    """Tokenize text into searchable terms."""
+    return {t.lower() for t in (text or "").replace("_", " ").replace("-", " ").split() if len(t) >= 3}
+
+
+def _is_memory_intent(text: str) -> bool:
+    """Detect if query indicates memory recall intent."""
+    q = (text or "").lower()
+    cues = [
+        "remember",
+        "what did we decide",
+        "earlier",
+        "last time",
+        "previous",
+        "why did we",
+        "recall",
+        "history",
+        "find memory",
+    ]
+    return any(c in q for c in cues)
+
+
+def _expand_query_tokens(text: str, base_tokens: set[str], max_extra: int = 24) -> set[str]:
+    """Bounded synonym/entity expansion for better deterministic recall hits."""
+    q = (text or "").lower()
+    expanded = set(base_tokens)
+
+    phrase_map = {
+        "openclaw only": {"single", "orchestrator", "openclaw", "migration", "adapter"},
+        "single orchestrator": {"openclaw", "migration", "multi", "orchestrator"},
+        "multi orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
+        "multiple orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
+        "core adapters": {"adapter", "integration", "emit_turn_finalized", "pydanticai", "springai"},
+        "switch": {"migration", "transition"},
+        "migrate": {"migration", "transition"},
+        "transition": {"migration", "switch"},
+    }
+
+    token_map = {
+        "openclaw": {"orchestrator", "adapter"},
+        "pydanticai": {"adapter", "integration"},
+        "springai": {"adapter", "integration"},
+        "emit_turn_finalized": {"integration", "port", "adapter"},
+        "orchestrator": {"framework", "adapter"},
+        "adapter": {"integration", "orchestrator"},
+        "migration": {"transition", "switch"},
+    }
+
+    extras: list[str] = []
+    for phrase, words in phrase_map.items():
+        if phrase in q:
+            extras.extend(list(words))
+
+    for t in list(base_tokens):
+        for w in token_map.get(t, set()):
+            extras.append(w)
+
+    for w in extras:
+        if len(expanded) >= len(base_tokens) + max(0, int(max_extra)):
+            break
+        expanded.add(w)
+
+    return expanded
 
 
 def _stem_lite(tok: str) -> str:
