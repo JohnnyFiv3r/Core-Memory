@@ -14,7 +14,6 @@ Canonical finalized-turn event emission, pass state, mechanical execution, and r
 
 - `session_surface.py` - live append authority for session JSONL
 - `live_session.py` - read resolver with index projection fallback
-<<<<<<< HEAD
 - **`rolling_record_store.py`** - **canonical rolling continuity authority (JSON)**
 - `rolling_surface.py` - renderer + selection policy (derived artifacts)
 
