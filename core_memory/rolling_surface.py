@@ -1,3 +1,12 @@
+"""
+Rolling surface renderer.
+
+DEPRECATED: This module produces derived artifacts.
+- rolling_record_store.py is the canonical rolling authority
+- promoted-context.md and promoted-context.meta.json are operator-facing only
+
+This module is kept for backward compatibility and as a renderer.
+"""
 from __future__ import annotations
 
 import json

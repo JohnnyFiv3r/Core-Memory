@@ -14,7 +14,8 @@ Canonical finalized-turn event emission, pass state, mechanical execution, and r
 
 - `session_surface.py` - live append authority for session JSONL
 - `live_session.py` - read resolver with index projection fallback
-- `rolling_record_store.py` - canonical rolling continuity authority (JSON)
+<<<<<<< HEAD
+- **`rolling_record_store.py`** - **canonical rolling continuity authority (JSON)**
 - `rolling_surface.py` - renderer + selection policy (derived artifacts)
 
 ### 3. Retrieval / Reasoning
@@ -40,7 +41,8 @@ Canonical finalized-turn event emission, pass state, mechanical execution, and r
 ### 5. Persistence Primitives
 **Files:** `store.py`, `archive_index.py`, `io_utils.py`
 
-- `store.py` - slim persistence façade (bead CRUD, index management)
+- **`store.py`** - slim persistence façade (bead CRUD, index management)
+  - Legacy compatibility methods remain as thin delegators to extracted modules
 - `archive_index.py` - O(1) archive snapshot lookup
 - `io_utils.py` - lock, atomic write, JSONL append
 
@@ -54,6 +56,20 @@ Canonical finalized-turn event emission, pass state, mechanical execution, and r
 | `openclaw_integration.py` | DEPRECATED | Use `integrations/openclaw_agent_end_bridge.py` |
 | `association/pass_engine.py` | LEGACY | Secondary deterministic path |
 | `integrations/springai/bridge.py` | ACTIVE/BRIDGE | Keep if used |
+| `rolling_surface.py` | DEPRECATED | Renderer only; use `rolling_record_store.py` |
+| `write_triggers.py` | DEPRECATED | Refactored to direct calls; subprocess removed |
+
+---
+
+## Store Extraction Status
+
+Extraction is **largely complete**. Legacy compatibility methods remain in `store.py` as thin delegators to:
+
+- `retrieval/query_norm.py` - tokenization, intent detection
+- `retrieval/failure_patterns.py` - failure signature detection
+- `retrieval/context_recall.py` - context-aware retrieval
+- `hygiene.py` - redaction, sanitization
+- `policy/promotion.py` - scoring, thresholds
 
 ---
 

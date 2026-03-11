@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import unittest
 
-from core_memory.openclaw_integration import coordinator_finalize_hook, process_pending_memory_events
+from core_memory.openclaw_integration import finalize_and_process_turn
 from core_memory.event_worker import SidecarPolicy
 from core_memory.store import MemoryStore
 
@@ -14,17 +14,12 @@ class TestE2ESidecarPerTurn(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="core-e2e-sidecar-")
         self.store = MemoryStore(root=self.tmp)
-        self._old_legacy = os.environ.get("CORE_MEMORY_ENABLE_LEGACY_POLLER")
-        os.environ["CORE_MEMORY_ENABLE_LEGACY_POLLER"] = "1"
 
     def tearDown(self):
-        if self._old_legacy is None:
-            os.environ.pop("CORE_MEMORY_ENABLE_LEGACY_POLLER", None)
-        else:
-            os.environ["CORE_MEMORY_ENABLE_LEGACY_POLLER"] = self._old_legacy
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def test_bead_written_per_turn_with_finalize_process_flow(self):
+        """Test beads are created when using canonical finalize_and_process_turn path."""
         turns = [
             ("t1", "Remember this decision", "Decision: always use stdlib for reliability"),
             ("t2", "Remember this lesson", "Lesson: avoid overfitting to one environment"),
@@ -32,7 +27,7 @@ class TestE2ESidecarPerTurn(unittest.TestCase):
         ]
 
         for turn_id, uq, af in turns:
-            out = coordinator_finalize_hook(
+            out = finalize_and_process_turn(
                 root=self.tmp,
                 session_id="s-main",
                 turn_id=turn_id,
@@ -42,14 +37,12 @@ class TestE2ESidecarPerTurn(unittest.TestCase):
                 assistant_final=af,
                 trace_depth=0,
                 origin="USER_TURN",
+                policy=SidecarPolicy(create_threshold=0.5),
             )
-            self.assertTrue(out.get("emitted"), out)
+            self.assertTrue(out.get("ok"), out)
 
-        proc = process_pending_memory_events(self.tmp, max_events=50, policy=SidecarPolicy(create_threshold=0.5))
-        self.assertGreaterEqual(proc.get("processed", 0), len(turns))
-
+        # Verify beads were created via stats (canonical path populates stats correctly)
         stats = self.store.stats()
-        # At least one per finalized turn in this high-signal scenario
         self.assertGreaterEqual(stats["total_beads"], len(turns))
 
 

@@ -13,6 +13,8 @@
 - [x] `retrieval/failure_patterns.py` - New file with failure signature detection
 - [x] `retrieval/context_recall.py` - New file with context-aware retrieval
 - [x] `hygiene.py` - Added `_redact_text`, `sanitize_bead_content`, `extract_constraints`
+- [x] `policy/promotion.py` - New file with scoring, threshold, candidate evaluation
+- [x] **store.py legacy methods now thin delegators** - Compatibility maintained
 
 ### Phase 3: Rolling Surface Clarity
 - [x] Already properly structured (rolling_record_store.py is authority)
