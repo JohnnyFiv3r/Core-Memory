@@ -256,6 +256,30 @@ def process_turn_finalized(
     }
 
 
+def _flush_state_file(root: str) -> Path:
+    return Path(root) / ".beads" / "events" / "flush-state.json"
+
+
+def _read_flush_state(root: str) -> dict[str, Any]:
+    p = _flush_state_file(root)
+    if not p.exists():
+        return {"sessions": {}}
+    try:
+        obj = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(obj, dict):
+            obj.setdefault("sessions", {})
+            return obj
+    except Exception:
+        pass
+    return {"sessions": {}}
+
+
+def _write_flush_state(root: str, state: dict[str, Any]) -> None:
+    p = _flush_state_file(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def process_flush(
     *,
     root: str,
@@ -303,6 +327,25 @@ def process_flush(
                     "live_session_count": int(live.get("count") or 0),
                 },
             }
+
+    # Once-per-cycle/session guard: skip duplicate flush for same latest processed turn.
+    state = _read_flush_state(root)
+    sess_state = ((state.get("sessions") or {}).get(str(session_id)) or {}) if isinstance(state, dict) else {}
+    if latest_turn and str(sess_state.get("last_flushed_turn_id") or "") == str(latest_turn):
+        return {
+            "ok": True,
+            "skipped": True,
+            "reason": "already_flushed_for_latest_turn",
+            "latest_turn_id": str(latest_turn),
+            "last_flush_tx_id": str(sess_state.get("last_flush_tx_id") or ""),
+            "authority_path": "canonical_in_process",
+            "engine": {
+                "entry": "process_flush",
+                "sequence_owner": "memory_engine",
+                "live_session_authority": str(live.get("authority") or "unknown"),
+                "live_session_count": int(live.get("count") or 0),
+            },
+        }
 
     checkpoints = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
     append_jsonl(
@@ -352,6 +395,7 @@ def process_flush(
             },
         }
 
+    flush_id_final = str(flush_tx_id or f"flush-{session_id}")
     append_jsonl(
         checkpoints,
         {
@@ -359,15 +403,27 @@ def process_flush(
             "stage": "committed",
             "session_id": str(session_id or ""),
             "source": str(source or "flush_hook"),
-            "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+            "flush_tx_id": flush_id_final,
+            "latest_turn_id": str(latest_turn or ""),
             "crawler_merge": merge_out,
         },
     )
 
+    # Persist once-per-cycle state marker.
+    state = _read_flush_state(root)
+    sessions = state.setdefault("sessions", {}) if isinstance(state, dict) else {}
+    if isinstance(sessions, dict):
+        sessions[str(session_id)] = {
+            "last_flushed_turn_id": str(latest_turn or ""),
+            "last_flush_tx_id": flush_id_final,
+            "last_flush_source": str(source or "flush_hook"),
+        }
+        _write_flush_state(root, state)
+
     return {
         "ok": True,
         "authority_path": "canonical_in_process",
-        "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+        "flush_tx_id": flush_id_final,
         "crawler_merge": merge_out,
         "result": out,
         "engine": {
