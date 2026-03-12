@@ -15,6 +15,13 @@ const plugin = {
 
     const runBridge = (moduleName, payload) =>
       new Promise((resolve) => {
+        let settled = false;
+        const done = (result) => {
+          if (settled) return;
+          settled = true;
+          resolve(result);
+        };
+
         const child = spawn(cfg.pythonBin, ["-m", moduleName], {
           stdio: ["pipe", "pipe", "pipe"],
           env: process.env,
@@ -30,6 +37,15 @@ const plugin = {
           stderr += String(d || "");
         });
 
+        child.on("error", (err) => {
+          done({ code: -1, parsed: { ok: false, error: `spawn_error:${String(err)}` }, stderr });
+        });
+
+        child.stdin.on("error", (err) => {
+          // Prevent uncaught EPIPE from crashing gateway when child exits early.
+          stderr += `\nstdin_error:${String(err)}`;
+        });
+
         child.on("close", (code) => {
           let parsed = null;
           try {
@@ -37,11 +53,15 @@ const plugin = {
           } catch {
             parsed = { ok: false, error: "invalid_json", stdout };
           }
-          resolve({ code, parsed, stderr });
+          done({ code, parsed, stderr });
         });
 
-        child.stdin.write(JSON.stringify(payload));
-        child.stdin.end();
+        try {
+          child.stdin.end(JSON.stringify(payload));
+        } catch (err) {
+          stderr += `\nstdin_end_error:${String(err)}`;
+          done({ code: -1, parsed: { ok: false, error: "stdin_write_failed" }, stderr });
+        }
       });
 
     if (cfg.enableAgentEnd) {
