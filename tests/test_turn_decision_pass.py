@@ -44,6 +44,42 @@ class TestTurnDecisionPass(unittest.TestCase):
             self.assertTrue(d2.get("ok"))
             self.assertGreaterEqual(int((d2.get("counts") or {}).get("evaluated", 0)), 2)
 
+    def test_custom_metadata_updates_still_create_turn_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            b1 = store.add_bead(type="context", title="Seed", summary=["x"], session_id="s2", source_turn_ids=["t0"])
+
+            out1 = process_turn_finalized(
+                root=td,
+                session_id="s2",
+                turn_id="t1",
+                user_query="Link only metadata",
+                assistant_final="No explicit create in metadata",
+                metadata={
+                    "crawler_updates": {
+                        "associations": [
+                            {
+                                "source_bead_id": b1,
+                                "target_bead_id": b1,
+                                "relationship": "supports",
+                            }
+                        ]
+                    }
+                },
+            )
+            self.assertTrue(out1.get("ok"))
+
+            out2 = process_turn_finalized(
+                root=td,
+                session_id="s2",
+                turn_id="t2",
+                user_query="Second turn",
+                assistant_final="Should evaluate both seed and t1 bead",
+            )
+            self.assertTrue(out2.get("ok"))
+            d2 = ((out2.get("crawler_handoff") or {}).get("decision_pass") or {})
+            self.assertGreaterEqual(int((d2.get("counts") or {}).get("evaluated", 0)), 2)
+
 
 if __name__ == "__main__":
     unittest.main()

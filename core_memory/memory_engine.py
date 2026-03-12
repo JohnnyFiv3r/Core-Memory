@@ -104,6 +104,40 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _ensure_turn_creation_update(req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    """Guarantee one current-turn creation candidate exists for canonical per-turn bead write."""
+    out = dict(updates or {})
+    key = "beads_create"
+    rows = list(out.get(key) or [])
+    turn_id = str(req.get("turn_id") or "")
+
+    has_turn = False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        src = [str(x) for x in (row.get("source_turn_ids") or []) if str(x)]
+        if turn_id and turn_id in src:
+            has_turn = True
+            break
+
+    if not has_turn:
+        title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
+        summary = (req.get("assistant_final") or req.get("user_query") or "").strip() or "turn memory"
+        rows.append(
+            {
+                "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
+                "title": title or "Turn memory",
+                "summary": [summary[:240]],
+                "source_turn_ids": [turn_id],
+                "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine"],
+                "detail": summary[:1200],
+            }
+        )
+
+    out[key] = rows
+    return out
+
+
 def process_turn_finalized(
     *,
     root: str,
@@ -233,6 +267,7 @@ def process_turn_finalized(
     reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
     if not isinstance(reviewed_updates, dict) or not reviewed_updates:
         reviewed_updates = _default_crawler_updates(req)
+    reviewed_updates = _ensure_turn_creation_update(req, reviewed_updates)
 
     crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
     session_visible = _session_visible_bead_ids(root=root, session_id=req["session_id"])
