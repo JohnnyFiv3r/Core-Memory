@@ -20,18 +20,29 @@ class TestTurnDecisionPass(unittest.TestCase):
                 status="open",
             )
 
-            out = process_turn_finalized(
+            out1 = process_turn_finalized(
                 root=td,
                 session_id="s1",
                 turn_id="t1",
                 user_query="We decided to keep a bridge layer",
                 assistant_final="Decision confirmed with evidence and references.",
             )
-            self.assertTrue(out.get("ok"))
-            handoff = (out.get("crawler_handoff") or {})
-            decision = handoff.get("decision_pass") or {}
-            self.assertTrue(decision.get("ok"))
-            self.assertGreaterEqual(int((decision.get("counts") or {}).get("evaluated", 0)), 1)
+            self.assertTrue(out1.get("ok"))
+            d1 = ((out1.get("crawler_handoff") or {}).get("decision_pass") or {})
+            self.assertTrue(d1.get("ok"))
+            self.assertGreaterEqual(int((d1.get("counts") or {}).get("evaluated", 0)), 1)
+
+            out2 = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t2",
+                user_query="Second turn should see prior beads",
+                assistant_final="Still consistent.",
+            )
+            self.assertTrue(out2.get("ok"))
+            d2 = ((out2.get("crawler_handoff") or {}).get("decision_pass") or {})
+            self.assertTrue(d2.get("ok"))
+            self.assertGreaterEqual(int((d2.get("counts") or {}).get("evaluated", 0)), 2)
 
 
 if __name__ == "__main__":

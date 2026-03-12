@@ -74,6 +74,17 @@ def _infer_semantic_bead_type(user_query: str, assistant_final: str) -> str:
     return "context"
 
 
+def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
+    s = MemoryStore(root=root)
+    idx = s._read_json(Path(root) / ".beads" / "index.json")
+    out = []
+    for bid, bead in (idx.get("beads") or {}).items():
+        if str((bead or {}).get("session_id") or "") == str(session_id):
+            out.append(str(bid))
+    out.sort()
+    return out
+
+
 def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
     summary = (req.get("assistant_final") or req.get("user_query") or "").strip()
@@ -223,7 +234,10 @@ def process_turn_finalized(
     if not isinstance(reviewed_updates, dict) or not reviewed_updates:
         reviewed_updates = _default_crawler_updates(req)
 
-    visible_ids = list(crawler_ctx.get("visible_bead_ids") or [])
+    crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
+    session_visible = _session_visible_bead_ids(root=root, session_id=req["session_id"])
+    visible_ids = sorted(set(crawler_visible + session_visible))
+
     auto_apply = apply_crawler_updates(
         root=root,
         session_id=req["session_id"],
