@@ -8,9 +8,28 @@ This module is retained as a thin compatibility layer for callers still importin
 """
 
 from typing import Any
+import logging
+from pathlib import Path
+
+from .io_utils import append_jsonl
 
 LEGACY_SHIM = True
 SHIM_REPLACEMENT = "core_memory.memory_engine"
+
+logger = logging.getLogger("core_memory.trigger_orchestrator")
+
+
+def _record_shim_usage(*, root: str, shim_call: str, session_id: str = "", turn_id: str = "") -> None:
+    rec = {
+        "schema": "openclaw.memory.legacy_shim_usage.v1",
+        "module": "core_memory.trigger_orchestrator",
+        "shim_call": str(shim_call or ""),
+        "session_id": str(session_id or ""),
+        "turn_id": str(turn_id or ""),
+        "delegated_to": SHIM_REPLACEMENT,
+    }
+    append_jsonl(Path(root) / ".beads" / "events" / "legacy-shim-usage.jsonl", rec)
+    logger.warning("legacy_shim_used", extra={"shim_call": shim_call, "session_id": session_id, "turn_id": turn_id})
 
 
 def run_turn_finalize_pipeline(
@@ -32,6 +51,8 @@ def run_turn_finalize_pipeline(
     policy=None,
 ) -> dict[str, Any]:
     from .memory_engine import process_turn_finalized
+
+    _record_shim_usage(root=root, shim_call="run_turn_finalize_pipeline", session_id=session_id, turn_id=turn_id)
 
     out = process_turn_finalized(
         root=root,
@@ -66,6 +87,8 @@ def run_flush_pipeline(
     flush_tx_id: str | None = None,
 ) -> dict[str, Any]:
     from .memory_engine import process_flush
+
+    _record_shim_usage(root=root, shim_call="run_flush_pipeline", session_id=session_id, turn_id="")
 
     out = process_flush(
         root=root,
