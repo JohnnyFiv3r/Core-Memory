@@ -46,7 +46,7 @@ For each entry, capture:
 - Safe closure plan: fence usage; route all turn-finalized writes through `memory_engine.process_turn_finalized`.
 - Dependency blockers: existing tests referencing orchestrator behavior.
 - Status: in_progress
-- PR/commit refs: feat/pr01-scaffolding-bootstrap (turn decision pass enforced in memory_engine; trigger_orchestrator shim usage logged to legacy-shim-usage.jsonl; strict block mode available via CORE_MEMORY_BLOCK_LEGACY_TRIGGER_ORCHESTRATOR=1)
+- PR/commit refs: feat/pr01-scaffolding-bootstrap (turn decision pass enforced in memory_engine; trigger_orchestrator shim usage logged to legacy-shim-usage.jsonl; strict block mode via CORE_MEMORY_BLOCK_LEGACY_TRIGGER_ORCHESTRATOR=1; readiness summarized by `core-memory metrics legacy-readiness`)
 
 ### LP-003
 - Area: flush_path

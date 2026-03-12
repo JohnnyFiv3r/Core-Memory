@@ -22,6 +22,7 @@ Examples:
 
 import argparse
 import json
+import os
 from pathlib import Path
 
 # Use relative import to avoid circular import
@@ -39,6 +40,78 @@ from .openclaw_integration import (
 )
 from .memory_skill import memory_get_search_form, memory_search_typed, memory_execute
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
+
+
+def _legacy_readiness_report(root: str, write_path: str | None = None) -> dict:
+    beads_events = Path(root) / ".beads" / "events"
+    shim_log = beads_events / "legacy-shim-usage.jsonl"
+    trigger_log = beads_events / "write-trigger-processed.jsonl"
+
+    shim_rows = []
+    if shim_log.exists():
+        for line in shim_log.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(rec, dict):
+                shim_rows.append(rec)
+
+    trigger_rows = []
+    if trigger_log.exists():
+        for line in trigger_log.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(rec, dict):
+                trigger_rows.append(rec)
+
+    trigger_status_counts: dict[str, int] = {}
+    for r in trigger_rows:
+        st = str(r.get("status") or "unknown")
+        trigger_status_counts[st] = trigger_status_counts.get(st, 0) + 1
+
+    shim_count = len(shim_rows)
+    legacy_dispatch_count = sum(1 for r in trigger_rows if str(r.get("status") or "") in {"done", "failed", "retired", "ignored"})
+    blocked_count = sum(1 for r in trigger_rows if str(r.get("status") or "") == "blocked")
+
+    strict_block_env = str(os.getenv("CORE_MEMORY_BLOCK_LEGACY_TRIGGER_ORCHESTRATOR", "0")).strip().lower() in {"1", "true", "yes", "on"}
+    trigger_block_env = str(os.getenv("CORE_MEMORY_ALLOW_LEGACY_WRITE_TRIGGERS", "0")).strip().lower() not in {"1", "true", "yes", "on"}
+
+    ready = (shim_count == 0) and (legacy_dispatch_count == 0)
+
+    out = {
+        "ok": True,
+        "schema": "openclaw.memory.legacy_readiness_report.v1",
+        "root": str(root),
+        "ready_for_legacy_removal": bool(ready),
+        "strict_block_env": bool(strict_block_env),
+        "legacy_write_trigger_blocked_by_default": bool(trigger_block_env),
+        "summary": {
+            "shim_usage_count": shim_count,
+            "legacy_dispatch_count": legacy_dispatch_count,
+            "legacy_dispatch_blocked_count": blocked_count,
+        },
+        "trigger_status_counts": trigger_status_counts,
+        "next_actions": [
+            "Enable strict shim blocking in CI/staging: CORE_MEMORY_BLOCK_LEGACY_TRIGGER_ORCHESTRATOR=1",
+            "Keep CORE_MEMORY_ALLOW_LEGACY_WRITE_TRIGGERS unset in production",
+            "Wait for zero shim usage over burn-in window before removing legacy modules",
+        ],
+    }
+
+    if write_path:
+        p = Path(write_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(out, indent=2), encoding="utf-8")
+        out["written"] = str(p)
+
+    return out
 
 
 def main():
@@ -307,6 +380,9 @@ def main():
 
     metrics_auto_report = metrics_sub.add_parser("autonomy-report", help="Aggregate autonomy KPIs")
     metrics_auto_report.add_argument("--since", default="7d")
+
+    metrics_legacy = metrics_sub.add_parser("legacy-readiness", help="Report legacy-path closure readiness")
+    metrics_legacy.add_argument("--write", help="Optional JSON output path")
     
     args = parser.parse_args()
     
@@ -630,6 +706,8 @@ def main():
             print(json.dumps(rec, indent=2))
         elif args.metrics_cmd == "autonomy-report":
             print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
+        elif args.metrics_cmd == "legacy-readiness":
+            print(json.dumps(_legacy_readiness_report(str(memory.root), write_path=args.write), indent=2))
         else:
             metrics_parser.print_help()
 
