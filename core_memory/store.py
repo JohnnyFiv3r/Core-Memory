@@ -1347,6 +1347,105 @@ class MemoryStore:
             "results": out,
         }
 
+    def decide_session_promotion_states(self, *, session_id: str, visible_bead_ids: Optional[list[str]] = None, turn_id: str = "") -> dict:
+        """Per-turn session decision pass: promoted|candidate|null for visible beads.
+
+        Promotion is terminal: promoted beads remain locked.
+        """
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            beads = index.get("beads") or {}
+
+            allowed = set(str(x) for x in (visible_bead_ids or []) if str(x).strip())
+            ids = []
+            for bid, bead in beads.items():
+                if str((bead or {}).get("session_id") or "") != str(session_id):
+                    continue
+                if allowed and str(bid) not in allowed:
+                    continue
+                ids.append(str(bid))
+            ids.sort(key=lambda bid: (str((beads.get(bid) or {}).get("created_at") or ""), bid))
+
+            now = datetime.now(timezone.utc).isoformat()
+            counts = {"promoted": 0, "candidate": 0, "null": 0, "locked": 0, "evaluated": 0}
+
+            for bid in ids:
+                bead = beads.get(bid) or {}
+                counts["evaluated"] += 1
+
+                status = str(bead.get("status") or "").strip().lower()
+                state = str(bead.get("promotion_state") or ("promoted" if status == "promoted" else "")).strip().lower()
+                locked = bool(bead.get("promotion_locked")) or state == "promoted" or status == "promoted"
+
+                if locked:
+                    bead["status"] = "promoted"
+                    bead["promotion_state"] = "promoted"
+                    bead["promotion_locked"] = True
+                    bead["promotion_decision"] = "promoted_locked"
+                    bead["promotion_decided_at"] = now
+                    if turn_id:
+                        bead["promotion_decision_turn_id"] = str(turn_id)
+                    counts["locked"] += 1
+                    counts["promoted"] += 1
+                    beads[bid] = bead
+                    continue
+
+                because = bead.get("because") or []
+                detail = str(bead.get("detail") or "").strip()
+                has_evidence = self._has_evidence(bead)
+                has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+                btype = str(bead.get("type") or "").strip().lower()
+
+                strong = False
+                if btype in {"decision", "lesson", "precedent"}:
+                    strong = bool(because and (detail or has_evidence or has_link))
+                elif btype == "outcome":
+                    result = str(bead.get("result") or "").strip().lower()
+                    strong = result in {"resolved", "failed", "partial", "confirmed"} and (detail or has_evidence or has_link)
+                else:
+                    strong = bool((detail and len(detail) >= 80) and (has_evidence or has_link or because))
+
+                signal = bool(detail or has_evidence or has_link or because)
+
+                if strong:
+                    bead["status"] = "promoted"
+                    bead["promotion_state"] = "promoted"
+                    bead["promotion_locked"] = True
+                    bead["promoted_at"] = str(bead.get("promoted_at") or now)
+                    bead["promotion_decision"] = "promote"
+                    bead["promotion_decided_at"] = now
+                    bead["promotion_reason"] = str(bead.get("promotion_reason") or "session_turn_evidence")
+                    bead["promotion_evidence"] = {
+                        "reason": bead.get("promotion_reason"),
+                        "has_evidence": bool(has_evidence),
+                        "has_link": bool(has_link),
+                        "has_because": bool(because),
+                    }
+                    counts["promoted"] += 1
+                elif signal:
+                    bead["status"] = "candidate"
+                    bead["promotion_state"] = "candidate"
+                    bead["promotion_locked"] = False
+                    bead["promotion_decision"] = "keep_candidate"
+                    bead["promotion_decided_at"] = now
+                    counts["candidate"] += 1
+                else:
+                    if str(bead.get("status") or "").strip().lower() not in {"promoted", "archived"}:
+                        bead["status"] = "open"
+                    bead["promotion_state"] = "null"
+                    bead["promotion_locked"] = False
+                    bead["promotion_decision"] = "null"
+                    bead["promotion_decided_at"] = now
+                    counts["null"] += 1
+
+                if turn_id:
+                    bead["promotion_decision_turn_id"] = str(turn_id)
+                beads[bid] = bead
+
+            index["beads"] = beads
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+            return {"ok": True, "session_id": str(session_id), "turn_id": str(turn_id or ""), "counts": counts, "evaluated_bead_ids": ids}
+
     def promotion_kpis(self, limit: int = 500) -> dict:
         """Report promotion decision volume, reasons, and rec-vs-decision alignment."""
         idx = self._read_json(self.beads_dir / INDEX_FILE)

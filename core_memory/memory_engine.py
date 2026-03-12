@@ -15,6 +15,7 @@ from .event_ingress import maybe_emit_finalize_memory_event
 from .event_worker import SidecarPolicy, process_memory_event
 from .write_pipeline.orchestrate import run_consolidate_pipeline
 from .io_utils import append_jsonl
+from .store import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -222,11 +223,19 @@ def process_turn_finalized(
     if not isinstance(reviewed_updates, dict) or not reviewed_updates:
         reviewed_updates = _default_crawler_updates(req)
 
+    visible_ids = list(crawler_ctx.get("visible_bead_ids") or [])
     auto_apply = apply_crawler_updates(
         root=root,
         session_id=req["session_id"],
         updates=reviewed_updates,
-        visible_bead_ids=list(crawler_ctx.get("visible_bead_ids") or []),
+        visible_bead_ids=visible_ids,
+    )
+
+    # Canonical per-turn state decision pass for all visible session beads.
+    decision_pass = MemoryStore(root=root).decide_session_promotion_states(
+        session_id=req["session_id"],
+        visible_bead_ids=visible_ids,
+        turn_id=req["turn_id"],
     )
 
     return {
@@ -239,8 +248,9 @@ def process_turn_finalized(
         "emitted": emitted,
         "crawler_handoff": {
             "required": True,
-            "context_visible_count": len(crawler_ctx.get("visible_bead_ids") or []),
+            "context_visible_count": len(visible_ids),
             "auto_apply": auto_apply,
+            "decision_pass": decision_pass,
         },
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }

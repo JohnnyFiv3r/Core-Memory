@@ -45,8 +45,8 @@ For each entry, capture:
 - Risk: high
 - Safe closure plan: fence usage; route all turn-finalized writes through `memory_engine.process_turn_finalized`.
 - Dependency blockers: existing tests referencing orchestrator behavior.
-- Status: open
-- PR/commit refs: pending
+- Status: in_progress
+- PR/commit refs: feat/pr01-scaffolding-bootstrap (turn decision pass now enforced in memory_engine)
 
 ### LP-003
 - Area: flush_path
@@ -56,8 +56,8 @@ For each entry, capture:
 - Risk: high
 - Safe closure plan: enforce `process_flush` as sole flush authority; keep adapter wrappers until tests migrate.
 - Dependency blockers: trigger/flush regression suite.
-- Status: open
-- PR/commit refs: pending
+- Status: in_progress
+- PR/commit refs: feat/pr01-scaffolding-bootstrap (association append dedupe + turn-path hardening landed; flush ownership still pending)
 
 ### LP-004
 - Area: rendering
