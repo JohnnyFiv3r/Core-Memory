@@ -225,6 +225,10 @@ Current launch integrations:
 - PydanticAI (native)
 - SpringAI (native HTTP ingress)
 
+OpenClaw onboarding:
+- `core-memory openclaw onboard` (coexist with memory-core)
+- `core-memory openclaw onboard --replace-memory-core` (disable stock memory-core)
+
 Privacy modes:
 - `store_full_text=true`: store inline assistant text
 - `store_full_text=false`: store `assistant_final_ref` + hashes

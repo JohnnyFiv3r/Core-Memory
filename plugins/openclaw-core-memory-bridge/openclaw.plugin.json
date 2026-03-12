@@ -1,0 +1,15 @@
+{
+  "id": "core-memory-bridge",
+  "name": "Core Memory Bridge",
+  "description": "Routes OpenClaw lifecycle events into Core Memory canonical ingress/flush paths.",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "pythonBin": { "type": "string" },
+      "coreMemoryRoot": { "type": "string" },
+      "enableAgentEnd": { "type": "boolean" },
+      "enableCompactionFlush": { "type": "boolean" }
+    }
+  }
+}

@@ -38,6 +38,7 @@ from .openclaw_integration import (
     process_pending_memory_events,
 )
 from .memory_skill import memory_get_search_form, memory_search_typed, memory_execute
+from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
 
 
 def main():
@@ -154,6 +155,15 @@ def main():
     sc_turn.add_argument("--meta-wrong-transfer", action="store_true")
     sc_turn.add_argument("--meta-goal-carryover", action="store_true")
     sc_turn.add_argument("--store-full-text", choices=["true", "false"], default="true")
+
+    # openclaw integration onboarding
+    oc_parser = subparsers.add_parser("openclaw", help="OpenClaw integration onboarding + diagnostics")
+    oc_sub = oc_parser.add_subparsers(dest="openclaw_cmd")
+    oc_onboard = oc_sub.add_parser("onboard", help="Install/enable Core Memory bridge plugin in OpenClaw")
+    oc_onboard.add_argument("--openclaw-bin", default="openclaw")
+    oc_onboard.add_argument("--plugin-dir", help="Path to core-memory bridge plugin directory")
+    oc_onboard.add_argument("--replace-memory-core", action="store_true", help="Disable stock memory-core plugin")
+    oc_onboard.add_argument("--dry-run", action="store_true")
 
     # reason command
     reason_parser = subparsers.add_parser("reason", help="Reasoned memory recall (semantic + causal)")
@@ -434,6 +444,20 @@ def main():
             print(json.dumps(result, indent=2))
         else:
             sidecar_parser.print_help()
+
+    elif args.command == "openclaw":
+        if args.openclaw_cmd == "onboard":
+            out = run_openclaw_onboard(
+                openclaw_bin=args.openclaw_bin,
+                plugin_dir=args.plugin_dir,
+                replace_memory_core=bool(args.replace_memory_core),
+                dry_run=bool(args.dry_run),
+            )
+            print(render_onboard_report(out))
+            if not out.get("ok"):
+                raise SystemExit(2)
+        else:
+            oc_parser.print_help()
 
     elif args.command == "reason":
         out = memory_reason(
