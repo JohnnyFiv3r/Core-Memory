@@ -7,6 +7,7 @@ Replaced with direct function calls for easier debugging and testing.
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -84,55 +85,65 @@ def _mark_processed(root: str | Path, event_id: str, status: str, detail: dict[s
 
 
 def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_root: str | Path = ".") -> dict[str, Any]:
-    """Dispatch a write trigger via direct function calls.
+    """Legacy trigger dispatcher.
 
-    Replaced subprocess execution with direct imports for:
-    - Easier debugging
-    - Fewer failure modes
-    - Better unit testing
+    Disabled by default. When enabled, routes to canonical owners:
+    - rolling_window_refresh -> run_rolling_window_pipeline
+    - consolidate_session -> memory_engine.process_flush
     """
     event_id = str(event.get("event_id") or "")
     if event_id and _is_processed(root, event_id):
         return {"ok": True, "event_id": event_id, "skipped": True, "reason": "already_processed"}
 
+    if str(os.getenv("CORE_MEMORY_ALLOW_LEGACY_WRITE_TRIGGERS", "0")).strip().lower() not in {"1", "true", "yes", "on"}:
+        _mark_processed(root, event_id or "", "blocked", {"reason": "legacy_write_triggers_disabled"})
+        return {
+            "ok": False,
+            "event_id": event_id,
+            "error": "legacy_write_triggers_disabled",
+            "authority_path": "canonical_in_process",
+        }
+
     ttype = str(event.get("trigger_type") or "")
     payload = dict(event.get("payload") or {})
 
     if ttype == "rolling_window_refresh":
-        # Direct call instead of subprocess
-        from core_memory.write_pipeline.consolidate import consolidate_rolling_window
+        from core_memory.write_pipeline.orchestrate import run_rolling_window_pipeline
+
         try:
-            result = consolidate_rolling_window(
-                root=str(root),
+            result = run_rolling_window_pipeline(
                 token_budget=int(payload.get("token_budget") or 3000),
                 max_beads=int(payload.get("max_beads") or 80),
             )
-            _mark_processed(root, event_id or "", "done", {"trigger_type": ttype})
-            return {"ok": True, "event_id": event_id, "result": result}
+            _mark_processed(root, event_id or "", "done", {"trigger_type": ttype, "delegated_to": "run_rolling_window_pipeline"})
+            return {"ok": True, "event_id": event_id, "result": result, "authority_path": "canonical_in_process"}
         except Exception as e:
             _mark_processed(root, event_id or "", "failed", {"error": str(e)[:500]})
-            return {"ok": False, "event_id": event_id, "error": str(e)}
+            return {"ok": False, "event_id": event_id, "error": str(e), "authority_path": "canonical_in_process"}
 
     elif ttype == "consolidate_session":
         session = str(payload.get("session") or "")
         if not session:
             _mark_processed(root, event_id or "", "failed", {"error": "missing_session"})
-            return {"ok": False, "error": "missing_session"}
+            return {"ok": False, "error": "missing_session", "authority_path": "canonical_in_process"}
 
-        from core_memory.write_pipeline.consolidate import consolidate_session
+        from core_memory.memory_engine import process_flush
+
         try:
-            result = consolidate_session(
+            result = process_flush(
                 root=str(root),
                 session_id=session,
+                promote=bool(payload.get("promote", True)),
                 token_budget=int(payload.get("token_budget") or 3000),
                 max_beads=int(payload.get("max_beads") or 80),
-                promote=bool(payload.get("promote")),
+                source="legacy_write_trigger",
+                flush_tx_id=str(event_id or f"flush-{session}"),
             )
-            _mark_processed(root, event_id or "", "done", {"trigger_type": ttype, "session": session})
-            return {"ok": True, "event_id": event_id, "result": result}
+            _mark_processed(root, event_id or "", "done", {"trigger_type": ttype, "session": session, "delegated_to": "memory_engine.process_flush"})
+            return {"ok": True, "event_id": event_id, "result": result, "authority_path": "canonical_in_process"}
         except Exception as e:
             _mark_processed(root, event_id or "", "failed", {"error": str(e)[:500]})
-            return {"ok": False, "event_id": event_id, "error": str(e)}
+            return {"ok": False, "event_id": event_id, "error": str(e), "authority_path": "canonical_in_process"}
 
     elif ttype == "extract_beads":
         _mark_processed(
@@ -146,7 +157,8 @@ def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_ro
             "event_id": event_id,
             "error": "extract_path_retired",
             "trigger_type": ttype,
+            "authority_path": "canonical_in_process",
         }
     else:
         _mark_processed(root, event_id or "", "ignored", {"reason": "unknown_trigger_type", "trigger_type": ttype})
-        return {"ok": False, "error": "unknown_trigger_type", "trigger_type": ttype}
+        return {"ok": False, "error": "unknown_trigger_type", "trigger_type": ttype, "authority_path": "canonical_in_process"}

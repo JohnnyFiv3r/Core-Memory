@@ -57,7 +57,7 @@ For each entry, capture:
 - Safe closure plan: enforce `process_flush` as sole flush authority; keep adapter wrappers until tests migrate.
 - Dependency blockers: trigger/flush regression suite.
 - Status: in_progress
-- PR/commit refs: feat/pr01-scaffolding-bootstrap (association append dedupe + turn-path hardening landed; flush once-per-cycle guard + explicit flush phase trace + flush report artifact logging added; flush ownership closure still pending)
+- PR/commit refs: feat/pr01-scaffolding-bootstrap (association append dedupe + turn-path hardening landed; flush once-per-cycle guard + explicit flush phase trace + flush report artifact logging added; write_triggers fenced behind opt-in legacy env + delegated to canonical owners)
 
 ### LP-004
 - Area: rendering
