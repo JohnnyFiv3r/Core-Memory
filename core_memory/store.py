@@ -1237,6 +1237,14 @@ class MemoryStore:
             before = str(bead.get("status") or "")
             now = datetime.now(timezone.utc).isoformat()
 
+            # Canonical state normalization
+            current_state = str(bead.get("promotion_state") or ("promoted" if before == "promoted" else "")).strip().lower()
+            is_locked = bool(bead.get("promotion_locked")) or current_state == "promoted" or before == "promoted"
+
+            # Promotion is terminal: no demotion/unpromotion once locked.
+            if is_locked and decision_n in {"keep_candidate", "archive"}:
+                return {"ok": False, "error": "promotion_locked_terminal", "bead_id": bead_id, "decision": decision_n}
+
             # Snapshot advisory recommendation at decision time.
             score, factors = self._promotion_score(index, bead)
             threshold = self._adaptive_promotion_threshold(index)
@@ -1253,10 +1261,19 @@ class MemoryStore:
 
             if decision_n == "promote":
                 bead["status"] = "promoted"
+                bead["promotion_state"] = "promoted"
+                bead["promotion_locked"] = True
                 bead["promoted_at"] = now
                 bead["promotion_reason"] = str(reason).strip()
+                bead["promotion_evidence"] = {
+                    "reason": str(reason).strip(),
+                    "score": round(score, 4),
+                    "threshold": round(threshold, 4),
+                }
             elif decision_n == "keep_candidate":
                 bead["status"] = "candidate"
+                bead["promotion_state"] = "candidate"
+                bead["promotion_locked"] = False
             elif decision_n == "archive":
                 revision_id = f"rev-{uuid.uuid4().hex[:12]}"
                 append_archive_snapshot(
@@ -1274,10 +1291,13 @@ class MemoryStore:
                 bead["detail"] = ""
                 bead["summary"] = (bead.get("summary") or [])[:2]
                 bead["status"] = "archived"
+                bead["promotion_state"] = "null"
+                bead["promotion_locked"] = False
                 bead["demotion_reason"] = str(reason).strip()
 
             bead["promotion_decision"] = decision_n
             bead["promotion_decided_at"] = now
+            bead["promotion_decision_turn_id"] = str((bead.get("source_turn_ids") or [""])[-1] or "")
             if considerations:
                 bead["promotion_considerations"] = [str(c) for c in considerations][:8]
 
@@ -2078,6 +2098,8 @@ class MemoryStore:
 
                     if allow_promote:
                         bead["status"] = "promoted"
+                        bead["promotion_state"] = "promoted"
+                        bead["promotion_locked"] = True
                         bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
                         if score_meta:
                             bead["promotion_score"] = score_meta.get("score")
@@ -2312,6 +2334,8 @@ class MemoryStore:
                         return False
 
             bead["status"] = "promoted"
+            bead["promotion_state"] = "promoted"
+            bead["promotion_locked"] = True
             bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
             bead["promotion_reason"] = (promotion_reason or bead.get("promotion_reason") or "policy_auto_promote").strip()
 
