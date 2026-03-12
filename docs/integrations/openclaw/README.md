@@ -7,6 +7,7 @@ Status: Canonical landing page
 - `../../core_adapters_architecture.md`
 - `../../memory_search_skill.md`
 - `../../memory_search_agent_playbook.md`
+- `plugin-setup.md`
 - repository root `README.md`
 
 ## Notes
