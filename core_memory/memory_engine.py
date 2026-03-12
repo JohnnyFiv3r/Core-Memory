@@ -328,11 +328,13 @@ def process_flush(
                 },
             }
 
+    checkpoints = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
+
     # Once-per-cycle/session guard: skip duplicate flush for same latest processed turn.
     state = _read_flush_state(root)
     sess_state = ((state.get("sessions") or {}).get(str(session_id)) or {}) if isinstance(state, dict) else {}
     if latest_turn and str(sess_state.get("last_flushed_turn_id") or "") == str(latest_turn):
-        return {
+        skipped_out = {
             "ok": True,
             "skipped": True,
             "reason": "already_flushed_for_latest_turn",
@@ -346,8 +348,20 @@ def process_flush(
                 "live_session_count": int(live.get("count") or 0),
             },
         }
+        append_jsonl(
+            checkpoints,
+            {
+                "schema": "openclaw.memory.flush_report.v1",
+                "stage": "skipped",
+                "session_id": str(session_id or ""),
+                "source": str(source or "flush_hook"),
+                "flush_tx_id": str(sess_state.get("last_flush_tx_id") or f"flush-{session_id}"),
+                "latest_turn_id": str(latest_turn or ""),
+                "result": skipped_out,
+            },
+        )
+        return skipped_out
 
-    checkpoints = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
     append_jsonl(
         checkpoints,
         {
@@ -370,18 +384,7 @@ def process_flush(
         workspace_root=root,
     )
     if not out.get("ok"):
-        append_jsonl(
-            checkpoints,
-            {
-                "schema": "openclaw.memory.flush_checkpoint.v1",
-                "stage": "failed",
-                "session_id": str(session_id or ""),
-                "source": str(source or "flush_hook"),
-                "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
-                "error": out.get("error") or "flush_failed",
-            },
-        )
-        return {
+        flush_failed = {
             "ok": False,
             "authority_path": "canonical_in_process",
             "error": out.get("error") or "flush_failed",
@@ -394,6 +397,30 @@ def process_flush(
                 "live_session_count": int(live.get("count") or 0),
             },
         }
+        append_jsonl(
+            checkpoints,
+            {
+                "schema": "openclaw.memory.flush_checkpoint.v1",
+                "stage": "failed",
+                "session_id": str(session_id or ""),
+                "source": str(source or "flush_hook"),
+                "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+                "error": out.get("error") or "flush_failed",
+            },
+        )
+        append_jsonl(
+            checkpoints,
+            {
+                "schema": "openclaw.memory.flush_report.v1",
+                "stage": "failed",
+                "session_id": str(session_id or ""),
+                "source": str(source or "flush_hook"),
+                "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+                "latest_turn_id": str(latest_turn or ""),
+                "result": flush_failed,
+            },
+        )
+        return flush_failed
 
     flush_id_final = str(flush_tx_id or f"flush-{session_id}")
     append_jsonl(
@@ -420,7 +447,7 @@ def process_flush(
         }
         _write_flush_state(root, state)
 
-    return {
+    flush_ok = {
         "ok": True,
         "authority_path": "canonical_in_process",
         "flush_tx_id": flush_id_final,
@@ -433,6 +460,19 @@ def process_flush(
             "live_session_count": int(live.get("count") or 0),
         },
     }
+    append_jsonl(
+        checkpoints,
+        {
+            "schema": "openclaw.memory.flush_report.v1",
+            "stage": "committed",
+            "session_id": str(session_id or ""),
+            "source": str(source or "flush_hook"),
+            "flush_tx_id": flush_id_final,
+            "latest_turn_id": str(latest_turn or ""),
+            "result": flush_ok,
+        },
+    )
+    return flush_ok
 
 
 def read_live_session(*, root: str, session_id: str) -> dict[str, Any]:
