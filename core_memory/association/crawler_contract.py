@@ -241,6 +241,17 @@ def apply_crawler_updates(
         now = datetime.now(timezone.utc).isoformat()
         log_path = _crawler_updates_log_path(root, session_id)
 
+        existing_assoc_keys: set[tuple[str, str, str]] = set()
+        for a in (index.get("associations") or []):
+            if not isinstance(a, dict):
+                continue
+            src0 = str(a.get("source_bead") or a.get("source_bead_id") or "")
+            tgt0 = str(a.get("target_bead") or a.get("target_bead_id") or "")
+            rel0 = str(a.get("relationship") or "").strip().lower()
+            if src0 and tgt0 and rel0:
+                existing_assoc_keys.add((src0, tgt0, rel0))
+
+        queued_assoc_keys: set[tuple[str, str, str]] = set()
         promoted = 0
         for bid in promotions:
             b = beads.get(str(bid))
@@ -268,6 +279,10 @@ def apply_crawler_updates(
             rel = str(row.get("relationship") or "").strip()
             if not src or not tgt or not rel:
                 continue
+            rel_n = rel.strip().lower()
+            dedupe_key = (src, tgt, rel_n)
+            if dedupe_key in existing_assoc_keys or dedupe_key in queued_assoc_keys:
+                continue
             sb = beads.get(src)
             tb = beads.get(tgt)
             if not sb or not tb:
@@ -287,13 +302,14 @@ def apply_crawler_updates(
                     "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
                     "source_bead": src,
                     "target_bead": tgt,
-                    "relationship": rel,
+                    "relationship": rel_n,
                     "edge_class": "agent_judged",
                     "confidence": row.get("confidence"),
                     "rationale": row.get("rationale"),
                     "created_at": now,
                 },
             )
+            queued_assoc_keys.add(dedupe_key)
             appended += 1
 
     return {

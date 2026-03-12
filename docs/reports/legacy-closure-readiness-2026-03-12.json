@@ -1,0 +1,19 @@
+{
+  "ok": true,
+  "schema": "openclaw.memory.legacy_readiness_report.v1",
+  "root": ".",
+  "ready_for_legacy_removal": true,
+  "strict_block_env": false,
+  "legacy_write_trigger_blocked_by_default": true,
+  "summary": {
+    "shim_usage_count": 0,
+    "legacy_dispatch_count": 0,
+    "legacy_dispatch_blocked_count": 0
+  },
+  "trigger_status_counts": {},
+  "next_actions": [
+    "Enable strict shim blocking in CI/staging: CORE_MEMORY_BLOCK_LEGACY_TRIGGER_ORCHESTRATOR=1",
+    "Keep CORE_MEMORY_ALLOW_LEGACY_WRITE_TRIGGERS unset in production",
+    "Wait for zero shim usage over burn-in window before removing legacy modules"
+  ]
+}

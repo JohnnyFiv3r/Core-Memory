@@ -1,0 +1,42 @@
+import tempfile
+import unittest
+
+from core_memory.memory_engine import process_turn_finalized
+from core_memory.store import MemoryStore
+
+
+class TestTurnAssociationVisibility(unittest.TestCase):
+    def test_turn_can_append_association_across_visible_session_beads(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="context", title="B1", summary=["x"], session_id="s1", source_turn_ids=["t0"])
+            b2 = s.add_bead(type="context", title="B2", summary=["y"], session_id="s1", source_turn_ids=["t0"])
+
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                user_query="link prior beads",
+                assistant_final="linked",
+                metadata={
+                    "crawler_updates": {
+                        "associations": [
+                            {
+                                "source_bead_id": b1,
+                                "target_bead_id": b2,
+                                "relationship": "supports",
+                                "confidence": 0.9,
+                                "rationale": "session-visible link",
+                            }
+                        ]
+                    }
+                },
+            )
+
+            self.assertTrue(out.get("ok"))
+            auto_apply = ((out.get("crawler_handoff") or {}).get("auto_apply") or {})
+            self.assertGreaterEqual(int(auto_apply.get("associations_appended") or 0), 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

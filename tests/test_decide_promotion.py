@@ -50,6 +50,30 @@ class TestDecidePromotion(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             self.assertEqual(2, out.get("applied"))
 
+    def test_promoted_bead_is_terminal_locked(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            bid = s.add_bead(
+                type="decision",
+                title="Lock this promotion",
+                summary=["high confidence"],
+                status="candidate",
+                session_id="main",
+                source_turn_ids=["t1"],
+                because=["explicit decision"],
+                detail="evidence",
+            )
+            p = s.decide_promotion(bead_id=bid, decision="promote", reason="strong evidence")
+            self.assertTrue(p.get("ok"))
+
+            demote_attempt = s.decide_promotion(bead_id=bid, decision="keep_candidate")
+            self.assertFalse(demote_attempt.get("ok"))
+            self.assertEqual("promotion_locked_terminal", demote_attempt.get("error"))
+
+            archive_attempt = s.decide_promotion(bead_id=bid, decision="archive", reason="should fail")
+            self.assertFalse(archive_attempt.get("ok"))
+            self.assertEqual("promotion_locked_terminal", archive_attempt.get("error"))
+
 
 if __name__ == "__main__":
     unittest.main()

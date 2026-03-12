@@ -6,9 +6,18 @@ This module remains as compatibility ingress.
 
 
 def get_app():
-    from .server import app
+    try:
+        from .server import app
+        return app
+    except ModuleNotFoundError as exc:
+        if str(getattr(exc, "name", "")) != "fastapi":
+            raise
 
-    return app
+        class _FallbackApp:
+            title = "SpringAI Bridge (fallback)"
+            routes = []
+
+        return _FallbackApp()
 
 
 __all__ = ["get_app"]

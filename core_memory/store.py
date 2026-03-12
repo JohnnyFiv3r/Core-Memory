@@ -261,10 +261,47 @@ class MemoryStore:
         from .retrieval.failure_patterns import compute_failure_signature as _cfs
         return _cfs(plan)
 
-    def find_failure_signature_matches(self, plan: str, limit: int = 5, context_tags: Optional[list[str]] = None) -> list[dict]:
+    def find_failure_signature_matches(
+        self,
+        plan: str = "",
+        limit: int = 5,
+        context_tags: Optional[list[str]] = None,
+        tags: Optional[list[str]] = None,
+    ) -> list[dict]:
+        """Compatibility wrapper for failure-signature matching.
+
+        Legacy callers may pass `tags=[...]` only; map that to a deterministic
+        plan string and/or context_tags for ranking.
+        """
         from .retrieval.failure_patterns import find_failure_signature_matches as _fsm
         index = self._read_json(self.beads_dir / INDEX_FILE)
-        return _fsm(index, plan, limit=limit, context_tags=context_tags)
+
+        tags_n = [str(t).strip().lower() for t in (tags or []) if str(t).strip()]
+        plan_n = str(plan or "").strip()
+
+        # Legacy ranking behavior: when only tags are provided, rank failed_hypothesis
+        # by tag overlap first, then recency.
+        if not plan_n and tags_n:
+            req = set(tags_n)
+            rows = []
+            for b in (index.get("beads") or {}).values():
+                if str(b.get("type") or "").strip().lower() != "failed_hypothesis":
+                    continue
+                bt = set(str(t).strip().lower() for t in (b.get("tags") or []) if str(t).strip())
+                ov = len(req.intersection(bt))
+                if ov <= 0:
+                    continue
+                row = dict(b)
+                row["tag_overlap"] = ov
+                rows.append(row)
+            rows.sort(key=lambda r: (int(r.get("tag_overlap") or 0), str(r.get("created_at") or "")), reverse=True)
+            return rows[: max(1, int(limit))]
+
+        if not plan_n and tags_n:
+            plan_n = " ".join(tags_n)
+        ctx_n = context_tags if context_tags is not None else (tags_n or None)
+
+        return _fsm(index, plan_n, limit=limit, context_tags=ctx_n)
 
     def preflight_failure_check(self, plan: str, limit: int = 5, context_tags: Optional[list[str]] = None) -> dict:
         from .retrieval.failure_patterns import preflight_failure_check as _pfc
@@ -1237,6 +1274,14 @@ class MemoryStore:
             before = str(bead.get("status") or "")
             now = datetime.now(timezone.utc).isoformat()
 
+            # Canonical state normalization
+            current_state = str(bead.get("promotion_state") or ("promoted" if before == "promoted" else "")).strip().lower()
+            is_locked = bool(bead.get("promotion_locked")) or current_state == "promoted" or before == "promoted"
+
+            # Promotion is terminal: no demotion/unpromotion once locked.
+            if is_locked and decision_n in {"keep_candidate", "archive"}:
+                return {"ok": False, "error": "promotion_locked_terminal", "bead_id": bead_id, "decision": decision_n}
+
             # Snapshot advisory recommendation at decision time.
             score, factors = self._promotion_score(index, bead)
             threshold = self._adaptive_promotion_threshold(index)
@@ -1253,10 +1298,19 @@ class MemoryStore:
 
             if decision_n == "promote":
                 bead["status"] = "promoted"
+                bead["promotion_state"] = "promoted"
+                bead["promotion_locked"] = True
                 bead["promoted_at"] = now
                 bead["promotion_reason"] = str(reason).strip()
+                bead["promotion_evidence"] = {
+                    "reason": str(reason).strip(),
+                    "score": round(score, 4),
+                    "threshold": round(threshold, 4),
+                }
             elif decision_n == "keep_candidate":
                 bead["status"] = "candidate"
+                bead["promotion_state"] = "candidate"
+                bead["promotion_locked"] = False
             elif decision_n == "archive":
                 revision_id = f"rev-{uuid.uuid4().hex[:12]}"
                 append_archive_snapshot(
@@ -1274,10 +1328,13 @@ class MemoryStore:
                 bead["detail"] = ""
                 bead["summary"] = (bead.get("summary") or [])[:2]
                 bead["status"] = "archived"
+                bead["promotion_state"] = "null"
+                bead["promotion_locked"] = False
                 bead["demotion_reason"] = str(reason).strip()
 
             bead["promotion_decision"] = decision_n
             bead["promotion_decided_at"] = now
+            bead["promotion_decision_turn_id"] = str((bead.get("source_turn_ids") or [""])[-1] or "")
             if considerations:
                 bead["promotion_considerations"] = [str(c) for c in considerations][:8]
 
@@ -1326,6 +1383,105 @@ class MemoryStore:
             "applied": len(out),
             "results": out,
         }
+
+    def decide_session_promotion_states(self, *, session_id: str, visible_bead_ids: Optional[list[str]] = None, turn_id: str = "") -> dict:
+        """Per-turn session decision pass: promoted|candidate|null for visible beads.
+
+        Promotion is terminal: promoted beads remain locked.
+        """
+        with store_lock(self.root):
+            index = self._read_json(self.beads_dir / INDEX_FILE)
+            beads = index.get("beads") or {}
+
+            allowed = set(str(x) for x in (visible_bead_ids or []) if str(x).strip())
+            ids = []
+            for bid, bead in beads.items():
+                if str((bead or {}).get("session_id") or "") != str(session_id):
+                    continue
+                if allowed and str(bid) not in allowed:
+                    continue
+                ids.append(str(bid))
+            ids.sort(key=lambda bid: (str((beads.get(bid) or {}).get("created_at") or ""), bid))
+
+            now = datetime.now(timezone.utc).isoformat()
+            counts = {"promoted": 0, "candidate": 0, "null": 0, "locked": 0, "evaluated": 0}
+
+            for bid in ids:
+                bead = beads.get(bid) or {}
+                counts["evaluated"] += 1
+
+                status = str(bead.get("status") or "").strip().lower()
+                state = str(bead.get("promotion_state") or ("promoted" if status == "promoted" else "")).strip().lower()
+                locked = bool(bead.get("promotion_locked")) or state == "promoted" or status == "promoted"
+
+                if locked:
+                    bead["status"] = "promoted"
+                    bead["promotion_state"] = "promoted"
+                    bead["promotion_locked"] = True
+                    bead["promotion_decision"] = "promoted_locked"
+                    bead["promotion_decided_at"] = now
+                    if turn_id:
+                        bead["promotion_decision_turn_id"] = str(turn_id)
+                    counts["locked"] += 1
+                    counts["promoted"] += 1
+                    beads[bid] = bead
+                    continue
+
+                because = bead.get("because") or []
+                detail = str(bead.get("detail") or "").strip()
+                has_evidence = self._has_evidence(bead)
+                has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+                btype = str(bead.get("type") or "").strip().lower()
+
+                strong = False
+                if btype in {"decision", "lesson", "precedent"}:
+                    strong = bool(because and (detail or has_evidence or has_link))
+                elif btype == "outcome":
+                    result = str(bead.get("result") or "").strip().lower()
+                    strong = result in {"resolved", "failed", "partial", "confirmed"} and (detail or has_evidence or has_link)
+                else:
+                    strong = bool((detail and len(detail) >= 80) and (has_evidence or has_link or because))
+
+                signal = bool(detail or has_evidence or has_link or because)
+
+                if strong:
+                    bead["status"] = "promoted"
+                    bead["promotion_state"] = "promoted"
+                    bead["promotion_locked"] = True
+                    bead["promoted_at"] = str(bead.get("promoted_at") or now)
+                    bead["promotion_decision"] = "promote"
+                    bead["promotion_decided_at"] = now
+                    bead["promotion_reason"] = str(bead.get("promotion_reason") or "session_turn_evidence")
+                    bead["promotion_evidence"] = {
+                        "reason": bead.get("promotion_reason"),
+                        "has_evidence": bool(has_evidence),
+                        "has_link": bool(has_link),
+                        "has_because": bool(because),
+                    }
+                    counts["promoted"] += 1
+                elif signal:
+                    bead["status"] = "candidate"
+                    bead["promotion_state"] = "candidate"
+                    bead["promotion_locked"] = False
+                    bead["promotion_decision"] = "keep_candidate"
+                    bead["promotion_decided_at"] = now
+                    counts["candidate"] += 1
+                else:
+                    if str(bead.get("status") or "").strip().lower() not in {"promoted", "archived"}:
+                        bead["status"] = "open"
+                    bead["promotion_state"] = "null"
+                    bead["promotion_locked"] = False
+                    bead["promotion_decision"] = "null"
+                    bead["promotion_decided_at"] = now
+                    counts["null"] += 1
+
+                if turn_id:
+                    bead["promotion_decision_turn_id"] = str(turn_id)
+                beads[bid] = bead
+
+            index["beads"] = beads
+            self._write_json(self.beads_dir / INDEX_FILE, index)
+            return {"ok": True, "session_id": str(session_id), "turn_id": str(turn_id or ""), "counts": counts, "evaluated_bead_ids": ids}
 
     def promotion_kpis(self, limit: int = 500) -> dict:
         """Report promotion decision volume, reasons, and rec-vs-decision alignment."""
@@ -1668,6 +1824,12 @@ class MemoryStore:
         # P7 confirmed decision: association is not a bead type.
         if type_value == "association":
             raise ValueError("association_is_not_a_bead_type")
+
+        reserved_overrides = {"id"}
+        bad_override = sorted(set(str(k) for k in kwargs.keys()).intersection(reserved_overrides))
+        if bad_override:
+            raise ValueError(f"reserved_overrides_not_allowed:{','.join(bad_override)}")
+
         bead_id = self._generate_id()
         now = datetime.now(timezone.utc).isoformat()
         
@@ -2078,6 +2240,8 @@ class MemoryStore:
 
                     if allow_promote:
                         bead["status"] = "promoted"
+                        bead["promotion_state"] = "promoted"
+                        bead["promotion_locked"] = True
                         bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
                         if score_meta:
                             bead["promotion_score"] = score_meta.get("score")
@@ -2312,6 +2476,8 @@ class MemoryStore:
                         return False
 
             bead["status"] = "promoted"
+            bead["promotion_state"] = "promoted"
+            bead["promotion_locked"] = True
             bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
             bead["promotion_reason"] = (promotion_reason or bead.get("promotion_reason") or "policy_auto_promote").strip()
 

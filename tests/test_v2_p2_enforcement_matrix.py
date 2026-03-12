@@ -69,10 +69,11 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
             s = MemoryStore(td)
             s.add_bead(type="context", title="x", summary=["y"], session_id="main", source_turn_ids=["t1"])
 
+            script = Path(__file__).resolve().parents[1] / "scripts" / "consolidate.py"
             proc = subprocess.run(
                 [
                     "python3",
-                    "/home/node/.openclaw/workspace/scripts/consolidate.py",
+                    str(script),
                     "flush",
                     "--session",
                     "main",

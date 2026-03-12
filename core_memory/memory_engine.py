@@ -15,6 +15,7 @@ from .event_ingress import maybe_emit_finalize_memory_event
 from .event_worker import SidecarPolicy, process_memory_event
 from .write_pipeline.orchestrate import run_consolidate_pipeline
 from .io_utils import append_jsonl
+from .store import MemoryStore
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,17 @@ def _infer_semantic_bead_type(user_query: str, assistant_final: str) -> str:
     return "context"
 
 
+def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
+    s = MemoryStore(root=root)
+    idx = s._read_json(Path(root) / ".beads" / "index.json")
+    out = []
+    for bid, bead in (idx.get("beads") or {}).items():
+        if str((bead or {}).get("session_id") or "") == str(session_id):
+            out.append(str(bid))
+    out.sort()
+    return out
+
+
 def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
     summary = (req.get("assistant_final") or req.get("user_query") or "").strip()
@@ -90,6 +102,40 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
             }
         ]
     }
+
+
+def _ensure_turn_creation_update(req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    """Guarantee one current-turn creation candidate exists for canonical per-turn bead write."""
+    out = dict(updates or {})
+    key = "beads_create"
+    rows = list(out.get(key) or [])
+    turn_id = str(req.get("turn_id") or "")
+
+    has_turn = False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        src = [str(x) for x in (row.get("source_turn_ids") or []) if str(x)]
+        if turn_id and turn_id in src:
+            has_turn = True
+            break
+
+    if not has_turn:
+        title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
+        summary = (req.get("assistant_final") or req.get("user_query") or "").strip() or "turn memory"
+        rows.append(
+            {
+                "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
+                "title": title or "Turn memory",
+                "summary": [summary[:240]],
+                "source_turn_ids": [turn_id],
+                "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine"],
+                "detail": summary[:1200],
+            }
+        )
+
+    out[key] = rows
+    return out
 
 
 def process_turn_finalized(
@@ -221,12 +267,24 @@ def process_turn_finalized(
     reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
     if not isinstance(reviewed_updates, dict) or not reviewed_updates:
         reviewed_updates = _default_crawler_updates(req)
+    reviewed_updates = _ensure_turn_creation_update(req, reviewed_updates)
+
+    crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
+    session_visible = _session_visible_bead_ids(root=root, session_id=req["session_id"])
+    visible_ids = sorted(set(crawler_visible + session_visible))
 
     auto_apply = apply_crawler_updates(
         root=root,
         session_id=req["session_id"],
         updates=reviewed_updates,
-        visible_bead_ids=list(crawler_ctx.get("visible_bead_ids") or []),
+        visible_bead_ids=visible_ids,
+    )
+
+    # Canonical per-turn state decision pass for all visible session beads.
+    decision_pass = MemoryStore(root=root).decide_session_promotion_states(
+        session_id=req["session_id"],
+        visible_bead_ids=visible_ids,
+        turn_id=req["turn_id"],
     )
 
     return {
@@ -239,11 +297,36 @@ def process_turn_finalized(
         "emitted": emitted,
         "crawler_handoff": {
             "required": True,
-            "context_visible_count": len(crawler_ctx.get("visible_bead_ids") or []),
+            "context_visible_count": len(visible_ids),
             "auto_apply": auto_apply,
+            "decision_pass": decision_pass,
         },
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
+
+
+def _flush_state_file(root: str) -> Path:
+    return Path(root) / ".beads" / "events" / "flush-state.json"
+
+
+def _read_flush_state(root: str) -> dict[str, Any]:
+    p = _flush_state_file(root)
+    if not p.exists():
+        return {"sessions": {}}
+    try:
+        obj = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(obj, dict):
+            obj.setdefault("sessions", {})
+            return obj
+    except Exception:
+        pass
+    return {"sessions": {}}
+
+
+def _write_flush_state(root: str, state: dict[str, Any]) -> None:
+    p = _flush_state_file(root)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    p.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 def process_flush(
@@ -295,6 +378,39 @@ def process_flush(
             }
 
     checkpoints = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
+
+    # Once-per-cycle/session guard: skip duplicate flush for same latest processed turn.
+    state = _read_flush_state(root)
+    sess_state = ((state.get("sessions") or {}).get(str(session_id)) or {}) if isinstance(state, dict) else {}
+    if latest_turn and str(sess_state.get("last_flushed_turn_id") or "") == str(latest_turn):
+        skipped_out = {
+            "ok": True,
+            "skipped": True,
+            "reason": "already_flushed_for_latest_turn",
+            "latest_turn_id": str(latest_turn),
+            "last_flush_tx_id": str(sess_state.get("last_flush_tx_id") or ""),
+            "authority_path": "canonical_in_process",
+            "engine": {
+                "entry": "process_flush",
+                "sequence_owner": "memory_engine",
+                "live_session_authority": str(live.get("authority") or "unknown"),
+                "live_session_count": int(live.get("count") or 0),
+            },
+        }
+        append_jsonl(
+            checkpoints,
+            {
+                "schema": "openclaw.memory.flush_report.v1",
+                "stage": "skipped",
+                "session_id": str(session_id or ""),
+                "source": str(source or "flush_hook"),
+                "flush_tx_id": str(sess_state.get("last_flush_tx_id") or f"flush-{session_id}"),
+                "latest_turn_id": str(latest_turn or ""),
+                "result": skipped_out,
+            },
+        )
+        return skipped_out
+
     append_jsonl(
         checkpoints,
         {
@@ -317,18 +433,7 @@ def process_flush(
         workspace_root=root,
     )
     if not out.get("ok"):
-        append_jsonl(
-            checkpoints,
-            {
-                "schema": "openclaw.memory.flush_checkpoint.v1",
-                "stage": "failed",
-                "session_id": str(session_id or ""),
-                "source": str(source or "flush_hook"),
-                "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
-                "error": out.get("error") or "flush_failed",
-            },
-        )
-        return {
+        flush_failed = {
             "ok": False,
             "authority_path": "canonical_in_process",
             "error": out.get("error") or "flush_failed",
@@ -341,7 +446,32 @@ def process_flush(
                 "live_session_count": int(live.get("count") or 0),
             },
         }
+        append_jsonl(
+            checkpoints,
+            {
+                "schema": "openclaw.memory.flush_checkpoint.v1",
+                "stage": "failed",
+                "session_id": str(session_id or ""),
+                "source": str(source or "flush_hook"),
+                "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+                "error": out.get("error") or "flush_failed",
+            },
+        )
+        append_jsonl(
+            checkpoints,
+            {
+                "schema": "openclaw.memory.flush_report.v1",
+                "stage": "failed",
+                "session_id": str(session_id or ""),
+                "source": str(source or "flush_hook"),
+                "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+                "latest_turn_id": str(latest_turn or ""),
+                "result": flush_failed,
+            },
+        )
+        return flush_failed
 
+    flush_id_final = str(flush_tx_id or f"flush-{session_id}")
     append_jsonl(
         checkpoints,
         {
@@ -349,15 +479,27 @@ def process_flush(
             "stage": "committed",
             "session_id": str(session_id or ""),
             "source": str(source or "flush_hook"),
-            "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+            "flush_tx_id": flush_id_final,
+            "latest_turn_id": str(latest_turn or ""),
             "crawler_merge": merge_out,
         },
     )
 
-    return {
+    # Persist once-per-cycle state marker.
+    state = _read_flush_state(root)
+    sessions = state.setdefault("sessions", {}) if isinstance(state, dict) else {}
+    if isinstance(sessions, dict):
+        sessions[str(session_id)] = {
+            "last_flushed_turn_id": str(latest_turn or ""),
+            "last_flush_tx_id": flush_id_final,
+            "last_flush_source": str(source or "flush_hook"),
+        }
+        _write_flush_state(root, state)
+
+    flush_ok = {
         "ok": True,
         "authority_path": "canonical_in_process",
-        "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
+        "flush_tx_id": flush_id_final,
         "crawler_merge": merge_out,
         "result": out,
         "engine": {
@@ -367,6 +509,19 @@ def process_flush(
             "live_session_count": int(live.get("count") or 0),
         },
     }
+    append_jsonl(
+        checkpoints,
+        {
+            "schema": "openclaw.memory.flush_report.v1",
+            "stage": "committed",
+            "session_id": str(session_id or ""),
+            "source": str(source or "flush_hook"),
+            "flush_tx_id": flush_id_final,
+            "latest_turn_id": str(latest_turn or ""),
+            "result": flush_ok,
+        },
+    )
+    return flush_ok
 
 
 def read_live_session(*, root: str, session_id: str) -> dict[str, Any]:
