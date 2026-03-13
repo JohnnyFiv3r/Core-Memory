@@ -1,29 +1,26 @@
-# WORKFLOW_AUTO.md
+# WORKFLOW_AUTO.md (DEPRECATED)
 
-## Phase 1 Baseline (enabled)
+Status: **Deprecated**
+Date: 2026-03-13
 
-On automation/heartbeat cycles:
+This file described legacy automation flows (`extract-beads.py`, root-level script paths, and pre-canonical trigger assumptions).
 
-1. Ensure `memory/YYYY-MM-DD.md` exists for today (create with a header if missing).
-2. Ensure `memory/heartbeat-state.json` exists (initialize if missing).
-3. Run Core Memory health check:
-   - `.venv/bin/core-memory --root /home/node/.openclaw/workspace/memory stats`
-   - Stay silent unless this fails.
-4. Refresh rolling context on each automation cycle (dynamic budget):
-   - `python3 /home/node/.openclaw/workspace/scripts/consolidate.py rolling-window --token-budget 2000 --max-beads 200`
-   - Stay silent unless this fails.
+Do not add new automation here.
 
-## Phase 2 Session-End Extraction (enabled)
+## Replacement (canonical)
+Use the canonical contract and OpenClaw bridge setup instead:
 
-On session-end / memoryFlush:
+1. `docs/canonical_contract.md`
+2. `docs/integrations/openclaw/plugin-setup.md`
+3. `core-memory metrics canonical-health`
+4. `core-memory metrics legacy-readiness`
 
-1. Run extraction + consolidation:
-   - `python3 /home/node/.openclaw/workspace/extract-beads.py <session-id> --consolidate`
-2. If `<session-id>` is unavailable, run:
-   - `python3 /home/node/.openclaw/workspace/extract-beads.py --consolidate`
-3. Idempotency is enforced by extraction markers under:
-   - `<CORE_MEMORY_ROOT>/.beads/.extracted/session-<id>.json`
-4. Stay silent unless extraction/consolidation fails.
+## Why deprecated
+- Legacy extraction/consolidation script flow no longer represents canonical runtime ownership.
+- Canonical path is now event-driven via:
+  - turn path: `memory_engine.process_turn_finalized`
+  - flush path: `memory_engine.process_flush`
+- Legacy trigger/sidecar compatibility paths are fenced and tracked for removal.
 
-## Deferred (not yet enabled)
-- Association crawler automation (blocked on legacy script migration).
+## Migration note
+If any external automation still reads this file, migrate it to execute canonical checks/commands only and remove dependency on this document.
