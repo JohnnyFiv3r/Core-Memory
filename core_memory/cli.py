@@ -32,6 +32,8 @@ from .archive_index import rebuild_archive_index
 from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
 from .semantic_index import build_semantic_index, semantic_lookup
 from .tools.memory_reason import memory_reason
+from .tools.memory import execute as memory_execute_tool
+from .memory_engine import process_turn_finalized, process_flush
 from .incidents import tag_incident, tag_topic_key
 from .hygiene import curated_type_title_hygiene
 from .openclaw_integration import (
@@ -67,6 +69,48 @@ def _write_legacy_readiness_snapshot(root: str, payload: dict) -> dict:
     ]
     md_path.write_text("\n".join(md) + "\n", encoding="utf-8")
     return {"json": str(json_path), "md": str(md_path)}
+
+
+def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
+    import tempfile
+
+    checks = {}
+    with tempfile.TemporaryDirectory() as td:
+        # Turn + flush + rolling window + archive ergonomics
+        t1 = process_turn_finalized(
+            root=td,
+            session_id="health",
+            turn_id="t1",
+            user_query="remember canonical decision",
+            assistant_final="Decision: keep canonical path and stable retrieval.",
+        )
+        f1 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
+        f2 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
+
+        phase_trace = ((f1.get("result") or {}).get("phase_trace") or [])
+        checks["turn_path"] = bool(t1.get("ok"))
+        checks["flush_once_per_cycle"] = bool(f2.get("skipped") and f2.get("reason") == "already_flushed_for_latest_turn")
+        checks["rolling_window_maintenance"] = bool("rolling_window_write" in phase_trace)
+        checks["archive_ergonomics"] = bool("archive_compact_session" in phase_trace and "archive_compact_historical" in phase_trace)
+
+        # Full retrieval path via tool execute
+        req = {"query": "canonical decision", "session_id": "health", "limit": 5}
+        ret = memory_execute_tool(req, root=td, explain=True)
+        checks["retrieval_path"] = bool((ret.get("ok") is True) or (ret.get("results") is not None) or (ret.get("items") is not None))
+
+    out = {
+        "ok": True,
+        "schema": "openclaw.memory.canonical_health_report.v1",
+        "root": str(root),
+        "checks": checks,
+        "all_green": all(bool(v) for v in checks.values()),
+    }
+    if write_path:
+        p = Path(write_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(out, indent=2), encoding="utf-8")
+        out["written"] = str(p)
+    return out
 
 
 def _legacy_readiness_report(root: str, write_path: str | None = None, snapshot: bool = False) -> dict:
@@ -414,6 +458,9 @@ def main():
     metrics_legacy = metrics_sub.add_parser("legacy-readiness", help="Report legacy-path closure readiness")
     metrics_legacy.add_argument("--write", help="Optional JSON output path")
     metrics_legacy.add_argument("--snapshot", action="store_true", help="Write dated JSON+MD readiness snapshot under docs/reports/")
+
+    metrics_canonical = metrics_sub.add_parser("canonical-health", help="Run canonical contract health checks")
+    metrics_canonical.add_argument("--write", help="Optional JSON output path")
     
     args = parser.parse_args()
     
@@ -739,6 +786,8 @@ def main():
             print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
         elif args.metrics_cmd == "legacy-readiness":
             print(json.dumps(_legacy_readiness_report(str(memory.root), write_path=args.write, snapshot=bool(args.snapshot)), indent=2))
+        elif args.metrics_cmd == "canonical-health":
+            print(json.dumps(_canonical_health_report(str(memory.root), write_path=args.write), indent=2))
         else:
             metrics_parser.print_help()
 
