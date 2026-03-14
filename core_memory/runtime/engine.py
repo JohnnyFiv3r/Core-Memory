@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from .live_session import read_live_session_beads
-from ..association.crawler_contract import build_crawler_context, apply_crawler_updates, merge_crawler_updates_for_flush
+from ..association.crawler_contract import build_crawler_context, merge_crawler_updates_for_flush
+from .association_pass import run_association_pass
 from ..continuity_injection import load_continuity_injection
 from .state import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .ingress import maybe_emit_finalize_memory_event
@@ -274,7 +275,7 @@ def process_turn_finalized(
     session_visible = _session_visible_bead_ids(root=root, session_id=req["session_id"])
     visible_ids = sorted(set(crawler_visible + session_visible))
 
-    auto_apply = apply_crawler_updates(
+    auto_apply = run_association_pass(
         root=root,
         session_id=req["session_id"],
         updates=reviewed_updates,
@@ -593,7 +594,12 @@ def crawler_turn_context(*, root: str, session_id: str, limit: int = 200, carry_
 def apply_crawler_turn_updates(
     *, root: str, session_id: str, updates: dict[str, Any], visible_bead_ids: list[str] | None = None
 ) -> dict[str, Any]:
-    out = apply_crawler_updates(root=root, session_id=session_id, updates=updates, visible_bead_ids=visible_bead_ids)
+    out = run_association_pass(
+        root=root,
+        session_id=session_id,
+        updates=updates,
+        visible_bead_ids=visible_bead_ids,
+    )
     out.setdefault("engine", {})
     out["engine"].update({"entry": "apply_crawler_turn_updates"})
     return out
