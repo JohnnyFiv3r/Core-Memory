@@ -1,4 +1,4 @@
-# WORKFLOW_AUTO.md (Canonical Automation Instructions)
+# AGENT_INSTRUCTIONS.md (Canonical Automation Instructions)
 
 Status: **Canonical**
 Date: 2026-03-13
