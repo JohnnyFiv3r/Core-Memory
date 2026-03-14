@@ -99,7 +99,7 @@ def _build_surface_payload(
         "surface": "rolling_window",
         "selection_policy": "strict_recency_fifo_with_budget",
         "compression_scope": "rolling_only",
-        "owner_module": "core_memory.rolling_surface",
+        "owner_module": "core_memory.write_pipeline.rolling_window",
         "rolling_record_store": "rolling-window.records.json",
         "record_count": len(records),
         "records": records,

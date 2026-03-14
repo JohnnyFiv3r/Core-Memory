@@ -21,11 +21,11 @@ class TestRollingSurfaceOwner(unittest.TestCase):
                 max_beads=20,
             )
             self.assertTrue(out.get("ok"))
-            self.assertEqual("core_memory.rolling_surface", (out.get("rolling_window") or {}).get("owner_module"))
+            self.assertEqual("core_memory.write_pipeline.rolling_window", (out.get("rolling_window") or {}).get("owner_module"))
 
             mp = Path(td) / "promoted-context.meta.json"
             payload = json.loads(mp.read_text(encoding="utf-8"))
-            self.assertEqual("core_memory.rolling_surface", ((payload.get("meta") or {}).get("owner_module")))
+            self.assertEqual("core_memory.write_pipeline.rolling_window", ((payload.get("meta") or {}).get("owner_module")))
 
 
 if __name__ == "__main__":
