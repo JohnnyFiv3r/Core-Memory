@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.store import MemoryStore
-from core_memory.tools.memory import reason
+from core_memory.retrieval.tools.memory import reason
 
 
 class TestMemoryReasonPins(unittest.TestCase):

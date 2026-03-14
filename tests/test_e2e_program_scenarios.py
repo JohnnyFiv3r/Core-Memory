@@ -11,7 +11,7 @@ from core_memory.memory_engine import (
     continuity_injection_context,
 )
 from core_memory.event_worker import SidecarPolicy
-from core_memory.tools.memory import execute
+from core_memory.retrieval.tools.memory import execute
 from core_memory.store import MemoryStore
 
 

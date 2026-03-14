@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.store import MemoryStore
-from core_memory.tools.memory import execute
+from core_memory.retrieval.tools.memory import execute
 
 
 class TestMemoryExecuteNextActionPolicy(unittest.TestCase):

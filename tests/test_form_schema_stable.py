@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.memory_skill import memory_get_search_form
+from core_memory.retrieval.pipeline import memory_get_search_form
 
 
 class TestFormSchemaStable(unittest.TestCase):

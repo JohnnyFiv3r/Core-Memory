@@ -8,7 +8,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import emit_turn_finalized
-from core_memory.tools import memory as memory_tools
+from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 
 MAX_BODY_BYTES = 256_000

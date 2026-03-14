@@ -32,7 +32,7 @@ from .archive_index import rebuild_archive_index
 from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
 from .semantic_index import build_semantic_index, semantic_lookup
 from .tools.memory_reason import memory_reason
-from .tools.memory import execute as memory_execute_tool
+from .retrieval.tools.memory import execute as memory_execute_tool
 from .memory_engine import process_turn_finalized, process_flush
 from .incidents import tag_incident, tag_topic_key
 from .hygiene import curated_type_title_hygiene

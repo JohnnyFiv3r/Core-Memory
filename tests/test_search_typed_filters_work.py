@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.store import MemoryStore
-from core_memory.memory_skill import memory_search_typed
+from core_memory.retrieval.pipeline import memory_search_typed
 
 
 class TestSearchTypedFilters(unittest.TestCase):

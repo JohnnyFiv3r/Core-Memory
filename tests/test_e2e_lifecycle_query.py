@@ -4,7 +4,7 @@ from pathlib import Path
 
 from core_memory.memory_engine import process_turn_finalized, process_flush
 from core_memory.event_worker import SidecarPolicy
-from core_memory.tools.memory import execute
+from core_memory.retrieval.tools.memory import execute
 
 
 class TestE2ELifecycleQuery(unittest.TestCase):
