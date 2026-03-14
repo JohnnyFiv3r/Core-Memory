@@ -36,7 +36,7 @@ Typical bead types include:
 ```python
 from core_memory import MemoryStore
 
-memory = MemoryStore("./memory")
+memory = MemoryStore(".")
 memory.add_bead(type="lesson", title="Redis timeouts under high load", summary=["Worker count exceeded Redis connection pool"])
 memory.add_bead(type="outcome", title="Increased Redis connection pool", summary=["Raising max connections resolved timeouts"])
 

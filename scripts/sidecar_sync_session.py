@@ -101,7 +101,7 @@ def resolve_core_session_id(*, openclaw_session_id: str, core_session_id: str | 
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--root", default="/home/node/.openclaw/workspace/memory")
+    ap.add_argument("--root", default="/home/node/.openclaw/workspace/Core-Memory")
     ap.add_argument("--sessions-json", default="/home/node/.openclaw/agents/main/sessions/sessions.json")
     ap.add_argument("--sessions-dir", default="/home/node/.openclaw/agents/main/sessions")
     ap.add_argument("--max-turns", type=int, default=200)

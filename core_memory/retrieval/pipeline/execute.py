@@ -157,7 +157,7 @@ def _normalize_chains(chains: list[dict]) -> list[dict]:
     return sorted([dict(c or {}) for c in (chains or [])], key=_chain_key)
 
 
-def execute_request(request: dict, root: str = "./memory", explain: bool = True) -> dict:
+def execute_request(request: dict, root: str = ".", explain: bool = True) -> dict:
     req = dict(request or {})
     raw_query = str(req.get("raw_query") or req.get("query_text") or "").strip()
     intent = str(req.get("intent") or "other")

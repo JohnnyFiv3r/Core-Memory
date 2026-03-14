@@ -10,7 +10,7 @@ SEARCH_RESULT_SCHEMA_VERSION = "memory_search_result.v1"
 EXECUTE_RESULT_SCHEMA_VERSION = "memory_execute_result.v1"
 
 
-def get_search_form(root: str = "./memory") -> dict:
+def get_search_form(root: str = ".") -> dict:
     """Canonical typed-search form surface.
 
     Schema authority is owned by core_memory.retrieval.search_form.
@@ -21,7 +21,7 @@ def get_search_form(root: str = "./memory") -> dict:
     return out
 
 
-def search(form_submission: dict, root: str = "./memory", explain: bool = True) -> dict:
+def search(form_submission: dict, root: str = ".", explain: bool = True) -> dict:
     out = memory_search_typed(root=root, submission=form_submission, explain=bool(explain))
     if isinstance(out, dict):
         out.setdefault("schema_version", SEARCH_RESULT_SCHEMA_VERSION)
@@ -31,7 +31,7 @@ def search(form_submission: dict, root: str = "./memory", explain: bool = True) 
 
 def reason(
     query: str,
-    root: str = "./memory",
+    root: str = ".",
     k: int = 8,
     debug: bool = False,
     explain: bool = False,
@@ -51,7 +51,7 @@ def reason(
     )
 
 
-def execute(request: dict, root: str = "./memory", explain: bool = True) -> dict:
+def execute(request: dict, root: str = ".", explain: bool = True) -> dict:
     if str(os.getenv("MEMORY_EXECUTE_ENABLED", "1")).lower() in {"0", "false", "off", "no"}:
         return {
             "ok": False,

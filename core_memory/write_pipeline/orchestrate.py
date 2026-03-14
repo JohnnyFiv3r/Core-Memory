@@ -13,7 +13,7 @@ from .consolidate import run_session_consolidation, run_rolling_window_refresh
 
 
 def get_memory_root() -> str:
-    return os.getenv("CORE_MEMORY_ROOT", "./memory")
+    return os.getenv("CORE_MEMORY_ROOT", ".")
 
 
 def run_consolidate_pipeline(

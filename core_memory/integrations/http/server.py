@@ -83,7 +83,7 @@ def _check_auth(authorization: Optional[str], x_memory_token: Optional[str]) -> 
 
 
 def _resolve_root(root: Optional[str]) -> str:
-    return str(root or "./memory")
+    return str(root or ".")
 
 
 @app.get("/healthz")

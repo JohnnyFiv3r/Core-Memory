@@ -24,16 +24,16 @@ from core_memory.integrations.pydanticai import run_with_memory
 result = await run_with_memory(
     agent,
     "user query",
-    root="./memory",
+    root=".",
     session_id="session-1",
 )
 ```
 
 ## 3) Runtime memory usage
 PydanticAI can use the runtime memory tools directly in-process:
-- `core_memory.tools.memory.execute`
-- `core_memory.tools.memory.search`
-- `core_memory.tools.memory.reason`
+- `core_memory.retrieval.tools.memory.execute`
+- `core_memory.retrieval.tools.memory.search`
+- `core_memory.retrieval.tools.memory.reason`
 
 ## 4) Validate
 ```bash

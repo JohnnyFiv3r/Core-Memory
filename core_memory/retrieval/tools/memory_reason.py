@@ -497,7 +497,7 @@ def _grounding_signal(result: dict) -> float:
 def memory_reason(
     query: str,
     k: int = 8,
-    root: str = "./memory",
+    root: str = ".",
     debug: bool = False,
     explain: bool = False,
     pinned_incident_ids: list[str] | None = None,

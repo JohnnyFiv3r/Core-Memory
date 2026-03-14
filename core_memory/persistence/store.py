@@ -30,7 +30,7 @@ from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constr
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 
 # Defaults for pip package (separate from live OpenClaw usage)
-DEFAULT_ROOT = "./memory"
+DEFAULT_ROOT = "."
 BEADS_DIR = ".beads"
 TURNS_DIR = ".turns"
 EVENTS_DIR = ".beads/events"
@@ -54,7 +54,7 @@ class MemoryStore:
     - events are append-only audit/rebuild logs
 
     Usage:
-        memory = MemoryStore(root="./memory")
+        memory = MemoryStore(root=".")
         memory.capture_turn(role="assistant", content="...")
         memory.consolidate(session_id="chat-123")
     """
