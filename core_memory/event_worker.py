@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from .runtime.state import mark_memory_pass
-from .store import MemoryStore
+from .persistence.store import MemoryStore
 
 
 @dataclass

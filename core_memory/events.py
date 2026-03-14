@@ -170,7 +170,7 @@ def rebuild_index(root: Path) -> dict:
     Returns:
         Rebuild index dictionary
     """
-    from .store import SESSION_FILE, INDEX_FILE
+    from .persistence.store import SESSION_FILE, INDEX_FILE
     
     beads_dir = root / ".beads"
     index_file = beads_dir / INDEX_FILE

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.integrations.api import emit_turn_finalized
-from core_memory.store import DEFAULT_ROOT
+from core_memory.persistence.store import DEFAULT_ROOT
 
 ADAPTER_KIND = "bridge"
 ADAPTER_RUNTIME = "openclaw"

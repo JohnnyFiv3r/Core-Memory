@@ -321,7 +321,7 @@ def record_association(beads_dir: str, source: str, target: str, relationship: s
                       explanation: str, novelty: float, confidence: float) -> str:
     """Record a confirmed association via canonical MemoryStore path."""
     root = str(Path(beads_dir).parent)
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
 
     store = MemoryStore(root=root)
     return store.link(source, target, relationship, explanation=explanation)

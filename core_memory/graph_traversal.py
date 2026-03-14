@@ -50,7 +50,7 @@ def causal_traverse(
         max_depth: Max traversal depth
         include_types: Optional filter by bead types
     """
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
     
     memory = MemoryStore(root=str(root))
     index = memory._read_json(memory.beads_dir / "index.json")

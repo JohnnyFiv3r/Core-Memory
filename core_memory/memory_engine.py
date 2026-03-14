@@ -15,7 +15,7 @@ from .runtime.ingress import maybe_emit_finalize_memory_event
 from .runtime.worker import SidecarPolicy, process_memory_event
 from .write_pipeline.orchestrate import run_consolidate_pipeline
 from .io_utils import append_jsonl
-from .store import MemoryStore
+from .persistence.store import MemoryStore
 
 logger = logging.getLogger(__name__)
 

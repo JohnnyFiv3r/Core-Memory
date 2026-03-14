@@ -6,7 +6,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Optional
 
 from core_memory.runtime.ingress import maybe_emit_finalize_memory_event
-from core_memory.store import DEFAULT_ROOT
+from core_memory.persistence.store import DEFAULT_ROOT
 
 
 @dataclass

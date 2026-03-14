@@ -137,7 +137,7 @@ def deactivate_semantic_edge(
 
 def decay_semantic_edges(root: Path) -> dict:
     """Apply decay to all semantic edges based on recency and reinforcement."""
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
     
     memory = MemoryStore(root=str(root))
     _, _, edges_file = _paths(root)
@@ -229,7 +229,7 @@ def reinforce_semantic_edges(
         edge_ids: List of edge IDs to reinforce
         alpha: Reinforcement strength (0-1)
     """
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
     
     memory = MemoryStore(root=str(root))
     _, _, edges_file = _paths(root)

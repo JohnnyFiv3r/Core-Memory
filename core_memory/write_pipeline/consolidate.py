@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 from core_memory.rolling_surface import build_rolling_surface as build_rolling_window, write_rolling_surface as write_promoted_context
 
 

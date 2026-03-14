@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 def run_session_decision_pass(*, root: str, session_id: str, visible_bead_ids: list[str] | None = None, turn_id: str = "") -> dict[str, Any]:

@@ -102,7 +102,7 @@ def backfill_causal_links(
         require_shared_turn: Only link beads sharing a source turn
         include_bead_ids: If provided, only process these bead IDs
     """
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
     
     memory = MemoryStore(root=str(root))
     index = memory._read_json(memory.beads_dir / "index.json")
@@ -190,7 +190,7 @@ def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = 
         apply: If False, dry-run only
         strict: If True, require all beads to have links
     """
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
     
     memory = MemoryStore(root=str(root))
     index = memory._read_json(memory.beads_dir / "index.json")
@@ -223,7 +223,7 @@ def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = 
 
 def backfill_structural_edges(root: Path) -> dict:
     """Backfill structural edges from events (legacy compatibility)."""
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
     
     memory = MemoryStore(root=str(root))
     
@@ -255,7 +255,7 @@ def infer_structural_edges(
         min_confidence: Minimum confidence for inference
         apply: If False, dry-run only
     """
-    from .store import MemoryStore
+    from .persistence.store import MemoryStore
     
     memory = MemoryStore(root=str(root))
     index = memory._read_json(memory.beads_dir / "index.json")

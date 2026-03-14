@@ -27,7 +27,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Use relative import to avoid circular import
-from .store import MemoryStore, DEFAULT_ROOT
+from .persistence.store import MemoryStore, DEFAULT_ROOT
 from .archive_index import rebuild_archive_index
 from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
 from .semantic_index import build_semantic_index, semantic_lookup

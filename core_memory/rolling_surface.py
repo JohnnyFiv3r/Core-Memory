@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.rolling_record_store import write_rolling_records
 
 
