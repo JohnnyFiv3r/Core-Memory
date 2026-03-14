@@ -29,7 +29,7 @@ from pathlib import Path
 # Use relative import to avoid circular import
 from .persistence.store import MemoryStore, DEFAULT_ROOT
 from .persistence.archive_index import rebuild_archive_index
-from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
+from .graph.api import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
 from .retrieval.semantic_index import build_semantic_index, semantic_lookup
 from .retrieval.tools.memory_reason import memory_reason
 from .retrieval.tools.memory import execute as memory_execute_tool

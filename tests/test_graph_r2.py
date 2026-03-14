@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.graph import (
+from core_memory.graph.api import (
     add_structural_edge,
     build_graph,
     backfill_structural_edges,

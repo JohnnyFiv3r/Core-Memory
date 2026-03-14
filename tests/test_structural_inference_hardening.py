@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.graph import backfill_structural_edges, build_graph, infer_structural_edges
+from core_memory.graph.api import backfill_structural_edges, build_graph, infer_structural_edges
 from core_memory.persistence.store import MemoryStore
 
 
