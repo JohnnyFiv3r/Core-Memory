@@ -4,7 +4,7 @@ import os
 
 from core_memory.retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute
 from core_memory.retrieval.search_form import SEARCH_FORM_SCHEMA_VERSION
-from core_memory.tools.memory_reason import memory_reason
+from core_memory.retrieval.tools.memory_reason import memory_reason
 
 SEARCH_RESULT_SCHEMA_VERSION = "memory_search_result.v1"
 EXECUTE_RESULT_SCHEMA_VERSION = "memory_execute_result.v1"

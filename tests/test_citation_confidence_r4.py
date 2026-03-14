@@ -4,7 +4,7 @@ from pathlib import Path
 
 from core_memory.graph import add_structural_edge, build_graph
 from core_memory.store import MemoryStore
-from core_memory.tools.memory_reason import memory_reason
+from core_memory.retrieval.tools.memory_reason import memory_reason
 
 
 class TestCitationConfidenceR4(unittest.TestCase):

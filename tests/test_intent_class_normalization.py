@@ -1,6 +1,6 @@
 import unittest
 
-from core_memory.tools.memory_reason import _intent_class_from_query
+from core_memory.retrieval.tools.memory_reason import _intent_class_from_query
 from core_memory.retrieval.query_norm import classify_intent, normalize_query
 
 

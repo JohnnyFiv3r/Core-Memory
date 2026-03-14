@@ -1,6 +1,6 @@
 import unittest
 
-from core_memory.tools.memory_reason import _causal_intent, _grounding_signal
+from core_memory.retrieval.tools.memory_reason import _causal_intent, _grounding_signal
 
 
 class TestCausalRetryGuard(unittest.TestCase):

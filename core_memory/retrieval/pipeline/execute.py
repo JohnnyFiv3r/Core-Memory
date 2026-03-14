@@ -8,7 +8,7 @@ from core_memory.retrieval.pipeline.catalog import build_catalog
 from core_memory.retrieval.pipeline.snap import snap_form
 from core_memory.retrieval.pipeline.search import search_typed
 from core_memory.retrieval.pipeline.explain import build_explain
-from core_memory.tools.memory_reason import memory_reason
+from core_memory.retrieval.tools.memory_reason import memory_reason
 
 
 def _mk_request_id(req: dict) -> str:

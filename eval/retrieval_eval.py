@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from core_memory.retrieval.hybrid import hybrid_lookup
-from core_memory.tools.memory_reason import memory_reason
+from core_memory.retrieval.tools.memory_reason import memory_reason
 
 ROOT = Path("/home/node/.openclaw/workspace/memory")
 KPI_FILE = Path("/home/node/.openclaw/workspace/eval/kpi_set.json")
