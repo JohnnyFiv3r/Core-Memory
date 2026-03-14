@@ -41,7 +41,7 @@ from .openclaw_integration import (
     finalize_and_process_turn,
     process_pending_memory_events,
 )
-from .memory_skill import memory_get_search_form, memory_search_typed, memory_execute
+from .retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
 
 
