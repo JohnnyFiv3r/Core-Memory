@@ -23,6 +23,7 @@ from . import events
 from .io_utils import store_lock, atomic_write_json, append_jsonl
 from .archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from .runtime.session_surface import read_session_surface
+from .policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from .retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from .retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
 from .hygiene import _redact_text, sanitize_bead_content, extract_constraints
@@ -1274,13 +1275,12 @@ class MemoryStore:
             before = str(bead.get("status") or "")
             now = datetime.now(timezone.utc).isoformat()
 
-            # Canonical state normalization
-            current_state = str(bead.get("promotion_state") or ("promoted" if before == "promoted" else "")).strip().lower()
-            is_locked = bool(bead.get("promotion_locked")) or current_state == "promoted" or before == "promoted"
-
-            # Promotion is terminal: no demotion/unpromotion once locked.
-            if is_locked and decision_n in {"keep_candidate", "archive"}:
-                return {"ok": False, "error": "promotion_locked_terminal", "bead_id": bead_id, "decision": decision_n}
+            # Canonical state normalization / policy enforcement.
+            current_state = current_promotion_state(bead)
+            is_locked = is_promotion_locked(bead)
+            ok_transition, err = validate_transition(bead=bead, decision=decision_n)
+            if not ok_transition:
+                return {"ok": False, "error": err, "bead_id": bead_id, "decision": decision_n}
 
             # Snapshot advisory recommendation at decision time.
             score, factors = self._promotion_score(index, bead)
@@ -1411,8 +1411,8 @@ class MemoryStore:
                 counts["evaluated"] += 1
 
                 status = str(bead.get("status") or "").strip().lower()
-                state = str(bead.get("promotion_state") or ("promoted" if status == "promoted" else "")).strip().lower()
-                locked = bool(bead.get("promotion_locked")) or state == "promoted" or status == "promoted"
+                state = current_promotion_state(bead)
+                locked = is_promotion_locked(bead)
 
                 if locked:
                     bead["status"] = "promoted"
@@ -1427,24 +1427,9 @@ class MemoryStore:
                     beads[bid] = bead
                     continue
 
-                because = bead.get("because") or []
-                detail = str(bead.get("detail") or "").strip()
-                has_evidence = self._has_evidence(bead)
-                has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-                btype = str(bead.get("type") or "").strip().lower()
+                decision = classify_signal(bead=bead)
 
-                strong = False
-                if btype in {"decision", "lesson", "precedent"}:
-                    strong = bool(because and (detail or has_evidence or has_link))
-                elif btype == "outcome":
-                    result = str(bead.get("result") or "").strip().lower()
-                    strong = result in {"resolved", "failed", "partial", "confirmed"} and (detail or has_evidence or has_link)
-                else:
-                    strong = bool((detail and len(detail) >= 80) and (has_evidence or has_link or because))
-
-                signal = bool(detail or has_evidence or has_link or because)
-
-                if strong:
+                if decision == "promoted":
                     bead["status"] = "promoted"
                     bead["promotion_state"] = "promoted"
                     bead["promotion_locked"] = True
@@ -1454,12 +1439,9 @@ class MemoryStore:
                     bead["promotion_reason"] = str(bead.get("promotion_reason") or "session_turn_evidence")
                     bead["promotion_evidence"] = {
                         "reason": bead.get("promotion_reason"),
-                        "has_evidence": bool(has_evidence),
-                        "has_link": bool(has_link),
-                        "has_because": bool(because),
                     }
                     counts["promoted"] += 1
-                elif signal:
+                elif decision == "candidate":
                     bead["status"] = "candidate"
                     bead["promotion_state"] = "candidate"
                     bead["promotion_locked"] = False
