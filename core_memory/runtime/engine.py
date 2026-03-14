@@ -16,6 +16,7 @@ from .worker import SidecarPolicy, process_memory_event
 from ..write_pipeline.orchestrate import run_consolidate_pipeline
 from ..io_utils import append_jsonl
 from ..store import MemoryStore
+from .decision_pass import run_session_decision_pass
 
 logger = logging.getLogger(__name__)
 
@@ -281,7 +282,8 @@ def process_turn_finalized(
     )
 
     # Canonical per-turn state decision pass for all visible session beads.
-    decision_pass = MemoryStore(root=root).decide_session_promotion_states(
+    decision_pass = run_session_decision_pass(
+        root=root,
         session_id=req["session_id"],
         visible_bead_ids=visible_ids,
         turn_id=req["turn_id"],
