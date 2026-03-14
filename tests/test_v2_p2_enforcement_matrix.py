@@ -62,7 +62,7 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
             self.assertIn('"stage": "start"', text)
             self.assertIn('"stage": "committed"', text)
 
-    def test_admin_flush_cli_uses_canonical_path(self):
+    def test_admin_consolidate_cli_uses_canonical_path(self):
         with tempfile.TemporaryDirectory() as td:
             env = dict(**__import__("os").environ)
             env["CORE_MEMORY_ROOT"] = td
@@ -76,7 +76,7 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
                     "core_memory.cli",
                     "--root",
                     td,
-                    "flush",
+                    "consolidate",
                     "--session",
                     "main",
                     "--token-budget",

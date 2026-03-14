@@ -23,6 +23,7 @@ Examples:
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -260,8 +261,16 @@ def main():
     compact_parser.add_argument("--session", help="Compact only this session")
     compact_parser.add_argument("--promote", action="store_true", help="Promote compacted beads")
 
-    # canonical flush command (runtime owner)
-    flush_parser = subparsers.add_parser("flush", help="Run canonical runtime flush pipeline")
+    # canonical consolidate command (runtime owner)
+    consolidate_parser = subparsers.add_parser("consolidate", help="Run canonical runtime consolidation/flush pipeline")
+    consolidate_parser.add_argument("--session", required=True, help="Session id")
+    consolidate_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
+    consolidate_parser.add_argument("--token-budget", type=int, default=1200)
+    consolidate_parser.add_argument("--max-beads", type=int, default=12)
+    consolidate_parser.add_argument("--source", default="admin_cli")
+
+    # legacy alias (to be removed after transition)
+    flush_parser = subparsers.add_parser("flush", help="[Deprecated alias] Use 'consolidate'")
     flush_parser.add_argument("--session", required=True, help="Session id")
     flush_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
     flush_parser.add_argument("--token-budget", type=int, default=1200)
@@ -559,7 +568,9 @@ def main():
         result = memory.compact(session_id=args.session, promote=args.promote)
         print(json.dumps(result))
 
-    elif args.command == "flush":
+    elif args.command in {"flush", "consolidate"}:
+        if args.command == "flush":
+            print("[deprecated] 'flush' is an alias; use 'consolidate'", file=sys.stderr)
         result = process_flush(
             root=str(memory.root),
             session_id=args.session,
