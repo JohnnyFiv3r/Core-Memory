@@ -13,7 +13,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
-from .io_utils import append_jsonl, store_lock
+from ..io_utils import append_jsonl, store_lock
 
 
 def _iso_now() -> str:

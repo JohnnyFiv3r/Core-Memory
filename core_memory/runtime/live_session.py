@@ -3,8 +3,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from .runtime.session_surface import read_session_surface
-from .store import MemoryStore
+from .session_surface import read_session_surface
+from ..store import MemoryStore
 
 
 def _allow_index_fallback() -> bool:

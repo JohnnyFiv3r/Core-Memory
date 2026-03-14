@@ -11,8 +11,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from .event_worker import SidecarPolicy
-from .memory_engine import process_turn_finalized, emit_turn_finalized, process_pending_legacy_events
+from .runtime.worker import SidecarPolicy
+from .runtime.engine import process_turn_finalized, emit_turn_finalized, process_pending_legacy_events
 
 
 def coordinator_finalize_hook(

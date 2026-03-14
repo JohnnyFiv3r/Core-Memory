@@ -127,7 +127,7 @@ def dispatch_write_trigger(root: str | Path, event: dict[str, Any], workspace_ro
             _mark_processed(root, event_id or "", "failed", {"error": "missing_session"})
             return {"ok": False, "error": "missing_session", "authority_path": "canonical_in_process"}
 
-        from core_memory.memory_engine import process_flush
+        from core_memory.runtime.engine import process_flush
 
         try:
             result = process_flush(

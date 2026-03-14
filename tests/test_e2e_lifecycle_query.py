@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.memory_engine import process_turn_finalized, process_flush
-from core_memory.event_worker import SidecarPolicy
+from core_memory.runtime.engine import process_turn_finalized, process_flush
+from core_memory.runtime.worker import SidecarPolicy
 from core_memory.retrieval.tools.memory import execute
 
 

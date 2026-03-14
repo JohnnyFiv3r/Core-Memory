@@ -18,7 +18,7 @@ if str(_REPO_ROOT) not in sys.path:
 
 from core_memory.store import MemoryStore
 from core_memory.write_pipeline.orchestrate import run_rolling_window_pipeline
-from core_memory.memory_engine import process_flush
+from core_memory.runtime.engine import process_flush
 
 
 def workspace_root() -> Path:

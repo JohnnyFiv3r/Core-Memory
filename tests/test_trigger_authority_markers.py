@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.openclaw_integration import process_pending_memory_events, finalize_and_process_turn
-from core_memory.event_worker import SidecarPolicy
+from core_memory.runtime.worker import SidecarPolicy
 
 
 class TestTriggerAuthorityMarkers(unittest.TestCase):

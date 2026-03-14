@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.openclaw_integration import finalize_and_process_turn, process_pending_memory_events
-from core_memory.event_worker import SidecarPolicy
+from core_memory.runtime.worker import SidecarPolicy
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.store import MemoryStore
 

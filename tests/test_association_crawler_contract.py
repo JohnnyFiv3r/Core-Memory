@@ -3,7 +3,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.memory_engine import crawler_turn_context, apply_crawler_turn_updates
+from core_memory.runtime.engine import crawler_turn_context, apply_crawler_turn_updates
 from core_memory.store import MemoryStore
 
 

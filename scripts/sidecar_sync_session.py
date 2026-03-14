@@ -11,7 +11,7 @@ import json
 from pathlib import Path
 
 from core_memory.openclaw_integration import coordinator_finalize_hook, process_pending_memory_events
-from core_memory.event_worker import SidecarPolicy
+from core_memory.runtime.worker import SidecarPolicy
 
 
 def _extract_text(content) -> str:

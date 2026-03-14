@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.memory_engine import read_live_session
+from core_memory.runtime.engine import read_live_session
 from core_memory.store import MemoryStore
 
 

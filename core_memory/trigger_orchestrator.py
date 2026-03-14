@@ -55,7 +55,7 @@ def run_turn_finalize_pipeline(
     metadata: dict[str, Any] | None = None,
     policy=None,
 ) -> dict[str, Any]:
-    from .memory_engine import process_turn_finalized
+    from .runtime.engine import process_turn_finalized
 
     if _strict_legacy_blocked():
         return {
@@ -99,7 +99,7 @@ def run_flush_pipeline(
     source: str = "flush_hook",
     flush_tx_id: str | None = None,
 ) -> dict[str, Any]:
-    from .memory_engine import process_flush
+    from .runtime.engine import process_flush
 
     if _strict_legacy_blocked():
         return {

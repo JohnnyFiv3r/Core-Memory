@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.memory_engine import process_turn_finalized, process_flush
+from core_memory.runtime.engine import process_turn_finalized, process_flush
 
 
 class TestFlushCycleGuard(unittest.TestCase):

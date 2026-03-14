@@ -5,7 +5,7 @@ import os
 import uuid
 from typing import Any
 
-from core_memory.memory_engine import process_flush
+from core_memory.runtime.engine import process_flush
 from core_memory.store import DEFAULT_ROOT
 
 

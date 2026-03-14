@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.event_state import TurnEnvelope, emit_memory_event, memory_pass_key, mark_memory_pass, get_memory_pass
+from core_memory.runtime.state import TurnEnvelope, emit_memory_event, memory_pass_key, mark_memory_pass, get_memory_pass
 
 
 class TestSidecarContracts(unittest.TestCase):

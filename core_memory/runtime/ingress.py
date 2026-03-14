@@ -10,7 +10,7 @@ import os
 from pathlib import Path
 from typing import Any, Optional
 
-from .event_state import TurnEnvelope, emit_memory_event, get_memory_pass, mark_memory_pass, sha256_hex
+from .state import TurnEnvelope, emit_memory_event, get_memory_pass, mark_memory_pass, sha256_hex
 
 
 def should_emit_memory_event(trace_depth: int, origin: str) -> bool:

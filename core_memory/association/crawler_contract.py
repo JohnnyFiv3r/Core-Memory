@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.io_utils import append_jsonl, store_lock
-from core_memory.session_surface import read_session_surface
+from core_memory.runtime.session_surface import read_session_surface
 from core_memory.store import MemoryStore
 
 
