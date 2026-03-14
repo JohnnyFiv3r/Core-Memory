@@ -1,7 +1,7 @@
 import unittest
 
-from core_memory.models import BeadType, Status, RelationshipType
-from core_memory.schema import CANONICAL_BEAD_TYPES, CANONICAL_BEAD_STATUSES, CANONICAL_RELATION_TYPES
+from core_memory.schema.models import BeadType, Status, RelationshipType
+from core_memory.schema.normalization import CANONICAL_BEAD_TYPES, CANONICAL_BEAD_STATUSES, CANONICAL_RELATION_TYPES
 
 
 class TestModelsSchemaAlignment(unittest.TestCase):

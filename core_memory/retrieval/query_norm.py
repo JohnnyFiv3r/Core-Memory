@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Optional
 
-from core_memory.incidents import load_incidents, incident_match_strength
+from core_memory.policy.incidents import load_incidents, incident_match_strength
 
 _STOP = {"the", "and", "for", "with", "that", "this", "what", "when", "why", "did", "was", "are", "about", "into", "from", "where"}
 

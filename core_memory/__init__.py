@@ -12,7 +12,7 @@ Canonical contributor docs:
 """
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT
-from .models import (
+from .schema.models import (
     Bead,
     BeadType,
     Scope,

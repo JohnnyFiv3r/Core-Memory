@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from core_memory.models import BeadType
-from core_memory.incidents import load_incidents
+from core_memory.schema.models import BeadType
+from core_memory.policy.incidents import load_incidents
 
 
 def build_catalog(root: Path) -> dict:

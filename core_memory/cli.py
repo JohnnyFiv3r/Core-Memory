@@ -34,8 +34,8 @@ from .semantic_index import build_semantic_index, semantic_lookup
 from .retrieval.tools.memory_reason import memory_reason
 from .retrieval.tools.memory import execute as memory_execute_tool
 from .runtime.engine import process_turn_finalized, process_flush
-from .incidents import tag_incident, tag_topic_key
-from .hygiene import curated_type_title_hygiene
+from .policy.incidents import tag_incident, tag_topic_key
+from .policy.hygiene import curated_type_title_hygiene
 from .openclaw_integration import (
     coordinator_finalize_hook,
     finalize_and_process_turn,

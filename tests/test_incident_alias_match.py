@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.incidents import matched_incident_ids
+from core_memory.policy.incidents import matched_incident_ids
 
 
 class TestIncidentAliasMatch(unittest.TestCase):

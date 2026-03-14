@@ -18,7 +18,7 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from ..models import BeadType, Scope, Status, Authority
+from ..schema.models import BeadType, Scope, Status, Authority
 from .. import events
 from ..io_utils import store_lock, atomic_write_json, append_jsonl
 from ..archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
@@ -26,7 +26,7 @@ from ..runtime.session_surface import read_session_surface
 from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
-from ..hygiene import _redact_text, sanitize_bead_content, extract_constraints
+from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 
 # Defaults for pip package (separate from live OpenClaw usage)
@@ -223,11 +223,11 @@ class MemoryStore:
         return _eqt(text, base_tokens, max_extra)
 
     def _redact_text(self, text: str) -> str:
-        from ..hygiene import _redact_text as _rt
+        from ..policy.hygiene import _redact_text as _rt
         return _rt(text)
 
     def _sanitize_bead_content(self, bead: dict) -> dict:
-        from ..hygiene import sanitize_bead_content as _sbc
+        from ..policy.hygiene import sanitize_bead_content as _sbc
         return _sbc(bead)
         """Conservative secret redaction for high-confidence credential patterns only."""
         if not text:
@@ -311,7 +311,7 @@ class MemoryStore:
 
     # Delegator to hygiene.extract_constraints
     def extract_constraints(self, text: str) -> list[str]:
-        from ..hygiene import extract_constraints as _ec
+        from ..policy.hygiene import extract_constraints as _ec
         return _ec(text)
 
     def retrieve_with_context(
@@ -1797,7 +1797,7 @@ class MemoryStore:
         Returns:
             Bead ID
         """
-        from ..models import BeadType, Scope
+        from ..schema.models import BeadType, Scope
         
         # Normalize enums to strings
         type_value = self._normalize_enum(type, BeadType)
@@ -2381,7 +2381,7 @@ class MemoryStore:
         Returns:
             List of matching beads
         """
-        from ..models import BeadType, Status, Scope
+        from ..schema.models import BeadType, Status, Scope
         
         # Normalize enums to strings
         type_filter = self._normalize_enum(type, BeadType)

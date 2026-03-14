@@ -6,7 +6,7 @@ from pathlib import Path
 from .types import Candidate
 from .lexical import lexical_lookup
 from core_memory.semantic_index import semantic_lookup
-from core_memory.incidents import matched_incident_ids, incident_match_strength
+from core_memory.policy.incidents import matched_incident_ids, incident_match_strength
 from .config import INCIDENT_FLOOR, NORM_EPS
 from .query_norm import resolve_query_anchors
 
