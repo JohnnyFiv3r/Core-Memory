@@ -10,7 +10,7 @@ from typing import Any
 from .live_session import read_live_session_beads
 from ..association.crawler_contract import build_crawler_context, merge_crawler_updates_for_flush
 from .association_pass import run_association_pass
-from ..continuity_injection import load_continuity_injection
+from ..write_pipeline.continuity_injection import load_continuity_injection
 from .state import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .ingress import maybe_emit_finalize_memory_event
 from .worker import SidecarPolicy, process_memory_event

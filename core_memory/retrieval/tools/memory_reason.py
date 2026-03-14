@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.graph import causal_traverse, reinforce_semantic_edges
-from core_memory.semantic_index import semantic_lookup
+from core_memory.retrieval.semantic_index import semantic_lookup
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.retrieval.quality_gate import quality_gate_decision
