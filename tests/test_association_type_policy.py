@@ -3,7 +3,7 @@ import unittest
 import tempfile
 
 from core_memory.schema.normalization import association_policy, CANONICAL_BEAD_TYPES
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestAssociationTypePolicy(unittest.TestCase):

@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.openclaw_integration import finalize_and_process_turn, process_pending_memory_events
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn, process_pending_memory_events
 from core_memory.runtime.worker import SidecarPolicy
-from core_memory.store import MemoryStore
-from core_memory.trigger_orchestrator import run_flush_pipeline
+from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.trigger_pipeline import run_flush_pipeline
 
 
 class TestV2P2EnforcementMatrix(unittest.TestCase):

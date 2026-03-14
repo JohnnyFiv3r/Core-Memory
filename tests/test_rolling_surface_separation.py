@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 from core_memory.write_pipeline.rolling_window import (
     _load_filtered_beads,
     _select_beads_for_budget,

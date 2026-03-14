@@ -11,7 +11,7 @@ from core_memory.graph import (
     reinforce_semantic_edges,
 )
 from core_memory.semantic_index import build_semantic_index, semantic_lookup
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestR3GraphSemantic(unittest.TestCase):

@@ -1,9 +1,9 @@
 import tempfile
 import unittest
 
-from core_memory.trigger_orchestrator import run_turn_finalize_pipeline
+from core_memory.runtime.trigger_pipeline import run_turn_finalize_pipeline
 from core_memory.runtime.worker import SidecarPolicy
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestTriggerOrchestrator(unittest.TestCase):

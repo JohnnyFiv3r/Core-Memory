@@ -8,7 +8,7 @@ from core_memory.graph import (
     backfill_structural_edges,
     update_semantic_edge,
 )
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestGraphR2(unittest.TestCase):

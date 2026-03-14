@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.graph import add_semantic_edge, build_graph
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestSemanticActiveK(unittest.TestCase):

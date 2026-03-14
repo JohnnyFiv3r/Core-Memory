@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.runtime.engine import process_turn_finalized
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestTurnAssociationVisibility(unittest.TestCase):

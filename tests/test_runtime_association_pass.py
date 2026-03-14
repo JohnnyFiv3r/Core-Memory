@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.runtime.association_pass import run_association_pass
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestRuntimeAssociationPass(unittest.TestCase):

@@ -10,7 +10,7 @@ import argparse
 import json
 from pathlib import Path
 
-from core_memory.openclaw_integration import coordinator_finalize_hook, process_pending_memory_events
+from core_memory.integrations.openclaw_runtime import coordinator_finalize_hook, process_pending_memory_events
 from core_memory.runtime.worker import SidecarPolicy
 
 

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 """Compatibility helpers for trigger orchestration.
 
-P8A Step 2: runtime sequencing ownership has moved to `core_memory.memory_engine`.
+P8A Step 2: runtime sequencing ownership has moved to `core_memory.runtime.engine`.
 This module is retained as a thin compatibility layer for callers still importing
 `run_turn_finalize_pipeline` / `run_flush_pipeline`.
 """
@@ -12,12 +12,12 @@ import logging
 import os
 from pathlib import Path
 
-from .persistence.io_utils import append_jsonl
+from ..persistence.io_utils import append_jsonl
 
 LEGACY_SHIM = True
-SHIM_REPLACEMENT = "core_memory.memory_engine"
+SHIM_REPLACEMENT = "core_memory.runtime.engine"
 
-logger = logging.getLogger("core_memory.trigger_orchestrator")
+logger = logging.getLogger("core_memory.runtime.trigger_pipeline")
 
 
 def _strict_legacy_blocked() -> bool:
@@ -27,7 +27,7 @@ def _strict_legacy_blocked() -> bool:
 def _record_shim_usage(*, root: str, shim_call: str, session_id: str = "", turn_id: str = "") -> None:
     rec = {
         "schema": "openclaw.memory.legacy_shim_usage.v1",
-        "module": "core_memory.trigger_orchestrator",
+        "module": "core_memory.runtime.trigger_pipeline",
         "shim_call": str(shim_call or ""),
         "session_id": str(session_id or ""),
         "turn_id": str(turn_id or ""),
@@ -55,14 +55,14 @@ def run_turn_finalize_pipeline(
     metadata: dict[str, Any] | None = None,
     policy=None,
 ) -> dict[str, Any]:
-    from .runtime.engine import process_turn_finalized
+    from .engine import process_turn_finalized
 
     if _strict_legacy_blocked():
         return {
             "ok": False,
             "error": "legacy_trigger_orchestrator_blocked",
             "authority_path": "canonical_in_process",
-            "shim": {"module": "core_memory.trigger_orchestrator", "blocked": True, "delegated_to": SHIM_REPLACEMENT},
+            "shim": {"module": "core_memory.runtime.trigger_pipeline", "blocked": True, "delegated_to": SHIM_REPLACEMENT},
         }
 
     _record_shim_usage(root=root, shim_call="run_turn_finalize_pipeline", session_id=session_id, turn_id=turn_id)
@@ -85,7 +85,7 @@ def run_turn_finalize_pipeline(
         policy=policy,
     )
     out.setdefault("shim", {})
-    out["shim"].update({"module": "core_memory.trigger_orchestrator", "delegated_to": "core_memory.memory_engine"})
+    out["shim"].update({"module": "core_memory.runtime.trigger_pipeline", "delegated_to": "core_memory.memory_engine"})
     return out
 
 
@@ -99,14 +99,14 @@ def run_flush_pipeline(
     source: str = "flush_hook",
     flush_tx_id: str | None = None,
 ) -> dict[str, Any]:
-    from .runtime.engine import process_flush
+    from .engine import process_flush
 
     if _strict_legacy_blocked():
         return {
             "ok": False,
             "error": "legacy_trigger_orchestrator_blocked",
             "authority_path": "canonical_in_process",
-            "shim": {"module": "core_memory.trigger_orchestrator", "blocked": True, "delegated_to": SHIM_REPLACEMENT},
+            "shim": {"module": "core_memory.runtime.trigger_pipeline", "blocked": True, "delegated_to": SHIM_REPLACEMENT},
         }
 
     _record_shim_usage(root=root, shim_call="run_flush_pipeline", session_id=session_id, turn_id="")
@@ -121,5 +121,5 @@ def run_flush_pipeline(
         flush_tx_id=flush_tx_id,
     )
     out.setdefault("shim", {})
-    out["shim"].update({"module": "core_memory.trigger_orchestrator", "delegated_to": "core_memory.memory_engine"})
+    out["shim"].update({"module": "core_memory.runtime.trigger_pipeline", "delegated_to": "core_memory.memory_engine"})
     return out

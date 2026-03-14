@@ -12,7 +12,7 @@ from core_memory.runtime.engine import (
 )
 from core_memory.runtime.worker import SidecarPolicy
 from core_memory.retrieval.tools.memory import execute
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestE2EProgramScenarios(unittest.TestCase):

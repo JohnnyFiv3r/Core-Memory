@@ -36,7 +36,7 @@ from .retrieval.tools.memory import execute as memory_execute_tool
 from .runtime.engine import process_turn_finalized, process_flush
 from .policy.incidents import tag_incident, tag_topic_key
 from .policy.hygiene import curated_type_title_hygiene
-from .openclaw_integration import (
+from .integrations.openclaw_runtime import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
     process_pending_memory_events,

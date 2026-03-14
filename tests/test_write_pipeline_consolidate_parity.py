@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 from core_memory.write_pipeline.consolidate import run_session_consolidation
 
 

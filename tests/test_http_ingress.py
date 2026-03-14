@@ -42,7 +42,7 @@ class TestHttpIngress(unittest.TestCase):
     def test_http_runtime_execute_endpoint(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
-        from core_memory.store import MemoryStore
+        from core_memory.persistence.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")
@@ -84,7 +84,7 @@ class TestHttpIngress(unittest.TestCase):
     def test_http_reason_endpoint_with_pins(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
-        from core_memory.store import MemoryStore
+        from core_memory.persistence.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")
@@ -114,7 +114,7 @@ class TestHttpIngress(unittest.TestCase):
     def test_http_execute_deterministic_response(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
-        from core_memory.store import MemoryStore
+        from core_memory.persistence.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")
@@ -167,7 +167,7 @@ class TestHttpIngress(unittest.TestCase):
     def test_http_idempotent_same_turn_id(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
-        from core_memory.openclaw_integration import process_pending_memory_events
+        from core_memory.integrations.openclaw_runtime import process_pending_memory_events
 
         old = os.environ.get("CORE_MEMORY_ENABLE_LEGACY_POLLER")
         try:

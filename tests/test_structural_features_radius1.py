@@ -5,7 +5,7 @@ from pathlib import Path
 from core_memory.graph import add_structural_edge, build_graph
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestStructuralFeaturesRadius1(unittest.TestCase):

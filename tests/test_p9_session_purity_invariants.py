@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.runtime.engine import read_live_session
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 def _load_sync_module():

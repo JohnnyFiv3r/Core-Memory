@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestArchiveIndex(unittest.TestCase):

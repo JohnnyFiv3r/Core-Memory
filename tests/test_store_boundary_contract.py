@@ -5,7 +5,7 @@ from pathlib import Path
 class TestStoreBoundaryContract(unittest.TestCase):
     def test_store_does_not_import_runtime_engine_or_trigger_shims(self):
         root = Path(__file__).resolve().parents[1]
-        store_py = root / "core_memory" / "store.py"
+        store_py = root / "core_memory" / "persistence" / "store.py"
         text = store_py.read_text(encoding="utf-8")
 
         forbidden = [

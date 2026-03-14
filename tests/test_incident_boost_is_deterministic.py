@@ -4,7 +4,7 @@ from pathlib import Path
 
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.policy.incidents import tag_incident
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestIncidentBoostDeterministic(unittest.TestCase):

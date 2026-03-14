@@ -7,15 +7,10 @@ class TestStoreShimImportAudit(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         offenders = []
 
-        allow = {
-            root / "core_memory" / "store.py",  # the shim itself
-        }
-
         for p in list((root / "core_memory").rglob("*.py")) + list((root / "scripts").rglob("*.py")):
             txt = p.read_text(encoding="utf-8", errors="ignore")
             if "from core_memory.store import" in txt or "import core_memory.store" in txt:
-                if p not in allow:
-                    offenders.append(str(p.relative_to(root)))
+                offenders.append(str(p.relative_to(root)))
 
         self.assertEqual([], offenders, msg=f"Legacy store shim imports remain in runtime/scripts: {offenders}")
 

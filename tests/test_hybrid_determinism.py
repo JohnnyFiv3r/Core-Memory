@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.retrieval.hybrid import hybrid_lookup
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestHybridDeterminism(unittest.TestCase):
