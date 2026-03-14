@@ -37,7 +37,7 @@ from .graph_semantic import (
     reinforce_semantic_edges,
 )
 
-from .io_utils import append_jsonl, atomic_write_json
+from .persistence.io_utils import append_jsonl, atomic_write_json
 
 STRUCTURAL_RELS = {"caused_by", "supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
 

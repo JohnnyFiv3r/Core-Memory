@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
-from ..io_utils import append_jsonl, atomic_write_json
+from ..persistence.io_utils import append_jsonl, atomic_write_json
 
 
 def _now() -> str:

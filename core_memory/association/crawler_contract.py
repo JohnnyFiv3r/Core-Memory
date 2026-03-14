@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.io_utils import append_jsonl, store_lock
+from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.runtime.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 from core_memory.policy.association_contract import normalize_assoc_row, assoc_row_is_valid, assoc_dedupe_key

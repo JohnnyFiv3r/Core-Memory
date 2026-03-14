@@ -15,7 +15,7 @@ from .state import get_memory_pass, mark_memory_pass, try_claim_memory_pass
 from .ingress import maybe_emit_finalize_memory_event
 from .worker import SidecarPolicy, process_memory_event
 from ..write_pipeline.orchestrate import run_consolidate_pipeline
-from ..io_utils import append_jsonl
+from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
 from .decision_pass import run_session_decision_pass
 

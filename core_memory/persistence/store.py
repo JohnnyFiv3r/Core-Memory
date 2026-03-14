@@ -19,9 +19,9 @@ from pathlib import Path
 from typing import Optional
 
 from ..schema.models import BeadType, Scope, Status, Authority
-from .. import events
-from ..io_utils import store_lock, atomic_write_json, append_jsonl
-from ..archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
+from ..persistence import events
+from ..persistence.io_utils import store_lock, atomic_write_json, append_jsonl
+from ..persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from ..runtime.session_surface import read_session_surface
 from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens

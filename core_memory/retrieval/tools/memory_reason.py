@@ -21,7 +21,7 @@ from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.retrieval.quality_gate import quality_gate_decision
 from core_memory.retrieval.config import RETRY_APPEND_HINT, QUALITY_THRESHOLD_LONG
 from core_memory.retrieval.query_norm import classify_intent, resolve_query_anchors
-from core_memory.archive_index import read_snapshot
+from core_memory.persistence.archive_index import read_snapshot
 from core_memory.persistence.store import MemoryStore
 
 

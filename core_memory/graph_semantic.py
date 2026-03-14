@@ -51,7 +51,7 @@ def add_semantic_edge(
     evidence: list[dict] | None = None
 ) -> dict:
     """Add a semantic edge with weight."""
-    from .io_utils import append_jsonl
+    from .persistence.io_utils import append_jsonl
     
     beads_dir, events_dir, edges_file = _paths(root)
     edges_file.parent.mkdir(parents=True, exist_ok=True)
@@ -87,7 +87,7 @@ def update_semantic_edge(
     last_reinforced_at: str | None = None
 ) -> dict:
     """Update semantic edge weight and reinforcement stats."""
-    from .io_utils import append_jsonl
+    from .persistence.io_utils import append_jsonl
     
     _, _, edges_file = _paths(root)
     
@@ -116,7 +116,7 @@ def deactivate_semantic_edge(
     reason: str = "decayed_below_threshold"
 ) -> dict:
     """Deactivate a semantic edge."""
-    from .io_utils import append_jsonl
+    from .persistence.io_utils import append_jsonl
     
     _, _, edges_file = _paths(root)
     

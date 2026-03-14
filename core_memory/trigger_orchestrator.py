@@ -12,7 +12,7 @@ import logging
 import os
 from pathlib import Path
 
-from .io_utils import append_jsonl
+from .persistence.io_utils import append_jsonl
 
 LEGACY_SHIM = True
 SHIM_REPLACEMENT = "core_memory.memory_engine"
