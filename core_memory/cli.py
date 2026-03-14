@@ -34,6 +34,7 @@ from .retrieval.semantic_index import build_semantic_index, semantic_lookup
 from .retrieval.tools.memory_reason import memory_reason
 from .retrieval.tools.memory import execute as memory_execute_tool
 from .runtime.engine import process_turn_finalized, process_flush
+from .write_pipeline.orchestrate import run_rolling_window_pipeline
 from .policy.incidents import tag_incident, tag_topic_key
 from .policy.hygiene import curated_type_title_hygiene
 from .integrations.openclaw_runtime import (
@@ -258,6 +259,19 @@ def main():
     compact_parser = subparsers.add_parser("compact", help="Compact beads")
     compact_parser.add_argument("--session", help="Compact only this session")
     compact_parser.add_argument("--promote", action="store_true", help="Promote compacted beads")
+
+    # canonical flush command (runtime owner)
+    flush_parser = subparsers.add_parser("flush", help="Run canonical runtime flush pipeline")
+    flush_parser.add_argument("--session", required=True, help="Session id")
+    flush_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
+    flush_parser.add_argument("--token-budget", type=int, default=1200)
+    flush_parser.add_argument("--max-beads", type=int, default=12)
+    flush_parser.add_argument("--source", default="admin_cli")
+
+    # rolling-window refresh command
+    rw_parser = subparsers.add_parser("rolling-window", help="Run rolling window maintenance pipeline")
+    rw_parser.add_argument("--token-budget", type=int, default=1200)
+    rw_parser.add_argument("--max-beads", type=int, default=12)
 
     # uncompact command
     uncompact_parser = subparsers.add_parser("uncompact", help="Restore compacted bead detail")
@@ -544,6 +558,24 @@ def main():
     elif args.command == "compact":
         result = memory.compact(session_id=args.session, promote=args.promote)
         print(json.dumps(result))
+
+    elif args.command == "flush":
+        result = process_flush(
+            root=str(memory.root),
+            session_id=args.session,
+            promote=bool(args.promote),
+            token_budget=int(args.token_budget),
+            max_beads=int(args.max_beads),
+            source=str(args.source or "admin_cli"),
+        )
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "rolling-window":
+        result = run_rolling_window_pipeline(
+            token_budget=int(args.token_budget),
+            max_beads=int(args.max_beads),
+        )
+        print(json.dumps(result, indent=2))
 
     elif args.command == "uncompact":
         result = memory.uncompact(args.id)

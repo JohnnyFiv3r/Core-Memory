@@ -15,6 +15,19 @@ from ..runtime.worker import SidecarPolicy
 from ..runtime.engine import process_turn_finalized, emit_turn_finalized, process_pending_legacy_events
 
 
+def resolve_core_session_id(*, openclaw_session_id: str, core_session_id: str | None, collapse_to_main: bool) -> str:
+    """Resolve Core Memory session target for external transcript/integration sync.
+
+    Default preserves true OpenClaw session boundary.
+    Compatibility mode can collapse into `main`.
+    """
+    if core_session_id and str(core_session_id).strip():
+        return str(core_session_id).strip()
+    if collapse_to_main:
+        return "main"
+    return str(openclaw_session_id or "main").strip() or "main"
+
+
 def coordinator_finalize_hook(
     *,
     root: str,
