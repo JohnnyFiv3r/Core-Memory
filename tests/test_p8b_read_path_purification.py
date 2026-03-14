@@ -15,7 +15,7 @@ class TestP8BReadPathPurification(unittest.TestCase):
 
         allowed_paths = {
             core / "continuity_injection.py",
-            core / "rolling_record_store.py",
+            core / "persistence" / "rolling_record_store.py",
             core / "rolling_surface.py",
         }
 

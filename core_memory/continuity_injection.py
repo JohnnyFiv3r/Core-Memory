@@ -4,7 +4,7 @@ import json
 import logging
 from pathlib import Path
 
-from core_memory.rolling_record_store import read_rolling_records
+from core_memory.persistence.rolling_record_store import read_rolling_records
 
 logger = logging.getLogger(__name__)
 
