@@ -8,7 +8,7 @@ Command families:
     core        - add, query, stats, rebuild, compact, uncompact
     retrieval   - reason, retrieve-context, constraints, check-plan, preflight
     graph       - graph build/stats/decay/traverse/sync/infer
-    maintenance - hygiene, myelinate, migrate-store, archive-index-rebuild
+    maintenance - hygiene, myelinate, archive-index-rebuild
     integration - sidecar (coordinator hooks), memory (typed skill interface)
     metrics     - comprehensive metrics/evaluation/promotion tooling
     advanced    - dream (novel association discovery)
@@ -22,9 +22,7 @@ Examples:
 
 import argparse
 import json
-import os
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
 # Use relative import to avoid circular import
@@ -41,36 +39,9 @@ from .policy.hygiene import curated_type_title_hygiene
 from .integrations.openclaw_runtime import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
-    process_pending_memory_events,
 )
 from .retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
-
-
-def _write_legacy_readiness_snapshot(root: str, payload: dict) -> dict:
-    day = datetime.now(timezone.utc).strftime("%Y-%m-%d")
-    reports = Path(root) / "docs" / "reports"
-    reports.mkdir(parents=True, exist_ok=True)
-    json_path = reports / f"legacy-closure-readiness-{day}.json"
-    md_path = reports / f"legacy-closure-readiness-{day}.md"
-
-    json_path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
-    md = [
-        "# Legacy Closure Readiness",
-        "",
-        f"Date (UTC): {day}",
-        f"Ready for legacy removal: {bool(payload.get('ready_for_legacy_removal'))}",
-        "",
-        "## Summary",
-        f"- Shim usage count: {(payload.get('summary') or {}).get('shim_usage_count', 0)}",
-        f"- Legacy dispatch count: {(payload.get('summary') or {}).get('legacy_dispatch_count', 0)}",
-        f"- Legacy dispatch blocked count: {(payload.get('summary') or {}).get('legacy_dispatch_blocked_count', 0)}",
-        "",
-        "## Trigger status counts",
-        json.dumps(payload.get("trigger_status_counts") or {}, indent=2),
-    ]
-    md_path.write_text("\n".join(md) + "\n", encoding="utf-8")
-    return {"json": str(json_path), "md": str(md_path)}
 
 
 def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
@@ -112,81 +83,6 @@ def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(out, indent=2), encoding="utf-8")
         out["written"] = str(p)
-    return out
-
-
-def _legacy_readiness_report(root: str, write_path: str | None = None, snapshot: bool = False) -> dict:
-    beads_events = Path(root) / ".beads" / "events"
-    shim_log = beads_events / "legacy-shim-usage.jsonl"
-    trigger_log = beads_events / "write-trigger-processed.jsonl"
-
-    shim_rows = []
-    if shim_log.exists():
-        for line in shim_log.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-            except Exception:
-                continue
-            if isinstance(rec, dict):
-                shim_rows.append(rec)
-
-    trigger_rows = []
-    if trigger_log.exists():
-        for line in trigger_log.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                rec = json.loads(line)
-            except Exception:
-                continue
-            if isinstance(rec, dict):
-                trigger_rows.append(rec)
-
-    trigger_status_counts: dict[str, int] = {}
-    for r in trigger_rows:
-        st = str(r.get("status") or "unknown")
-        trigger_status_counts[st] = trigger_status_counts.get(st, 0) + 1
-
-    shim_count = len(shim_rows)
-    legacy_dispatch_count = sum(1 for r in trigger_rows if str(r.get("status") or "") in {"done", "failed", "retired", "ignored"})
-    blocked_count = sum(1 for r in trigger_rows if str(r.get("status") or "") == "blocked")
-
-    strict_block_env = str(os.getenv("CORE_MEMORY_BLOCK_LEGACY_TRIGGER_ORCHESTRATOR", "0")).strip().lower() in {"1", "true", "yes", "on"}
-    trigger_block_env = str(os.getenv("CORE_MEMORY_ALLOW_LEGACY_WRITE_TRIGGERS", "0")).strip().lower() not in {"1", "true", "yes", "on"}
-
-    ready = (shim_count == 0) and (legacy_dispatch_count == 0)
-
-    out = {
-        "ok": True,
-        "schema": "openclaw.memory.legacy_readiness_report.v1",
-        "root": str(root),
-        "ready_for_legacy_removal": bool(ready),
-        "strict_block_env": bool(strict_block_env),
-        "legacy_write_trigger_blocked_by_default": bool(trigger_block_env),
-        "summary": {
-            "shim_usage_count": shim_count,
-            "legacy_dispatch_count": legacy_dispatch_count,
-            "legacy_dispatch_blocked_count": blocked_count,
-        },
-        "trigger_status_counts": trigger_status_counts,
-        "next_actions": [
-            "Enable strict shim blocking in CI/staging: CORE_MEMORY_BLOCK_LEGACY_TRIGGER_ORCHESTRATOR=1",
-            "Keep CORE_MEMORY_ALLOW_LEGACY_WRITE_TRIGGERS unset in production",
-            "Wait for zero shim usage over burn-in window before removing legacy modules",
-        ],
-    }
-
-    if write_path:
-        p = Path(write_path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(out, indent=2), encoding="utf-8")
-        out["written"] = str(p)
-
-    if snapshot:
-        out["snapshot_written"] = _write_legacy_readiness_snapshot(root, out)
-
     return out
 
 
@@ -269,14 +165,6 @@ def main():
     consolidate_parser.add_argument("--max-beads", type=int, default=12)
     consolidate_parser.add_argument("--source", default="admin_cli")
 
-    # legacy alias (to be removed after transition)
-    flush_parser = subparsers.add_parser("flush", help="[Deprecated alias] Use 'consolidate'")
-    flush_parser.add_argument("--session", required=True, help="Session id")
-    flush_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
-    flush_parser.add_argument("--token-budget", type=int, default=1200)
-    flush_parser.add_argument("--max-beads", type=int, default=12)
-    flush_parser.add_argument("--source", default="admin_cli")
-
     # rolling-window refresh command
     rw_parser = subparsers.add_parser("rolling-window", help="Run rolling window maintenance pipeline")
     rw_parser.add_argument("--token-budget", type=int, default=1200)
@@ -289,11 +177,6 @@ def main():
     # myelinate command
     myelinate_parser = subparsers.add_parser("myelinate", help="Run myelination analysis")
     myelinate_parser.add_argument("--apply", action="store_true", help="Apply changes (default dry-run)")
-
-    # migrate-store command
-    migrate_parser = subparsers.add_parser("migrate-store", help="Migrate legacy mem_beads store")
-    migrate_parser.add_argument("--legacy-root", required=True, help="Path to legacy .mem-beads store")
-    migrate_parser.add_argument("--no-backup", action="store_true", help="Disable backup before import")
 
     # sidecar integration command
     sidecar_parser = subparsers.add_parser("sidecar", help="Coordinator integration helpers")
@@ -308,9 +191,6 @@ def main():
     sc_finalize.add_argument("--assistant-final", required=True)
     sc_finalize.add_argument("--trace-depth", type=int, default=0)
     sc_finalize.add_argument("--origin", default="USER_TURN")
-
-    sc_process = sidecar_sub.add_parser("process", help="Process queued memory events")
-    sc_process.add_argument("--max-events", type=int, default=50)
 
     sc_turn = sidecar_sub.add_parser("turn", help="Atomically finalize and process one turn")
     sc_turn.add_argument("--session-id", required=True)
@@ -478,9 +358,6 @@ def main():
     metrics_auto_report = metrics_sub.add_parser("autonomy-report", help="Aggregate autonomy KPIs")
     metrics_auto_report.add_argument("--since", default="7d")
 
-    metrics_legacy = metrics_sub.add_parser("legacy-readiness", help="Report legacy-path closure readiness")
-    metrics_legacy.add_argument("--write", help="Optional JSON output path")
-    metrics_legacy.add_argument("--snapshot", action="store_true", help="Write dated JSON+MD readiness snapshot under docs/reports/")
 
     metrics_canonical = metrics_sub.add_parser("canonical-health", help="Run canonical contract health checks")
     metrics_canonical.add_argument("--write", help="Optional JSON output path")
@@ -568,9 +445,7 @@ def main():
         result = memory.compact(session_id=args.session, promote=args.promote)
         print(json.dumps(result))
 
-    elif args.command in {"flush", "consolidate"}:
-        if args.command == "flush":
-            print("[deprecated] 'flush' is an alias; use 'consolidate'", file=sys.stderr)
+    elif args.command == "consolidate":
         result = process_flush(
             root=str(memory.root),
             session_id=args.session,
@@ -598,10 +473,6 @@ def main():
         result = memory.myelinate(apply=args.apply)
         print(json.dumps(result))
 
-    elif args.command == "migrate-store":
-        result = memory.migrate_legacy_store(args.legacy_root, backup=not args.no_backup)
-        print(json.dumps(result, indent=2))
-
     elif args.command == "sidecar":
         if args.sidecar_cmd == "finalize":
             result = coordinator_finalize_hook(
@@ -615,9 +486,6 @@ def main():
                 trace_depth=args.trace_depth,
                 origin=args.origin,
             )
-            print(json.dumps(result, indent=2))
-        elif args.sidecar_cmd == "process":
-            result = process_pending_memory_events(args.root, max_events=args.max_events)
             print(json.dumps(result, indent=2))
         elif args.sidecar_cmd == "turn":
             metadata = {
@@ -827,8 +695,6 @@ def main():
             print(json.dumps(rec, indent=2))
         elif args.metrics_cmd == "autonomy-report":
             print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
-        elif args.metrics_cmd == "legacy-readiness":
-            print(json.dumps(_legacy_readiness_report(str(memory.root), write_path=args.write, snapshot=bool(args.snapshot)), indent=2))
         elif args.metrics_cmd == "canonical-health":
             print(json.dumps(_canonical_health_report(str(memory.root), write_path=args.write), indent=2))
         else:

@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.integrations.openclaw_runtime import process_pending_memory_events, finalize_and_process_turn
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
 from core_memory.runtime.worker import SidecarPolicy
 
 
@@ -19,13 +19,6 @@ class TestTriggerAuthorityMarkers(unittest.TestCase):
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertEqual("canonical_in_process", out.get("authority_path"))
-
-    def test_legacy_poller_marker(self):
-        with tempfile.TemporaryDirectory() as td:
-            out = process_pending_memory_events(td, max_events=5)
-            self.assertEqual("legacy_sidecar_compat", out.get("authority_path"))
-            self.assertTrue(out.get("skipped"))
-            self.assertEqual("legacy_poller_disabled", out.get("reason"))
 
 
 if __name__ == "__main__":

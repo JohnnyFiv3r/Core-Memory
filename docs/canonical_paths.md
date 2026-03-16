@@ -33,7 +33,6 @@ Runtime continuity injection authority order:
 - SpringAI primary bridge: `core_memory.integrations.springai.get_app()`
 - HTTP compatibility ingress: `core_memory.integrations.http.get_app()`
 
-## Compatibility/deprecated notes
+## Integration notes
 - transcript index-dump write path is retired as a supported primary architecture
 - transcript inputs are supported only as bridge/feed into canonical finalized-turn ingestion
-- legacy poller path is compatibility-only and hard-fenced by env flag

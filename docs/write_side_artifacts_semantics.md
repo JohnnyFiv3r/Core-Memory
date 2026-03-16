@@ -12,19 +12,13 @@ Surface role:
 Purpose:
 - extraction idempotency and run bookkeeping
 
-### `.beads/events/write-triggers.jsonl`
-Surface role:
-- write-side trigger intent ledger
+### Legacy trigger ledgers (retired)
+- `.beads/events/write-triggers.jsonl`
+- `.beads/events/write-trigger-processed.jsonl`
 
-Purpose:
-- canonical trigger emission trace for event-native convergence
-
-### `.beads/events/write-trigger-processed.jsonl`
-Surface role:
-- write-side trigger processing ledger
-
-Purpose:
-- dispatch idempotency and processing trace
+Status:
+- retired with removal of legacy write-trigger dispatcher path.
+- retained only as historical artifacts if present in older roots.
 
 ### `promoted-context.md`
 Surface role:

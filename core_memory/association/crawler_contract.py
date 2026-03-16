@@ -13,7 +13,7 @@ from core_memory.policy.association_contract import normalize_assoc_row, assoc_r
 
 
 def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
-    """Accept both legacy and structured crawler payload shapes."""
+    """Accept normalized crawler payload shapes."""
     promotions = [str(x) for x in (updates.get("promotions") or []) if str(x)]
     associations = [x for x in (updates.get("associations") or []) if isinstance(x, dict)]
 
