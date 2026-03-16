@@ -60,9 +60,8 @@ Cross-checked against OpenClaw docs in runtime:
    - `plugins/openclaw-core-memory-bridge/openclaw.plugin.json`
 
 ## Remaining Tasks
-- Add docs section in `README.md` + plugin-specific install/verify examples.
-- Add CI smoke job and fixtures.
 - Validate scripts in both containerized and bare-metal paths.
+- Keep release notes/changelog updated as bridge installer/doctor surfaces evolve.
 
 ## Acceptance Criteria
 - Clean install from repo path requires no manual config surgery.
