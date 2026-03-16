@@ -161,7 +161,6 @@ If behavior changes, these owners must be updated first.
 
 ## E) Deprecated / transitional paths (track for removal)
 
-- `core_memory.runtime.write_trigger_dispatcher`
 - `core_memory.integrations.openclaw_runtime` (compat helper surface)
 
 These should never be treated as canonical owners.

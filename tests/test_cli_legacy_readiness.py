@@ -16,17 +16,10 @@ class TestCliLegacyReadiness(unittest.TestCase):
                 json.dumps({"shim_call": "run_turn_finalize_pipeline"}) + "\n",
                 encoding="utf-8",
             )
-            (events / "write-trigger-processed.jsonl").write_text(
-                json.dumps({"status": "done"}) + "\n" + json.dumps({"status": "blocked"}) + "\n",
-                encoding="utf-8",
-            )
-
             out = _legacy_readiness_report(td)
             self.assertTrue(out.get("ok"))
             self.assertFalse(out.get("ready_for_legacy_removal"))
             self.assertEqual(1, (out.get("summary") or {}).get("shim_usage_count"))
-            self.assertEqual(1, (out.get("summary") or {}).get("legacy_dispatch_count"))
-            self.assertEqual(1, (out.get("summary") or {}).get("legacy_dispatch_blocked_count"))
 
     def test_snapshot_writes_json_and_md_reports(self):
         with tempfile.TemporaryDirectory() as td:
