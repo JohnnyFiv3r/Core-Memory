@@ -1,17 +1,10 @@
 from __future__ import annotations
 
-"""Deterministic association helper (deprecated primary path).
+"""Deterministic bounded association preview helper.
 
-Canonical live-session association authority is crawler-reviewed output via:
-- core_memory.association.crawler_contract
-
-This module is retained only as a deterministic helper for compatibility/preview
-workflows and must not be treated as canonical association authorship.
+Used for non-authoritative preview scoring on per-add store writes.
+Canonical durable association authorship remains crawler-reviewed.
 """
-
-DEPRECATED_PRIMARY = True
-NON_AUTHORITATIVE = True
-PRIMARY_REPLACEMENT = "core_memory.association.crawler_contract"
 
 
 def _tokenize(text: str) -> set[str]:
@@ -34,7 +27,7 @@ def _causal_hint_score(text: str) -> int:
 
 
 def run_association_pass(index: dict, bead: dict, *, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
-    """Deterministic association pass scaffold (strengthened in P6B Step 1).
+    """Compute deterministic association preview candidates.
 
     Non-destructive: computes derived candidates only.
     Session-relative reasoning is weighted higher than cross-session fallback.

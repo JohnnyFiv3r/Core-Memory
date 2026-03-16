@@ -26,9 +26,10 @@ This is the supported import/integration surface for contributors.
 - PydanticAI: `core_memory.integrations.pydanticai.run`
 
 ## Not first integration targets (transitional/internal)
-- `core_memory.trigger_orchestrator` (compat shim)
-- `core_memory.association.pass_engine` (transitional helper)
-- compatibility/poller legacy paths
+- legacy compatibility/poller paths
+
+Association preview helper (non-authoritative write preview only):
+- `core_memory.association.preview.run_association_pass`
 
 ## Rule of thumb
 If building new integration code, start from this file and only add new surfaces through explicit docs + tests.

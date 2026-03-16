@@ -53,7 +53,7 @@ Canonical finalized-turn event emission, pass state, mechanical execution, and r
 |------|--------|-------|
 | `trigger_orchestrator.py` | DEPRECATED | Compatibility shim; use `memory_engine.py` |
 | `openclaw_integration.py` | DEPRECATED | Use `integrations/openclaw_agent_end_bridge.py` |
-| `association/pass_engine.py` | LEGACY | Secondary deterministic path |
+| `association/preview.py` | ACTIVE (non-authoritative) | Secondary deterministic preview path |
 | `integrations/springai/bridge.py` | ACTIVE/BRIDGE | Keep if used |
 | `rolling_surface.py` | DEPRECATED | Renderer only; use `rolling_record_store.py` |
 | `write_triggers.py` | DEPRECATED | Refactored to direct calls; subprocess removed |
