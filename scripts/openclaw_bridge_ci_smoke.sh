@@ -6,7 +6,9 @@ set -euo pipefail
 # - openclaw CLI available
 # - Core-Memory repo mounted at /home/node/.openclaw/workspace/Core-Memory (override via env)
 
-REPO_ROOT="${CORE_MEMORY_REPO:-/home/node/.openclaw/workspace/Core-Memory}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+DEFAULT_REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REPO_ROOT="${CORE_MEMORY_REPO:-$DEFAULT_REPO_ROOT}"
 EVENTS_DIR="${CORE_MEMORY_EVENTS_DIR:-$REPO_ROOT/.beads/events}"
 EVENTS_FILE="$EVENTS_DIR/memory-events.jsonl"
 PASS_FILE="$EVENTS_DIR/memory-pass-status.jsonl"
@@ -20,15 +22,16 @@ base_pass=0
 [ -f "$PASS_FILE" ] && base_pass=$(wc -l < "$PASS_FILE" | tr -d ' ')
 echo "[ci-smoke] events=$base_events pass=$base_pass"
 
-# Synthetic finalized-turn payload (CI-safe, deterministic, no live chat required)
-python3 -m core_memory.integrations.openclaw_agent_end_bridge <<'JSON'
+# Synthetic finalized-turn payload (CI-safe, no live chat required)
+RUN_ID="ci-smoke-run-$(date +%s)-$RANDOM"
+python3 -m core_memory.integrations.openclaw_agent_end_bridge <<JSON
 {
   "event": {
-    "runId": "ci-smoke-run-001",
+    "runId": "${RUN_ID}",
     "success": true,
     "messages": [
-      {"role": "user", "content": "CI smoke synthetic user turn"},
-      {"role": "assistant", "content": "CI smoke synthetic assistant final"}
+      {"role": "user", "content": "CI smoke synthetic user turn ${RUN_ID}"},
+      {"role": "assistant", "content": "CI smoke synthetic assistant final ${RUN_ID}"}
     ]
   },
   "ctx": {
