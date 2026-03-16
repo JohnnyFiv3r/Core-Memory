@@ -35,32 +35,62 @@ def _hash_vectors(texts: list[str], dim: int = 256):
 
 
 def _provider_vectors(texts: list[str], provider: str, model: str):
-    if provider != "openai":
-        raise RuntimeError(f"unsupported_provider:{provider}")
-
-    key = os.environ.get("OPENAI_API_KEY")
-    if not key:
-        raise RuntimeError("missing_openai_api_key")
-
-    from openai import OpenAI  # type: ignore
     import numpy as np  # type: ignore
 
-    client = OpenAI(api_key=key)
-    rows = []
-    for t in texts:
-        emb = client.embeddings.create(model=model, input=t)
-        rows.append(emb.data[0].embedding)
-    vecs = np.array(rows, dtype="float32")
-    norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-    norms[norms == 0] = 1.0
-    return vecs / norms
+    if provider == "openai":
+        key = os.environ.get("OPENAI_API_KEY")
+        if not key:
+            raise RuntimeError("missing_openai_api_key")
+        from openai import OpenAI  # type: ignore
+
+        client = OpenAI(api_key=key)
+        rows = []
+        for t in texts:
+            emb = client.embeddings.create(model=model, input=t)
+            rows.append(emb.data[0].embedding)
+        vecs = np.array(rows, dtype="float32")
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return vecs / norms
+
+    if provider == "gemini":
+        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+        if not key:
+            raise RuntimeError("missing_gemini_api_key")
+
+        import json as _json
+        import urllib.request as _urlreq
+
+        rows = []
+        for t in texts:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent?key={key}"
+            payload = {
+                "content": {
+                    "parts": [{"text": t}]
+                }
+            }
+            data = _json.dumps(payload).encode("utf-8")
+            req = _urlreq.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+            with _urlreq.urlopen(req, timeout=30) as resp:  # nosec - trusted provider endpoint
+                body = _json.loads(resp.read().decode("utf-8"))
+            vals = (((body or {}).get("embedding") or {}).get("values") or [])
+            if not vals:
+                raise RuntimeError("gemini_embedding_empty")
+            rows.append(vals)
+
+        vecs = np.array(rows, dtype="float32")
+        norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+        norms[norms == 0] = 1.0
+        return vecs / norms
+
+    raise RuntimeError(f"unsupported_provider:{provider}")
 
 
 def build_semantic_index(root: Path) -> dict:
     """Build semantic lookup artifacts.
 
     Modes:
-    - provider embeddings (default): CORE_MEMORY_EMBEDDINGS_PROVIDER=openai
+    - provider embeddings (default): CORE_MEMORY_EMBEDDINGS_PROVIDER=gemini
     - deterministic local hash embeddings (explicit only): CORE_MEMORY_EMBEDDINGS_PROVIDER=hash
     - lexical fallback when faiss/provider unavailable
     """
@@ -89,8 +119,8 @@ def build_semantic_index(root: Path) -> dict:
         texts.append(txt)
 
     backend = "lexical"
-    provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "openai").strip().lower()
-    model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "text-embedding-3-small").strip()
+    provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
+    model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "text-embedding-004").strip()
 
     try:
         import faiss  # type: ignore
@@ -117,7 +147,7 @@ def build_semantic_index(root: Path) -> dict:
 
     meta_file.parent.mkdir(parents=True, exist_ok=True)
     meta_file.write_text(
-        json.dumps({"backend": backend, "provider": provider or "openai", "model": model, "rows": rows}, ensure_ascii=False, indent=2),
+        json.dumps({"backend": backend, "provider": provider or "gemini", "model": model, "rows": rows}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -134,7 +164,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
     meta = json.loads(meta_file.read_text(encoding="utf-8"))
     rows = meta.get("rows") or []
     backend = str(meta.get("backend") or "lexical")
-    provider = str(meta.get("provider") or "openai")
+    provider = str(meta.get("provider") or "gemini")
     model = str(meta.get("model") or "text-embedding-3-small")
 
     q_tokens = _tokenize(query)

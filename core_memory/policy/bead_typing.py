@@ -19,16 +19,21 @@ def _heuristic_type(user_query: str, assistant_final: str) -> BeadType:
 
 
 def classify_bead_type(user_query: str, assistant_final: str) -> BeadType:
-    """LLM-first bead typing with loose policy gates and deterministic fallback.
+    """LLM-first bead typing with loose policy gates.
 
-    - Uses OpenAI if available (key present and not explicitly disabled)
-    - Falls back to lightweight heuristic classifier
+    Uses the OpenClaw default model by default (via env), and only falls back
+    to heuristic classification when explicitly allowed.
     """
-    use_llm = str(os.getenv("CORE_MEMORY_BEAD_TYPE_LLM", "1")).strip().lower() in {"1", "true", "yes", "on"}
+    model = (
+        os.getenv("CORE_MEMORY_BEAD_TYPE_MODEL")
+        or os.getenv("OPENCLAW_DEFAULT_MODEL")
+        or os.getenv("OPENCLAW_MODEL")
+        or "gpt-4o-mini"
+    )
+    allow_fallback = str(os.getenv("CORE_MEMORY_BEAD_TYPE_ALLOW_FALLBACK", "1")).strip().lower() in {"1", "true", "yes", "on"}
     key = os.getenv("OPENAI_API_KEY")
-    model = os.getenv("CORE_MEMORY_BEAD_TYPE_MODEL", "gpt-4o-mini")
 
-    if use_llm and key:
+    if key:
         try:
             from openai import OpenAI  # type: ignore
 
@@ -51,6 +56,11 @@ def classify_bead_type(user_query: str, assistant_final: str) -> BeadType:
             if t in {"decision", "outcome", "lesson", "context"}:
                 return t  # type: ignore[return-value]
         except Exception:
-            pass
+            if allow_fallback:
+                return _heuristic_type(user_query, assistant_final)
+            raise
 
-    return _heuristic_type(user_query, assistant_final)
+    if allow_fallback:
+        return _heuristic_type(user_query, assistant_final)
+    # strict mode: no key, no fallback
+    raise RuntimeError("bead_type_llm_unavailable: OPENAI_API_KEY missing and fallback disabled")
