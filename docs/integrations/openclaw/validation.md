@@ -23,3 +23,16 @@ python eval/memory_execute_eval.py
 - `warning_rate`
 - `causal_grounding_achieved_rate`
 - `causal_strong_grounding_rate`
+
+## Bridge CI smoke gate (synthetic finalized turn)
+Use this in CI/containerized verification to assert append-path health without requiring live chat traffic:
+
+```bash
+./scripts/openclaw_bridge_ci_smoke.sh
+```
+
+Pass criteria:
+- `.beads/events/memory-events.jsonl` line count increases
+- `.beads/events/memory-pass-status.jsonl` line count increases
+
+This validates canonical event ingress append behavior at the bridge module boundary.

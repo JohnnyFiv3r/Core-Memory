@@ -9,10 +9,10 @@ Status: Canonical
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
 ## Primary runtime tool surfaces
-- `core_memory.tools.memory.execute(request, root="./memory", explain=True)`
-- `core_memory.tools.memory.search(form_submission, root="./memory", explain=True)`
-- `core_memory.tools.memory.reason(query, root="./memory", k=8, ...)`
-- `core_memory.tools.memory.get_search_form(root="./memory")`
+- `core_memory.retrieval.tools.memory.execute(request, root=".", explain=True)`
+- `core_memory.retrieval.tools.memory.search(form_submission, root=".", explain=True)`
+- `core_memory.retrieval.tools.memory.reason(query, root=".", k=8, ...)`
+- `core_memory.retrieval.tools.memory.get_search_form(root=".")`
 
 ## Useful CLI/eval references
 - `core-memory memory execute --request ...`

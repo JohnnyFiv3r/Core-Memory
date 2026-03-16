@@ -1,6 +1,6 @@
 import unittest
 
-from core_memory.memory_skill.snap import snap_form
+from core_memory.retrieval.pipeline.snap import snap_form
 
 
 class TestSnapUnknownsSafe(unittest.TestCase):

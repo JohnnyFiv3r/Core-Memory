@@ -17,9 +17,9 @@ fi
 python3 -m venv .venv
 .venv/bin/python -m pip install -e .
 
-mkdir -p "$WORKSPACE/memory/.beads/events" "$WORKSPACE/memory/.turns"
+mkdir -p "$WORKSPACE/.beads/events" "$WORKSPACE/.turns"
 
 echo "✓ core-memory installed"
 echo ""
 echo "Quick test:"
-echo "  $WORKSPACE/.venv/bin/core-memory --root $WORKSPACE/memory stats"
+echo "  $WORKSPACE/.venv/bin/core-memory --root $WORKSPACE stats"

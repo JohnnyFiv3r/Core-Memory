@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { appendFileSync } from "node:fs";
 
 const plugin = {
   id: "core-memory-bridge",
@@ -8,10 +9,18 @@ const plugin = {
   register(api) {
     const cfg = {
       pythonBin: api?.config?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
-      coreMemoryRoot: api?.config?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || "./memory",
+      coreMemoryRoot: api?.config?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
+      coreMemoryRepo: api?.config?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || "/home/node/.openclaw/workspace/Core-Memory",
       enableAgentEnd: api?.config?.enableAgentEnd !== false,
       enableCompactionFlush: api?.config?.enableCompactionFlush !== false,
     };
+
+    const debug = (line) => {
+      try {
+        appendFileSync('/tmp/core-memory-bridge-hook.log', `${new Date().toISOString()} ${line}\n`);
+      } catch {}
+    };
+    debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} enableAgentEnd=${cfg.enableAgentEnd} enableCompactionFlush=${cfg.enableCompactionFlush}`);
 
     const runBridge = (moduleName, payload) =>
       new Promise((resolve) => {
@@ -24,7 +33,8 @@ const plugin = {
 
         const child = spawn(cfg.pythonBin, ["-m", moduleName], {
           stdio: ["pipe", "pipe", "pipe"],
-          env: process.env,
+          cwd: cfg.coreMemoryRepo,
+          env: { ...process.env, PYTHONPATH: `${cfg.coreMemoryRepo}:${process.env.PYTHONPATH || ""}` },
         });
 
         let stdout = "";
@@ -67,18 +77,20 @@ const plugin = {
     if (cfg.enableAgentEnd) {
       api.on("agent_end", async (event) => {
         try {
+          debug(`agent_end session=${event?.sessionKey || event?.session_id || event?.sessionId || ''} run=${event?.runId || event?.run_id || ''}`);
           const payload = {
             event,
             ctx: {
-              sessionId: event?.sessionKey,
-              sessionKey: event?.sessionKey,
-              agentId: event?.agentId,
+              sessionId: event?.sessionKey || event?.sessionId || event?.session_id,
+              sessionKey: event?.sessionKey || event?.sessionId || event?.session_id,
+              agentId: event?.agentId || event?.agent_id,
               trigger: event?.trigger,
-              runId: event?.runId,
+              runId: event?.runId || event?.run_id,
             },
             root: cfg.coreMemoryRoot,
           };
           const out = await runBridge("core_memory.integrations.openclaw_agent_end_bridge", payload);
+          debug(`agent_end result ok=${String(out?.parsed?.ok)} code=${String(out?.code)} stderr=${String((out?.stderr||'').slice(0,180))}`);
           if (!out?.parsed?.ok) {
             api.logger?.warn?.(`core-memory-bridge: agent_end emit failed: ${JSON.stringify(out?.parsed || {})}`);
           }
@@ -91,6 +103,7 @@ const plugin = {
     if (cfg.enableCompactionFlush) {
       const onCompaction = async (event) => {
         try {
+          debug(`compaction_hook session=${event?.sessionKey || ''} run=${event?.runId || ''}`);
           const payload = {
             event,
             ctx: {
@@ -102,6 +115,7 @@ const plugin = {
             root: cfg.coreMemoryRoot,
           };
           const out = await runBridge("core_memory.integrations.openclaw_compaction_bridge", payload);
+          debug(`compaction result ok=${String(out?.parsed?.ok)} code=${String(out?.code)}`);
           if (!out?.parsed?.ok) {
             api.logger?.warn?.(`core-memory-bridge: compaction flush failed: ${JSON.stringify(out?.parsed || {})}`);
           }

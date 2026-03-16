@@ -2,8 +2,8 @@ import os
 import tempfile
 import unittest
 
-from core_memory.memory_engine import read_live_session
-from core_memory.store import MemoryStore
+from core_memory.runtime.engine import read_live_session
+from core_memory.persistence.store import MemoryStore
 
 
 class TestLiveSessionAuthority(unittest.TestCase):

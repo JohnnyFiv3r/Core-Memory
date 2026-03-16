@@ -1,8 +1,8 @@
 import tempfile
 import unittest
 
-from core_memory.store import MemoryStore
-from core_memory.memory_skill.catalog import build_catalog
+from core_memory.persistence.store import MemoryStore
+from core_memory.retrieval.pipeline.catalog import build_catalog
 
 
 class TestCatalogRelationSource(unittest.TestCase):

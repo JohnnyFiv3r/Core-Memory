@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.openclaw_integration import finalize_and_process_turn
-from core_memory.store import MemoryStore
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
+from core_memory.persistence.store import MemoryStore
 
 
 class TestIdempotencyEffects(unittest.TestCase):

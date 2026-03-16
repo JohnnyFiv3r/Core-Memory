@@ -2,7 +2,7 @@ import os
 import tempfile
 import unittest
 
-from core_memory.trigger_orchestrator import run_turn_finalize_pipeline
+from core_memory.runtime.trigger_pipeline import run_turn_finalize_pipeline
 
 
 class TestTriggerOrchestratorBlockMode(unittest.TestCase):

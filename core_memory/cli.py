@@ -23,23 +23,27 @@ Examples:
 import argparse
 import json
 import os
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
 # Use relative import to avoid circular import
-from .store import MemoryStore, DEFAULT_ROOT
-from .archive_index import rebuild_archive_index
-from .graph import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
-from .semantic_index import build_semantic_index, semantic_lookup
-from .tools.memory_reason import memory_reason
-from .incidents import tag_incident, tag_topic_key
-from .hygiene import curated_type_title_hygiene
-from .openclaw_integration import (
+from .persistence.store import MemoryStore, DEFAULT_ROOT
+from .persistence.archive_index import rebuild_archive_index
+from .graph.api import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
+from .retrieval.semantic_index import build_semantic_index, semantic_lookup
+from .retrieval.tools.memory_reason import memory_reason
+from .retrieval.tools.memory import execute as memory_execute_tool
+from .runtime.engine import process_turn_finalized, process_flush
+from .write_pipeline.orchestrate import run_rolling_window_pipeline
+from .policy.incidents import tag_incident, tag_topic_key
+from .policy.hygiene import curated_type_title_hygiene
+from .integrations.openclaw_runtime import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
     process_pending_memory_events,
 )
-from .memory_skill import memory_get_search_form, memory_search_typed, memory_execute
+from .retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
 
 
@@ -67,6 +71,48 @@ def _write_legacy_readiness_snapshot(root: str, payload: dict) -> dict:
     ]
     md_path.write_text("\n".join(md) + "\n", encoding="utf-8")
     return {"json": str(json_path), "md": str(md_path)}
+
+
+def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
+    import tempfile
+
+    checks = {}
+    with tempfile.TemporaryDirectory() as td:
+        # Turn + flush + rolling window + archive ergonomics
+        t1 = process_turn_finalized(
+            root=td,
+            session_id="health",
+            turn_id="t1",
+            user_query="remember canonical decision",
+            assistant_final="Decision: keep canonical path and stable retrieval.",
+        )
+        f1 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
+        f2 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
+
+        phase_trace = ((f1.get("result") or {}).get("phase_trace") or [])
+        checks["turn_path"] = bool(t1.get("ok"))
+        checks["flush_once_per_cycle"] = bool(f2.get("skipped") and f2.get("reason") == "already_flushed_for_latest_turn")
+        checks["rolling_window_maintenance"] = bool("rolling_window_write" in phase_trace)
+        checks["archive_ergonomics"] = bool("archive_compact_session" in phase_trace and "archive_compact_historical" in phase_trace)
+
+        # Full retrieval path via tool execute
+        req = {"query": "canonical decision", "session_id": "health", "limit": 5}
+        ret = memory_execute_tool(req, root=td, explain=True)
+        checks["retrieval_path"] = bool((ret.get("ok") is True) or (ret.get("results") is not None) or (ret.get("items") is not None))
+
+    out = {
+        "ok": True,
+        "schema": "openclaw.memory.canonical_health_report.v1",
+        "root": str(root),
+        "checks": checks,
+        "all_green": all(bool(v) for v in checks.values()),
+    }
+    if write_path:
+        p = Path(write_path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(out, indent=2), encoding="utf-8")
+        out["written"] = str(p)
+    return out
 
 
 def _legacy_readiness_report(root: str, write_path: str | None = None, snapshot: bool = False) -> dict:
@@ -214,6 +260,27 @@ def main():
     compact_parser = subparsers.add_parser("compact", help="Compact beads")
     compact_parser.add_argument("--session", help="Compact only this session")
     compact_parser.add_argument("--promote", action="store_true", help="Promote compacted beads")
+
+    # canonical consolidate command (runtime owner)
+    consolidate_parser = subparsers.add_parser("consolidate", help="Run canonical runtime consolidation/flush pipeline")
+    consolidate_parser.add_argument("--session", required=True, help="Session id")
+    consolidate_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
+    consolidate_parser.add_argument("--token-budget", type=int, default=1200)
+    consolidate_parser.add_argument("--max-beads", type=int, default=12)
+    consolidate_parser.add_argument("--source", default="admin_cli")
+
+    # legacy alias (to be removed after transition)
+    flush_parser = subparsers.add_parser("flush", help="[Deprecated alias] Use 'consolidate'")
+    flush_parser.add_argument("--session", required=True, help="Session id")
+    flush_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
+    flush_parser.add_argument("--token-budget", type=int, default=1200)
+    flush_parser.add_argument("--max-beads", type=int, default=12)
+    flush_parser.add_argument("--source", default="admin_cli")
+
+    # rolling-window refresh command
+    rw_parser = subparsers.add_parser("rolling-window", help="Run rolling window maintenance pipeline")
+    rw_parser.add_argument("--token-budget", type=int, default=1200)
+    rw_parser.add_argument("--max-beads", type=int, default=12)
 
     # uncompact command
     uncompact_parser = subparsers.add_parser("uncompact", help="Restore compacted bead detail")
@@ -414,6 +481,9 @@ def main():
     metrics_legacy = metrics_sub.add_parser("legacy-readiness", help="Report legacy-path closure readiness")
     metrics_legacy.add_argument("--write", help="Optional JSON output path")
     metrics_legacy.add_argument("--snapshot", action="store_true", help="Write dated JSON+MD readiness snapshot under docs/reports/")
+
+    metrics_canonical = metrics_sub.add_parser("canonical-health", help="Run canonical contract health checks")
+    metrics_canonical.add_argument("--write", help="Optional JSON output path")
     
     args = parser.parse_args()
     
@@ -497,6 +567,26 @@ def main():
     elif args.command == "compact":
         result = memory.compact(session_id=args.session, promote=args.promote)
         print(json.dumps(result))
+
+    elif args.command in {"flush", "consolidate"}:
+        if args.command == "flush":
+            print("[deprecated] 'flush' is an alias; use 'consolidate'", file=sys.stderr)
+        result = process_flush(
+            root=str(memory.root),
+            session_id=args.session,
+            promote=bool(args.promote),
+            token_budget=int(args.token_budget),
+            max_beads=int(args.max_beads),
+            source=str(args.source or "admin_cli"),
+        )
+        print(json.dumps(result, indent=2))
+
+    elif args.command == "rolling-window":
+        result = run_rolling_window_pipeline(
+            token_budget=int(args.token_budget),
+            max_beads=int(args.max_beads),
+        )
+        print(json.dumps(result, indent=2))
 
     elif args.command == "uncompact":
         result = memory.uncompact(args.id)
@@ -739,6 +829,8 @@ def main():
             print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
         elif args.metrics_cmd == "legacy-readiness":
             print(json.dumps(_legacy_readiness_report(str(memory.root), write_path=args.write, snapshot=bool(args.snapshot)), indent=2))
+        elif args.metrics_cmd == "canonical-health":
+            print(json.dumps(_canonical_health_report(str(memory.root), write_path=args.write), indent=2))
         else:
             metrics_parser.print_help()
 

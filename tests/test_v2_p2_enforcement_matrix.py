@@ -4,10 +4,10 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.openclaw_integration import finalize_and_process_turn, process_pending_memory_events
-from core_memory.event_worker import SidecarPolicy
-from core_memory.store import MemoryStore
-from core_memory.trigger_orchestrator import run_flush_pipeline
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn, process_pending_memory_events
+from core_memory.runtime.worker import SidecarPolicy
+from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.trigger_pipeline import run_flush_pipeline
 
 
 class TestV2P2EnforcementMatrix(unittest.TestCase):
@@ -62,19 +62,21 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
             self.assertIn('"stage": "start"', text)
             self.assertIn('"stage": "committed"', text)
 
-    def test_admin_flush_cli_uses_canonical_path(self):
+    def test_admin_consolidate_cli_uses_canonical_path(self):
         with tempfile.TemporaryDirectory() as td:
             env = dict(**__import__("os").environ)
             env["CORE_MEMORY_ROOT"] = td
             s = MemoryStore(td)
             s.add_bead(type="context", title="x", summary=["y"], session_id="main", source_turn_ids=["t1"])
 
-            script = Path(__file__).resolve().parents[1] / "scripts" / "consolidate.py"
             proc = subprocess.run(
                 [
                     "python3",
-                    str(script),
-                    "flush",
+                    "-m",
+                    "core_memory.cli",
+                    "--root",
+                    td,
+                    "consolidate",
                     "--session",
                     "main",
                     "--token-budget",

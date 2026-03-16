@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from core_memory.tools.memory_search import get_search_form, search_typed
+from core_memory.retrieval.tools.memory_search import get_search_form, search_typed
 
 ROOT = Path('/home/node/.openclaw/workspace/memory')
 

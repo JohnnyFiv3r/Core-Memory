@@ -3,8 +3,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from core_memory.tools.memory_reason import memory_reason
-from core_memory.tools.memory_search import search_typed
+from core_memory.retrieval.tools.memory_reason import memory_reason
+from core_memory.retrieval.tools.memory_search import search_typed
 from core_memory.retrieval.query_norm import resolve_query_anchors
 
 ROOT = '/home/node/.openclaw/workspace/memory'

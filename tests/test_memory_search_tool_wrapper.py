@@ -1,8 +1,8 @@
 import tempfile
 import unittest
 
-from core_memory.store import MemoryStore
-from core_memory.tools.memory_search import get_search_form, search_typed
+from core_memory.persistence.store import MemoryStore
+from core_memory.retrieval.tools.memory_search import get_search_form, search_typed
 
 
 class TestMemorySearchToolWrapper(unittest.TestCase):

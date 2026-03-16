@@ -3,16 +3,16 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.memory_engine import (
+from core_memory.runtime.engine import (
     process_turn_finalized,
     process_flush,
     crawler_turn_context,
     apply_crawler_turn_updates,
     continuity_injection_context,
 )
-from core_memory.event_worker import SidecarPolicy
-from core_memory.tools.memory import execute
-from core_memory.store import MemoryStore
+from core_memory.runtime.worker import SidecarPolicy
+from core_memory.retrieval.tools.memory import execute
+from core_memory.persistence.store import MemoryStore
 
 
 class TestE2EProgramScenarios(unittest.TestCase):

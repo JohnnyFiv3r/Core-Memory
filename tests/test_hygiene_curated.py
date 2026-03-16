@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.hygiene import curated_type_title_hygiene
-from core_memory.store import MemoryStore
+from core_memory.policy.hygiene import curated_type_title_hygiene
+from core_memory.persistence.store import MemoryStore
 
 
 class TestHygieneCurated(unittest.TestCase):

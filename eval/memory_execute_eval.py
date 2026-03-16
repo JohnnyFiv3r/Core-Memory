@@ -5,7 +5,7 @@ import random
 from pathlib import Path
 
 from core_memory.retrieval.query_norm import classify_intent, resolve_query_anchors
-from core_memory.tools.memory import execute
+from core_memory.retrieval.tools.memory import execute
 
 ROOT = '/home/node/.openclaw/workspace/memory'
 

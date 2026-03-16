@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.write_triggers import emit_write_trigger, dispatch_write_trigger
+from core_memory.runtime.write_trigger_dispatcher import emit_write_trigger, dispatch_write_trigger
 
 
 class TestWriteTriggersRetiredExtract(unittest.TestCase):

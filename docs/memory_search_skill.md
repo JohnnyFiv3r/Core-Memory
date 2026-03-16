@@ -1,7 +1,7 @@
 # Memory Search Skill (Typed Tool Boundary)
 
 Status: Canonical
-Canonical surfaces: `core_memory.tools.memory.*`, typed search contract, unified memory facade
+Canonical surfaces: `core_memory.retrieval.tools.memory.*`, typed search contract, unified memory facade
 See also:
 - `docs/index.md`
 - `docs/canonical_surfaces.md`
@@ -11,9 +11,9 @@ This document describes the tool-oriented boundary for memory retrieval.
 
 ## Tool endpoints
 
-- `core_memory.tools.memory_search.get_search_form(root="./memory")`
-- `core_memory.tools.memory_search.search_typed(submission, root="./memory", explain=True)`
-- `core_memory.tools.memory.execute(request, root="./memory", explain=True)` (unified facade)
+- `core_memory.retrieval.tools.memory_search.get_search_form(root=".")`
+- `core_memory.retrieval.tools.memory_search.search_typed(submission, root=".", explain=True)`
+- `core_memory.retrieval.tools.memory.execute(request, root=".", explain=True)` (unified facade)
 
 ## Contract
 

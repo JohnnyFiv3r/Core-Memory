@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.graph import backfill_causal_links
-from core_memory.store import MemoryStore
+from core_memory.graph.api import backfill_causal_links
+from core_memory.persistence.store import MemoryStore
 
 
 class TestBackfillCausalLinksTargeted(unittest.TestCase):

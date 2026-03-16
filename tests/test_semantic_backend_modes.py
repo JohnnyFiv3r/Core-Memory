@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.semantic_index import build_semantic_index, semantic_lookup
-from core_memory.store import MemoryStore
+from core_memory.retrieval.semantic_index import build_semantic_index, semantic_lookup
+from core_memory.persistence.store import MemoryStore
 
 
 class TestSemanticBackendModes(unittest.TestCase):

@@ -1,6 +1,8 @@
 import unittest
 
-from core_memory import event_state, event_ingress, event_worker
+from core_memory.runtime import state as event_state
+from core_memory.runtime import ingress as event_ingress
+from core_memory.runtime import worker as event_worker
 
 
 class TestEventModuleAliases(unittest.TestCase):

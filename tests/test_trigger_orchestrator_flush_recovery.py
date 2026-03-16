@@ -1,10 +1,10 @@
 import tempfile
 import unittest
 
-from core_memory.openclaw_integration import finalize_and_process_turn
-from core_memory.event_worker import SidecarPolicy
-from core_memory.store import MemoryStore
-from core_memory.trigger_orchestrator import run_flush_pipeline
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
+from core_memory.runtime.worker import SidecarPolicy
+from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.trigger_pipeline import run_flush_pipeline
 
 
 class TestTriggerOrchestratorFlushRecovery(unittest.TestCase):

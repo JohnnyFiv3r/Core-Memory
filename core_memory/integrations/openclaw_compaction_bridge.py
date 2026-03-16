@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from typing import Any
 
-from core_memory.memory_engine import process_flush
-from core_memory.store import DEFAULT_ROOT
+from core_memory.runtime.engine import process_flush
+from core_memory.persistence.store import DEFAULT_ROOT
 
 
 def process_compaction_event(*, event: dict[str, Any], ctx: dict[str, Any] | None = None, root: str | None = None) -> dict[str, Any]:
@@ -54,7 +55,7 @@ def process_compaction_event(*, event: dict[str, Any], ctx: dict[str, Any] | Non
 
 
 def main() -> None:
-    raw = os.read(0, 10_000_000).decode("utf-8", "ignore").strip()
+    raw = sys.stdin.buffer.read().decode("utf-8", "ignore").strip()
     if not raw:
         print(json.dumps({"ok": False, "error": "missing_input"}))
         return

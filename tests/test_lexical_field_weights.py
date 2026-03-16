@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.retrieval.lexical import lexical_lookup
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestLexicalFieldWeights(unittest.TestCase):

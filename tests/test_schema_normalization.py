@@ -1,6 +1,6 @@
 import unittest
 
-from core_memory.schema import (
+from core_memory.schema.normalization import (
     normalize_bead_type,
     is_allowed_bead_type,
     normalize_relation_type,

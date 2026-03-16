@@ -2,14 +2,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core_memory.memory_skill.execute import execute_request
+from core_memory.retrieval.pipeline.execute import execute_request
 
 
 class TestMemoryExecuteDeterministicOrder(unittest.TestCase):
-    @patch("core_memory.memory_skill.execute._load_beads")
-    @patch("core_memory.memory_skill.execute.search_typed")
-    @patch("core_memory.memory_skill.execute.snap_form")
-    @patch("core_memory.memory_skill.execute.build_catalog")
+    @patch("core_memory.retrieval.pipeline.execute._load_beads")
+    @patch("core_memory.retrieval.pipeline.execute.search_typed")
+    @patch("core_memory.retrieval.pipeline.execute.snap_form")
+    @patch("core_memory.retrieval.pipeline.execute.build_catalog")
     def test_execute_normalizes_result_and_chain_order(self, mcat, msnap, msearch, mbeads):
         mcat.return_value = {}
         msnap.return_value = {"snapped": {"intent": "remember", "query_text": "q"}, "decisions": {}}

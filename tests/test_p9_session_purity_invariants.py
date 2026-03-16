@@ -1,27 +1,17 @@
-import importlib.util
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.memory_engine import read_live_session
-from core_memory.store import MemoryStore
-
-
-def _load_sync_module():
-    p = Path(__file__).resolve().parents[1] / "scripts" / "sidecar_sync_session.py"
-    spec = importlib.util.spec_from_file_location("sidecar_sync_session", str(p))
-    mod = importlib.util.module_from_spec(spec)
-    assert spec and spec.loader
-    spec.loader.exec_module(mod)
-    return mod
+from core_memory.runtime.engine import read_live_session
+from core_memory.persistence.store import MemoryStore
+from core_memory.integrations.openclaw_runtime import resolve_core_session_id
 
 
 class TestP9SessionPurityInvariants(unittest.TestCase):
     def test_bridge_default_does_not_collapse_session(self):
-        m = _load_sync_module()
-        resolved = m.resolve_core_session_id(
+        resolved = resolve_core_session_id(
             openclaw_session_id="sess-123",
             core_session_id=None,
             collapse_to_main=False,
@@ -29,8 +19,7 @@ class TestP9SessionPurityInvariants(unittest.TestCase):
         self.assertEqual("sess-123", resolved)
 
     def test_bridge_collapse_mode_is_explicit(self):
-        m = _load_sync_module()
-        resolved = m.resolve_core_session_id(
+        resolved = resolve_core_session_id(
             openclaw_session_id="sess-123",
             core_session_id=None,
             collapse_to_main=True,

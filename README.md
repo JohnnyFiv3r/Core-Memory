@@ -36,7 +36,7 @@ Typical bead types include:
 ```python
 from core_memory import MemoryStore
 
-memory = MemoryStore("./memory")
+memory = MemoryStore(".")
 memory.add_bead(type="lesson", title="Redis timeouts under high load", summary=["Worker count exceeded Redis connection pool"])
 memory.add_bead(type="outcome", title="Increased Redis connection pool", summary=["Raising max connections resolved timeouts"])
 
@@ -211,6 +211,27 @@ Configure store root:
 ```bash
 export CORE_MEMORY_ROOT="$PWD/memory"
 ```
+
+### OpenClaw bridge (hardened install)
+
+For OSS/local setups, use the idempotent scripts:
+
+```bash
+./scripts/openclaw_bridge_install.sh
+./scripts/openclaw_bridge_doctor.sh
+```
+
+Installer guarantees:
+- plugin reinstall from local source
+- stale `plugins.entries.core-memory-bridge` cleanup
+- `plugins.allow` includes `core-memory-bridge`
+- ownership/perms normalization attempt on extension path
+
+Doctor checks:
+- plugin listed
+- blocked/stale warnings absent in recent logs
+- bridge hook log exists
+- Core Memory event files exist/tailing
 
 ---
 

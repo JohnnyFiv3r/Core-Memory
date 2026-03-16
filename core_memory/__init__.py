@@ -11,8 +11,8 @@ Canonical contributor docs:
 - docs/public_surface.md
 """
 
-from .store import MemoryStore, DEFAULT_ROOT
-from .models import (
+from .persistence.store import MemoryStore, DEFAULT_ROOT
+from .schema.models import (
     Bead,
     BeadType,
     Scope,

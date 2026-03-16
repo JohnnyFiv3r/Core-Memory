@@ -1,5 +1,21 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+- Deterministic OpenClaw bridge operations scripts:
+  - `scripts/openclaw_bridge_install.sh`
+  - `scripts/openclaw_bridge_doctor.sh`
+  - `scripts/openclaw_bridge_ci_smoke.sh`
+- CI smoke workflow: `.github/workflows/openclaw-bridge-smoke.yml`
+
+### Changed
+- OpenClaw bridge plugin manifest schema now includes `coreMemoryRepo`.
+- OpenClaw integration docs now document canonical install/verify path and runtime verification signals.
+
+### Fixed
+- Bridge ingestion modules now read stdin fully to avoid truncated JSON payload parsing failures in large event envelopes.
+
 ## [1.0.1] - 2026-03-03
 
 ### Fixed

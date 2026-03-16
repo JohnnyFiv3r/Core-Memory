@@ -2,13 +2,24 @@
 
 Status: Canonical landing page
 
-## Current canonical sources
-- `../../canonical_surfaces.md`
-- `../../core_adapters_architecture.md`
-- `../../memory_search_skill.md`
-- `../../memory_search_agent_playbook.md`
+## Operator quick path (recommended)
+- Install/harden bridge: `../../../scripts/openclaw_bridge_install.sh`
+- Verify health: `../../../scripts/openclaw_bridge_doctor.sh`
+- Synthetic append smoke gate: `../../../scripts/openclaw_bridge_ci_smoke.sh`
+
+## Canonical sources
 - `plugin-setup.md`
+- `validation.md`
+- `troubleshooting.md`
+- `agent_end_bridge.md`
+- `api-reference.md`
+- `../../canonical_surfaces.md`
 - repository root `README.md`
 
-## Notes
-OpenClaw-specific end-to-end docs will be populated here in a later migration slice. This page exists now to establish the target structure safely.
+## Operational notes
+- For plugin `api.on(...)` lifecycle listeners, do **not** rely solely on `openclaw hooks list --json`.
+- Primary runtime signals are:
+  - `/tmp/core-memory-bridge-hook.log` movement
+  - `.beads/events/memory-events.jsonl` append progression
+  - `.beads/events/memory-pass-status.jsonl` append progression
+  - absence of blocked/stale plugin warnings

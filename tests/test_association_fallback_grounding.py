@@ -1,8 +1,8 @@
 import tempfile
 import unittest
 
-from core_memory.store import MemoryStore
-from core_memory.tools.memory_reason import memory_reason
+from core_memory.persistence.store import MemoryStore
+from core_memory.retrieval.tools.memory_reason import memory_reason
 
 
 class TestAssociationFallbackGrounding(unittest.TestCase):

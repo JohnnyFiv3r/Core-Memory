@@ -1,6 +1,6 @@
 import unittest
 
-from core_memory.memory_skill.execute import evaluate_confidence_next
+from core_memory.retrieval.pipeline.execute import evaluate_confidence_next
 
 
 class TestMemoryExecuteConfidenceEdgeCases(unittest.TestCase):

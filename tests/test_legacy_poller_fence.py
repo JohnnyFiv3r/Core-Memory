@@ -2,8 +2,8 @@ import os
 import tempfile
 import unittest
 
-from core_memory.openclaw_integration import process_pending_memory_events
-from core_memory.event_ingress import maybe_emit_finalize_memory_event
+from core_memory.integrations.openclaw_runtime import process_pending_memory_events
+from core_memory.runtime.ingress import maybe_emit_finalize_memory_event
 
 
 class TestLegacyPollerFence(unittest.TestCase):

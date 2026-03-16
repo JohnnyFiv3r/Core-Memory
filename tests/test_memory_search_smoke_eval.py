@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.store import MemoryStore
-from core_memory.tools.memory_search import search_typed
+from core_memory.persistence.store import MemoryStore
+from core_memory.retrieval.tools.memory_search import search_typed
 
 
 class TestMemorySearchSmokeEval(unittest.TestCase):

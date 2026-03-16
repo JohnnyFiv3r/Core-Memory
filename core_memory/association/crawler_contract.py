@@ -6,9 +6,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.io_utils import append_jsonl, store_lock
-from core_memory.session_surface import read_session_surface
-from core_memory.store import MemoryStore
+from core_memory.persistence.io_utils import append_jsonl, store_lock
+from core_memory.runtime.session_surface import read_session_surface
+from core_memory.persistence.store import MemoryStore
+from core_memory.policy.association_contract import normalize_assoc_row, assoc_row_is_valid, assoc_dedupe_key
 
 
 def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
@@ -42,7 +43,8 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
             promotions_dedup.append(p)
             seen.add(p)
 
-    return promotions_dedup, associations
+    associations_norm = [normalize_assoc_row(a) for a in associations]
+    return promotions_dedup, associations_norm
 
 
 def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
@@ -274,13 +276,13 @@ def apply_crawler_updates(
         for row in assoc_rows:
             if not isinstance(row, dict):
                 continue
-            src = str(row.get("source_bead_id") or "")
-            tgt = str(row.get("target_bead_id") or "")
-            rel = str(row.get("relationship") or "").strip()
-            if not src or not tgt or not rel:
+            row_n = normalize_assoc_row(row)
+            if not assoc_row_is_valid(row_n):
                 continue
-            rel_n = rel.strip().lower()
-            dedupe_key = (src, tgt, rel_n)
+            src = str(row_n.get("source_bead_id") or "")
+            tgt = str(row_n.get("target_bead_id") or "")
+            rel_n = str(row_n.get("relationship") or "")
+            dedupe_key = assoc_dedupe_key(row_n)
             if dedupe_key in existing_assoc_keys or dedupe_key in queued_assoc_keys:
                 continue
             sb = beads.get(src)

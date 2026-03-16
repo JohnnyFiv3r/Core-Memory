@@ -8,7 +8,7 @@ Currently manageable at ~200 lines.
 import json
 from pathlib import Path
 
-from core_memory.incidents import incident_match_strength
+from core_memory.policy.incidents import incident_match_strength
 
 from .config import (
     LOW_INFO_ALNUM_RATIO_MIN,

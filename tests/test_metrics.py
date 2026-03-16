@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import unittest
 
-from core_memory.store import MemoryStore
+from core_memory.persistence.store import MemoryStore
 
 
 class TestMetrics(unittest.TestCase):

@@ -1,6 +1,6 @@
 import unittest
 
-from core_memory.tools.memory_reason import _chain_why_priority
+from core_memory.retrieval.tools.memory_reason import _chain_why_priority
 
 
 class TestChainPriorityWhy(unittest.TestCase):

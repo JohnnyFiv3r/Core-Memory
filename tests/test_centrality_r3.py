@@ -2,8 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.graph import add_structural_edge, build_graph, graph_stats
-from core_memory.store import MemoryStore
+from core_memory.graph.api import add_structural_edge, build_graph, graph_stats
+from core_memory.persistence.store import MemoryStore
 
 
 class TestCentralityR3(unittest.TestCase):
