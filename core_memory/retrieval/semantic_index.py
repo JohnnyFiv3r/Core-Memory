@@ -60,9 +60,9 @@ def build_semantic_index(root: Path) -> dict:
     """Build semantic lookup artifacts.
 
     Modes:
-    - provider embeddings (opt-in): CORE_MEMORY_EMBEDDINGS_PROVIDER=openai
-    - deterministic local hash embeddings (default)
-    - lexical fallback when faiss unavailable
+    - provider embeddings (default): CORE_MEMORY_EMBEDDINGS_PROVIDER=openai
+    - deterministic local hash embeddings (explicit only): CORE_MEMORY_EMBEDDINGS_PROVIDER=hash
+    - lexical fallback when faiss/provider unavailable
     """
     index_file, meta_file, faiss_file = _paths(root)
     if not index_file.exists():
@@ -89,22 +89,23 @@ def build_semantic_index(root: Path) -> dict:
         texts.append(txt)
 
     backend = "lexical"
-    provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
+    provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "openai").strip().lower()
     model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "text-embedding-3-small").strip()
 
     try:
         import faiss  # type: ignore
 
-        if provider:
+        if provider == "hash":
+            vecs = _hash_vectors(texts, dim=256)
+            backend = "faiss-hash"
+        else:
             try:
                 vecs = _provider_vectors(texts, provider=provider, model=model)
                 backend = f"faiss-{provider}"
             except Exception:
-                vecs = _hash_vectors(texts, dim=256)
-                backend = "faiss-hash"
-        else:
-            vecs = _hash_vectors(texts, dim=256)
-            backend = "faiss-hash"
+                # production default is real embeddings; if unavailable fall back to lexical
+                backend = "lexical"
+                raise
 
         dim = int(vecs.shape[1]) if len(texts) else 256
         idx = faiss.IndexFlatIP(dim)
@@ -116,7 +117,7 @@ def build_semantic_index(root: Path) -> dict:
 
     meta_file.parent.mkdir(parents=True, exist_ok=True)
     meta_file.write_text(
-        json.dumps({"backend": backend, "provider": provider or "hash", "model": model, "rows": rows}, ensure_ascii=False, indent=2),
+        json.dumps({"backend": backend, "provider": provider or "openai", "model": model, "rows": rows}, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
 
@@ -133,7 +134,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
     meta = json.loads(meta_file.read_text(encoding="utf-8"))
     rows = meta.get("rows") or []
     backend = str(meta.get("backend") or "lexical")
-    provider = str(meta.get("provider") or "hash")
+    provider = str(meta.get("provider") or "openai")
     model = str(meta.get("model") or "text-embedding-3-small")
 
     q_tokens = _tokenize(query)

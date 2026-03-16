@@ -18,6 +18,7 @@ from ..write_pipeline.orchestrate import run_consolidate_pipeline
 from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
 from .decision_pass import run_session_decision_pass
+from ..policy.bead_typing import classify_bead_type
 
 logger = logging.getLogger(__name__)
 
@@ -66,14 +67,8 @@ def _normalize_turn_request(
 
 
 def _infer_semantic_bead_type(user_query: str, assistant_final: str) -> str:
-    text = f"{user_query} {assistant_final}".lower()
-    if any(k in text for k in ["decide", "decision", "we chose", "chose", "policy"]):
-        return "decision"
-    if any(k in text for k in ["outcome", "result", "completed", "done", "shipped"]):
-        return "outcome"
-    if any(k in text for k in ["lesson", "learned", "insight"]):
-        return "lesson"
-    return "context"
+    # LLM-first policy classifier (with deterministic fallback) lives in policy layer.
+    return classify_bead_type(user_query=user_query, assistant_final=assistant_final)
 
 
 def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
