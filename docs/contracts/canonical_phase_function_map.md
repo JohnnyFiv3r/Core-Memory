@@ -172,7 +172,6 @@ These should never be treated as canonical owners.
 ```bash
 python3 -m unittest discover -s tests -p 'test_*.py' -q
 python3 -m core_memory.cli --root . metrics canonical-health
-python3 -m core_memory.cli --root . metrics legacy-readiness
 ```
 
 ---
@@ -180,3 +179,4 @@ python3 -m core_memory.cli --root . metrics legacy-readiness
 ## G) Change-control rule
 
 Any PR that changes phase ownership must update this file in the same PR.
+ate this file in the same PR.
