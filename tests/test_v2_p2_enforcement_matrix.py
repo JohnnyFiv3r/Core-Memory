@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.integrations.openclaw_runtime import finalize_and_process_turn, process_pending_memory_events
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
 from core_memory.runtime.worker import SidecarPolicy
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.engine import process_flush
@@ -92,23 +92,6 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
             out = json.loads(proc.stdout.strip())
             self.assertTrue(out.get("ok"))
             self.assertEqual("canonical_in_process", out.get("authority_path"))
-
-    def test_no_dual_authority_conflict(self):
-        with tempfile.TemporaryDirectory() as td:
-            finalize_and_process_turn(
-                root=td,
-                session_id="s1",
-                turn_id="t1",
-                transaction_id="tx1",
-                trace_id="tr1",
-                user_query="remember this",
-                assistant_final="Decision: keep canonical trigger path",
-                policy=SidecarPolicy(create_threshold=0.6),
-            )
-            # Legacy poller should not reprocess already-done turn
-            out = process_pending_memory_events(td, max_events=10)
-            self.assertEqual("legacy_sidecar_compat", out.get("authority_path"))
-            self.assertEqual(0, out.get("processed"))
 
 
 if __name__ == "__main__":

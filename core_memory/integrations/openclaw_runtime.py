@@ -12,7 +12,7 @@ from __future__ import annotations
 from typing import Any
 
 from ..runtime.worker import SidecarPolicy
-from ..runtime.engine import process_turn_finalized, emit_turn_finalized, process_pending_legacy_events
+from ..runtime.engine import process_turn_finalized, emit_turn_finalized
 
 
 def resolve_core_session_id(*, openclaw_session_id: str, core_session_id: str | None, collapse_to_main: bool) -> str:
@@ -101,7 +101,3 @@ def finalize_and_process_turn(
         policy=policy,
     )
 
-
-def process_pending_memory_events(root: str, max_events: int = 50, policy: SidecarPolicy | None = None) -> dict[str, Any]:
-    """Legacy compatibility wrapper routed through memory_engine ownership."""
-    return process_pending_legacy_events(root=root, max_events=max_events, policy=policy)

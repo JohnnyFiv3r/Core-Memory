@@ -41,7 +41,6 @@ from .policy.hygiene import curated_type_title_hygiene
 from .integrations.openclaw_runtime import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
-    process_pending_memory_events,
 )
 from .retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
@@ -308,9 +307,6 @@ def main():
     sc_finalize.add_argument("--assistant-final", required=True)
     sc_finalize.add_argument("--trace-depth", type=int, default=0)
     sc_finalize.add_argument("--origin", default="USER_TURN")
-
-    sc_process = sidecar_sub.add_parser("process", help="Process queued memory events")
-    sc_process.add_argument("--max-events", type=int, default=50)
 
     sc_turn = sidecar_sub.add_parser("turn", help="Atomically finalize and process one turn")
     sc_turn.add_argument("--session-id", required=True)
@@ -615,9 +611,6 @@ def main():
                 trace_depth=args.trace_depth,
                 origin=args.origin,
             )
-            print(json.dumps(result, indent=2))
-        elif args.sidecar_cmd == "process":
-            result = process_pending_memory_events(args.root, max_events=args.max_events)
             print(json.dumps(result, indent=2))
         elif args.sidecar_cmd == "turn":
             metadata = {

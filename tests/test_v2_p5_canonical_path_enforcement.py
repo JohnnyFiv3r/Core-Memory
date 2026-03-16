@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.integrations.openclaw_runtime import finalize_and_process_turn, process_pending_memory_events
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
 from core_memory.runtime.worker import SidecarPolicy
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.persistence.store import MemoryStore
@@ -22,22 +22,6 @@ class TestV2P5CanonicalPathEnforcement(unittest.TestCase):
             )
             self.assertTrue(out.get("ok"))
             self.assertEqual("canonical_in_process", out.get("authority_path"))
-
-    def test_legacy_poller_cannot_double_process_canonical_done_turn(self):
-        with tempfile.TemporaryDirectory() as td:
-            finalize_and_process_turn(
-                root=td,
-                session_id="s1",
-                turn_id="t1",
-                transaction_id="tx1",
-                trace_id="tr1",
-                user_query="remember this",
-                assistant_final="Decision: canonical path",
-                policy=SidecarPolicy(create_threshold=0.6),
-            )
-            out = process_pending_memory_events(td, max_events=10)
-            self.assertEqual("legacy_sidecar_compat", out.get("authority_path"))
-            self.assertEqual(0, out.get("processed"))
 
     def test_memory_execute_contract_stable_keys(self):
         with tempfile.TemporaryDirectory() as td:
