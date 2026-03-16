@@ -7,7 +7,7 @@ from pathlib import Path
 from core_memory.integrations.openclaw_runtime import finalize_and_process_turn, process_pending_memory_events
 from core_memory.runtime.worker import SidecarPolicy
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.trigger_pipeline import run_flush_pipeline
+from core_memory.runtime.engine import process_flush
 
 
 class TestV2P2EnforcementMatrix(unittest.TestCase):
@@ -45,7 +45,7 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
             s = MemoryStore(td)
             s.add_bead(type="context", title="x", summary=["y"], session_id="main", source_turn_ids=["t1"])
 
-            out = run_flush_pipeline(
+            out = process_flush(
                 root=td,
                 session_id="main",
                 promote=False,

@@ -1,15 +1,15 @@
 import tempfile
 import unittest
 
-from core_memory.runtime.trigger_pipeline import run_turn_finalize_pipeline
+from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.worker import SidecarPolicy
 from core_memory.persistence.store import MemoryStore
 
 
 class TestTriggerOrchestrator(unittest.TestCase):
-    def test_run_turn_finalize_pipeline_delegates_to_engine(self):
+    def test_process_turn_finalized_idempotent(self):
         with tempfile.TemporaryDirectory() as td:
-            out1 = run_turn_finalize_pipeline(
+            out1 = process_turn_finalized(
                 root=td,
                 session_id="s1",
                 turn_id="t1",
@@ -20,10 +20,9 @@ class TestTriggerOrchestrator(unittest.TestCase):
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out1.get("ok"))
-            self.assertEqual("core_memory.memory_engine", ((out1.get("shim") or {}).get("delegated_to")))
+            self.assertEqual("canonical_in_process", out1.get("authority_path"))
 
-            # idempotent replay should not process again
-            out2 = run_turn_finalize_pipeline(
+            out2 = process_turn_finalized(
                 root=td,
                 session_id="s1",
                 turn_id="t1",
