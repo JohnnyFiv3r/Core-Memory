@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import traceback
 import uuid
 from pathlib import Path
 from typing import Any
@@ -244,22 +245,34 @@ def process_agent_end_event(
 
 def main() -> None:
     """CLI bridge. Reads JSON from stdin: {"event": {...}, "ctx": {...}}."""
-    raw = os.read(0, 10_000_000).decode("utf-8", "ignore").strip()
-    if not raw:
-        print(json.dumps({"ok": False, "error": "missing_input"}))
-        return
-    payload = json.loads(raw)
-    if not isinstance(payload, dict):
-        print(json.dumps({"ok": False, "error": "invalid_input"}))
-        return
+    try:
+        raw = os.read(0, 10_000_000).decode("utf-8", "ignore").strip()
+        if not raw:
+            print(json.dumps({"ok": False, "error": "missing_input"}))
+            return
+        payload = json.loads(raw)
+        if not isinstance(payload, dict):
+            print(json.dumps({"ok": False, "error": "invalid_input"}))
+            return
 
-    # Accept either nested or flat payload forms.
-    event = payload.get("event") if isinstance(payload.get("event"), dict) else payload
-    ctx = payload.get("ctx") if isinstance(payload.get("ctx"), dict) else payload.get("context")
-    root = payload.get("root")
+        # Accept either nested or flat payload forms.
+        event = payload.get("event") if isinstance(payload.get("event"), dict) else payload
+        ctx = payload.get("ctx") if isinstance(payload.get("ctx"), dict) else payload.get("context")
+        root = payload.get("root")
 
-    out = process_agent_end_event(event=event, ctx=ctx, root=str(root) if root else None)
-    print(json.dumps(out, ensure_ascii=False))
+        out = process_agent_end_event(event=event, ctx=ctx, root=str(root) if root else None)
+        print(json.dumps(out, ensure_ascii=False))
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "ok": False,
+                    "error": f"bridge_exception:{exc}",
+                    "traceback": traceback.format_exc(),
+                },
+                ensure_ascii=False,
+            )
+        )
 
 
 if __name__ == "__main__":
