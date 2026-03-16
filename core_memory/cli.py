@@ -8,7 +8,7 @@ Command families:
     core        - add, query, stats, rebuild, compact, uncompact
     retrieval   - reason, retrieve-context, constraints, check-plan, preflight
     graph       - graph build/stats/decay/traverse/sync/infer
-    maintenance - hygiene, myelinate, migrate-store, archive-index-rebuild
+    maintenance - hygiene, myelinate, archive-index-rebuild
     integration - sidecar (coordinator hooks), memory (typed skill interface)
     metrics     - comprehensive metrics/evaluation/promotion tooling
     advanced    - dream (novel association discovery)
@@ -165,14 +165,6 @@ def main():
     consolidate_parser.add_argument("--max-beads", type=int, default=12)
     consolidate_parser.add_argument("--source", default="admin_cli")
 
-    # legacy alias (to be removed after transition)
-    flush_parser = subparsers.add_parser("flush", help="[Deprecated alias] Use 'consolidate'")
-    flush_parser.add_argument("--session", required=True, help="Session id")
-    flush_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
-    flush_parser.add_argument("--token-budget", type=int, default=1200)
-    flush_parser.add_argument("--max-beads", type=int, default=12)
-    flush_parser.add_argument("--source", default="admin_cli")
-
     # rolling-window refresh command
     rw_parser = subparsers.add_parser("rolling-window", help="Run rolling window maintenance pipeline")
     rw_parser.add_argument("--token-budget", type=int, default=1200)
@@ -185,11 +177,6 @@ def main():
     # myelinate command
     myelinate_parser = subparsers.add_parser("myelinate", help="Run myelination analysis")
     myelinate_parser.add_argument("--apply", action="store_true", help="Apply changes (default dry-run)")
-
-    # migrate-store command
-    migrate_parser = subparsers.add_parser("migrate-store", help="Migrate legacy mem_beads store")
-    migrate_parser.add_argument("--legacy-root", required=True, help="Path to legacy .mem-beads store")
-    migrate_parser.add_argument("--no-backup", action="store_true", help="Disable backup before import")
 
     # sidecar integration command
     sidecar_parser = subparsers.add_parser("sidecar", help="Coordinator integration helpers")
@@ -458,9 +445,7 @@ def main():
         result = memory.compact(session_id=args.session, promote=args.promote)
         print(json.dumps(result))
 
-    elif args.command in {"flush", "consolidate"}:
-        if args.command == "flush":
-            print("[deprecated] 'flush' is an alias; use 'consolidate'", file=sys.stderr)
+    elif args.command == "consolidate":
         result = process_flush(
             root=str(memory.root),
             session_id=args.session,
@@ -487,10 +472,6 @@ def main():
     elif args.command == "myelinate":
         result = memory.myelinate(apply=args.apply)
         print(json.dumps(result))
-
-    elif args.command == "migrate-store":
-        result = memory.migrate_legacy_store(args.legacy_root, backup=not args.no_backup)
-        print(json.dumps(result, indent=2))
 
     elif args.command == "sidecar":
         if args.sidecar_cmd == "finalize":

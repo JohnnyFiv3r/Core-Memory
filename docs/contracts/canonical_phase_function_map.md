@@ -153,7 +153,6 @@ If behavior changes, these owners must be updated first.
 
 - `core_memory.cli`
   - `consolidate` (canonical flush command)
-  - `flush` (deprecated alias)
   - `metrics canonical-health`
 
 ---

@@ -94,8 +94,6 @@ These are useful but not the preferred first interface for contributors:
 ## Transitional / compatibility surfaces
 
 These remain for compatibility or migration support and should not be treated as the primary public interface:
-- `core_memory.store.migrate_legacy_store(...)`
-- CLI `core-memory migrate-store`
 - historical migration/archive docs under `docs/archive/`
 
 ## Historical artifacts

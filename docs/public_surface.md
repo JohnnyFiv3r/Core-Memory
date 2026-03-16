@@ -25,9 +25,7 @@ This is the supported import/integration surface for contributors.
 - SpringAI: `core_memory.integrations.springai.bridge`
 - PydanticAI: `core_memory.integrations.pydanticai.run`
 
-## Not first integration targets (transitional/internal)
-- legacy compatibility/poller paths
-
+## Non-primary surfaces
 Association preview helper (non-authoritative write preview only):
 - `core_memory.association.preview.run_association_pass`
 

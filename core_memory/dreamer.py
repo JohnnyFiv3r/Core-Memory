@@ -215,7 +215,7 @@ def run_analysis(
     Run Dreamer association analysis on beads.
     
     Can be called with either:
-    - beads_dir: Path to the .beads directory (legacy)
+    - beads_dir: Path to the .beads directory
     - store: A MemoryStore instance (preferred)
     
     Args:

@@ -21,7 +21,7 @@ All adapters must converge on canonical finalized-turn ingestion.
 ## Adapter classification
 - **Native finalized-turn adapter**: emits from runtime commit/finalize event
 - **Bridge adapter**: reconstructs finalized turns and feeds canonical ingress
-- **Fallback/polling**: compatibility-only, non-primary
+- **Fallback/polling**: non-primary
 
 ## Launch adapter set
 - OpenClaw (`bridge`, `production_bridge`)
