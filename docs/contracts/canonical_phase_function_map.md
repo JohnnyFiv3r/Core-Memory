@@ -155,7 +155,6 @@ If behavior changes, these owners must be updated first.
   - `consolidate` (canonical flush command)
   - `flush` (deprecated alias)
   - `metrics canonical-health`
-  - `metrics legacy-readiness`
 
 ---
 

@@ -37,4 +37,4 @@ For every finalized turn:
 Use CLI:
 - `core-memory metrics canonical-health`
 
-A release is considered safe only if canonical health is green and legacy readiness matches expected cutover policy.
+A release is considered safe only if canonical health is green.
