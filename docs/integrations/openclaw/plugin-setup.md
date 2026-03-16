@@ -39,6 +39,31 @@ Dry-run preview:
 core-memory openclaw onboard --dry-run
 ```
 
+## Canonical deterministic install path (recommended)
+
+Prefer scripted install/verification over ad-hoc manual commands:
+
+```bash
+./scripts/openclaw_bridge_install.sh
+./scripts/openclaw_bridge_doctor.sh
+```
+
+### Docker Compose (root-required ownership normalization)
+
+```bash
+docker compose exec --user root openclaw bash -lc '/home/node/.openclaw/workspace/Core-Memory/scripts/openclaw_bridge_install.sh'
+docker compose restart openclaw
+docker compose exec openclaw bash -lc '/home/node/.openclaw/workspace/Core-Memory/scripts/openclaw_bridge_doctor.sh'
+```
+
+### Bare host
+
+```bash
+sudo /home/node/.openclaw/workspace/Core-Memory/scripts/openclaw_bridge_install.sh
+openclaw gateway restart
+/home/node/.openclaw/workspace/Core-Memory/scripts/openclaw_bridge_doctor.sh
+```
+
 ## What onboarding does
 - Installs plugin from `plugins/openclaw-core-memory-bridge`
 - Enables plugin id `core-memory-bridge`
@@ -50,6 +75,12 @@ core-memory openclaw onboard --dry-run
 2. `openclaw status --deep` is healthy.
 3. After a turn, Core Memory event files under `$CORE_MEMORY_ROOT/.beads/events/` update.
 4. During compaction cycles, flush checkpoints update.
+
+Important: `openclaw hooks list --json` is **not** a definitive signal for typed lifecycle listeners registered via plugin `api.on(...)`.
+Use runtime signals instead:
+- bridge hook log movement (`/tmp/core-memory-bridge-hook.log`)
+- append progression in `memory-events.jsonl` and `memory-pass-status.jsonl`
+- absence of blocked/stale plugin warnings in recent logs
 
 ## Notes
 - Bridge shell-outs to Python modules:
