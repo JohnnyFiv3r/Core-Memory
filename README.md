@@ -212,6 +212,27 @@ Configure store root:
 export CORE_MEMORY_ROOT="$PWD/memory"
 ```
 
+### OpenClaw bridge (hardened install)
+
+For OSS/local setups, use the idempotent scripts:
+
+```bash
+./scripts/openclaw_bridge_install.sh
+./scripts/openclaw_bridge_doctor.sh
+```
+
+Installer guarantees:
+- plugin reinstall from local source
+- stale `plugins.entries.core-memory-bridge` cleanup
+- `plugins.allow` includes `core-memory-bridge`
+- ownership/perms normalization attempt on extension path
+
+Doctor checks:
+- plugin listed
+- blocked/stale warnings absent in recent logs
+- bridge hook log exists
+- Core Memory event files exist/tailing
+
 ---
 
 ## Integrations

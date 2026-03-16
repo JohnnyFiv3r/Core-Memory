@@ -8,6 +8,7 @@
     "properties": {
       "pythonBin": { "type": "string" },
       "coreMemoryRoot": { "type": "string" },
+      "coreMemoryRepo": { "type": "string" },
       "enableAgentEnd": { "type": "boolean" },
       "enableCompactionFlush": { "type": "boolean" }
     }
