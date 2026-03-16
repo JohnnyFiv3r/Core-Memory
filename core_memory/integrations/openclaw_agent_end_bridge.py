@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sys
 import traceback
 import uuid
 from pathlib import Path
@@ -246,7 +247,7 @@ def process_agent_end_event(
 def main() -> None:
     """CLI bridge. Reads JSON from stdin: {"event": {...}, "ctx": {...}}."""
     try:
-        raw = os.read(0, 10_000_000).decode("utf-8", "ignore").strip()
+        raw = sys.stdin.buffer.read().decode("utf-8", "ignore").strip()
         if not raw:
             print(json.dumps({"ok": False, "error": "missing_input"}))
             return

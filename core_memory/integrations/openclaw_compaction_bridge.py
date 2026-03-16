@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import uuid
 from typing import Any
 
@@ -54,7 +55,7 @@ def process_compaction_event(*, event: dict[str, Any], ctx: dict[str, Any] | Non
 
 
 def main() -> None:
-    raw = os.read(0, 10_000_000).decode("utf-8", "ignore").strip()
+    raw = sys.stdin.buffer.read().decode("utf-8", "ignore").strip()
     if not raw:
         print(json.dumps({"ok": False, "error": "missing_input"}))
         return
