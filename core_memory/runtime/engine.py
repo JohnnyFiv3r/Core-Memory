@@ -338,8 +338,11 @@ def process_flush(
 ) -> dict[str, Any]:
     live = read_live_session_beads(root, session_id)
 
-    # enrichment barrier check
+    # enrichment barrier check (flush anchored to latest DONE turn)
     latest_turn = ""
+    latest_turn_status = "unknown"
+    latest_done_turn = ""
+    session_turns: list[tuple[int, str]] = []
     events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
     if events_file.exists():
         latest_ts = -1
@@ -354,37 +357,59 @@ def process_flush(
             if str(env.get("session_id") or "") != str(session_id):
                 continue
             ts = int(env.get("ts_ms") or 0)
+            turn_id = str(env.get("turn_id") or "")
+            if not turn_id:
+                continue
+            session_turns.append((ts, turn_id))
             if ts >= latest_ts:
                 latest_ts = ts
-                latest_turn = str(env.get("turn_id") or "")
+                latest_turn = turn_id
 
     if latest_turn:
         st = get_memory_pass(Path(root), session_id, latest_turn) or {}
-        if str(st.get("status") or "") != "done":
-            return {
-                "ok": False,
-                "authority_path": "canonical_in_process",
-                "error": "enrichment_barrier_not_satisfied",
-                "barrier": {"latest_turn_id": latest_turn, "latest_turn_status": str(st.get("status") or "unknown")},
-                "engine": {
-                    "entry": "process_flush",
-                    "sequence_owner": "memory_engine",
-                    "live_session_authority": str(live.get("authority") or "unknown"),
-                    "live_session_count": int(live.get("count") or 0),
-                },
-            }
+        latest_turn_status = str(st.get("status") or "unknown")
+
+    for _ts, tid in sorted(session_turns, key=lambda x: x[0], reverse=True):
+        st = get_memory_pass(Path(root), session_id, tid) or {}
+        if str(st.get("status") or "") == "done":
+            latest_done_turn = tid
+            break
+
+    if latest_turn and not latest_done_turn:
+        return {
+            "ok": False,
+            "retryable": True,
+            "retry_after_seconds": 2,
+            "authority_path": "canonical_in_process",
+            "error": "enrichment_barrier_not_satisfied",
+            "barrier": {
+                "latest_turn_id": latest_turn,
+                "latest_turn_status": latest_turn_status,
+                "latest_done_turn_id": "",
+            },
+            "engine": {
+                "entry": "process_flush",
+                "sequence_owner": "memory_engine",
+                "live_session_authority": str(live.get("authority") or "unknown"),
+                "live_session_count": int(live.get("count") or 0),
+            },
+        }
+
+    flush_anchor_turn = str(latest_done_turn or latest_turn or "")
 
     checkpoints = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
 
     # Once-per-cycle/session guard: skip duplicate flush for same latest processed turn.
     state = _read_flush_state(root)
     sess_state = ((state.get("sessions") or {}).get(str(session_id)) or {}) if isinstance(state, dict) else {}
-    if latest_turn and str(sess_state.get("last_flushed_turn_id") or "") == str(latest_turn):
+    if flush_anchor_turn and str(sess_state.get("last_flushed_turn_id") or "") == str(flush_anchor_turn):
         skipped_out = {
             "ok": True,
             "skipped": True,
-            "reason": "already_flushed_for_latest_turn",
-            "latest_turn_id": str(latest_turn),
+            "reason": "already_flushed_for_latest_done_turn",
+            "latest_turn_id": str(latest_turn or ""),
+            "latest_done_turn_id": str(flush_anchor_turn),
+            "latest_turn_status": str(latest_turn_status or "unknown"),
             "last_flush_tx_id": str(sess_state.get("last_flush_tx_id") or ""),
             "authority_path": "canonical_in_process",
             "engine": {
@@ -403,6 +428,8 @@ def process_flush(
                 "source": str(source or "flush_hook"),
                 "flush_tx_id": str(sess_state.get("last_flush_tx_id") or f"flush-{session_id}"),
                 "latest_turn_id": str(latest_turn or ""),
+                "latest_done_turn_id": str(flush_anchor_turn or ""),
+                "latest_turn_status": str(latest_turn_status or "unknown"),
                 "result": skipped_out,
             },
         )
@@ -463,6 +490,8 @@ def process_flush(
                 "source": str(source or "flush_hook"),
                 "flush_tx_id": str(flush_tx_id or f"flush-{session_id}"),
                 "latest_turn_id": str(latest_turn or ""),
+                "latest_done_turn_id": str(flush_anchor_turn or ""),
+                "latest_turn_status": str(latest_turn_status or "unknown"),
                 "result": flush_failed,
             },
         )
@@ -478,6 +507,8 @@ def process_flush(
             "source": str(source or "flush_hook"),
             "flush_tx_id": flush_id_final,
             "latest_turn_id": str(latest_turn or ""),
+            "latest_done_turn_id": str(flush_anchor_turn or ""),
+            "latest_turn_status": str(latest_turn_status or "unknown"),
             "crawler_merge": merge_out,
         },
     )
@@ -487,9 +518,11 @@ def process_flush(
     sessions = state.setdefault("sessions", {}) if isinstance(state, dict) else {}
     if isinstance(sessions, dict):
         sessions[str(session_id)] = {
-            "last_flushed_turn_id": str(latest_turn or ""),
+            "last_flushed_turn_id": str(flush_anchor_turn or ""),
             "last_flush_tx_id": flush_id_final,
             "last_flush_source": str(source or "flush_hook"),
+            "last_seen_turn_id": str(latest_turn or ""),
+            "last_seen_turn_status": str(latest_turn_status or "unknown"),
         }
         _write_flush_state(root, state)
 
@@ -497,6 +530,9 @@ def process_flush(
         "ok": True,
         "authority_path": "canonical_in_process",
         "flush_tx_id": flush_id_final,
+        "latest_turn_id": str(latest_turn or ""),
+        "latest_done_turn_id": str(flush_anchor_turn or ""),
+        "latest_turn_status": str(latest_turn_status or "unknown"),
         "crawler_merge": merge_out,
         "result": out,
         "engine": {
@@ -515,6 +551,8 @@ def process_flush(
             "source": str(source or "flush_hook"),
             "flush_tx_id": flush_id_final,
             "latest_turn_id": str(latest_turn or ""),
+            "latest_done_turn_id": str(flush_anchor_turn or ""),
+            "latest_turn_status": str(latest_turn_status or "unknown"),
             "result": flush_ok,
         },
     )
