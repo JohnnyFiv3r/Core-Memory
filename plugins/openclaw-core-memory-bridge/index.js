@@ -7,12 +7,13 @@ const plugin = {
   description: "Bridge OpenClaw lifecycle hooks to Core Memory canonical write/flush surfaces",
 
   register(api) {
+    const cfgIn = api?.config?.config || api?.config || {};
     const cfg = {
-      pythonBin: api?.config?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
-      coreMemoryRoot: api?.config?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
-      coreMemoryRepo: api?.config?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || "/home/node/.openclaw/workspace/Core-Memory",
-      enableAgentEnd: api?.config?.enableAgentEnd !== false,
-      enableCompactionFlush: api?.config?.enableCompactionFlush === true,
+      pythonBin: cfgIn?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
+      coreMemoryRoot: cfgIn?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
+      coreMemoryRepo: cfgIn?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || "/home/node/.openclaw/workspace/Core-Memory",
+      enableAgentEnd: cfgIn?.enableAgentEnd !== false,
+      enableCompactionFlush: cfgIn?.enableCompactionFlush === true,
     };
 
     const debug = (line) => {
