@@ -67,7 +67,16 @@ def _load_filtered_beads(root: str) -> tuple[list[dict[str, Any]], set[str]]:
 def _select_beads_for_budget(filtered: list[dict[str, Any]], *, token_budget: int, max_beads: int) -> tuple[list[dict[str, Any]], int]:
     included: list[dict[str, Any]] = []
     total = 0
-    for bead in filtered:
+
+    # Injection contract: always include the latest archived bead first.
+    # This keeps the freshest turn visible for association opportunities.
+    remaining = list(filtered)
+    if remaining and max_beads > 0:
+        latest = remaining.pop(0)
+        included.append(latest)
+        total += estimate_tokens(render_bead(latest))
+
+    for bead in remaining:
         if len(included) >= max_beads:
             break
         chunk = render_bead(bead)
@@ -94,6 +103,7 @@ def _build_surface_payload(
     included_ids = [str(b.get("id") or "") for b in included]
 
     records = [bead_to_record(b) for b in included]
+    forced_latest_id = str(included[0].get("id") or "") if included else ""
     meta = {
         "selected": len(included),
         "available": len(filtered),
@@ -102,12 +112,13 @@ def _build_surface_payload(
         "max_beads": int(max_beads),
         "excluded_superseded": int(excluded_superseded_count),
         "surface": "rolling_window",
-        "selection_policy": "strict_recency_fifo_with_budget",
+        "selection_policy": "strict_recency_fifo_with_budget_forced_latest",
         "compression_scope": "rolling_only",
         "owner_module": "core_memory.write_pipeline.rolling_window",
         "rolling_record_store": "rolling-window.records.json",
         "record_count": len(records),
         "records": records,
+        "forced_latest_bead_id": forced_latest_id,
     }
     return meta, included_ids, excluded_ids
 
