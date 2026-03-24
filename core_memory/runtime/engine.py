@@ -18,6 +18,7 @@ from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
 from .decision_pass import run_session_decision_pass
 from ..policy.bead_typing import classify_bead_type
+from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 
 logger = logging.getLogger(__name__)
 
@@ -81,26 +82,48 @@ def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
     return out
 
 
-def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
-    title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
-    summary = (req.get("assistant_final") or req.get("user_query") or "").strip()
-    if not summary:
-        summary = "turn memory"
-    return {
-        "beads_create": [
-            {
-                "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
-                "title": title or "Turn memory",
-                "summary": [summary[:240]],
-                "source_turn_ids": [str(req.get("turn_id") or "")],
-                "tags": ["crawler_reviewed", "turn_finalized"],
-                "detail": summary[:1200],
-            }
-        ]
+def _latest_session_bead_id(root: str, session_id: str) -> str | None:
+    s = MemoryStore(root=root)
+    idx = s._read_json(Path(root) / ".beads" / "index.json")
+    latest = None
+    latest_ts = ""
+    for bid, bead in (idx.get("beads") or {}).items():
+        if str((bead or {}).get("session_id") or "") != str(session_id):
+            continue
+        ts = str((bead or {}).get("created_at") or "")
+        if ts >= latest_ts:
+            latest_ts = ts
+            latest = str(bid)
+    return latest
+
+
+def _default_crawler_updates(root: str, req: dict[str, Any]) -> dict[str, Any]:
+    user_query = str(req.get("user_query") or "")
+    assistant_final = str(req.get("assistant_final") or "")
+    title = (assistant_final or user_query or "assistant turn").strip().splitlines()[0][:160]
+    detail = (assistant_final or user_query or "").strip()[:1200]
+
+    # Thin-by-default for runtime/meta chatter; richer turns can be upgraded by crawler/hygiene.
+    retrieval_eligible = not is_runtime_meta_chatter(user_query=user_query, assistant_final=assistant_final)
+
+    row = {
+        "type": _infer_semantic_bead_type(user_query, assistant_final),
+        "title": title or "assistant turn",
+        "summary": [],  # optional by contract
+        "source_turn_ids": [str(req.get("turn_id") or "")],
+        "turn_index": int((req.get("metadata") or {}).get("turn_index") or 0) or None,
+        "prev_bead_id": _latest_session_bead_id(root=root, session_id=str(req.get("session_id") or "")),
+        "tags": ["crawler_reviewed", "turn_finalized"],
+        "detail": detail,
+        "retrieval_eligible": bool(retrieval_eligible),
+        "retrieval_title": (title[:160] if retrieval_eligible else None),
+        "retrieval_facts": ([detail[:240]] if retrieval_eligible and detail else []),
     }
+    row = enforce_bead_hygiene_contract(row)
+    return {"beads_create": [row]}
 
 
-def _ensure_turn_creation_update(req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
     """Guarantee one current-turn creation candidate exists for canonical per-turn bead write."""
     out = dict(updates or {})
     key = "beads_create"
@@ -117,17 +140,28 @@ def _ensure_turn_creation_update(req: dict[str, Any], updates: dict[str, Any]) -
             break
 
     if not has_turn:
-        title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
-        summary = (req.get("assistant_final") or req.get("user_query") or "").strip() or "turn memory"
+        title = (req.get("assistant_final") or req.get("user_query") or "assistant turn").strip().splitlines()[0][:160]
+        detail = (req.get("assistant_final") or req.get("user_query") or "").strip()[:1200]
+        retrieval_eligible = not is_runtime_meta_chatter(
+            user_query=str(req.get("user_query") or ""),
+            assistant_final=str(req.get("assistant_final") or ""),
+        )
         rows.append(
-            {
-                "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
-                "title": title or "Turn memory",
-                "summary": [summary[:240]],
-                "source_turn_ids": [turn_id],
-                "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine"],
-                "detail": summary[:1200],
-            }
+            enforce_bead_hygiene_contract(
+                {
+                    "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
+                    "title": title or "assistant turn",
+                    "summary": [],
+                    "source_turn_ids": [turn_id],
+                    "turn_index": int((req.get("metadata") or {}).get("turn_index") or 0) or None,
+                    "prev_bead_id": _latest_session_bead_id(root=root, session_id=str(req.get("session_id") or "")),
+                    "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine"],
+                    "detail": detail,
+                    "retrieval_eligible": bool(retrieval_eligible),
+                    "retrieval_title": (title[:160] if retrieval_eligible else None),
+                    "retrieval_facts": ([detail[:240]] if retrieval_eligible and detail else []),
+                }
+            )
         )
 
     out[key] = rows
@@ -262,8 +296,8 @@ def process_turn_finalized(
     md = req.get("metadata") or {}
     reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
     if not isinstance(reviewed_updates, dict) or not reviewed_updates:
-        reviewed_updates = _default_crawler_updates(req)
-    reviewed_updates = _ensure_turn_creation_update(req, reviewed_updates)
+        reviewed_updates = _default_crawler_updates(root, req)
+    reviewed_updates = _ensure_turn_creation_update(root, req, reviewed_updates)
 
     crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
     session_visible = _session_visible_bead_ids(root=root, session_id=req["session_id"])

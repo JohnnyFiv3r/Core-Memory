@@ -26,7 +26,7 @@ from ..runtime.session_surface import read_session_surface
 from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
-from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints
+from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints, enforce_bead_hygiene_contract
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 
 # Defaults for pip package (separate from live OpenClaw usage)
@@ -1838,6 +1838,12 @@ class MemoryStore:
 
         # conservative secret redaction (high-confidence patterns only)
         bead = self._sanitize_bead_content(bead)
+
+        # Thin-vs-rich hygiene normalization:
+        # - keeps one-bead-per-turn invariant
+        # - preserves temporal minimum surface
+        # - payload-gates retrieval eligibility
+        bead = enforce_bead_hygiene_contract(bead)
 
         # Phase 3 advisory constraint extraction for commitments/principles
         if bead.get("type") in {"decision", "design_principle", "goal"} and not bead.get("constraints"):
