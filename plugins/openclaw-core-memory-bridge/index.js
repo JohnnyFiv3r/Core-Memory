@@ -7,7 +7,8 @@ const plugin = {
   description: "Bridge OpenClaw lifecycle hooks to Core Memory canonical write/flush surfaces",
 
   register(api) {
-    const cfgIn = api?.config?.config || api?.config || {};
+    const entryCfg = api?.config?.plugins?.entries?.[api.id];
+    const cfgIn = api?.pluginConfig ?? entryCfg?.config ?? {};
     const cfg = {
       pythonBin: cfgIn?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
       coreMemoryRoot: cfgIn?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
