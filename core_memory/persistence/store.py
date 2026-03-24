@@ -2059,6 +2059,7 @@ class MemoryStore:
         promote: bool = False,
         only_bead_ids: Optional[list[str]] = None,
         skip_bead_ids: Optional[list[str]] = None,
+        force_archive_all: bool = False,
     ) -> dict:
         """Core-native compact: archive detail text losslessly and optionally promote.
 
@@ -2128,12 +2129,14 @@ class MemoryStore:
                 is_session_boundary = bead_type in {"session_start", "session_end"}
                 is_promoted = bead_status == "promoted"
 
-                # Keep candidates active for reinforcement window (Phase B).
-                if bead_status == "candidate":
+                # Default behavior keeps candidates active for reinforcement window (Phase B).
+                # On session_flush authority path, callers can force archival of all eligible beads.
+                if (not force_archive_all) and bead_status == "candidate":
                     index["beads"][bead_id] = bead
                     continue
 
-                if not is_promoted and not is_session_boundary:
+                should_archive = force_archive_all or (not is_promoted and not is_session_boundary)
+                if should_archive:
                     already_archived = str(bead.get("status") or "").lower() == "archived"
                     has_ptr = isinstance(bead.get("archive_ptr"), dict) and bool((bead.get("archive_ptr") or {}).get("revision_id"))
                     has_detail = bool((bead.get("detail") or "").strip())
@@ -2165,6 +2168,7 @@ class MemoryStore:
                 "session": session_id,
                 "only_bead_ids": len(only),
                 "skip_bead_ids": len(skip),
+                "force_archive_all": bool(force_archive_all),
             }
 
     def uncompact(self, bead_id: str) -> dict:

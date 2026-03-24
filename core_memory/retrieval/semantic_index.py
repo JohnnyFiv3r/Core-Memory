@@ -99,7 +99,10 @@ def build_semantic_index(root: Path) -> dict:
         return {"ok": False, "error": "index_missing"}
 
     index = json.loads(index_file.read_text(encoding="utf-8"))
-    beads = list((index.get("beads") or {}).values())
+    beads = [
+        b for b in list((index.get("beads") or {}).values())
+        if str((b or {}).get("status") or "").lower() == "archived"
+    ]
 
     rows: list[dict[str, Any]] = []
     texts: list[str] = []
