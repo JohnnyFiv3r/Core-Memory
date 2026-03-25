@@ -893,7 +893,7 @@ def causal_traverse(
                 s2 = score + step
 
                 prev_avg = (sum(gains) / len(gains)) if gains else step
-                low_now = step < (prev_avg * 0.4)
+                low_now = step < (prev_avg * 0.5)
                 low_gain_hits2 = (low_gain_hits + 1) if low_now else 0
 
                 coh2 = _quick_coherence(nodes2, p2)
@@ -904,7 +904,7 @@ def causal_traverse(
                 neg_coh_hits2 = (neg_coh_hits + 1) if delta_neg else 0
 
                 trig_gain = low_gain_hits2 >= 2
-                trig_coh = (neg_coh_hits2 >= 2) and (coh2 < 0.6)
+                trig_coh = (neg_coh_hits2 >= 2) and (coh2 < 0.65)
 
                 stop_now = False
                 stop_reason = ""
