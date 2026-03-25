@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/core-memory-banner.png" alt="Core Memory" width="100%" />
+  <img src="docs/assets/core-memory-hero-banner.jpg" alt="Core Memory" width="100%" />
 </p>
 
 <p align="center">
