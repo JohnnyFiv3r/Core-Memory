@@ -12,6 +12,7 @@ The file works as-is; splitting is optional for improved readability.
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -204,7 +205,7 @@ def _relation_seq(chain: dict) -> tuple[str, ...]:
     return tuple([str(e.get("rel") or "") for e in (chain.get("edges") or [])])
 
 
-def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
+def _select_diverse_chains(chains: list[dict], top_n: int = 3, *, tie_seed: str = "") -> list[dict]:
     selected: list[dict] = []
     seen_sig: set[str] = set()
 
@@ -216,10 +217,9 @@ def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
         c2["coherence_parts"] = coh_parts
         prepared.append(c2)
 
+    tie_counter = 0
     while prepared and len(selected) < max(1, int(top_n)):
-        best_idx = -1
-        best_score = -1e9
-        best_payload = None
+        candidates = []
         for i, c in enumerate(prepared):
             sig = _chain_signature(c)
             if sig in seen_sig:
@@ -244,23 +244,42 @@ def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
 
             diversity_penalty = (0.5 * edge_overlap) + (0.2 * node_overlap) + (0.3 * relseq_overlap)
             sel_score = _chain_why_priority(c) - diversity_penalty
+            candidates.append((i, c, sel_score, diversity_penalty, edge_overlap, node_overlap, relseq_overlap))
 
-            if sel_score > best_score:
-                best_score = sel_score
-                best_idx = i
-                best_payload = (diversity_penalty, edge_overlap, node_overlap, relseq_overlap)
-
-        if best_idx < 0:
+        if not candidates:
             break
 
-        c_pick = prepared.pop(best_idx)
-        diversity_penalty, edge_overlap, node_overlap, relseq_overlap = best_payload or (0.0, 0.0, 0.0, 0.0)
+        top_score = max(x[2] for x in candidates)
+        near = [x for x in candidates if (top_score - x[2]) <= 0.03]
+        if len(near) > 1:
+            # Controlled tiny jitter for near ties only.
+            tie_counter += 1
+            re_ranked = []
+            for row in near:
+                i, c, sel_score, diversity_penalty, edge_overlap, node_overlap, relseq_overlap = row
+                sig = _chain_signature(c)
+                seed_input = f"{tie_seed}|{tie_counter}|{sig}".encode("utf-8")
+                h = hashlib.sha1(seed_input).hexdigest()
+                unit = int(h[:8], 16) / 0xFFFFFFFF
+                jitter = (unit * 0.02) - 0.01  # [-0.01, +0.01]
+                re_ranked.append((i, c, sel_score + jitter, diversity_penalty, edge_overlap, node_overlap, relseq_overlap, jitter))
+            best = sorted(re_ranked, key=lambda r: r[2], reverse=True)[0]
+            best_idx, c_pick = best[0], best[1]
+            diversity_penalty, edge_overlap, node_overlap, relseq_overlap, jitter = best[3], best[4], best[5], best[6], best[7]
+        else:
+            best = sorted(candidates, key=lambda r: r[2], reverse=True)[0]
+            best_idx, c_pick = best[0], best[1]
+            diversity_penalty, edge_overlap, node_overlap, relseq_overlap = best[3], best[4], best[5], best[6]
+            jitter = 0.0
+
+        prepared.pop(best_idx)
         c_pick["diversity_penalty"] = round(diversity_penalty, 4)
         c_pick["diversity_parts"] = {
             "edge_overlap": round(edge_overlap, 4),
             "node_overlap": round(node_overlap, 4),
             "relation_sequence_overlap": round(relseq_overlap, 4),
         }
+        c_pick["tie_break_jitter"] = round(float(jitter), 5)
         c_pick["selection_reason"] = "high_coherence_diverse_chain"
         c_pick["confidence"] = _chain_confidence(c_pick)
 
@@ -268,6 +287,30 @@ def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
         seen_sig.add(_chain_signature(c_pick))
 
     return selected
+
+
+def _synthesize_why_answer_from_chains(chains: list[dict]) -> str:
+    if not chains:
+        return "I remember related context, but I don’t have a grounded decision chain for that yet."
+    c = chains[0]
+    beads = c.get("beads") or []
+    edges = c.get("edges") or []
+
+    parts = []
+    if beads:
+        first = beads[0]
+        parts.append(str(first.get("title") or first.get("snapshot_title") or "this topic"))
+    if edges:
+        rel_words = [str(e.get("rel") or "") for e in edges[:3]]
+        rel_words = [r.replace("_", " ") for r in rel_words if r]
+        if rel_words:
+            parts.append("via " + " → ".join(rel_words))
+    for b in beads[1:4]:
+        t = str(b.get("title") or b.get("snapshot_title") or "").strip()
+        if t:
+            parts.append(t)
+    txt = " | ".join(parts)
+    return f"Causal recall: {txt}" if txt else "I remember related context, but I don’t have a grounded decision chain for that yet."
 
 
 def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list[str]]:
@@ -488,11 +531,13 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         })
 
     ranked_hydrated = sorted(hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
-    out_chains = _select_diverse_chains(ranked_hydrated, top_n=3)
+    date_bucket = datetime.utcnow().strftime("%Y-%m-%d")
+    tie_seed = f"{query}|{anchor or ''}|{date_bucket}"
+    out_chains = _select_diverse_chains(ranked_hydrated, top_n=3, tie_seed=tie_seed)
     fallback_struct = _radius1_structural_fallback(store, anchors, limit=3)
 
     if not out_chains:
-        out_chains = _select_diverse_chains(sorted(fallback_struct, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3)
+        out_chains = _select_diverse_chains(sorted(fallback_struct, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3, tie_seed=tie_seed)
     else:
         # If selected chains are weak/non-structural, enrich with radius-1 structural fallback.
         allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
@@ -503,21 +548,14 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         if not has_struct and fallback_struct:
             merged = list(out_chains) + list(fallback_struct)
             merged = sorted(merged, key=lambda c: _chain_why_priority(c), reverse=True)
-            out_chains = _select_diverse_chains(merged, top_n=3)
+            out_chains = _select_diverse_chains(merged, top_n=3, tie_seed=tie_seed)
 
     citations, used_semantic = _collect_citations_from_chains(out_chains)
     reinforce_semantic_edges(root_p, used_semantic, alpha=0.15)
 
     grounded = bool(trav.get("grounded"))
     if grounded and out_chains:
-        first = out_chains[0]
-        labels = []
-        for b in first.get("beads") or []:
-            t = str(b.get("type") or "")
-            title = str(b.get("title") or b.get("snapshot_title") or "")
-            if t in {"decision", "precedent", "evidence", "lesson", "outcome"} and title:
-                labels.append(f"{t}: {title}")
-        answer = "I remember this and can ground it causally: " + (" | ".join(labels[:4]) if labels else "grounded chain found.")
+        answer = _synthesize_why_answer_from_chains(out_chains)
     else:
         answer = "I remember related context, but I don’t have a grounded decision chain for that yet."
 
