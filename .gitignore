@@ -3,6 +3,9 @@ bin/
 .pnpm-store/
 core-memory/
 .openclaw/
+.env
+
+demo/memory_store/
 
 # Python cache
 __pycache__/
@@ -28,6 +31,7 @@ promoted-context.md
 
 # Local Python env/build artifacts
 .venv/
+.venv-*/
 *.egg-info/
 
 # Test/cache/tooling artifacts
