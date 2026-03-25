@@ -1,78 +1,71 @@
 # Contributing to Core Memory
 
+Thanks for helping improve Core Memory.
+
 ## Quick start
 
 ```bash
 git clone https://github.com/JohnnyFiv3r/Core-Memory.git
 cd Core-Memory
 python3 -m venv .venv
-.venv/bin/python -m pip install -e '.[dev]'
+. .venv/bin/activate
+pip install -e .
+# optional test/lint extras
+pip install -e '.[dev]'
+```
+
+Run a minimal sanity check:
+
+```bash
+PYTHONPATH=. python3 examples/quickstart.py
 ```
 
 ## Running tests
 
 ```bash
-python3 tests/test_phase1_parity.py
-PYTHONPATH=. python3 tests/test_edges.py
-PYTHONPATH=. python3 tests/test_e2e.py
-```
-
-Or with pytest:
-
-```bash
 .venv/bin/pytest -q
 ```
 
-## Lint and type check
+You can also run focused suites, for example:
+
+```bash
+.venv/bin/pytest -q tests/test_memory_execute_contract.py
+.venv/bin/pytest -q tests/test_openclaw_integration.py
+```
+
+## Lint / type checks (if installed)
 
 ```bash
 .venv/bin/ruff check core_memory/
 .venv/bin/mypy core_memory/
 ```
 
+## Good first issue scope
+
+Great starter contributions:
+- docs clarity fixes in `docs/`
+- adding focused tests for existing behavior
+- small retrieval explainability improvements (debug fields)
+- tightening error messages / diagnostics
+
+Please avoid broad refactors in a first PR.
+
+## PR process
+
+1. Open an issue (or comment on existing issue) with proposed scope.
+2. Keep PRs small and atomic.
+3. Include tests or a clear validation note.
+4. Update docs when behavior/surface changes.
+
 ## Design invariants (do not break)
 
-1. **Lossless storage.** Compaction is render-layer only; the archive retains full detail forever.
-2. **Authored associations are immutable truth.** Only derived associations may be pruned.
-3. **Deterministic assembly.** Same store + config must produce the same Context Packet.
-4. **Archive-first durability.** JSONL archive is written before the index for crash safety.
-5. **All writes under store lock.** No write to `.beads/` or `.turns/` outside `store_lock()`.
+1. **Archive-first durability**: session/global JSONL is the write authority.
+2. **Index is projection cache**: `index.json` must be rebuildable.
+3. **Deterministic retrieval contracts**: avoid nondeterministic output shape changes.
+4. **Lock-protected writes**: no unsafe concurrent writes to `.beads/`/`.turns/`.
 
-## Terminology
+## Contributor etiquette
 
-Core Memory uses precise terms for different concepts:
-
-| Term | Meaning | Where |
-|---|---|---|
-| **bead** | Atomic memory unit (decision, lesson, outcome, etc.) | `index.json` beads, session JSONL |
-| **association** | Explicit link between two beads | `index.json` associations list |
-| **relationship** | The type/label of an association (`follows`, `supersedes`, `derives-from`, etc.) | `association.relationship` field |
-| **authored** | Created explicitly by agent or user (canonical truth) | default for all associations |
-| **derived** | Inferred by crawlers/analysis (optional, pruneable) | future: myelination targets |
-| **recall** | Recording that a bead was accessed/used (strengthens it) | `bead.recall_count` |
-| **compaction** | Archiving bead detail while keeping summary in index | `compact` / `uncompact` |
-
-Avoid using "edge" or "link" in new code — prefer "association" consistently.
-
-## File layout
-
-```
-core_memory/
-  __init__.py       Package init
-  cli.py            CLI entry point
-  store.py          MemoryStore (all persistence)
-  events.py         Event log + rebuild
-  io_utils.py       Atomic writes + store lock
-  models.py         Enums (BeadType, Status, Scope, Authority)
-  dreamer.py        Association analysis (optional)
-  adapter_cli.py    Legacy command translation (compat)
-  py.typed          PEP 561 marker
-```
-
-## Pull request checklist
-
-- [ ] All tests pass
-- [ ] No writes outside `store_lock()`
-- [ ] No direct `open(..., 'w')` on index — use `atomic_write_json()`
-- [ ] No direct `open(..., 'a')` on JSONL — use `append_jsonl()`
-- [ ] Terminology consistent (bead, association, relationship)
+- Be explicit about tradeoffs.
+- Prefer clarity over cleverness.
+- If introducing new public surface, document it in `docs/public_surface.md`.

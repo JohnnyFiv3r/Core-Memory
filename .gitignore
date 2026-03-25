@@ -29,3 +29,19 @@ promoted-context.md
 # Local Python env/build artifacts
 .venv/
 *.egg-info/
+
+# Test/cache/tooling artifacts
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Build outputs
+build/
+dist/
