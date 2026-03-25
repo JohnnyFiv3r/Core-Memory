@@ -11,6 +11,7 @@ The file works as-is; splitting is optional for improved readability.
 
 from __future__ import annotations
 
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -92,50 +93,180 @@ def _chain_signature(chain: dict) -> str:
     return "|".join(p + e)
 
 
+def _parse_iso(ts: str) -> datetime | None:
+    s = str(ts or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _rel_time_expectation(rel: str) -> str:
+    r = str(rel or "").strip().lower()
+    if r in {"causes", "caused_by", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
+        return "forward"
+    if r in {"diagnoses"}:
+        return "backward_ok"
+    if r in {"supports", "refines", "derived_from", "contradicts", "resolves"}:
+        return "either"
+    return "either"
+
+
+def _chain_coherence(chain: dict) -> tuple[float, dict]:
+    beads = chain.get("beads") or []
+    edges = chain.get("edges") or []
+    path = [str(x) for x in (chain.get("path") or [])]
+    if not beads:
+        return 0.0, {"reason": "no_beads"}
+
+    types = [str(b.get("type") or "") for b in beads]
+    rels = [str(e.get("rel") or "") for e in edges]
+
+    type_prog = 0.0
+    if any(t in {"decision", "precedent"} for t in types):
+        type_prog += 0.25
+    if any(t in {"evidence", "lesson", "outcome"} for t in types):
+        type_prog += 0.25
+    if "context" in types and any(t in {"decision", "precedent"} for t in types):
+        type_prog += 0.1
+
+    causal_rels = {"causes", "caused_by", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by"}
+    rel_continuity = min(0.3, 0.3 * (sum(1 for r in rels if r in causal_rels) / max(1, len(rels))))
+
+    temporal_penalty = 0.0
+    ts = [_parse_iso(str(b.get("created_at") or "")) for b in beads]
+    for i, r in enumerate(rels[: max(0, len(ts) - 1)]):
+        t1, t2 = ts[i], ts[i + 1]
+        if t1 is None or t2 is None:
+            continue
+        expect = _rel_time_expectation(r)
+        if expect == "forward" and t2 < t1:
+            temporal_penalty += 0.12
+        elif expect == "backward_ok" and t2 > t1:
+            temporal_penalty += 0.03
+
+    motif_penalty = 0.0
+    # fold anti-loop motif into coherence penalty
+    for i in range(max(0, len(path) - 2)):
+        if path[i] == path[i + 2]:
+            motif_penalty += 0.2
+    rel_bigrams = [f"{rels[i]}>{rels[i+1]}" for i in range(max(0, len(rels) - 1))]
+    if rel_bigrams:
+        uniq = len(set(rel_bigrams)) / max(1, len(rel_bigrams))
+        motif_penalty += max(0.0, 0.12 * (1.0 - uniq))
+
+    score = max(0.0, min(1.0, 0.1 + type_prog + rel_continuity - temporal_penalty - motif_penalty))
+    return score, {
+        "type_progression": round(type_prog, 4),
+        "relation_continuity": round(rel_continuity, 4),
+        "temporal_penalty": round(temporal_penalty, 4),
+        "motif_penalty": round(motif_penalty, 4),
+    }
+
+
 def _chain_confidence(chain: dict) -> float:
     score = float(chain.get("score") or 0.0)
     beads = chain.get("beads") or []
     if not beads:
         return 0.0
+    coh = float(chain.get("coherence_score") or 0.0)
     types = [str(b.get("type") or "") for b in beads]
     grounded = ("decision" in types or "precedent" in types) and any(t in {"evidence", "lesson", "outcome"} for t in types)
     depth = max(1, len(chain.get("path") or []))
     base = min(1.0, score / max(1.0, float(depth)))
+    base = min(1.0, base + (0.2 * coh))
     if grounded:
-        base = min(1.0, base + 0.2)
+        base = min(1.0, base + 0.15)
     return round(base, 4)
 
 
 def _chain_why_priority(chain: dict) -> float:
     edges = chain.get("edges") or []
     beads = chain.get("beads") or []
-    has_struct = any(str(e.get("class") or "") == "structural" or str(e.get("rel") or "") in {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"} for e in edges)
+    has_struct = any(str(e.get("class") or "") == "structural" or str(e.get("rel") or "") in {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves", "causes", "enables"} for e in edges)
     types = {str(b.get("type") or "") for b in beads}
     has_dec = bool(types.intersection({"decision", "precedent"}))
     has_evd = bool(types.intersection({"evidence", "lesson", "outcome"}))
     base = float(chain.get("score") or 0.0)
-    return base + (0.35 if has_struct else 0.0) + (0.2 if has_dec else 0.0) + (0.2 if has_evd else 0.0)
+    coherence = float(chain.get("coherence_score") or 0.0)
+    return base + (0.3 if has_struct else 0.0) + (0.18 if has_dec else 0.0) + (0.18 if has_evd else 0.0) + (0.25 * coherence)
+
+
+def _edge_key_set(chain: dict) -> set[str]:
+    return {f"{str(e.get('src') or '')}>{str(e.get('rel') or '')}>{str(e.get('dst') or '')}" for e in (chain.get("edges") or [])}
+
+
+def _relation_seq(chain: dict) -> tuple[str, ...]:
+    return tuple([str(e.get("rel") or "") for e in (chain.get("edges") or [])])
 
 
 def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
-    selected = []
-    seen_sig = set()
-    seen_nodes = set()
-    for c in sorted(chains, key=lambda x: float(x.get("score") or 0.0), reverse=True):
-        sig = _chain_signature(c)
-        if sig in seen_sig:
-            continue
-        nodes = set([str(x) for x in (c.get("path") or [])])
-        overlap = len(nodes.intersection(seen_nodes))
-        if selected and overlap >= max(2, len(nodes) // 2):
-            continue
+    selected: list[dict] = []
+    seen_sig: set[str] = set()
+
+    prepared = []
+    for c in chains:
         c2 = dict(c)
-        c2["confidence"] = _chain_confidence(c2)
-        selected.append(c2)
-        seen_sig.add(sig)
-        seen_nodes.update(nodes)
-        if len(selected) >= max(1, int(top_n)):
+        coh, coh_parts = _chain_coherence(c2)
+        c2["coherence_score"] = round(coh, 4)
+        c2["coherence_parts"] = coh_parts
+        prepared.append(c2)
+
+    while prepared and len(selected) < max(1, int(top_n)):
+        best_idx = -1
+        best_score = -1e9
+        best_payload = None
+        for i, c in enumerate(prepared):
+            sig = _chain_signature(c)
+            if sig in seen_sig:
+                continue
+            edge_set = _edge_key_set(c)
+            node_set = {str(x) for x in (c.get("path") or [])}
+            rel_seq = _relation_seq(c)
+
+            edge_overlap = 0.0
+            node_overlap = 0.0
+            relseq_overlap = 0.0
+            for s in selected:
+                s_edges = _edge_key_set(s)
+                s_nodes = {str(x) for x in (s.get("path") or [])}
+                s_seq = _relation_seq(s)
+                if edge_set:
+                    edge_overlap = max(edge_overlap, len(edge_set.intersection(s_edges)) / max(1, len(edge_set)))
+                if node_set:
+                    node_overlap = max(node_overlap, len(node_set.intersection(s_nodes)) / max(1, len(node_set)))
+                if rel_seq and s_seq and rel_seq == s_seq:
+                    relseq_overlap = 1.0
+
+            diversity_penalty = (0.5 * edge_overlap) + (0.2 * node_overlap) + (0.3 * relseq_overlap)
+            sel_score = _chain_why_priority(c) - diversity_penalty
+
+            if sel_score > best_score:
+                best_score = sel_score
+                best_idx = i
+                best_payload = (diversity_penalty, edge_overlap, node_overlap, relseq_overlap)
+
+        if best_idx < 0:
             break
+
+        c_pick = prepared.pop(best_idx)
+        diversity_penalty, edge_overlap, node_overlap, relseq_overlap = best_payload or (0.0, 0.0, 0.0, 0.0)
+        c_pick["diversity_penalty"] = round(diversity_penalty, 4)
+        c_pick["diversity_parts"] = {
+            "edge_overlap": round(edge_overlap, 4),
+            "node_overlap": round(node_overlap, 4),
+            "relation_sequence_overlap": round(relseq_overlap, 4),
+        }
+        c_pick["selection_reason"] = "high_coherence_diverse_chain"
+        c_pick["confidence"] = _chain_confidence(c_pick)
+
+        selected.append(c_pick)
+        seen_sig.add(_chain_signature(c_pick))
+
     return selected
 
 
@@ -336,12 +467,25 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
     if anchor and anchor not in anchors:
         anchors = [anchor] + anchors
 
-    trav = causal_traverse(root_p, anchor_ids=anchors[:8], max_depth=4, max_chains=50)
+    trav = causal_traverse(
+        root_p,
+        anchor_ids=anchors[:8],
+        max_depth=6,
+        max_chains=120,
+        semantic_expansion_hops=2,
+    )
     chains = trav.get("chains") or []
     hydrated = []
     for c in chains:
         beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
-        hydrated.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
+        hydrated.append({
+            "score": c.get("score"),
+            "path": c.get("path"),
+            "edges": c.get("edges"),
+            "beads": beads,
+            "semantic_edge_ids": c.get("semantic_edge_ids") or [],
+            "soft_stop": c.get("soft_stop") or {},
+        })
 
     ranked_hydrated = sorted(hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
     out_chains = _select_diverse_chains(ranked_hydrated, top_n=3)
@@ -377,6 +521,8 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
     else:
         answer = "I remember related context, but I don’t have a grounded decision chain for that yet."
 
+    rr_diag = ((sem.get("debug") or {}).get("first") or {}).get("adjacency_diag") or {}
+    trav_diag = trav.get("assoc_diag") or {}
     out = {
         "ok": True,
         "answer": answer,
@@ -384,6 +530,21 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         "chains": out_chains,
         "citations": citations,
         "reinforced_semantic_edges": used_semantic,
+        "traversal_diag": {
+            "max_hop_depth_reached": max([max(0, len(c.get("path") or []) - 1) for c in (chains or [])] or [0]),
+            "selected_max_hop_depth": max([max(0, len(c.get("path") or []) - 1) for c in (out_chains or [])] or [0]),
+            "selected_structural_neighbors_used": sum(
+                1
+                for c in (out_chains or [])
+                for e in (c.get("edges") or [])
+                if str(e.get("class") or "") == "structural"
+            ),
+            "selected_stopped_early_count": sum(1 for c in (out_chains or []) if bool((c.get("soft_stop") or {}).get("stopped_early"))),
+            "selected_stop_reasons": sorted({str((c.get("soft_stop") or {}).get("stop_reason") or "") for c in (out_chains or []) if (c.get("soft_stop") or {}).get("stop_reason")}),
+            "assoc_edges_total_seen": int(trav_diag.get("assoc_edges_total_seen") or rr_diag.get("assoc_edges_total") or 0),
+            "assoc_edges_after_conf_floor": int(trav_diag.get("assoc_edges_after_conf_floor") or rr_diag.get("assoc_edges_survived_floor") or 0),
+            "assoc_conf_floor": float(trav_diag.get("assoc_conf_floor") or rr_diag.get("assoc_floor") or 0.45),
+        },
     }
     if debug:
         out["retrieval_debug"] = sem

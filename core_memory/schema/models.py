@@ -104,13 +104,17 @@ def _known_dataclass_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
 
 @dataclass
 class Bead:
-    """A bead represents a discrete unit of memory."""
+    """A bead is the canonical record for one turn.
+
+    Thin vs rich is determined by field completeness and retrieval_eligible,
+    not by bead type.
+    """
     id: str
     type: str  # BeadType as string for JSON compatibility
     title: str
     created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
     session_id: Optional[str] = None
-    summary: list = field(default_factory=list)
+    summary: list = field(default_factory=list)  # optional by contract
     detail: str = ""
     scope: str = "project"  # Scope as string
     authority: str = "agent_inferred"  # Authority as string
@@ -120,14 +124,48 @@ class Bead:
     status: str = "open"  # Status as string
     recall_count: int = 0
     last_recalled: Optional[str] = None
-    
-    # Optional enhanced fields
-    because: list = field(default_factory=list)
+
+    # Core turn grounding
     source_turn_ids: list = field(default_factory=list)
+    turn_index: Optional[int] = None
+    prev_bead_id: Optional[str] = None
+    next_bead_id: Optional[str] = None
+
+    # Retrieval richness contract
+    retrieval_eligible: bool = False
+    retrieval_title: Optional[str] = None
+    retrieval_facts: list = field(default_factory=list)
+    entities: list = field(default_factory=list)
+    topics: list = field(default_factory=list)
+    incident_keys: list = field(default_factory=list)
+    decision_keys: list = field(default_factory=list)
+    goal_keys: list = field(default_factory=list)
+    action_keys: list = field(default_factory=list)
+    outcome_keys: list = field(default_factory=list)
+    time_keys: list = field(default_factory=list)
+
+    # Reasoning/evidence payload
+    because: list = field(default_factory=list)
+    supporting_facts: list = field(default_factory=list)
+    evidence_refs: list = field(default_factory=list)
+    cause_candidates: list = field(default_factory=list)
+    effect_candidates: list = field(default_factory=list)
+    state_change: Optional[dict] = None
+
+    # Temporal validity / supersession
+    observed_at: Optional[str] = None
+    recorded_at: Optional[str] = None
+    effective_from: Optional[str] = None
+    effective_to: Optional[str] = None
+    validity: Optional[str] = None  # open | closed | superseded | transient
+    supersedes: list = field(default_factory=list)
+    superseded_by: list = field(default_factory=list)
+
+    # Optional enhanced fields
     mechanism: Optional[str] = None
     impact_level: Optional[str] = None
     uncertainty: float = 0.5
-    
+
     # Contrast fields
     what_almost_happened: Optional[str] = None
     what_was_rejected: Optional[str] = None
@@ -152,8 +190,34 @@ class Bead:
             "status": self.status,
             "recall_count": self.recall_count,
             "last_recalled": self.last_recalled,
-            "because": self.because,
             "source_turn_ids": self.source_turn_ids,
+            "turn_index": self.turn_index,
+            "prev_bead_id": self.prev_bead_id,
+            "next_bead_id": self.next_bead_id,
+            "retrieval_eligible": self.retrieval_eligible,
+            "retrieval_title": self.retrieval_title,
+            "retrieval_facts": self.retrieval_facts,
+            "entities": self.entities,
+            "topics": self.topics,
+            "incident_keys": self.incident_keys,
+            "decision_keys": self.decision_keys,
+            "goal_keys": self.goal_keys,
+            "action_keys": self.action_keys,
+            "outcome_keys": self.outcome_keys,
+            "time_keys": self.time_keys,
+            "because": self.because,
+            "supporting_facts": self.supporting_facts,
+            "evidence_refs": self.evidence_refs,
+            "cause_candidates": self.cause_candidates,
+            "effect_candidates": self.effect_candidates,
+            "state_change": self.state_change,
+            "observed_at": self.observed_at,
+            "recorded_at": self.recorded_at,
+            "effective_from": self.effective_from,
+            "effective_to": self.effective_to,
+            "validity": self.validity,
+            "supersedes": self.supersedes,
+            "superseded_by": self.superseded_by,
             "mechanism": self.mechanism,
             "impact_level": self.impact_level,
             "uncertainty": self.uncertainty,
@@ -163,10 +227,36 @@ class Bead:
             "assumption": self.assumption,
         }
     
+    def is_retrieval_rich(self) -> bool:
+        """True when structured retrieval payload is meaningfully populated."""
+        return bool((self.retrieval_title or "").strip()) and bool(self.retrieval_facts)
+
+    def validate_retrieval_eligibility(self) -> bool:
+        """Normalize eligibility to match payload quality.
+
+        Thin beads are valid even without summary/associations.
+        """
+        if not bool(self.retrieval_eligible):
+            return True
+        quality_signals = any([
+            bool(self.because),
+            bool(self.supporting_facts),
+            bool(self.state_change),
+            bool(self.evidence_refs),
+            bool(self.supersedes),
+            bool(self.superseded_by),
+        ])
+        ok = self.is_retrieval_rich() and quality_signals
+        if not ok:
+            self.retrieval_eligible = False
+        return ok
+
     @classmethod
     def from_dict(cls, data: dict) -> "Bead":
         """Create from dictionary, ignoring unknown keys."""
-        return cls(**_known_dataclass_kwargs(cls, data))
+        obj = cls(**_known_dataclass_kwargs(cls, data))
+        obj.validate_retrieval_eligibility()
+        return obj
 
 
 @dataclass

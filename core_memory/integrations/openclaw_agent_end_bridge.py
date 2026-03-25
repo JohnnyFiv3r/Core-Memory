@@ -9,7 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from core_memory.integrations.api import emit_turn_finalized
+from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
 from core_memory.persistence.store import DEFAULT_ROOT
 
 ADAPTER_KIND = "bridge"
@@ -140,7 +140,7 @@ def process_agent_end_event(
     ctx: dict[str, Any] | None = None,
     root: str | None = None,
 ) -> dict[str, Any]:
-    """Thin bridge: extract -> dedupe -> emit_turn_finalized -> return."""
+    """Thin bridge: extract -> dedupe -> finalize_and_process_turn -> return."""
     ctx = dict(ctx or {})
     root_final = str(root or os.environ.get("CORE_MEMORY_ROOT") or DEFAULT_ROOT)
 
@@ -209,7 +209,7 @@ def process_agent_end_event(
         "durationMs": event.get("durationMs"),
     }
 
-    event_id = emit_turn_finalized(
+    out = finalize_and_process_turn(
         root=root_final,
         session_id=session_id,
         turn_id=turn_id,
@@ -219,28 +219,30 @@ def process_agent_end_event(
         assistant_final=assistant_final,
         origin="USER_TURN",
         metadata=md,
-        strict=False,
     )
 
-    if event_id:
+    if out.get("ok"):
         state[dedupe_key] = "emitted"
         _save_state(sf, state)
         return {
             "ok": True,
-            "emitted": True,
-            "event_id": event_id,
+            "emitted": bool((out.get("emitted") or {}).get("emitted", False)),
+            "processed": int(out.get("processed", 0) or 0),
+            "failed": int(out.get("failed", 0) or 0),
             "session_id": session_id,
             "turn_id": turn_id,
+            "result": out,
         }
 
     state[dedupe_key] = "failed"
     _save_state(sf, state)
     return {
         "ok": False,
-        "emitted": False,
-        "error": "emit_failed",
+        "emitted": bool((out.get("emitted") or {}).get("emitted", False)),
+        "error": str(out.get("error") or "finalize_process_failed"),
         "session_id": session_id,
         "turn_id": turn_id,
+        "result": out,
     }
 
 

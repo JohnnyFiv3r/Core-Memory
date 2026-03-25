@@ -26,7 +26,7 @@ from ..runtime.session_surface import read_session_surface
 from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
-from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints
+from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints, enforce_bead_hygiene_contract
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 
 # Defaults for pip package (separate from live OpenClaw usage)
@@ -1839,6 +1839,12 @@ class MemoryStore:
         # conservative secret redaction (high-confidence patterns only)
         bead = self._sanitize_bead_content(bead)
 
+        # Thin-vs-rich hygiene normalization:
+        # - keeps one-bead-per-turn invariant
+        # - preserves temporal minimum surface
+        # - payload-gates retrieval eligibility
+        bead = enforce_bead_hygiene_contract(bead)
+
         # Phase 3 advisory constraint extraction for commitments/principles
         if bead.get("type") in {"decision", "design_principle", "goal"} and not bead.get("constraints"):
             basis = " ".join([bead.get("title", "")] + list(bead.get("summary") or []))
@@ -2059,6 +2065,7 @@ class MemoryStore:
         promote: bool = False,
         only_bead_ids: Optional[list[str]] = None,
         skip_bead_ids: Optional[list[str]] = None,
+        force_archive_all: bool = False,
     ) -> dict:
         """Core-native compact: archive detail text losslessly and optionally promote.
 
@@ -2128,12 +2135,14 @@ class MemoryStore:
                 is_session_boundary = bead_type in {"session_start", "session_end"}
                 is_promoted = bead_status == "promoted"
 
-                # Keep candidates active for reinforcement window (Phase B).
-                if bead_status == "candidate":
+                # Default behavior keeps candidates active for reinforcement window (Phase B).
+                # On session_flush authority path, callers can force archival of all eligible beads.
+                if (not force_archive_all) and bead_status == "candidate":
                     index["beads"][bead_id] = bead
                     continue
 
-                if not is_promoted and not is_session_boundary:
+                should_archive = force_archive_all or (not is_promoted and not is_session_boundary)
+                if should_archive:
                     already_archived = str(bead.get("status") or "").lower() == "archived"
                     has_ptr = isinstance(bead.get("archive_ptr"), dict) and bool((bead.get("archive_ptr") or {}).get("revision_id"))
                     has_detail = bool((bead.get("detail") or "").strip())
@@ -2165,6 +2174,7 @@ class MemoryStore:
                 "session": session_id,
                 "only_bead_ids": len(only),
                 "skip_bead_ids": len(skip),
+                "force_archive_all": bool(force_archive_all),
             }
 
     def uncompact(self, bead_id: str) -> dict:

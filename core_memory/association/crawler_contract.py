@@ -10,6 +10,7 @@ from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.runtime.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 from core_memory.policy.association_contract import normalize_assoc_row, assoc_row_is_valid, assoc_dedupe_key
+from core_memory.policy.hygiene import enforce_bead_hygiene_contract, can_be_retrieval_eligible, rewrite_generic_title
 
 
 def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
@@ -52,25 +53,52 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for r in rows:
         typ = str(r.get("type") or "context").strip() or "context"
-        title = str(r.get("title") or "").strip() or "Turn memory"
+        title = rewrite_generic_title(str(r.get("title") or "").strip() or "assistant turn")[:200]
+
         summary = r.get("summary")
         if isinstance(summary, str):
             summary = [summary]
         if not isinstance(summary, list):
             summary = []
         summary = [str(x).strip() for x in summary if str(x).strip()][:5]
-        if not summary:
+
+        row = {
+            "type": typ,
+            "title": title,
+            "summary": summary,  # optional by contract
+            "tags": [str(x) for x in (r.get("tags") or []) if str(x)][:10],
+            "detail": str(r.get("detail") or "")[:1200],
+            "source_turn_ids": [str(x) for x in (r.get("source_turn_ids") or []) if str(x)][:5],
+            "session_id": str(r.get("session_id") or "") or None,
+            "turn_index": r.get("turn_index"),
+            "prev_bead_id": str(r.get("prev_bead_id") or "") or None,
+            "retrieval_eligible": bool(r.get("retrieval_eligible", False)),
+            "retrieval_title": str(r.get("retrieval_title") or "")[:200] or None,
+            "retrieval_facts": [str(x) for x in (r.get("retrieval_facts") or []) if str(x)][:12],
+            "entities": [str(x) for x in (r.get("entities") or []) if str(x)][:20],
+            "topics": [str(x) for x in (r.get("topics") or []) if str(x)][:20],
+            "validity": str(r.get("validity") or "")[:40] or None,
+            "because": [str(x) for x in (r.get("because") or []) if str(x)][:8],
+            "supporting_facts": [str(x) for x in (r.get("supporting_facts") or []) if str(x)][:12],
+            "evidence_refs": [str(x) for x in (r.get("evidence_refs") or []) if str(x)][:12],
+            "state_change": r.get("state_change") if isinstance(r.get("state_change"), dict) else None,
+            "effective_from": str(r.get("effective_from") or "") or None,
+            "effective_to": str(r.get("effective_to") or "") or None,
+            "observed_at": str(r.get("observed_at") or "") or None,
+            "supersedes": [str(x) for x in (r.get("supersedes") or []) if str(x)][:8],
+            "superseded_by": [str(x) for x in (r.get("superseded_by") or []) if str(x)][:8],
+        }
+
+        # Retrieval eligibility is payload-gated; downgrade rather than reject row.
+        if row.get("retrieval_eligible") and not can_be_retrieval_eligible(row):
+            row["retrieval_eligible"] = False
+
+        row = enforce_bead_hygiene_contract(row)
+
+        # Temporal minimum: source_turn_ids required for creation rows.
+        if not row.get("source_turn_ids"):
             continue
-        out.append(
-            {
-                "type": typ,
-                "title": title[:200],
-                "summary": summary,
-                "tags": [str(x) for x in (r.get("tags") or []) if str(x)][:10],
-                "detail": str(r.get("detail") or "")[:1200],
-                "source_turn_ids": [str(x) for x in (r.get("source_turn_ids") or []) if str(x)][:5],
-            }
-        )
+        out.append(row)
     return out
 
 
@@ -86,7 +114,19 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
         "session_id": session_id,
         "beads": rows,
         "visible_bead_ids": visible_set,
+        "writing_contract": [
+            "A bead is the canonical record for a turn; every turn must produce one bead.",
+            "Thin beads preserve temporal continuity; rich beads carry structured retrieval payload.",
+            "Summary is optional; do not invent prose when structured fields are stronger.",
+            "Initial write requires temporal grounding only (session/turn order/prev bead).",
+            "Do not force broad causal or semantic links on initial write unless strongly grounded.",
+        ],
+        "retrieval_contract": [
+            "retrieval_eligible=true requires structured payload (retrieval_title + retrieval_facts + quality signals).",
+            "If payload is weak, downgrade to retrieval_eligible=false rather than failing creation.",
+        ],
         "allowed_updates": {
+            "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,retrieval_eligible?,retrieval_title?,retrieval_facts?,entities?,topics?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
             "reviewed_beads": "list[{bead_id,promotion_state,reason?,associations?}]",
             "associations": "list[{source_bead_id,target_bead_id,relationship,confidence?,rationale?}]",
         },
@@ -95,6 +135,7 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "associations are append-only records",
             "source must be session-local bead",
             "target must be in visible_bead_ids set",
+            "initial-write minimum association is temporal only; richer associations may be appended later",
         ],
     }
 
@@ -216,12 +257,29 @@ def apply_crawler_updates(
         for row in creation_rows:
             store.add_bead(
                 type=str(row.get("type") or "context"),
-                title=str(row.get("title") or "Turn memory"),
+                title=str(row.get("title") or "assistant turn"),
                 summary=list(row.get("summary") or []),
                 session_id=str(session_id),
                 source_turn_ids=list(row.get("source_turn_ids") or []),
                 tags=list(row.get("tags") or []),
                 detail=str(row.get("detail") or "") or None,
+                retrieval_eligible=bool(row.get("retrieval_eligible", False)),
+                retrieval_title=row.get("retrieval_title"),
+                retrieval_facts=list(row.get("retrieval_facts") or []),
+                entities=list(row.get("entities") or []),
+                topics=list(row.get("topics") or []),
+                validity=row.get("validity"),
+                because=list(row.get("because") or []),
+                supporting_facts=list(row.get("supporting_facts") or []),
+                evidence_refs=list(row.get("evidence_refs") or []),
+                state_change=row.get("state_change"),
+                effective_from=row.get("effective_from"),
+                effective_to=row.get("effective_to"),
+                observed_at=row.get("observed_at"),
+                supersedes=list(row.get("supersedes") or []),
+                superseded_by=list(row.get("superseded_by") or []),
+                prev_bead_id=row.get("prev_bead_id"),
+                turn_index=row.get("turn_index"),
             )
             created += 1
 
@@ -237,7 +295,13 @@ def apply_crawler_updates(
             for r in read_session_surface(root, session_id)
             if str((r or {}).get("id") or "")
         }
-        allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
+        association_scope = str((updates or {}).get("association_scope") or "").strip().lower()
+        # default: keep target scope to visible set for turn-time safety
+        # enrichment mode: allow wider session-historical linking
+        if association_scope == "historical_session":
+            allowed_targets = set(session_bead_ids)
+        else:
+            allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
 
         promotions, assoc_rows = _normalize_review_rows(updates or {})
         now = datetime.now(timezone.utc).isoformat()
