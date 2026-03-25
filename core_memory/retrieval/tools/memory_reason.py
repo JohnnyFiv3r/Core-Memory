@@ -11,6 +11,8 @@ The file works as-is; splitting is optional for improved readability.
 
 from __future__ import annotations
 
+from datetime import datetime
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -92,51 +94,248 @@ def _chain_signature(chain: dict) -> str:
     return "|".join(p + e)
 
 
+def _parse_iso(ts: str) -> datetime | None:
+    s = str(ts or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _rel_time_expectation(rel: str) -> str:
+    r = str(rel or "").strip().lower()
+    if r in {"causes", "caused_by", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
+        return "forward"
+    if r in {"diagnoses"}:
+        return "backward_ok"
+    if r in {"supports", "refines", "derived_from", "contradicts", "resolves"}:
+        return "either"
+    return "either"
+
+
+def _chain_coherence(chain: dict) -> tuple[float, dict]:
+    beads = chain.get("beads") or []
+    edges = chain.get("edges") or []
+    path = [str(x) for x in (chain.get("path") or [])]
+    if not beads:
+        return 0.0, {"reason": "no_beads"}
+
+    types = [str(b.get("type") or "") for b in beads]
+    rels = [str(e.get("rel") or "") for e in edges]
+
+    type_prog = 0.0
+    if any(t in {"decision", "precedent"} for t in types):
+        type_prog += 0.25
+    if any(t in {"evidence", "lesson", "outcome"} for t in types):
+        type_prog += 0.25
+    if "context" in types and any(t in {"decision", "precedent"} for t in types):
+        type_prog += 0.1
+
+    causal_rels = {"causes", "caused_by", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by"}
+    rel_continuity = min(0.3, 0.3 * (sum(1 for r in rels if r in causal_rels) / max(1, len(rels))))
+
+    temporal_penalty = 0.0
+    ts = [_parse_iso(str(b.get("created_at") or "")) for b in beads]
+    for i, r in enumerate(rels[: max(0, len(ts) - 1)]):
+        t1, t2 = ts[i], ts[i + 1]
+        if t1 is None or t2 is None:
+            continue
+        expect = _rel_time_expectation(r)
+        if expect == "forward" and t2 < t1:
+            temporal_penalty += 0.12
+        elif expect == "backward_ok" and t2 > t1:
+            temporal_penalty += 0.03
+
+    motif_penalty = 0.0
+    # fold anti-loop motif into coherence penalty
+    for i in range(max(0, len(path) - 2)):
+        if path[i] == path[i + 2]:
+            motif_penalty += 0.2
+    rel_bigrams = [f"{rels[i]}>{rels[i+1]}" for i in range(max(0, len(rels) - 1))]
+    if rel_bigrams:
+        uniq = len(set(rel_bigrams)) / max(1, len(rel_bigrams))
+        motif_penalty += max(0.0, 0.12 * (1.0 - uniq))
+
+    score = max(0.0, min(1.0, 0.1 + type_prog + rel_continuity - temporal_penalty - motif_penalty))
+    return score, {
+        "type_progression": round(type_prog, 4),
+        "relation_continuity": round(rel_continuity, 4),
+        "temporal_penalty": round(temporal_penalty, 4),
+        "motif_penalty": round(motif_penalty, 4),
+    }
+
+
 def _chain_confidence(chain: dict) -> float:
     score = float(chain.get("score") or 0.0)
     beads = chain.get("beads") or []
     if not beads:
         return 0.0
+    coh = float(chain.get("coherence_score") or 0.0)
     types = [str(b.get("type") or "") for b in beads]
     grounded = ("decision" in types or "precedent" in types) and any(t in {"evidence", "lesson", "outcome"} for t in types)
     depth = max(1, len(chain.get("path") or []))
     base = min(1.0, score / max(1.0, float(depth)))
+    base = min(1.0, base + (0.2 * coh))
     if grounded:
-        base = min(1.0, base + 0.2)
+        base = min(1.0, base + 0.15)
     return round(base, 4)
 
 
 def _chain_why_priority(chain: dict) -> float:
     edges = chain.get("edges") or []
     beads = chain.get("beads") or []
-    has_struct = any(str(e.get("class") or "") == "structural" or str(e.get("rel") or "") in {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"} for e in edges)
+    has_struct = any(str(e.get("class") or "") == "structural" or str(e.get("rel") or "") in {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves", "causes", "enables"} for e in edges)
     types = {str(b.get("type") or "") for b in beads}
     has_dec = bool(types.intersection({"decision", "precedent"}))
     has_evd = bool(types.intersection({"evidence", "lesson", "outcome"}))
     base = float(chain.get("score") or 0.0)
-    return base + (0.35 if has_struct else 0.0) + (0.2 if has_dec else 0.0) + (0.2 if has_evd else 0.0)
+    coherence = float(chain.get("coherence_score") or 0.0)
+    return base + (0.3 if has_struct else 0.0) + (0.18 if has_dec else 0.0) + (0.18 if has_evd else 0.0) + (0.25 * coherence)
 
 
-def _select_diverse_chains(chains: list[dict], top_n: int = 3) -> list[dict]:
-    selected = []
-    seen_sig = set()
-    seen_nodes = set()
-    for c in sorted(chains, key=lambda x: float(x.get("score") or 0.0), reverse=True):
-        sig = _chain_signature(c)
-        if sig in seen_sig:
-            continue
-        nodes = set([str(x) for x in (c.get("path") or [])])
-        overlap = len(nodes.intersection(seen_nodes))
-        if selected and overlap >= max(2, len(nodes) // 2):
-            continue
+def _edge_key_set(chain: dict) -> set[str]:
+    return {f"{str(e.get('src') or '')}>{str(e.get('rel') or '')}>{str(e.get('dst') or '')}" for e in (chain.get("edges") or [])}
+
+
+def _relation_seq(chain: dict) -> tuple[str, ...]:
+    return tuple([str(e.get("rel") or "") for e in (chain.get("edges") or [])])
+
+
+def _select_diverse_chains(chains: list[dict], top_n: int = 3, *, tie_seed: str = "") -> list[dict]:
+    selected: list[dict] = []
+    seen_sig: set[str] = set()
+
+    prepared = []
+    for c in chains:
         c2 = dict(c)
-        c2["confidence"] = _chain_confidence(c2)
-        selected.append(c2)
-        seen_sig.add(sig)
-        seen_nodes.update(nodes)
-        if len(selected) >= max(1, int(top_n)):
+        coh, coh_parts = _chain_coherence(c2)
+        c2["coherence_score"] = round(coh, 4)
+        c2["coherence_parts"] = coh_parts
+        prepared.append(c2)
+
+    tie_counter = 0
+    while prepared and len(selected) < max(1, int(top_n)):
+        candidates = []
+        for i, c in enumerate(prepared):
+            sig = _chain_signature(c)
+            if sig in seen_sig:
+                continue
+            edge_set = _edge_key_set(c)
+            node_set = {str(x) for x in (c.get("path") or [])}
+            rel_seq = _relation_seq(c)
+
+            edge_overlap = 0.0
+            node_overlap = 0.0
+            relseq_overlap = 0.0
+            for s in selected:
+                s_edges = _edge_key_set(s)
+                s_nodes = {str(x) for x in (s.get("path") or [])}
+                s_seq = _relation_seq(s)
+                if edge_set:
+                    edge_overlap = max(edge_overlap, len(edge_set.intersection(s_edges)) / max(1, len(edge_set)))
+                if node_set:
+                    node_overlap = max(node_overlap, len(node_set.intersection(s_nodes)) / max(1, len(node_set)))
+                if rel_seq and s_seq and rel_seq == s_seq:
+                    relseq_overlap = 1.0
+
+            diversity_penalty = (0.5 * edge_overlap) + (0.2 * node_overlap) + (0.3 * relseq_overlap)
+            sel_score = _chain_why_priority(c) - diversity_penalty
+            candidates.append((i, c, sel_score, diversity_penalty, edge_overlap, node_overlap, relseq_overlap))
+
+        if not candidates:
             break
+
+        top_score = max(x[2] for x in candidates)
+        near = [x for x in candidates if (top_score - x[2]) <= 0.03]
+        if len(near) > 1:
+            # Controlled tiny jitter for near ties only.
+            tie_counter += 1
+            re_ranked = []
+            for row in near:
+                i, c, sel_score, diversity_penalty, edge_overlap, node_overlap, relseq_overlap = row
+                sig = _chain_signature(c)
+                seed_input = f"{tie_seed}|{tie_counter}|{sig}".encode("utf-8")
+                h = hashlib.sha1(seed_input).hexdigest()
+                unit = int(h[:8], 16) / 0xFFFFFFFF
+                jitter = (unit * 0.02) - 0.01  # [-0.01, +0.01]
+                re_ranked.append((i, c, sel_score + jitter, diversity_penalty, edge_overlap, node_overlap, relseq_overlap, jitter))
+            best = sorted(re_ranked, key=lambda r: r[2], reverse=True)[0]
+            best_idx, c_pick = best[0], best[1]
+            diversity_penalty, edge_overlap, node_overlap, relseq_overlap, jitter = best[3], best[4], best[5], best[6], best[7]
+        else:
+            best = sorted(candidates, key=lambda r: r[2], reverse=True)[0]
+            best_idx, c_pick = best[0], best[1]
+            diversity_penalty, edge_overlap, node_overlap, relseq_overlap = best[3], best[4], best[5], best[6]
+            jitter = 0.0
+
+        prepared.pop(best_idx)
+        c_pick["diversity_penalty"] = round(diversity_penalty, 4)
+        c_pick["diversity_parts"] = {
+            "edge_overlap": round(edge_overlap, 4),
+            "node_overlap": round(node_overlap, 4),
+            "relation_sequence_overlap": round(relseq_overlap, 4),
+        }
+        c_pick["tie_break_jitter"] = round(float(jitter), 5)
+        c_pick["selection_reason"] = "high_coherence_diverse_chain"
+        c_pick["confidence"] = _chain_confidence(c_pick)
+
+        selected.append(c_pick)
+        seen_sig.add(_chain_signature(c_pick))
+
     return selected
+
+
+def _decompose_query(query: str) -> list[str]:
+    q = str(query or "").strip()
+    low = q.lower()
+    subs = []
+    if any(k in low for k in ["what sequence", "sequence", "from", "to", "timeline"]):
+        subs.extend([
+            f"key decision in: {q}",
+            f"key blocker in: {q}",
+            f"key outcome in: {q}",
+        ])
+    elif any(k in low for k in ["unresolved", "remaining", "still left", "next steps"]):
+        subs.extend([
+            f"what is completed for: {q}",
+            f"what is blocked for: {q}",
+            f"what is next for: {q}",
+        ])
+    elif any(k in low for k in ["why", "because"]):
+        subs.extend([
+            q,
+            f"constraint and decision for: {q}",
+            f"outcome for: {q}",
+        ])
+    return [s for s in subs if s][:3]
+
+
+def _synthesize_why_answer_from_chains(chains: list[dict]) -> str:
+    if not chains:
+        return "I remember related context, but I don’t have a grounded decision chain for that yet."
+    c = chains[0]
+    beads = c.get("beads") or []
+    edges = c.get("edges") or []
+
+    parts = []
+    if beads:
+        first = beads[0]
+        parts.append(str(first.get("title") or first.get("snapshot_title") or "this topic"))
+    if edges:
+        rel_words = [str(e.get("rel") or "") for e in edges[:3]]
+        rel_words = [r.replace("_", " ") for r in rel_words if r]
+        if rel_words:
+            parts.append("via " + " → ".join(rel_words))
+    for b in beads[1:4]:
+        t = str(b.get("title") or b.get("snapshot_title") or "").strip()
+        if t:
+            parts.append(t)
+    txt = " | ".join(parts)
+    return f"Causal recall: {txt}" if txt else "I remember related context, but I don’t have a grounded decision chain for that yet."
 
 
 def _collect_citations_from_chains(chains: list[dict]) -> tuple[list[dict], list[str]]:
@@ -323,60 +522,104 @@ def _retrieve_ranked(root_p: Path, query: str, k: int, intent_class: str = "reme
 
 
 def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False, pinned_bead_ids: list[str] | None = None) -> dict:
-    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)), intent_class="causal")
-    if not sem.get("ok"):
-        return {"ok": False, "error": sem.get("error")}
+    subqueries = _decompose_query(query)
+    if not subqueries:
+        subqueries = [query]
 
-    sem_results = sem.get("results") or []
-    anchors = [str(r.get("bead_id") or "") for r in sem_results if r.get("bead_id")]
-    pinned = [str(x) for x in (pinned_bead_ids or []) if str(x)]
-    if pinned:
-        anchors = pinned + [a for a in anchors if a not in set(pinned)]
-    anchor = _choose_anchor(sem_results)
-    if anchor and anchor not in anchors:
-        anchors = [anchor] + anchors
+    all_hydrated = []
+    all_fallback = []
+    all_chains = []
+    all_sem_results = []
+    sem_debug_runs = []
+    anchor = None
+    anchors_for_debug = []
 
-    trav = causal_traverse(root_p, anchor_ids=anchors[:8], max_depth=4, max_chains=50)
-    chains = trav.get("chains") or []
-    hydrated = []
-    for c in chains:
-        beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
-        hydrated.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
+    for sq in subqueries:
+        sem = _retrieve_ranked(root_p, query=sq, k=max(1, int(k)), intent_class="causal")
+        if not sem.get("ok"):
+            continue
+        sem_results = sem.get("results") or []
+        all_sem_results.extend(sem_results)
+        sem_debug_runs.append(sem)
+        anchors = [str(r.get("bead_id") or "") for r in sem_results if r.get("bead_id")]
+        pinned = [str(x) for x in (pinned_bead_ids or []) if str(x)]
+        if pinned:
+            anchors = pinned + [a for a in anchors if a not in set(pinned)]
+        if anchor is None:
+            anchor = _choose_anchor(sem_results)
+        if anchor and anchor not in anchors:
+            anchors = [anchor] + anchors
+        anchors_for_debug.extend(anchors[:8])
 
-    ranked_hydrated = sorted(hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
-    out_chains = _select_diverse_chains(ranked_hydrated, top_n=3)
-    fallback_struct = _radius1_structural_fallback(store, anchors, limit=3)
+        trav = causal_traverse(
+            root_p,
+            anchor_ids=anchors[:8],
+            max_depth=6,
+            max_chains=120,
+            semantic_expansion_hops=2,
+        )
+        chains = trav.get("chains") or []
+        all_chains.extend(chains)
+
+        for c in chains:
+            beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
+            all_hydrated.append({
+                "score": c.get("score"),
+                "path": c.get("path"),
+                "edges": c.get("edges"),
+                "beads": beads,
+                "semantic_edge_ids": c.get("semantic_edge_ids") or [],
+                "soft_stop": c.get("soft_stop") or {},
+            })
+        all_fallback.extend(_radius1_structural_fallback(store, anchors, limit=3))
+
+    if not all_hydrated:
+        return {"ok": True, "answer": "I remember related context, but I don’t have a grounded decision chain for that yet.", "anchor_bead_id": None, "chains": [], "citations": [], "reinforced_semantic_edges": []}
+
+    explored_depths = [max(0, len(c.get("path") or []) - 1) for c in all_chains]
+    explored_stops = [c.get("soft_stop") or {} for c in all_chains]
+    explored_stopped = [s for s in explored_stops if bool(s.get("stopped_early"))]
+    stop_hist: dict[int, int] = {}
+    for s in explored_stopped:
+        d = s.get("stop_depth")
+        if d is None:
+            continue
+        try:
+            di = int(d)
+        except Exception:
+            continue
+        stop_hist[di] = stop_hist.get(di, 0) + 1
+
+    ranked_hydrated = sorted(all_hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
+    date_bucket = datetime.utcnow().strftime("%Y-%m-%d")
+    tie_seed = f"{query}|{anchor or ''}|{date_bucket}"
+    out_chains = _select_diverse_chains(ranked_hydrated, top_n=3, tie_seed=tie_seed)
 
     if not out_chains:
-        out_chains = _select_diverse_chains(sorted(fallback_struct, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3)
+        out_chains = _select_diverse_chains(sorted(all_fallback, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3, tie_seed=tie_seed)
     else:
-        # If selected chains are weak/non-structural, enrich with radius-1 structural fallback.
         allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
         has_struct = any(
             any((str(e.get("class") or "") == "structural") or (str(e.get("rel") or "") in allowed) for e in (c.get("edges") or []))
             for c in out_chains
         )
-        if not has_struct and fallback_struct:
-            merged = list(out_chains) + list(fallback_struct)
+        if not has_struct and all_fallback:
+            merged = list(out_chains) + list(all_fallback)
             merged = sorted(merged, key=lambda c: _chain_why_priority(c), reverse=True)
-            out_chains = _select_diverse_chains(merged, top_n=3)
+            out_chains = _select_diverse_chains(merged, top_n=3, tie_seed=tie_seed)
 
     citations, used_semantic = _collect_citations_from_chains(out_chains)
     reinforce_semantic_edges(root_p, used_semantic, alpha=0.15)
 
-    grounded = bool(trav.get("grounded"))
+    grounded = bool(out_chains and any((str(e.get("class") or "") == "structural") for c in out_chains for e in (c.get("edges") or [])))
     if grounded and out_chains:
-        first = out_chains[0]
-        labels = []
-        for b in first.get("beads") or []:
-            t = str(b.get("type") or "")
-            title = str(b.get("title") or b.get("snapshot_title") or "")
-            if t in {"decision", "precedent", "evidence", "lesson", "outcome"} and title:
-                labels.append(f"{t}: {title}")
-        answer = "I remember this and can ground it causally: " + (" | ".join(labels[:4]) if labels else "grounded chain found.")
+        answer = _synthesize_why_answer_from_chains(out_chains)
     else:
         answer = "I remember related context, but I don’t have a grounded decision chain for that yet."
 
+    rr_diag = {}
+    trav_diag = (causal_traverse(root_p, anchor_ids=list(dict.fromkeys(anchors_for_debug))[:8], max_depth=1, max_chains=1).get("assoc_diag") or {}) if anchors_for_debug else {}
+    selected_depths = [max(0, len(c.get("path") or []) - 1) for c in (out_chains or [])]
     out = {
         "ok": True,
         "answer": answer,
@@ -384,9 +627,30 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         "chains": out_chains,
         "citations": citations,
         "reinforced_semantic_edges": used_semantic,
+        "traversal_diag": {
+            "max_hop_depth_reached": max([max(0, len(c.get("path") or []) - 1) for c in (all_chains or [])] or [0]),
+            "selected_max_hop_depth": max([max(0, len(c.get("path") or []) - 1) for c in (out_chains or [])] or [0]),
+            "selected_structural_neighbors_used": sum(
+                1
+                for c in (out_chains or [])
+                for e in (c.get("edges") or [])
+                if str(e.get("class") or "") == "structural"
+            ),
+            "selected_stopped_early_count": sum(1 for c in (out_chains or []) if bool((c.get("soft_stop") or {}).get("stopped_early"))),
+            "selected_stop_reasons": sorted({str((c.get("soft_stop") or {}).get("stop_reason") or "") for c in (out_chains or []) if (c.get("soft_stop") or {}).get("stop_reason")}),
+            "assoc_edges_total_seen": int(trav_diag.get("assoc_edges_total_seen") or rr_diag.get("assoc_edges_total") or 0),
+            "assoc_edges_after_conf_floor": int(trav_diag.get("assoc_edges_after_conf_floor") or rr_diag.get("assoc_edges_survived_floor") or 0),
+            "assoc_conf_floor": float(trav_diag.get("assoc_conf_floor") or rr_diag.get("assoc_floor") or 0.45),
+            "explored_total_chains": int(len(all_chains)),
+            "explored_stopped_early_count": int(len(explored_stopped)),
+            "explored_stopped_early_pct": round((100.0 * len(explored_stopped) / max(1, len(all_chains))), 2),
+            "explored_avg_depth": round((sum(explored_depths) / max(1, len(explored_depths))), 3) if explored_depths else 0.0,
+            "selected_avg_depth": round((sum(selected_depths) / max(1, len(selected_depths))), 3) if selected_depths else 0.0,
+            "explored_stopped_depth_hist": {str(k): int(v) for k, v in sorted(stop_hist.items())},
+        },
     }
     if debug:
-        out["retrieval_debug"] = sem
+        out["retrieval_debug"] = {"subqueries": subqueries, "runs": sem_debug_runs}
     return out
 
 

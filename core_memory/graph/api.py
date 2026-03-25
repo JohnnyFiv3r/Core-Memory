@@ -785,13 +785,94 @@ def causal_traverse(
     s_adj = g.get("adj_structural_out") or {}
     sem_adj = g.get("adj_semantic_out") or {}
 
+    # Include curated index associations as structural adjacency for traversal.
+    idx_file = root / ".beads" / "index.json"
+    assoc_seen = 0
+    assoc_kept = 0
+    try:
+        if idx_file.exists():
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            for a in (idx.get("associations") or []):
+                if not isinstance(a, dict):
+                    continue
+                assoc_seen += 1
+                src = str(a.get("source_bead") or a.get("source_bead_id") or "")
+                dst = str(a.get("target_bead") or a.get("target_bead_id") or "")
+                rel = str(a.get("relationship") or "supports")
+                if not src or not dst:
+                    continue
+                try:
+                    conf = float(a.get("confidence") if a.get("confidence") is not None else 0.0)
+                except Exception:
+                    conf = 0.0
+                if conf < 0.45:
+                    continue
+                assoc_kept += 1
+                # synthesize lightweight structural edges for traversal scoring
+                sid = f"assoc-{src[:6]}-{dst[:6]}-{rel}"
+                edge_head.setdefault(
+                    sid,
+                    {
+                        "edge_id": sid,
+                        "src_id": src,
+                        "dst_id": dst,
+                        "rel": rel,
+                        "class": "structural",
+                        "immutable": False,
+                    },
+                )
+                s_adj.setdefault(src, []).append(sid)
+    except Exception:
+        pass
+
     chains = []
+
+    def _parse_iso(ts: str):
+        s = str(ts or "").strip()
+        if not s:
+            return None
+        try:
+            return datetime.fromisoformat(s.replace("Z", "+00:00"))
+        except Exception:
+            return None
+
+    def _rel_time_expectation(rel: str) -> str:
+        r = str(rel or "").strip().lower()
+        if r in {"causes", "caused_by", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
+            return "forward"
+        if r in {"diagnoses"}:
+            return "backward_ok"
+        return "either"
+
+    def _quick_coherence(path_nodes: list[str], path_edges: list[dict]) -> float:
+        if not path_edges:
+            return 0.7
+        rels = [str(e.get("rel") or "") for e in path_edges]
+        causal_rels = {"causes", "caused_by", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by", "follows", "precedes"}
+        rel_score = sum(1 for r in rels if r in causal_rels) / max(1, len(rels))
+
+        temporal_penalty = 0.0
+        for i, rel in enumerate(rels[: max(0, len(path_nodes) - 1)]):
+            n1 = node_meta.get(path_nodes[i]) or {}
+            n2 = node_meta.get(path_nodes[i + 1]) or {}
+            t1 = _parse_iso(str(n1.get("created_at") or ""))
+            t2 = _parse_iso(str(n2.get("created_at") or ""))
+            if t1 is None or t2 is None:
+                continue
+            exp = _rel_time_expectation(rel)
+            if exp == "forward" and t2 < t1:
+                temporal_penalty += 0.12
+            elif exp == "backward_ok" and t2 > t1:
+                temporal_penalty += 0.03
+
+        return max(0.0, min(1.0, 0.2 + (0.6 * rel_score) - temporal_penalty))
 
     def expand_from(start: str, semantic_used: list[str] | None = None):
         semantic_used = semantic_used or []
-        stack = [(start, [], 0, 0.0)]  # node, path_edges, depth, score
+        # node, path_edges, depth, score, step_gains, coh_hist, low_gain_hits, neg_coh_hits, pending_single
+        stack = [(start, [], 0, 0.0, [], [], 0, 0, False)]
         while stack:
-            node, path, depth, score = stack.pop()
+            node, path, depth, score, gains, coh_hist, low_gain_hits, neg_coh_hits, pending_single = stack.pop()
             if depth >= max_depth:
                 continue
             for eid in s_adj.get(node, []):
@@ -806,15 +887,59 @@ def causal_traverse(
                 cent = float(node_centrality.get(dst, 0)) / float(max_cent or 1)
                 cent_factor = 0.85 + 0.15 * max(0.0, min(1.0, cent))
                 step = ew * ni * rf * cent_factor
+
                 p2 = path + [{"edge_id": eid, "src": node, "dst": dst, "rel": rel, "class": "structural", "step_score": round(step, 6)}]
+                nodes2 = [start] + [x["dst"] for x in p2]
                 s2 = score + step
+
+                prev_avg = (sum(gains) / len(gains)) if gains else step
+                low_now = step < (prev_avg * 0.6)
+                low_gain_hits2 = (low_gain_hits + 1) if low_now else 0
+
+                coh2 = _quick_coherence(nodes2, p2)
+                coh_hist2 = coh_hist + [coh2]
+                delta_neg = False
+                if len(coh_hist2) >= 2:
+                    delta_neg = (coh_hist2[-1] - coh_hist2[-2]) < 0
+                neg_coh_hits2 = (neg_coh_hits + 1) if delta_neg else 0
+
+                trig_gain = low_gain_hits2 >= 2
+                trig_coh = (neg_coh_hits2 >= 2) and (coh2 < 0.68)
+
+                stop_now = False
+                stop_reason = ""
+                pending_single2 = False
+                if trig_gain and trig_coh:
+                    stop_now = True
+                    stop_reason = "both"
+                elif trig_gain or trig_coh:
+                    if pending_single:
+                        stop_now = True
+                        stop_reason = "marginal_gain" if trig_gain else "coherence_trend"
+                    else:
+                        pending_single2 = True
+                else:
+                    pending_single2 = False
+
                 chains.append({
                     "score": round(s2, 6),
-                    "path": [start] + [x["dst"] for x in p2],
+                    "path": nodes2,
                     "edges": p2,
                     "semantic_edge_ids": list(semantic_used),
+                    "soft_stop": {
+                        "stop_signal_marginal_gain_hits": int(low_gain_hits2),
+                        "stop_signal_coherence_trend_hits": int(neg_coh_hits2),
+                        "current_coherence": round(float(coh2), 4),
+                        "stopped_early": bool(stop_now),
+                        "stop_reason": stop_reason,
+                        "stop_depth": int(len(nodes2) - 1) if stop_now else None,
+                    },
                 })
-                stack.append((dst, p2, depth + 1, s2))
+
+                if stop_now:
+                    continue
+
+                stack.append((dst, p2, depth + 1, s2, gains + [step], coh_hist2, low_gain_hits2, neg_coh_hits2, pending_single2))
 
     for a in anchor_ids[:8]:
         expand_from(str(a), [])
@@ -849,6 +974,11 @@ def causal_traverse(
         "anchors": anchor_ids,
         "grounded": bool(grounded_chains),
         "chains": ranked,
+        "assoc_diag": {
+            "assoc_edges_total_seen": int(assoc_seen),
+            "assoc_edges_after_conf_floor": int(assoc_kept),
+            "assoc_conf_floor": 0.45,
+        },
     }
 
 

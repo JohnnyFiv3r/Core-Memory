@@ -5,10 +5,13 @@ set -euo pipefail
 # Idempotent by design.
 
 PLUGIN_ID="core-memory-bridge"
-PLUGIN_SRC_DEFAULT="/home/node/.openclaw/workspace/Core-Memory/plugins/openclaw-core-memory-bridge"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT_DEFAULT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PLUGIN_SRC_DEFAULT="$REPO_ROOT_DEFAULT/plugins/openclaw-core-memory-bridge"
 PLUGIN_SRC="${1:-${CORE_MEMORY_BRIDGE_SOURCE:-$PLUGIN_SRC_DEFAULT}}"
-CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-/home/node/.openclaw/openclaw.json}"
-INSTALL_PATH="${OPENCLAW_EXTENSIONS_DIR:-/home/node/.openclaw/extensions}/${PLUGIN_ID}"
+OPENCLAW_HOME_DEFAULT="${HOME:-/tmp}/.openclaw"
+CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_HOME_DEFAULT/openclaw.json}"
+INSTALL_PATH="${OPENCLAW_EXTENSIONS_DIR:-$OPENCLAW_HOME_DEFAULT/extensions}/${PLUGIN_ID}"
 
 log() { printf '[core-memory-bridge/install] %s\n' "$*"; }
 

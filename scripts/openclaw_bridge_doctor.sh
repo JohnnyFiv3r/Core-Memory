@@ -2,9 +2,12 @@
 set -euo pipefail
 
 PLUGIN_ID="core-memory-bridge"
-CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-/home/node/.openclaw/openclaw.json}"
-INSTALL_PATH="${OPENCLAW_EXTENSIONS_DIR:-/home/node/.openclaw/extensions}/${PLUGIN_ID}"
-BEADS_ROOT="${CORE_MEMORY_BEADS_ROOT:-/home/node/.openclaw/workspace/Core-Memory/.beads/events}"
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT_DEFAULT="$(cd "$SCRIPT_DIR/.." && pwd)"
+OPENCLAW_HOME_DEFAULT="${HOME:-/tmp}/.openclaw"
+CONFIG_PATH="${OPENCLAW_CONFIG_PATH:-$OPENCLAW_HOME_DEFAULT/openclaw.json}"
+INSTALL_PATH="${OPENCLAW_EXTENSIONS_DIR:-$OPENCLAW_HOME_DEFAULT/extensions}/${PLUGIN_ID}"
+BEADS_ROOT="${CORE_MEMORY_BEADS_ROOT:-$REPO_ROOT_DEFAULT/.beads/events}"
 
 pass() { printf 'PASS %s\n' "$*"; }
 warn() { printf 'WARN %s\n' "$*"; }

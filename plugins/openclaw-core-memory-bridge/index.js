@@ -7,12 +7,14 @@ const plugin = {
   description: "Bridge OpenClaw lifecycle hooks to Core Memory canonical write/flush surfaces",
 
   register(api) {
+    const entryCfg = api?.config?.plugins?.entries?.[api.id];
+    const cfgIn = api?.pluginConfig ?? entryCfg?.config ?? {};
     const cfg = {
-      pythonBin: api?.config?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
-      coreMemoryRoot: api?.config?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
-      coreMemoryRepo: api?.config?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || "/home/node/.openclaw/workspace/Core-Memory",
-      enableAgentEnd: api?.config?.enableAgentEnd !== false,
-      enableCompactionFlush: api?.config?.enableCompactionFlush !== false,
+      pythonBin: cfgIn?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
+      coreMemoryRoot: cfgIn?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
+      coreMemoryRepo: cfgIn?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || process.cwd(),
+      enableAgentEnd: cfgIn?.enableAgentEnd !== false,
+      enableCompactionFlush: cfgIn?.enableCompactionFlush === true,
     };
 
     const debug = (line) => {
@@ -22,12 +24,15 @@ const plugin = {
     };
     debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} enableAgentEnd=${cfg.enableAgentEnd} enableCompactionFlush=${cfg.enableCompactionFlush}`);
 
-    const runBridge = (moduleName, payload) =>
+    const runBridge = (moduleName, payload, opts = {}) =>
       new Promise((resolve) => {
+        const timeoutMs = Number(opts?.timeoutMs) > 0 ? Number(opts.timeoutMs) : 12000;
         let settled = false;
+        let timeoutHandle = null;
         const done = (result) => {
           if (settled) return;
           settled = true;
+          if (timeoutHandle) clearTimeout(timeoutHandle);
           resolve(result);
         };
 
@@ -39,6 +44,13 @@ const plugin = {
 
         let stdout = "";
         let stderr = "";
+
+        timeoutHandle = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {}
+          done({ code: -1, parsed: { ok: false, error: `bridge_timeout:${moduleName}:${timeoutMs}` }, stderr });
+        }, timeoutMs);
 
         child.stdout.on("data", (d) => {
           stdout += String(d || "");
@@ -74,6 +86,23 @@ const plugin = {
         }
       });
 
+    const runBridgeDetached = (moduleName, payload) => {
+      try {
+        const child = spawn(cfg.pythonBin, ["-m", moduleName], {
+          stdio: ["pipe", "ignore", "ignore"],
+          cwd: cfg.coreMemoryRepo,
+          env: { ...process.env, PYTHONPATH: `${cfg.coreMemoryRepo}:${process.env.PYTHONPATH || ""}` },
+          detached: true,
+        });
+        try {
+          child.stdin.end(JSON.stringify(payload));
+        } catch {}
+        child.unref();
+      } catch (err) {
+        api.logger?.warn?.(`core-memory-bridge: detached run failed: ${String(err)}`);
+      }
+    };
+
     if (cfg.enableAgentEnd) {
       api.on("agent_end", async (event) => {
         try {
@@ -94,6 +123,14 @@ const plugin = {
           if (!out?.parsed?.ok) {
             api.logger?.warn?.(`core-memory-bridge: agent_end emit failed: ${JSON.stringify(out?.parsed || {})}`);
           }
+
+          // Non-blocking compaction queue drain: retries deferred compaction work without
+          // holding lifecycle hook latency budget.
+          runBridgeDetached("core_memory.integrations.openclaw_compaction_queue", {
+            action: "drain",
+            root: cfg.coreMemoryRoot,
+            maxItems: 1,
+          });
         } catch (err) {
           api.logger?.warn?.(`core-memory-bridge: agent_end hook error: ${String(err)}`);
         }
@@ -103,8 +140,9 @@ const plugin = {
     if (cfg.enableCompactionFlush) {
       const onCompaction = async (event) => {
         try {
-          debug(`compaction_hook session=${event?.sessionKey || ''} run=${event?.runId || ''}`);
+          debug(`compaction_hook_enqueue session=${event?.sessionKey || ''} run=${event?.runId || ''}`);
           const payload = {
+            action: "enqueue",
             event,
             ctx: {
               sessionId: event?.sessionKey,
@@ -114,17 +152,17 @@ const plugin = {
             },
             root: cfg.coreMemoryRoot,
           };
-          const out = await runBridge("core_memory.integrations.openclaw_compaction_bridge", payload);
-          debug(`compaction result ok=${String(out?.parsed?.ok)} code=${String(out?.code)}`);
+          const out = await runBridge("core_memory.integrations.openclaw_compaction_queue", payload);
+          debug(`compaction enqueue ok=${String(out?.parsed?.ok)} code=${String(out?.code)}`);
           if (!out?.parsed?.ok) {
-            api.logger?.warn?.(`core-memory-bridge: compaction flush failed: ${JSON.stringify(out?.parsed || {})}`);
+            api.logger?.warn?.(`core-memory-bridge: compaction enqueue failed: ${JSON.stringify(out?.parsed || {})}`);
           }
         } catch (err) {
-          api.logger?.warn?.(`core-memory-bridge: compaction hook error: ${String(err)}`);
+          api.logger?.warn?.(`core-memory-bridge: compaction hook enqueue error: ${String(err)}`);
         }
       };
 
-      api.on("before_compaction", onCompaction);
+      // Queue from after_compaction only; heavy processing happens asynchronously from agent_end drain.
       api.on("after_compaction", onCompaction);
     }
   },

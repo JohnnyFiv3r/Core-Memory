@@ -26,7 +26,7 @@ from ..runtime.session_surface import read_session_surface
 from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
-from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints
+from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints, enforce_bead_hygiene_contract
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 
 # Defaults for pip package (separate from live OpenClaw usage)
@@ -1764,6 +1764,39 @@ class MemoryStore:
         from ..association import run_association_pass
 
         return run_association_pass(index, bead, max_lookback=max_lookback, top_k=top_k)
+
+    def _norm_text(self, s: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9]+", str(s or "").lower()))
+
+    def _bead_similarity(self, a: dict, b: dict) -> float:
+        ta = self._norm_text((a.get("title") or "") + " " + " ".join(a.get("summary") or []))
+        tb = self._norm_text((b.get("title") or "") + " " + " ".join(b.get("summary") or []))
+        sa = set(ta.split())
+        sb = set(tb.split())
+        if not sa or not sb:
+            return 0.0
+        inter = len(sa.intersection(sb))
+        union = len(sa.union(sb))
+        return float(inter) / float(max(1, union))
+
+    def _find_recent_duplicate_bead_id(self, index: dict, bead: dict, session_id: str | None, window: int = 25) -> str | None:
+        beads = list((index.get("beads") or {}).values())
+        if session_id:
+            beads = [b for b in beads if str((b or {}).get("session_id") or "") == str(session_id)]
+        beads = sorted(beads, key=lambda b: str((b or {}).get("created_at") or ""), reverse=True)[: max(1, int(window))]
+
+        for prior in beads:
+            if str(prior.get("type") or "") != str(bead.get("type") or ""):
+                continue
+            # exact turn duplicate
+            a_turns = set([str(x) for x in (bead.get("source_turn_ids") or []) if str(x)])
+            p_turns = set([str(x) for x in (prior.get("source_turn_ids") or []) if str(x)])
+            if a_turns and p_turns and a_turns.intersection(p_turns):
+                return str(prior.get("id") or "") or None
+            sim = self._bead_similarity(bead, prior)
+            if sim >= 0.9:
+                return str(prior.get("id") or "") or None
+        return None
     
     # === Core API ===
     
@@ -1839,6 +1872,12 @@ class MemoryStore:
         # conservative secret redaction (high-confidence patterns only)
         bead = self._sanitize_bead_content(bead)
 
+        # Thin-vs-rich hygiene normalization:
+        # - keeps one-bead-per-turn invariant
+        # - preserves temporal minimum surface
+        # - payload-gates retrieval eligibility
+        bead = enforce_bead_hygiene_contract(bead)
+
         # Phase 3 advisory constraint extraction for commitments/principles
         if bead.get("type") in {"decision", "design_principle", "goal"} and not bead.get("constraints"):
             basis = " ".join([bead.get("title", "")] + list(bead.get("summary") or []))
@@ -1858,6 +1897,19 @@ class MemoryStore:
         unjustified_flips = 0
 
         with store_lock(self.root):
+            index_file = self.beads_dir / INDEX_FILE
+            index = self._read_json(index_file)
+
+            # Write-time duplicate suppression (same-session, recent window).
+            # Keeps corpus signal dense and avoids duplicate-shape beads.
+            try:
+                dedup_window = max(1, int(os.environ.get("CORE_MEMORY_WRITE_DEDUP_WINDOW", "25")))
+            except ValueError:
+                dedup_window = 25
+            dup_id = self._find_recent_duplicate_bead_id(index, bead, session_id=session_id, window=dedup_window)
+            if dup_id:
+                return dup_id
+
             # Write to session archive first (durability/rebuild source)
             if session_id:
                 bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
@@ -1866,8 +1918,6 @@ class MemoryStore:
             append_jsonl(bead_file, bead)
 
             # Update index after durable archive write
-            index_file = self.beads_dir / INDEX_FILE
-            index = self._read_json(index_file)
 
             if bead.get("type") == "failed_hypothesis" and bead.get("failure_signature"):
                 sig = bead.get("failure_signature")
@@ -2059,6 +2109,7 @@ class MemoryStore:
         promote: bool = False,
         only_bead_ids: Optional[list[str]] = None,
         skip_bead_ids: Optional[list[str]] = None,
+        force_archive_all: bool = False,
     ) -> dict:
         """Core-native compact: archive detail text losslessly and optionally promote.
 
@@ -2128,12 +2179,14 @@ class MemoryStore:
                 is_session_boundary = bead_type in {"session_start", "session_end"}
                 is_promoted = bead_status == "promoted"
 
-                # Keep candidates active for reinforcement window (Phase B).
-                if bead_status == "candidate":
+                # Default behavior keeps candidates active for reinforcement window (Phase B).
+                # On session_flush authority path, callers can force archival of all eligible beads.
+                if (not force_archive_all) and bead_status == "candidate":
                     index["beads"][bead_id] = bead
                     continue
 
-                if not is_promoted and not is_session_boundary:
+                should_archive = force_archive_all or (not is_promoted and not is_session_boundary)
+                if should_archive:
                     already_archived = str(bead.get("status") or "").lower() == "archived"
                     has_ptr = isinstance(bead.get("archive_ptr"), dict) and bool((bead.get("archive_ptr") or {}).get("revision_id"))
                     has_detail = bool((bead.get("detail") or "").strip())
@@ -2165,6 +2218,7 @@ class MemoryStore:
                 "session": session_id,
                 "only_bead_ids": len(only),
                 "skip_bead_ids": len(skip),
+                "force_archive_all": bool(force_archive_all),
             }
 
     def uncompact(self, bead_id: str) -> dict:

@@ -18,7 +18,8 @@ def run_session_consolidation(
     phase_trace: list[str] = []
 
     memory = MemoryStore(root=root)
-    comp = memory.compact(session_id=session_id, promote=bool(promote))
+    # Flush contract: archive full bead snapshots first (authority), then build rolling surface.
+    comp = memory.compact(session_id=session_id, promote=bool(promote), force_archive_all=True)
     phase_trace.append("archive_compact_session")
 
     text, meta, included_ids, excluded_ids = build_rolling_window(

@@ -25,7 +25,10 @@ def lexical_lookup(root: Path, query: str, k: int = 8) -> dict:
     if not index_file.exists():
         return {"ok": False, "error": "index_missing"}
     idx = json.loads(index_file.read_text(encoding="utf-8"))
-    beads = list((idx.get("beads") or {}).values())
+    beads = [
+        b for b in list((idx.get("beads") or {}).values())
+        if str((b or {}).get("status") or "").lower() == "archived"
+    ]
     q_tokens = _tokenize(query)
     if not q_tokens:
         return {"ok": True, "backend": "lexical-field-tfidf", "query": query, "results": []}

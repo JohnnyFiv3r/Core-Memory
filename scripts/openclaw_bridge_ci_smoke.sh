@@ -4,7 +4,7 @@ set -euo pipefail
 # CI smoke gate for Core Memory OpenClaw bridge.
 # Requires:
 # - openclaw CLI available
-# - Core-Memory repo mounted at /home/node/.openclaw/workspace/Core-Memory (override via env)
+# - Core-Memory repo available at CORE_MEMORY_REPO or script-relative parent
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 DEFAULT_REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"

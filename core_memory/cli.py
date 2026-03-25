@@ -22,6 +22,7 @@ Examples:
 
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -86,6 +87,83 @@ def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
     return out
 
 
+def _doctor_report(root: str) -> dict:
+    root_p = Path(root)
+    beads_dir = root_p / ".beads"
+    idx_file = beads_dir / "index.json"
+    records_file = root_p / "rolling-window.records.json"
+
+    checks: list[dict] = []
+
+    exists = beads_dir.exists() and beads_dir.is_dir()
+    writable = os.access(beads_dir, os.W_OK) if exists else False
+    checks.append({
+        "name": ".beads directory exists and writable",
+        "pass": bool(exists and writable),
+        "detail": {"path": str(beads_dir), "exists": bool(exists), "writable": bool(writable)},
+    })
+
+    index_ok = False
+    index = {}
+    index_error = ""
+    try:
+        index = json.loads(idx_file.read_text(encoding="utf-8"))
+        index_ok = True
+    except Exception as e:
+        index_error = str(e)
+    checks.append({
+        "name": "index.json exists and valid JSON",
+        "pass": bool(index_ok),
+        "detail": {"path": str(idx_file), "error": index_error or None},
+    })
+
+    beads = (index.get("beads") or {}) if isinstance(index, dict) else {}
+    by_status: dict[str, int] = {}
+    for b in beads.values():
+        s = str((b or {}).get("status") or "unknown")
+        by_status[s] = by_status.get(s, 0) + 1
+    checks.append({
+        "name": "bead count",
+        "pass": bool(index_ok),
+        "detail": {"total": int(len(beads)), "by_status": by_status},
+    })
+
+    session_count = len(list(beads_dir.glob("session-*.jsonl"))) if exists else 0
+    checks.append({
+        "name": "session file count",
+        "pass": bool(exists),
+        "detail": {"count": int(session_count)},
+    })
+
+    checks.append({
+        "name": "rolling-window.records.json exists",
+        "pass": bool(records_file.exists()),
+        "detail": {"path": str(records_file), "exists": bool(records_file.exists())},
+    })
+
+    orphan_count = 0
+    if index_ok:
+        bead_ids = set(str(k) for k in beads.keys())
+        for a in (index.get("associations") or []):
+            src = str((a or {}).get("source_bead") or (a or {}).get("source_bead_id") or "")
+            dst = str((a or {}).get("target_bead") or (a or {}).get("target_bead_id") or "")
+            if (src and src not in bead_ids) or (dst and dst not in bead_ids):
+                orphan_count += 1
+    checks.append({
+        "name": "no orphaned association references",
+        "pass": bool(index_ok and orphan_count == 0),
+        "detail": {"orphaned_associations": int(orphan_count)},
+    })
+
+    ok = all(bool(c.get("pass")) for c in checks)
+    return {
+        "ok": bool(ok),
+        "schema": "core_memory.doctor.v1",
+        "root": str(root_p),
+        "checks": checks,
+    }
+
+
 def main():
     """CLI entry point for core-memory command."""
     parser = argparse.ArgumentParser(description="Core-Memory CLI")
@@ -113,6 +191,9 @@ def main():
     
     # stats command
     subparsers.add_parser("stats", help="Show statistics")
+
+    # contributor-local health checks
+    subparsers.add_parser("doctor", help="Run local store health checks for contributors")
 
     # heads command
     heads_parser = subparsers.add_parser("heads", help="Show topic/goal HEAD pointers")
@@ -392,6 +473,15 @@ def main():
     elif args.command == "stats":
         stats = memory.stats()
         print(json.dumps(stats, indent=2))
+
+    elif args.command == "doctor":
+        report = _doctor_report(args.root)
+        for chk in report.get("checks", []):
+            label = "PASS" if chk.get("pass") else "FAIL"
+            print(f"{label} {chk.get('name')}")
+        print(json.dumps(report, indent=2))
+        if not report.get("ok"):
+            raise SystemExit(1)
 
     elif args.command == "heads":
         heads = memory._read_heads()
