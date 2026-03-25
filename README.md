@@ -46,7 +46,7 @@ cd Core-Memory
 pip install -e .
 ```
 
-If/when published on PyPI, you can also install via:
+Install from PyPI:
 
 ```bash
 pip install core-memory
