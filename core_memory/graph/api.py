@@ -785,6 +785,46 @@ def causal_traverse(
     s_adj = g.get("adj_structural_out") or {}
     sem_adj = g.get("adj_semantic_out") or {}
 
+    # Include curated index associations as structural adjacency for traversal.
+    idx_file = root / ".beads" / "index.json"
+    assoc_seen = 0
+    assoc_kept = 0
+    try:
+        if idx_file.exists():
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            for a in (idx.get("associations") or []):
+                if not isinstance(a, dict):
+                    continue
+                assoc_seen += 1
+                src = str(a.get("source_bead") or a.get("source_bead_id") or "")
+                dst = str(a.get("target_bead") or a.get("target_bead_id") or "")
+                rel = str(a.get("relationship") or "supports")
+                if not src or not dst:
+                    continue
+                try:
+                    conf = float(a.get("confidence") if a.get("confidence") is not None else 0.0)
+                except Exception:
+                    conf = 0.0
+                if conf < 0.45:
+                    continue
+                assoc_kept += 1
+                # synthesize lightweight structural edges for traversal scoring
+                sid = f"assoc-{src[:6]}-{dst[:6]}-{rel}"
+                edge_head.setdefault(
+                    sid,
+                    {
+                        "edge_id": sid,
+                        "src_id": src,
+                        "dst_id": dst,
+                        "rel": rel,
+                        "class": "structural",
+                        "immutable": False,
+                    },
+                )
+                s_adj.setdefault(src, []).append(sid)
+    except Exception:
+        pass
+
     chains = []
 
     def expand_from(start: str, semantic_used: list[str] | None = None):
@@ -849,6 +889,11 @@ def causal_traverse(
         "anchors": anchor_ids,
         "grounded": bool(grounded_chains),
         "chains": ranked,
+        "assoc_diag": {
+            "assoc_edges_total_seen": int(assoc_seen),
+            "assoc_edges_after_conf_floor": int(assoc_kept),
+            "assoc_conf_floor": 0.45,
+        },
     }
 
 

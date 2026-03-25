@@ -115,12 +115,19 @@ def _bridge_pattern_bonus(query: str, bead: dict) -> tuple[float, str]:
     return 0.0, ""
 
 
-def _load_structural_adjacency(root: Path) -> dict[str, set[str]]:
+def _load_structural_adjacency(root: Path) -> tuple[dict[str, set[str]], dict]:
     """Load structural adjacency from both bead_graph and index associations.
 
     This allows semantic-curated associations to contribute to structural grounding.
+    Returns adjacency + diagnostics for query-level debug.
     """
     adj: dict[str, set[str]] = {}
+    diag = {
+        "graph_structural_edges": 0,
+        "assoc_edges_total": 0,
+        "assoc_edges_survived_floor": 0,
+        "assoc_floor": 0.45,
+    }
 
     # 1) bead_graph structural immutable edges
     snap = root / ".beads" / "bead_graph.json"
@@ -139,6 +146,7 @@ def _load_structural_adjacency(root: Path) -> dict[str, set[str]]:
                     continue
                 adj.setdefault(s, set()).add(d)
                 adj.setdefault(d, set()).add(s)
+                diag["graph_structural_edges"] += 1
         except Exception:
             pass
 
@@ -150,6 +158,7 @@ def _load_structural_adjacency(root: Path) -> dict[str, set[str]]:
             for a in (idx.get("associations") or []):
                 if not isinstance(a, dict):
                     continue
+                diag["assoc_edges_total"] += 1
                 s = str(a.get("source_bead") or a.get("source_bead_id") or "")
                 d = str(a.get("target_bead") or a.get("target_bead_id") or "")
                 if not s or not d:
@@ -159,20 +168,26 @@ def _load_structural_adjacency(root: Path) -> dict[str, set[str]]:
                     conf = float(a.get("confidence") if a.get("confidence") is not None else 0.0)
                 except Exception:
                     conf = 0.0
-                if conf < 0.45:
+                if conf < float(diag["assoc_floor"]):
                     continue
+                diag["assoc_edges_survived_floor"] += 1
                 adj.setdefault(s, set()).add(d)
                 adj.setdefault(d, set()).add(s)
         except Exception:
             pass
 
-    return adj
+    return adj, diag
 
 
 def _chain_features(beads: dict, center_id: str, adj: dict[str, set[str]]) -> dict:
     center = beads.get(center_id) or {}
     nbrs = sorted(list(adj.get(center_id) or set()))
-    one_hop = [center_id] + nbrs
+    two_hop: set[str] = set()
+    for n in nbrs:
+        for t in (adj.get(n) or set()):
+            if t != center_id and t not in nbrs:
+                two_hop.add(str(t))
+    one_hop = [center_id] + nbrs + sorted(list(two_hop))
     types = [str((beads.get(i) or {}).get("type") or "") for i in one_hop]
 
     has_decision = 1 if any(t in {"decision", "precedent"} for t in types) else 0
@@ -181,6 +196,7 @@ def _chain_features(beads: dict, center_id: str, adj: dict[str, set[str]]) -> di
 
     structural_edge_count_clipped = min(3, len(nbrs))
     has_grounding_structural_edge = 1 if structural_edge_count_clipped > 0 else 0
+    two_hop_count_clipped = min(4, len(two_hop))
 
     is_superseded = 1 if str(center.get("status") or "") == "superseded" else 0
     has_active_chain_support = 1 if (is_superseded and structural_edge_count_clipped > 0) else 0
@@ -191,6 +207,7 @@ def _chain_features(beads: dict, center_id: str, adj: dict[str, set[str]]) -> di
         "chain_has_outcome": has_outcome,
         "has_grounding_structural_edge": has_grounding_structural_edge,
         "structural_edge_count_clipped": structural_edge_count_clipped,
+        "structural_two_hop_count_clipped": two_hop_count_clipped,
         "is_superseded": is_superseded,
         "has_active_chain_support": has_active_chain_support,
     }
@@ -214,7 +231,7 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
     idx = json.loads(idx_file.read_text(encoding="utf-8"))
     beads = idx.get("beads") or {}
     q_tokens = set(_tokenize(query))
-    adj = _load_structural_adjacency(root)
+    adj, adj_diag = _load_structural_adjacency(root)
 
     ow = INTENT_WEIGHT_OVERRIDES.get(str(intent_class or "remember"), {})
     w_structural = float(ow.get("W_STRUCTURAL", W_STRUCTURAL))
@@ -248,20 +265,24 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
 
         structural_quality = (ch["chain_has_decision"] + ch["chain_has_evidence"] + ch["chain_has_outcome"]) / 3.0
         edge_support = (0.5 * ch["has_grounding_structural_edge"]) + (0.5 * (ch["structural_edge_count_clipped"] / 3.0))
+        two_hop_support = float(ch.get("structural_two_hop_count_clipped") or 0.0) / 4.0
         superseded_penalty = 1.0 if (ch["is_superseded"] == 1 and ch["has_active_chain_support"] == 0) else 0.0
         penalties = (0.6 * low_info) + (0.4 * superseded_penalty) + domain_penalty
 
         fused = float(c.get("fused_score") or 0.0)
+        # Structural lift should be meaningfully competitive with lexical overlap.
+        structural_add = (structural_quality * (w_structural * 1.15)) + (edge_support * (w_edge * 1.35)) + (0.15 * two_hop_support)
         score = (
             (fused * W_FUSED)
-            + (structural_quality * w_structural)
-            + (edge_support * w_edge)
+            + structural_add
             + (coverage * w_cov)
             + (incident_strength * w_inc)
             + (0.08 * domain_alignment_score)
             + bridge_bonus
             - (penalties * W_PENALTY)
         )
+        if ch["has_grounding_structural_edge"]:
+            score += 0.22
         score = max(0.0, min(1.0, float(score)))
 
         features = {
@@ -275,6 +296,8 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
             "domain_alignment_score": round(domain_alignment_score, 4),
             "bridge_pattern": bridge_pattern,
             "bridge_bonus": round(bridge_bonus, 4),
+            "two_hop_support": round(two_hop_support, 4),
+            "structural_add": round(structural_add, 4),
         }
 
         c2 = dict(c)
@@ -298,7 +321,14 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
             },
         }
         out.append(c2)
-        dbg.append({"bead_id": bid, "fused_score": fused, "rerank_score": c2["rerank_score"], "features": features, "derived": c2["derived"]})
+        dbg.append({
+            "bead_id": bid,
+            "fused_score": fused,
+            "rerank_score": c2["rerank_score"],
+            "features": features,
+            "derived": c2["derived"],
+            "assoc_diag": adj_diag,
+        })
 
     out = sorted(
         out,
@@ -315,4 +345,4 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
         r["rerank_rank"] = i
         r["rerank_tie_break_policy"] = "rerank>fused>sem>lex>bead_id"
 
-    return {"ok": True, "results": out, "debug": dbg}
+    return {"ok": True, "results": out, "debug": dbg, "adjacency_diag": adj_diag}

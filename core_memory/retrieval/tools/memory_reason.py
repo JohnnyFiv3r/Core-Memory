@@ -336,7 +336,13 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
     if anchor and anchor not in anchors:
         anchors = [anchor] + anchors
 
-    trav = causal_traverse(root_p, anchor_ids=anchors[:8], max_depth=4, max_chains=50)
+    trav = causal_traverse(
+        root_p,
+        anchor_ids=anchors[:8],
+        max_depth=6,
+        max_chains=120,
+        semantic_expansion_hops=2,
+    )
     chains = trav.get("chains") or []
     hydrated = []
     for c in chains:
@@ -377,6 +383,8 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
     else:
         answer = "I remember related context, but I don’t have a grounded decision chain for that yet."
 
+    rr_diag = ((sem.get("debug") or {}).get("first") or {}).get("adjacency_diag") or {}
+    trav_diag = trav.get("assoc_diag") or {}
     out = {
         "ok": True,
         "answer": answer,
@@ -384,6 +392,19 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         "chains": out_chains,
         "citations": citations,
         "reinforced_semantic_edges": used_semantic,
+        "traversal_diag": {
+            "max_hop_depth_reached": max([max(0, len(c.get("path") or []) - 1) for c in (chains or [])] or [0]),
+            "selected_max_hop_depth": max([max(0, len(c.get("path") or []) - 1) for c in (out_chains or [])] or [0]),
+            "selected_structural_neighbors_used": sum(
+                1
+                for c in (out_chains or [])
+                for e in (c.get("edges") or [])
+                if str(e.get("class") or "") == "structural"
+            ),
+            "assoc_edges_total_seen": int(trav_diag.get("assoc_edges_total_seen") or rr_diag.get("assoc_edges_total") or 0),
+            "assoc_edges_after_conf_floor": int(trav_diag.get("assoc_edges_after_conf_floor") or rr_diag.get("assoc_edges_survived_floor") or 0),
+            "assoc_conf_floor": float(trav_diag.get("assoc_conf_floor") or rr_diag.get("assoc_floor") or 0.45),
+        },
     }
     if debug:
         out["retrieval_debug"] = sem
