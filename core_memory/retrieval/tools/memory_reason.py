@@ -289,6 +289,31 @@ def _select_diverse_chains(chains: list[dict], top_n: int = 3, *, tie_seed: str 
     return selected
 
 
+def _decompose_query(query: str) -> list[str]:
+    q = str(query or "").strip()
+    low = q.lower()
+    subs = []
+    if any(k in low for k in ["what sequence", "sequence", "from", "to", "timeline"]):
+        subs.extend([
+            f"key decision in: {q}",
+            f"key blocker in: {q}",
+            f"key outcome in: {q}",
+        ])
+    elif any(k in low for k in ["unresolved", "remaining", "still left", "next steps"]):
+        subs.extend([
+            f"what is completed for: {q}",
+            f"what is blocked for: {q}",
+            f"what is next for: {q}",
+        ])
+    elif any(k in low for k in ["why", "because"]):
+        subs.extend([
+            q,
+            f"constraint and decision for: {q}",
+            f"outcome for: {q}",
+        ])
+    return [s for s in subs if s][:3]
+
+
 def _synthesize_why_answer_from_chains(chains: list[dict]) -> str:
     if not chains:
         return "I remember related context, but I don’t have a grounded decision chain for that yet."
@@ -497,30 +522,62 @@ def _retrieve_ranked(root_p: Path, query: str, k: int, intent_class: str = "reme
 
 
 def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool = False, pinned_bead_ids: list[str] | None = None) -> dict:
-    sem = _retrieve_ranked(root_p, query=query, k=max(1, int(k)), intent_class="causal")
-    if not sem.get("ok"):
-        return {"ok": False, "error": sem.get("error")}
+    subqueries = _decompose_query(query)
+    if not subqueries:
+        subqueries = [query]
 
-    sem_results = sem.get("results") or []
-    anchors = [str(r.get("bead_id") or "") for r in sem_results if r.get("bead_id")]
-    pinned = [str(x) for x in (pinned_bead_ids or []) if str(x)]
-    if pinned:
-        anchors = pinned + [a for a in anchors if a not in set(pinned)]
-    anchor = _choose_anchor(sem_results)
-    if anchor and anchor not in anchors:
-        anchors = [anchor] + anchors
+    all_hydrated = []
+    all_fallback = []
+    all_chains = []
+    all_sem_results = []
+    sem_debug_runs = []
+    anchor = None
+    anchors_for_debug = []
 
-    trav = causal_traverse(
-        root_p,
-        anchor_ids=anchors[:8],
-        max_depth=6,
-        max_chains=120,
-        semantic_expansion_hops=2,
-    )
-    chains = trav.get("chains") or []
+    for sq in subqueries:
+        sem = _retrieve_ranked(root_p, query=sq, k=max(1, int(k)), intent_class="causal")
+        if not sem.get("ok"):
+            continue
+        sem_results = sem.get("results") or []
+        all_sem_results.extend(sem_results)
+        sem_debug_runs.append(sem)
+        anchors = [str(r.get("bead_id") or "") for r in sem_results if r.get("bead_id")]
+        pinned = [str(x) for x in (pinned_bead_ids or []) if str(x)]
+        if pinned:
+            anchors = pinned + [a for a in anchors if a not in set(pinned)]
+        if anchor is None:
+            anchor = _choose_anchor(sem_results)
+        if anchor and anchor not in anchors:
+            anchors = [anchor] + anchors
+        anchors_for_debug.extend(anchors[:8])
 
-    explored_depths = [max(0, len(c.get("path") or []) - 1) for c in chains]
-    explored_stops = [c.get("soft_stop") or {} for c in chains]
+        trav = causal_traverse(
+            root_p,
+            anchor_ids=anchors[:8],
+            max_depth=6,
+            max_chains=120,
+            semantic_expansion_hops=2,
+        )
+        chains = trav.get("chains") or []
+        all_chains.extend(chains)
+
+        for c in chains:
+            beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
+            all_hydrated.append({
+                "score": c.get("score"),
+                "path": c.get("path"),
+                "edges": c.get("edges"),
+                "beads": beads,
+                "semantic_edge_ids": c.get("semantic_edge_ids") or [],
+                "soft_stop": c.get("soft_stop") or {},
+            })
+        all_fallback.extend(_radius1_structural_fallback(store, anchors, limit=3))
+
+    if not all_hydrated:
+        return {"ok": True, "answer": "I remember related context, but I don’t have a grounded decision chain for that yet.", "anchor_bead_id": None, "chains": [], "citations": [], "reinforced_semantic_edges": []}
+
+    explored_depths = [max(0, len(c.get("path") or []) - 1) for c in all_chains]
+    explored_stops = [c.get("soft_stop") or {} for c in all_chains]
     explored_stopped = [s for s in explored_stops if bool(s.get("stopped_early"))]
     stop_hist: dict[int, int] = {}
     for s in explored_stopped:
@@ -533,49 +590,35 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
             continue
         stop_hist[di] = stop_hist.get(di, 0) + 1
 
-    hydrated = []
-    for c in chains:
-        beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
-        hydrated.append({
-            "score": c.get("score"),
-            "path": c.get("path"),
-            "edges": c.get("edges"),
-            "beads": beads,
-            "semantic_edge_ids": c.get("semantic_edge_ids") or [],
-            "soft_stop": c.get("soft_stop") or {},
-        })
-
-    ranked_hydrated = sorted(hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
+    ranked_hydrated = sorted(all_hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
     date_bucket = datetime.utcnow().strftime("%Y-%m-%d")
     tie_seed = f"{query}|{anchor or ''}|{date_bucket}"
     out_chains = _select_diverse_chains(ranked_hydrated, top_n=3, tie_seed=tie_seed)
-    fallback_struct = _radius1_structural_fallback(store, anchors, limit=3)
 
     if not out_chains:
-        out_chains = _select_diverse_chains(sorted(fallback_struct, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3, tie_seed=tie_seed)
+        out_chains = _select_diverse_chains(sorted(all_fallback, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3, tie_seed=tie_seed)
     else:
-        # If selected chains are weak/non-structural, enrich with radius-1 structural fallback.
         allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
         has_struct = any(
             any((str(e.get("class") or "") == "structural") or (str(e.get("rel") or "") in allowed) for e in (c.get("edges") or []))
             for c in out_chains
         )
-        if not has_struct and fallback_struct:
-            merged = list(out_chains) + list(fallback_struct)
+        if not has_struct and all_fallback:
+            merged = list(out_chains) + list(all_fallback)
             merged = sorted(merged, key=lambda c: _chain_why_priority(c), reverse=True)
             out_chains = _select_diverse_chains(merged, top_n=3, tie_seed=tie_seed)
 
     citations, used_semantic = _collect_citations_from_chains(out_chains)
     reinforce_semantic_edges(root_p, used_semantic, alpha=0.15)
 
-    grounded = bool(trav.get("grounded"))
+    grounded = bool(out_chains and any((str(e.get("class") or "") == "structural") for c in out_chains for e in (c.get("edges") or [])))
     if grounded and out_chains:
         answer = _synthesize_why_answer_from_chains(out_chains)
     else:
         answer = "I remember related context, but I don’t have a grounded decision chain for that yet."
 
-    rr_diag = ((sem.get("debug") or {}).get("first") or {}).get("adjacency_diag") or {}
-    trav_diag = trav.get("assoc_diag") or {}
+    rr_diag = {}
+    trav_diag = (causal_traverse(root_p, anchor_ids=list(dict.fromkeys(anchors_for_debug))[:8], max_depth=1, max_chains=1).get("assoc_diag") or {}) if anchors_for_debug else {}
     selected_depths = [max(0, len(c.get("path") or []) - 1) for c in (out_chains or [])]
     out = {
         "ok": True,
@@ -585,7 +628,7 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         "citations": citations,
         "reinforced_semantic_edges": used_semantic,
         "traversal_diag": {
-            "max_hop_depth_reached": max([max(0, len(c.get("path") or []) - 1) for c in (chains or [])] or [0]),
+            "max_hop_depth_reached": max([max(0, len(c.get("path") or []) - 1) for c in (all_chains or [])] or [0]),
             "selected_max_hop_depth": max([max(0, len(c.get("path") or []) - 1) for c in (out_chains or [])] or [0]),
             "selected_structural_neighbors_used": sum(
                 1
@@ -598,16 +641,16 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
             "assoc_edges_total_seen": int(trav_diag.get("assoc_edges_total_seen") or rr_diag.get("assoc_edges_total") or 0),
             "assoc_edges_after_conf_floor": int(trav_diag.get("assoc_edges_after_conf_floor") or rr_diag.get("assoc_edges_survived_floor") or 0),
             "assoc_conf_floor": float(trav_diag.get("assoc_conf_floor") or rr_diag.get("assoc_floor") or 0.45),
-            "explored_total_chains": int(len(chains)),
+            "explored_total_chains": int(len(all_chains)),
             "explored_stopped_early_count": int(len(explored_stopped)),
-            "explored_stopped_early_pct": round((100.0 * len(explored_stopped) / max(1, len(chains))), 2),
+            "explored_stopped_early_pct": round((100.0 * len(explored_stopped) / max(1, len(all_chains))), 2),
             "explored_avg_depth": round((sum(explored_depths) / max(1, len(explored_depths))), 3) if explored_depths else 0.0,
             "selected_avg_depth": round((sum(selected_depths) / max(1, len(selected_depths))), 3) if selected_depths else 0.0,
             "explored_stopped_depth_hist": {str(k): int(v) for k, v in sorted(stop_hist.items())},
         },
     }
     if debug:
-        out["retrieval_debug"] = sem
+        out["retrieval_debug"] = {"subqueries": subqueries, "runs": sem_debug_runs}
     return out
 
 
