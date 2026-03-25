@@ -478,7 +478,14 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
     hydrated = []
     for c in chains:
         beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
-        hydrated.append({"score": c.get("score"), "path": c.get("path"), "edges": c.get("edges"), "beads": beads, "semantic_edge_ids": c.get("semantic_edge_ids") or []})
+        hydrated.append({
+            "score": c.get("score"),
+            "path": c.get("path"),
+            "edges": c.get("edges"),
+            "beads": beads,
+            "semantic_edge_ids": c.get("semantic_edge_ids") or [],
+            "soft_stop": c.get("soft_stop") or {},
+        })
 
     ranked_hydrated = sorted(hydrated, key=lambda c: _chain_why_priority(c), reverse=True)
     out_chains = _select_diverse_chains(ranked_hydrated, top_n=3)
@@ -532,6 +539,8 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
                 for e in (c.get("edges") or [])
                 if str(e.get("class") or "") == "structural"
             ),
+            "selected_stopped_early_count": sum(1 for c in (out_chains or []) if bool((c.get("soft_stop") or {}).get("stopped_early"))),
+            "selected_stop_reasons": sorted({str((c.get("soft_stop") or {}).get("stop_reason") or "") for c in (out_chains or []) if (c.get("soft_stop") or {}).get("stop_reason")}),
             "assoc_edges_total_seen": int(trav_diag.get("assoc_edges_total_seen") or rr_diag.get("assoc_edges_total") or 0),
             "assoc_edges_after_conf_floor": int(trav_diag.get("assoc_edges_after_conf_floor") or rr_diag.get("assoc_edges_survived_floor") or 0),
             "assoc_conf_floor": float(trav_diag.get("assoc_conf_floor") or rr_diag.get("assoc_floor") or 0.45),
