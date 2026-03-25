@@ -62,28 +62,111 @@ def _weighted_coverage(bead: dict, query_tokens: set[str]) -> float:
     return max(0.0, min(1.0, (0.5 * cov_title) + (0.35 * cov_summ) + (0.15 * cov_tags)))
 
 
+def _infer_domain_tags_from_text(text: str) -> set[str]:
+    t = (text or "").lower()
+    tags: set[str] = set()
+    if any(k in t for k in ["core-memory", "bead", "flush", "compaction", "archive", "rolling window", "session_flush", "finalize_and_process_turn", "memory-pass", "retrieval"]):
+        tags.add("core_memory_pipeline")
+    if any(k in t for k in ["disney", "magic kingdom", "genie", "itinerary", "ride", "fantasyland", "tiana", "pirates"]):
+        tags.add("disney_planner")
+    if any(k in t for k in ["cloudflare", "tunnel", "dns", "port", "gateway", "websocket", "18888", "8788", "8080"]):
+        tags.add("infra_network")
+    if any(k in t for k in ["gauntlet", "confidence", "grounding", "rerank", "structural", "semantic", "lexical"]):
+        tags.add("retrieval_quality")
+    if any(k in t for k in ["slice", "plan", "blocked", "unblocked", "complete", "milestone", "next step"]):
+        tags.add("process_management")
+    if not tags:
+        tags.add("unknown")
+    return tags
+
+
+def _infer_query_domain_tags(query: str) -> set[str]:
+    return _infer_domain_tags_from_text(query)
+
+
+def _infer_bead_domain_tags(bead: dict) -> set[str]:
+    text = " ".join([
+        str(bead.get("title") or ""),
+        " ".join(bead.get("summary") or []),
+        " ".join(bead.get("retrieval_facts") or []),
+        " ".join(bead.get("topics") or []),
+        " ".join(bead.get("entities") or []),
+    ])
+    return _infer_domain_tags_from_text(text)
+
+
+def _bridge_pattern_bonus(query: str, bead: dict) -> tuple[float, str]:
+    q = (query or "").lower()
+    btxt = " ".join([
+        str(bead.get("title") or ""),
+        " ".join(bead.get("summary") or []),
+        " ".join(bead.get("retrieval_facts") or []),
+    ]).lower()
+
+    # setup -> ready -> response
+    if any(k in q for k in ["ready", "configured", "ingested", "aligned"]) and any(k in btxt for k in ["ready", "configured", "aligned", "guardrail"]):
+        return 0.18, "setup_ready_response"
+    # diagnose -> fix -> verify
+    if any(k in q for k in ["why", "failed", "error", "pending", "blocked"]) and any(k in btxt for k in ["diagnos", "root cause", "fixed", "resolved", "unblocked", "done"]):
+        return 0.22, "diagnose_fix_verify"
+    # constraint -> substitution
+    if any(k in q for k in ["swap", "replace", "constraint", "height", "requirement"]) and any(k in btxt for k in ["swap", "replace", "height", "requirement", "fallback"]):
+        return 0.16, "constraint_substitution"
+    return 0.0, ""
+
+
 def _load_structural_adjacency(root: Path) -> dict[str, set[str]]:
+    """Load structural adjacency from both bead_graph and index associations.
+
+    This allows semantic-curated associations to contribute to structural grounding.
+    """
+    adj: dict[str, set[str]] = {}
+
+    # 1) bead_graph structural immutable edges
     snap = root / ".beads" / "bead_graph.json"
-    if not snap.exists():
-        return {}
-    try:
-        g = json.loads(snap.read_text(encoding="utf-8"))
-        edge_head = g.get("edge_head") or {}
-        adj: dict[str, set[str]] = {}
-        for e in edge_head.values():
-            if str(e.get("class") or "") != "structural":
-                continue
-            if not bool(e.get("immutable", False)):
-                continue
-            s = str(e.get("src_id") or "")
-            d = str(e.get("dst_id") or "")
-            if not s or not d:
-                continue
-            adj.setdefault(s, set()).add(d)
-            adj.setdefault(d, set()).add(s)
-        return adj
-    except Exception:
-        return {}
+    if snap.exists():
+        try:
+            g = json.loads(snap.read_text(encoding="utf-8"))
+            edge_head = g.get("edge_head") or {}
+            for e in edge_head.values():
+                if str(e.get("class") or "") != "structural":
+                    continue
+                if not bool(e.get("immutable", False)):
+                    continue
+                s = str(e.get("src_id") or "")
+                d = str(e.get("dst_id") or "")
+                if not s or not d:
+                    continue
+                adj.setdefault(s, set()).add(d)
+                adj.setdefault(d, set()).add(s)
+        except Exception:
+            pass
+
+    # 2) index associations (semantic/imported/open-eval edges)
+    idx_file = root / ".beads" / "index.json"
+    if idx_file.exists():
+        try:
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            for a in (idx.get("associations") or []):
+                if not isinstance(a, dict):
+                    continue
+                s = str(a.get("source_bead") or a.get("source_bead_id") or "")
+                d = str(a.get("target_bead") or a.get("target_bead_id") or "")
+                if not s or not d:
+                    continue
+                # confidence gate to avoid very weak noisy links
+                try:
+                    conf = float(a.get("confidence") if a.get("confidence") is not None else 0.0)
+                except Exception:
+                    conf = 0.0
+                if conf < 0.45:
+                    continue
+                adj.setdefault(s, set()).add(d)
+                adj.setdefault(d, set()).add(s)
+        except Exception:
+            pass
+
+    return adj
 
 
 def _chain_features(beads: dict, center_id: str, adj: dict[str, set[str]]) -> dict:
@@ -139,6 +222,8 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
     w_cov = float(ow.get("W_COVERAGE", W_COVERAGE))
     w_inc = float(ow.get("W_INCIDENT", W_INCIDENT))
 
+    q_domains = _infer_query_domain_tags(query)
+
     out = []
     dbg = []
     for c in candidates:
@@ -150,10 +235,21 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
         low_info = _low_info_score(bead)
         incident_strength = incident_match_strength(query, str(bead.get("incident_id") or ""), root)
 
+        # Domain alignment (soft): never hard-filter mismatches.
+        b_domains = _infer_bead_domain_tags(bead)
+        overlap_domains = sorted(list(q_domains.intersection(b_domains)))
+        domain_alignment_score = 1.0 if overlap_domains else 0.0
+        domain_penalty = 0.12 if not overlap_domains else 0.0
+
+        # Bridge attempt for cross-domain matches.
+        bridge_bonus, bridge_pattern = (0.0, "")
+        if not overlap_domains:
+            bridge_bonus, bridge_pattern = _bridge_pattern_bonus(query, bead)
+
         structural_quality = (ch["chain_has_decision"] + ch["chain_has_evidence"] + ch["chain_has_outcome"]) / 3.0
         edge_support = (0.5 * ch["has_grounding_structural_edge"]) + (0.5 * (ch["structural_edge_count_clipped"] / 3.0))
         superseded_penalty = 1.0 if (ch["is_superseded"] == 1 and ch["has_active_chain_support"] == 0) else 0.0
-        penalties = (0.6 * low_info) + (0.4 * superseded_penalty)
+        penalties = (0.6 * low_info) + (0.4 * superseded_penalty) + domain_penalty
 
         fused = float(c.get("fused_score") or 0.0)
         score = (
@@ -162,6 +258,8 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
             + (edge_support * w_edge)
             + (coverage * w_cov)
             + (incident_strength * w_inc)
+            + (0.08 * domain_alignment_score)
+            + bridge_bonus
             - (penalties * W_PENALTY)
         )
         score = max(0.0, min(1.0, float(score)))
@@ -171,6 +269,12 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
             "query_term_coverage": round(coverage, 4),
             "low_info_score": round(low_info, 4),
             "incident_match_strength": round(incident_strength, 4),
+            "query_domains": sorted(list(q_domains)),
+            "bead_domains": sorted(list(b_domains)),
+            "domain_overlap": overlap_domains,
+            "domain_alignment_score": round(domain_alignment_score, 4),
+            "bridge_pattern": bridge_pattern,
+            "bridge_bonus": round(bridge_bonus, 4),
         }
 
         c2 = dict(c)
@@ -182,6 +286,8 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
             "edge_support": round(edge_support, 4),
             "penalties": round(penalties, 4),
             "superseded_penalty": round(superseded_penalty, 4),
+            "domain_alignment": "direct" if overlap_domains else ("bridged" if bridge_pattern else "weak"),
+            "bridge_rationale": bridge_pattern,
             "weights": {
                 "W_FUSED": W_FUSED,
                 "W_STRUCTURAL": w_structural,

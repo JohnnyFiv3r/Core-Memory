@@ -295,7 +295,13 @@ def apply_crawler_updates(
             for r in read_session_surface(root, session_id)
             if str((r or {}).get("id") or "")
         }
-        allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
+        association_scope = str((updates or {}).get("association_scope") or "").strip().lower()
+        # default: keep target scope to visible set for turn-time safety
+        # enrichment mode: allow wider session-historical linking
+        if association_scope == "historical_session":
+            allowed_targets = set(session_bead_ids)
+        else:
+            allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
 
         promotions, assoc_rows = _normalize_review_rows(updates or {})
         now = datetime.now(timezone.utc).isoformat()
