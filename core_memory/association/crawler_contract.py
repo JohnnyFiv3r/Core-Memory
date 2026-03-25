@@ -61,11 +61,13 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
         summary = [str(x).strip() for x in summary if str(x).strip()][:5]
         if not summary:
             continue
+        because = [str(x).strip() for x in (r.get("because") or []) if str(x).strip()][:5]
         out.append(
             {
                 "type": typ,
                 "title": title[:200],
                 "summary": summary,
+                "because": because,
                 "tags": [str(x) for x in (r.get("tags") or []) if str(x)][:10],
                 "detail": str(r.get("detail") or "")[:1200],
                 "source_turn_ids": [str(x) for x in (r.get("source_turn_ids") or []) if str(x)][:5],
@@ -218,6 +220,7 @@ def apply_crawler_updates(
                 type=str(row.get("type") or "context"),
                 title=str(row.get("title") or "Turn memory"),
                 summary=list(row.get("summary") or []),
+                because=list(row.get("because") or []),
                 session_id=str(session_id),
                 source_turn_ids=list(row.get("source_turn_ids") or []),
                 tags=list(row.get("tags") or []),

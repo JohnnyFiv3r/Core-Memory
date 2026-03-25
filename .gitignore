@@ -29,3 +29,9 @@ promoted-context.md
 # Local Python env/build artifacts
 .venv/
 *.egg-info/
+
+# Environment secrets
+.env
+
+# Demo runtime store
+demo/memory_store/

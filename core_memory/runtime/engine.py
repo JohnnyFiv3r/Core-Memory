@@ -7,7 +7,8 @@ from pathlib import Path
 from typing import Any
 
 from .live_session import read_live_session_beads
-from ..association.crawler_contract import build_crawler_context, merge_crawler_updates_for_flush
+from datetime import datetime, timezone
+from ..association.crawler_contract import build_crawler_context, merge_crawler_updates_for_flush, _crawler_updates_log_path
 from .association_pass import run_association_pass
 from ..write_pipeline.continuity_injection import load_continuity_injection
 from .state import get_memory_pass, mark_memory_pass, try_claim_memory_pass
@@ -82,19 +83,22 @@ def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
 
 
 def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
-    title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
-    summary = (req.get("assistant_final") or req.get("user_query") or "").strip()
-    if not summary:
-        summary = "turn memory"
+    user_query = str(req.get("user_query") or "").strip()
+    assistant_final = str(req.get("assistant_final") or "").strip()
+    title = (user_query or assistant_final or "Turn memory").splitlines()[0][:160]
+    summary = (user_query or assistant_final or "turn memory")
+    # Extract a "because" reason from the user query for promotion quality gate
+    because = [user_query[:240]] if user_query else []
     return {
         "beads_create": [
             {
-                "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
+                "type": _infer_semantic_bead_type(user_query, assistant_final),
                 "title": title or "Turn memory",
                 "summary": [summary[:240]],
+                "because": because,
                 "source_turn_ids": [str(req.get("turn_id") or "")],
                 "tags": ["crawler_reviewed", "turn_finalized"],
-                "detail": summary[:1200],
+                "detail": assistant_final[:1200] if assistant_final else summary[:1200],
             }
         ]
     }
@@ -117,21 +121,79 @@ def _ensure_turn_creation_update(req: dict[str, Any], updates: dict[str, Any]) -
             break
 
     if not has_turn:
-        title = (req.get("assistant_final") or req.get("user_query") or "Turn memory").strip().splitlines()[0][:160]
-        summary = (req.get("assistant_final") or req.get("user_query") or "").strip() or "turn memory"
+        user_query = str(req.get("user_query") or "").strip()
+        assistant_final = str(req.get("assistant_final") or "").strip()
+        title = (user_query or assistant_final or "Turn memory").splitlines()[0][:160]
+        summary = (user_query or assistant_final or "turn memory")
+        because = [user_query[:240]] if user_query else []
         rows.append(
             {
-                "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
+                "type": _infer_semantic_bead_type(user_query, assistant_final),
                 "title": title or "Turn memory",
                 "summary": [summary[:240]],
+                "because": because,
                 "source_turn_ids": [turn_id],
                 "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine"],
-                "detail": summary[:1200],
+                "detail": assistant_final[:1200] if assistant_final else summary[:1200],
             }
         )
 
     out[key] = rows
     return out
+
+
+def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: list[str]) -> int:
+    """Promote association_preview candidates from newly created beads to the side log.
+
+    Reads the index for session beads that have association_preview entries,
+    and queues them as association_append entries so they commit at flush.
+    """
+    store = MemoryStore(root=root)
+    idx = store._read_json(Path(root) / ".beads" / "index.json")
+    beads = idx.get("beads") or {}
+    visible = set(visible_bead_ids)
+    log_path = _crawler_updates_log_path(root, session_id)
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Collect existing association keys to avoid duplicates
+    existing_keys: set[tuple[str, str]] = set()
+    for a in (idx.get("associations") or []):
+        src = str(a.get("source_bead") or "")
+        tgt = str(a.get("target_bead") or "")
+        if src and tgt:
+            existing_keys.add((src, tgt))
+
+    queued = 0
+    for bid, bead in beads.items():
+        if str(bead.get("session_id") or "") != session_id:
+            continue
+        previews = bead.get("association_preview") or []
+        for preview in previews:
+            target_id = str(preview.get("bead_id") or "")
+            if not target_id or target_id not in beads:
+                continue
+            if (bid, target_id) in existing_keys or (target_id, bid) in existing_keys:
+                continue
+            rel = str(preview.get("relationship") or "related_to")
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "association_append",
+                    "session_id": session_id,
+                    "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
+                    "source_bead": bid,
+                    "target_bead": target_id,
+                    "relationship": rel,
+                    "edge_class": "preview_promoted",
+                    "confidence": preview.get("score", 0),
+                    "created_at": now,
+                },
+            )
+            existing_keys.add((bid, target_id))
+            queued += 1
+
+    return queued
 
 
 def process_turn_finalized(
@@ -275,6 +337,15 @@ def process_turn_finalized(
         updates=reviewed_updates,
         visible_bead_ids=visible_ids,
     )
+
+    # Recompute visible IDs after association pass created new beads.
+    session_visible_after = _session_visible_bead_ids(root=root, session_id=req["session_id"])
+    visible_ids = sorted(set(crawler_visible + session_visible_after))
+
+    # Infer associations from store's association_preview candidates.
+    # The store writes preview candidates when a bead is created; promote
+    # them to queued associations so they commit at flush.
+    _queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
 
     # Canonical per-turn state decision pass for all visible session beads.
     decision_pass = run_session_decision_pass(
