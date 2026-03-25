@@ -3,13 +3,6 @@
 </p>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/dependencies-zero-22c55e?style=for-the-badge" alt="Zero Dependencies">
-  <img src="https://img.shields.io/badge/recall-deterministic-3b82f6?style=for-the-badge" alt="Deterministic Recall">
-  <img src="https://img.shields.io/badge/store-append--only-a855f7?style=for-the-badge" alt="Append-Only Store">
-  <img src="https://img.shields.io/badge/edges-causal_graph-f97316?style=for-the-badge" alt="Causal Graph Edges">
-</p>
-
-<p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
   <a href="#"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
 </p>
