@@ -518,6 +518,21 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
         semantic_expansion_hops=2,
     )
     chains = trav.get("chains") or []
+
+    explored_depths = [max(0, len(c.get("path") or []) - 1) for c in chains]
+    explored_stops = [c.get("soft_stop") or {} for c in chains]
+    explored_stopped = [s for s in explored_stops if bool(s.get("stopped_early"))]
+    stop_hist: dict[int, int] = {}
+    for s in explored_stopped:
+        d = s.get("stop_depth")
+        if d is None:
+            continue
+        try:
+            di = int(d)
+        except Exception:
+            continue
+        stop_hist[di] = stop_hist.get(di, 0) + 1
+
     hydrated = []
     for c in chains:
         beads = [_hydrate_bead(store, str(bid)) for bid in (c.get("path") or [])]
@@ -561,6 +576,7 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
 
     rr_diag = ((sem.get("debug") or {}).get("first") or {}).get("adjacency_diag") or {}
     trav_diag = trav.get("assoc_diag") or {}
+    selected_depths = [max(0, len(c.get("path") or []) - 1) for c in (out_chains or [])]
     out = {
         "ok": True,
         "answer": answer,
@@ -582,6 +598,12 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
             "assoc_edges_total_seen": int(trav_diag.get("assoc_edges_total_seen") or rr_diag.get("assoc_edges_total") or 0),
             "assoc_edges_after_conf_floor": int(trav_diag.get("assoc_edges_after_conf_floor") or rr_diag.get("assoc_edges_survived_floor") or 0),
             "assoc_conf_floor": float(trav_diag.get("assoc_conf_floor") or rr_diag.get("assoc_floor") or 0.45),
+            "explored_total_chains": int(len(chains)),
+            "explored_stopped_early_count": int(len(explored_stopped)),
+            "explored_stopped_early_pct": round((100.0 * len(explored_stopped) / max(1, len(chains))), 2),
+            "explored_avg_depth": round((sum(explored_depths) / max(1, len(explored_depths))), 3) if explored_depths else 0.0,
+            "selected_avg_depth": round((sum(selected_depths) / max(1, len(selected_depths))), 3) if selected_depths else 0.0,
+            "explored_stopped_depth_hist": {str(k): int(v) for k, v in sorted(stop_hist.items())},
         },
     }
     if debug:
