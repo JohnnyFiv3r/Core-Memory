@@ -12,7 +12,7 @@ const plugin = {
     const cfg = {
       pythonBin: cfgIn?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
       coreMemoryRoot: cfgIn?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
-      coreMemoryRepo: cfgIn?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || "/home/node/.openclaw/workspace/Core-Memory",
+      coreMemoryRepo: cfgIn?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || process.cwd(),
       enableAgentEnd: cfgIn?.enableAgentEnd !== false,
       enableCompactionFlush: cfgIn?.enableCompactionFlush === true,
     };
