@@ -24,12 +24,15 @@ const plugin = {
     };
     debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} enableAgentEnd=${cfg.enableAgentEnd} enableCompactionFlush=${cfg.enableCompactionFlush}`);
 
-    const runBridge = (moduleName, payload) =>
+    const runBridge = (moduleName, payload, opts = {}) =>
       new Promise((resolve) => {
+        const timeoutMs = Number(opts?.timeoutMs) > 0 ? Number(opts.timeoutMs) : 12000;
         let settled = false;
+        let timeoutHandle = null;
         const done = (result) => {
           if (settled) return;
           settled = true;
+          if (timeoutHandle) clearTimeout(timeoutHandle);
           resolve(result);
         };
 
@@ -41,6 +44,13 @@ const plugin = {
 
         let stdout = "";
         let stderr = "";
+
+        timeoutHandle = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {}
+          done({ code: -1, parsed: { ok: false, error: `bridge_timeout:${moduleName}:${timeoutMs}` }, stderr });
+        }, timeoutMs);
 
         child.stdout.on("data", (d) => {
           stdout += String(d || "");
