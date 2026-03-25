@@ -1,291 +1,192 @@
 <p align="center">
-  <img src="docs/assets/core-memory-banner.png" alt="Core Memory" width="100%" />
+  <img src="docs/assets/core-memory-hero-banner.jpg" alt="Core Memory" width="100%" />
 </p>
 
-Core Memory is a deterministic memory layer for agents. It stores structured memory events ("beads") and explicit links so recall stays inspectable and repeatable across context resets.
+<p align="center">
+  <img src="https://img.shields.io/badge/dependencies-zero-22c55e?style=for-the-badge" alt="Zero Dependencies">
+  <img src="https://img.shields.io/badge/recall-deterministic-3b82f6?style=for-the-badge" alt="Deterministic Recall">
+  <img src="https://img.shields.io/badge/store-append--only-a855f7?style=for-the-badge" alt="Append-Only Store">
+  <img src="https://img.shields.io/badge/edges-causal_graph-f97316?style=for-the-badge" alt="Causal Graph Edges">
+</p>
 
-- Documentation index: `docs/index.md`
-- OSS quick-start docs: `docs/architecture_overview.md`, `docs/public_surface.md`
-- Canonical surfaces: `docs/canonical_surfaces.md`
+<p align="center">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="MIT License"></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
+</p>
 
----
+<p align="center">
+  <b>Causal memory for AI agents.</b><br>
+  Structured event storage with deterministic, debuggable recall — so agents remember <i>why</i>, not just <i>what</i>.
+</p>
 
-## Why Core Memory Exists
-
-Most memory approaches fail for different reasons:
-
-| Approach | Problem |
-|---|---|
-| Chat log replay | Context grows uncontrollably |
-| Vector memory | Non-deterministic recall |
-| Tool logs | No causal reasoning |
-
-Core Memory stores explicit causal memory events (**beads**) and relationships so retrieval is deterministic and debuggable.
-
-Typical bead types include:
-- `lesson`
-- `decision`
-- `outcome`
-- `hypothesis`
-- `association`
+<p align="center">
+  <a href="#quick-start">Quick Start</a> · <a href="docs/architecture_overview.md">Architecture</a> · <a href="docs/public_surface.md">API Surface</a> · <a href="#contributing">Contributing</a>
+</p>
 
 ---
 
-## Quick Example
+## What is Core Memory?
+
+Most agent memory systems store *what happened*. Core Memory stores **why it happened**.
+
+It records structured memory events called **beads** — decisions, lessons, outcomes, evidence, context — and the causal links between them. When an agent asks "why did we change strategy?", Core Memory retrieves a decision chain, not just keyword matches.
+
+**How it's different:**
+
+| Approach | Failure Mode | Core Memory |
+|---|---|---|
+| Chat log replay | Context window explodes | Bounded rolling window with compaction |
+| Vector similarity | "Similar" ≠ "relevant" | Typed causal edges + hybrid retrieval |
+| Tool call logs | No reasoning structure | Explicit bead → bead associations |
+
+**Zero required runtime dependencies for core local flow.** Pure Python. Optional extras exist for HTTP/dev workflows.
+
+---
+
+## Quick Start
+
+Install from source:
+
+```bash
+git clone https://github.com/JohnnyFiv3r/Core-Memory.git
+cd Core-Memory
+pip install -e .
+```
+
+If/when published on PyPI, you can also install via:
+
+```bash
+pip install core-memory
+```
+
+### Write and recall a causal chain
 
 ```python
-from core_memory import MemoryStore
+from core_memory import MemoryStore, BeadType
 
-memory = MemoryStore(".")
-memory.add_bead(type="lesson", title="Redis timeouts under high load", summary=["Worker count exceeded Redis connection pool"])
-memory.add_bead(type="outcome", title="Increased Redis connection pool", summary=["Raising max connections resolved timeouts"])
+store = MemoryStore("./memory")
 
-packet = memory.query(limit=5)
-print("Relevant Memory")
+store.add_bead(
+    type=BeadType.LESSON,
+    title="Redis timeouts under high load",
+    summary=["Worker count exceeded connection pool limit"],
+)
+store.add_bead(
+    type=BeadType.DECISION,
+    title="Increased Redis max connections to 200",
+    summary=["Pool exhaustion was root cause", "Resolved P1 incident"],
+)
+
+packet = store.query(limit=5)
 for bead in packet:
-    print(f"- [{bead['type']}] {bead['title']}")
+    print(f"  [{bead['type']}] {bead['title']}")
 ```
-
-Example output:
 
 ```text
-Relevant Memory
-- [lesson] Redis timeouts under high load
-- [outcome] Increased Redis connection pool
+  [lesson] Redis timeouts under high load
+  [decision] Increased Redis max connections to 200
 ```
+
+---
+
+## How It Works
+
+<p align="center">
+  <img src="docs/assets/core-memory-architecture-new.png" alt="Core Memory Architecture — Retrieval and Write sides" width="100%" />
+</p>
+
+Core Memory separates **retrieval** from **writes**, connected through session-scoped bead storage. Each agent turn follows the same loop:
+
+1. **Inject** — bounded context packet is built from store
+2. **Execute** — agent runs turn
+3. **Extract** — structured events captured as beads
+4. **Store** — append-only session log write
+5. **Compact** — peripheral beads degrade to compact form, promoted beads preserved
+6. **Repeat**
 
 ---
 
 ## Core Concepts
 
-### Bead
-A bead is a structured memory event.
+### Beads
+A bead is a structured memory event — the atomic unit of recall.
 
-Example:
-```text
-Type: lesson
-Title: Redis pool exhaustion
-Summary: Worker count exceeded connection pool limit
-```
+### Associations
+Associations are explicit links between beads and remain queryable as memory compacts.
 
-### Association
-An association links beads with explicit causality or relationship.
+### Retrieval Pipeline
+Core Memory uses hybrid retrieval:
+- field-weighted lexical search
+- semantic retrieval (when available)
+- score fusion
+- structural rerank with causal traversal
 
-Example:
-```text
-lesson -> outcome
-Redis pool exhaustion -> Increased Redis connection pool
-```
-
-### Context Packet
-A context packet is the bounded set of recalled beads prepared for prompt injection.
-
-Example:
-```text
-Relevant Memory
-- Redis pool exhaustion caused timeouts previously
-- Increasing max connections resolved the issue
-```
-
-### Compaction
-Compaction preserves durable history while shrinking prompt-facing detail.
-
-Example:
-```text
-Before: full incident narrative + logs
-After: compact summary + causal links retained
-```
-
-Core Memory operates over the lifecycle of an agent session.
-
-### Session Lifecycle
-Rather than treating memory as a static retrieval system, the store evolves as the agent interacts with the environment.
-
-A session follows a simple loop:
-- Inject a bounded memory window into the prompt
-- Execute an agent turn
-- Extract memory events ("beads")
-- Append events to the memory log
-- Run compaction and promotion
-- Build the next memory window
-
-This loop repeats for every turn in the session.
-
-#### Session Start
-When a session begins, Core Memory constructs an initial context packet from the memory store. The packet is bounded to a fixed token budget (typically ~10k tokens).
-
-This packet contains:
-- recently relevant beads
-- promoted long-term memory
-- causal associations between related events
-
-This packet is injected into the system prompt before the first agent turn.
-
-#### During a Turn
-While the agent interacts with the user or tools, Core Memory captures structured events from the interaction. These events are recorded as beads, which represent meaningful memory units such as:
-- lessons learned
-- decisions made
-- outcomes of actions
-- hypotheses or observations
-
-The event ingress/runtime path captures finalized-turn events at turn end and appends structured records to memory. Memory storage is append-only, meaning the full history of events is preserved.
-
-#### Compaction
-After each turn, Core Memory runs a compaction step. Compaction ensures the context packet remains bounded while preserving important knowledge.
-
-Peripheral or low-signal beads gradually degrade to a minimal representation containing:
-- bead type
-- title
-- causal associations
-
-This allows the system to retain structural knowledge while reducing token usage. Important beads remain intact.
-
-#### Promotion
-Some beads become promoted memory. Promotion indicates that a memory event is considered load-bearing context for future reasoning.
-
-Promoted beads are preserved with full detail during compaction and remain visible in future context packets. Promotion decisions are typically made by the agent itself based on system prompt instructions.
-
-For example, an agent may promote:
-- important lessons
-- stable system behavior
-- resolved incidents
-- persistent constraints
-
-Promotion allows Core Memory to distinguish between:
-- transient conversational context
-- durable knowledge
-
-#### Bead Query Tool
-In addition to automatic recall through context packets, agents can directly query the memory store. The bead query tool allows the agent to retrieve specific memory events based on:
-- bead type
-- status (promoted, archived, etc.)
-- scope (session, project, global)
-
-This enables explicit reasoning over prior events.
-
-For example, an agent may query:
-- retrieve promoted lessons about database failures
-- retrieve recent outcomes related to deployment incidents
-
-The tool returns structured bead data that the agent can use for reasoning, planning, or explanation. This mechanism complements automatic memory injection and provides a deterministic interface to long-term memory.
-
-#### Memory Budget
-Core Memory uses a bounded token budget for injected memory (typically ~10k tokens). This constraint ensures that prompt context remains predictable and stable regardless of how long the system runs.
-
-As new beads are appended to the memory log:
-- recent events enter the context window
-- older events gradually compact
-- promoted memory remains preserved
-
-This creates a natural rolling memory window where important knowledge persists while low-signal context fades over time. No explicit TTL or expiration logic is required.
-
-#### Why This Matters
-Most agent memory systems rely on:
-- raw conversation replay
-- vector similarity retrieval
-
-Both approaches make it difficult to reason about what knowledge persists over time.
-
-Core Memory instead treats memory as a structured causal history. The system evolves as the agent interacts with the environment, preserving important knowledge while maintaining a bounded prompt context.
-
----
-
-## Concepts and Behavior
-
-- **Store is durable and lock-protected**.
-- **Recall is deterministic** from indexed state.
-- **Compaction is lossless to archive, lossy to prompt render**.
-- **Causal links remain queryable for audit/debugging**.
-
----
-
-## Install
-
-```bash
-python3 -m venv .venv
-.venv/bin/python -m pip install -e .
-```
-
-Configure store root:
-
-```bash
-export CORE_MEMORY_ROOT="$PWD/memory"
-```
-
-### OpenClaw bridge (hardened install)
-
-For OSS/local setups, use the idempotent scripts:
-
-```bash
-./scripts/openclaw_bridge_install.sh
-./scripts/openclaw_bridge_doctor.sh
-```
-
-Installer guarantees:
-- plugin reinstall from local source
-- stale `plugins.entries.core-memory-bridge` cleanup
-- `plugins.allow` includes `core-memory-bridge`
-- ownership/perms normalization attempt on extension path
-
-Doctor checks:
-- plugin listed
-- blocked/stale warnings absent in recent logs
-- bridge hook log exists
-- Core Memory event files exist/tailing
+Retrieval is deterministic from indexed state.
 
 ---
 
 ## Integrations
 
-Wave 1 adapters are thin wrappers over one stable port:
+Canonical ingress port:
 
-- `core_memory.integrations.api.emit_turn_finalized(...)`
+```python
+from core_memory.integrations.api import emit_turn_finalized
+```
 
-Current launch integrations:
+Framework adapters:
 - OpenClaw (bridge)
-- PydanticAI (native)
-- SpringAI (native HTTP ingress)
+- PydanticAI (native adapter)
+- SpringAI (HTTP ingress)
 
-OpenClaw onboarding:
-- `core-memory openclaw onboard` (coexist with memory-core)
-- `core-memory openclaw onboard --replace-memory-core` (disable stock memory-core)
-
-Privacy modes:
-- `store_full_text=true`: store inline assistant text
-- `store_full_text=false`: store `assistant_final_ref` + hashes
-
-Retrieval model:
-- Rolling window injection for bounded, always-on context
-- Deep recall path (`retrieve-context`) can search full history and bounded-uncompact archived beads when memory intent is detected
+See [`examples/pydanticai_basic.py`](examples/pydanticai_basic.py).
 
 ---
 
-## Roadmap
+## Repo Map
 
-- Association inference
-- Memory compaction strategies
-- Graph-based storage backends
-- Multi-agent shared memory
-- Framework integrations (OpenClaw, PydanticAI, SpringAI)
+```
+core_memory/
+├── persistence/
+├── schema/
+├── retrieval/
+├── graph/
+├── write_pipeline/
+├── runtime/
+├── association/
+├── integrations/
+├── policy/
+└── cli.py
+```
 
-Core Memory is intentionally early-stage and open to experimentation.
-
-See also:
-- [Graph retrieval architecture](docs/graph_memory.md)
+- `examples/` runnable demos
+- `tests/` behavioral + regression tests
+- `docs/` architecture/contracts/specs
+- `scripts/` setup + diagnostics
 
 ---
 
 ## Contributing
 
-See:
+```bash
+git clone https://github.com/JohnnyFiv3r/Core-Memory.git
+cd Core-Memory
+pip install -e ".[dev]"
+pytest
+```
+
 - [CONTRIBUTING.md](CONTRIBUTING.md)
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
-- [LICENSE](LICENSE)
+- [docs/public_surface.md](docs/public_surface.md)
+- [docs/index.md](docs/index.md)
 
 ---
 
 ## Inspiration
 
-The concept of "beads" as small units of causal memory was inspired in part by Steve Yegge’s writing on software architecture and memory systems. This project explores a different application of that idea in the context of AI agents and deterministic prompt memory.
+Inspired in part by Steve Yegge’s writing on beads/memory systems:
+https://github.com/steveyegge/beads
 
-You can find his work at https://github.com/steveyegge/beads
+---
+
+<p align="center">
+  <a href="LICENSE">MIT License</a> · <a href="CODE_OF_CONDUCT.md">Code of Conduct</a> · <a href="CHANGELOG.md">Changelog</a>
+</p>

@@ -1764,6 +1764,39 @@ class MemoryStore:
         from ..association import run_association_pass
 
         return run_association_pass(index, bead, max_lookback=max_lookback, top_k=top_k)
+
+    def _norm_text(self, s: str) -> str:
+        return " ".join(re.findall(r"[a-z0-9]+", str(s or "").lower()))
+
+    def _bead_similarity(self, a: dict, b: dict) -> float:
+        ta = self._norm_text((a.get("title") or "") + " " + " ".join(a.get("summary") or []))
+        tb = self._norm_text((b.get("title") or "") + " " + " ".join(b.get("summary") or []))
+        sa = set(ta.split())
+        sb = set(tb.split())
+        if not sa or not sb:
+            return 0.0
+        inter = len(sa.intersection(sb))
+        union = len(sa.union(sb))
+        return float(inter) / float(max(1, union))
+
+    def _find_recent_duplicate_bead_id(self, index: dict, bead: dict, session_id: str | None, window: int = 25) -> str | None:
+        beads = list((index.get("beads") or {}).values())
+        if session_id:
+            beads = [b for b in beads if str((b or {}).get("session_id") or "") == str(session_id)]
+        beads = sorted(beads, key=lambda b: str((b or {}).get("created_at") or ""), reverse=True)[: max(1, int(window))]
+
+        for prior in beads:
+            if str(prior.get("type") or "") != str(bead.get("type") or ""):
+                continue
+            # exact turn duplicate
+            a_turns = set([str(x) for x in (bead.get("source_turn_ids") or []) if str(x)])
+            p_turns = set([str(x) for x in (prior.get("source_turn_ids") or []) if str(x)])
+            if a_turns and p_turns and a_turns.intersection(p_turns):
+                return str(prior.get("id") or "") or None
+            sim = self._bead_similarity(bead, prior)
+            if sim >= 0.9:
+                return str(prior.get("id") or "") or None
+        return None
     
     # === Core API ===
     
@@ -1864,6 +1897,19 @@ class MemoryStore:
         unjustified_flips = 0
 
         with store_lock(self.root):
+            index_file = self.beads_dir / INDEX_FILE
+            index = self._read_json(index_file)
+
+            # Write-time duplicate suppression (same-session, recent window).
+            # Keeps corpus signal dense and avoids duplicate-shape beads.
+            try:
+                dedup_window = max(1, int(os.environ.get("CORE_MEMORY_WRITE_DEDUP_WINDOW", "25")))
+            except ValueError:
+                dedup_window = 25
+            dup_id = self._find_recent_duplicate_bead_id(index, bead, session_id=session_id, window=dedup_window)
+            if dup_id:
+                return dup_id
+
             # Write to session archive first (durability/rebuild source)
             if session_id:
                 bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
@@ -1872,8 +1918,6 @@ class MemoryStore:
             append_jsonl(bead_file, bead)
 
             # Update index after durable archive write
-            index_file = self.beads_dir / INDEX_FILE
-            index = self._read_json(index_file)
 
             if bead.get("type") == "failed_hypothesis" and bead.get("failure_signature"):
                 sig = bead.get("failure_signature")

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -97,11 +98,59 @@ def _latest_session_bead_id(root: str, session_id: str) -> str | None:
     return latest
 
 
+def _build_narrative_fields(user_query: str, assistant_final: str) -> tuple[str, list[str], str]:
+    uq = str(user_query or "").strip()
+    af = str(assistant_final or "").strip()
+    detail = (af or uq or "").strip()[:1200]
+
+    # Build compact sentence candidates.
+    sentences = [s.strip() for s in re.split(r"[\n\.!?]+", detail) if s.strip()]
+    first = (sentences[0] if sentences else (af or uq or "assistant turn")).strip()
+
+    # Prefer causal headline when available.
+    causal_cues = ["because", "due to", "so that", "to avoid", "therefore", "which enabled", "enabled", "caused", "blocked", "unblocked", "refined"]
+    causal_line = ""
+    for s in sentences[:6]:
+        low = s.lower()
+        if any(c in low for c in causal_cues):
+            causal_line = s
+            break
+
+    title_src = causal_line or first
+    title_src = re.sub(r"^\s*\*+\s*", "", title_src)
+    title = title_src[:160] if title_src else "assistant turn"
+
+    summary: list[str] = []
+    if first:
+        summary.append(first[:220])  # what changed / decision
+    if causal_line and causal_line != first:
+        summary.append(causal_line[:220])  # why
+    # outcome/impact hint
+    for s in sentences[1:8]:
+        low = s.lower()
+        if any(k in low for k in ["result", "outcome", "completed", "resolved", "now", "ready", "shipped", "verified"]):
+            if s[:220] not in summary:
+                summary.append(s[:220])
+            break
+    if not summary and detail:
+        summary = [detail[:220]]
+
+    # Keep compact + deterministic
+    deduped: list[str] = []
+    seen = set()
+    for s in summary:
+        k = s.strip().lower()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        deduped.append(s.strip())
+    return title, deduped[:3], detail
+
+
 def _default_crawler_updates(root: str, req: dict[str, Any]) -> dict[str, Any]:
     user_query = str(req.get("user_query") or "")
     assistant_final = str(req.get("assistant_final") or "")
-    title = (assistant_final or user_query or "assistant turn").strip().splitlines()[0][:160]
-    detail = (assistant_final or user_query or "").strip()[:1200]
+    title, summary, detail = _build_narrative_fields(user_query, assistant_final)
 
     # Thin-by-default for runtime/meta chatter; richer turns can be upgraded by crawler/hygiene.
     retrieval_eligible = not is_runtime_meta_chatter(user_query=user_query, assistant_final=assistant_final)
@@ -109,15 +158,15 @@ def _default_crawler_updates(root: str, req: dict[str, Any]) -> dict[str, Any]:
     row = {
         "type": _infer_semantic_bead_type(user_query, assistant_final),
         "title": title or "assistant turn",
-        "summary": [],  # optional by contract
+        "summary": summary,
         "source_turn_ids": [str(req.get("turn_id") or "")],
         "turn_index": int((req.get("metadata") or {}).get("turn_index") or 0) or None,
         "prev_bead_id": _latest_session_bead_id(root=root, session_id=str(req.get("session_id") or "")),
-        "tags": ["crawler_reviewed", "turn_finalized"],
+        "tags": ["crawler_reviewed", "turn_finalized", "narrative_essence"],
         "detail": detail,
         "retrieval_eligible": bool(retrieval_eligible),
         "retrieval_title": (title[:160] if retrieval_eligible else None),
-        "retrieval_facts": ([detail[:240]] if retrieval_eligible and detail else []),
+        "retrieval_facts": (summary[:2] if retrieval_eligible and summary else ([detail[:240]] if retrieval_eligible and detail else [])),
     }
     row = enforce_bead_hygiene_contract(row)
     return {"beads_create": [row]}
@@ -140,26 +189,27 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
             break
 
     if not has_turn:
-        title = (req.get("assistant_final") or req.get("user_query") or "assistant turn").strip().splitlines()[0][:160]
-        detail = (req.get("assistant_final") or req.get("user_query") or "").strip()[:1200]
+        uq = str(req.get("user_query") or "")
+        af = str(req.get("assistant_final") or "")
+        title, summary, detail = _build_narrative_fields(uq, af)
         retrieval_eligible = not is_runtime_meta_chatter(
-            user_query=str(req.get("user_query") or ""),
-            assistant_final=str(req.get("assistant_final") or ""),
+            user_query=uq,
+            assistant_final=af,
         )
         rows.append(
             enforce_bead_hygiene_contract(
                 {
-                    "type": _infer_semantic_bead_type(str(req.get("user_query") or ""), str(req.get("assistant_final") or "")),
+                    "type": _infer_semantic_bead_type(uq, af),
                     "title": title or "assistant turn",
-                    "summary": [],
+                    "summary": summary,
                     "source_turn_ids": [turn_id],
                     "turn_index": int((req.get("metadata") or {}).get("turn_index") or 0) or None,
                     "prev_bead_id": _latest_session_bead_id(root=root, session_id=str(req.get("session_id") or "")),
-                    "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine"],
+                    "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine", "narrative_essence"],
                     "detail": detail,
                     "retrieval_eligible": bool(retrieval_eligible),
                     "retrieval_title": (title[:160] if retrieval_eligible else None),
-                    "retrieval_facts": ([detail[:240]] if retrieval_eligible and detail else []),
+                    "retrieval_facts": (summary[:2] if retrieval_eligible and summary else ([detail[:240]] if retrieval_eligible and detail else [])),
                 }
             )
         )

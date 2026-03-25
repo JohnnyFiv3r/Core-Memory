@@ -35,7 +35,7 @@ This bridge implements the thin integration shape:
     "agentId": "main",
     "trigger": "user"
   },
-  "root": "/home/node/.openclaw/workspace/memory"
+  "root": "./memory"
 }
 ```
 
