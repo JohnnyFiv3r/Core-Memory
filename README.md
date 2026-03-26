@@ -18,6 +18,18 @@
 
 ---
 
+## Live Demo
+
+<p align="center">
+  <a href="https://youtu.be/56uyTJEnOAA">
+    <img src="docs/assets/core-memory-live-demo-still.jpg" alt="Core Memory live demo (click to watch on YouTube)" width="100%" />
+  </a>
+</p>
+
+[Watch the Core Memory live demo on YouTube](https://youtu.be/56uyTJEnOAA)
+
+---
+
 ## What is Core Memory?
 
 Most agent memory systems store *what happened*. Core Memory stores **why it happened**.
