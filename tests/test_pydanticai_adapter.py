@@ -69,18 +69,18 @@ class TestPydanticAiAdapter(unittest.TestCase):
                 os.environ.pop("CORE_MEMORY_ROOT", None)
 
     def test_pydanticai_fail_open_on_emit_error(self):
-        original_emit = pyd_run.emit_turn_finalized
+        original = pyd_run.process_turn_finalized
 
         def _boom(*args, **kwargs):
             raise RuntimeError("emit failed")
 
-        pyd_run.emit_turn_finalized = _boom
+        pyd_run.process_turn_finalized = _boom
         try:
             agent = FakeSyncAgent()
             result = run_with_memory_sync(agent, "hello", session_id="s-sync", turn_id="t-sync")
             self.assertEqual("ok:hello", result.output)
         finally:
-            pyd_run.emit_turn_finalized = original_emit
+            pyd_run.process_turn_finalized = original
 
 
 if __name__ == "__main__":

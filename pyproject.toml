@@ -27,6 +27,7 @@ dependencies = []
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy"]
 http = ["fastapi", "uvicorn", "httpx"]
+pydanticai = ["pydantic-ai"]
 
 [project.scripts]
 core-memory = "core_memory.cli:main"
