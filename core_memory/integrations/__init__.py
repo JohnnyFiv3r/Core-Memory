@@ -9,6 +9,7 @@ from .api import (
     get_adjacent_turns,
     hydrate_bead_sources,
 )
+from .migration import rebuild_turn_indexes, backfill_bead_session_ids
 
 __all__ = [
     "IntegrationContext",
@@ -18,4 +19,6 @@ __all__ = [
     "get_turn_tools",
     "get_adjacent_turns",
     "hydrate_bead_sources",
+    "rebuild_turn_indexes",
+    "backfill_bead_session_ids",
 ]

@@ -52,6 +52,15 @@ Hydration path (explicit, non-default):
 - hydrate full turn payloads only when needed (`get_turn` / `hydrate_bead_sources`)
 - fetch tools/adjacent turns only when requested
 
+Migration helpers (existing stores):
+- `core_memory.integrations.migration.rebuild_turn_indexes(root=...)`
+- `core_memory.integrations.migration.backfill_bead_session_ids(root=...)`
+
+Recommended order:
+1. rebuild per-session turn indexes from `.turns/*.jsonl`
+2. backfill missing bead `session_id` from `source_turn_ids`
+3. enable strict/session invariants in staging before production rollout
+
 ## Source hierarchy
 OpenClaw is uniquely positioned to access:
 - transcript/recent session context

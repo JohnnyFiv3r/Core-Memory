@@ -53,3 +53,7 @@ Checks:
 - `.turns/session-<id>.jsonl` exists (archive enabled at write time)
 - `.turns/session-<id>.idx.json` has requested `turn_id`
 - bead has `source_turn_ids` populated and `session_id` present
+
+Repair actions:
+- rebuild turn indexes from archive JSONL (`rebuild_turn_indexes(root=...)`)
+- backfill missing bead session partition (`backfill_bead_session_ids(root=...)`)
