@@ -100,6 +100,47 @@ def _fallback_text(event: dict[str, Any], ctx: dict[str, Any], role: str) -> str
     return ""
 
 
+def _first_nonempty(*values: Any) -> str:
+    for v in values:
+        if v is None:
+            continue
+        s = str(v).strip()
+        if s:
+            return s
+    return ""
+
+
+def _extract_session_id(event: dict[str, Any], ctx: dict[str, Any]) -> str:
+    session_obj = event.get("session") if isinstance(event.get("session"), dict) else {}
+    context_obj = event.get("context") if isinstance(event.get("context"), dict) else {}
+    return _first_nonempty(
+        ctx.get("sessionId"),
+        ctx.get("sessionKey"),
+        event.get("sessionKey"),
+        event.get("sessionId"),
+        event.get("session_id"),
+        session_obj.get("key"),
+        session_obj.get("id"),
+        context_obj.get("sessionKey"),
+        context_obj.get("sessionId"),
+        "main",
+    )
+
+
+def _extract_trace_list(event: dict[str, Any], keys: tuple[str, ...]) -> list[dict[str, Any]]:
+    for key in keys:
+        value = event.get(key)
+        if isinstance(value, list):
+            return [item if isinstance(item, dict) else {"value": item} for item in value]
+    result = event.get("result")
+    if isinstance(result, dict):
+        for key in keys:
+            value = result.get(key)
+            if isinstance(value, list):
+                return [item if isinstance(item, dict) else {"value": item} for item in value]
+    return []
+
+
 def _stable_turn_id(session_id: str, user_query: str, assistant_final: str, seed: str = "") -> str:
     h = hashlib.sha256()
     h.update(session_id.encode("utf-8", "ignore"))
@@ -173,7 +214,7 @@ def process_agent_end_event(
     if not assistant_final:
         return {"ok": True, "emitted": False, "reason": "missing_assistant_output"}
 
-    session_id = str(ctx.get("sessionId") or ctx.get("sessionKey") or "main")
+    session_id = _extract_session_id(event, ctx)
     result_obj = event.get("result") if isinstance(event.get("result"), dict) else {}
     run_id = str(
         event.get("runId")
@@ -209,6 +250,9 @@ def process_agent_end_event(
         "durationMs": event.get("durationMs"),
     }
 
+    tools_trace = _extract_trace_list(event, ("tools_trace", "toolsTrace", "tool_trace", "toolTrace", "tools"))
+    mesh_trace = _extract_trace_list(event, ("mesh_trace", "meshTrace"))
+
     out = finalize_and_process_turn(
         root=root_final,
         session_id=session_id,
@@ -218,6 +262,8 @@ def process_agent_end_event(
         user_query=user_query,
         assistant_final=assistant_final,
         origin="USER_TURN",
+        tools_trace=tools_trace,
+        mesh_trace=mesh_trace,
         metadata=md,
     )
 
