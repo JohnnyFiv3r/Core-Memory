@@ -50,6 +50,54 @@ def _write_idx(path: Path, idx: dict[str, dict[str, int]]) -> None:
     tmp.replace(path)
 
 
+def rebuild_session_index(*, root: Path, session_id: str) -> dict[str, Any]:
+    """Rebuild turn_id->offset/length index from authoritative session JSONL."""
+    turns_file = _session_turns_file(root, session_id)
+    idx_file = _session_idx_file(root, session_id)
+    if not turns_file.exists():
+        _write_idx(idx_file, {})
+        return {"ok": True, "session_id": session_id, "entries": 0, "path": str(idx_file)}
+
+    idx: dict[str, dict[str, int]] = {}
+    with open(turns_file, "rb") as f:
+        while True:
+            offset = int(f.tell())
+            raw = f.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", "ignore").strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+            except Exception:
+                continue
+            if not isinstance(obj, dict):
+                continue
+            tid = str(obj.get("turn_id") or "").strip()
+            if not tid:
+                continue
+            idx[tid] = {"offset": offset, "length": int(len(raw))}
+
+    _write_idx(idx_file, idx)
+    return {"ok": True, "session_id": session_id, "entries": len(idx), "path": str(idx_file)}
+
+
+def rebuild_all_indexes(*, root: Path) -> dict[str, Any]:
+    turns_dir = _turns_dir(root)
+    turns_dir.mkdir(parents=True, exist_ok=True)
+    out: list[dict[str, Any]] = []
+    for turns_file in sorted(turns_dir.glob("session-*.jsonl")):
+        name = turns_file.name
+        if not name.startswith("session-") or not name.endswith(".jsonl"):
+            continue
+        sid = name[len("session-") : -len(".jsonl")]
+        if not sid:
+            continue
+        out.append(rebuild_session_index(root=root, session_id=sid))
+    return {"ok": True, "sessions": out, "count": len(out)}
+
+
 def append_turn_record(
     *,
     root: Path,
