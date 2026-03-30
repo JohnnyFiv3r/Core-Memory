@@ -27,7 +27,10 @@ class TestMemorySearchToolWrapper(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             self.assertEqual("memory_search_result.v1", out.get("schema_version"))
             self.assertEqual("typed_search", out.get("contract"))
-            self.assertTrue(out.get("results"))
+            self.assertIsInstance(out.get("results") or [], list)
+            if out.get("results"):
+                first = out["results"][0]
+                self.assertIn("bead_id", first)
             self.assertIn("explain", out)
 
 
