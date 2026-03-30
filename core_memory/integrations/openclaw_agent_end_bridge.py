@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
+from core_memory.integrations.openclaw_flags import runtime_flags_snapshot
 from core_memory.persistence.store import DEFAULT_ROOT
 
 ADAPTER_KIND = "bridge"
@@ -248,6 +249,7 @@ def process_agent_end_event(
         "success": bool(event.get("success")),
         "error": event.get("error"),
         "durationMs": event.get("durationMs"),
+        "core_memory_flags": runtime_flags_snapshot(),
     }
 
     tools_trace = _extract_trace_list(event, ("tools_trace", "toolsTrace", "tool_trace", "toolTrace", "tools"))
