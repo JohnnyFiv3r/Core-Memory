@@ -28,7 +28,36 @@ from pathlib import Path
 
 # Load .env from repo root before anything else
 from dotenv import load_dotenv
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
+
+_DEMO_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
+
+
+def _load_demo_env() -> None:
+    """Load repo-root `.env` into the process.
+
+    If the parent environment sets `OPENAI_API_KEY` (or similar) to an **empty**
+    string — common with `docker exec -e OPENAI_API_KEY=$VAR` when `$VAR` is unset —
+    `load_dotenv` would not override it by default, and providers see "no key".
+    Treat blank values as unset so `.env` can supply the real key.
+    """
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        if os.environ.get(key, "").strip() == "":
+            os.environ.pop(key, None)
+    load_dotenv(_DEMO_ENV_PATH)
+    for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
+        raw = os.environ.get(key)
+        if raw is None:
+            continue
+        v = raw.strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1].strip()
+        if v:
+            os.environ[key] = v
+        else:
+            os.environ.pop(key, None)
+
+
+_load_demo_env()
 
 # Enable auto-promotion on compact so flush promotes qualifying beads
 os.environ.setdefault("CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT", "1")
@@ -383,6 +412,17 @@ def main():
         print("No model detected. Set one of:")
         print("  export ANTHROPIC_API_KEY='...'")
         print("  export OPENAI_API_KEY='...'")
+        sys.exit(1)
+
+    if model_id.startswith("openai:") and not (os.environ.get("OPENAI_API_KEY") or "").strip():
+        print("OPENAI_API_KEY is missing or empty after loading .env.")
+        print(f"  Expected file: {_DEMO_ENV_PATH.resolve()}")
+        print("  Use one line (no spaces around =): OPENAI_API_KEY=sk-...")
+        print("  If you use Docker, this path must be inside the mounted workspace/Core-Memory folder.")
+        sys.exit(1)
+    if model_id.startswith("anthropic:") and not (os.environ.get("ANTHROPIC_API_KEY") or "").strip():
+        print("ANTHROPIC_API_KEY is missing or empty after loading .env.")
+        print(f"  Expected file: {_DEMO_ENV_PATH.resolve()}")
         sys.exit(1)
 
     try:
