@@ -4,6 +4,10 @@ from .memory_tools import (
     memory_search_tool,
     memory_reason_tool,
     memory_execute_tool,
+    get_turn_tool,
+    get_turn_tools_tool,
+    get_adjacent_turns_tool,
+    hydrate_bead_sources_tool,
 )
 
 __all__ = [
@@ -14,4 +18,8 @@ __all__ = [
     "memory_search_tool",
     "memory_reason_tool",
     "memory_execute_tool",
+    "get_turn_tool",
+    "get_turn_tools_tool",
+    "get_adjacent_turns_tool",
+    "hydrate_bead_sources_tool",
 ]

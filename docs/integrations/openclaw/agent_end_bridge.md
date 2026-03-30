@@ -73,3 +73,6 @@ JSON
 
 - Recursion guard skips `trigger=memory` and `metadata.origin=MEMORY_PASS`.
 - Fail-open behavior: bridge returns without raising into caller runtime.
+- Hard gate: when `CORE_MEMORY_ENABLED=0`, bridge returns `{ok:true, emitted:false, reason:"core_memory_disabled"}`.
+- Session extraction is multi-shape (top-level + nested session/context fields) to avoid accidental `session_id=main` collapse.
+- Bridge metadata includes `core_memory_flags` snapshot for runtime diagnostics.
