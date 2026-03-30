@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
-from core_memory.integrations.openclaw_flags import runtime_flags_snapshot
+from core_memory.integrations.openclaw_flags import runtime_flags_snapshot, core_memory_enabled
 from core_memory.persistence.store import DEFAULT_ROOT
 
 ADAPTER_KIND = "bridge"
@@ -185,6 +185,9 @@ def process_agent_end_event(
     """Thin bridge: extract -> dedupe -> finalize_and_process_turn -> return."""
     ctx = dict(ctx or {})
     root_final = str(root or os.environ.get("CORE_MEMORY_ROOT") or DEFAULT_ROOT)
+
+    if not core_memory_enabled():
+        return {"ok": True, "emitted": False, "reason": "core_memory_disabled"}
 
     # Recursion guard: memory-origin runs should not re-emit.
     trigger = str(ctx.get("trigger") or "").strip().lower()
