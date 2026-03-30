@@ -147,3 +147,76 @@ def find_turn_record(*, root: Path, turn_id: str, session_id: str | None = None)
         if hit:
             return hit
     return None
+
+
+def get_turn_tools(*, root: Path, turn_id: str, session_id: str | None = None) -> dict[str, Any] | None:
+    row = find_turn_record(root=root, turn_id=turn_id, session_id=session_id)
+    if not row:
+        return None
+    return {
+        "schema": "core_memory.turn_tools.v1",
+        "session_id": row.get("session_id"),
+        "turn_id": row.get("turn_id"),
+        "tools_trace": list(row.get("tools_trace") or []),
+        "mesh_trace": list(row.get("mesh_trace") or []),
+    }
+
+
+def _read_all_session_turns(root: Path, session_id: str) -> list[dict[str, Any]]:
+    turns_file = _session_turns_file(root, session_id)
+    if not turns_file.exists():
+        return []
+    out: list[dict[str, Any]] = []
+    for line in turns_file.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+            if isinstance(obj, dict):
+                out.append(obj)
+        except Exception:
+            continue
+    return out
+
+
+def get_adjacent_turns(
+    *,
+    root: Path,
+    turn_id: str,
+    session_id: str | None = None,
+    before: int = 1,
+    after: int = 1,
+) -> dict[str, Any] | None:
+    pivot = find_turn_record(root=root, turn_id=turn_id, session_id=session_id)
+    if not pivot:
+        return None
+    sid = str(pivot.get("session_id") or "")
+    if not sid:
+        return None
+
+    rows = _read_all_session_turns(root, sid)
+    if not rows:
+        return None
+
+    idx = -1
+    for i, r in enumerate(rows):
+        if str(r.get("turn_id") or "") == str(turn_id):
+            idx = i
+            break
+    if idx < 0:
+        return None
+
+    b = max(0, int(before or 0))
+    a = max(0, int(after or 0))
+    lo = max(0, idx - b)
+    hi = min(len(rows), idx + a + 1)
+
+    return {
+        "schema": "core_memory.adjacent_turns.v1",
+        "session_id": sid,
+        "pivot_turn_id": str(turn_id),
+        "before": rows[lo:idx],
+        "pivot": rows[idx],
+        "after": rows[idx + 1 : hi],
+    }
