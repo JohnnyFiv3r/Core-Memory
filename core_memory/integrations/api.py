@@ -3,9 +3,11 @@ from __future__ import annotations
 import os
 import uuid
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any, Optional
 
 from core_memory.runtime.ingress import maybe_emit_finalize_memory_event
+from core_memory.runtime.turn_archive import find_turn_record
 from core_memory.persistence.store import DEFAULT_ROOT
 
 
@@ -99,3 +101,22 @@ def emit_turn_finalized_from_envelope(*, root: Optional[str] = None, envelope: d
         metadata=envelope.get("metadata") or {},
         strict=strict,
     )
+
+
+def get_turn(
+    *,
+    turn_id: str,
+    root: Optional[str] = None,
+    session_id: Optional[str] = None,
+) -> Optional[dict[str, Any]]:
+    """Retrieve authoritative turn record from transcript archive.
+
+    - If session_id is provided, lookup is direct in that session index.
+    - Otherwise, search all per-session indexes under `.turns/`.
+    """
+    root_final = _resolve_root(root)
+    tid = str(turn_id or "").strip()
+    if not tid:
+        return None
+    sid = str(session_id or "").strip() or None
+    return find_turn_record(root=Path(root_final), turn_id=tid, session_id=sid)

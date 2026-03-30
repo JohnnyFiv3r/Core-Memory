@@ -17,6 +17,13 @@ def _session_idx_file(root: Path, session_id: str) -> Path:
     return _turns_dir(root) / f"session-{session_id}.idx.json"
 
 
+def _session_id_from_idx_name(name: str) -> str | None:
+    # session-<session_id>.idx.json
+    if not name.startswith("session-") or not name.endswith(".idx.json"):
+        return None
+    return name[len("session-") : -len(".idx.json")]
+
+
 def _read_idx(path: Path) -> dict[str, dict[str, int]]:
     if not path.exists():
         return {}
@@ -119,3 +126,24 @@ def get_turn_record(*, root: Path, session_id: str, turn_id: str) -> dict[str, A
     except Exception:
         return None
 
+
+def find_turn_record(*, root: Path, turn_id: str, session_id: str | None = None) -> dict[str, Any] | None:
+    """Find a turn by turn_id, optionally constrained to a session.
+
+    Returns the full turn record (from JSONL archive) when found.
+    """
+    if session_id:
+        return get_turn_record(root=root, session_id=session_id, turn_id=turn_id)
+
+    turns_dir = _turns_dir(root)
+    if not turns_dir.exists():
+        return None
+
+    for idx_file in sorted(turns_dir.glob("session-*.idx.json")):
+        sid = _session_id_from_idx_name(idx_file.name)
+        if not sid:
+            continue
+        hit = get_turn_record(root=root, session_id=sid, turn_id=turn_id)
+        if hit:
+            return hit
+    return None
