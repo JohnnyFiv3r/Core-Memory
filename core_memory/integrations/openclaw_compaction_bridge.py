@@ -7,12 +7,16 @@ import uuid
 from typing import Any
 
 from core_memory.runtime.engine import process_flush
+from core_memory.integrations.openclaw_flags import core_memory_enabled
 from core_memory.persistence.store import DEFAULT_ROOT
 
 
 def process_compaction_event(*, event: dict[str, Any], ctx: dict[str, Any] | None = None, root: str | None = None) -> dict[str, Any]:
     ctx = dict(ctx or {})
     root_final = str(root or os.environ.get("CORE_MEMORY_ROOT") or DEFAULT_ROOT)
+
+    if not core_memory_enabled():
+        return {"ok": True, "flushed": False, "reason": "core_memory_disabled"}
 
     session_id = str(
         (ctx or {}).get("sessionId")
