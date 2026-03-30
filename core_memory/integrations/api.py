@@ -9,6 +9,7 @@ from typing import Any, Optional
 
 from core_memory.runtime.ingress import maybe_emit_finalize_memory_event
 from core_memory.runtime.turn_archive import find_turn_record, get_turn_tools as _get_turn_tools, get_adjacent_turns as _get_adjacent_turns
+from core_memory.integrations.openclaw_flags import transcript_hydration_enabled, default_hydrate_tools_enabled, default_adjacent_turns
 from core_memory.persistence.store import DEFAULT_ROOT
 
 
@@ -116,6 +117,8 @@ def get_turn(
     - Otherwise, search all per-session indexes under `.turns/`.
     """
     root_final = _resolve_root(root)
+    if not transcript_hydration_enabled():
+        return None
     tid = str(turn_id or "").strip()
     if not tid:
         return None
@@ -130,6 +133,8 @@ def get_turn_tools(
     session_id: Optional[str] = None,
 ) -> Optional[dict[str, Any]]:
     root_final = _resolve_root(root)
+    if not transcript_hydration_enabled():
+        return None
     tid = str(turn_id or "").strip()
     if not tid:
         return None
@@ -146,6 +151,8 @@ def get_adjacent_turns(
     after: int = 1,
 ) -> Optional[dict[str, Any]]:
     root_final = _resolve_root(root)
+    if not transcript_hydration_enabled():
+        return None
     tid = str(turn_id or "").strip()
     if not tid:
         return None
@@ -164,12 +171,26 @@ def hydrate_bead_sources(
     root: Optional[str] = None,
     bead_ids: Optional[list[str]] = None,
     turn_ids: Optional[list[str]] = None,
-    include_tools: bool = False,
-    before: int = 0,
-    after: int = 0,
+    include_tools: bool | None = None,
+    before: int | None = None,
+    after: int | None = None,
 ) -> dict[str, Any]:
     """Hydrate turn records from bead provenance links and/or explicit turn IDs."""
     root_final = _resolve_root(root)
+    if not transcript_hydration_enabled():
+        return {
+            "schema": "core_memory.hydrate_bead_sources.v1",
+            "disabled": True,
+            "reason": "transcript_hydration_disabled",
+            "beads": [],
+            "requested_turn_ids": [],
+            "hydrated": [],
+        }
+
+    include_tools_final = bool(default_hydrate_tools_enabled() if include_tools is None else include_tools)
+    before_final = default_adjacent_turns() if before is None else max(0, int(before or 0))
+    after_final = default_adjacent_turns() if after is None else max(0, int(after or 0))
+
     root_path = Path(root_final)
 
     requested_bead_ids = [str(x).strip() for x in (bead_ids or []) if str(x).strip()]
@@ -211,15 +232,15 @@ def hydrate_bead_sources(
         if not row:
             continue
         entry: dict[str, Any] = {"turn": row}
-        if include_tools:
+        if include_tools_final:
             entry["tools"] = get_turn_tools(turn_id=tid, root=root_final, session_id=row.get("session_id"))
-        if before or after:
+        if before_final or after_final:
             entry["adjacent"] = get_adjacent_turns(
                 turn_id=tid,
                 root=root_final,
                 session_id=row.get("session_id"),
-                before=before,
-                after=after,
+                before=before_final,
+                after=after_final,
             )
         hydrated_turns.append(entry)
 

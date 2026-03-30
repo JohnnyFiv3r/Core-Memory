@@ -5,6 +5,8 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from .openclaw_flags import supersede_openclaw_summary_enabled, runtime_flags_snapshot
+
 
 def _run(cmd: list[str], dry_run: bool = False) -> dict[str, Any]:
     if dry_run:
@@ -23,12 +25,15 @@ def run_openclaw_onboard(
     *,
     openclaw_bin: str = "openclaw",
     plugin_dir: str | None = None,
-    replace_memory_core: bool = False,
+    replace_memory_core: bool | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     repo_root = Path(__file__).resolve().parents[2]
     default_plugin_dir = repo_root / "plugins" / "openclaw-core-memory-bridge"
     plugin_path = Path(plugin_dir) if plugin_dir else default_plugin_dir
+
+    if replace_memory_core is None:
+        replace_memory_core = supersede_openclaw_summary_enabled()
 
     steps: list[dict[str, Any]] = []
 
@@ -49,6 +54,8 @@ def run_openclaw_onboard(
     return {
         "ok": ok,
         "mode": mode,
+        "replace_memory_core": bool(replace_memory_core),
+        "flags": runtime_flags_snapshot(),
         "plugin_path": str(plugin_path),
         "steps": steps,
     }
@@ -58,6 +65,7 @@ def render_onboard_report(payload: dict[str, Any]) -> str:
     lines = [
         f"openclaw_onboard: {'ok' if payload.get('ok') else 'failed'}",
         f"mode: {payload.get('mode')}",
+        f"replace_memory_core: {payload.get('replace_memory_core')}",
         f"plugin_path: {payload.get('plugin_path')}",
     ]
     for i, step in enumerate(payload.get("steps") or [], start=1):

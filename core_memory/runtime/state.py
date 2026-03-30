@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..persistence.io_utils import append_jsonl, store_lock
+from ..integrations.openclaw_flags import transcript_archive_enabled
 from .turn_archive import append_turn_record
 
 
@@ -279,22 +280,23 @@ def emit_memory_event(root: Path, envelope: TurnEnvelope) -> MemoryEvent:
     }
 
     with store_lock(root):
-        append_turn_record(
-            root=root,
-            session_id=envelope.session_id,
-            turn_id=envelope.turn_id,
-            transaction_id=envelope.transaction_id,
-            trace_id=envelope.trace_id,
-            origin=envelope.origin,
-            ts=envelope.ts,
-            user_query=envelope.user_query,
-            assistant_final=envelope.assistant_final,
-            assistant_final_ref=envelope.assistant_final_ref,
-            assistant_final_hash=envelope.assistant_final_hash,
-            tools_trace=envelope.tools_trace,
-            mesh_trace=envelope.mesh_trace,
-            metadata=envelope.metadata,
-        )
+        if transcript_archive_enabled():
+            append_turn_record(
+                root=root,
+                session_id=envelope.session_id,
+                turn_id=envelope.turn_id,
+                transaction_id=envelope.transaction_id,
+                trace_id=envelope.trace_id,
+                origin=envelope.origin,
+                ts=envelope.ts,
+                user_query=envelope.user_query,
+                assistant_final=envelope.assistant_final,
+                assistant_final_ref=envelope.assistant_final_ref,
+                assistant_final_hash=envelope.assistant_final_hash,
+                tools_trace=envelope.tools_trace,
+                mesh_trace=envelope.mesh_trace,
+                metadata=envelope.metadata,
+            )
         append_jsonl(_events_file(root), payload)
 
     return event
