@@ -268,11 +268,13 @@ def process_agent_end_event(
     )
 
     if out.get("ok"):
+        event_id = str((((out.get("emitted") or {}).get("payload") or {}).get("event") or {}).get("event_id") or "")
         state[dedupe_key] = "emitted"
         _save_state(sf, state)
         return {
             "ok": True,
             "emitted": bool((out.get("emitted") or {}).get("emitted", False)),
+            "event_id": event_id,
             "processed": int(out.get("processed", 0) or 0),
             "failed": int(out.get("failed", 0) or 0),
             "session_id": session_id,
