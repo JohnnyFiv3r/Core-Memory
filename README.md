@@ -101,7 +101,7 @@ Then verify:
 curl http://localhost:8000/healthz
 curl -X POST http://localhost:8000/v1/memory/execute \
   -H "Content-Type: application/json" \
-  -d '{"query":"why did we change strategy?","intent":"causal"}'
+  -d '{"request":{"query":"why did we change strategy?","intent":"causal"}}'
 ```
 
 See also:
