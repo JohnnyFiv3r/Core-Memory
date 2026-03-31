@@ -21,6 +21,20 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
         self.assertIn("store", out.stdout)
         self.assertIn("recall", out.stdout)
         self.assertIn("inspect", out.stdout)
+        self.assertNotIn("myelinate", out.stdout)
+        self.assertNotIn("retrieve-context", out.stdout)
+
+    def test_bare_group_prints_group_help(self):
+        cwd = Path(__file__).resolve().parents[1]
+        cases = {
+            "setup": "init",
+            "recall": "search",
+            "integrations": "openclaw",
+        }
+        for group, expected in cases.items():
+            out = _run_cli([group], cwd)
+            self.assertEqual(0, out.returncode)
+            self.assertIn(expected, out.stdout)
 
     def test_group_help_boots(self):
         cwd = Path(__file__).resolve().parents[1]

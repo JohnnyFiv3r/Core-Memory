@@ -45,6 +45,20 @@ from .retrieval.pipeline import memory_get_search_form, memory_search_typed, mem
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
 
 
+class _CliHelpFormatter(argparse.HelpFormatter):
+    """Hide suppressed legacy subcommands from root help output."""
+
+    def _format_action(self, action):
+        if isinstance(action, argparse._SubParsersAction):
+            original = list(action._choices_actions)
+            try:
+                action._choices_actions = [a for a in original if getattr(a, "help", None) != argparse.SUPPRESS]
+                return super()._format_action(action)
+            finally:
+                action._choices_actions = original
+        return super()._format_action(action)
+
+
 def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
     import tempfile
 
@@ -166,10 +180,13 @@ def _doctor_report(root: str) -> dict:
 
 def main():
     """CLI entry point for core-memory command."""
-    parser = argparse.ArgumentParser(description="Core-Memory CLI")
+    parser = argparse.ArgumentParser(description="Core-Memory CLI", formatter_class=_CliHelpFormatter)
     parser.add_argument("--root", default=DEFAULT_ROOT, help="Memory root directory")
 
-    subparsers = parser.add_subparsers(dest="command")
+    subparsers = parser.add_subparsers(
+        dest="command",
+        metavar="{setup,store,recall,inspect,integrations,ops,dev}",
+    )
 
     # Grouped surface (preferred)
     setup_parser = subparsers.add_parser("setup", help="Initialize/configure/validate local Core Memory store")
@@ -269,8 +286,10 @@ def main():
     dev_mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
     dev_mem_exec.add_argument("--explain", action="store_true")
     
-    # add command
-    add_parser = subparsers.add_parser("add", help="Add a bead")
+    legacy_help = argparse.SUPPRESS
+
+    # add command (legacy top-level; use `store add`)
+    add_parser = subparsers.add_parser("add", help=legacy_help)
     add_parser.add_argument("--type", required=True, help="Bead type")
     add_parser.add_argument("--title", required=True, help="Bead title")
     add_parser.add_argument("--summary", nargs="*", help="Summary points")
@@ -280,40 +299,40 @@ def main():
     add_parser.add_argument("--context-tags", nargs="*", help="Environment/context tags")
     add_parser.add_argument("--session-id", help="Session ID")
     
-    # query command
-    query_parser = subparsers.add_parser("query", help="Query beads")
+    # query command (legacy top-level; use `inspect list`)
+    query_parser = subparsers.add_parser("query", help=legacy_help)
     query_parser.add_argument("--type", help="Filter by type")
     query_parser.add_argument("--status", help="Filter by status")
     query_parser.add_argument("--tags", nargs="*", help="Filter by tags")
     query_parser.add_argument("--limit", type=int, default=20)
     
-    # stats command
-    subparsers.add_parser("stats", help="Show statistics")
+    # stats command (legacy top-level; use `inspect stats` or `store stats`)
+    subparsers.add_parser("stats", help=legacy_help)
 
-    # contributor-local health checks
-    subparsers.add_parser("doctor", help="Run local store health checks for contributors")
+    # contributor-local health checks (legacy top-level; use `setup doctor` or `ops doctor`)
+    subparsers.add_parser("doctor", help=legacy_help)
 
-    # heads command
-    heads_parser = subparsers.add_parser("heads", help="Show topic/goal HEAD pointers")
+    # heads command (legacy top-level; use `recall heads`)
+    heads_parser = subparsers.add_parser("heads", help=legacy_help)
     heads_parser.add_argument("--topic-id", help="Lookup specific topic HEAD")
     heads_parser.add_argument("--goal-id", help="Lookup specific goal HEAD")
 
-    # preflight failure check (warn-only)
-    preflight_parser = subparsers.add_parser("preflight", help="Warn-only failure-signature preflight check")
+    # preflight failure check (legacy top-level)
+    preflight_parser = subparsers.add_parser("preflight", help=legacy_help)
     preflight_parser.add_argument("--plan", required=True, help="Normalized plan text to check")
     preflight_parser.add_argument("--context-tags", nargs="*", help="Optional environment/context tags")
     preflight_parser.add_argument("--limit", type=int, default=5)
 
-    # phase-3 advisory constraints
-    constraints_parser = subparsers.add_parser("constraints", help="List active extracted constraints")
+    # phase-3 advisory constraints (legacy top-level)
+    constraints_parser = subparsers.add_parser("constraints", help=legacy_help)
     constraints_parser.add_argument("--limit", type=int, default=20)
 
-    check_plan_parser = subparsers.add_parser("check-plan", help="Advisory constraint compliance check")
+    check_plan_parser = subparsers.add_parser("check-plan", help=legacy_help)
     check_plan_parser.add_argument("--plan", required=True)
     check_plan_parser.add_argument("--limit", type=int, default=20)
 
-    # phase-4 environment scoped retrieval
-    retrieve_ctx_parser = subparsers.add_parser("retrieve-context", help="Retrieve beads with context tag matching and fallback")
+    # phase-4 environment scoped retrieval (legacy top-level)
+    retrieve_ctx_parser = subparsers.add_parser("retrieve-context", help=legacy_help)
     retrieve_ctx_parser.add_argument("--query", default="")
     retrieve_ctx_parser.add_argument("--context-tags", nargs="*", help="Requested environment tags")
     retrieve_ctx_parser.add_argument("--limit", type=int, default=20)
@@ -322,43 +341,43 @@ def main():
     retrieve_ctx_parser.add_argument("--max-uncompact-per-turn", type=int, default=2, help="Bounded deep recall budget per call")
     retrieve_ctx_parser.add_argument("--no-auto-memory-intent", action="store_true", help="Disable memory-intent heuristic trigger")
     
-    # dream command
-    dream_parser = subparsers.add_parser("dream", help="Run Dreamer analysis")
+    # dream command (legacy top-level)
+    dream_parser = subparsers.add_parser("dream", help=legacy_help)
     dream_parser.add_argument("--novel-only", action="store_true", help="Exclude previously surfaced bead pairs")
     dream_parser.add_argument("--seen-window-runs", type=int, default=0, help="Only consider the last N Dreamer runs for novelty dedupe (0=all)")
     dream_parser.add_argument("--max-exposure", type=int, default=-1, help="Skip candidates where either bead has been surfaced more than this count (-1=disabled)")
     
-    # rebuild command
-    subparsers.add_parser("rebuild", help="Rebuild index from events")
+    # rebuild command (legacy top-level; use `ops rebuild`)
+    subparsers.add_parser("rebuild", help=legacy_help)
 
-    # compact command
-    compact_parser = subparsers.add_parser("compact", help="Compact beads")
+    # compact command (legacy top-level; use `store compact`)
+    compact_parser = subparsers.add_parser("compact", help=legacy_help)
     compact_parser.add_argument("--session", help="Compact only this session")
     compact_parser.add_argument("--promote", action="store_true", help="Promote compacted beads")
 
-    # canonical consolidate command (runtime owner)
-    consolidate_parser = subparsers.add_parser("consolidate", help="Run canonical runtime consolidation/flush pipeline")
+    # canonical consolidate command (legacy top-level; use `store consolidate`)
+    consolidate_parser = subparsers.add_parser("consolidate", help=legacy_help)
     consolidate_parser.add_argument("--session", required=True, help="Session id")
     consolidate_parser.add_argument("--promote", action="store_true", help="Enable promote mode")
     consolidate_parser.add_argument("--token-budget", type=int, default=1200)
     consolidate_parser.add_argument("--max-beads", type=int, default=12)
     consolidate_parser.add_argument("--source", default="admin_cli")
 
-    # rolling-window refresh command
-    rw_parser = subparsers.add_parser("rolling-window", help="Run rolling window maintenance pipeline")
+    # rolling-window refresh command (legacy top-level; use `store rolling-window`)
+    rw_parser = subparsers.add_parser("rolling-window", help=legacy_help)
     rw_parser.add_argument("--token-budget", type=int, default=1200)
     rw_parser.add_argument("--max-beads", type=int, default=12)
 
-    # uncompact command
-    uncompact_parser = subparsers.add_parser("uncompact", help="Restore compacted bead detail")
+    # uncompact command (legacy top-level; use `store uncompact`)
+    uncompact_parser = subparsers.add_parser("uncompact", help=legacy_help)
     uncompact_parser.add_argument("--id", required=True, help="Bead ID")
 
-    # myelinate command
-    myelinate_parser = subparsers.add_parser("myelinate", help="Run myelination analysis")
+    # myelinate command (legacy top-level)
+    myelinate_parser = subparsers.add_parser("myelinate", help=legacy_help)
     myelinate_parser.add_argument("--apply", action="store_true", help="Apply changes (default dry-run)")
 
-    # sidecar integration command
-    sidecar_parser = subparsers.add_parser("sidecar", help="Coordinator integration helpers")
+    # sidecar integration command (legacy top-level; use `dev` surfaces)
+    sidecar_parser = subparsers.add_parser("sidecar", help=legacy_help)
     sidecar_sub = sidecar_parser.add_subparsers(dest="sidecar_cmd")
 
     sc_finalize = sidecar_sub.add_parser("finalize", help="Emit finalize memory event (coordinator shim)")
@@ -385,8 +404,8 @@ def main():
     sc_turn.add_argument("--meta-goal-carryover", action="store_true")
     sc_turn.add_argument("--store-full-text", choices=["true", "false"], default="true")
 
-    # openclaw integration onboarding
-    oc_parser = subparsers.add_parser("openclaw", help="OpenClaw integration onboarding + diagnostics")
+    # openclaw integration onboarding (legacy top-level; use `integrations openclaw`)
+    oc_parser = subparsers.add_parser("openclaw", help=legacy_help)
     oc_sub = oc_parser.add_subparsers(dest="openclaw_cmd")
     oc_onboard = oc_sub.add_parser("onboard", help="Install/enable Core Memory bridge plugin in OpenClaw")
     oc_onboard.add_argument("--openclaw-bin", default="openclaw")
@@ -394,25 +413,25 @@ def main():
     oc_onboard.add_argument("--replace-memory-core", action="store_true", help="Disable stock memory-core plugin")
     oc_onboard.add_argument("--dry-run", action="store_true")
 
-    # reason command
-    reason_parser = subparsers.add_parser("reason", help="Reasoned memory recall (semantic + causal)")
+    # reason command (legacy top-level; use `recall reason`)
+    reason_parser = subparsers.add_parser("reason", help=legacy_help)
     reason_parser.add_argument("query", help="Natural language query")
     reason_parser.add_argument("--k", type=int, default=8)
     reason_parser.add_argument("--retrieve", action="store_true", help="Return retrieval output mode")
     reason_parser.add_argument("--debug", action="store_true", help="Include retrieval scoring breakdown")
     reason_parser.add_argument("--explain", action="store_true", help="Write deterministic explain report artifact")
 
-    tag_parser = subparsers.add_parser("tag", help="Tag beads with metadata")
+    tag_parser = subparsers.add_parser("tag", help=legacy_help)
     tag_parser.add_argument("--incident", help="Incident ID")
     tag_parser.add_argument("--topic-key", help="Topic key tag")
     tag_parser.add_argument("bead_ids", nargs="+", help="Bead IDs to update")
 
-    hygiene_parser = subparsers.add_parser("hygiene", help="Curated metadata hygiene tools")
+    hygiene_parser = subparsers.add_parser("hygiene", help=legacy_help)
     hygiene_parser.add_argument("--bead-id", action="append", help="Target bead id (repeatable)")
     hygiene_parser.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs")
     hygiene_parser.add_argument("--apply", action="store_true")
 
-    mem_parser = subparsers.add_parser("memory", help="Typed memory-search skill interface")
+    mem_parser = subparsers.add_parser("memory", help=legacy_help)
     mem_sub = mem_parser.add_subparsers(dest="memory_cmd")
     mem_sub.add_parser("form", help="Get machine-readable search form + catalog")
     mem_search = mem_sub.add_parser("search", help="Run typed memory search")
@@ -422,8 +441,8 @@ def main():
     mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
     mem_exec.add_argument("--explain", action="store_true")
 
-    # graph command
-    graph_parser = subparsers.add_parser("graph", help="Graph build/stats tools")
+    # graph command (legacy top-level)
+    graph_parser = subparsers.add_parser("graph", help=legacy_help)
     graph_sub = graph_parser.add_subparsers(dest="graph_cmd")
     graph_sub.add_parser("build", help="Backfill structural edges and rebuild graph snapshot")
     graph_sub.add_parser("stats", help="Show graph edge/node stats")
@@ -448,8 +467,8 @@ def main():
     g_backfill_causal.add_argument("--bead-id", action="append", help="Limit proposals to pairs touching these bead IDs")
     g_backfill_causal.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs for targeted mode")
 
-    # metrics command
-    metrics_parser = subparsers.add_parser("metrics", help="Metrics tools")
+    # metrics command (legacy top-level; use `ops`/`dev` surfaces)
+    metrics_parser = subparsers.add_parser("metrics", help=legacy_help)
     metrics_sub = metrics_parser.add_subparsers(dest="metrics_cmd")
 
     metrics_report = metrics_sub.add_parser("report", help="Aggregate metrics.jsonl deterministically")
@@ -553,8 +572,17 @@ def main():
             "ops": "ops_cmd",
             "dev": "dev_cmd",
         }[args.command]
+        group_parser = {
+            "setup": setup_parser,
+            "store": store_parser,
+            "recall": recall_parser,
+            "inspect": inspect_parser,
+            "integrations": integrations_parser,
+            "ops": ops_parser,
+            "dev": dev_parser,
+        }[args.command]
         if not getattr(args, sub_name, None):
-            parser.print_help()
+            group_parser.print_help()
             return
 
     # Grouped-surface command mapping (preferred UX) -> canonical handlers below.
@@ -604,7 +632,7 @@ def main():
     if args.command == "integrations":
         if args.integrations_cmd == "openclaw":
             if not getattr(args, "integrations_openclaw_cmd", None):
-                parser.print_help()
+                int_openclaw.print_help()
                 return
             if args.integrations_openclaw_cmd == "onboard":
                 args.command = "openclaw"
@@ -635,7 +663,7 @@ def main():
     if args.command == "dev":
         if args.dev_cmd == "memory":
             if not getattr(args, "dev_memory_cmd", None):
-                parser.print_help()
+                dev_memory.print_help()
                 return
             args.command = "memory"
             args.memory_cmd = args.dev_memory_cmd
