@@ -229,6 +229,45 @@ def main():
     inspect_list.add_argument("--limit", type=int, default=20)
     inspect_sub.add_parser("stats", help="Show statistics")
     inspect_sub.add_parser("health", help="Run local store health checks")
+
+    integrations_parser = subparsers.add_parser("integrations", help="Integration setup and bridge-facing operations")
+    integrations_sub = integrations_parser.add_subparsers(dest="integrations_cmd")
+    int_openclaw = integrations_sub.add_parser("openclaw", help="OpenClaw integration commands")
+    int_openclaw_sub = int_openclaw.add_subparsers(dest="integrations_openclaw_cmd")
+    int_oc_onboard = int_openclaw_sub.add_parser("onboard", help="Install/enable Core Memory bridge plugin in OpenClaw")
+    int_oc_onboard.add_argument("--openclaw-bin", default="openclaw")
+    int_oc_onboard.add_argument("--plugin-dir", help="Path to core-memory bridge plugin directory")
+    int_oc_onboard.add_argument("--replace-memory-core", action="store_true")
+    int_oc_onboard.add_argument("--dry-run", action="store_true")
+
+    int_api = integrations_sub.add_parser("api", help="Low-level integration API wrappers")
+    int_api_sub = int_api.add_subparsers(dest="integrations_api_cmd")
+    int_api_emit = int_api_sub.add_parser("emit-turn", help="Emit finalized turn from envelope JSON")
+    int_api_emit.add_argument("--from-file", required=True, help="Path to turn envelope JSON")
+
+    int_migrate = integrations_sub.add_parser("migrate", help="Integration migration helpers")
+    int_migrate_sub = int_migrate.add_subparsers(dest="integrations_migrate_cmd")
+    int_migrate_sub.add_parser("rebuild-turn-indexes", help="Rebuild .turns per-session indexes")
+    int_migrate_sub.add_parser("backfill-bead-session-ids", help="Backfill missing bead session_id values")
+
+    ops_parser = subparsers.add_parser("ops", help="Operational maintenance and diagnostics")
+    ops_sub = ops_parser.add_subparsers(dest="ops_cmd")
+    ops_sub.add_parser("doctor", help="Run local store health checks")
+    ops_sub.add_parser("rebuild", help="Rebuild index from events")
+    ops_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index")
+    ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
+
+    dev_parser = subparsers.add_parser("dev", help="Advanced developer-facing command surfaces")
+    dev_sub = dev_parser.add_subparsers(dest="dev_cmd")
+    dev_memory = dev_sub.add_parser("memory", help="Typed memory-search skill interface")
+    dev_memory_sub = dev_memory.add_subparsers(dest="dev_memory_cmd")
+    dev_memory_sub.add_parser("form", help="Get machine-readable search form + catalog")
+    dev_mem_search = dev_memory_sub.add_parser("search", help="Run typed memory search")
+    dev_mem_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
+    dev_mem_search.add_argument("--explain", action="store_true")
+    dev_mem_exec = dev_memory_sub.add_parser("execute", help="Run unified MemoryRequest execution")
+    dev_mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
+    dev_mem_exec.add_argument("--explain", action="store_true")
     
     # add command
     add_parser = subparsers.add_parser("add", help="Add a bead")
@@ -504,12 +543,15 @@ def main():
     
     args = parser.parse_args()
 
-    if args.command in {"setup", "store", "recall", "inspect"}:
+    if args.command in {"setup", "store", "recall", "inspect", "integrations", "ops", "dev"}:
         sub_name = {
             "setup": "setup_cmd",
             "store": "store_cmd",
             "recall": "recall_cmd",
             "inspect": "inspect_cmd",
+            "integrations": "integrations_cmd",
+            "ops": "ops_cmd",
+            "dev": "dev_cmd",
         }[args.command]
         if not getattr(args, sub_name, None):
             parser.print_help()
@@ -558,6 +600,45 @@ def main():
             args.command = "stats"
         elif args.inspect_cmd == "health":
             args.command = "doctor"
+
+    if args.command == "integrations":
+        if args.integrations_cmd == "openclaw":
+            if not getattr(args, "integrations_openclaw_cmd", None):
+                parser.print_help()
+                return
+            if args.integrations_openclaw_cmd == "onboard":
+                args.command = "openclaw"
+                args.openclaw_cmd = "onboard"
+        elif args.integrations_cmd == "api":
+            if args.integrations_api_cmd == "emit-turn":
+                args.command = "integrations-api-emit-turn"
+        elif args.integrations_cmd == "migrate":
+            if args.integrations_migrate_cmd == "rebuild-turn-indexes":
+                args.command = "integrations-migrate-rebuild-turn-indexes"
+            elif args.integrations_migrate_cmd == "backfill-bead-session-ids":
+                args.command = "integrations-migrate-backfill-bead-session-ids"
+
+    if args.command == "ops":
+        if args.ops_cmd == "doctor":
+            args.command = "doctor"
+        elif args.ops_cmd == "rebuild":
+            args.command = "rebuild"
+        elif args.ops_cmd == "archive-index-rebuild":
+            args.command = "metrics"
+            args.metrics_cmd = "archive-index-rebuild"
+        elif args.ops_cmd == "graph-sync":
+            args.command = "graph"
+            args.graph_cmd = "sync-structural"
+            args.apply = True
+            args.strict = False
+
+    if args.command == "dev":
+        if args.dev_cmd == "memory":
+            if not getattr(args, "dev_memory_cmd", None):
+                parser.print_help()
+                return
+            args.command = "memory"
+            args.memory_cmd = args.dev_memory_cmd
 
     memory = MemoryStore(root=args.root)
     
@@ -754,6 +835,23 @@ def main():
                 raise SystemExit("--bead-ids-file must contain a JSON array")
             target_ids.extend([str(x) for x in payload])
         print(json.dumps(curated_type_title_hygiene(memory.root, target_ids, apply=args.apply), indent=2))
+
+    elif args.command == "integrations-api-emit-turn":
+        from core_memory.integrations.api import emit_turn_finalized_from_envelope
+
+        envelope = json.loads(Path(args.from_file).read_text(encoding="utf-8"))
+        event_id = emit_turn_finalized_from_envelope(root=str(memory.root), envelope=envelope, strict=False)
+        print(json.dumps({"ok": True, "event_id": event_id}, indent=2))
+
+    elif args.command == "integrations-migrate-rebuild-turn-indexes":
+        from core_memory.integrations.migration import rebuild_turn_indexes
+
+        print(json.dumps(rebuild_turn_indexes(root=str(memory.root)), indent=2))
+
+    elif args.command == "integrations-migrate-backfill-bead-session-ids":
+        from core_memory.integrations.migration import backfill_bead_session_ids
+
+        print(json.dumps(backfill_bead_session_ids(root=str(memory.root)), indent=2))
 
     elif args.command == "memory":
         if args.memory_cmd == "form":

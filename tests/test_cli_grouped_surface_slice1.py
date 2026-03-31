@@ -24,7 +24,7 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
 
     def test_group_help_boots(self):
         cwd = Path(__file__).resolve().parents[1]
-        for group in ["setup", "store", "recall", "inspect"]:
+        for group in ["setup", "store", "recall", "inspect", "integrations", "ops", "dev"]:
             out = _run_cli([group, "--help"], cwd)
             self.assertEqual(0, out.returncode)
             self.assertIn("usage:", out.stdout)
@@ -78,7 +78,18 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
             self.assertEqual(0, inspect_out.returncode)
             self.assertIn('"total_beads"', inspect_out.stdout)
 
+            integrations_out = _run_cli(["--root", str(root), "integrations", "migrate", "rebuild-turn-indexes"], cwd)
+            self.assertEqual(0, integrations_out.returncode)
+            self.assertIn('"ok"', integrations_out.stdout)
+
+            ops_out = _run_cli(["--root", str(root), "ops", "rebuild"], cwd)
+            self.assertEqual(0, ops_out.returncode)
+            self.assertIn("Rebuilt index", ops_out.stdout)
+
+            dev_out = _run_cli(["--root", str(root), "dev", "memory", "form"], cwd)
+            self.assertEqual(0, dev_out.returncode)
+            self.assertIn('"schema_version"', dev_out.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()
-
