@@ -186,6 +186,41 @@ def _doctor_report(root: str) -> dict:
     }
 
 
+def _simple_recall_fallback(memory: MemoryStore, query_text: str, limit: int = 8) -> dict:
+    """Best-effort lexical fallback for plug-and-play recall search.
+
+    This preserves underlying retrieval behavior while ensuring first-run UX can
+    surface newly added beads for obvious title/summary matches.
+    """
+    q = str(query_text or "").strip().lower()
+    if not q:
+        return {"ok": True, "results": []}
+
+    tokens = [t for t in q.split() if t]
+    candidates = memory.query(limit=500)
+    out = []
+    for b in candidates:
+        title = str((b or {}).get("title") or "")
+        summary = " ".join(str(x) for x in ((b or {}).get("summary") or []))
+        detail = str((b or {}).get("detail") or "")
+        tags = " ".join(str(x) for x in ((b or {}).get("tags") or []))
+        hay = f"{title} {summary} {detail} {tags}".lower()
+        if q in hay or any(tok in hay for tok in tokens):
+            score = 1.0 if q in hay else 0.8
+            out.append(
+                {
+                    "bead_id": str((b or {}).get("id") or ""),
+                    "type": str((b or {}).get("type") or ""),
+                    "title": title,
+                    "summary": (b or {}).get("summary") or [],
+                    "score": score,
+                    "source": "cli_simple_fallback",
+                }
+            )
+    out = sorted(out, key=lambda r: float(r.get("score") or 0.0), reverse=True)[: max(1, int(limit or 8))]
+    return {"ok": True, "results": out}
+
+
 def main():
     """CLI entry point for core-memory command."""
     parser = argparse.ArgumentParser(description="Core-Memory CLI", formatter_class=_CliHelpFormatter)
@@ -897,6 +932,7 @@ def main():
             print(json.dumps(memory_get_search_form(str(memory.root)), indent=2))
         elif args.memory_cmd == "search":
             typed = str(getattr(args, "typed", "") or "").strip()
+            simple_mode = not bool(typed)
             if typed:
                 if typed.startswith("{"):
                     payload = json.loads(typed)
@@ -908,7 +944,20 @@ def main():
                     "query_text": str(getattr(args, "query", "") or ""),
                     "k": int(getattr(args, "k", 8) or 8),
                 }
-            print(json.dumps(memory_search_typed(str(memory.root), payload, explain=bool(args.explain)), indent=2))
+            out = memory_search_typed(str(memory.root), payload, explain=bool(args.explain))
+            if simple_mode and not (out.get("results") or []):
+                fallback = _simple_recall_fallback(memory, str(payload.get("query_text") or ""), int(payload.get("k") or 8))
+                if fallback.get("results"):
+                    out["results"] = fallback.get("results") or []
+                    out["fallback_applied"] = True
+                    warnings = list(out.get("warnings") or [])
+                    if "no_strong_anchor_match_free_text_mode" in warnings:
+                        warnings = [w for w in warnings if w != "no_strong_anchor_match_free_text_mode"]
+                    warnings.append("cli_simple_fallback_applied")
+                    out["warnings"] = warnings
+                    out["confidence"] = "medium"
+                    out["suggested_next"] = "answer"
+            print(json.dumps(out, indent=2))
         elif args.memory_cmd == "execute":
             req = str(args.request or "")
             if req.strip().startswith("{"):

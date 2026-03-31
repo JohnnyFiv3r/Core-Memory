@@ -92,6 +92,7 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
             )
             self.assertEqual(0, recall_out.returncode)
             self.assertIn('"ok"', recall_out.stdout)
+            self.assertIn("CLI test", recall_out.stdout)
 
             inspect_out = _run_cli(["--root", str(root), "inspect", "stats"], cwd)
             self.assertEqual(0, inspect_out.returncode)
