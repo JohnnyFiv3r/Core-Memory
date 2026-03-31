@@ -64,6 +64,50 @@ Install from PyPI:
 pip install core-memory
 ```
 
+## Fastest Paths
+
+### 1) Local CLI path (fastest first success)
+
+```bash
+core-memory setup init
+core-memory setup doctor
+core-memory store add --type decision --title "Redis fix" --summary "Raised pool size" --session-id s1 --source-turn-ids t1
+core-memory recall search "Redis fix"
+```
+
+### 2) Python embed path
+
+```python
+from core_memory import MemoryStore
+
+store = MemoryStore("./memory")
+store.add_bead(type="decision", title="Redis fix", summary=["Raised pool size"], session_id="s1", source_turn_ids=["t1"])
+print(store.query(limit=5))
+```
+
+### 3) HTTP companion-service path (SpringAI / service-oriented)
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -U pip
+pip install -e ".[http]"
+python3 -m core_memory.integrations.http.server
+```
+
+Then verify:
+
+```bash
+curl http://localhost:8000/healthz
+curl -X POST http://localhost:8000/v1/memory/execute \
+  -H "Content-Type: application/json" \
+  -d '{"query":"why did we change strategy?","intent":"causal"}'
+```
+
+See also:
+- `docs/integrations/springai/quickstart.md`
+- `docs/integrations/springai/integration-guide.md`
+
 ### Write and recall a causal chain
 
 ```python
