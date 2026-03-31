@@ -52,6 +52,10 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
             self.assertEqual(0, init_out.returncode)
             self.assertTrue((root / ".beads").exists())
 
+            doctor_out = _run_cli(["--root", str(root), "setup", "doctor"], cwd)
+            self.assertEqual(0, doctor_out.returncode)
+            self.assertIn('"ok": true', doctor_out.stdout.lower())
+
             add_out = _run_cli(
                 [
                     "--root",
@@ -80,8 +84,9 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
                     str(root),
                     "recall",
                     "search",
-                    "--typed",
-                    '{"intent":"remember","query_text":"cli test","k":5}',
+                    "cli test",
+                    "--k",
+                    "5",
                 ],
                 cwd,
             )

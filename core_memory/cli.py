@@ -149,10 +149,18 @@ def _doctor_report(root: str) -> dict:
         "detail": {"count": int(session_count)},
     })
 
+    # Fresh stores may not have rolling-window records until first write/flush.
+    # Treat this as non-failing during bootstrap when there are no beads yet.
+    rolling_exists = bool(records_file.exists())
     checks.append({
-        "name": "rolling-window.records.json exists",
-        "pass": bool(records_file.exists()),
-        "detail": {"path": str(records_file), "exists": bool(records_file.exists())},
+        "name": "rolling-window.records.json present (or not yet expected on fresh store)",
+        "pass": bool(rolling_exists or len(beads) == 0),
+        "detail": {
+            "path": str(records_file),
+            "exists": rolling_exists,
+            "expected_after_first_write": True,
+            "fresh_store": bool(len(beads) == 0),
+        },
     })
 
     orphan_count = 0
@@ -224,8 +232,11 @@ def main():
 
     recall_parser = subparsers.add_parser("recall", help="Retrieve/interpret memory")
     recall_sub = recall_parser.add_subparsers(dest="recall_cmd")
-    recall_search = recall_sub.add_parser("search", help="Typed memory search")
-    recall_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
+    recall_search = recall_sub.add_parser("search", help="Search memory (simple query by default; typed payload optional)")
+    recall_search.add_argument("query", nargs="?", default="", help="Natural-language query (plug-and-play mode)")
+    recall_search.add_argument("--intent", default="remember", help="Search intent for simple mode (default: remember)")
+    recall_search.add_argument("--k", type=int, default=8, help="Result count for simple mode")
+    recall_search.add_argument("--typed", help="JSON object string or path to JSON file (advanced typed mode)")
     recall_search.add_argument("--explain", action="store_true")
     recall_reason = recall_sub.add_parser("reason", help="Reasoned memory recall")
     recall_reason.add_argument("query")
@@ -885,11 +896,18 @@ def main():
         if args.memory_cmd == "form":
             print(json.dumps(memory_get_search_form(str(memory.root)), indent=2))
         elif args.memory_cmd == "search":
-            typed = str(args.typed or "")
-            if typed.strip().startswith("{"):
-                payload = json.loads(typed)
+            typed = str(getattr(args, "typed", "") or "").strip()
+            if typed:
+                if typed.startswith("{"):
+                    payload = json.loads(typed)
+                else:
+                    payload = json.loads(Path(typed).read_text(encoding="utf-8"))
             else:
-                payload = json.loads(Path(typed).read_text(encoding="utf-8"))
+                payload = {
+                    "intent": str(getattr(args, "intent", "remember") or "remember"),
+                    "query_text": str(getattr(args, "query", "") or ""),
+                    "k": int(getattr(args, "k", 8) or 8),
+                }
             print(json.dumps(memory_search_typed(str(memory.root), payload, explain=bool(args.explain)), indent=2))
         elif args.memory_cmd == "execute":
             req = str(args.request or "")
