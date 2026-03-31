@@ -78,6 +78,10 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
             )
             self.assertEqual(0, add_out.returncode)
 
+            doctor_after_add = _run_cli(["--root", str(root), "setup", "doctor"], cwd)
+            self.assertEqual(0, doctor_after_add.returncode)
+            self.assertIn('"ok": true', doctor_after_add.stdout.lower())
+
             recall_out = _run_cli(
                 [
                     "--root",

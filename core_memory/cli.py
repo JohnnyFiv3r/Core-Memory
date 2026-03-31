@@ -149,17 +149,19 @@ def _doctor_report(root: str) -> dict:
         "detail": {"count": int(session_count)},
     })
 
-    # Fresh stores may not have rolling-window records until first write/flush.
-    # Treat this as non-failing during bootstrap when there are no beads yet.
+    # Fresh/early stores may not have rolling-window records until first flush/
+    # rolling-window maintenance cycle.
+    checkpoints_file = beads_dir / "events" / "flush-checkpoints.jsonl"
+    flush_cycle_seen = bool(checkpoints_file.exists() and checkpoints_file.stat().st_size > 0)
     rolling_exists = bool(records_file.exists())
     checks.append({
-        "name": "rolling-window.records.json present (or not yet expected on fresh store)",
-        "pass": bool(rolling_exists or len(beads) == 0),
+        "name": "rolling-window.records.json present (required after first flush cycle)",
+        "pass": bool(rolling_exists or not flush_cycle_seen),
         "detail": {
             "path": str(records_file),
             "exists": rolling_exists,
-            "expected_after_first_write": True,
-            "fresh_store": bool(len(beads) == 0),
+            "required_after_first_flush": True,
+            "flush_cycle_seen": flush_cycle_seen,
         },
     })
 
