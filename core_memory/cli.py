@@ -168,8 +168,67 @@ def main():
     """CLI entry point for core-memory command."""
     parser = argparse.ArgumentParser(description="Core-Memory CLI")
     parser.add_argument("--root", default=DEFAULT_ROOT, help="Memory root directory")
-    
+
     subparsers = parser.add_subparsers(dest="command")
+
+    # Grouped surface (preferred)
+    setup_parser = subparsers.add_parser("setup", help="Initialize/configure/validate local Core Memory store")
+    setup_sub = setup_parser.add_subparsers(dest="setup_cmd")
+    setup_sub.add_parser("init", help="Initialize store directories at --root")
+    setup_sub.add_parser("doctor", help="Run local store health checks")
+    setup_sub.add_parser("paths", help="Show resolved store paths")
+
+    store_parser = subparsers.add_parser("store", help="Create/mutate stored memory records")
+    store_sub = store_parser.add_subparsers(dest="store_cmd")
+    store_add = store_sub.add_parser("add", help="Add a bead")
+    store_add.add_argument("--type", required=True)
+    store_add.add_argument("--title", required=True)
+    store_add.add_argument("--summary", nargs="*")
+    store_add.add_argument("--because", nargs="*")
+    store_add.add_argument("--source-turn-ids", nargs="*")
+    store_add.add_argument("--tags", nargs="*")
+    store_add.add_argument("--context-tags", nargs="*")
+    store_add.add_argument("--session-id")
+    store_sub.add_parser("stats", help="Show store statistics")
+    store_compact = store_sub.add_parser("compact", help="Compact beads")
+    store_compact.add_argument("--session")
+    store_compact.add_argument("--promote", action="store_true")
+    store_uncompact = store_sub.add_parser("uncompact", help="Restore compacted bead detail")
+    store_uncompact.add_argument("--id", required=True)
+    store_consolidate = store_sub.add_parser("consolidate", help="Run canonical runtime consolidation/flush pipeline")
+    store_consolidate.add_argument("--session", required=True)
+    store_consolidate.add_argument("--promote", action="store_true")
+    store_consolidate.add_argument("--token-budget", type=int, default=1200)
+    store_consolidate.add_argument("--max-beads", type=int, default=12)
+    store_consolidate.add_argument("--source", default="admin_cli")
+    store_rw = store_sub.add_parser("rolling-window", help="Run rolling window maintenance pipeline")
+    store_rw.add_argument("--token-budget", type=int, default=1200)
+    store_rw.add_argument("--max-beads", type=int, default=12)
+
+    recall_parser = subparsers.add_parser("recall", help="Retrieve/interpret memory")
+    recall_sub = recall_parser.add_subparsers(dest="recall_cmd")
+    recall_search = recall_sub.add_parser("search", help="Typed memory search")
+    recall_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
+    recall_search.add_argument("--explain", action="store_true")
+    recall_reason = recall_sub.add_parser("reason", help="Reasoned memory recall")
+    recall_reason.add_argument("query")
+    recall_reason.add_argument("--k", type=int, default=8)
+    recall_reason.add_argument("--retrieve", action="store_true")
+    recall_reason.add_argument("--debug", action="store_true")
+    recall_reason.add_argument("--explain", action="store_true")
+    recall_heads = recall_sub.add_parser("heads", help="Show topic/goal HEAD pointers")
+    recall_heads.add_argument("--topic-id")
+    recall_heads.add_argument("--goal-id")
+
+    inspect_parser = subparsers.add_parser("inspect", help="Inspect stored artifacts")
+    inspect_sub = inspect_parser.add_subparsers(dest="inspect_cmd")
+    inspect_list = inspect_sub.add_parser("list", help="List/query beads")
+    inspect_list.add_argument("--type")
+    inspect_list.add_argument("--status")
+    inspect_list.add_argument("--tags", nargs="*")
+    inspect_list.add_argument("--limit", type=int, default=20)
+    inspect_sub.add_parser("stats", help="Show statistics")
+    inspect_sub.add_parser("health", help="Run local store health checks")
     
     # add command
     add_parser = subparsers.add_parser("add", help="Add a bead")
@@ -444,7 +503,62 @@ def main():
     metrics_canonical.add_argument("--write", help="Optional JSON output path")
     
     args = parser.parse_args()
-    
+
+    if args.command in {"setup", "store", "recall", "inspect"}:
+        sub_name = {
+            "setup": "setup_cmd",
+            "store": "store_cmd",
+            "recall": "recall_cmd",
+            "inspect": "inspect_cmd",
+        }[args.command]
+        if not getattr(args, sub_name, None):
+            parser.print_help()
+            return
+
+    # Grouped-surface command mapping (preferred UX) -> canonical handlers below.
+    if args.command == "setup":
+        if args.setup_cmd == "init":
+            memory = MemoryStore(root=args.root)
+            print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
+            return
+        if args.setup_cmd == "doctor":
+            args.command = "doctor"
+        elif args.setup_cmd == "paths":
+            memory = MemoryStore(root=args.root)
+            print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
+            return
+
+    if args.command == "store":
+        if args.store_cmd == "add":
+            args.command = "add"
+        elif args.store_cmd == "stats":
+            args.command = "stats"
+        elif args.store_cmd == "compact":
+            args.command = "compact"
+        elif args.store_cmd == "uncompact":
+            args.command = "uncompact"
+        elif args.store_cmd == "consolidate":
+            args.command = "consolidate"
+        elif args.store_cmd == "rolling-window":
+            args.command = "rolling-window"
+
+    if args.command == "recall":
+        if args.recall_cmd == "search":
+            args.command = "memory"
+            args.memory_cmd = "search"
+        elif args.recall_cmd == "reason":
+            args.command = "reason"
+        elif args.recall_cmd == "heads":
+            args.command = "heads"
+
+    if args.command == "inspect":
+        if args.inspect_cmd == "list":
+            args.command = "query"
+        elif args.inspect_cmd == "stats":
+            args.command = "stats"
+        elif args.inspect_cmd == "health":
+            args.command = "doctor"
+
     memory = MemoryStore(root=args.root)
     
     if args.command == "add":
