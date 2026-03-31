@@ -202,3 +202,16 @@ async def memory_classify_intent(
 ):
     _check_auth(authorization, x_memory_token)
     return classify_intent(str(payload.query or ""))
+
+
+def main() -> None:
+    """Run HTTP server via `python -m core_memory.integrations.http.server`."""
+    import uvicorn
+
+    host = str(os.getenv("CORE_MEMORY_HTTP_HOST") or "127.0.0.1")
+    port = int(os.getenv("CORE_MEMORY_HTTP_PORT") or "8000")
+    uvicorn.run("core_memory.integrations.http.server:app", host=host, port=port)
+
+
+if __name__ == "__main__":
+    main()
