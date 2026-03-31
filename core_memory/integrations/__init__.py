@@ -29,10 +29,10 @@ def __getattr__(name: str):
         "hydrate_bead_sources",
     }:
         from . import api as _api
-
         return getattr(_api, name)
+
     if name in {"rebuild_turn_indexes", "backfill_bead_session_ids"}:
         from . import migration as _migration
-
         return getattr(_migration, name)
+
     raise AttributeError(name)
