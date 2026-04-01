@@ -16,6 +16,18 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _parse_iso(ts: str) -> datetime | None:
+    s = str(ts or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
 def _paths(root: Path) -> tuple[Path, Path, Path, Path, Path]:
     sem = root / ".beads" / "semantic"
     return (
@@ -248,6 +260,11 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
     # Dirty/fingerprint mismatch -> serve stale + enqueue rebuild when possible.
     current_fp = _fingerprint(_rows_from_corpus(build_visible_corpus(root)))
     dirty = bool(manifest.get("dirty")) or (str(manifest.get("corpus_fingerprint") or "") != current_fp)
+    stale_age_ms: int | None = None
+    if dirty:
+        dt = _parse_iso(str(manifest.get("last_dirty_at") or ""))
+        if dt is not None:
+            stale_age_ms = int((datetime.now(timezone.utc) - dt).total_seconds() * 1000)
     if dirty:
         warnings.append("semantic_index_stale")
         enqueue_semantic_rebuild(root)
@@ -314,6 +331,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
                 "provider": manifest.get("provider"),
                 "query": query,
                 "warnings": warnings,
+                "stale_age_ms": stale_age_ms,
                 "results": out,
             }
         except Exception:
@@ -325,5 +343,6 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
         "provider": manifest.get("provider") or req_provider,
         "query": query,
         "warnings": warnings,
+        "stale_age_ms": stale_age_ms,
         "results": lexical_rank(),
     }

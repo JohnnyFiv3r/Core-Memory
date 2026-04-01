@@ -76,10 +76,10 @@ def main() -> int:
                 },
                 'B': {
                     'ok': bool(b.get('ok')),
-                    'result_count': len(b.get('results') or []),
+                    'result_count': len((b.get('anchors') or b.get('results') or [])),
                     'chain_count': len(b.get('chains') or []),
                     'confidence': b.get('confidence'),
-                    'suggested_next': b.get('suggested_next'),
+                    'suggested_next': b.get('next_action') or b.get('suggested_next'),
                     'has_anchor': has_anchor,
                     'warnings': b.get('warnings') or [],
                 },

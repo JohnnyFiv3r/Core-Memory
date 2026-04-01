@@ -52,8 +52,6 @@ def _normalize_turn_request(
     tx = str(transaction_id or f"tx-{tid}-{uuid.uuid4().hex[:8]}")
     tr = str(trace_id or f"tr-{tid}-{uuid.uuid4().hex[:8]}")
 
-    mark_turn_checkpoint(root, turn_id=req["turn_id"])
-
     return {
         "session_id": sid,
         "turn_id": tid,
@@ -366,6 +364,8 @@ def process_turn_finalized(
         window_bead_ids=window_bead_ids,
         metadata=metadata,
     )
+
+    mark_turn_checkpoint(root, turn_id=req["turn_id"])
 
     emitted = maybe_emit_finalize_memory_event(
         root,

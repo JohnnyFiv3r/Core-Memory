@@ -2,11 +2,13 @@ from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
+import os
 
 from core_memory.graph.api import causal_traverse
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import semantic_lookup
 from core_memory.retrieval.visible_corpus import build_visible_corpus
+from core_memory.integrations.api import hydrate_bead_sources
 
 
 def _status_rank(status: str) -> int:
@@ -94,6 +96,21 @@ def search_request(*, root: str | Path, query: str, k: int = 10, intent: str = "
     confidence = "high" if anchors and float(anchors[0].get("semantic_score") or 0.0) >= 0.75 else ("medium" if anchors else "low")
     next_action = "answer" if confidence in {"high", "medium"} else "ask_clarifying"
 
+    # stale-budget guard
+    max_stale_ms = int(os.getenv("CORE_MEMORY_SEMANTIC_MAX_STALE_MS", "120000") or "120000")
+    stale_age_ms = sem.get("stale_age_ms")
+    strong = [a for a in anchors if float(a.get("semantic_score") or 0.0) >= 0.55 and str(a.get("anchor_reason") or "") == "retrieved"]
+    weak_anchors = (not anchors) or (float((anchors[0] or {}).get("semantic_score") or 0.0) < 0.65) or (len(strong) < 2)
+    if isinstance(stale_age_ms, int) and stale_age_ms > max_stale_ms:
+        warns = list(sem.get("warnings") or [])
+        if "semantic_index_over_stale_budget" not in warns:
+            warns.append("semantic_index_over_stale_budget")
+        sem["warnings"] = warns
+        if weak_anchors:
+            confidence = "low"
+            if intent == "causal":
+                next_action = "ask_clarifying"
+
     return {
         "ok": True,
         "anchors": anchors,
@@ -147,6 +164,7 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
         "next_action": next_action,
         "warnings": list(anchors_out.get("warnings") or []),
         "snapped": anchors_out.get("snapped") or {"raw_query": query, "intent": intent, "k": int(k)},
+        "hydration": {"status": "not_requested", "warnings": []},
     }
 
 
@@ -166,11 +184,32 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     if grounding_mode == "search_only":
         out = search_request(root=root, query=query, k=k, intent=intent)
         out["grounding"] = {"required": False, "achieved": False, "level": "none", "reason": "search_only"}
+        out.setdefault("hydration", {"status": "not_requested", "warnings": []})
     else:
         out = trace_request(root=root, query=query, anchor_ids=req.get("anchor_ids") or None, k=k, intent=intent)
 
     out.setdefault("chains", [])
     out.setdefault("citations", [])
+
+    # explicit best-effort hydration (post-selection, non-fatal)
+    hyd_req = dict(req.get("hydration") or {})
+    if hyd_req:
+        status = "complete"
+        hw: list[str] = []
+        try:
+            bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
+            include_tools = bool(hyd_req.get("turn_sources") in {"cited_turns", "cited_turns_plus_adjacent", "cited_session_transcript"})
+            before = int(hyd_req.get("adjacent_before") or 0)
+            after = int(hyd_req.get("adjacent_after") or 0)
+            h = hydrate_bead_sources(root=str(root), bead_ids=bead_ids[: int(hyd_req.get("max_beads") or 10)], include_tools=include_tools, before=before, after=after)
+            out["hydration_data"] = h
+            if h.get("disabled"):
+                status = "partial"
+                hw.append("hydration_disabled")
+        except Exception:
+            status = "failed"
+            hw.append("hydration_error")
+        out["hydration"] = {"status": status, "warnings": hw}
 
     out["request"] = {
         "raw_query": query,
