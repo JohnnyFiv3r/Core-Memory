@@ -39,6 +39,23 @@ def _paths(root: Path) -> tuple[Path, Path, Path, Path, Path]:
     )
 
 
+def _read_queue(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {"queued": False, "queued_at": None, "epoch": 0}
+    try:
+        q = json.loads(path.read_text(encoding="utf-8"))
+        return q if isinstance(q, dict) else {"queued": False, "queued_at": None, "epoch": 0}
+    except Exception:
+        return {"queued": False, "queued_at": None, "epoch": 0}
+
+
+def _write_queue(path: Path, q: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(path)
+
+
 def _hash_vectors(texts: list[str], dim: int = 256):
     import numpy as np  # type: ignore
 
@@ -224,6 +241,12 @@ def build_semantic_index(root: Path) -> dict:
     }
     _write_manifest(manifest_file, manifest)
 
+    # consume queue epoch on successful build
+    q = _read_queue(_queue_file)
+    q["queued"] = False
+    q["queued_at"] = None
+    _write_queue(_queue_file, q)
+
     return {
         "ok": True,
         "backend": backend,
@@ -235,7 +258,7 @@ def build_semantic_index(root: Path) -> dict:
 
 
 def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
-    manifest_file, faiss_file, rows_file, _build_lock, _queue_file = _paths(root)
+    manifest_file, faiss_file, rows_file, build_lock, queue_file = _paths(root)
     warnings: list[str] = []
 
     if not manifest_file.exists() or not rows_file.exists():
@@ -268,6 +291,28 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
     if dirty:
         warnings.append("semantic_index_stale")
         enqueue_semantic_rebuild(root)
+
+        # prevent indefinite staleness: opportunistically drain queue when no build is active
+        mode = str(os.getenv("CORE_MEMORY_SEMANTIC_REBUILD_MODE", "background_stale") or "background_stale").strip().lower()
+        if mode == "background_stale" and not build_lock.exists():
+            try:
+                build_lock.parent.mkdir(parents=True, exist_ok=True)
+                build_lock.write_text(_now(), encoding="utf-8")
+                q = _read_queue(queue_file)
+                if bool(q.get("queued")):
+                    build_semantic_index(root)
+                    warnings.append("semantic_index_rebuilt_from_queue")
+                    manifest = _read_manifest(manifest_file)
+                    rows = _read_rows(rows_file)
+                    dirty = False
+            except Exception:
+                warnings.append("semantic_rebuild_drain_failed")
+            finally:
+                if build_lock.exists():
+                    try:
+                        build_lock.unlink()
+                    except Exception:
+                        pass
 
     backend = str(manifest.get("backend") or "lexical")
 

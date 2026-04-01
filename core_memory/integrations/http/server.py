@@ -76,6 +76,7 @@ class MemoryTraceRequest(BaseModel):
     query: str = ""
     anchor_ids: list[str] = Field(default_factory=list)
     k: int = 8
+    hydration: dict[str, Any] = Field(default_factory=dict)
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
@@ -243,6 +244,7 @@ async def memory_trace(
         root=_resolve_root(payload.root),
         k=int(payload.k),
         anchor_ids=list(payload.anchor_ids or []),
+        hydration=dict(payload.hydration or {}),
     )
 
 

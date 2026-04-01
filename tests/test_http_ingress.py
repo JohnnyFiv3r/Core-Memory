@@ -86,6 +86,19 @@ class TestHttpIngress(unittest.TestCase):
             self.assertTrue(data.get("ok"))
             self.assertIn("anchors", data)
 
+            r2 = c.post(
+                "/v1/memory/trace",
+                json={
+                    "root": root,
+                    "query": "why candidate-first promotion",
+                    "k": 5,
+                    "hydration": {"turn_sources": "cited_turns", "adjacent_before": 1, "adjacent_after": 1},
+                },
+            )
+            self.assertEqual(200, r2.status_code)
+            data2 = r2.json()
+            self.assertIn("hydration", data2)
+
     def test_http_session_flush_endpoint(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
