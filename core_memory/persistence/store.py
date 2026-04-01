@@ -26,6 +26,7 @@ from ..runtime.session_surface import read_session_surface
 from ..runtime.turn_archive import find_turn_record
 from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
+from ..retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
 from ..policy.hygiene import _redact_text, sanitize_bead_content, extract_constraints, enforce_bead_hygiene_contract
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
@@ -1362,6 +1363,8 @@ class MemoryStore:
                 },
             )
 
+            mark_semantic_dirty(self.root, reason="decide_promotion")
+
             return {
                 "ok": True,
                 "bead_id": bead_id,
@@ -1469,6 +1472,7 @@ class MemoryStore:
 
             index["beads"] = beads
             self._write_json(self.beads_dir / INDEX_FILE, index)
+            mark_semantic_dirty(self.root, reason="decide_session_promotion_states")
             return {"ok": True, "session_id": str(session_id), "turn_id": str(turn_id or ""), "counts": counts, "evaluated_bead_ids": ids}
 
     def promotion_kpis(self, limit: int = 500) -> dict:
@@ -2049,6 +2053,9 @@ class MemoryStore:
         # aggregate run counters (outside lock helper has its own lock)
         self.track_bead_created(1)
 
+        # canonical retrieval lifecycle: bead mutation marks semantic corpus dirty
+        mark_semantic_dirty(self.root, reason="add_bead")
+
         return bead_id
     
     def capture_turn(
@@ -2250,6 +2257,7 @@ class MemoryStore:
                 index["beads"][bead_id] = bead
 
             self._write_json(self.beads_dir / INDEX_FILE, index)
+            mark_semantic_dirty(self.root, reason="compact")
             return {
                 "ok": True,
                 "compacted": compacted,
@@ -2311,6 +2319,7 @@ class MemoryStore:
                 index["beads"][bead_id] = bead
 
             self._write_json(self.beads_dir / INDEX_FILE, index)
+            mark_semantic_dirty(self.root, reason="uncompact")
             return {"ok": True, "id": bead_id, "revision_id": found.get("revision_id")}
 
     def myelinate(self, apply: bool = False) -> dict:
@@ -2449,6 +2458,8 @@ class MemoryStore:
             # Append audit event (rebuild support)
             events.event_bead_promoted(self.root, bead_id, use_lock=False)
 
+            mark_semantic_dirty(self.root, reason="promote")
+
             return True
     
     def link(
@@ -2490,6 +2501,8 @@ class MemoryStore:
 
             # Append audit event (rebuild support)
             events.event_association_created(self.root, assoc, use_lock=False)
+
+            mark_trace_dirty(self.root, reason="link")
 
             return assoc_id
     
