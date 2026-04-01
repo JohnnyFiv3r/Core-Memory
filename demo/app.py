@@ -73,6 +73,7 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
+    memory_execute_tool,
     flush_session,
     memory_search_tool,
     memory_reason_tool,
@@ -198,6 +199,7 @@ def create_agent(model_id: str):
             "in what the team has recorded. Be specific and cite what you find."
         ),
         tools=[
+            memory_execute_tool(root=MEMORY_ROOT),
             memory_search_tool(root=MEMORY_ROOT),
             memory_reason_tool(root=MEMORY_ROOT),
         ],

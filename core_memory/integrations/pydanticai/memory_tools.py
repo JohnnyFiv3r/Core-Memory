@@ -110,7 +110,7 @@ def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
         form = memory_get_search_form(root_final)
         fields = form.get("fields") or {}
 
-        submission: dict[str, Any] = {"query": query}
+        submission: dict[str, Any] = {"query_text": query}
         if scope and "scope" in fields:
             submission["scope"] = scope
         if type_filter and "type" in fields:
