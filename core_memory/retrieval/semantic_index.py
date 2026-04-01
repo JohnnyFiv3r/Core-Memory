@@ -292,21 +292,22 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
         warnings.append("semantic_index_stale")
         enqueue_semantic_rebuild(root)
 
-        # prevent indefinite staleness: opportunistically drain queue when no build is active
+        # background_stale contract: never rebuild synchronously on hot query path
+        # when a usable index already exists.
         mode = str(os.getenv("CORE_MEMORY_SEMANTIC_REBUILD_MODE", "background_stale") or "background_stale").strip().lower()
-        if mode == "background_stale" and not build_lock.exists():
+        if mode in {"eager", "sync"} and not build_lock.exists():
             try:
                 build_lock.parent.mkdir(parents=True, exist_ok=True)
                 build_lock.write_text(_now(), encoding="utf-8")
                 q = _read_queue(queue_file)
                 if bool(q.get("queued")):
                     build_semantic_index(root)
-                    warnings.append("semantic_index_rebuilt_from_queue")
+                    warnings.append("semantic_index_rebuilt_sync")
                     manifest = _read_manifest(manifest_file)
                     rows = _read_rows(rows_file)
                     dirty = False
             except Exception:
-                warnings.append("semantic_rebuild_drain_failed")
+                warnings.append("semantic_rebuild_sync_failed")
             finally:
                 if build_lock.exists():
                     try:
