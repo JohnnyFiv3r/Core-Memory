@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+import json
 from pathlib import Path
 
 from core_memory.graph.api import (
@@ -21,6 +22,12 @@ class TestR3GraphSemantic(unittest.TestCase):
             d = s.add_bead(type="decision", title="Candidate-based promotion gate", summary=["promotion requires candidate status"], session_id="main", source_turn_ids=["t1"])
             l = s.add_bead(type="lesson", title="Promotion overuse breaks compaction", summary=["too many promoted beads"], session_id="main", source_turn_ids=["t2"])
             e = s.add_bead(type="evidence", title="Compaction metrics", summary=["728/790 promoted"], session_id="main", source_turn_ids=["t3"], supports_bead_ids=[d])
+
+            idx_path = Path(td) / ".beads" / "index.json"
+            idx = json.loads(idx_path.read_text(encoding="utf-8"))
+            for bid in [d, l, e]:
+                idx["beads"][bid]["retrieval_eligible"] = True
+            idx_path.write_text(json.dumps(idx, ensure_ascii=False, indent=2), encoding="utf-8")
 
             add_structural_edge(Path(td), src_id=d, dst_id=l, rel="supports")
             add_structural_edge(Path(td), src_id=l, dst_id=e, rel="derived_from")
