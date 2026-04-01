@@ -5,9 +5,7 @@ from pathlib import Path
 from .catalog import build_catalog
 from core_memory.retrieval.search_form import get_search_form
 from .snap import snap_form
-from .search import search_typed
-from .explain import build_explain
-from .execute import execute_request, evaluate_confidence_next, _load_beads
+from .canonical import search_request as _search_request, execute_request as _execute_request, trace_request as _trace_request
 
 
 def memory_get_search_form(root: str) -> dict:
@@ -20,28 +18,19 @@ def memory_search_typed(root: str, submission: dict, explain: bool = False) -> d
     rp = Path(root)
     catalog = build_catalog(rp)
     snapped = snap_form(submission, catalog)
-    out = search_typed(rp, snapped.get("snapped") or {}, include_explain=explain)
-    out["snapped_query"] = snapped.get("snapped") or {}
-
-    beads = _load_beads(rp)
-    intent = str((out.get("snapped_query") or {}).get("intent") or "other")
-    conf, nxt, cdiag = evaluate_confidence_next(
-        intent=intent,
-        results=out.get("results") or [],
-        chains=out.get("chains") or [],
-        snapped=out.get("snapped_query") or {},
-        beads=beads,
-        warnings=out.get("warnings") or [],
-    )
-    out["confidence"] = conf
-    out["suggested_next"] = nxt
-
+    s = snapped.get("snapped") or {}
+    out = _search_request(root=rp, query=str(s.get("query_text") or ""), k=int(s.get("k") or 10), intent=str(s.get("intent") or "remember"))
+    out["snapped_query"] = s
+    out["suggested_next"] = out.get("next_action")
     if explain:
-        ex = build_explain(out.get("snapped_query") or {}, snapped.get("decisions") or {}, out.get("warnings") or [], out.get("retrieval_debug") or {})
-        ex["confidence_diagnostics"] = cdiag
-        out["explain"] = ex
+        out.setdefault("explain", {})
+        out["explain"]["snap_decisions"] = snapped.get("decisions") or []
     return out
 
 
 def memory_execute(root: str, request: dict, explain: bool = True) -> dict:
-    return execute_request(request=request, root=root, explain=bool(explain))
+    return _execute_request(root=root, request=request, explain=bool(explain))
+
+
+def memory_trace(root: str, query: str = "", anchor_ids: list[str] | None = None, k: int = 8) -> dict:
+    return _trace_request(root=root, query=query, anchor_ids=anchor_ids, k=int(k), intent="causal")
