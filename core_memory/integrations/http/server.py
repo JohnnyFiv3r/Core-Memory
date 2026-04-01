@@ -7,7 +7,7 @@ from typing import Any, Optional
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from core_memory.integrations.api import emit_turn_finalized
+from core_memory.runtime.engine import process_turn_finalized, process_flush
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 
@@ -59,6 +59,23 @@ class MemoryExecuteRequest(BaseModel):
 
 class MemoryClassifyIntentRequest(BaseModel):
     query: str
+
+
+class SessionFlushRequest(BaseModel):
+    root: Optional[str] = None
+    session_id: str
+    source: str = "http"
+    flush_tx_id: Optional[str] = None
+    promote: bool = True
+    token_budget: int = 1200
+    max_beads: int = 12
+
+
+class MemoryTraceRequest(BaseModel):
+    root: Optional[str] = None
+    query: str = ""
+    anchor_ids: list[str] = Field(default_factory=list)
+    k: int = 8
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
@@ -119,8 +136,8 @@ async def turn_finalized(
     transaction_id = payload.transaction_id or f"tx-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
     trace_id = payload.trace_id or f"tr-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
 
-    event_id = emit_turn_finalized(
-        root=payload.root,
+    out = process_turn_finalized(
+        root=_resolve_root(payload.root),
         session_id=payload.session_id,
         turn_id=payload.turn_id,
         transaction_id=transaction_id,
@@ -128,13 +145,33 @@ async def turn_finalized(
         user_query=payload.user_query,
         assistant_final=payload.assistant_final,
         origin=payload.origin,
-        tools_trace=(payload.traces or {}).get("tools") or [],
-        mesh_trace=(payload.traces or {}).get("mesh") or [],
+        tools_trace=list((payload.traces or {}).get("tools") or []),
+        mesh_trace=list((payload.traces or {}).get("mesh") or []),
         window_turn_ids=payload.window_turn_ids,
         window_bead_ids=payload.window_bead_ids,
         metadata=payload.metadata,
     )
-    return {"accepted": True, "event_id": event_id}
+    event_id = str((((out.get("emitted") or {}).get("payload") or {}).get("event") or {}).get("event_id") or "")
+    return {"accepted": True, "event_id": event_id, "ok": bool(out.get("ok", True))}
+
+
+@app.post("/v1/memory/session-flush")
+async def session_flush(
+    payload: SessionFlushRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = process_flush(
+        root=_resolve_root(payload.root),
+        session_id=payload.session_id,
+        source=payload.source,
+        flush_tx_id=payload.flush_tx_id,
+        promote=bool(payload.promote),
+        token_budget=int(payload.token_budget),
+        max_beads=int(payload.max_beads),
+    )
+    return out
 
 
 @app.get("/v1/memory/search-form")
@@ -191,6 +228,21 @@ async def memory_execute(
         request=payload.request,
         root=_resolve_root(payload.root),
         explain=bool(payload.explain),
+    )
+
+
+@app.post("/v1/memory/trace")
+async def memory_trace(
+    payload: MemoryTraceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return memory_tools.trace(
+        query=str(payload.query or ""),
+        root=_resolve_root(payload.root),
+        k=int(payload.k),
+        anchor_ids=list(payload.anchor_ids or []),
     )
 
 

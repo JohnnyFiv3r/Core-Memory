@@ -70,6 +70,44 @@ class TestHttpIngress(unittest.TestCase):
             self.assertTrue(data.get("results"))
             self.assertIn("grounding", data)
 
+    def test_http_trace_endpoint(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+        from core_memory.persistence.store import MemoryStore
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            s = MemoryStore(root)
+            s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+            c = TestClient(app)
+            r = c.post("/v1/memory/trace", json={"root": root, "query": "why candidate-first promotion", "k": 5})
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertTrue(data.get("ok"))
+            self.assertIn("anchors", data)
+
+    def test_http_session_flush_endpoint(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            c = TestClient(app)
+            c.post(
+                "/v1/memory/turn-finalized",
+                json={
+                    "root": root,
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "user_query": "u",
+                    "assistant_final": "a",
+                },
+            )
+            r = c.post("/v1/memory/session-flush", json={"root": root, "session_id": "s1", "source": "http_test"})
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertTrue(bool(data.get("ok")))
+
     def test_http_classify_intent_endpoint(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app

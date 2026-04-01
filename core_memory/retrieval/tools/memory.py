@@ -41,9 +41,29 @@ def reason(
 ) -> dict:
     # v9 canonical: reason is a thin alias to trace.
     out = memory_trace(root=root, query=query, anchor_ids=pinned_bead_ids, k=int(k))
+    out.setdefault("intent", {})
+    out["intent"].update(
+        {
+            "pinned_incident_ids": list(pinned_incident_ids or []),
+            "pinned_topic_keys": list(pinned_topic_keys or []),
+            "pinned_bead_ids": list(pinned_bead_ids or []),
+        }
+    )
     if explain:
         out.setdefault("explain", {})
         out["explain"]["alias"] = "reason->trace"
+    return out
+
+
+def trace(
+    query: str = "",
+    root: str = ".",
+    k: int = 8,
+    anchor_ids: list[str] | None = None,
+) -> dict:
+    out = memory_trace(root=root, query=query, anchor_ids=anchor_ids, k=int(k))
+    out.setdefault("schema_version", EXECUTE_RESULT_SCHEMA_VERSION)
+    out.setdefault("contract", "memory_trace")
     return out
 
 
