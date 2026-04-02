@@ -142,16 +142,35 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
     trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])
 
-    grounding = "full" if chains else "none"
+    # Grounding levels:
+    # - full: structural chains exist
+    # - partial: no structural chains but semantic anchor set contains
+    #            decision/precedent + supporting role(s)
+    # - none: no usable grounding
+    if chains:
+        grounding = "full"
+    else:
+        types = {str(a.get("type") or "").lower() for a in anchors}
+        has_decision_like = bool(types.intersection({"decision", "precedent"}))
+        has_support_like = bool(types.intersection({"evidence", "lesson", "outcome"}))
+        grounding = "partial" if (anchors and has_decision_like and has_support_like) else "none"
+
     next_action = "answer" if grounding in {"full", "partial"} else "ask_clarifying"
-    confidence = "high" if chains else ("medium" if anchors else "low")
+    confidence = "high" if chains else ("medium" if grounding == "partial" else ("medium" if anchors else "low"))
 
     citations = []
-    for c in chains[:3]:
-        for b in (c.get("beads") or []):
-            bid = str((b or {}).get("id") or "")
+    if chains:
+        for c in chains[:3]:
+            for b in (c.get("beads") or []):
+                bid = str((b or {}).get("id") or "")
+                if bid and bid not in {x.get("bead_id") for x in citations}:
+                    citations.append({"bead_id": bid, "title": str((b or {}).get("title") or ""), "type": str((b or {}).get("type") or "")})
+    elif grounding == "partial":
+        # Semantic-only partial grounding cites top anchors.
+        for a in anchors[:5]:
+            bid = str(a.get("bead_id") or "")
             if bid and bid not in {x.get("bead_id") for x in citations}:
-                citations.append({"bead_id": bid, "title": str((b or {}).get("title") or ""), "type": str((b or {}).get("type") or "")})
+                citations.append({"bead_id": bid, "title": str(a.get("title") or ""), "type": str(a.get("type") or "")})
 
     out = {
         "ok": True,
@@ -159,7 +178,12 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
         "results": anchors,  # compatibility alias
         "chains": chains,
         "citations": citations,
-        "grounding": {"required": True, "achieved": bool(chains), "level": grounding, "reason": "grounded" if chains else "none"},
+        "grounding": {
+            "required": True,
+            "achieved": bool(grounding in {"full", "partial"}),
+            "level": grounding,
+            "reason": "grounded" if grounding == "full" else ("semantic_only" if grounding == "partial" else "none"),
+        },
         "confidence": confidence,
         "next_action": next_action,
         "warnings": list(anchors_out.get("warnings") or []),
