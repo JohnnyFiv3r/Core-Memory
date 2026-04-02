@@ -196,7 +196,11 @@ def create_agent(model_id: str):
             "You are a helpful project assistant. You have access to the team's "
             "persistent memory — decisions, lessons, goals, and context from prior "
             "conversations. Use your memory tools proactively to ground your answers "
-            "in what the team has recorded. Be specific and cite what you find."
+            "in what the team has recorded. Be specific and cite what you find. "
+            "Tool policy: call execute_memory_request first for recall questions; "
+            "use search_memory as a secondary check; use reason_about_memory for "
+            "explicit causal trace questions. Do not claim memory is missing unless "
+            "both execute and search return no anchors/results."
         ),
         tools=[
             memory_execute_tool(root=MEMORY_ROOT),
@@ -370,16 +374,22 @@ async def get_bead(bead_id: str):
 
 def _seed_demo_history():
     store = MemoryStore(root=MEMORY_ROOT)
-    store.add_bead(
+    decision_id = store.add_bead(
         type="decision", title="Chose PostgreSQL over MySQL",
         summary=["JSONB support for flexible schema", "2x faster for our JSON workload", "Mature extension ecosystem"],
         detail="Evaluated MySQL 8, SQLite, and PostgreSQL 16. Ran pgbench and sysbench. PostgreSQL won on JSONB indexing.",
         session_id="s-history", scope="project",
     )
-    store.add_bead(
+    lesson_id = store.add_bead(
         type="lesson", title="Always benchmark before choosing infrastructure",
         summary=["Synthetic benchmarks misled us before", "Representative workload testing caught a 2x gap"],
         detail="Prior project chose MySQL based on TPC-C. Actual workload was JSON-heavy. This time we benchmarked first.",
+        session_id="s-history", scope="project",
+    )
+    evidence_id = store.add_bead(
+        type="evidence", title="Benchmark data: PostgreSQL 2x faster",
+        summary=["pgbench and sysbench on representative workload", "Median latency and p95 both improved"],
+        detail="Benchmarks showed PostgreSQL ~2x faster than MySQL for JSON-heavy queries.",
         session_id="s-history", scope="project",
     )
     store.add_bead(
@@ -393,7 +403,15 @@ def _seed_demo_history():
         detail="Considered Flask, Django REST, FastAPI. Flask lacks async. Django too heavy. FastAPI won.",
         session_id="s-history", scope="project",
     )
-    print("  Seeded 4 sample beads from project history")
+
+    # Add explicit structural links so causal trace can ground "why" answers.
+    try:
+        store.link(lesson_id, decision_id, "supports", "Benchmarking lesson informed DB decision")
+        store.link(evidence_id, decision_id, "supports", "Benchmark evidence supports selected database")
+    except Exception:
+        # Non-fatal for demo seeding; beads still exist even if links already present.
+        pass
+    print("  Seeded 5 sample beads + structural links from project history")
 
 
 # ── Main ──────────────────────────────────────────────────────────────
