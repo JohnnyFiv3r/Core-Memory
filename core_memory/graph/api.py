@@ -801,10 +801,12 @@ def causal_traverse(
                 rel = str(a.get("relationship") or "supports")
                 if not src or not dst:
                     continue
+                # Legacy compatibility: historical associations may have no
+                # explicit confidence field; treat as fully trusted.
                 try:
-                    conf = float(a.get("confidence") if a.get("confidence") is not None else 0.0)
+                    conf = float(a.get("confidence") if a.get("confidence") is not None else 1.0)
                 except Exception:
-                    conf = 0.0
+                    conf = 1.0
                 if conf < 0.45:
                     continue
                 assoc_kept += 1

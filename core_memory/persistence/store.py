@@ -2467,7 +2467,8 @@ class MemoryStore:
         source_id: str,
         target_id: str,
         relationship: str,
-        explanation: str = ""
+        explanation: str = "",
+        confidence: float = 0.8,
     ) -> str:
         """
         Create a link between two beads.
@@ -2490,6 +2491,7 @@ class MemoryStore:
             "target_bead": target_id,
             "relationship": relationship,
             "explanation": explanation,
+            "confidence": float(confidence),
             "created_at": datetime.now(timezone.utc).isoformat()
         }
         
