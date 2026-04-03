@@ -410,6 +410,48 @@ class TestHttpIngress(unittest.TestCase):
             self.assertEqual(400, r.status_code)
             self.assertEqual("invalid_tenant_id", (r.json() or {}).get("detail"))
 
+    def test_http_returns_503_for_required_semantic_unavailable(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http import server as srv
+        from core_memory.persistence.store import MemoryStore
+
+        old_mode = os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE")
+        old_provider = os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER")
+        old_openai = os.environ.get("OPENAI_API_KEY")
+        os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = "required"
+        os.environ["CORE_MEMORY_EMBEDDINGS_PROVIDER"] = "openai"
+        os.environ["OPENAI_API_KEY"] = ""
+        try:
+            with tempfile.TemporaryDirectory() as td:
+                root = str(Path(td) / "memory")
+                s = MemoryStore(root)
+                s.add_bead(type="decision", title="A", summary=["x"], session_id="main", source_turn_ids=["t1"])
+
+                c = TestClient(srv.app)
+                r = c.post(
+                    "/v1/memory/search",
+                    json={
+                        "root": root,
+                        "form_submission": {"query_text": "A", "intent": "remember", "k": 5},
+                        "explain": True,
+                    },
+                )
+                self.assertEqual(503, r.status_code)
+                self.assertEqual("semantic_backend_unavailable", ((r.json() or {}).get("error") or {}).get("code"))
+        finally:
+            if old_mode is None:
+                os.environ.pop("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", None)
+            else:
+                os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = old_mode
+            if old_provider is None:
+                os.environ.pop("CORE_MEMORY_EMBEDDINGS_PROVIDER", None)
+            else:
+                os.environ["CORE_MEMORY_EMBEDDINGS_PROVIDER"] = old_provider
+            if old_openai is None:
+                os.environ.pop("OPENAI_API_KEY", None)
+            else:
+                os.environ["OPENAI_API_KEY"] = old_openai
+
 
 if __name__ == "__main__":
     unittest.main()

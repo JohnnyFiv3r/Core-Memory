@@ -1,4 +1,4 @@
-# Public Surface
+# Public Surface (Pre-OSS)
 
 Status: Canonical
 
@@ -12,15 +12,28 @@ A surface is canonical only if it is both:
 ## Write ingress
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
-## Retrieval/runtime surface
-- `core_memory.tools.memory.search(form_submission, root='.', explain=...)`
-- `core_memory.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)`
-- `core_memory.tools.memory.execute(request, root='.', explain=...)`
+## Retrieval/runtime tool surface
+- `core_memory.tools.memory.search(request: dict, root='.', explain=False)` — canonical anchor retrieval.
+- `core_memory.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)` — canonical causal traversal after anchor identification.
+- `core_memory.tools.memory.execute(request: dict, root='.', explain=False)` — unified memory request entrypoint.
 
 ### Retrieval semantics
 - `search`: anchor retrieval
 - `trace`: causal traversal/grounding after anchor identification
 - `execute`: unified orchestration entrypoint
+
+Compatibility note:
+- `form_submission` is accepted as an alias for `request` in compatibility callers, but forward docs and adapter contracts should use `request`.
+
+### Semantic mode contract
+- Query-based anchor lookup uses semantic backend by default.
+- If semantic backend is unavailable and `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required`, payloads return:
+  - `ok=false`
+  - `error.code="semantic_backend_unavailable"`
+  - `degraded=false`
+- In `degraded_allowed` mode, payloads remain `ok=true` with explicit `degraded=true` + degradation warnings.
+
+Trace calls with explicit `anchor_ids` bypass semantic anchor lookup.
 
 ### Hydration semantics
 Hydration is explicit post-selection source recovery (turn/tool/adjacent payloads).

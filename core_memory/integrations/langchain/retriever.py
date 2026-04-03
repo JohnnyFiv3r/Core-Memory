@@ -18,6 +18,34 @@ except ImportError:
     )
 
 from core_memory.retrieval.tools import memory as memory_tools
+from core_memory.retrieval.visible_corpus import build_visible_corpus
+
+
+def _enrich_anchor_payload(root: str, anchors: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Enrich anchor rows into richer bead-like payloads using one local lookup pass."""
+    by_id: dict[str, dict[str, Any]] = {}
+    for row in build_visible_corpus(root):
+        bid = str(row.get("bead_id") or "")
+        bead = row.get("bead") if isinstance(row.get("bead"), dict) else {}
+        if bid:
+            by_id[bid] = bead
+
+    out: list[dict[str, Any]] = []
+    for a in anchors:
+        bid = str(a.get("bead_id") or a.get("id") or "")
+        bead = by_id.get(bid, {})
+        merged = dict(a or {})
+        if bead:
+            merged.setdefault("title", bead.get("title"))
+            merged.setdefault("type", bead.get("type"))
+            merged.setdefault("summary", bead.get("summary"))
+            merged.setdefault("detail", bead.get("detail"))
+            merged.setdefault("created_at", bead.get("created_at"))
+            merged.setdefault("status", bead.get("status"))
+            merged.setdefault("tags", bead.get("tags"))
+            merged.setdefault("session_id", bead.get("session_id"))
+        out.append(merged)
+    return out
 
 
 class CoreMemoryRetriever(BaseRetriever):
@@ -49,8 +77,10 @@ class CoreMemoryRetriever(BaseRetriever):
             explain=self.explain,
         )
 
+        enriched = _enrich_anchor_payload(self.root, list(result.get("results") or []))
+
         documents = []
-        for item in result.get("results") or []:
+        for item in enriched:
             # Build document content from bead fields
             title = item.get("title") or item.get("retrieval_title") or ""
             summary = item.get("summary") or []
@@ -59,12 +89,15 @@ class CoreMemoryRetriever(BaseRetriever):
             else:
                 summary_text = str(summary)
             detail = item.get("detail") or ""
+            snippet = item.get("snippet") or ""
 
             content_parts = [f"[{item.get('type', '')}] {title}"]
             if summary_text:
                 content_parts.append(summary_text)
             if detail:
                 content_parts.append(detail)
+            if (not summary_text and not detail) and snippet:
+                content_parts.append(str(snippet))
 
             metadata: dict[str, Any] = {
                 "bead_id": item.get("bead_id") or item.get("id") or "",
@@ -75,6 +108,10 @@ class CoreMemoryRetriever(BaseRetriever):
             }
             if item.get("created_at"):
                 metadata["created_at"] = item["created_at"]
+            if item.get("session_id"):
+                metadata["session_id"] = item["session_id"]
+            if item.get("tags"):
+                metadata["tags"] = item["tags"]
 
             documents.append(Document(page_content="\n".join(content_parts), metadata=metadata))
 

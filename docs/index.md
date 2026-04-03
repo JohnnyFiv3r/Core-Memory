@@ -28,18 +28,23 @@ Use this page as the authoritative map of current docs.
   - [`integrations/shared/README.md`](integrations/shared/README.md)
   - [`integrations/shared/concepts.md`](integrations/shared/concepts.md)
   - [`integrations/shared/contracts.md`](integrations/shared/contracts.md)
-- OpenClaw:
-  - [`integrations/openclaw/README.md`](integrations/openclaw/README.md)
-- PydanticAI:
-  - [`integrations/pydanticai/README.md`](integrations/pydanticai/README.md)
-- SpringAI / HTTP:
-  - [`integrations/springai/README.md`](integrations/springai/README.md)
-- LangChain:
-  - [`integrations/langchain/README.md`](integrations/langchain/README.md)
+- OpenClaw: [`integrations/openclaw/README.md`](integrations/openclaw/README.md)
+- PydanticAI: [`integrations/pydanticai/README.md`](integrations/pydanticai/README.md)
+- SpringAI / HTTP: [`integrations/springai/README.md`](integrations/springai/README.md)
+- LangChain: [`integrations/langchain/README.md`](integrations/langchain/README.md)
+
+## Integration quickstarts
+- [`integrations/openclaw/quickstart.md`](integrations/openclaw/quickstart.md)
+- [`integrations/springai/quickstart.md`](integrations/springai/quickstart.md)
+- [`integrations/pydanticai/quickstart.md`](integrations/pydanticai/quickstart.md)
+- [`integrations/langchain/quickstart.md`](integrations/langchain/quickstart.md)
 
 ## Contracts
 - [`contracts/http_api.v1.json`](contracts/http_api.v1.json)
 - [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
+
+## Evaluation entrypoints
+- `../eval/memory_execute_eval.py`
 
 ## Compatibility / historical material
 - [`archive/`](archive/) — superseded migration/process/history docs

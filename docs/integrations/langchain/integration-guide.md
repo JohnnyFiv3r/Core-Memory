@@ -29,6 +29,7 @@ Role:
 
 Practical behavior:
 - retrieval returns bead-oriented recall data with metadata
+- retriever enriches anchors by bead id so `Document.page_content` includes summary/detail when available
 - this is read-time recall, complementary to `CoreMemory` writeback/continuity
 
 ## Usage guidance
@@ -37,4 +38,4 @@ Practical behavior:
 - Use both when you need continuity and explicit retriever recall in one app.
 
 ## Scope honesty
-Current LangChain integration is practical and usable, but still lightweight relative to the most mature adapters. Treat it as a clean adapter surface, not a complete opinionated framework layer.
+Current LangChain integration is practical and usable, but still lighter-weight than the most mature adapters. Treat it as a clean adapter surface, not a full framework rewrite.

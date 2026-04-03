@@ -1,6 +1,8 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.runtime.engine import process_turn_finalized, process_flush
 from core_memory.runtime.worker import SidecarPolicy
@@ -9,7 +11,7 @@ from core_memory.retrieval.tools.memory import execute
 
 class TestE2ELifecycleQuery(unittest.TestCase):
     def test_turns_flush_new_session_query(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             policy = SidecarPolicy(create_threshold=0.6)
 
             # Session A turns (write + enrichment)

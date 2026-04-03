@@ -37,9 +37,10 @@
       "path": "/v1/memory/search",
       "authRequired": "conditional",
       "requestSchema": "MemorySearchRequest",
-      "requiredFields": ["form_submission"],
+      "requiredFields": ["request"],
+      "notes": ["`form_submission` accepted as compatibility alias"],
       "response": {"ok": "bool", "results": "array", "chains": "array", "confidence": "string", "suggested_next": "string", "warnings": "array"},
-      "errors": ["401 unauthorized"]
+      "errors": ["401 unauthorized", "503 semantic_backend_unavailable"]
     },
     {
       "method": "POST",
@@ -48,7 +49,7 @@
       "requestSchema": "MemoryTraceRequest",
       "requiredFields": [],
       "response": {"ok": "bool", "anchors": "array", "chains": "array", "grounding": "object", "hydration": "object"},
-      "errors": ["401 unauthorized"]
+      "errors": ["401 unauthorized", "503 semantic_backend_unavailable (query-based trace only)"]
     },
     {
       "method": "POST",
@@ -58,7 +59,7 @@
       "requiredFields": ["request"],
       "notes": ["Single-call canonical retrieval orchestration path"],
       "response": {"ok": "bool", "request": "object", "snapped": "object", "results": "array", "chains": "array", "grounding": "object", "confidence": "string", "next_action": "string", "warnings": "array", "explain": "object?"},
-      "errors": ["401 unauthorized", "memory_execute_disabled", "memory_execute_causal_disabled"]
+      "errors": ["401 unauthorized", "memory_execute_disabled", "memory_execute_causal_disabled", "503 semantic_backend_unavailable"]
     },
     {
       "method": "POST",

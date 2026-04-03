@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.tools.memory import execute
@@ -7,7 +9,7 @@ from core_memory.retrieval.tools.memory import execute
 
 class TestMemoryExecuteFieldMapping(unittest.TestCase):
     def test_execute_maps_request_fields_to_snapped_form(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             s.add_bead(type='decision', title='Candidate-first promotion', summary=['promotion workflow'], tags=['promotion_workflow'], session_id='main', source_turn_ids=['t1'])
             req = {
@@ -33,7 +35,7 @@ class TestMemoryExecuteFieldMapping(unittest.TestCase):
             self.assertIn('time_range', snapped)
 
     def test_execute_causal_applies_facet_narrowing_to_trace_anchors(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             decision_id = s.add_bead(
                 type='decision',

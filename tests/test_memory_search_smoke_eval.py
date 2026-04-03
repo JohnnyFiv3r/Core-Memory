@@ -1,7 +1,9 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.tools.memory_search import search_typed
@@ -9,7 +11,7 @@ from core_memory.retrieval.tools.memory_search import search_typed
 
 class TestMemorySearchSmokeEval(unittest.TestCase):
     def test_three_basic_intents(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             s.add_bead(type='decision', title='Candidate-first promotion', summary=['promotion workflow'], tags=['promotion_workflow'], session_id='main', source_turn_ids=['t1'])
             s.add_bead(type='evidence', title='Structural sync pipeline', summary=['associations links edges graph'], tags=['structural_sync'], session_id='main', source_turn_ids=['t2'])

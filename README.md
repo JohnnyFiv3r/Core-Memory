@@ -67,7 +67,9 @@ It records structured memory events called **beads** — decisions, lessons, out
 | Vector similarity | “Similar” ≠ “relevant” | Semantic-first anchors + causal trace over explicit bead links |
 | Tool call logs | No reasoning structure | Explicit bead → bead associations |
 
-**Core local flow has zero required runtime dependencies beyond Python.** Optional extras exist for HTTP service mode and integration-specific workflows.
+**Core local write flow has zero required runtime dependencies beyond Python.**
+Query-based anchor lookup in canonical mode requires semantic backend support (or explicit degraded mode opt-in).
+Optional extras exist for HTTP service mode and integration-specific workflows.
 
 ---
 
@@ -91,6 +93,12 @@ pip install -e .
 ```
 
 ### Optional extras
+
+Semantic backend extras (recommended for canonical query path):
+
+```bash
+pip install "core-memory[semantic]"
+```
 
 HTTP companion service:
 
@@ -127,6 +135,9 @@ core-memory --root ./memory store add \
  --summary "Raised pool size" \
  --session-id s1 \
  --source-turn-ids t1
+# Option A (recommended): semantic backend installed via core-memory[semantic]
+# Option B (degraded mode):
+#   export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed
 core-memory --root ./memory memory search --query "Redis fix"
 ```
 
@@ -265,6 +276,7 @@ from core_memory.integrations.api import emit_turn_finalized
 - OpenClaw bridge
 - PydanticAI native adapter
 - SpringAI / HTTP companion service
+- LangChain (`CoreMemory`, `CoreMemoryRetriever`)
 - LangChain (`CoreMemory` + `CoreMemoryRetriever`)
 
 ### Good starting points
@@ -305,11 +317,14 @@ Associations are explicit links between beads and remain queryable even as memor
 
 ### Retrieval Pipeline
 
-Core Memory uses a canonical semantic-first retrieval flow:
+Canonical retrieval surfaces:
+- `search` (anchor retrieval)
+- `trace` (causal traversal)
+- `execute` (single orchestration entrypoint)
 
-- **search**: anchor selection over durable beads
-- **trace**: causal/temporal traversal over explicit associations
-- **execute**: single orchestration entrypoint for retrieval + grounding metadata
+Semantic mode behavior:
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` (default) fails closed for query-based anchor lookup when semantic backend is unavailable.
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` allows explicit degraded lexical fallback with markers.
 
 Hydration is explicit post-selection source recovery (turn/tools/adjacent), not a general retrieval mode.
 

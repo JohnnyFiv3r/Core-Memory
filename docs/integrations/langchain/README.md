@@ -16,6 +16,7 @@ LangChain is documented as two related but distinct surfaces:
 
 2. **CoreMemoryRetriever**
    - retriever adapter for read-time recall
+   - returns enriched bead documents (not just thin anchor labels)
 
 This is not write-only. LangChain integration supports both writeback and retrieval.
 

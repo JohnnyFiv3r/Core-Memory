@@ -1,11 +1,13 @@
 import importlib
 import json
+import os
 import sys
 import tempfile
 import types
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.persistence.rolling_record_store import write_rolling_records
 from core_memory.persistence.store import MemoryStore
@@ -120,7 +122,7 @@ class TestLangChainAdapterContract(unittest.TestCase):
             rows = [json.loads(line) for line in events.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(1, len(rows))
 
-    def test_corememory_retriever_returns_documents(self):
+    def test_corememory_retriever_returns_enriched_documents(self):
         with tempfile.TemporaryDirectory() as td, _fake_langchain_core_modules():
             root = Path(td) / "memory"
             s = MemoryStore(str(root))
@@ -128,6 +130,7 @@ class TestLangChainAdapterContract(unittest.TestCase):
                 type="decision",
                 title="Candidate-first promotion",
                 summary=["promotion workflow"],
+                detail="Use candidate-only first in flow",
                 tags=["promotion_workflow"],
                 session_id="main",
                 source_turn_ids=["t1"],
@@ -137,11 +140,15 @@ class TestLangChainAdapterContract(unittest.TestCase):
             Retriever = rmod.CoreMemoryRetriever
             retriever = Retriever(root=str(root), k=5, explain=True)
 
-            docs = retriever._get_relevant_documents("candidate promotion")
+            with patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
+                docs = retriever._get_relevant_documents("candidate promotion")
+
             self.assertTrue(len(docs) >= 1)
             first = docs[0]
             self.assertTrue(hasattr(first, "page_content"))
             self.assertTrue(hasattr(first, "metadata"))
+            self.assertIn("promotion workflow", first.page_content.lower())
+            self.assertIn("candidate-only", first.page_content.lower())
             self.assertIn("bead_id", first.metadata)
             self.assertIn("source", first.metadata)
 

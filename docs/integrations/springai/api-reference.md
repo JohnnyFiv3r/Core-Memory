@@ -48,8 +48,11 @@ Purpose:
 
 Body:
 - `root` (optional)
-- `form_submission`
+- `request`
 - `explain`
+
+Compatibility:
+- `form_submission` is accepted as alias, but forward clients should use `request`.
 
 ### `POST /v1/memory/execute`
 Purpose:
@@ -99,3 +102,10 @@ Conditional auth when `CORE_MEMORY_HTTP_TOKEN` is set.
 
 ## Tenant behavior
 For tenant-isolated deployments, stateful memory endpoints accept `X-Tenant-Id` and scope write/read/flush/continuity to the same tenant namespace.
+
+## Semantic mode transport behavior
+For query-based anchor lookup:
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` and unavailable semantic backend -> HTTP `503` with payload `error.code="semantic_backend_unavailable"`
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` -> HTTP `200` with explicit `degraded=true` markers
+
+Trace calls with explicit `anchor_ids` do not require semantic anchor lookup.

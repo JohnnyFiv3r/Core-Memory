@@ -39,8 +39,9 @@ Key method:
 - `_get_relevant_documents(query, run_manager=None)`
 
 Behavior summary:
-- calls Core Memory search
-- maps results to LangChain `Document`
+- calls canonical Core Memory search
+- enriches anchors by bead id for stronger document content
+- maps to LangChain `Document`
 - includes bead metadata in `Document.metadata`
 
 ## Install requirement

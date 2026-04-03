@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.pipeline import memory_search_typed
@@ -7,7 +9,7 @@ from core_memory.retrieval.pipeline import memory_search_typed
 
 class TestSearchTypedTimeRange(unittest.TestCase):
     def test_time_range_filters_results(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             old_id = s.add_bead(type='decision', title='Old item', summary=['legacy'], session_id='main', source_turn_ids=['t1'])
             new_id = s.add_bead(type='decision', title='New item', summary=['current'], session_id='main', source_turn_ids=['t2'])
@@ -29,7 +31,7 @@ class TestSearchTypedTimeRange(unittest.TestCase):
             self.assertNotIn(old_id, ids)
 
     def test_invalid_time_range_warns(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             s.add_bead(type='decision', title='Item', summary=['x'], session_id='main', source_turn_ids=['t1'])
             out = memory_search_typed(td, {

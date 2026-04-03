@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import IntegrationContext, emit_turn_finalized
@@ -51,7 +52,9 @@ class TurnFinalizedRequest(BaseModel):
 
 class MemorySearchRequest(BaseModel):
     root: Optional[str] = None
-    form_submission: dict[str, Any]
+    request: dict[str, Any] = Field(default_factory=dict)
+    # compatibility alias
+    form_submission: dict[str, Any] = Field(default_factory=dict)
     explain: bool = True
 
 
@@ -84,6 +87,13 @@ class MemoryTraceRequest(BaseModel):
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
+
+
+def _semantic_http_response(result: dict[str, Any]) -> JSONResponse | None:
+    code = str(((result.get("error") or {}).get("code") or "")).strip()
+    if not result.get("ok") and code == "semantic_backend_unavailable":
+        return JSONResponse(status_code=503, content=result)
+    return None
 
 
 def _auth_required() -> str:
@@ -133,11 +143,19 @@ async def healthz(root: Optional[str] = None):
     else:
         info["index_status"] = "not_initialized"
 
-    # Report semantic backend status
-    meta_path = Path(resolved) / ".beads" / "bead_index_meta.json"
-    if meta_path.exists():
+    # Report semantic backend status (canonical semantic manifest)
+    manifest_path = Path(resolved) / ".beads" / "semantic" / "manifest.json"
+    legacy_meta_path = Path(resolved) / ".beads" / "bead_index_meta.json"
+    if manifest_path.exists():
         try:
-            meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+            meta = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            info["semantic_backend"] = meta.get("backend", "unknown")
+            info["embeddings_provider"] = meta.get("provider", "unknown")
+        except Exception:
+            info["semantic_backend"] = "error"
+    elif legacy_meta_path.exists():
+        try:
+            meta = _json.loads(legacy_meta_path.read_text(encoding="utf-8"))
             info["semantic_backend"] = meta.get("backend", "unknown")
             info["embeddings_provider"] = meta.get("provider", "unknown")
         except Exception:
@@ -234,11 +252,14 @@ async def memory_search_typed(
     x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
-    return memory_tools.search(
-        form_submission=payload.form_submission,
+    req_payload = dict(payload.request or payload.form_submission or {})
+    out = memory_tools.search(
+        request=req_payload,
         root=_resolve_root(payload.root, x_tenant_id),
         explain=bool(payload.explain),
     )
+    maybe = _semantic_http_response(out if isinstance(out, dict) else {})
+    return maybe or out
 
 
 @app.post("/v1/memory/execute")
@@ -249,11 +270,13 @@ async def memory_execute(
     x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
-    return memory_tools.execute(
+    out = memory_tools.execute(
         request=payload.request,
         root=_resolve_root(payload.root, x_tenant_id),
         explain=bool(payload.explain),
     )
+    maybe = _semantic_http_response(out if isinstance(out, dict) else {})
+    return maybe or out
 
 
 @app.post("/v1/memory/trace")
@@ -264,13 +287,15 @@ async def memory_trace(
     x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
-    return memory_tools.trace(
+    out = memory_tools.trace(
         query=str(payload.query or ""),
         root=_resolve_root(payload.root, x_tenant_id),
         k=int(payload.k),
         anchor_ids=list(payload.anchor_ids or []),
         hydration=dict(payload.hydration or {}),
     )
+    maybe = _semantic_http_response(out if isinstance(out, dict) else {})
+    return maybe or out
 
 
 @app.post("/v1/memory/classify-intent")

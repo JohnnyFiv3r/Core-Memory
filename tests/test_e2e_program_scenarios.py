@@ -1,7 +1,9 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.runtime.engine import (
     process_turn_finalized,
@@ -17,7 +19,7 @@ from core_memory.persistence.store import MemoryStore
 
 class TestE2EProgramScenarios(unittest.TestCase):
     def test_scenario_a_turn_to_flush_to_retrieval(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             policy = SidecarPolicy(create_threshold=0.6)
 
             t1 = process_turn_finalized(

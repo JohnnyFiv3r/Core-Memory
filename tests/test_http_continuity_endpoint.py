@@ -91,6 +91,30 @@ class TestHttpContinuityEndpoint(unittest.TestCase):
         self.assertTrue(data.get("ok"))
         self.assertIn("version", data)
 
+    def test_healthz_reads_semantic_manifest(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "memory"
+            from core_memory.persistence.store import MemoryStore
+
+            MemoryStore(str(root))
+            semantic_dir = root / ".beads" / "semantic"
+            semantic_dir.mkdir(parents=True, exist_ok=True)
+            manifest = semantic_dir / "manifest.json"
+            manifest.write_text(
+                json.dumps({"backend": "faiss-openai", "provider": "openai"}),
+                encoding="utf-8",
+            )
+
+            c = TestClient(app)
+            r = c.get("/healthz", params={"root": str(root)})
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertEqual("faiss-openai", data.get("semantic_backend"))
+            self.assertEqual("openai", data.get("embeddings_provider"))
+
 
 if __name__ == "__main__":
     unittest.main()

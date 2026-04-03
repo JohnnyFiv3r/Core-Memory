@@ -8,11 +8,24 @@ SEARCH_RESULT_SCHEMA_VERSION = "memory_search_result.v1"
 EXECUTE_RESULT_SCHEMA_VERSION = "memory_execute_result.v1"
 
 
-def search(form_submission: dict, root: str = ".", explain: bool = True) -> dict:
-    out = memory_search_typed(root=root, submission=form_submission, explain=bool(explain))
+def search(
+    request: dict | None = None,
+    root: str = ".",
+    explain: bool = True,
+    form_submission: dict | None = None,
+) -> dict:
+    """Canonical search surface.
+
+    Public contract uses `request`. `form_submission` is accepted as compatibility
+    alias for existing callers.
+    """
+    submission = dict(request or form_submission or {})
+    out = memory_search_typed(root=root, submission=submission, explain=bool(explain))
     if isinstance(out, dict):
         out.setdefault("schema_version", SEARCH_RESULT_SCHEMA_VERSION)
-        out.setdefault("contract", "typed_search")
+        out.setdefault("contract", "memory_search")
+        out.setdefault("request", submission)
+        out.pop("snapped_query", None)
     return out
 
 
