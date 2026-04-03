@@ -52,7 +52,9 @@ class TurnFinalizedRequest(BaseModel):
 
 class MemorySearchRequest(BaseModel):
     root: Optional[str] = None
-    form_submission: dict[str, Any]
+    request: dict[str, Any] = Field(default_factory=dict)
+    # compatibility alias
+    form_submission: dict[str, Any] = Field(default_factory=dict)
     explain: bool = True
 
 
@@ -141,11 +143,19 @@ async def healthz(root: Optional[str] = None):
     else:
         info["index_status"] = "not_initialized"
 
-    # Report semantic backend status
-    meta_path = Path(resolved) / ".beads" / "bead_index_meta.json"
-    if meta_path.exists():
+    # Report semantic backend status (canonical semantic manifest)
+    manifest_path = Path(resolved) / ".beads" / "semantic" / "manifest.json"
+    legacy_meta_path = Path(resolved) / ".beads" / "bead_index_meta.json"
+    if manifest_path.exists():
         try:
-            meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+            meta = _json.loads(manifest_path.read_text(encoding="utf-8"))
+            info["semantic_backend"] = meta.get("backend", "unknown")
+            info["embeddings_provider"] = meta.get("provider", "unknown")
+        except Exception:
+            info["semantic_backend"] = "error"
+    elif legacy_meta_path.exists():
+        try:
+            meta = _json.loads(legacy_meta_path.read_text(encoding="utf-8"))
             info["semantic_backend"] = meta.get("backend", "unknown")
             info["embeddings_provider"] = meta.get("provider", "unknown")
         except Exception:
@@ -242,8 +252,9 @@ async def memory_search_typed(
     x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
+    req_payload = dict(payload.request or payload.form_submission or {})
     out = memory_tools.search(
-        form_submission=payload.form_submission,
+        request=req_payload,
         root=_resolve_root(payload.root, x_tenant_id),
         explain=bool(payload.explain),
     )

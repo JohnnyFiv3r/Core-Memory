@@ -49,7 +49,9 @@ It records structured memory events called **beads** — decisions, lessons, out
 | Vector similarity | “Similar” ≠ “relevant” | Semantic-first anchors + causal trace over typed bead links |
 | Tool call logs | No reasoning structure | Explicit bead → bead associations |
 
-**Core local flow has zero required runtime dependencies beyond Python.** Optional extras exist for HTTP service mode and integration-specific workflows.
+**Core local write flow has zero required runtime dependencies beyond Python.**
+Query-based anchor lookup in canonical mode requires semantic backend support (or explicit degraded mode opt-in).
+Optional extras exist for HTTP service mode and integration-specific workflows.
 
 ---
 
@@ -73,6 +75,12 @@ pip install -e .
 ```
 
 ### Optional extras
+
+Semantic backend extras (recommended for canonical query path):
+
+```bash
+pip install "core-memory[semantic]"
+```
 
 HTTP companion service:
 
@@ -109,6 +117,9 @@ core-memory --root ./memory store add \
  --summary "Raised pool size" \
  --session-id s1 \
  --source-turn-ids t1
+# Option A (recommended): semantic backend installed via core-memory[semantic]
+# Option B (degraded mode):
+#   export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed
 core-memory --root ./memory memory search --query "Redis fix"
 ```
 

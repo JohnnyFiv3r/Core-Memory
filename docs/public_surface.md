@@ -18,9 +18,12 @@ Everything else is internal and may change without notice.
 - `core_memory.event_state` — canonical pass-state alias module.
 
 ## Retrieval/runtime tool surface
-- `core_memory.tools.memory.search(form_submission: dict, root: str='.', explain: bool=False) -> dict` — canonical retrieval anchors.
+- `core_memory.tools.memory.search(request: dict, root: str='.', explain: bool=False) -> dict` — canonical retrieval anchors.
 - `core_memory.tools.memory.trace(query: str, root: str='.', k: int=8, ...) -> dict` — canonical causal traversal after anchor identification.
 - `core_memory.tools.memory.execute(root: str, request: dict, explain: bool=False) -> dict` — unified memory request entrypoint.
+
+Compatibility note:
+- `form_submission` is accepted as an alias for `request` in compatibility callers, but forward docs and adapter contracts should use `request`.
 
 ### Semantic mode contract
 - Query-based anchor lookup uses semantic backend by default.

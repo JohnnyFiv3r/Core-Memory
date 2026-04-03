@@ -37,7 +37,8 @@
       "path": "/v1/memory/search",
       "authRequired": "conditional",
       "requestSchema": "MemorySearchRequest",
-      "requiredFields": ["form_submission"],
+      "requiredFields": ["request"],
+      "notes": ["`form_submission` accepted as compatibility alias"],
       "response": {"ok": "bool", "results": "array", "chains": "array", "confidence": "string", "suggested_next": "string", "warnings": "array"},
       "errors": ["401 unauthorized", "503 semantic_backend_unavailable"]
     },

@@ -48,8 +48,11 @@ Purpose:
 
 Body:
 - `root` (optional)
-- `form_submission`
+- `request`
 - `explain`
+
+Compatibility:
+- `form_submission` is accepted as alias, but forward clients should use `request`.
 
 ### `POST /v1/memory/execute`
 Purpose:
