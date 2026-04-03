@@ -112,7 +112,6 @@ def _doctor_report(root: str) -> dict:
     beads_dir = root_p / ".beads"
     idx_file = beads_dir / "index.json"
     from core_memory.persistence.rolling_record_store import read_rolling_records
-    records_file = root_p / "rolling-window.records.json"
 
     checks: list[dict] = []
 
@@ -166,7 +165,7 @@ def _doctor_report(root: str) -> dict:
         "name": "rolling-window records present (required after first flush cycle)",
         "pass": bool(rolling_exists or not flush_cycle_seen),
         "detail": {
-            "path": str(records_file),
+            "path": str(root_p),
             "exists": rolling_exists,
             "required_after_first_flush": True,
             "flush_cycle_seen": flush_cycle_seen,

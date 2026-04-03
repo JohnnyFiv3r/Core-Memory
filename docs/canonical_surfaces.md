@@ -76,10 +76,6 @@ Transitional stub retained:
 ## Canonical evaluation entry points
 
 - `eval/memory_execute_eval.py`
-- `eval/memory_search_ab_compare.py`
-- `eval/memory_search_smoke.py`
-- `eval/paraphrase_eval.py`
-- `eval/retrieval_eval.py`
 
 ## Supported but secondary / lower-level surfaces
 

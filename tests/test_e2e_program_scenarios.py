@@ -131,6 +131,7 @@ class TestE2EProgramScenarios(unittest.TestCase):
                                     "target_bead_id": b2,
                                     "relationship": "supports",
                                     "confidence": 0.8,
+                                    "reason_text": "continuity supports contract-safe retrieval",
                                 }
                             ],
                         }

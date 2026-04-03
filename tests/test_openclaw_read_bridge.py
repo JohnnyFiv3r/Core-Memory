@@ -42,6 +42,13 @@ class TestOpenClawReadBridge(unittest.TestCase):
         result = dispatch({"action": "trace", "query": "why PostgreSQL?", "root": self.root})
         self.assertIn("ok", result)
 
+    def test_trace_with_anchor_ids_only(self):
+        idx = self.store._read_json(Path(self.root) / ".beads" / "index.json")
+        bead_ids = list((idx.get("beads") or {}).keys())
+        result = dispatch({"action": "trace", "root": self.root, "anchor_ids": bead_ids[:1]})
+        self.assertTrue(result.get("ok"))
+        self.assertTrue(bool(result.get("anchors") or []))
+
     def test_trace_missing_query(self):
         result = dispatch({"action": "trace", "root": self.root})
         self.assertFalse(result.get("ok", True))

@@ -45,13 +45,15 @@ def _handle_search(payload: dict[str, Any]) -> dict[str, Any]:
 def _handle_trace(payload: dict[str, Any]) -> dict[str, Any]:
     root = _resolve_root(payload)
     query = str(payload.get("query") or "").strip()
-    if not query:
-        return {"ok": False, "error": "missing_query"}
+    anchor_ids = payload.get("anchor_ids")
+    has_anchor_ids = isinstance(anchor_ids, list) and any(str(x).strip() for x in anchor_ids)
+    if not query and not has_anchor_ids:
+        return {"ok": False, "error": "missing_query_or_anchor_ids"}
     return memory_tools.trace(
         query=query,
         root=root,
         k=int(payload.get("k", 8)),
-        anchor_ids=payload.get("anchor_ids"),
+        anchor_ids=anchor_ids,
         hydration=payload.get("hydration"),
     )
 
