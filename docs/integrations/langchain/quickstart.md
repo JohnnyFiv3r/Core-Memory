@@ -34,3 +34,5 @@ retriever = CoreMemoryRetriever(root="./memory", k=8, explain=True)
 ## 4) Validate quickly
 - Ensure turns are being written under `.beads/events/`
 - Query through retriever and verify returned docs include bead metadata (`bead_id`, `type`, `score`)
+- Run adapter contract test:
+  - `python -m unittest tests.test_langchain_adapter_contract`
