@@ -10,7 +10,7 @@ class TestRuntimeAssociationPass(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             b1 = s.add_bead(type="context", title="A", summary=["x"], session_id="s1", source_turn_ids=["t0"])
-            b2 = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t0"])
+            b2 = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t1"])
 
             out = run_association_pass(
                 root=td,
@@ -22,6 +22,7 @@ class TestRuntimeAssociationPass(unittest.TestCase):
                             "target_bead_id": b2,
                             "relationship": "supports",
                             "confidence": 0.9,
+                            "reason_text": "A supports B",
                         }
                     ]
                 },

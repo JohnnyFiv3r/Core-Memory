@@ -33,10 +33,11 @@ result = await run_with_memory(
 PydanticAI can use the runtime memory tools directly in-process:
 - `core_memory.retrieval.tools.memory.execute`
 - `core_memory.retrieval.tools.memory.search`
-- `core_memory.retrieval.tools.memory.reason`
+- `core_memory.retrieval.tools.memory.trace`
 
 ## 4) Validate
 ```bash
 python -m unittest tests.test_memory_search_tool_wrapper
+python -m unittest tests.test_pydanticai_memory_tools
 python eval/memory_execute_eval.py
 ```

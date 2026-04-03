@@ -2,17 +2,14 @@ import tempfile
 import unittest
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.retrieval.tools.memory_search import get_search_form, search_typed
+from core_memory.retrieval.tools.memory_search import search_typed
 
 
 class TestMemorySearchToolWrapper(unittest.TestCase):
-    def test_tool_wrapper_form_and_search(self):
+    def test_tool_wrapper_search_only(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
-
-            form = get_search_form(td)
-            self.assertEqual("memory_search_form.v1", form.get("schema_version"))
 
             out = search_typed(
                 {

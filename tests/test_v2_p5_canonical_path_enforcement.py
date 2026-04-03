@@ -38,8 +38,10 @@ class TestV2P5CanonicalPathEnforcement(unittest.TestCase):
                 explain=True,
             )
             self.assertTrue(out.get("ok"))
-            for k in ["results", "chains", "confidence", "next_action", "source_surface", "source_scope"]:
+            for k in ["results", "chains", "confidence", "next_action"]:
                 self.assertIn(k, out)
+            first = (out.get("results") or [{}])[0]
+            self.assertIn("source_surface", first)
 
 
 if __name__ == "__main__":

@@ -61,19 +61,35 @@ def main() -> None:
     for r in data.get("results", [])[:3]:
         print(f"  - [{r.get('type')}] {r.get('title')} (score: {r.get('score', 'n/a')})")
 
-    # --- 3. Read: causal reasoning ---
-    reason_resp = client.post(
-        "/v1/memory/reason",
+    # --- 3. Read: causal trace ---
+    trace_resp = client.post(
+        "/v1/memory/trace",
         json={
             "root": ROOT,
             "query": "why PostgreSQL?",
             "k": 5,
         },
     )
-    reason_data = reason_resp.json()
-    print(f"\nReason: ok={reason_data.get('ok')}, chains={len(reason_data.get('chains', []))}")
+    trace_data = trace_resp.json()
+    print(f"\nTrace: ok={trace_data.get('ok')}, chains={len(trace_data.get('chains', []))}")
 
-    # --- 4. Read: continuity injection ---
+    # --- 4. Read: execute ---
+    exec_resp = client.post(
+        "/v1/memory/execute",
+        json={
+            "root": ROOT,
+            "request": {
+                "raw_query": "why PostgreSQL?",
+                "intent": "causal",
+                "k": 5,
+            },
+            "explain": True,
+        },
+    )
+    exec_data = exec_resp.json()
+    print(f"\nExecute: ok={exec_data.get('ok')}, results={len(exec_data.get('results', []))}")
+
+    # --- 5. Read: continuity injection ---
     continuity_resp = client.get(
         "/v1/memory/continuity",
         params={"root": ROOT, "max_items": 10, "format": "json"},
@@ -81,7 +97,7 @@ def main() -> None:
     cont_data = continuity_resp.json()
     print(f"\nContinuity: authority={cont_data.get('authority')}, records={len(cont_data.get('records', []))}")
 
-    # --- 5. Read: continuity as text (for SpringAI system prompt injection) ---
+    # --- 6. Read: continuity as text (for SpringAI system prompt injection) ---
     text_resp = client.get(
         "/v1/memory/continuity",
         params={"root": ROOT, "max_items": 10, "format": "text"},

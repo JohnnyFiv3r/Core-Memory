@@ -17,18 +17,14 @@ Canonical finalized-turn event emission, pass state, mechanical execution, and r
 - **`rolling_record_store.py`** - **canonical rolling continuity authority (JSON)**
 - `rolling_surface.py` - renderer + selection policy (derived artifacts)
 
-### 3. Retrieval / Reasoning
-**Files:** `retrieval/*`, `tools/memory_reason.py`, `memory_skill/*`
+### 3. Retrieval / Planning
+**Files:** `retrieval/pipeline/canonical.py`, `retrieval/semantic_index.py`, `retrieval/visible_corpus.py`, `retrieval/normalize.py`, `retrieval/query_norm.py`
 
-- `retrieval/query_norm.py` - query normalization, tokenization, intent detection
-- `retrieval/lexical.py` - deterministic lexical scoring
-- `retrieval/hybrid.py` - semantic + lexical fusion
-- `retrieval/rerank.py` - second-stage reranking
-- `retrieval/quality_gate.py` - retry/no-retry quality gating
-- `retrieval/context_recall.py` - strict→fallback matching with deep recall
-- `retrieval/failure_patterns.py` - failure signature detection
-- `tools/memory_reason.py` - freeform reasoning (why/when/changed/remember)
-- `memory_skill/*` - typed search catalog, snap, execute
+- `retrieval/pipeline/canonical.py` - single canonical planner authority (`search`/`trace`/`execute`)
+- `retrieval/semantic_index.py` - semantic lookup backend + stale-serving/rebuild lifecycle
+- `retrieval/visible_corpus.py` - canonical visible corpus assembly
+- `retrieval/normalize.py` - shared normalization/token handling
+- `retrieval/query_norm.py` - query intent classification helpers
 
 ### 4. Graph / Causal Memory
 **Files:** `graph.py`, `graph_structural.py`, `graph_traversal.py`, `graph_semantic.py`
@@ -65,8 +61,6 @@ Canonical finalized-turn event emission, pass state, mechanical execution, and r
 Extraction is **largely complete**. Legacy compatibility methods remain in `store.py` as thin delegators to:
 
 - `retrieval/query_norm.py` - tokenization, intent detection
-- `retrieval/failure_patterns.py` - failure signature detection
-- `retrieval/context_recall.py` - context-aware retrieval
 - `hygiene.py` - redaction, sanitization
 - `policy/promotion.py` - scoring, thresholds
 

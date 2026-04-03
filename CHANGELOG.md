@@ -14,6 +14,9 @@
 - OpenClaw integration docs now document canonical install/verify path and runtime verification signals.
 - Association inference v2.1 hardening: crawler/model-inferred association ingestion now validates a strict canonical inference subset by default and quarantines malformed/non-canonical rows (instead of silent upgrades).
 - Causal grounding policy now requires at least one non-temporal structural relation for full grounding; `follows`/`associated_with`-only chains downgrade to partial grounding.
+- Canonical retrieval cleanup: removed deprecated public retrieval surfaces (`/v1/memory/search-form`, `/v1/memory/reason`, OpenClaw bridge `search-form`/`reason`) and aligned adapters/docs to `search`/`trace`/`execute`.
+- Canonical planner authority cleanup: removed legacy `retrieval/pipeline/execute.py`; canonical planner authority is `retrieval/pipeline/canonical.py`.
+- Test contract cleanup: retired obsolete search-form/reason legacy test modules and rebaselined active retrieval contract coverage around canonical search/trace/execute + hydration/tenant/v2.1 policies.
 
 ### Fixed
 - Bridge ingestion modules now read stdin fully to avoid truncated JSON payload parsing failures in large event envelopes.

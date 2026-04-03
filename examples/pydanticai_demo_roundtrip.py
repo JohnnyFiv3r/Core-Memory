@@ -15,7 +15,7 @@ from core_memory.write_pipeline.rolling_window import build_rolling_surface, wri
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
     memory_search_tool,
-    memory_reason_tool,
+    memory_trace_tool,
 )
 
 
@@ -88,15 +88,14 @@ def main():
         for hit in result2.get("results", []):
             print(f"    - [{hit.get('type')}] {hit.get('title')}: {hit.get('summary')}")
 
-        # ── Step 5: Memory reason tool ───────────────────────────────
-        print("\nStep 5: Using memory reason tool...\n")
-        reason = memory_reason_tool(root=root)
-        result3 = json.loads(reason("Why did we choose PostgreSQL?"))
-        print(f"  Reason 'Why PostgreSQL?': ok={result3.get('ok')}")
-        if result3.get("answer"):
-            print(f"  Answer: {result3['answer'][:200]}")
+        # ── Step 5: Memory trace tool ────────────────────────────────
+        print("\nStep 5: Using memory trace tool...\n")
+        trace = memory_trace_tool(root=root)
+        result3 = json.loads(trace("Why did we choose PostgreSQL?"))
+        print(f"  Trace 'Why PostgreSQL?': ok={result3.get('ok')}")
+        print(f"  Anchors: {len(result3.get('anchors') or [])}, Chains: {len(result3.get('chains') or [])}")
 
-        print("\nDone! Full round-trip: write → rolling window → continuity + search + reason")
+        print("\nDone! Full round-trip: write → rolling window → continuity + search + trace")
 
 
 if __name__ == "__main__":

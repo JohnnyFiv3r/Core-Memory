@@ -14,8 +14,7 @@ For remote/JVM integrations, use the HTTP contract artifact as source of truth.
 Canonical runtime surfaces:
 - `core_memory.tools.memory.execute`
 - `core_memory.tools.memory.search`
-- `core_memory.tools.memory.reason`
-- `core_memory.tools.memory.get_search_form`
+- `core_memory.tools.memory.trace`
 
 ### Write-path contract
 Canonical finalized-turn ingestion:

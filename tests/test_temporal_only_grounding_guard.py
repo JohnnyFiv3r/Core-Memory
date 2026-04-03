@@ -1,10 +1,8 @@
 import tempfile
-from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.pipeline.canonical import execute_request as canonical_execute_request
 from core_memory.retrieval.pipeline.canonical import trace_request
-from core_memory.retrieval.pipeline.execute import execute_request as legacy_execute_request
 
 
 def test_trace_follows_only_is_not_full_grounding():
@@ -68,26 +66,3 @@ def test_canonical_execute_respects_temporal_only_guard():
         assert g.get("level") == "partial"
         assert g.get("reason") == "non_temporal_structural_missing"
 
-
-@patch("core_memory.retrieval.pipeline.execute._load_beads")
-@patch("core_memory.retrieval.pipeline.execute.search_typed")
-@patch("core_memory.retrieval.pipeline.execute.snap_form")
-@patch("core_memory.retrieval.pipeline.execute.build_catalog")
-def test_legacy_execute_marks_temporal_only_as_not_grounded(mcat, msnap, msearch, mbeads):
-    mcat.return_value = {}
-    msnap.return_value = {"snapped": {"intent": "causal", "query_text": "q"}, "decisions": {}}
-    mbeads.return_value = {}
-    msearch.return_value = {
-        "ok": True,
-        "results": [{"bead_id": "b1", "title": "A", "type": "decision", "snippet": "", "score": 0.9, "source_surface": "session_bead"}],
-        "chains": [{"path": ["b1", "b2"], "edges": [{"rel": "follows", "class": "structural"}], "score": 0.8}],
-        "snapped_query": {"intent": "causal", "query_text": "q"},
-        "warnings": [],
-    }
-
-    with tempfile.TemporaryDirectory() as td:
-        out = legacy_execute_request({"raw_query": "q", "intent": "causal", "k": 5}, root=td, explain=False)
-
-    g = out.get("grounding") or {}
-    assert g.get("achieved") is False
-    assert g.get("reason") == "no_structural_edges_found"

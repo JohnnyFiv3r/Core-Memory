@@ -23,11 +23,8 @@ Runtime continuity injection authority order:
 3. empty (`authority=none`)
 
 ## Retrieval primary modules
-- Search form schema authority: `core_memory/retrieval/search_form.py`
-  - canonical ids: `SEARCH_FORM_SCHEMA_VERSION`, `SEARCH_FORM_TOOL_ID`
-- Runtime typed-search surface: `core_memory/tools/memory.py::{get_search_form,search,execute}`
-- Compatibility shims (non-canonical runtime entry):
-  - `core_memory/tools/memory_search.py`
+- Canonical planner authority: `core_memory/retrieval/pipeline/canonical.py`
+- Runtime retrieval surface: `core_memory/tools/memory.py::{search,trace,execute}`
 
 ## Integration framing
 - SpringAI primary bridge: `core_memory.integrations.springai.get_app()`

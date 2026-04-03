@@ -49,25 +49,10 @@ class TurnFinalizedRequest(BaseModel):
     origin: str = "USER_TURN"
 
 
-class MemorySearchFormRequest(BaseModel):
-    root: Optional[str] = None
-
-
 class MemorySearchRequest(BaseModel):
     root: Optional[str] = None
     form_submission: dict[str, Any]
     explain: bool = True
-
-
-class MemoryReasonRequest(BaseModel):
-    root: Optional[str] = None
-    query: str
-    k: int = 8
-    debug: bool = False
-    explain: bool = False
-    pinned_incident_ids: list[str] = Field(default_factory=list)
-    pinned_topic_keys: list[str] = Field(default_factory=list)
-    pinned_bead_ids: list[str] = Field(default_factory=list)
 
 
 class MemoryExecuteRequest(BaseModel):
@@ -241,16 +226,6 @@ async def session_flush(
     return out
 
 
-@app.get("/v1/memory/search-form")
-async def memory_search_form(
-    root: Optional[str] = None,
-    authorization: Optional[str] = Header(default=None),
-    x_memory_token: Optional[str] = Header(default=None),
-):
-    _check_auth(authorization, x_memory_token)
-    return memory_tools.get_search_form(root=_resolve_root(root))
-
-
 @app.post("/v1/memory/search")
 async def memory_search_typed(
     payload: MemorySearchRequest,
@@ -263,26 +238,6 @@ async def memory_search_typed(
         form_submission=payload.form_submission,
         root=_resolve_root(payload.root, x_tenant_id),
         explain=bool(payload.explain),
-    )
-
-
-@app.post("/v1/memory/reason")
-async def memory_reason(
-    payload: MemoryReasonRequest,
-    authorization: Optional[str] = Header(default=None),
-    x_memory_token: Optional[str] = Header(default=None),
-    x_tenant_id: Optional[str] = Header(default=None),
-):
-    _check_auth(authorization, x_memory_token)
-    return memory_tools.reason(
-        query=payload.query,
-        root=_resolve_root(payload.root, x_tenant_id),
-        k=int(payload.k),
-        debug=bool(payload.debug),
-        explain=bool(payload.explain),
-        pinned_incident_ids=payload.pinned_incident_ids,
-        pinned_topic_keys=payload.pinned_topic_keys,
-        pinned_bead_ids=payload.pinned_bead_ids,
     )
 
 

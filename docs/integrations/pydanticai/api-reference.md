@@ -19,7 +19,7 @@ Status: Canonical
 ## PydanticAI memory tool factories
 - `continuity_prompt(root=".")`
 - `memory_search_tool(root=".")`
-- `memory_reason_tool(root=".")`
+- `memory_trace_tool(root=".")`
 - `memory_execute_tool(root=".")`
 - `get_turn_tool(root=".")`
 - `get_turn_tools_tool(root=".")`
@@ -38,8 +38,7 @@ Behavior:
 ## Primary runtime tool surfaces
 - `core_memory.retrieval.tools.memory.execute(request, root=".", explain=True)`
 - `core_memory.retrieval.tools.memory.search(form_submission, root=".", explain=True)`
-- `core_memory.retrieval.tools.memory.reason(query, root=".", k=8, ...)`
-- `core_memory.retrieval.tools.memory.get_search_form(root=".")`
+- `core_memory.retrieval.tools.memory.trace(query, root=".", k=8, ...)`
 
 ## Useful CLI/eval references
 - `core-memory memory execute --request ...`

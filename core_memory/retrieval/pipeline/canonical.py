@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 import os
+from datetime import datetime
+import json
 
 from core_memory.graph.api import causal_traverse
 from core_memory.retrieval.normalize import classify_intent
@@ -124,10 +126,112 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
     }
 
 
-def search_request(*, root: str | Path, query: str, k: int = 10, intent: str = "remember") -> dict[str, Any]:
+def _parse_iso(ts: str) -> datetime | None:
+    s = str(ts or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _apply_typed_filters(
+    rows: list[dict[str, Any]],
+    by_id: dict[str, dict[str, Any]],
+    projection_created_at: dict[str, str],
+    submission: dict[str, Any] | None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    s = dict(submission or {})
+    warnings: list[str] = []
+
+    incident_id = str(s.get("incident_id") or "").strip()
+    topic_keys = {str(x).strip().lower() for x in (s.get("topic_keys") or []) if str(x).strip()}
+    bead_types = {str(x).strip().lower() for x in (s.get("bead_types") or []) if str(x).strip()}
+    must_terms = [str(x).strip().lower() for x in (s.get("must_terms") or []) if str(x).strip()]
+    avoid_terms = [str(x).strip().lower() for x in (s.get("avoid_terms") or []) if str(x).strip()]
+
+    tr = dict(s.get("time_range") or {})
+    tr_from_raw = str(tr.get("from") or "").strip()
+    tr_to_raw = str(tr.get("to") or "").strip()
+    tr_from = _parse_iso(tr_from_raw)
+    tr_to = _parse_iso(tr_to_raw)
+    if (tr_from_raw and tr_from is None) or (tr_to_raw and tr_to is None):
+        warnings.append("invalid_time_range_ignored")
+        tr_from = None
+        tr_to = None
+
+    if not any([incident_id, topic_keys, bead_types, must_terms, avoid_terms, tr_from, tr_to]):
+        return rows, warnings
+
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        bid = str(r.get("bead_id") or "")
+        row = by_id.get(bid) or {}
+        bead = row.get("bead") or {}
+
+        if incident_id and str(bead.get("incident_id") or "") != incident_id:
+            continue
+
+        if topic_keys:
+            bead_topics = {str(x).strip().lower() for x in (bead.get("tags") or []) if str(x).strip()}
+            bead_topics.update({str(x).strip().lower() for x in (bead.get("topics") or []) if str(x).strip()})
+            if not bead_topics.intersection(topic_keys):
+                continue
+
+        if bead_types and str(bead.get("type") or "").strip().lower() not in bead_types:
+            continue
+
+        if tr_from or tr_to:
+            bts = _parse_iso(str(projection_created_at.get(bid) or row.get("created_at") or bead.get("created_at") or ""))
+            if bts is None:
+                continue
+            if tr_from and bts < tr_from:
+                continue
+            if tr_to and bts > tr_to:
+                continue
+
+        text_blob = " ".join(
+            [
+                str(bead.get("title") or ""),
+                " ".join(str(x) for x in (bead.get("summary") or [])),
+                str(bead.get("detail") or ""),
+                str(row.get("semantic_text") or ""),
+                str(row.get("lexical_text") or ""),
+            ]
+        ).lower()
+
+        if must_terms and not all(t in text_blob for t in must_terms):
+            continue
+        if avoid_terms and any(t in text_blob for t in avoid_terms):
+            continue
+
+        out.append(r)
+
+    return out, warnings
+
+
+def search_request(
+    *,
+    root: str | Path,
+    query: str,
+    k: int = 10,
+    intent: str = "remember",
+    submission: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     rp = Path(root)
     corpus = build_visible_corpus(rp)
     by_id = {str(r.get("bead_id") or ""): r for r in corpus}
+    projection_created_at: dict[str, str] = {}
+    try:
+        idx = json.loads((rp / ".beads" / "index.json").read_text(encoding="utf-8"))
+        for bid, bead in ((idx.get("beads") or {}) if isinstance(idx, dict) else {}).items():
+            if isinstance(bead, dict):
+                projection_created_at[str(bid)] = str(bead.get("created_at") or "")
+    except Exception:
+        projection_created_at = {}
 
     sem = semantic_lookup(rp, query, k=max(24, int(k) * 2))
     sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
@@ -153,6 +257,8 @@ def search_request(*, root: str | Path, query: str, k: int = 10, intent: str = "
             str(r.get("bead_id") or ""),
         )
     )
+
+    sem_rows, filter_warnings = _apply_typed_filters(sem_rows, by_id, projection_created_at, submission)
 
     anchors = [_to_anchor(r, by_id) for r in sem_rows[: max(1, int(k))]]
     confidence = "high" if anchors and float(anchors[0].get("semantic_score") or 0.0) >= 0.75 else ("medium" if anchors else "low")
@@ -181,12 +287,30 @@ def search_request(*, root: str | Path, query: str, k: int = 10, intent: str = "
         "citations": [],
         "confidence": confidence,
         "next_action": next_action,
-        "warnings": list(sem.get("warnings") or []),
-        "snapped": {"raw_query": query, "intent": intent, "k": int(k)},
+        "warnings": list(sem.get("warnings") or []) + list(filter_warnings),
+        "snapped": {
+            "raw_query": query,
+            "intent": intent,
+            "k": int(k),
+            **{
+                key: value
+                for key, value in dict(submission or {}).items()
+                if key in {"incident_id", "topic_keys", "bead_types", "relation_types", "must_terms", "avoid_terms", "time_range", "require_structural"}
+            },
+        },
     }
 
 
-def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | None = None, k: int = 10, intent: str = "causal", hydration: dict[str, Any] | None = None) -> dict[str, Any]:
+def trace_request(
+    *,
+    root: str | Path,
+    query: str = "",
+    anchor_ids: list[str] | None = None,
+    k: int = 10,
+    intent: str = "causal",
+    hydration: dict[str, Any] | None = None,
+    submission: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     anchors_out: dict[str, Any]
     if anchor_ids:
         corpus = build_visible_corpus(Path(root))
@@ -197,12 +321,19 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
             anchors.append(_to_anchor(r, by_id))
         anchors_out = {"ok": True, "anchors": anchors, "results": anchors, "warnings": [], "confidence": "medium", "next_action": "answer", "snapped": {"raw_query": query, "intent": intent, "k": int(k)}}
     else:
-        anchors_out = search_request(root=root, query=query, k=k, intent=intent)
+        anchors_out = search_request(root=root, query=query, k=k, intent=intent, submission=submission)
 
     anchors = anchors_out.get("anchors") or []
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
     trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])
+    relation_filter = {str(x).strip().lower() for x in ((submission or {}).get("relation_types") or []) if str(x).strip()}
+    if relation_filter:
+        chains = [
+            c
+            for c in chains
+            if {str((e or {}).get("rel") or "").strip().lower() for e in (c.get("edges") or [])}.intersection(relation_filter)
+        ]
 
     # Grounding levels:
     # - full: chains include at least one non-temporal structural relation
@@ -303,11 +434,47 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
 
     k = int(req.get("k") or 10)
     if grounding_mode == "search_only":
-        out = search_request(root=root, query=query, k=k, intent=intent)
+        facets = dict(req.get("facets") or {})
+        submission = {
+            "query_text": query,
+            "intent": intent,
+            "k": k,
+            "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
+            "topic_keys": list(facets.get("topic_keys") or []),
+            "bead_types": list(facets.get("bead_types") or []),
+            "relation_types": list(facets.get("relation_types") or []),
+            "must_terms": list(facets.get("must_terms") or []),
+            "avoid_terms": list(facets.get("avoid_terms") or []),
+            "time_range": dict(facets.get("time_range") or {}),
+            "require_structural": bool(constraints.get("require_structural", False)),
+        }
+        out = search_request(root=root, query=query, k=k, intent=intent, submission=submission)
         out["grounding"] = {"required": False, "achieved": False, "level": "none", "reason": "search_only"}
         out.setdefault("hydration", {"status": "not_requested", "warnings": []})
     else:
-        out = trace_request(root=root, query=query, anchor_ids=req.get("anchor_ids") or None, k=k, intent=intent, hydration=req.get("hydration") or None)
+        facets = dict(req.get("facets") or {})
+        submission = {
+            "query_text": query,
+            "intent": intent,
+            "k": k,
+            "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
+            "topic_keys": list(facets.get("topic_keys") or []),
+            "bead_types": list(facets.get("bead_types") or []),
+            "relation_types": list(facets.get("relation_types") or []),
+            "must_terms": list(facets.get("must_terms") or []),
+            "avoid_terms": list(facets.get("avoid_terms") or []),
+            "time_range": dict(facets.get("time_range") or {}),
+            "require_structural": bool(constraints.get("require_structural", False)),
+        }
+        out = trace_request(
+            root=root,
+            query=query,
+            anchor_ids=req.get("anchor_ids") or None,
+            k=k,
+            intent=intent,
+            hydration=req.get("hydration") or None,
+            submission=submission,
+        )
 
     out.setdefault("chains", [])
     out.setdefault("citations", [])
@@ -346,6 +513,15 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     out.setdefault("contract", "memory_execute")
     out.setdefault("schema_version", "memory_execute_result.v1")
     out["suggested_next"] = out.get("next_action")
+
+    first = (out.get("results") or [{}])[0] if (out.get("results") or []) else {}
+    first_surface = str((first or {}).get("source_surface") or "")
+    if first_surface in {"session", "projection"}:
+        first_surface = "session_bead"
+    out.setdefault("source_surface", first_surface or "session_bead")
+    out.setdefault("source_scope", "durable")
+    out.setdefault("source_priority_applied", ["session_bead", "archive_graph", "rolling_window", "transcript", "memory_md"])
+
     if explain:
         out["explain"] = {"planner": "canonical_v9", "stages": ["normalize", "anchors", "trace_or_not", "finalize"]}
     return out

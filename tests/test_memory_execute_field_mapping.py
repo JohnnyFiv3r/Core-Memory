@@ -32,6 +32,46 @@ class TestMemoryExecuteFieldMapping(unittest.TestCase):
             self.assertEqual(['deprecated'], snapped.get('avoid_terms'))
             self.assertIn('time_range', snapped)
 
+    def test_execute_causal_applies_facet_narrowing_to_trace_anchors(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            decision_id = s.add_bead(
+                type='decision',
+                title='Candidate-first promotion',
+                summary=['promotion workflow'],
+                tags=['promotion_workflow'],
+                session_id='main',
+                source_turn_ids=['t1'],
+            )
+            evidence_id = s.add_bead(
+                type='evidence',
+                title='Other evidence',
+                summary=['promotion workflow'],
+                tags=['other_topic'],
+                session_id='main',
+                source_turn_ids=['t2'],
+            )
+
+            req = {
+                'raw_query': 'promotion workflow',
+                'intent': 'causal',
+                'facets': {
+                    'topic_keys': ['promotion_workflow'],
+                    'bead_types': ['decision'],
+                },
+                'k': 10,
+            }
+            out = execute(req, root=td, explain=True)
+            self.assertTrue(out.get('ok'))
+
+            snapped = out.get('snapped') or {}
+            self.assertEqual(['promotion_workflow'], snapped.get('topic_keys'))
+            self.assertEqual(['decision'], snapped.get('bead_types'))
+
+            ids = [r.get('bead_id') for r in (out.get('results') or [])]
+            self.assertIn(decision_id, ids)
+            self.assertNotIn(evidence_id, ids)
+
 
 if __name__ == '__main__':
     unittest.main()

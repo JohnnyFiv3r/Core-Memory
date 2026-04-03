@@ -42,8 +42,7 @@ Preferred unified runtime surface:
 
 Optional direct surfaces:
 - `memory.search`
-- `memory.reason`
-- `memory.get_search_form`
+- `memory.trace`
 
 Hydration (explicit, non-default):
 - `get_turn(turn_id, session_id?)`

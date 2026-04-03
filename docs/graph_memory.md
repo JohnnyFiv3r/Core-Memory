@@ -24,7 +24,8 @@ core-memory --root ./memory graph semantic-build
 core-memory --root ./memory graph semantic-lookup --query "remember promotion" --k 8
 core-memory --root ./memory graph traverse --anchor bead-123
 core-memory --root ./memory graph decay
-core-memory --root ./memory reason "why did we decide promotion must be candidate-only?" --k 8
+core-memory --root ./memory recall trace "why did we decide promotion must be candidate-only?" --k 8
+core-memory --root ./memory memory execute --request '{"raw_query":"why promotion must be candidate-only?","intent":"causal","k":8}'
 ```
 
 ## Grounding rule

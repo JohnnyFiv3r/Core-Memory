@@ -20,8 +20,9 @@ Status: Canonical
 - `tests.test_http_ingress`
 - `tests.test_memory_execute_contract`
 - `tests.test_memory_execute_causal_fallback`
-- `tests.test_memory_reason_pins`
 - `tests.test_memory_search_tool_wrapper`
+- `tests.test_temporal_only_grounding_guard`
+- `tests.test_canonical_hydration_contract`
 
 ## Key runtime metrics
 - `non_empty_results_rate`

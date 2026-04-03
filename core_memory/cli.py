@@ -6,7 +6,7 @@ Entry point only - does not export from __init__.py to avoid circular imports.
 
 Command families:
     core        - add, query, stats, rebuild, compact, uncompact
-    retrieval   - reason, retrieve-context, constraints, check-plan, preflight
+    retrieval   - search, trace, execute, retrieve-context, constraints, check-plan, preflight
     graph       - graph build/stats/decay/traverse/sync/infer
     maintenance - hygiene, myelinate, archive-index-rebuild
     integration - sidecar (coordinator hooks), memory (typed skill interface)
@@ -31,8 +31,12 @@ from .persistence.store import MemoryStore, DEFAULT_ROOT
 from .persistence.archive_index import rebuild_archive_index
 from .graph.api import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
 from .retrieval.semantic_index import build_semantic_index, semantic_lookup
-from .retrieval.tools.memory_reason import memory_reason
-from .retrieval.tools.memory import execute as memory_execute_tool
+from .retrieval.tools.memory import (
+    execute as memory_execute_tool,
+    execute as memory_execute,
+    search as memory_search_tool,
+    trace as memory_trace_tool,
+)
 from .runtime.engine import process_turn_finalized, process_flush
 from .write_pipeline.orchestrate import run_rolling_window_pipeline
 from .policy.incidents import tag_incident, tag_topic_key
@@ -41,7 +45,6 @@ from .integrations.openclaw_runtime import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
 )
-from .retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
 
 
@@ -77,12 +80,15 @@ def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
 
         phase_trace = ((f1.get("result") or {}).get("phase_trace") or [])
         checks["turn_path"] = bool(t1.get("ok"))
-        checks["flush_once_per_cycle"] = bool(f2.get("skipped") and f2.get("reason") == "already_flushed_for_latest_turn")
+        checks["flush_once_per_cycle"] = bool(
+            f2.get("skipped")
+            and str(f2.get("reason") or "") in {"already_flushed_for_latest_turn", "already_flushed_for_latest_done_turn"}
+        )
         checks["rolling_window_maintenance"] = bool("rolling_window_write" in phase_trace)
         checks["archive_ergonomics"] = bool("archive_compact_session" in phase_trace and "archive_compact_historical" in phase_trace)
 
         # Full retrieval path via tool execute
-        req = {"query": "canonical decision", "session_id": "health", "limit": 5}
+        req = {"raw_query": "canonical decision", "intent": "remember", "k": 5}
         ret = memory_execute_tool(req, root=td, explain=True)
         checks["retrieval_path"] = bool((ret.get("ok") is True) or (ret.get("results") is not None) or (ret.get("items") is not None))
 
@@ -106,7 +112,6 @@ def _doctor_report(root: str) -> dict:
     beads_dir = root_p / ".beads"
     idx_file = beads_dir / "index.json"
     from core_memory.persistence.rolling_record_store import read_rolling_records
-    records_file = root_p / "rolling-window.records.json"
 
     checks: list[dict] = []
 
@@ -160,7 +165,7 @@ def _doctor_report(root: str) -> dict:
         "name": "rolling-window records present (required after first flush cycle)",
         "pass": bool(rolling_exists or not flush_cycle_seen),
         "detail": {
-            "path": str(records_file),
+            "path": str(root_p),
             "exists": rolling_exists,
             "required_after_first_flush": True,
             "flush_cycle_seen": flush_cycle_seen,
@@ -271,18 +276,11 @@ def main():
 
     recall_parser = subparsers.add_parser("recall", help="Retrieve/interpret memory")
     recall_sub = recall_parser.add_subparsers(dest="recall_cmd")
-    recall_search = recall_sub.add_parser("search", help="Search memory (simple query by default; typed payload optional)")
+    recall_search = recall_sub.add_parser("search", help="Canonical memory search")
     recall_search.add_argument("query", nargs="?", default="", help="Natural-language query (plug-and-play mode)")
     recall_search.add_argument("--intent", default="remember", help="Search intent for simple mode (default: remember)")
     recall_search.add_argument("--k", type=int, default=8, help="Result count for simple mode")
-    recall_search.add_argument("--typed", help="JSON object string or path to JSON file (advanced typed mode)")
     recall_search.add_argument("--explain", action="store_true")
-    recall_reason = recall_sub.add_parser("reason", help="Reasoned memory recall")
-    recall_reason.add_argument("query")
-    recall_reason.add_argument("--k", type=int, default=8)
-    recall_reason.add_argument("--retrieve", action="store_true")
-    recall_reason.add_argument("--debug", action="store_true")
-    recall_reason.add_argument("--explain", action="store_true")
     recall_heads = recall_sub.add_parser("heads", help="Show topic/goal HEAD pointers")
     recall_heads.add_argument("--topic-id")
     recall_heads.add_argument("--goal-id")
@@ -330,12 +328,17 @@ def main():
 
     dev_parser = subparsers.add_parser("dev", help="Advanced developer-facing command surfaces")
     dev_sub = dev_parser.add_subparsers(dest="dev_cmd")
-    dev_memory = dev_sub.add_parser("memory", help="Typed memory-search skill interface")
+    dev_memory = dev_sub.add_parser("memory", help="Canonical memory skill interface")
     dev_memory_sub = dev_memory.add_subparsers(dest="dev_memory_cmd")
-    dev_memory_sub.add_parser("form", help="Get machine-readable search form + catalog")
-    dev_mem_search = dev_memory_sub.add_parser("search", help="Run typed memory search")
-    dev_mem_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
+    dev_mem_search = dev_memory_sub.add_parser("search", help="Run canonical memory search")
+    dev_mem_search.add_argument("--query", default="")
+    dev_mem_search.add_argument("--intent", default="remember")
+    dev_mem_search.add_argument("--k", type=int, default=8)
     dev_mem_search.add_argument("--explain", action="store_true")
+    dev_mem_trace = dev_memory_sub.add_parser("trace", help="Run canonical memory trace")
+    dev_mem_trace.add_argument("--query", default="")
+    dev_mem_trace.add_argument("--k", type=int, default=8)
+    dev_mem_trace.add_argument("--anchor-ids", nargs="*")
     dev_mem_exec = dev_memory_sub.add_parser("execute", help="Run unified MemoryRequest execution")
     dev_mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
     dev_mem_exec.add_argument("--explain", action="store_true")
@@ -467,14 +470,6 @@ def main():
     oc_onboard.add_argument("--replace-memory-core", action="store_true", help="Disable stock memory-core plugin")
     oc_onboard.add_argument("--dry-run", action="store_true")
 
-    # reason command (legacy top-level; use `recall reason`)
-    reason_parser = subparsers.add_parser("reason", help=legacy_help)
-    reason_parser.add_argument("query", help="Natural language query")
-    reason_parser.add_argument("--k", type=int, default=8)
-    reason_parser.add_argument("--retrieve", action="store_true", help="Return retrieval output mode")
-    reason_parser.add_argument("--debug", action="store_true", help="Include retrieval scoring breakdown")
-    reason_parser.add_argument("--explain", action="store_true", help="Write deterministic explain report artifact")
-
     tag_parser = subparsers.add_parser("tag", help=legacy_help)
     tag_parser.add_argument("--incident", help="Incident ID")
     tag_parser.add_argument("--topic-key", help="Topic key tag")
@@ -487,10 +482,15 @@ def main():
 
     mem_parser = subparsers.add_parser("memory", help=legacy_help)
     mem_sub = mem_parser.add_subparsers(dest="memory_cmd")
-    mem_sub.add_parser("form", help="Get machine-readable search form + catalog")
-    mem_search = mem_sub.add_parser("search", help="Run typed memory search")
-    mem_search.add_argument("--typed", required=True, help="JSON object string or path to JSON file")
+    mem_search = mem_sub.add_parser("search", help="Run canonical memory search")
+    mem_search.add_argument("--query", default="")
+    mem_search.add_argument("--intent", default="remember")
+    mem_search.add_argument("--k", type=int, default=8)
     mem_search.add_argument("--explain", action="store_true")
+    mem_trace = mem_sub.add_parser("trace", help="Run canonical memory trace")
+    mem_trace.add_argument("--query", default="")
+    mem_trace.add_argument("--k", type=int, default=8)
+    mem_trace.add_argument("--anchor-ids", nargs="*")
     mem_exec = mem_sub.add_parser("execute", help="Run unified MemoryRequest execution")
     mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
     mem_exec.add_argument("--explain", action="store_true")
@@ -670,8 +670,6 @@ def main():
         if args.recall_cmd == "search":
             args.command = "memory"
             args.memory_cmd = "search"
-        elif args.recall_cmd == "reason":
-            args.command = "reason"
         elif args.recall_cmd == "heads":
             args.command = "heads"
         elif args.recall_cmd == "trace":
@@ -894,16 +892,6 @@ def main():
         else:
             oc_parser.print_help()
 
-    elif args.command == "reason":
-        out = memory_reason(
-            args.query,
-            k=args.k,
-            root=str(memory.root),
-            debug=bool(args.debug or args.retrieve or args.explain),
-            explain=bool(args.explain),
-        )
-        print(json.dumps(out, indent=2))
-
     elif args.command == "tag":
         if bool(args.incident) == bool(args.topic_key):
             raise SystemExit("tag requires exactly one of --incident or --topic-key")
@@ -939,24 +927,14 @@ def main():
         print(json.dumps(backfill_bead_session_ids(root=str(memory.root)), indent=2))
 
     elif args.command == "memory":
-        if args.memory_cmd == "form":
-            print(json.dumps(memory_get_search_form(str(memory.root)), indent=2))
-        elif args.memory_cmd == "search":
-            typed = str(getattr(args, "typed", "") or "").strip()
-            simple_mode = not bool(typed)
-            if typed:
-                if typed.startswith("{"):
-                    payload = json.loads(typed)
-                else:
-                    payload = json.loads(Path(typed).read_text(encoding="utf-8"))
-            else:
-                payload = {
-                    "intent": str(getattr(args, "intent", "remember") or "remember"),
-                    "query_text": str(getattr(args, "query", "") or ""),
-                    "k": int(getattr(args, "k", 8) or 8),
-                }
-            out = memory_search_typed(str(memory.root), payload, explain=bool(args.explain))
-            if simple_mode and not (out.get("results") or []):
+        if args.memory_cmd == "search":
+            payload = {
+                "intent": str(getattr(args, "intent", "remember") or "remember"),
+                "query_text": str(getattr(args, "query", "") or ""),
+                "k": int(getattr(args, "k", 8) or 8),
+            }
+            out = memory_search_tool(form_submission=payload, root=str(memory.root), explain=bool(args.explain))
+            if not (out.get("results") or []):
                 fallback = _simple_recall_fallback(memory, str(payload.get("query_text") or ""), int(payload.get("k") or 8))
                 if fallback.get("results"):
                     out["results"] = fallback.get("results") or []
@@ -970,8 +948,6 @@ def main():
                     out["suggested_next"] = "answer"
             print(json.dumps(out, indent=2))
         elif args.memory_cmd == "trace":
-            from core_memory.retrieval.tools.memory import trace as memory_trace_tool
-
             out = memory_trace_tool(
                 query=str(getattr(args, "query", "") or ""),
                 root=str(memory.root),
@@ -985,7 +961,7 @@ def main():
                 payload = json.loads(req)
             else:
                 payload = json.loads(Path(req).read_text(encoding="utf-8"))
-            print(json.dumps(memory_execute(str(memory.root), payload, explain=bool(args.explain)), indent=2))
+            print(json.dumps(memory_execute(request=payload, root=str(memory.root), explain=bool(args.explain)), indent=2))
         else:
             mem_parser.print_help()
 

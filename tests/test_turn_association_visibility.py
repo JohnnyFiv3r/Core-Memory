@@ -10,7 +10,7 @@ class TestTurnAssociationVisibility(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             b1 = s.add_bead(type="context", title="B1", summary=["x"], session_id="s1", source_turn_ids=["t0"])
-            b2 = s.add_bead(type="context", title="B2", summary=["y"], session_id="s1", source_turn_ids=["t0"])
+            b2 = s.add_bead(type="context", title="B2", summary=["y"], session_id="s1", source_turn_ids=["t1"])
 
             out = process_turn_finalized(
                 root=td,
@@ -26,6 +26,7 @@ class TestTurnAssociationVisibility(unittest.TestCase):
                                 "target_bead_id": b2,
                                 "relationship": "supports",
                                 "confidence": 0.9,
+                                "reason_text": "session-visible link",
                                 "rationale": "session-visible link",
                             }
                         ]

@@ -9,12 +9,12 @@ Usage:
     from core_memory.integrations.pydanticai.memory_tools import (
         continuity_prompt,
         memory_search_tool,
-        memory_reason_tool,
+        memory_trace_tool,
     )
 
     agent = Agent("openai:gpt-4o", tools=[
         memory_search_tool(root="./memory"),
-        memory_reason_tool(root="./memory"),
+        memory_trace_tool(root="./memory"),
     ])
 
     @agent.system_prompt
@@ -39,9 +39,8 @@ from core_memory.integrations.api import (
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.retrieval.tools.memory import (
     execute as memory_execute,
-    get_search_form as memory_get_search_form,
-    reason as memory_reason,
     search as memory_search,
+    trace as memory_trace,
 )
 
 logger = logging.getLogger(__name__)
@@ -99,7 +98,7 @@ def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
     """
     root_final = _resolve_root(root)
 
-    def search_memory(query: str, scope: str = "", type_filter: str = "") -> str:
+    def search_memory(query: str, scope: str = "", type_filter: str = "", k: int = 8) -> str:
         """Search long-term memory for relevant past context.
 
         Args:
@@ -107,13 +106,10 @@ def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
             scope: Optional scope filter (personal, project, global).
             type_filter: Optional bead type filter (decision, lesson, goal, etc.).
         """
-        form = memory_get_search_form(root_final)
-        fields = form.get("fields") or {}
-
-        submission: dict[str, Any] = {"query_text": query}
-        if scope and "scope" in fields:
+        submission: dict[str, Any] = {"query_text": query, "k": int(k)}
+        if scope:
             submission["scope"] = scope
-        if type_filter and "type" in fields:
+        if type_filter:
             submission["type"] = type_filter
 
         try:
@@ -142,31 +138,29 @@ def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
     return search_memory
 
 
-def memory_reason_tool(root: Optional[str] = None) -> Callable[..., str]:
-    """Return a plain tool function for PydanticAI that performs causal reasoning.
+def memory_trace_tool(root: Optional[str] = None) -> Callable[..., str]:
+    """Return a plain tool function for PydanticAI that performs causal trace.
 
-    The agent asks a reasoning question; the tool traverses the memory
-    graph and returns an explanation grounded in stored beads.
+    The agent asks a causal question; the tool returns canonical trace output
+    (anchors/chains/grounding).
     """
     root_final = _resolve_root(root)
 
-    def reason_about_memory(query: str) -> str:
-        """Reason about a question using the causal memory graph.
-
-        Use this for questions like "why did we decide X?", "what led to Y?",
-        or "what patterns have we seen around Z?".
+    def trace_memory(query: str, k: int = 8) -> str:
+        """Trace a causal question using canonical memory traversal.
 
         Args:
-            query: A reasoning question about past decisions, patterns, or causes.
+            query: A causal question about prior decisions or outcomes.
+            k: Anchor count.
         """
         try:
-            result = memory_reason(query, root=root_final, k=8, explain=True)
+            result = memory_trace(query=query, root=root_final, k=int(k))
         except Exception as exc:
             return json.dumps({"error": str(exc)})
         return json.dumps(result, default=str)
 
-    reason_about_memory.__name__ = "reason_about_memory"
-    return reason_about_memory
+    trace_memory.__name__ = "trace_memory"
+    return trace_memory
 
 
 def memory_execute_tool(root: Optional[str] = None) -> Callable[..., str]:

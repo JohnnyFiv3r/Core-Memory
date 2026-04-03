@@ -76,7 +76,7 @@ from core_memory.integrations.pydanticai import (
     memory_execute_tool,
     flush_session,
     memory_search_tool,
-    memory_reason_tool,
+    memory_trace_tool,
     run_with_memory,
 )
 
@@ -198,14 +198,14 @@ def create_agent(model_id: str):
             "conversations. Use your memory tools proactively to ground your answers "
             "in what the team has recorded. Be specific and cite what you find. "
             "Tool policy: call execute_memory_request first for recall questions; "
-            "use search_memory as a secondary check; use reason_about_memory for "
+            "use search_memory as a secondary check; use trace_memory for "
             "explicit causal trace questions. Do not claim memory is missing unless "
             "both execute and search return no anchors/results."
         ),
         tools=[
             memory_execute_tool(root=MEMORY_ROOT),
             memory_search_tool(root=MEMORY_ROOT),
-            memory_reason_tool(root=MEMORY_ROOT),
+            memory_trace_tool(root=MEMORY_ROOT),
         ],
     )
 

@@ -42,31 +42,35 @@ Response includes:
 - `query_type_bucket`
 - `normalized`
 
-### `GET /v1/memory/search-form` (deprecated compatibility)
-Purpose:
-- legacy typed-search form compatibility only; not part of the forward recommended surface
-
 ### `POST /v1/memory/search`
 Purpose:
-- typed retrieval/search
+- canonical retrieval anchor search
 
 Body:
 - `root` (optional)
 - `form_submission`
 - `explain`
 
-### `POST /v1/memory/reason`
-Purpose:
-- causal reasoning / grounded chain retrieval
-
-Supports pinning:
-- `pinned_incident_ids`
-- `pinned_topic_keys`
-- `pinned_bead_ids`
-
 ### `POST /v1/memory/execute`
 Purpose:
 - preferred unified runtime call
+
+Body:
+- `root` (optional)
+- `request` (MemoryRequest)
+- `explain`
+
+Response includes:
+- `ok`
+- `request`
+- `snapped`
+- `results`
+- `chains`
+- `grounding`
+- `confidence`
+- `next_action`
+- `warnings`
+- `explain` (optional)
 
 ### `POST /v1/memory/trace`
 Purpose:
@@ -89,23 +93,6 @@ Purpose:
 ### `GET /v1/memory/continuity`
 Purpose:
 - runtime continuity injection surface
-
-Body:
-- `root` (optional)
-- `request` (MemoryRequest)
-- `explain`
-
-Response includes:
-- `ok`
-- `request`
-- `snapped`
-- `results`
-- `chains`
-- `grounding`
-- `confidence`
-- `next_action`
-- `warnings`
-- `explain` (optional)
 
 ## Auth
 Conditional auth when `CORE_MEMORY_HTTP_TOKEN` is set.

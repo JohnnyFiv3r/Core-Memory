@@ -25,7 +25,6 @@
 
 ### Phase 5: Readability Splits
 - [x] `graph.py` → `graph_structural.py`, `graph_traversal.py`, `graph_semantic.py`
-- [x] `tools/memory_reason.py` - Added deprecation note (split optional)
 - [x] `retrieval/rerank.py` - Added note (not split - manageable size)
 
 ### Optional: Promotion Logic
@@ -46,7 +45,6 @@
 - `core_memory/retrieval/query_norm.py` - Added helpers
 - `core_memory/hygiene.py` - Added sanitization
 - `core_memory/graph.py` - Re-exports from split modules
-- `core_memory/tools/memory_reason.py` - Added splitting note
 - `core_memory/retrieval/rerank.py` - Added splitting note
 - `core_memory/session_surface.py` - Fixed logger
 - `core_memory/cli.py` - Added command families doc

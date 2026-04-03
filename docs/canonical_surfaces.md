@@ -20,7 +20,7 @@ Non-authoritative continuity artifacts:
 ### Unified memory skill surface
 - `core_memory.tools.memory.execute`
 - `core_memory.tools.memory.search`
-- `core_memory.tools.memory.reason`
+- `core_memory.tools.memory.trace`
 
 These are the preferred tool-facing entry points for runtime retrieval/reasoning.
 
@@ -40,14 +40,10 @@ Endpoints:
 - `POST /v1/memory/session-flush`
 - `POST /v1/memory/classify-intent`
 - `POST /v1/memory/search`
-- `POST /v1/memory/reason`
 - `POST /v1/memory/trace`
 - `POST /v1/memory/execute`
 - `GET /v1/memory/continuity`
 - `GET /v1/metrics`
-
-Compatibility endpoint (deprecated; not a forward surface):
-- `GET /v1/memory/search-form`
 
 Canonical machine-readable contract:
 - `docs/contracts/http_api.v1.json`
@@ -58,10 +54,9 @@ Served by:
 - `core_memory.cli`
 
 Current canonical memory-related commands:
-- `core-memory memory form`
-- `core-memory memory search --typed ...`
+- `core-memory memory search --query ...`
+- `core-memory memory trace --query ...`
 - `core-memory memory execute --request ...`
-- `core-memory reason <query>`
 - `core-memory graph ...`
 - `core-memory metrics ...`
 
@@ -74,8 +69,6 @@ Current canonical docs:
 - `docs/integrations/pydanticai/integration-guide.md`
 - `docs/core_adapters_architecture.md`
 - `docs/integrations/shared/README.md` (supporting overview)
-- `docs/memory_search_skill.md`
-- `docs/memory_search_agent_playbook.md`
 
 Transitional stub retained:
 - `docs/springai_adapter.md`
@@ -83,17 +76,11 @@ Transitional stub retained:
 ## Canonical evaluation entry points
 
 - `eval/memory_execute_eval.py`
-- `eval/memory_search_ab_compare.py`
-- `eval/memory_search_smoke.py`
-- `eval/paraphrase_eval.py`
-- `eval/retrieval_eval.py`
 
 ## Supported but secondary / lower-level surfaces
 
 These are useful but not the preferred first interface for contributors:
 - `core_memory.memory_skill.*` internals
-- `core_memory.tools.memory_search.*`
-- `core_memory.tools.memory_reason.memory_reason`
 - retrieval internals in `core_memory/retrieval/*`
 
 ## Transitional / compatibility surfaces

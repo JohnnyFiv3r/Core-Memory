@@ -1,7 +1,7 @@
 # Runtime Contract Clarity (T6)
 
 Status: Canonical runtime semantics note
-Related: `memory.execute`, `memory.search`, `memory.reason`
+Related: `memory.execute`, `memory.search`, `memory.trace`
 
 ## Purpose
 Define contributor-facing semantics for confidence, next_action, grounding, and source provenance fields.
@@ -19,7 +19,7 @@ Define contributor-facing semantics for confidence, next_action, grounding, and 
 ## Grounding semantics
 - `grounding.required`: true for causal/structural requests.
 - `grounding.achieved`: true when structural evidence/chains exist.
-- `grounding.reason`: deterministic status reason (`grounded`, `grounded_via_reasoner`, `not_required`, `no_structural_edges_found`).
+- `grounding.reason`: deterministic status reason (`grounded`, `not_required`, `no_structural_edges_found`, `non_temporal_structural_missing`).
 
 ## Surface provenance fields (additive)
 - `source_surface`: primary provenance surface for top results.
