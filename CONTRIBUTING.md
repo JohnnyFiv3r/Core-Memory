@@ -17,7 +17,14 @@ pip install -e '.[dev]'
 Run a minimal sanity check:
 
 ```bash
-PYTHONPATH=. python3 examples/quickstart.py
+core-memory --help
+python3 -c "import core_memory; print('core_memory import ok')"
+```
+
+Optional checkout/dev sanity check:
+
+```bash
+python3 examples/quickstart.py
 ```
 
 ## Running tests

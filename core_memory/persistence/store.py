@@ -23,6 +23,7 @@ from ..persistence import events
 from ..persistence.io_utils import store_lock, atomic_write_json, append_jsonl
 from ..persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from ..runtime.session_surface import read_session_surface
+from ..runtime.turn_archive import find_turn_record
 from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
@@ -102,6 +103,11 @@ class MemoryStore:
 
         # Required-field rollout: warn-first by default; strict raises when enabled.
         self.strict_required_fields = os.environ.get("CORE_MEMORY_STRICT_REQUIRED_FIELDS", "0") == "1"
+        # Bead schema invariant: session_id is required. Resolution modes:
+        # - infer (default): infer from source_turn_ids; else fallback to "unknown"
+        # - strict: require explicit/provable session_id
+        # - unknown: always fallback to "unknown" when missing
+        self.bead_session_id_mode = str(os.environ.get("CORE_MEMORY_BEAD_SESSION_ID_MODE", "infer") or "infer").strip().lower()
         # Agent-authoritative promotion: auto-promotion on compact is disabled by default.
         self.auto_promote_on_compact = os.environ.get("CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT", "0") == "1"
 
@@ -1738,6 +1744,36 @@ class MemoryStore:
         if issues:
             bead["validation_warnings"] = issues
 
+    def _resolve_bead_session_id(self, *, session_id: Optional[str], source_turn_ids: Optional[list]) -> str:
+        sid = str(session_id or "").strip()
+        if sid:
+            return sid
+
+        mode = self.bead_session_id_mode
+        if mode not in {"infer", "strict", "unknown"}:
+            mode = "infer"
+
+        inferred = ""
+        if mode in {"infer", "strict"}:
+            for tid in (source_turn_ids or []):
+                t = str(tid or "").strip()
+                if not t:
+                    continue
+                row = find_turn_record(root=self.root, turn_id=t, session_id=None)
+                if isinstance(row, dict):
+                    inferred = str(row.get("session_id") or "").strip()
+                    if inferred:
+                        break
+
+        if inferred:
+            return inferred
+
+        if mode == "strict":
+            raise ValueError("missing:session_id (strict mode; unable to infer from source_turn_ids)")
+
+        # keep schema invariant non-null/non-empty even when unresolved
+        return "unknown"
+
     def _title_tokens(self, text: str) -> set[str]:
         return {t for t in self._tokenize(text) if t not in {"the", "and", "for", "with", "this", "that"}}
 
@@ -1886,11 +1922,13 @@ class MemoryStore:
         bead_id = self._generate_id()
         now = datetime.now(timezone.utc).isoformat()
         
+        resolved_session_id = self._resolve_bead_session_id(session_id=session_id, source_turn_ids=source_turn_ids)
+
         bead = {
             "id": bead_id,
             "type": type_value,
             "created_at": now,
-            "session_id": session_id,
+            "session_id": resolved_session_id,
             "title": title,
             "summary": summary or [],
             "because": because or [],
@@ -1944,13 +1982,13 @@ class MemoryStore:
                 dedup_window = max(1, int(os.environ.get("CORE_MEMORY_WRITE_DEDUP_WINDOW", "25")))
             except ValueError:
                 dedup_window = 25
-            dup_id = self._find_recent_duplicate_bead_id(index, bead, session_id=session_id, window=dedup_window)
+            dup_id = self._find_recent_duplicate_bead_id(index, bead, session_id=resolved_session_id, window=dedup_window)
             if dup_id:
                 return dup_id
 
             # Write to session archive first (durability/rebuild source)
-            if session_id:
-                bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
+            if resolved_session_id:
+                bead_file = self.beads_dir / SESSION_FILE.format(id=resolved_session_id)
             else:
                 bead_file = self.beads_dir / "global.jsonl"
             append_jsonl(bead_file, bead)
@@ -1979,8 +2017,8 @@ class MemoryStore:
             if self.associate_on_add and self.assoc_top_k > 0:
                 assoc_index = dict(index)
                 assoc_beads = dict(index.get("beads") or {})
-                if session_id:
-                    for row in read_session_surface(self.root, session_id):
+                if resolved_session_id:
+                    for row in read_session_surface(self.root, resolved_session_id):
                         rid = str((row or {}).get("id") or "")
                         if rid:
                             assoc_beads[rid] = row
@@ -2024,7 +2062,7 @@ class MemoryStore:
             self._write_heads(heads)
 
             # Append audit event (minimal - just id + timestamp for rebuild)
-            events.event_bead_created(self.root, session_id, bead_id, now, use_lock=False)
+            events.event_bead_created(self.root, resolved_session_id, bead_id, now, use_lock=False)
 
             # Append metrics event (append-only, no index mutation)
             events.append_metric(self.root, {

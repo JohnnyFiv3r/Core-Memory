@@ -17,9 +17,13 @@ Get Core Memory running as a SpringAI companion service with:
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
-pip install -e .
+pip install -e ".[http]"
 python3 -m core_memory.integrations.http.server
 ```
+
+Why `.[http]`:
+- the HTTP companion service imports FastAPI/uvicorn
+- these are provided by the optional `http` extra
 
 Optional auth:
 ```bash

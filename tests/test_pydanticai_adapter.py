@@ -65,8 +65,22 @@ class TestPydanticAiAdapter(unittest.TestCase):
                 self.assertEqual("native", md.get("adapter_kind"))
                 self.assertEqual("pydanticai", md.get("adapter_runtime"))
                 self.assertTrue(md.get("fail_open"))
+                self.assertIn("core_memory_flags", md)
             finally:
                 os.environ.pop("CORE_MEMORY_ROOT", None)
+
+    def test_pydanticai_skips_pipeline_when_core_memory_disabled(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            os.environ["CORE_MEMORY_ENABLED"] = "0"
+            try:
+                agent = FakeSyncAgent()
+                result = run_with_memory_sync(agent, "hello", root=root, session_id="s1", turn_id="t1")
+                self.assertEqual("ok:hello", result.output)
+                events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
+                self.assertFalse(events_file.exists())
+            finally:
+                os.environ.pop("CORE_MEMORY_ENABLED", None)
 
     def test_pydanticai_fail_open_on_emit_error(self):
         original = pyd_run.process_turn_finalized

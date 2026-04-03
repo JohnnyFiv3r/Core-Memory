@@ -20,6 +20,10 @@ You can run in two modes:
    - Enable `core-memory-bridge`
    - Disable stock `memory-core`
 
+Flag-driven default (recommended for automated deploys):
+- `CORE_MEMORY_SUPERSEDE_OPENCLAW_SUMMARY=1` -> onboard defaults to replace mode (disables `memory-core`)
+- `CORE_MEMORY_SUPERSEDE_OPENCLAW_SUMMARY=0` -> onboard defaults to coexist mode
+
 ## Onboarding command
 Use Core Memory CLI:
 
@@ -71,6 +75,8 @@ openclaw gateway restart
 - Keeps `memory-core` enabled (coexist mode) or disables it (replace mode)
 - Runs `openclaw status --deep` for immediate verification
 
+Bridge/runtime flags are exposed in onboard output under `flags` and reflected in bridge-ingested metadata as `core_memory_flags` for diagnostics.
+
 ## Verification checklist
 1. `openclaw plugins list` shows `core-memory-bridge` as loaded.
 2. `openclaw status --deep` is healthy.
@@ -88,3 +94,4 @@ Use runtime signals instead:
   - `core_memory.integrations.openclaw_agent_end_bridge`
   - `core_memory.integrations.openclaw_compaction_bridge`
 - `CORE_MEMORY_ROOT` controls where Core Memory durable artifacts are written.
+- `CORE_MEMORY_ENABLED=0` cleanly no-ops bridge turn ingest/flush paths (safe rollback switch).

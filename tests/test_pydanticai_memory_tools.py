@@ -9,8 +9,14 @@ from core_memory.integrations.pydanticai.memory_tools import (
     memory_search_tool,
     memory_reason_tool,
     memory_execute_tool,
+    get_turn_tool,
+    get_turn_tools_tool,
+    get_adjacent_turns_tool,
+    hydrate_bead_sources_tool,
     CONTINUITY_HEADER,
 )
+from core_memory.runtime.state import TurnEnvelope, emit_memory_event
+from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.rolling_record_store import write_rolling_records
 
 
@@ -150,6 +156,65 @@ class TestMemoryExecuteTool(unittest.TestCase):
             self.assertIsInstance(parsed, dict)
 
 
+class TestHydrationTools(unittest.TestCase):
+    def test_turn_hydration_tools(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            _make_store(root)
+
+            env = TurnEnvelope(
+                session_id="s1",
+                turn_id="t1",
+                transaction_id="tx1",
+                trace_id="tr1",
+                user_query="u",
+                assistant_final="a",
+                tools_trace=[{"tool_call_id": "1", "category": "search", "result_hash": "h"}],
+            )
+            emit_memory_event(Path(root), env)
+
+            turn = json.loads(get_turn_tool(root=root)("t1", "s1"))
+            self.assertTrue(turn["found"])
+            self.assertEqual("t1", turn["turn"]["turn_id"])
+
+            tools = json.loads(get_turn_tools_tool(root=root)("t1", "s1"))
+            self.assertTrue(tools["found"])
+            self.assertEqual("search", tools["tools_trace"][0]["category"])
+
+            neighbors = json.loads(get_adjacent_turns_tool(root=root)("t1", "s1", 1, 1))
+            self.assertTrue(neighbors["found"])
+            self.assertEqual("t1", neighbors["pivot"]["turn_id"])
+
+    def test_hydrate_bead_sources_tool(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            _make_store(root)
+            env = TurnEnvelope(
+                session_id="s1",
+                turn_id="t2",
+                transaction_id="tx2",
+                trace_id="tr2",
+                user_query="u2",
+                assistant_final="a2",
+            )
+            emit_memory_event(Path(root), env)
+
+            s = MemoryStore(root=root)
+            bead_id = s.add_bead(
+                type="context",
+                title="x",
+                summary=["y"],
+                source_turn_ids=["t2"],
+                detail="z",
+                session_id="s1",
+            )
+
+            tool = hydrate_bead_sources_tool(root=root)
+            out = json.loads(tool(bead_ids_json=json.dumps([bead_id]), include_tools=False, before=0, after=0))
+            self.assertIn("hydrated", out)
+            self.assertEqual("t2", out["hydrated"][0]["turn"]["turn_id"])
+
+
 class TestImportsFromInit(unittest.TestCase):
     def test_all_surfaces_importable(self):
         from core_memory.integrations.pydanticai import (
@@ -157,11 +222,19 @@ class TestImportsFromInit(unittest.TestCase):
             memory_search_tool,
             memory_reason_tool,
             memory_execute_tool,
+            get_turn_tool,
+            get_turn_tools_tool,
+            get_adjacent_turns_tool,
+            hydrate_bead_sources_tool,
         )
         self.assertTrue(callable(continuity_prompt))
         self.assertTrue(callable(memory_search_tool))
         self.assertTrue(callable(memory_reason_tool))
         self.assertTrue(callable(memory_execute_tool))
+        self.assertTrue(callable(get_turn_tool))
+        self.assertTrue(callable(get_turn_tools_tool))
+        self.assertTrue(callable(get_adjacent_turns_tool))
+        self.assertTrue(callable(hydrate_bead_sources_tool))
 
 
 if __name__ == "__main__":

@@ -6,6 +6,7 @@ import uuid
 from typing import Any, Optional
 
 from core_memory.integrations.api import IntegrationContext, _resolve_root
+from core_memory.integrations.openclaw_flags import core_memory_enabled, runtime_flags_snapshot
 from core_memory.runtime.engine import process_turn_finalized, process_flush
 
 logger = logging.getLogger(__name__)
@@ -33,6 +34,7 @@ def _build_metadata(metadata: Optional[dict] = None) -> dict:
             "adapter_runtime": ADAPTER_RUNTIME,
             "adapter_status": ADAPTER_STATUS,
             "fail_open": True,
+            "core_memory_flags": runtime_flags_snapshot(),
         }
     )
     md.update(metadata or {})
@@ -47,6 +49,8 @@ def _run_turn_pipeline(
     user_query: str,
     assistant_final: str,
     metadata: dict,
+    tools_trace: list[dict],
+    mesh_trace: list[dict],
     window_turn_ids: list[str],
     window_bead_ids: list[str],
 ) -> dict:
@@ -58,8 +62,8 @@ def _run_turn_pipeline(
         user_query=user_query,
         assistant_final=assistant_final,
         metadata=metadata,
-        tools_trace=[],
-        mesh_trace=[],
+        tools_trace=tools_trace,
+        mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
     )
@@ -73,6 +77,8 @@ async def run_with_memory(
     session_id: str,
     turn_id: Optional[str] = None,
     metadata: Optional[dict] = None,
+    tools_trace: Optional[list[dict]] = None,
+    mesh_trace: Optional[list[dict]] = None,
     window_turn_ids: Optional[list[str]] = None,
     window_bead_ids: Optional[list[str]] = None,
 ) -> Any:
@@ -84,6 +90,9 @@ async def run_with_memory(
     else:
         raise AttributeError("agent must provide async run() for run_with_memory")
     assistant_final = _extract_assistant_final(result)
+
+    if not core_memory_enabled():
+        return result
 
     md = _build_metadata(metadata)
 
@@ -98,6 +107,8 @@ async def run_with_memory(
                 user_query=user_query,
                 assistant_final=assistant_final,
                 metadata=md,
+                tools_trace=tools_trace or [],
+                mesh_trace=mesh_trace or [],
                 window_turn_ids=window_turn_ids or [],
                 window_bead_ids=window_bead_ids or [],
             ),
@@ -118,6 +129,9 @@ async def flush_session_async(
     max_beads: int = 80,
 ) -> dict:
     """Async version of flush_session. Runs sync I/O in a thread executor."""
+    if not core_memory_enabled():
+        return {"ok": True, "flushed": False, "reason": "core_memory_disabled"}
+
     root_final = _resolve_root(root)
     loop = asyncio.get_running_loop()
     return await loop.run_in_executor(
@@ -141,6 +155,8 @@ def run_with_memory_sync(
     session_id: str,
     turn_id: Optional[str] = None,
     metadata: Optional[dict] = None,
+    tools_trace: Optional[list[dict]] = None,
+    mesh_trace: Optional[list[dict]] = None,
     window_turn_ids: Optional[list[str]] = None,
     window_bead_ids: Optional[list[str]] = None,
 ) -> Any:
@@ -161,11 +177,16 @@ def run_with_memory_sync(
         return asyncio.run(
             run_with_memory(
                 agent, user_query, root=root, session_id=session_id, turn_id=turn_id,
-                metadata=metadata, window_turn_ids=window_turn_ids, window_bead_ids=window_bead_ids,
+                metadata=metadata, tools_trace=tools_trace, mesh_trace=mesh_trace,
+                window_turn_ids=window_turn_ids, window_bead_ids=window_bead_ids,
             )
         )
 
     assistant_final = _extract_assistant_final(result)
+
+    if not core_memory_enabled():
+        return result
+
     md = _build_metadata(metadata)
 
     try:
@@ -176,6 +197,8 @@ def run_with_memory_sync(
             user_query=user_query,
             assistant_final=assistant_final,
             metadata=md,
+            tools_trace=tools_trace or [],
+            mesh_trace=mesh_trace or [],
             window_turn_ids=window_turn_ids or [],
             window_bead_ids=window_bead_ids or [],
         )
@@ -199,6 +222,9 @@ def flush_session(
     Call this at app-defined session boundaries (idle timeout, explicit end,
     context budget threshold, process shutdown, etc.).
     """
+    if not core_memory_enabled():
+        return {"ok": True, "flushed": False, "reason": "core_memory_disabled"}
+
     root_final = _resolve_root(root)
     return process_flush(
         root=root_final,

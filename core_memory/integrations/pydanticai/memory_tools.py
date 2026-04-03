@@ -29,7 +29,13 @@ import logging
 import os
 from typing import Any, Callable, Optional
 
-from core_memory.integrations.api import _resolve_root
+from core_memory.integrations.api import (
+    _resolve_root,
+    get_turn,
+    get_turn_tools,
+    get_adjacent_turns,
+    hydrate_bead_sources,
+)
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.retrieval.tools.memory import (
     execute as memory_execute,
@@ -78,6 +84,7 @@ def continuity_prompt(
 
     authority = ctx.get("authority", "unknown")
     lines.append(f"\n_Source: {authority}, {len(records)} record(s)_")
+    lines.append("_Transcript hydration is available on demand via get_turn/hydrate tools._")
     return "\n".join(lines)
 
 
@@ -186,3 +193,85 @@ def memory_execute_tool(root: Optional[str] = None) -> Callable[..., str]:
 
     execute_memory_request.__name__ = "execute_memory_request"
     return execute_memory_request
+
+
+def get_turn_tool(root: Optional[str] = None) -> Callable[..., str]:
+    """Return a tool function to hydrate one archived turn by turn_id."""
+    root_final = _resolve_root(root)
+
+    def get_turn_record(turn_id: str, session_id: str = "") -> str:
+        result = get_turn(turn_id=turn_id, root=root_final, session_id=session_id or None)
+        if result is None:
+            return json.dumps({"found": False, "turn_id": turn_id})
+        return json.dumps({"found": True, "turn": result}, default=str)
+
+    get_turn_record.__name__ = "get_turn_record"
+    return get_turn_record
+
+
+def get_turn_tools_tool(root: Optional[str] = None) -> Callable[..., str]:
+    """Return a tool function to fetch tool/mesh traces for one turn."""
+    root_final = _resolve_root(root)
+
+    def get_turn_trace(turn_id: str, session_id: str = "") -> str:
+        result = get_turn_tools(turn_id=turn_id, root=root_final, session_id=session_id or None)
+        if result is None:
+            return json.dumps({"found": False, "turn_id": turn_id})
+        return json.dumps({"found": True, **result}, default=str)
+
+    get_turn_trace.__name__ = "get_turn_trace"
+    return get_turn_trace
+
+
+def get_adjacent_turns_tool(root: Optional[str] = None) -> Callable[..., str]:
+    """Return a tool function to fetch bounded neighboring turns around a pivot turn."""
+    root_final = _resolve_root(root)
+
+    def get_turn_neighbors(turn_id: str, session_id: str = "", before: int = 1, after: int = 1) -> str:
+        result = get_adjacent_turns(
+            turn_id=turn_id,
+            root=root_final,
+            session_id=session_id or None,
+            before=before,
+            after=after,
+        )
+        if result is None:
+            return json.dumps({"found": False, "turn_id": turn_id})
+        return json.dumps({"found": True, **result}, default=str)
+
+    get_turn_neighbors.__name__ = "get_turn_neighbors"
+    return get_turn_neighbors
+
+
+def hydrate_bead_sources_tool(root: Optional[str] = None) -> Callable[..., str]:
+    """Return a convenience hydration tool that resolves bead sources to turns."""
+    root_final = _resolve_root(root)
+
+    def hydrate_sources(
+        bead_ids_json: str = "[]",
+        turn_ids_json: str = "[]",
+        include_tools: bool = False,
+        before: int = 0,
+        after: int = 0,
+    ) -> str:
+        try:
+            bead_ids = json.loads(bead_ids_json) if bead_ids_json else []
+        except Exception:
+            bead_ids = []
+        try:
+            turn_ids = json.loads(turn_ids_json) if turn_ids_json else []
+        except Exception:
+            turn_ids = []
+
+        result = hydrate_bead_sources(
+            root=root_final,
+            bead_ids=bead_ids if isinstance(bead_ids, list) else [],
+            turn_ids=turn_ids if isinstance(turn_ids, list) else [],
+            include_tools=include_tools,
+            before=before,
+            after=after,
+        )
+        return json.dumps(result, default=str)
+
+    hydrate_sources.__name__ = "hydrate_sources"
+    return hydrate_sources
