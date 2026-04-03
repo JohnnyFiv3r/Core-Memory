@@ -46,7 +46,7 @@ It records structured memory events called **beads** — decisions, lessons, out
 | Approach | Failure Mode | Core Memory |
 |---|---|---|
 | Chat log replay | Context window explodes | Bounded rolling window with compaction |
-| Vector similarity | “Similar” ≠ “relevant” | Typed causal edges + hybrid retrieval |
+| Vector similarity | “Similar” ≠ “relevant” | Semantic-first anchors + causal trace over typed bead links |
 | Tool call logs | No reasoning structure | Explicit bead → bead associations |
 
 **Core local flow has zero required runtime dependencies beyond Python.** Optional extras exist for HTTP service mode and integration-specific workflows.
@@ -109,7 +109,7 @@ core-memory --root ./memory store add \
  --summary "Raised pool size" \
  --session-id s1 \
  --source-turn-ids t1
-core-memory --root ./memory recall search "Redis fix"
+core-memory --root ./memory memory search --query "Redis fix"
 ```
 
 Expected result: the recall command should surface the bead you just wrote.
@@ -247,6 +247,7 @@ from core_memory.integrations.api import emit_turn_finalized
 - OpenClaw bridge
 - PydanticAI native adapter
 - SpringAI / HTTP companion service
+- LangChain (`CoreMemory`, `CoreMemoryRetriever`)
 
 ### Good starting points
 
@@ -285,14 +286,14 @@ Associations are explicit links between beads and remain queryable even as memor
 
 ### Retrieval Pipeline
 
-Core Memory uses hybrid retrieval:
+Canonical retrieval surfaces:
+- `search` (anchor retrieval)
+- `trace` (causal traversal)
+- `execute` (single orchestration entrypoint)
 
-- field-weighted lexical search
-- semantic retrieval when available
-- score fusion
-- structural rerank with causal traversal
-
-Retrieval is deterministic from indexed state.
+Semantic mode behavior:
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` (default) fails closed for query-based anchor lookup when semantic backend is unavailable.
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` allows explicit degraded lexical fallback with markers.
 
 ---
 

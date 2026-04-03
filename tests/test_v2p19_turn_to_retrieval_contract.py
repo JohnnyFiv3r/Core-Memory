@@ -1,7 +1,9 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.runtime.engine import process_turn_finalized, process_flush
 from core_memory.runtime.worker import SidecarPolicy
@@ -46,7 +48,7 @@ class TestV2P19TurnToRetrievalContract(unittest.TestCase):
             self.assertGreaterEqual(len(payload.get("records") or []), 1, "Expected rolling window to include new turn bead")
 
     def test_retrieval_can_find_new_turn_memory(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             process_turn_finalized(
                 root=td,
                 session_id="s19",

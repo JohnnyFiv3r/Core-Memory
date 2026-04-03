@@ -12,7 +12,7 @@ def search(form_submission: dict, root: str = ".", explain: bool = True) -> dict
     out = memory_search_typed(root=root, submission=form_submission, explain=bool(explain))
     if isinstance(out, dict):
         out.setdefault("schema_version", SEARCH_RESULT_SCHEMA_VERSION)
-        out.setdefault("contract", "typed_search")
+        out.setdefault("contract", "memory_search")
     return out
 
 

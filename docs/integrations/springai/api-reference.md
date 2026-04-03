@@ -96,3 +96,10 @@ Purpose:
 
 ## Auth
 Conditional auth when `CORE_MEMORY_HTTP_TOKEN` is set.
+
+## Semantic mode transport behavior
+For query-based anchor lookup:
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` and unavailable semantic backend -> HTTP `503` with payload `error.code="semantic_backend_unavailable"`
+- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` -> HTTP `200` with explicit `degraded=true` markers
+
+Trace calls with explicit `anchor_ids` do not require semantic anchor lookup.

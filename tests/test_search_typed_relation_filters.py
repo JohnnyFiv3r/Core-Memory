@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.pipeline import memory_search_typed
@@ -7,7 +9,7 @@ from core_memory.retrieval.pipeline import memory_search_typed
 
 class TestSearchTypedRelationFilters(unittest.TestCase):
     def test_relation_filter_applies_to_chains(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             a = s.add_bead(type="decision", title="A", summary=["anchor"], session_id="main", source_turn_ids=["t1"])
             b = s.add_bead(type="evidence", title="B", summary=["support"], session_id="main", source_turn_ids=["t2"])

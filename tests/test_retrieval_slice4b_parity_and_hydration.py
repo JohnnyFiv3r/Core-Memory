@@ -18,6 +18,16 @@ class _FakeAgent:
 
 
 class TestRetrievalSlice4BParityAndHydration(unittest.TestCase):
+    def setUp(self):
+        self._old_mode = os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE")
+        os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = "degraded_allowed"
+
+    def tearDown(self):
+        if self._old_mode is None:
+            os.environ.pop("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", None)
+        else:
+            os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = self._old_mode
+
     def test_adapter_parity_openclaw_and_pydanticai_are_searchable(self):
         with tempfile.TemporaryDirectory() as td:
             process_agent_end_event(

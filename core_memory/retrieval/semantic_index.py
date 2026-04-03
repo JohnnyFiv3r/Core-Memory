@@ -15,6 +15,35 @@ from .normalize import tokenize
 logger = logging.getLogger(__name__)
 _faiss_warning_emitted = False
 
+SEMANTIC_MODE_REQUIRED = "required"
+SEMANTIC_MODE_DEGRADED_ALLOWED = "degraded_allowed"
+
+
+def _normalize_semantic_mode(mode: str | None) -> str:
+    m = str(mode or SEMANTIC_MODE_DEGRADED_ALLOWED).strip().lower()
+    if m not in {SEMANTIC_MODE_REQUIRED, SEMANTIC_MODE_DEGRADED_ALLOWED}:
+        return SEMANTIC_MODE_DEGRADED_ALLOWED
+    return m
+
+
+def semantic_unavailable_payload(*, query: str, warnings: list[str] | None = None, provider: str | None = None) -> dict[str, Any]:
+    ws = list(warnings or [])
+    if "semantic_backend_unavailable" not in ws:
+        ws.append("semantic_backend_unavailable")
+    return {
+        "ok": False,
+        "degraded": False,
+        "backend": "unavailable",
+        "provider": provider,
+        "query": query,
+        "warnings": ws,
+        "error": {
+            "code": "semantic_backend_unavailable",
+            "message": "Semantic backend unavailable for anchor lookup",
+        },
+        "results": [],
+    }
+
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -279,9 +308,10 @@ def build_semantic_index(root: Path) -> dict:
     }
 
 
-def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
+def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None) -> dict:
     manifest_file, faiss_file, rows_file, build_lock, queue_file = _paths(root)
     warnings: list[str] = []
+    mode_n = _normalize_semantic_mode(mode)
 
     if not manifest_file.exists() or not rows_file.exists():
         built = build_semantic_index(root)
@@ -395,6 +425,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
                 )
             return {
                 "ok": True,
+                "degraded": False,
                 "backend": backend,
                 "provider": manifest.get("provider"),
                 "query": query,
@@ -415,12 +446,20 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
             logger.debug("core-memory: semantic lookup failed, using lexical fallback: %s", exc)
             warnings.append("semantic_backend_query_failed_lexical_fallback")
 
+    if mode_n == SEMANTIC_MODE_REQUIRED:
+        return semantic_unavailable_payload(
+            query=query,
+            warnings=warnings,
+            provider=str(manifest.get("provider") or req_provider),
+        )
+
     return {
         "ok": True,
+        "degraded": True,
         "backend": "lexical",
         "provider": manifest.get("provider") or req_provider,
         "query": query,
-        "warnings": warnings,
+        "warnings": list(warnings) + ["semantic_backend_unavailable_degraded"],
         "stale_age_ms": stale_age_ms,
         "results": lexical_rank(),
     }

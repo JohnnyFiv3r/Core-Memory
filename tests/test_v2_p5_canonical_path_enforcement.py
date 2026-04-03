@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
 from core_memory.runtime.worker import SidecarPolicy
@@ -24,7 +26,7 @@ class TestV2P5CanonicalPathEnforcement(unittest.TestCase):
             self.assertEqual("canonical_in_process", out.get("authority_path"))
 
     def test_memory_execute_contract_stable_keys(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             s.add_bead(type="decision", title="A", summary=["x"], session_id="main", source_turn_ids=["t1"])
             out = memory_tools.execute(

@@ -8,13 +8,40 @@ import json
 
 from core_memory.graph.api import causal_traverse
 from core_memory.retrieval.normalize import classify_intent
-from core_memory.retrieval.semantic_index import semantic_lookup
+from core_memory.retrieval.semantic_index import (
+    SEMANTIC_MODE_REQUIRED,
+    semantic_lookup,
+    semantic_unavailable_payload,
+)
 from core_memory.retrieval.visible_corpus import build_visible_corpus
 from core_memory.integrations.api import hydrate_bead_sources
 
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
 PUBLIC_HYDRATION_TURN_SOURCES = {"cited_turns", "cited_turns_plus_adjacent"}
+
+
+def _canonical_semantic_mode() -> str:
+    m = str(os.getenv("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", SEMANTIC_MODE_REQUIRED) or SEMANTIC_MODE_REQUIRED).strip().lower()
+    return m if m in {"required", "degraded_allowed"} else SEMANTIC_MODE_REQUIRED
+
+
+def _semantic_failure_response(*, query: str, intent: str, k: int, warnings: list[str], provider: str | None = None) -> dict[str, Any]:
+    out = semantic_unavailable_payload(query=query, warnings=warnings, provider=provider)
+    out.update(
+        {
+            "anchors": [],
+            "results": [],
+            "chains": [],
+            "citations": [],
+            "confidence": "low",
+            "next_action": "ask_clarifying",
+            "snapped": {"raw_query": query, "intent": intent, "k": int(k)},
+            "grounding": {"required": True, "achieved": False, "level": "none", "reason": "semantic_backend_unavailable"},
+            "warnings": list(out.get("warnings") or []),
+        }
+    )
+    return out
 
 
 def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
@@ -233,7 +260,15 @@ def search_request(
     except Exception:
         projection_created_at = {}
 
-    sem = semantic_lookup(rp, query, k=max(24, int(k) * 2))
+    sem = semantic_lookup(rp, query, k=max(24, int(k) * 2), mode=_canonical_semantic_mode())
+    if not sem.get("ok"):
+        return _semantic_failure_response(
+            query=query,
+            intent=intent,
+            k=int(k),
+            warnings=list(sem.get("warnings") or []),
+            provider=str(sem.get("provider") or ""),
+        )
     sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
     for r in sem_rows:
         r.setdefault("anchor_reason", "retrieved")
@@ -281,6 +316,7 @@ def search_request(
 
     return {
         "ok": True,
+        "degraded": bool(sem.get("degraded", False)),
         "anchors": anchors,
         "results": anchors,  # compatibility alias
         "chains": [],
@@ -322,6 +358,15 @@ def trace_request(
         anchors_out = {"ok": True, "anchors": anchors, "results": anchors, "warnings": [], "confidence": "medium", "next_action": "answer", "snapped": {"raw_query": query, "intent": intent, "k": int(k)}}
     else:
         anchors_out = search_request(root=root, query=query, k=k, intent=intent, submission=submission)
+
+    if not anchors_out.get("ok"):
+        return _semantic_failure_response(
+            query=query,
+            intent=intent,
+            k=int(k),
+            warnings=list(anchors_out.get("warnings") or []),
+            provider=str(anchors_out.get("provider") or ""),
+        )
 
     anchors = anchors_out.get("anchors") or []
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
@@ -370,6 +415,7 @@ def trace_request(
 
     out = {
         "ok": True,
+        "degraded": bool(anchors_out.get("degraded", False)),
         "anchors": anchors,
         "results": anchors,  # compatibility alias
         "chains": chains,
@@ -449,6 +495,20 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = search_request(root=root, query=query, k=k, intent=intent, submission=submission)
+        if not out.get("ok"):
+            out.setdefault("request", {
+                "raw_query": query,
+                "intent": intent,
+                "k": k,
+                "grounding_mode": grounding_mode,
+                "constraints": {"require_structural": bool(constraints.get("require_structural", False))},
+                "facets": dict(req.get("facets") or {}),
+            })
+            out.setdefault("contract", "memory_execute")
+            out.setdefault("schema_version", "memory_execute_result.v1")
+            out.setdefault("next_action", "ask_clarifying")
+            out.setdefault("suggested_next", out.get("next_action"))
+            return out
         out["grounding"] = {"required": False, "achieved": False, "level": "none", "reason": "search_only"}
         out.setdefault("hydration", {"status": "not_requested", "warnings": []})
     else:
@@ -475,6 +535,20 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             hydration=req.get("hydration") or None,
             submission=submission,
         )
+        if not out.get("ok"):
+            out.setdefault("request", {
+                "raw_query": query,
+                "intent": intent,
+                "k": k,
+                "grounding_mode": grounding_mode,
+                "constraints": {"require_structural": bool(constraints.get("require_structural", False))},
+                "facets": dict(req.get("facets") or {}),
+            })
+            out.setdefault("contract", "memory_execute")
+            out.setdefault("schema_version", "memory_execute_result.v1")
+            out.setdefault("next_action", "ask_clarifying")
+            out.setdefault("suggested_next", out.get("next_action"))
+            return out
 
     out.setdefault("chains", [])
     out.setdefault("citations", [])

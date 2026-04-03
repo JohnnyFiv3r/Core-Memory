@@ -10,5 +10,5 @@ def search_typed(submission: dict, root: str = ".", explain: bool = True) -> dic
     out = memory_search_typed(root=root, submission=submission, explain=bool(explain))
     if isinstance(out, dict):
         out.setdefault("schema_version", SEARCH_RESULT_SCHEMA_VERSION)
-        out.setdefault("contract", "typed_search")
+        out.setdefault("contract", "memory_search")
     return out

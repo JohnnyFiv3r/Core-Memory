@@ -23,11 +23,15 @@ Start here for current Core Memory documentation.
 - `integrations/openclaw/quickstart.md`
 - `integrations/springai/quickstart.md`
 - `integrations/pydanticai/quickstart.md`
+- `integrations/langchain/quickstart.md`
 
 ## Evaluation entrypoints
 - `../eval/memory_execute_eval.py`
-- `../eval/memory_search_ab_compare.py`
-- `../eval/retrieval_eval.py`
+
+## Reviewer fast path
+- `../README.md`
+- `public_surface.md`
+- `canonical_surfaces.md`
 
 - `v2_p21_kickoff.md` — V2P21 integrity/packaging fix tracker
 

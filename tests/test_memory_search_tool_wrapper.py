@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.tools.memory_search import search_typed
@@ -7,7 +9,7 @@ from core_memory.retrieval.tools.memory_search import search_typed
 
 class TestMemorySearchToolWrapper(unittest.TestCase):
     def test_tool_wrapper_search_only(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
             s = MemoryStore(td)
             s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
 
@@ -23,7 +25,7 @@ class TestMemorySearchToolWrapper(unittest.TestCase):
             )
             self.assertTrue(out.get("ok"))
             self.assertEqual("memory_search_result.v1", out.get("schema_version"))
-            self.assertEqual("typed_search", out.get("contract"))
+            self.assertEqual("memory_search", out.get("contract"))
             self.assertIsInstance(out.get("results") or [], list)
             if out.get("results"):
                 first = out["results"][0]
