@@ -11,6 +11,9 @@ from core_memory.retrieval.pipeline.explain import build_explain
 from core_memory.retrieval.tools.memory_reason import memory_reason
 
 
+NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
+
+
 def _mk_request_id(req: dict) -> str:
     s = json.dumps(req or {}, sort_keys=True, ensure_ascii=False)
     return "mrq_" + hashlib.sha256(s.encode("utf-8")).hexdigest()[:12]
@@ -69,6 +72,17 @@ def _chain_quality(chains: list[dict]) -> float:
     return round(sum(scores) / max(1, len(scores)), 4)
 
 
+def _has_non_temporal_structural_edge(chains: list[dict]) -> bool:
+    for chain in (chains or []):
+        for edge in (chain.get("edges") or []):
+            rel = str((edge or {}).get("rel") or "").strip().lower()
+            edge_class = str((edge or {}).get("class") or (edge or {}).get("edge_class") or "").strip().lower()
+            is_structural = (not edge_class) or edge_class == "structural"
+            if is_structural and rel and rel not in NON_FULL_GROUNDING_RELATIONSHIPS:
+                return True
+    return False
+
+
 def _confidence_and_next_base(intent: str, results: list[dict], chains: list[dict], snapped: dict, beads: dict) -> tuple[str, str, dict]:
     if not results:
         return "low", "ask_clarifying", {"reason": "no_results"}
@@ -94,7 +108,7 @@ def _confidence_and_next_base(intent: str, results: list[dict], chains: list[dic
         return "low", "broaden", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
 
     # causal
-    grounded = bool(chains)
+    grounded = _has_non_temporal_structural_edge(chains)
     if grounded:
         if (margin >= 0.06) or (arank <= 3):
             return "high", "answer", {"margin": margin, "anchor_rank": arank, "coherence": coh, "clusters": cluster_count}
@@ -114,7 +128,7 @@ def evaluate_confidence_next(intent: str, results: list[dict], chains: list[dict
 
     if confidence == "high":
         warning_ok = (not warnings) or only_benign
-        causal_ok = bool(chains) and (chq >= 0.2)
+        causal_ok = _has_non_temporal_structural_edge(chains) and (chq >= 0.2)
         non_causal_ok = anchor_present
         if not warning_ok:
             confidence = "medium"
@@ -211,7 +225,7 @@ def execute_request(request: dict, root: str = ".", explain: bool = True) -> dic
     beads = _load_beads(rp)
 
     grounding_required = bool(mem_req["constraints"].get("require_structural")) or intent == "causal"
-    grounding_achieved = bool(chains)
+    grounding_achieved = _has_non_temporal_structural_edge(chains)
     grounding_reason = "grounded" if grounding_achieved else ("not_required" if not grounding_required else "no_structural_edges_found")
 
     # If grounding requested but not achieved, run reasoner for structural proof attempt,
@@ -231,8 +245,8 @@ def execute_request(request: dict, root: str = ".", explain: bool = True) -> dic
         rchains = reason_payload.get("chains") or []
         if rchains:
             chains = rchains[:3]
-            grounding_achieved = True
-            grounding_reason = "grounded_via_reasoner"
+            grounding_achieved = _has_non_temporal_structural_edge(chains)
+            grounding_reason = "grounded_via_reasoner" if grounding_achieved else "no_structural_edges_found"
 
     # never-empty contract (if corpus has beads): keep typed results, fallback to reason citations
     if not results:

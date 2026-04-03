@@ -11,6 +11,25 @@ from core_memory.retrieval.visible_corpus import build_visible_corpus
 from core_memory.integrations.api import hydrate_bead_sources
 
 
+NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
+
+
+def _has_non_temporal_structural_edge(chains: list[dict[str, Any]]) -> bool:
+    """True when at least one chain includes a non-temporal structural edge.
+
+    v2.1 policy: follows/associated_with-only paths are not sufficient for
+    grounding=full.
+    """
+    for chain in (chains or []):
+        for edge in (chain.get("edges") or []):
+            rel = str((edge or {}).get("rel") or "").strip().lower()
+            edge_class = str((edge or {}).get("class") or (edge or {}).get("edge_class") or "").strip().lower()
+            is_structural = (not edge_class) or edge_class == "structural"
+            if is_structural and rel and rel not in NON_FULL_GROUNDING_RELATIONSHIPS:
+                return True
+    return False
+
+
 def _status_rank(status: str) -> int:
     order = {"promoted": 0, "archived": 1, "candidate": 2, "open": 3}
     return order.get(str(status or "").lower(), 9)
@@ -143,12 +162,15 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
     chains = list(trav.get("chains") or [])
 
     # Grounding levels:
-    # - full: structural chains exist
-    # - partial: no structural chains but semantic anchor set contains
+    # - full: chains include at least one non-temporal structural relation
+    # - partial: chains exist but are temporal/non-structural only, OR semantic anchor set contains
     #            decision/precedent + supporting role(s)
     # - none: no usable grounding
-    if chains:
+    has_non_temporal_structural = _has_non_temporal_structural_edge(chains)
+    if chains and has_non_temporal_structural:
         grounding = "full"
+    elif chains:
+        grounding = "partial"
     else:
         types = {str(a.get("type") or "").lower() for a in anchors}
         has_decision_like = bool(types.intersection({"decision", "precedent"}))
@@ -156,7 +178,7 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
         grounding = "partial" if (anchors and has_decision_like and has_support_like) else "none"
 
     next_action = "answer" if grounding in {"full", "partial"} else "ask_clarifying"
-    confidence = "high" if chains else ("medium" if grounding == "partial" else ("medium" if anchors else "low"))
+    confidence = "high" if grounding == "full" else ("medium" if grounding == "partial" else ("medium" if anchors else "low"))
 
     citations = []
     if chains:
@@ -182,7 +204,15 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
             "required": True,
             "achieved": bool(grounding in {"full", "partial"}),
             "level": grounding,
-            "reason": "grounded" if grounding == "full" else ("semantic_only" if grounding == "partial" else "none"),
+            "reason": (
+                "grounded"
+                if grounding == "full"
+                else (
+                    "non_temporal_structural_missing"
+                    if chains and grounding == "partial"
+                    else ("semantic_only" if grounding == "partial" else "none")
+                )
+            ),
         },
         "confidence": confidence,
         "next_action": next_action,
