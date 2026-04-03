@@ -105,7 +105,7 @@ def build_semantic_index(root: Path) -> dict:
     index = json.loads(index_file.read_text(encoding="utf-8"))
     beads = [
         b for b in list((index.get("beads") or {}).values())
-        if str((b or {}).get("status") or "").lower() == "archived"
+        if str((b or {}).get("status") or "").lower() != "superseded"
     ]
 
     rows: list[dict[str, Any]] = []

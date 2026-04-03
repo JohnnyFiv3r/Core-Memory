@@ -123,7 +123,7 @@ class LexicalIndex:
             idx = json.loads(index_file.read_text(encoding="utf-8"))
             beads = [
                 b for b in list((idx.get("beads") or {}).values())
-                if str((b or {}).get("status") or "").lower() == "archived"
+                if str((b or {}).get("status") or "").lower() != "superseded"
             ]
         self._build_from_beads(beads)
 
