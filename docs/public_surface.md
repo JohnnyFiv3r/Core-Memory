@@ -1,35 +1,39 @@
-# Public Surface (Pre-OSS)
+# Public Surface
 
 Status: Canonical
 
-This is the supported import/integration surface for contributors.
+This page defines what external integrators should call.
 
 ## Canonical decision rule
-A function/module is canonical only if:
-1) it has tests, and
-2) it is exported via package surface (`core_memory.__init__` or integration API surface such as `core_memory.integrations.api`).
+A surface is canonical only if it is both:
+1. tested as active contract, and
+2. documented as forward-supported in current docs.
 
-Everything else is internal and may change without notice.
+## Write ingress
+- `core_memory.integrations.api.emit_turn_finalized(...)`
 
-## Runtime/write ingress
-- `core_memory.integrations.api.emit_turn_finalized(payload: dict) -> dict` — canonical finalized-turn ingress.
-- `core_memory.event_ingress` — canonical ingress alias module.
-- `core_memory.event_worker` — canonical worker alias module.
-- `core_memory.event_state` — canonical pass-state alias module.
+## Retrieval/runtime surface
+- `core_memory.tools.memory.search(form_submission, root='.', explain=...)`
+- `core_memory.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)`
+- `core_memory.tools.memory.execute(request, root='.', explain=...)`
 
-## Retrieval/runtime tool surface
-- `core_memory.tools.memory.search(root: str, typed: dict, explain: bool=False) -> dict` — canonical retrieval anchors.
-- `core_memory.tools.memory.trace(query: str, root: str='.', k: int=8, ...) -> dict` — canonical causal traversal after anchor identification.
-- `core_memory.tools.memory.execute(root: str, request: dict, explain: bool=False) -> dict` — unified memory request entrypoint.
+### Retrieval semantics
+- `search`: anchor retrieval
+- `trace`: causal traversal/grounding after anchor identification
+- `execute`: unified orchestration entrypoint
 
-## Launch adapters
-- OpenClaw bridge: `core_memory.integrations.openclaw_agent_end_bridge`
-- SpringAI: `core_memory.integrations.springai.bridge`
-- PydanticAI: `core_memory.integrations.pydanticai.run`
+### Hydration semantics
+Hydration is explicit post-selection source recovery (turn/tool/adjacent payloads).
+It is not a replacement for retrieval planning.
 
-## Non-primary surfaces
-Association preview helper (non-authoritative write preview only):
-- `core_memory.association.preview.run_association_pass`
+Deep recall is separate from canonical hydration.
 
-## Rule of thumb
-If building new integration code, start from this file and only add new surfaces through explicit docs + tests.
+## Adapter entrypoints
+- OpenClaw bridge surfaces under `core_memory.integrations.openclaw.*`
+- PydanticAI surfaces under `core_memory.integrations.pydanticai.*`
+- SpringAI/HTTP surfaces under `core_memory.integrations.http.*` and docs contract
+- LangChain surfaces under `core_memory.integrations.langchain.*`
+
+## Compatibility / non-primary
+- Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`
+- Non-canonical helper modules may remain in-tree but are not forward contract unless listed above

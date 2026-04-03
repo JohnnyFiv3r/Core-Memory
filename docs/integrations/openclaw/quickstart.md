@@ -21,12 +21,24 @@ Use the repository root as the working workspace for the main agent.
 Primary runtime surface:
 - `core_memory.tools.memory.execute`
 
+Canonical retrieval family (when you need direct calls):
+- `memory.search`
+- `memory.trace`
+- `memory.execute`
+
+Continuity/context injection:
+- `load_continuity_injection(...)`
+
+Hydration (optional, post-selection):
+- `hydrate_bead_sources(...)`
+
 Primary write-path ingestion:
 - `emit_turn_finalized(...)`
 
 ## 4) Validate
 ```bash
 python -m unittest tests.test_memory_execute_contract
+python -m unittest tests.test_openclaw_read_bridge
 python eval/memory_execute_eval.py
 ```
 

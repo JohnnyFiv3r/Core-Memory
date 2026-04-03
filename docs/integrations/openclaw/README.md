@@ -17,6 +17,8 @@ Status: Canonical landing page
 - repository root `README.md`
 
 ## Operational notes
+- Forward retrieval story is `search` / `trace` / `execute` (`execute` preferred by default policy).
+- Hydration is optional post-selection source recovery, not the primary retrieval mode.
 - For plugin `api.on(...)` lifecycle listeners, do **not** rely solely on `openclaw hooks list --json`.
 - Primary runtime signals are:
   - `/tmp/core-memory-bridge-hook.log` movement

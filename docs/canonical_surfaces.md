@@ -2,39 +2,48 @@
 
 Status: Canonical
 
-Purpose: inventory the current public, supported surfaces of Core Memory without changing runtime behavior.
+Purpose: single answer to “what is real and supported today?”
 
-## Canonical runtime APIs
+## Canonical runtime surfaces
 
-### Continuity injection surface
-- `core_memory.continuity_injection.load_continuity_injection(...)`
-
-Authority order:
-1. `rolling-window.records.json` (authoritative continuity surface)
-2. `promoted-context.meta.json` (fallback metadata only)
-3. empty
-
-Non-authoritative continuity artifacts:
-- `promoted-context.md` (derived operator-facing text)
-
-### Unified memory skill surface
-- `core_memory.tools.memory.execute`
-- `core_memory.tools.memory.search`
-- `core_memory.tools.memory.trace`
-
-These are the preferred tool-facing entry points for runtime retrieval/reasoning.
-
-### Finalized-turn ingestion
+### Finalized-turn ingestion (write path)
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
-This is the canonical write-path port for orchestrator integrations.
+### Canonical retrieval family (read/runtime path)
+- `core_memory.tools.memory.search`
+- `core_memory.tools.memory.trace`
+- `core_memory.tools.memory.execute`
+
+Canonical retrieval story is exactly: **search → trace → execute**.
+
+### Continuity surface
+- `core_memory.continuity_injection.load_continuity_injection(...)`
+
+Continuity authority order:
+1. `rolling-window.records.json`
+2. `promoted-context.meta.json` (fallback metadata)
+3. empty
+
+## Canonical hydration contract
+
+Hydration is post-selection transcript/source recovery, not a general retrieval mode.
+
+Public canonical hydration fields:
+- `turn_sources`: `cited_turns` | `cited_turns_plus_adjacent`
+- `max_beads`
+- `adjacent_before`
+- `adjacent_after`
+
+Notes:
+- `cited_turns` means cited turns only (adjacency off)
+- `cited_turns_plus_adjacent` means cited turns plus bounded neighbors
+- unsupported legacy hydration knobs are ignored
+
+Deep recall exists, but it is separate from canonical hydration.
 
 ## Canonical HTTP surfaces
 
-Served by:
-- `core_memory.integrations.http.server`
-
-Endpoints:
+Served by `core_memory.integrations.http.server`:
 - `GET /healthz`
 - `POST /v1/memory/turn-finalized`
 - `POST /v1/memory/session-flush`
@@ -45,58 +54,24 @@ Endpoints:
 - `GET /v1/memory/continuity`
 - `GET /v1/metrics`
 
-Canonical machine-readable contract:
+Machine-readable contract:
 - `docs/contracts/http_api.v1.json`
 
 ## Canonical CLI surfaces
-
-Served by:
-- `core_memory.cli`
-
-Current canonical memory-related commands:
 - `core-memory memory search --query ...`
 - `core-memory memory trace --query ...`
 - `core-memory memory execute --request ...`
-- `core-memory graph ...`
-- `core-memory metrics ...`
 
-## Canonical integration guides
+## Adapter docs (canonical)
+- `docs/integrations/openclaw/README.md`
+- `docs/integrations/pydanticai/README.md`
+- `docs/integrations/springai/README.md`
+- `docs/integrations/langchain/README.md`
 
-Current canonical docs:
-- `docs/integrations/springai/quickstart.md`
-- `docs/integrations/springai/integration-guide.md`
-- `docs/integrations/openclaw/integration-guide.md`
-- `docs/integrations/pydanticai/integration-guide.md`
-- `docs/core_adapters_architecture.md`
-- `docs/integrations/shared/README.md` (supporting overview)
+## Compatibility and historical notes
+- Compatibility/historical material lives under `docs/archive/` and `docs/reports/`.
+- If older modules still exist in code (for migration/history), they are not forward product surfaces unless listed above.
 
-Transitional stub retained:
-- `docs/springai_adapter.md`
-
-## Canonical evaluation entry points
-
-- `eval/memory_execute_eval.py`
-
-## Supported but secondary / lower-level surfaces
-
-These are useful but not the preferred first interface for contributors:
-- `core_memory.memory_skill.*` internals
-- retrieval internals in `core_memory/retrieval/*`
-
-## Transitional / compatibility surfaces
-
-These remain for compatibility or migration support and should not be treated as the primary public interface:
-- historical migration/archive docs under `docs/archive/`
-
-## Historical artifacts
-
-The following are historical snapshots, not living specs:
-- dated reports in `docs/archive/reports/2026-03-05/`
-- archived migration/deprecation planning docs in `docs/archive/`
-
-## Contributor rule of thumb
-
-If choosing where to integrate first:
-1. runtime retrieval/reasoning -> `core_memory.tools.memory.*`
-2. write-path ingestion -> `emit_turn_finalized(...)`
-3. JVM/remote integration -> HTTP contract in `docs/contracts/http_api.v1.json`
+## Experimental notes
+- Experimental helpers/evals may exist under `eval/` and selected adapter experiments.
+- Experimental status does not imply canonical runtime contract.

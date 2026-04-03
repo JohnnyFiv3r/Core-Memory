@@ -96,3 +96,6 @@ Purpose:
 
 ## Auth
 Conditional auth when `CORE_MEMORY_HTTP_TOKEN` is set.
+
+## Tenant behavior
+For tenant-isolated deployments, stateful memory endpoints accept `X-Tenant-Id` and scope write/read/flush/continuity to the same tenant namespace.

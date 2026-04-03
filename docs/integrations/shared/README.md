@@ -2,16 +2,27 @@
 
 Status: Canonical landing page
 
-This folder is the future home for shared integration concepts used by all orchestrators.
+Shared adapter concepts that apply across OpenClaw, PydanticAI, SpringAI/HTTP, and LangChain.
 
-## Current canonical sources
+## Start here
+- `concepts.md`
+- `contracts.md`
+- `troubleshooting-common.md`
+- `validation-common.md`
+
+## Canonical source references
 - `../../canonical_surfaces.md`
 - `../../canonical_paths.md`
+- `../../integration_contract.md`
 - `../../contracts/http_api.v1.json`
 - `../../core_adapters_architecture.md`
-- `../../memory_surfaces_spec.md`
-- `../../truth_hierarchy_policy.md`
-- `../../write_side_artifacts_semantics.md`
 
-## Notes
-This landing page is additive and non-destructive. Existing top-level docs remain canonical until content migration is complete.
+## What this folder is for
+- common write-path contract language
+- common runtime retrieval semantics
+- common hydration terminology
+- common status/limitations framing
+
+## What this folder is not for
+- adapter-specific setup details (kept in each adapter folder)
+- historical migration playbooks (kept under `docs/archive/`)

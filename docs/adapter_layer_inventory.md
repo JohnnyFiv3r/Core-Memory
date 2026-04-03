@@ -3,6 +3,11 @@
 Status: Canonical clarification note
 Purpose: distinguish thin adapter surfaces from canonical behavior/skill semantics.
 
+Labeling reminder:
+- canonical: listed in `canonical_surfaces.md`
+- compatibility/historical: archived or non-forward-only references
+- experimental: useful but not yet hard contract
+
 ## `core_memory/tools/memory.py`
 Role: **Adapter layer** (thin callable shim), not agent skill semantics.
 

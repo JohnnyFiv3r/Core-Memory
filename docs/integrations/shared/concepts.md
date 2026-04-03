@@ -1,47 +1,34 @@
 # Shared Integration Concepts
 
 Status: Canonical
-See also:
-- `../../canonical_surfaces.md`
-- `../../contracts/http_api.v1.json`
 
-## Core ideas
+## Core split: write vs retrieval vs hydration
 
-Core Memory provides a deterministic memory operating layer for agents.
+### Write (ingestion)
+Finalized-turn ingest appends durable memory events.
 
-The current public memory surfaces are:
-- `memory.execute` — unified request/response orchestrator
-- `memory.search` — canonical anchor search
-- `memory.trace` — canonical causal traversal after anchor identification
-- `emit_turn_finalized(...)` — canonical finalized-turn write path
+### Retrieval
+Canonical runtime retrieval family:
+- `search` (anchor retrieval)
+- `trace` (causal/temporal traversal after anchor selection)
+- `execute` (single orchestrated runtime entrypoint)
 
-## Memory model
-- **Transcript truth**: exact, recent, verbatim source of conversation state
-- **Bead truth**: structured durable memory units
-- **Archive truth**: historical snapshots and compacted memory records
-- **Grounded causal truth**: structurally supported chain-backed explanations
+### Hydration
+Hydration is explicit source recovery after retrieval selection.
+It answers “show me the original turn/tool payload,” not “find memory.”
 
-## Runtime retrieval model
-Preferred flow:
-1. Agent decides memory is needed
-2. Agent uses `memory.execute` as the canonical facade
-3. Runtime may perform snapping, typed retrieval, and causal fallback internally
-4. Response returns:
-   - `results`
-   - `chains`
-   - `grounding`
-   - `confidence`
-   - `next_action`
-   - `warnings`
+Deep recall is real, but separate from canonical hydration.
 
-## Dynamic source selection
-- Same-session recent recall may benefit from transcript-first retrieval
-- Cross-session durable recall should prefer Core Memory runtime surfaces
-- Beads can point back to transcript turns, but are not guaranteed to be a verbatim transcript substitute
+## Continuity vs retrieval
+- **Continuity/context injection** helps keep near-term prompt context coherent.
+- **Retrieval** finds durable, query-relevant memory objects.
+- **Hydration** recovers raw evidence payloads for selected results.
+
+## Why this distinction matters
+Keeping these concerns separate avoids interface confusion and makes adapter behavior predictable.
 
 ## Determinism principles
-- stable tie-breaks
-- append-only event logs where needed
 - idempotent finalized-turn ingestion
 - explicit grounding metadata
-- replayable explain/debug artifacts
+- explicit hydration request contract
+- stable read/write boundaries
