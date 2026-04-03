@@ -7,7 +7,7 @@ from pathlib import Path
 from core_memory.integrations.pydanticai.memory_tools import (
     continuity_prompt,
     memory_search_tool,
-    memory_reason_tool,
+    memory_trace_tool,
     memory_execute_tool,
     get_turn_tool,
     get_turn_tools_tool,
@@ -124,17 +124,17 @@ class TestMemorySearchTool(unittest.TestCase):
             self.assertEqual(result["results"], [])
 
 
-class TestMemoryReasonTool(unittest.TestCase):
+class TestMemoryTraceTool(unittest.TestCase):
     def test_returns_callable(self):
-        tool = memory_reason_tool(root="/tmp/nonexistent")
+        tool = memory_trace_tool(root="/tmp/nonexistent")
         self.assertTrue(callable(tool))
-        self.assertEqual(tool.__name__, "reason_about_memory")
+        self.assertEqual(tool.__name__, "trace_memory")
 
-    def test_reason_returns_json(self):
+    def test_trace_returns_json(self):
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")
             _make_store(root)
-            tool = memory_reason_tool(root=root)
+            tool = memory_trace_tool(root=root)
             result = tool("why did we choose X?")
             parsed = json.loads(result)
             self.assertIsInstance(parsed, dict)
@@ -220,7 +220,7 @@ class TestImportsFromInit(unittest.TestCase):
         from core_memory.integrations.pydanticai import (
             continuity_prompt,
             memory_search_tool,
-            memory_reason_tool,
+            memory_trace_tool,
             memory_execute_tool,
             get_turn_tool,
             get_turn_tools_tool,
@@ -229,7 +229,7 @@ class TestImportsFromInit(unittest.TestCase):
         )
         self.assertTrue(callable(continuity_prompt))
         self.assertTrue(callable(memory_search_tool))
-        self.assertTrue(callable(memory_reason_tool))
+        self.assertTrue(callable(memory_trace_tool))
         self.assertTrue(callable(memory_execute_tool))
         self.assertTrue(callable(get_turn_tool))
         self.assertTrue(callable(get_turn_tools_tool))

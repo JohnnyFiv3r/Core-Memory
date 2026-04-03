@@ -35,7 +35,7 @@ from core_memory.write_pipeline.rolling_window import build_rolling_surface, wri
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
     memory_search_tool,
-    memory_reason_tool,
+    memory_trace_tool,
     run_with_memory,
 )
 
@@ -175,7 +175,7 @@ async def run_demo(model_id: str, root: str):
         ),
         tools=[
             memory_search_tool(root=root),
-            memory_reason_tool(root=root),
+            memory_trace_tool(root=root),
         ],
     )
 

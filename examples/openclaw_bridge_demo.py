@@ -1,7 +1,7 @@
 """OpenClaw bridge demo — stdin/stdout JSON dispatch for read + write.
 
 This demonstrates both the write bridge (agent-end) and read bridge (search,
-reason, continuity) using the same stdin/stdout JSON protocol that OpenClaw
+trace, execute, continuity) using the same stdin/stdout JSON protocol that OpenClaw
 hooks use.
 
 Run:
@@ -74,17 +74,31 @@ def main() -> None:
         for r in results[:3]:
             print(f"    - [{r.get('type')}] {r.get('title')}")
 
-        # --- 3. Read: causal reasoning ---
-        print("\n=== Read Bridge (reason) ===")
-        reason_result = _run_bridge(
+        # --- 3. Read: causal trace ---
+        print("\n=== Read Bridge (trace) ===")
+        trace_result = _run_bridge(
             "core_memory.integrations.openclaw_read_bridge",
-            {"action": "reason", "query": "why event-sourcing?", "root": root},
+            {"action": "trace", "query": "why event-sourcing?", "root": root},
         )
-        print(f"  ok: {reason_result.get('ok')}")
-        chains = reason_result.get("chains") or []
+        print(f"  ok: {trace_result.get('ok')}")
+        chains = trace_result.get("chains") or []
         print(f"  chains: {len(chains)}")
 
-        # --- 4. Read: continuity injection ---
+        # --- 4. Read: execute ---
+        print("\n=== Read Bridge (execute) ===")
+        exec_result = _run_bridge(
+            "core_memory.integrations.openclaw_read_bridge",
+            {
+                "action": "execute",
+                "query": "why event-sourcing?",
+                "root": root,
+                "explain": True,
+            },
+        )
+        print(f"  ok: {exec_result.get('ok')}")
+        print(f"  results: {len(exec_result.get('results', []))}")
+
+        # --- 5. Read: continuity injection ---
         print("\n=== Read Bridge (continuity) ===")
         cont_result = _run_bridge(
             "core_memory.integrations.openclaw_read_bridge",
@@ -92,14 +106,6 @@ def main() -> None:
         )
         print(f"  authority: {cont_result.get('authority')}")
         print(f"  records: {len(cont_result.get('records', []))}")
-
-        # --- 5. Read: search form schema ---
-        print("\n=== Read Bridge (search-form) ===")
-        form_result = _run_bridge(
-            "core_memory.integrations.openclaw_read_bridge",
-            {"action": "search-form", "root": root},
-        )
-        print(f"  schema_version: {form_result.get('schema_version')}")
 
         print("\nDone! All OpenClaw bridge operations exercised successfully.")
 

@@ -114,9 +114,9 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
             self.assertEqual(0, ops_out.returncode)
             self.assertIn("Rebuilt index", ops_out.stdout)
 
-            dev_out = _run_cli(["--root", str(root), "dev", "memory", "form"], cwd)
+            dev_out = _run_cli(["--root", str(root), "dev", "memory", "search", "--query", "cli test", "--k", "3"], cwd)
             self.assertEqual(0, dev_out.returncode)
-            self.assertIn('"schema_version"', dev_out.stdout)
+            self.assertIn('"ok"', dev_out.stdout)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 
 Demonstrates:
   1. Continuity injection — rolling-window context as a dynamic system prompt
-  2. Memory tools — search and reason available to the agent mid-conversation
+  2. Memory tools — search and trace available to the agent mid-conversation
   3. Write-back — turn finalization after each agent run
 
 This example uses stub objects so it runs without a live LLM.
@@ -14,7 +14,7 @@ Real-world wiring (with pydantic_ai installed):
     from core_memory.integrations.pydanticai import (
         continuity_prompt,
         memory_search_tool,
-        memory_reason_tool,
+        memory_trace_tool,
         run_with_memory,
     )
 
@@ -24,7 +24,7 @@ Real-world wiring (with pydantic_ai installed):
         "openai:gpt-4o",
         tools=[
             memory_search_tool(root=MEMORY_ROOT),
-            memory_reason_tool(root=MEMORY_ROOT),
+            memory_trace_tool(root=MEMORY_ROOT),
         ],
     )
 
@@ -45,7 +45,7 @@ from pathlib import Path
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
     memory_search_tool,
-    memory_reason_tool,
+    memory_trace_tool,
     run_with_memory,
 )
 
@@ -61,7 +61,7 @@ class FakeAgent:
     def __init__(self, root: str):
         self._root = root
         self._search = memory_search_tool(root=root)
-        self._reason = memory_reason_tool(root=root)
+        self._trace = memory_trace_tool(root=root)
 
     async def run(self, user_query: str) -> FakeResult:
         # Step 1: Load continuity context (what a real @agent.system_prompt would do)
@@ -69,7 +69,7 @@ class FakeAgent:
 
         # Step 2: Simulate the agent using memory tools
         search_result = self._search(user_query)
-        reason_result = self._reason(user_query)
+        trace_result = self._trace(user_query)
 
         # Step 3: Compose a response (a real LLM would do this)
         parts = [f"Query: {user_query}"]
@@ -78,7 +78,7 @@ class FakeAgent:
         else:
             parts.append("No prior memory context")
         parts.append(f"Search: {search_result[:100]}")
-        parts.append(f"Reasoning: {reason_result[:100]}")
+        parts.append(f"Trace: {trace_result[:100]}")
 
         return FakeResult(output=" | ".join(parts))
 
