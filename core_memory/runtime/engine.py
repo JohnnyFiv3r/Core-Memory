@@ -105,8 +105,24 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
             }
         ]
     }
-    row = _enforce_turn_row_invariants(root, req, row)
-    return {"beads_create": [row]}
+
+
+def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    """Enforce per-turn bead row invariants: source_turn_ids, required fields."""
+    out = dict(row)
+    turn_id = str(req.get("turn_id") or "")
+    if turn_id:
+        src = [str(x) for x in (out.get("source_turn_ids") or []) if str(x).strip()]
+        if turn_id not in src:
+            src.append(turn_id)
+        out["source_turn_ids"] = src
+    if not out.get("type"):
+        user_query = str(req.get("user_query") or "")
+        assistant_final = str(req.get("assistant_final") or "")
+        out["type"] = _infer_semantic_bead_type(user_query, assistant_final)
+    if not out.get("tags"):
+        out["tags"] = ["crawler_reviewed", "turn_finalized"]
+    return out
 
 
 def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
@@ -330,7 +346,7 @@ def process_turn_finalized(
     md = req.get("metadata") or {}
     reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
     if not isinstance(reviewed_updates, dict) or not reviewed_updates:
-        reviewed_updates = _default_crawler_updates(root, req)
+        reviewed_updates = _default_crawler_updates(req)
     reviewed_updates = _ensure_turn_creation_update(root, req, reviewed_updates)
 
     crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
@@ -351,7 +367,7 @@ def process_turn_finalized(
     # Infer associations from store's association_preview candidates.
     # The store writes preview candidates when a bead is created; promote
     # them to queued associations so they commit at flush.
-    _queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
+    preview_queued = _queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
 
     # Canonical per-turn state decision pass for all visible session beads.
     decision_pass = run_session_decision_pass(
