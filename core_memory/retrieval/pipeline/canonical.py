@@ -12,6 +12,49 @@ from core_memory.integrations.api import hydrate_bead_sources
 
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
+PUBLIC_HYDRATION_TURN_SOURCES = {"cited_turns", "cited_turns_plus_adjacent"}
+
+
+def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
+    """Normalize public canonical hydration request to supported contract only.
+
+    Public contract:
+    - turn_sources: cited_turns | cited_turns_plus_adjacent
+    - max_beads
+    - adjacent_before
+    - adjacent_after
+    """
+    req = dict(hydration or {})
+    warnings: list[str] = []
+
+    mode_raw = str(req.get("turn_sources") or "cited_turns").strip().lower()
+    if mode_raw not in PUBLIC_HYDRATION_TURN_SOURCES:
+        if mode_raw:
+            warnings.append(f"hydration_turn_sources_normalized:{mode_raw}->cited_turns")
+        mode = "cited_turns"
+    else:
+        mode = mode_raw
+
+    max_beads = max(1, int(req.get("max_beads") or 10))
+    before = max(0, int(req.get("adjacent_before") or 0))
+    after = max(0, int(req.get("adjacent_after") or 0))
+
+    if mode == "cited_turns":
+        # adjacency is intentionally off in cited_turns mode
+        before = 0
+        after = 0
+
+    unsupported = [k for k in req.keys() if k not in {"turn_sources", "max_beads", "adjacent_before", "adjacent_after"}]
+    if unsupported:
+        warnings.append("hydration_unsupported_fields_ignored")
+
+    normalized = {
+        "turn_sources": mode,
+        "max_beads": max_beads,
+        "adjacent_before": before,
+        "adjacent_after": after,
+    }
+    return normalized, warnings
 
 
 def _has_non_temporal_structural_edge(chains: list[dict[str, Any]]) -> bool:
@@ -224,13 +267,16 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
     hyd_req = dict(hydration or {})
     if hyd_req:
         status = "complete"
-        hw: list[str] = []
+        hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
-            include_tools = bool(hyd_req.get("turn_sources") in {"cited_turns", "cited_turns_plus_adjacent", "cited_session_transcript"})
-            before = int(hyd_req.get("adjacent_before") or 0)
-            after = int(hyd_req.get("adjacent_after") or 0)
-            h = hydrate_bead_sources(root=str(root), bead_ids=bead_ids[: int(hyd_req.get("max_beads") or 10)], include_tools=include_tools, before=before, after=after)
+            h = hydrate_bead_sources(
+                root=str(root),
+                bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],
+                include_tools=True,
+                before=int(hcfg.get("adjacent_before") or 0),
+                after=int(hcfg.get("adjacent_after") or 0),
+            )
             out["hydration_data"] = h
             if h.get("disabled"):
                 status = "partial"
@@ -238,7 +284,7 @@ def trace_request(*, root: str | Path, query: str = "", anchor_ids: list[str] | 
         except Exception:
             status = "failed"
             hw.append("hydration_error")
-        out["hydration"] = {"status": status, "warnings": hw}
+        out["hydration"] = {"status": status, "warnings": hw, "request": hcfg}
 
     return out
 
@@ -270,13 +316,16 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     hyd_req = dict(req.get("hydration") or {})
     if hyd_req and grounding_mode == "search_only":
         status = "complete"
-        hw: list[str] = []
+        hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
-            include_tools = bool(hyd_req.get("turn_sources") in {"cited_turns", "cited_turns_plus_adjacent", "cited_session_transcript"})
-            before = int(hyd_req.get("adjacent_before") or 0)
-            after = int(hyd_req.get("adjacent_after") or 0)
-            h = hydrate_bead_sources(root=str(root), bead_ids=bead_ids[: int(hyd_req.get("max_beads") or 10)], include_tools=include_tools, before=before, after=after)
+            h = hydrate_bead_sources(
+                root=str(root),
+                bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],
+                include_tools=True,
+                before=int(hcfg.get("adjacent_before") or 0),
+                after=int(hcfg.get("adjacent_after") or 0),
+            )
             out["hydration_data"] = h
             if h.get("disabled"):
                 status = "partial"
@@ -284,7 +333,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         except Exception:
             status = "failed"
             hw.append("hydration_error")
-        out["hydration"] = {"status": status, "warnings": hw}
+        out["hydration"] = {"status": status, "warnings": hw, "request": hcfg}
 
     out["request"] = {
         "raw_query": query,

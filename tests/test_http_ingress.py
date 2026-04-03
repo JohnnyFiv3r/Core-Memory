@@ -238,6 +238,171 @@ class TestHttpIngress(unittest.TestCase):
             rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
             self.assertEqual(1, len(rows))
 
+    def test_http_tenant_isolation_for_stateful_read_endpoints(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app, _resolve_root
+        from core_memory.persistence.store import MemoryStore
+        from core_memory.persistence.rolling_record_store import write_rolling_records
+
+        with tempfile.TemporaryDirectory() as td:
+            base_root = str(Path(td) / "memory")
+            tenant_a = "tenant-a"
+            tenant_b = "tenant-b"
+
+            tenant_a_root = _resolve_root(base_root, tenant_a)
+            tenant_b_root = _resolve_root(base_root, tenant_b)
+
+            # Seed isolated tenant stores + default store.
+            MemoryStore(tenant_a_root).add_bead(
+                type="decision",
+                title="alpha_tenant_only",
+                summary=["alpha tenant marker"],
+                session_id="main",
+                source_turn_ids=["ta1"],
+            )
+            MemoryStore(tenant_b_root).add_bead(
+                type="decision",
+                title="beta_tenant_only",
+                summary=["beta tenant marker"],
+                session_id="main",
+                source_turn_ids=["tb1"],
+            )
+            MemoryStore(base_root).add_bead(
+                type="decision",
+                title="default_tenant_only",
+                summary=["default marker"],
+                session_id="main",
+                source_turn_ids=["td1"],
+            )
+
+            # Seed continuity records per namespace.
+            write_rolling_records(
+                tenant_a_root,
+                records=[{"type": "decision", "title": "alpha_tenant_only", "summary": ["alpha tenant marker"]}],
+                meta={},
+                included_bead_ids=[],
+                excluded_bead_ids=[],
+            )
+            write_rolling_records(
+                tenant_b_root,
+                records=[{"type": "decision", "title": "beta_tenant_only", "summary": ["beta tenant marker"]}],
+                meta={},
+                included_bead_ids=[],
+                excluded_bead_ids=[],
+            )
+
+            c = TestClient(app)
+
+            # search isolation
+            r_a = c.post(
+                "/v1/memory/search",
+                json={"root": base_root, "form_submission": {"query_text": "alpha_tenant_only", "k": 5}},
+                headers={"X-Tenant-Id": tenant_a},
+            )
+            self.assertEqual(200, r_a.status_code)
+            self.assertGreaterEqual(len((r_a.json() or {}).get("results") or []), 1)
+
+            r_default = c.post(
+                "/v1/memory/search",
+                json={"root": base_root, "form_submission": {"query_text": "alpha_tenant_only", "k": 5}},
+            )
+            self.assertEqual(200, r_default.status_code)
+            self.assertEqual(0, len((r_default.json() or {}).get("results") or []))
+
+            r_b = c.post(
+                "/v1/memory/search",
+                json={"root": base_root, "form_submission": {"query_text": "alpha_tenant_only", "k": 5}},
+                headers={"X-Tenant-Id": tenant_b},
+            )
+            self.assertEqual(200, r_b.status_code)
+            self.assertEqual(0, len((r_b.json() or {}).get("results") or []))
+
+            # execute isolation
+            ex_a = c.post(
+                "/v1/memory/execute",
+                json={"root": base_root, "request": {"raw_query": "alpha_tenant_only", "intent": "remember", "k": 5}, "explain": True},
+                headers={"X-Tenant-Id": tenant_a},
+            )
+            self.assertEqual(200, ex_a.status_code)
+            self.assertTrue(bool((ex_a.json() or {}).get("results")))
+
+            ex_default = c.post(
+                "/v1/memory/execute",
+                json={"root": base_root, "request": {"raw_query": "alpha_tenant_only", "intent": "remember", "k": 5}, "explain": True},
+            )
+            self.assertEqual(200, ex_default.status_code)
+            self.assertEqual([], (ex_default.json() or {}).get("results") or [])
+
+            # trace isolation
+            tr_a = c.post(
+                "/v1/memory/trace",
+                json={"root": base_root, "query": "alpha_tenant_only", "k": 5},
+                headers={"X-Tenant-Id": tenant_a},
+            )
+            self.assertEqual(200, tr_a.status_code)
+            self.assertTrue(bool((tr_a.json() or {}).get("anchors")))
+
+            tr_b = c.post(
+                "/v1/memory/trace",
+                json={"root": base_root, "query": "alpha_tenant_only", "k": 5},
+                headers={"X-Tenant-Id": tenant_b},
+            )
+            self.assertEqual(200, tr_b.status_code)
+            self.assertEqual([], (tr_b.json() or {}).get("anchors") or [])
+
+            # continuity isolation
+            ct_a = c.get("/v1/memory/continuity", params={"root": base_root}, headers={"X-Tenant-Id": tenant_a})
+            self.assertEqual(200, ct_a.status_code)
+            recs_a = (ct_a.json() or {}).get("records") or []
+            self.assertTrue(any(str(r.get("title") or "") == "alpha_tenant_only" for r in recs_a))
+
+            ct_default = c.get("/v1/memory/continuity", params={"root": base_root})
+            self.assertEqual(200, ct_default.status_code)
+            recs_default = (ct_default.json() or {}).get("records") or []
+            self.assertFalse(any(str(r.get("title") or "") == "alpha_tenant_only" for r in recs_default))
+
+    def test_http_tenant_scopes_turn_finalized_and_session_flush_paths(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app, _resolve_root
+
+        with tempfile.TemporaryDirectory() as td:
+            base_root = str(Path(td) / "memory")
+            tenant_a = "tenant-a"
+            tenant_b = "tenant-b"
+            tenant_a_root = Path(_resolve_root(base_root, tenant_a))
+            tenant_b_root = Path(_resolve_root(base_root, tenant_b))
+
+            c = TestClient(app)
+
+            r = c.post(
+                "/v1/memory/turn-finalized",
+                json={
+                    "root": base_root,
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "user_query": "tenant a write",
+                    "assistant_final": "tenant a write",
+                },
+                headers={"X-Tenant-Id": tenant_a},
+            )
+            self.assertEqual(200, r.status_code)
+
+            events_a = tenant_a_root / ".beads" / "events" / "memory-events.jsonl"
+            events_b = tenant_b_root / ".beads" / "events" / "memory-events.jsonl"
+            events_default = Path(base_root) / ".beads" / "events" / "memory-events.jsonl"
+            self.assertTrue(events_a.exists())
+            self.assertFalse(events_b.exists())
+            self.assertFalse(events_default.exists())
+
+            rf = c.post(
+                "/v1/memory/session-flush",
+                json={"root": base_root, "session_id": "s1", "source": "http_test"},
+                headers={"X-Tenant-Id": tenant_a},
+            )
+            self.assertEqual(200, rf.status_code)
+            checkpoints_a = tenant_a_root / ".beads" / "events" / "flush-checkpoints.jsonl"
+            self.assertTrue(checkpoints_a.exists())
+
 
 if __name__ == "__main__":
     unittest.main()

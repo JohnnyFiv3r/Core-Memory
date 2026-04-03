@@ -42,9 +42,9 @@ Response includes:
 - `query_type_bucket`
 - `normalized`
 
-### `GET /v1/memory/search-form`
+### `GET /v1/memory/search-form` (deprecated compatibility)
 Purpose:
-- fetch machine-readable typed search form and current catalogs
+- legacy typed-search form compatibility only; not part of the forward recommended surface
 
 ### `POST /v1/memory/search`
 Purpose:
@@ -67,6 +67,28 @@ Supports pinning:
 ### `POST /v1/memory/execute`
 Purpose:
 - preferred unified runtime call
+
+### `POST /v1/memory/trace`
+Purpose:
+- canonical causal trace surface
+
+Hydration public contract:
+- `turn_sources`: `cited_turns` | `cited_turns_plus_adjacent`
+- `max_beads`
+- `adjacent_before`
+- `adjacent_after`
+
+Notes:
+- `cited_turns` disables adjacency (effective 0/0)
+- unsupported legacy hydration knobs are ignored
+
+### `POST /v1/memory/session-flush`
+Purpose:
+- flush pending memory event stream into canonical bead/index projections
+
+### `GET /v1/memory/continuity`
+Purpose:
+- runtime continuity injection surface
 
 Body:
 - `root` (optional)

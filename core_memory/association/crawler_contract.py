@@ -39,7 +39,12 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                         "target_bead_id": str(a.get("target_bead_id") or ""),
                         "relationship": str(a.get("relationship") or ""),
                         "confidence": a.get("confidence"),
+                        "reason_text": a.get("reason_text"),
                         "rationale": a.get("rationale"),
+                        "provenance": a.get("provenance"),
+                        "reason_code": a.get("reason_code"),
+                        "evidence_fields": a.get("evidence_fields"),
+                        "relationship_raw": a.get("relationship_raw"),
                     }
                 )
 

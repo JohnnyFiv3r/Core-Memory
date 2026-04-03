@@ -77,6 +77,52 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             self.assertEqual(0, out.get("associations_appended"))
 
+    def test_reviewed_nested_association_preserves_v21_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="context", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+
+            out = apply_crawler_turn_updates(
+                root=td,
+                session_id="s1",
+                visible_bead_ids=[b1, b2],
+                updates={
+                    "reviewed_beads": [
+                        {
+                            "bead_id": b1,
+                            "associations": [
+                                {
+                                    "target_bead_id": b2,
+                                    "relationship": "supports",
+                                    "reason_text": "evidence supports the statement",
+                                    "confidence": 0.88,
+                                    "provenance": "model_inferred",
+                                    "reason_code": "supporting_evidence",
+                                    "evidence_fields": ["summary"],
+                                }
+                            ],
+                        }
+                    ]
+                },
+            )
+
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(1, out.get("associations_appended"))
+            self.assertEqual(0, out.get("associations_quarantined"))
+
+            log_path = Path(out.get("queued_to") or "")
+            self.assertTrue(log_path.exists())
+            rows = [json.loads(line) for line in log_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+            assoc_rows = [r for r in rows if r.get("kind") == "association_append"]
+            self.assertEqual(1, len(assoc_rows))
+            row = assoc_rows[0]
+            self.assertEqual("evidence supports the statement", row.get("reason_text"))
+            self.assertEqual(0.88, row.get("confidence"))
+            self.assertEqual("model_inferred", row.get("provenance"))
+            self.assertEqual("supporting_evidence", row.get("reason_code"))
+            self.assertEqual(["summary"], row.get("evidence_fields"))
+
 
 if __name__ == "__main__":
     unittest.main()

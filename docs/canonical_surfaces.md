@@ -21,7 +21,6 @@ Non-authoritative continuity artifacts:
 - `core_memory.tools.memory.execute`
 - `core_memory.tools.memory.search`
 - `core_memory.tools.memory.reason`
-- `core_memory.tools.memory.get_search_form`
 
 These are the preferred tool-facing entry points for runtime retrieval/reasoning.
 
@@ -38,11 +37,17 @@ Served by:
 Endpoints:
 - `GET /healthz`
 - `POST /v1/memory/turn-finalized`
+- `POST /v1/memory/session-flush`
 - `POST /v1/memory/classify-intent`
-- `GET /v1/memory/search-form`
 - `POST /v1/memory/search`
 - `POST /v1/memory/reason`
+- `POST /v1/memory/trace`
 - `POST /v1/memory/execute`
+- `GET /v1/memory/continuity`
+- `GET /v1/metrics`
+
+Compatibility endpoint (deprecated; not a forward surface):
+- `GET /v1/memory/search-form`
 
 Canonical machine-readable contract:
 - `docs/contracts/http_api.v1.json`
