@@ -1,36 +1,46 @@
 # Core Adapters Architecture
 
 Status: Canonical
-Canonical surfaces: adapter architecture overview, finalized-turn write path, runtime skill bridge
+
 See also:
 - `docs/index.md`
 - `docs/canonical_surfaces.md`
 - `docs/contracts/http_api.v1.json`
 
-Canonical HTTP/API contract artifact:
-- `docs/contracts/http_api.v1.json`
-
 ## Invariant
 Exactly one memory event per finalized top-level user turn.
 
-## Port pattern
+## Adapter model
+All adapters converge on the same core contract:
+- write via finalized-turn ingest
+- read via canonical retrieval surfaces (`search` / `trace` / `execute`)
+- hydrate sources explicitly when fidelity is needed
 
-- In-process adapters (Python): call `emit_turn_finalized(...)`
-- HTTP adapters (JVM/etc): endpoint -> `emit_turn_finalized(...)`
+## Write ingress convergence
+- In-process adapters: call `emit_turn_finalized(...)`
+- HTTP/service adapters: call `POST /v1/memory/turn-finalized`
 
-Both paths converge in the same sidecar/event pipeline.
+## Runtime parity model
+Canonical runtime retrieval surfaces:
+- `search`
+- `trace`
+- `execute`
 
-## Runtime skill bridge (Wave 2)
+Adapters should not teach deprecated retrieval flows as forward guidance.
 
-In addition to write ingress, HTTP adapters can call runtime memory tools:
-- `POST /v1/memory/execute` (preferred single-call correctness path)
-- `POST /v1/memory/search`
-- `POST /v1/memory/trace`
-- `POST /v1/memory/classify-intent` (optional pre-call for telemetry/UX, not required)
+## Adapter families
+- **OpenClaw**: native environment, bridge + runtime integration
+- **PydanticAI**: in-process integration helpers + tool factories
+- **SpringAI/HTTP**: service bridge contract for JVM-oriented stacks
+- **LangChain**:
+  - `CoreMemory` (conversation memory / continuity + finalized-turn writeback)
+  - `CoreMemoryRetriever` (read-time recall retriever)
 
-## Why this works
+## Tenant-aware HTTP behavior
+Stateful HTTP memory endpoints support `X-Tenant-Id` and are expected to preserve read/write isolation by tenant.
 
-- No orchestrator-specific storage logic.
-- Idempotency keyed by `session_id:turn_id` remains centralized.
-- Privacy/backoff/lineage policies remain in core sidecar layer.
-- Runtime retrieval/reasoning stays deterministic and inspectable from one HTTP surface.
+## Why this architecture works
+- one write contract
+- one retrieval model
+- explicit hydration boundary
+- adapter-specific ergonomics without diverging core semantics

@@ -46,10 +46,14 @@ OpenClaw can also access lower-level runtime operations:
 - `memory.search`
 - `memory.trace`
 
+Forward retrieval story is search/trace/execute. Deprecated retrieval entrypoints are not part of the active guidance.
+
 Hydration path (explicit, non-default):
 - retrieve beads/causal structure first
 - hydrate full turn payloads only when needed (`get_turn` / `hydrate_bead_sources`)
 - fetch tools/adjacent turns only when requested
+
+Deep recall is separate from canonical hydration.
 
 Migration helpers (existing stores):
 - `core_memory.integrations.migration.rebuild_turn_indexes(root=...)`

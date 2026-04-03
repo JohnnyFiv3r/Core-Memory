@@ -43,4 +43,7 @@ Behavior:
 ## Useful CLI/eval references
 - `core-memory memory execute --request ...`
 - `eval/memory_execute_eval.py`
-- `eval/memory_search_smoke.py`
+- `tests/test_pydanticai_memory_tools.py`
+
+## Compatibility note
+If legacy retrieval helpers exist in code for migration/history, they are not part of this forward adapter contract unless listed above.

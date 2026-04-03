@@ -2,44 +2,38 @@
 
 Status: Canonical
 
-Primary machine-readable contract:
+Primary machine-readable HTTP contract:
 - `../../contracts/http_api.v1.json`
 
-## Contract hierarchy
+## Canonical runtime contracts
 
-### HTTP runtime contract
-For remote/JVM integrations, use the HTTP contract artifact as source of truth.
+### Write contract
+- `emit_turn_finalized(...)`
+- HTTP `POST /v1/memory/turn-finalized`
 
-### Tool/runtime contract
-Canonical runtime surfaces:
-- `core_memory.tools.memory.execute`
-- `core_memory.tools.memory.search`
-- `core_memory.tools.memory.trace`
+### Retrieval contract
+- `search`
+- `trace`
+- `execute`
 
-### Write-path contract
-Canonical finalized-turn ingestion:
-- `core_memory.integrations.api.emit_turn_finalized(...)`
-- `POST /v1/memory/turn-finalized`
+### Hydration contract (public canonical)
+- `turn_sources`: `cited_turns` | `cited_turns_plus_adjacent`
+- `max_beads`
+- `adjacent_before`
+- `adjacent_after`
 
-## Request/response invariants
+## Unified request/response expectations
 
-### MemoryRequest / memory.execute
-The unified request object should support:
+### MemoryRequest (execute)
+Common fields include:
 - `raw_query`
 - `intent`
 - `constraints.require_structural`
-- `facets.incident_ids`
-- `facets.topic_keys`
-- `facets.bead_types`
-- `facets.relation_types`
-- `facets.pinned_bead_ids`
-- `facets.must_terms`
-- `facets.avoid_terms`
-- `facets.time_range`
+- `facets.*` (topic/type/relation/time/pins/terms)
 - `k`
 
 ### MemoryResponse
-The unified response should provide:
+Expected fields:
 - `ok`
 - `request`
 - `snapped`
@@ -51,7 +45,10 @@ The unified response should provide:
 - `warnings`
 - `explain` (optional)
 
-## Auth contract
-If `CORE_MEMORY_HTTP_TOKEN` is configured, HTTP callers must provide:
+## Tenant-aware HTTP expectation
+Stateful memory endpoints use optional `X-Tenant-Id` to preserve read/write isolation.
+
+## Auth expectation
+If `CORE_MEMORY_HTTP_TOKEN` is configured, HTTP callers send either:
 - `Authorization: Bearer <token>`
-- or `X-Memory-Token: <token>`
+- `X-Memory-Token: <token>`

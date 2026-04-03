@@ -35,6 +35,10 @@ PydanticAI can use the runtime memory tools directly in-process:
 - `core_memory.retrieval.tools.memory.search`
 - `core_memory.retrieval.tools.memory.trace`
 
+Practical rule:
+- use `execute` as the default deterministic entrypoint
+- use `search` / `trace` directly when your agent policy needs explicit control
+
 ## 4) Validate
 ```bash
 python -m unittest tests.test_memory_search_tool_wrapper

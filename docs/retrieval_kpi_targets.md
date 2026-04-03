@@ -1,6 +1,6 @@
 # Retrieval KPI Targets (Slice 1)
 
-Deterministic baseline targets for hybrid retrieval rollout.
+Deterministic baseline targets for canonical retrieval rollout.
 
 - Recall@5 >= 0.60
 - MRR >= 0.50

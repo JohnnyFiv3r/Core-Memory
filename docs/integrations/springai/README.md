@@ -18,6 +18,8 @@ Status: Canonical landing page
 ## Notes
 This folder is the canonical location for SpringAI integration documentation.
 
+Forward runtime story is canonical `search` / `trace` / `execute` (with `execute` as default).
+
 Runtime framing:
 - primary bridge entrypoint: `core_memory.integrations.springai.get_app()`
 - HTTP compatibility entrypoint: `core_memory.integrations.http.get_app()`
