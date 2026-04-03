@@ -97,23 +97,54 @@ async def run_with_memory(
     md = _build_metadata(metadata)
 
     try:
-        _run_turn_pipeline(
-            root=root_final,
-            session_id=session_id,
-            turn_id=turn_id_final,
-            user_query=user_query,
-            assistant_final=assistant_final,
-            metadata=md,
-            tools_trace=tools_trace or [],
-            mesh_trace=mesh_trace or [],
-            window_turn_ids=window_turn_ids or [],
-            window_bead_ids=window_bead_ids or [],
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None,
+            lambda: _run_turn_pipeline(
+                root=root_final,
+                session_id=session_id,
+                turn_id=turn_id_final,
+                user_query=user_query,
+                assistant_final=assistant_final,
+                metadata=md,
+                tools_trace=tools_trace or [],
+                mesh_trace=mesh_trace or [],
+                window_turn_ids=window_turn_ids or [],
+                window_bead_ids=window_bead_ids or [],
+            ),
         )
     except Exception:
         # Fail-open by contract: runtime result must still return.
         logger.debug("turn pipeline failed; fail-open", exc_info=True)
 
     return result
+
+
+async def flush_session_async(
+    *,
+    root: Optional[str] = None,
+    session_id: str,
+    promote: bool = True,
+    token_budget: int = 3000,
+    max_beads: int = 80,
+) -> dict:
+    """Async version of flush_session. Runs sync I/O in a thread executor."""
+    if not core_memory_enabled():
+        return {"ok": True, "flushed": False, "reason": "core_memory_disabled"}
+
+    root_final = _resolve_root(root)
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: process_flush(
+            root=root_final,
+            session_id=session_id,
+            promote=promote,
+            token_budget=token_budget,
+            max_beads=max_beads,
+            source="pydanticai_adapter_async",
+        ),
+    )
 
 
 def run_with_memory_sync(

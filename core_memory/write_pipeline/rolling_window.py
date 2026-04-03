@@ -54,11 +54,13 @@ def _load_filtered_beads(root: str) -> tuple[list[dict[str, Any]], set[str]]:
     beads = list(beads_map.values())
 
     excluded_superseded = set(str(x) for x in idx.get("superseded_ids", []))
-    # Retrieval/serving contract: rolling window is derived from archived authority only.
+    # Retrieval/serving contract: rolling window includes promoted and archived beads,
+    # excluding superseded beads. Open/candidate beads are also included so that
+    # freshly created beads are visible for association and continuity.
     filtered = [
         b for b in beads
         if str(b.get("id") or "") not in excluded_superseded
-        and str(b.get("status") or "").lower() == "archived"
+        and str(b.get("status") or "").lower() not in ("superseded",)
     ]
     filtered.sort(key=lambda b: str((b.get("archive_ptr") or {}).get("revision_id") or b.get("created_at") or ""), reverse=True)
     return filtered, excluded_superseded

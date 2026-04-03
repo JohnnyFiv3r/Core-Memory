@@ -34,18 +34,8 @@ promoted-context.md
 .venv-*/
 *.egg-info/
 
-# Test/cache/tooling artifacts
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
+# Environment secrets
+.env
 
-# OS/editor noise
-.DS_Store
-.idea/
-.vscode/
-
-# Build outputs
-build/
-dist/
+# Demo runtime store
+demo/memory_store/
