@@ -107,16 +107,14 @@ If behavior changes, these owners must be updated first.
 - `core_memory.retrieval.query_norm`
 - `core_memory.retrieval.config`
 
-### B2. Search form schema + snap
-- `core_memory.retrieval.search_form`
-- `core_memory.retrieval.pipeline.snap`
-- `core_memory.retrieval.pipeline.catalog`
+### B2. Canonical request normalization
+- `core_memory.retrieval.normalize`
+- `core_memory.retrieval.query_norm`
 
 ### B3. Search execution path
-- `core_memory.retrieval.pipeline.search`
-- `core_memory.retrieval.hybrid`
-- `core_memory.retrieval.rerank`
-- `core_memory.retrieval.quality_gate`
+- `core_memory.retrieval.pipeline.canonical.search_request`
+- `core_memory.retrieval.semantic_index`
+- `core_memory.retrieval.visible_corpus`
 
 ### B4. Reasoning / causal grounding path
 - `core_memory.retrieval.tools.memory_reason`
@@ -125,9 +123,8 @@ If behavior changes, these owners must be updated first.
 - `core_memory.graph.traversal`
 - `core_memory.retrieval.semantic_index`
 
-### B5. Typed execute + explanation output
-- `core_memory.retrieval.pipeline.execute`
-- `core_memory.retrieval.pipeline.explain`
+### B5. Canonical execute orchestration + explanation output
+- `core_memory.retrieval.pipeline.canonical.execute_request`
 - `core_memory.retrieval.tools.memory.execute(...)`
 
 **Invariant:** retrieval is not session-limited; global historical beads remain searchable.
