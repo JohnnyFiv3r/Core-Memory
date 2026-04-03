@@ -7,12 +7,21 @@ from typing import Any, Optional
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from core_memory.integrations.api import emit_turn_finalized
+from core_memory.integrations.api import IntegrationContext, emit_turn_finalized
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
+from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
+
+
+def _resolve_tenant(x_tenant_id: Optional[str]) -> Optional[str]:
+    """Extract and validate tenant ID from header."""
+    if not x_tenant_id:
+        return None
+    tid = str(x_tenant_id).strip()
+    return tid if tid else None
 
 
 class TurnFinalizedRequest(BaseModel):
@@ -87,8 +96,39 @@ def _resolve_root(root: Optional[str]) -> str:
 
 
 @app.get("/healthz")
-async def healthz():
-    return {"ok": True}
+async def healthz(root: Optional[str] = None):
+    import json as _json
+    from pathlib import Path
+    from core_memory.persistence.store import VERSION
+
+    info: dict[str, Any] = {"ok": True, "version": VERSION}
+    resolved = _resolve_root(root)
+    index_path = Path(resolved) / ".beads" / "index.json"
+    if index_path.exists():
+        try:
+            idx = _json.loads(index_path.read_text(encoding="utf-8"))
+            stats = idx.get("stats") or {}
+            info["bead_count"] = stats.get("total_beads", 0)
+            info["association_count"] = stats.get("total_associations", 0)
+            info["created_at"] = stats.get("created_at")
+        except Exception:
+            info["index_status"] = "corrupt_or_unreadable"
+    else:
+        info["index_status"] = "not_initialized"
+
+    # Report semantic backend status
+    meta_path = Path(resolved) / ".beads" / "bead_index_meta.json"
+    if meta_path.exists():
+        try:
+            meta = _json.loads(meta_path.read_text(encoding="utf-8"))
+            info["semantic_backend"] = meta.get("backend", "unknown")
+            info["embeddings_provider"] = meta.get("provider", "unknown")
+        except Exception:
+            info["semantic_backend"] = "error"
+    else:
+        info["semantic_backend"] = "not_built"
+
+    return info
 
 
 @app.post("/v1/memory/turn-finalized")
@@ -96,6 +136,7 @@ async def turn_finalized(
     req: Request,
     authorization: Optional[str] = Header(default=None),
     x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
 
@@ -119,6 +160,17 @@ async def turn_finalized(
     transaction_id = payload.transaction_id or f"tx-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
     trace_id = payload.trace_id or f"tr-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
 
+    tenant = _resolve_tenant(x_tenant_id)
+    ictx = IntegrationContext(
+        framework="http",
+        source="http_ingress",
+        adapter_kind="server",
+        adapter_status="active",
+        tenant_id=tenant,
+    )
+    merged_metadata = ictx.to_metadata()
+    merged_metadata.update(payload.metadata or {})
+
     event_id = emit_turn_finalized(
         root=payload.root,
         session_id=payload.session_id,
@@ -132,7 +184,7 @@ async def turn_finalized(
         mesh_trace=(payload.traces or {}).get("mesh") or [],
         window_turn_ids=payload.window_turn_ids,
         window_bead_ids=payload.window_bead_ids,
-        metadata=payload.metadata,
+        metadata=merged_metadata,
     )
     return {"accepted": True, "event_id": event_id}
 
@@ -202,3 +254,37 @@ async def memory_classify_intent(
 ):
     _check_auth(authorization, x_memory_token)
     return classify_intent(str(payload.query or ""))
+
+
+@app.get("/v1/memory/continuity")
+async def memory_continuity(
+    root: Optional[str] = None,
+    max_items: int = 80,
+    format: str = "json",
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    resolved = _resolve_root(root)
+    result = load_continuity_injection(resolved, max_items=max(1, int(max_items)))
+    fmt = str(format).strip().lower()
+    if fmt == "text":
+        records = result.get("records") or []
+        lines = []
+        for r in records:
+            typ = r.get("type", "")
+            title = r.get("title", "")
+            summary = " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", ""))
+            lines.append(f"[{typ}] {title}: {summary}")
+        return {"ok": True, "format": "text", "text": "\n".join(lines), "count": len(records)}
+    return {"ok": True, "format": "json", **result}
+
+
+@app.get("/v1/metrics")
+async def metrics(
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    from core_memory.runtime.observability import get_metrics
+    return get_metrics()

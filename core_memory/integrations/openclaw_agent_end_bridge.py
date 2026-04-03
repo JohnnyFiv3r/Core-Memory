@@ -9,6 +9,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from core_memory.integrations.api import IntegrationContext
 from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
 from core_memory.persistence.store import DEFAULT_ROOT
 
@@ -200,14 +201,20 @@ def process_agent_end_event(
     transaction_id = str(run_id or f"tx-{turn_id}-{uuid.uuid4().hex[:6]}")
     trace_id = str(run_id or f"tr-{turn_id}-{uuid.uuid4().hex[:6]}")
 
-    md = {
-        "bridge": "openclaw_agent_end",
+    ictx = IntegrationContext(
+        framework="openclaw",
+        source="openclaw_agent_end_bridge",
+        adapter_kind=ADAPTER_KIND,
+        adapter_status=ADAPTER_STATUS,
+    )
+    md = ictx.to_metadata()
+    md.update({
         "sessionKey": ctx.get("sessionKey"),
         "agentId": ctx.get("agentId"),
         "success": bool(event.get("success")),
         "error": event.get("error"),
         "durationMs": event.get("durationMs"),
-    }
+    })
 
     out = finalize_and_process_turn(
         root=root_final,

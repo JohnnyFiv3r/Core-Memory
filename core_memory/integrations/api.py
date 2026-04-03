@@ -17,6 +17,8 @@ class IntegrationContext:
     tenant_id: Optional[str] = None
     user_id: Optional[str] = None
     thread_id: Optional[str] = None
+    adapter_kind: Optional[str] = None
+    adapter_status: Optional[str] = None
 
     def to_metadata(self) -> dict[str, Any]:
         md = asdict(self)

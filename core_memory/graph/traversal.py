@@ -6,6 +6,7 @@ Split from graph.py per Codex Phase 5 readability refactor.
 from __future__ import annotations
 
 import json
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -33,6 +34,37 @@ def _recency_factor(ts: str, half_life_days: float = 30.0) -> float:
         return 0.5
 
 
+def _build_adjacency(beads: dict[str, Any], associations: list[dict]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
+    """Build forward and reverse adjacency dicts from beads + associations.
+
+    Returns:
+        (forward_adj, reverse_adj) where forward_adj[src] = [dst, ...] and
+        reverse_adj[dst] = [src, ...]
+    """
+    forward: dict[str, list[str]] = defaultdict(list)
+    reverse: dict[str, list[str]] = defaultdict(list)
+
+    # From bead links
+    for bead_id, bead in beads.items():
+        links = bead.get("links") or {}
+        for rel, targets in links.items():
+            if isinstance(targets, list):
+                for tid in targets:
+                    if tid:
+                        forward[bead_id].append(tid)
+                        reverse[tid].append(bead_id)
+
+    # From associations
+    for assoc in associations:
+        src = assoc.get("source_bead") or ""
+        tgt = assoc.get("target_bead") or ""
+        if src and tgt:
+            forward[src].append(tgt)
+            reverse[tgt].append(src)
+
+    return dict(forward), dict(reverse)
+
+
 def causal_traverse(
     root: Path,
     *,
@@ -42,7 +74,7 @@ def causal_traverse(
     include_types: list[str] | None = None,
 ) -> dict[str, Any]:
     """Traverse causal graph from starting beads.
-    
+
     Args:
         root: Memory root path
         start_bead_ids: Starting bead IDs
@@ -51,29 +83,33 @@ def causal_traverse(
         include_types: Optional filter by bead types
     """
     from ..persistence.store import MemoryStore
-    
+
     memory = MemoryStore(root=str(root))
     index = memory._read_json(memory.beads_dir / "index.json")
     beads = index.get("beads") or {}
-    
+    associations = index.get("associations") or []
+
+    forward_adj, reverse_adj = _build_adjacency(beads, associations)
+    adj = forward_adj if direction == "forward" else reverse_adj
+
     visited: set[str] = set()
     queue = [(bid, 0) for bid in start_bead_ids]
     results: list[dict] = []
-    
+
     while queue:
         current_id, depth = queue.pop(0)
-        
+
         if current_id in visited or depth > max_depth:
             continue
         visited.add(current_id)
-        
+
         bead = beads.get(current_id)
         if not bead:
             continue
-            
+
         if include_types and bead.get("type") not in include_types:
             continue
-            
+
         results.append({
             "bead_id": current_id,
             "depth": depth,
@@ -81,26 +117,12 @@ def causal_traverse(
             "title": bead.get("title"),
             "status": bead.get("status"),
         })
-        
-        # Get linked beads
-        links = bead.get("links") or {}
-        
-        if direction == "forward":
-            # Follow caused_by, follows, related
-            for rel, targets in links.items():
-                if isinstance(targets, list):
-                    for tid in targets:
-                        if tid not in visited:
-                            queue.append((tid, depth + 1))
-        else:
-            # Backward: find beads that link to this one
-            for other_bead in beads.values():
-                other_links = other_bead.get("links") or {}
-                for rel, targets in other_links.items():
-                    if isinstance(targets, list) and current_id in targets:
-                        if other_bead.get("id") not in visited:
-                            queue.append((other_bead.get("id"), depth + 1))
-    
+
+        # Traverse neighbors using pre-built adjacency (O(degree) instead of O(N))
+        for neighbor_id in adj.get(current_id, []):
+            if neighbor_id not in visited:
+                queue.append((neighbor_id, depth + 1))
+
     return {
         "ok": True,
         "start_beads": start_bead_ids,
@@ -130,20 +152,20 @@ def causal_traverse_bidirectional(
         direction="backward",
         max_depth=max_depth,
     )
-    
+
     # Merge results, taking min depth
     merged: dict[str, dict] = {}
-    
+
     for r in forward.get("results", []):
         bid = r["bead_id"]
         if bid not in merged or r["depth"] < merged[bid]["depth"]:
             merged[bid] = {**r, "direction": "forward"}
-    
+
     for r in backward.get("results", []):
         bid = r["bead_id"]
         if bid not in merged or r["depth"] < merged[bid]["depth"]:
             merged[bid] = {**r, "direction": "backward"}
-    
+
     return {
         "ok": True,
         "start_beads": start_bead_ids,
