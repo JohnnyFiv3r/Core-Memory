@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import os
 
-from core_memory.retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute
+from core_memory.retrieval.pipeline import memory_get_search_form, memory_search_typed, memory_execute, memory_trace
 from core_memory.retrieval.search_form import SEARCH_FORM_SCHEMA_VERSION
 from core_memory.retrieval.tools.memory_reason import memory_reason
 
@@ -39,16 +39,33 @@ def reason(
     pinned_topic_keys: list[str] | None = None,
     pinned_bead_ids: list[str] | None = None,
 ) -> dict:
-    return memory_reason(
-        query=query,
-        root=root,
-        k=int(k),
-        debug=bool(debug),
-        explain=bool(explain),
-        pinned_incident_ids=pinned_incident_ids,
-        pinned_topic_keys=pinned_topic_keys,
-        pinned_bead_ids=pinned_bead_ids,
+    # v9 canonical: reason is a thin alias to trace.
+    out = memory_trace(root=root, query=query, anchor_ids=pinned_bead_ids, k=int(k))
+    out.setdefault("intent", {})
+    out["intent"].update(
+        {
+            "pinned_incident_ids": list(pinned_incident_ids or []),
+            "pinned_topic_keys": list(pinned_topic_keys or []),
+            "pinned_bead_ids": list(pinned_bead_ids or []),
+        }
     )
+    if explain:
+        out.setdefault("explain", {})
+        out["explain"]["alias"] = "reason->trace"
+    return out
+
+
+def trace(
+    query: str = "",
+    root: str = ".",
+    k: int = 8,
+    anchor_ids: list[str] | None = None,
+    hydration: dict | None = None,
+) -> dict:
+    out = memory_trace(root=root, query=query, anchor_ids=anchor_ids, k=int(k), hydration=hydration)
+    out.setdefault("schema_version", EXECUTE_RESULT_SCHEMA_VERSION)
+    out.setdefault("contract", "memory_trace")
+    return out
 
 
 def execute(request: dict, root: str = ".", explain: bool = True) -> dict:

@@ -1,7 +1,7 @@
 """OpenClaw read bridge: stdin/stdout JSON dispatch for memory read operations.
 
 Mirrors the write bridge pattern (openclaw_agent_end_bridge.py) but for read-path
-operations: search, reason, continuity, execute, search-form.
+operations: search, reason, continuity, execute (+ legacy search-form compatibility).
 
 Usage (stdin → stdout):
     echo '{"action": "search", "query": "why PostgreSQL?", "root": "./memory"}' \
@@ -12,7 +12,7 @@ Supported actions:
     reason      — causal reasoning
     continuity  — rolling-window continuity injection
     execute     — unified auto-detect intent routing
-    search-form — get the typed search form schema
+    search-form — deprecated compatibility action for typed search form schema
 """
 from __future__ import annotations
 

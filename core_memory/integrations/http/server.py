@@ -1,27 +1,37 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
+from pathlib import Path
 from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import IntegrationContext, emit_turn_finalized
+from core_memory.runtime.engine import process_flush
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
+TENANT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 def _resolve_tenant(x_tenant_id: Optional[str]) -> Optional[str]:
-    """Extract and validate tenant ID from header."""
-    if not x_tenant_id:
+    """Extract and validate tenant ID from header.
+
+    Security: reject invalid values rather than normalizing potentially unsafe
+    path-like input.
+    """
+    raw = str(x_tenant_id or "").strip()
+    if not raw:
         return None
-    tid = str(x_tenant_id).strip()
-    return tid if tid else None
+    if not TENANT_ID_PATTERN.fullmatch(raw):
+        raise HTTPException(status_code=400, detail="invalid_tenant_id")
+    return raw
 
 
 class TurnFinalizedRequest(BaseModel):
@@ -70,6 +80,24 @@ class MemoryClassifyIntentRequest(BaseModel):
     query: str
 
 
+class SessionFlushRequest(BaseModel):
+    root: Optional[str] = None
+    session_id: str
+    source: str = "http"
+    flush_tx_id: Optional[str] = None
+    promote: bool = True
+    token_budget: int = 1200
+    max_beads: int = 12
+
+
+class MemoryTraceRequest(BaseModel):
+    root: Optional[str] = None
+    query: str = ""
+    anchor_ids: list[str] = Field(default_factory=list)
+    k: int = 8
+    hydration: dict[str, Any] = Field(default_factory=dict)
+
+
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
 
 
@@ -91,8 +119,12 @@ def _check_auth(authorization: Optional[str], x_memory_token: Optional[str]) -> 
         raise HTTPException(status_code=401, detail="unauthorized")
 
 
-def _resolve_root(root: Optional[str]) -> str:
-    return str(root or ".")
+def _resolve_root(root: Optional[str], tenant_id: Optional[str] = None) -> str:
+    base = Path(str(root or "."))
+    tenant = _resolve_tenant(tenant_id)
+    if not tenant:
+        return str(base)
+    return str(base / ".tenants" / tenant)
 
 
 @app.get("/healthz")
@@ -172,7 +204,7 @@ async def turn_finalized(
     merged_metadata.update(payload.metadata or {})
 
     event_id = emit_turn_finalized(
-        root=payload.root,
+        root=_resolve_root(payload.root, x_tenant_id),
         session_id=payload.session_id,
         turn_id=payload.turn_id,
         transaction_id=transaction_id,
@@ -180,13 +212,33 @@ async def turn_finalized(
         user_query=payload.user_query,
         assistant_final=payload.assistant_final,
         origin=payload.origin,
-        tools_trace=(payload.traces or {}).get("tools") or [],
-        mesh_trace=(payload.traces or {}).get("mesh") or [],
+        tools_trace=list((payload.traces or {}).get("tools") or []),
+        mesh_trace=list((payload.traces or {}).get("mesh") or []),
         window_turn_ids=payload.window_turn_ids,
         window_bead_ids=payload.window_bead_ids,
         metadata=merged_metadata,
     )
-    return {"accepted": True, "event_id": event_id}
+    return {"accepted": True, "event_id": str(event_id or ""), "ok": True}
+
+
+@app.post("/v1/memory/session-flush")
+async def session_flush(
+    payload: SessionFlushRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = process_flush(
+        root=_resolve_root(payload.root, x_tenant_id),
+        session_id=payload.session_id,
+        source=payload.source,
+        flush_tx_id=payload.flush_tx_id,
+        promote=bool(payload.promote),
+        token_budget=int(payload.token_budget),
+        max_beads=int(payload.max_beads),
+    )
+    return out
 
 
 @app.get("/v1/memory/search-form")
@@ -204,11 +256,12 @@ async def memory_search_typed(
     payload: MemorySearchRequest,
     authorization: Optional[str] = Header(default=None),
     x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
     return memory_tools.search(
         form_submission=payload.form_submission,
-        root=_resolve_root(payload.root),
+        root=_resolve_root(payload.root, x_tenant_id),
         explain=bool(payload.explain),
     )
 
@@ -218,11 +271,12 @@ async def memory_reason(
     payload: MemoryReasonRequest,
     authorization: Optional[str] = Header(default=None),
     x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
     return memory_tools.reason(
         query=payload.query,
-        root=_resolve_root(payload.root),
+        root=_resolve_root(payload.root, x_tenant_id),
         k=int(payload.k),
         debug=bool(payload.debug),
         explain=bool(payload.explain),
@@ -237,12 +291,30 @@ async def memory_execute(
     payload: MemoryExecuteRequest,
     authorization: Optional[str] = Header(default=None),
     x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
     return memory_tools.execute(
         request=payload.request,
-        root=_resolve_root(payload.root),
+        root=_resolve_root(payload.root, x_tenant_id),
         explain=bool(payload.explain),
+    )
+
+
+@app.post("/v1/memory/trace")
+async def memory_trace(
+    payload: MemoryTraceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return memory_tools.trace(
+        query=str(payload.query or ""),
+        root=_resolve_root(payload.root, x_tenant_id),
+        k=int(payload.k),
+        anchor_ids=list(payload.anchor_ids or []),
+        hydration=dict(payload.hydration or {}),
     )
 
 
@@ -263,9 +335,10 @@ async def memory_continuity(
     format: str = "json",
     authorization: Optional[str] = Header(default=None),
     x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
-    resolved = _resolve_root(root)
+    resolved = _resolve_root(root, x_tenant_id)
     result = load_continuity_injection(resolved, max_items=max(1, int(max_items)))
     fmt = str(format).strip().lower()
     if fmt == "text":

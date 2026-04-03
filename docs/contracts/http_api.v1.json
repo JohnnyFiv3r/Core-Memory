@@ -35,9 +35,11 @@
     {
       "method": "GET",
       "path": "/v1/memory/search-form",
+      "deprecated": true,
       "authRequired": "conditional",
       "requestSchema": "query param root?",
       "requiredFields": [],
+      "notes": ["Compatibility-only endpoint; not part of forward recommended surface"],
       "response": {"schema_version": "memory_search_form.v1", "fields": "object", "catalog": "object"},
       "errors": ["401 unauthorized"]
     },

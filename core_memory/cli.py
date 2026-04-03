@@ -286,6 +286,10 @@ def main():
     recall_heads = recall_sub.add_parser("heads", help="Show topic/goal HEAD pointers")
     recall_heads.add_argument("--topic-id")
     recall_heads.add_argument("--goal-id")
+    recall_trace = recall_sub.add_parser("trace", help="Trace causal chains from query or anchor ids")
+    recall_trace.add_argument("query", nargs="?", default="")
+    recall_trace.add_argument("--k", type=int, default=8)
+    recall_trace.add_argument("--anchor-ids", nargs="*")
 
     inspect_parser = subparsers.add_parser("inspect", help="Inspect stored artifacts")
     inspect_sub = inspect_parser.add_subparsers(dest="inspect_cmd")
@@ -670,6 +674,9 @@ def main():
             args.command = "reason"
         elif args.recall_cmd == "heads":
             args.command = "heads"
+        elif args.recall_cmd == "trace":
+            args.command = "memory"
+            args.memory_cmd = "trace"
 
     if args.command == "inspect":
         if args.inspect_cmd == "list":
@@ -961,6 +968,16 @@ def main():
                     out["warnings"] = warnings
                     out["confidence"] = "medium"
                     out["suggested_next"] = "answer"
+            print(json.dumps(out, indent=2))
+        elif args.memory_cmd == "trace":
+            from core_memory.retrieval.tools.memory import trace as memory_trace_tool
+
+            out = memory_trace_tool(
+                query=str(getattr(args, "query", "") or ""),
+                root=str(memory.root),
+                k=int(getattr(args, "k", 8) or 8),
+                anchor_ids=list(getattr(args, "anchor_ids", []) or []),
+            )
             print(json.dumps(out, indent=2))
         elif args.memory_cmd == "execute":
             req = str(args.request or "")

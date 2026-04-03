@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,7 +10,13 @@ from typing import Any
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.runtime.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
-from core_memory.policy.association_contract import normalize_assoc_row, assoc_row_is_valid, assoc_dedupe_key
+from core_memory.association.quarantine import write_quarantine
+from core_memory.policy.association_contract import assoc_dedupe_key
+from core_memory.policy.association_inference_v21 import (
+    INFERENCE_MODE_PERMISSIVE,
+    INFERENCE_MODE_STRICT,
+    validate_and_normalize_inference_payload,
+)
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract, can_be_retrieval_eligible, rewrite_generic_title
 
 
@@ -32,7 +39,12 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                         "target_bead_id": str(a.get("target_bead_id") or ""),
                         "relationship": str(a.get("relationship") or ""),
                         "confidence": a.get("confidence"),
+                        "reason_text": a.get("reason_text"),
                         "rationale": a.get("rationale"),
+                        "provenance": a.get("provenance"),
+                        "reason_code": a.get("reason_code"),
+                        "evidence_fields": a.get("evidence_fields"),
+                        "relationship_raw": a.get("relationship_raw"),
                     }
                 )
 
@@ -44,7 +56,22 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
             promotions_dedup.append(p)
             seen.add(p)
 
-    associations_norm = [normalize_assoc_row(a) for a in associations]
+    associations_norm: list[dict[str, Any]] = []
+    for a in associations:
+        associations_norm.append(
+            {
+                "source_bead": str(a.get("source_bead") or a.get("source_bead_id") or "").strip(),
+                "target_bead": str(a.get("target_bead") or a.get("target_bead_id") or "").strip(),
+                "relationship": str(a.get("relationship") or "").strip().lower(),
+                "reason_text": str(a.get("reason_text") or "").strip(),
+                "rationale": str(a.get("rationale") or "").strip(),
+                "confidence": a.get("confidence"),
+                "provenance": str(a.get("provenance") or "model_inferred").strip().lower() or "model_inferred",
+                "reason_code": a.get("reason_code"),
+                "evidence_fields": list(a.get("evidence_fields") or []),
+                "relationship_raw": str(a.get("relationship_raw") or "").strip().lower(),
+            }
+        )
     return promotions_dedup, associations_norm
 
 
@@ -128,7 +155,7 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
         "allowed_updates": {
             "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,retrieval_eligible?,retrieval_title?,retrieval_facts?,entities?,topics?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
             "reviewed_beads": "list[{bead_id,promotion_state,reason?,associations?}]",
-            "associations": "list[{source_bead_id,target_bead_id,relationship,confidence?,rationale?}]",
+            "associations": "list[{source_bead_id,target_bead_id,relationship,reason_text,confidence,provenance?,reason_code?,evidence_fields?,relationship_raw?,rationale?}]",
         },
         "append_only_rules": [
             "promotion_marked can only be set true and means preserve_full_in_rolling semantics",
@@ -213,7 +240,14 @@ def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any
                         "relationship": rel,
                         "edge_class": str(row.get("edge_class") or "agent_judged"),
                         "confidence": row.get("confidence"),
-                        "rationale": row.get("rationale"),
+                        "reason_text": row.get("reason_text"),
+                        "rationale": row.get("rationale") or row.get("reason_text"),
+                        "provenance": row.get("provenance") or "model_inferred",
+                        "relationship_raw": row.get("relationship_raw"),
+                        "warnings": list(row.get("warnings") or []),
+                        "reason_code": row.get("reason_code"),
+                        "evidence_fields": list(row.get("evidence_fields") or []),
+                        "normalization_applied": bool(row.get("normalization_applied", False)),
                         "created_at": str(row.get("created_at") or datetime.now(timezone.utc).isoformat()),
                     }
                 )
@@ -306,6 +340,9 @@ def apply_crawler_updates(
         promotions, assoc_rows = _normalize_review_rows(updates or {})
         now = datetime.now(timezone.utc).isoformat()
         log_path = _crawler_updates_log_path(root, session_id)
+        strict_default = os.environ.get("CORE_MEMORY_ASSOC_STRICT", "1") != "0"
+        inference_mode = INFERENCE_MODE_STRICT if strict_default else INFERENCE_MODE_PERMISSIVE
+        quarantine_path = Path(root) / ".beads" / "events" / "association-quarantine.jsonl"
 
         existing_assoc_keys: set[tuple[str, str, str]] = set()
         for a in (index.get("associations") or []):
@@ -318,6 +355,7 @@ def apply_crawler_updates(
                 existing_assoc_keys.add((src0, tgt0, rel0))
 
         queued_assoc_keys: set[tuple[str, str, str]] = set()
+        quarantined = 0
         promoted = 0
         for bid in promotions:
             b = beads.get(str(bid))
@@ -340,13 +378,30 @@ def apply_crawler_updates(
         for row in assoc_rows:
             if not isinstance(row, dict):
                 continue
-            row_n = normalize_assoc_row(row)
-            if not assoc_row_is_valid(row_n):
+            validated = validate_and_normalize_inference_payload(row, mode=inference_mode)
+            row_n = validated.record
+
+            if not validated.ok:
+                write_quarantine(
+                    Path(root),
+                    row_n,
+                    reasons=list(validated.quarantine_reasons),
+                    warnings=list(validated.warnings),
+                    original_payload=row,
+                    session_id=str(session_id),
+                )
+                quarantined += 1
                 continue
-            src = str(row_n.get("source_bead_id") or "")
-            tgt = str(row_n.get("target_bead_id") or "")
+            src = str(row_n.get("source_bead") or "")
+            tgt = str(row_n.get("target_bead") or "")
             rel_n = str(row_n.get("relationship") or "")
-            dedupe_key = assoc_dedupe_key(row_n)
+            dedupe_key = assoc_dedupe_key(
+                {
+                    "source_bead_id": src,
+                    "target_bead_id": tgt,
+                    "relationship": rel_n,
+                }
+            )
             if dedupe_key in existing_assoc_keys or dedupe_key in queued_assoc_keys:
                 continue
             sb = beads.get(src)
@@ -370,8 +425,15 @@ def apply_crawler_updates(
                     "target_bead": tgt,
                     "relationship": rel_n,
                     "edge_class": "agent_judged",
-                    "confidence": row.get("confidence"),
-                    "rationale": row.get("rationale"),
+                    "confidence": row_n.get("confidence"),
+                    "reason_text": row_n.get("reason_text"),
+                    "rationale": row_n.get("reason_text"),
+                    "provenance": row_n.get("provenance") or "model_inferred",
+                    "relationship_raw": row_n.get("relationship_raw"),
+                    "warnings": list(row_n.get("warnings") or []),
+                    "reason_code": row_n.get("reason_code"),
+                    "evidence_fields": list(row_n.get("evidence_fields") or []),
+                    "normalization_applied": bool(row_n.get("normalization_applied", False)),
                     "created_at": now,
                 },
             )
@@ -383,6 +445,8 @@ def apply_crawler_updates(
         "beads_created": created,
         "promotions_marked": promoted,
         "associations_appended": appended,
+        "associations_quarantined": quarantined,
+        "quarantine_path": str(quarantine_path),
         "queued_to": str(log_path),
         "authority_path": "session_side_log",
     }

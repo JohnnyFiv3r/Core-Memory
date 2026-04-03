@@ -22,6 +22,7 @@ from ..persistence.store import MemoryStore
 from .decision_pass import run_session_decision_pass
 from ..policy.bead_typing import classify_bead_type
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
+from ..retrieval.lifecycle import mark_turn_checkpoint, mark_flush_checkpoint
 
 logger = logging.getLogger(__name__)
 
@@ -251,6 +252,8 @@ def process_turn_finalized(
         window_bead_ids=window_bead_ids,
         metadata=metadata,
     )
+
+    mark_turn_checkpoint(root, turn_id=req["turn_id"])
 
     emitted = maybe_emit_finalize_memory_event(
         root,
@@ -691,6 +694,8 @@ def process_flush(
             "last_seen_turn_status": str(latest_turn_status or "unknown"),
         }
         _write_flush_state(root, state)
+
+    mark_flush_checkpoint(root, flush_tx_id=flush_id_final)
 
     flush_ok = {
         "ok": True,
