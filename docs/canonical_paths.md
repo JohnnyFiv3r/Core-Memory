@@ -1,35 +1,35 @@
-# Canonical Paths (Post-P7)
+# Canonical Paths
 
 Status: Canonical
 Purpose: single reference for primary runtime/data-flow paths.
 
 ## Runtime authority
-- Primary runtime center: `core_memory/memory_engine.py`
-- Primary trigger orchestration: `core_memory/trigger_orchestrator.py`
-- OpenClaw-facing adapter: `core_memory/openclaw_integration.py` (wrapper layer)
+- Runtime center: `core_memory/memory_engine.py`
+- Finalized-turn ingress authority: `core_memory/integrations/api.py::emit_turn_finalized`
 
 ## Live authority surfaces
-- Live session authority: session JSONL (`.beads/session-<id>.jsonl`)
-- Index role: projection/cache (`index.json`), rebuildable from authority surfaces
+- Session authority: `.beads/session-<id>.jsonl`
+- Event authority: `.beads/events/*.jsonl`
+- Index role: `.beads/index.json` (projection/cache, rebuildable)
 
-## Continuity surfaces
-- Canonical continuity authority: `rolling-window.records.json`
-- Fallback metadata surface (non-authoritative): `promoted-context.meta.json`
-- Derived/operator artifact (non-authoritative): `promoted-context.md`
+## Continuity authority
+1. `rolling-window.records.json` (authoritative)
+2. `promoted-context.meta.json` (fallback metadata)
+3. `promoted-context.md` (derived operator artifact)
 
-Runtime continuity injection authority order:
-1. `rolling-window.records.json`
-2. `promoted-context.meta.json` fallback only
-3. empty (`authority=none`)
+## Retrieval authority
+- Planner authority: `core_memory/retrieval/pipeline/canonical.py`
+- Public runtime surface: `core_memory/retrieval/tools/memory.py::{search,trace,execute}`
 
-## Retrieval primary modules
-- Canonical planner authority: `core_memory/retrieval/pipeline/canonical.py`
-- Runtime retrieval surface: `core_memory/tools/memory.py::{search,trace,execute}`
+## Hydration authority
+- Transcript/turn hydration helpers in `core_memory/integrations/api.py`
+- Hydration is explicit post-selection source recovery
 
 ## Integration framing
-- SpringAI primary bridge: `core_memory.integrations.springai.get_app()`
-- HTTP compatibility ingress: `core_memory.integrations.http.get_app()`
+- OpenClaw: in-process bridge-first adapter
+- PydanticAI: in-process adapter
+- SpringAI/HTTP: service bridge adapters
+- LangChain: BaseMemory + BaseRetriever adapter surfaces
 
-## Integration notes
-- transcript index-dump write path is retired as a supported primary architecture
-- transcript inputs are supported only as bridge/feed into canonical finalized-turn ingestion
+## Compatibility / historical
+Legacy/deprecated documents and migration process notes are intentionally separated under `docs/archive/` and `docs/reports/`.

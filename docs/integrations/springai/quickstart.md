@@ -54,7 +54,13 @@ Minimum body:
 Preferred single-call endpoint:
 - `POST /v1/memory/execute`
 
+Optional direct retrieval endpoints:
+- `POST /v1/memory/search`
+- `POST /v1/memory/trace`
+
 Use `/v1/memory/classify-intent` only if you want telemetry/UX routing. It is not required for correctness.
+
+For tenant-isolated deployments, pass `X-Tenant-Id` on stateful memory endpoints.
 
 ## 5) Validate
 Run:

@@ -1,41 +1,61 @@
 # Documentation Index
 
-Status: Canonical
+Status: Canonical navigation
 
-Start here for current Core Memory documentation.
+Use this page as the authoritative map of current docs.
 
-## OSS canonical quick set (start here)
-- `architecture_overview.md`
-- `write_side_flow.md`
-- `retrieval_side_flow.md`
-- `truth_hierarchy.md`
-- `integration_contract.md`
-- `public_surface.md`
+## Start here
+- [`../README.md`](../README.md)
+- [`reviewers/start-here.md`](reviewers/start-here.md)
+- [`canonical_surfaces.md`](canonical_surfaces.md)
+- [`public_surface.md`](public_surface.md)
 
-## Core references
-- `canonical_surfaces.md` — supported public surfaces
-- `canonical_paths.md` — canonical runtime/data-flow paths
-- `memory_surfaces_spec.md` — memory surfaces semantics
-- `schema_canonical_spec.md` — canonical schema specification
-- `truth_hierarchy_policy.md` — deterministic authority policy
+## Concepts
+- [`concepts/why-core-memory.md`](concepts/why-core-memory.md)
+- [`memory_surfaces_spec.md`](memory_surfaces_spec.md)
+- [`truth_hierarchy.md`](truth_hierarchy.md)
+- [`truth_hierarchy_policy.md`](truth_hierarchy_policy.md)
+
+## Architecture
+- [`architecture_overview.md`](architecture_overview.md)
+- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`canonical_paths.md`](canonical_paths.md)
+- [`integration_contract.md`](integration_contract.md)
+- [`core_adapters_architecture.md`](core_adapters_architecture.md)
+
+## Adapters
+- Shared foundations:
+  - [`integrations/shared/README.md`](integrations/shared/README.md)
+  - [`integrations/shared/concepts.md`](integrations/shared/concepts.md)
+  - [`integrations/shared/contracts.md`](integrations/shared/contracts.md)
+- OpenClaw: [`integrations/openclaw/README.md`](integrations/openclaw/README.md)
+- PydanticAI: [`integrations/pydanticai/README.md`](integrations/pydanticai/README.md)
+- SpringAI / HTTP: [`integrations/springai/README.md`](integrations/springai/README.md)
+- LangChain: [`integrations/langchain/README.md`](integrations/langchain/README.md)
 
 ## Integration quickstarts
-- `integrations/openclaw/quickstart.md`
-- `integrations/springai/quickstart.md`
-- `integrations/pydanticai/quickstart.md`
-- `integrations/langchain/quickstart.md`
+- [`integrations/openclaw/quickstart.md`](integrations/openclaw/quickstart.md)
+- [`integrations/springai/quickstart.md`](integrations/springai/quickstart.md)
+- [`integrations/pydanticai/quickstart.md`](integrations/pydanticai/quickstart.md)
+- [`integrations/langchain/quickstart.md`](integrations/langchain/quickstart.md)
+
+## Contracts
+- [`contracts/http_api.v1.json`](contracts/http_api.v1.json)
+- [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
 
 ## Evaluation entrypoints
 - `../eval/memory_execute_eval.py`
 
-## Reviewer fast path
-- `../README.md`
-- `public_surface.md`
-- `canonical_surfaces.md`
+## Compatibility / historical material
+- [`archive/`](archive/) — superseded migration/process/history docs
+- [`reports/`](reports/) — dated snapshots and audits
+- Legacy typed-search/search-form narratives are treated as historical material, not forward path docs.
 
-- `v2_p21_kickoff.md` — V2P21 integrity/packaging fix tracker
+## Notes for reviewers
+Canonical retrieval story is:
+- `search` (anchor retrieval)
+- `trace` (causal traversal)
+- `execute` (single orchestrated entrypoint)
 
-## Historical / migration material
-- `archive/history/` — archived phase/V2/process/migration documentation
-- `archive/history/integration-legacy/` — superseded pre-`docs/integrations` integration docs
-- `archive/reports/2026-03-05/` — dated report snapshots
+Hydration is explicit post-selection source recovery.
+Deep recall is real, but separate from canonical hydration.

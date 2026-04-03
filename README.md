@@ -9,17 +9,35 @@
 
 <p align="center">
  <b>Causal memory for AI agents.</b><br>
- Structured event storage with deterministic, debuggable recall — so agents remember <i>why</i>, not just <i>what</i>.
+ Structured memory objects + causal trace over durable events — so agents can recall <i>why</i>, not just <i>what</i>.
 </p>
 
 <p align="center">
  <a href="#install">Install</a> ·
  <a href="#fastest-paths">Fastest Paths</a> ·
  <a href="#service-mode-springai--http">Service Mode</a> ·
+ <a href="#current-status">Current Status</a> ·
  <a href="docs/architecture_overview.md">Architecture</a> ·
  <a href="docs/public_surface.md">Public Surface</a> ·
  <a href="#contributing">Contributing</a>
 </p>
+
+---
+
+## Reviewer Quick Path
+
+- [docs/reviewers/start-here.md](docs/reviewers/start-here.md)
+- [docs/concepts/why-core-memory.md](docs/concepts/why-core-memory.md)
+- [docs/architecture_overview.md](docs/architecture_overview.md)
+- [docs/canonical_surfaces.md](docs/canonical_surfaces.md)
+- [docs/integrations/](docs/integrations/) (OpenClaw / PydanticAI / SpringAI / LangChain)
+
+## Current Status
+
+- **Canonical surfaces:** finalized-turn ingest + `search` / `trace` / `execute`
+- **Compatibility surfaces:** archived or non-primary docs/modules retained for migration/history only
+- **Experimental areas:** optional adapters and evaluation harnesses that are useful but not yet hard product contract
+- **Not yet integrated:** ideas/proposals not represented in canonical docs or adapter references are intentionally out of current contract scope
 
 ---
 
@@ -46,7 +64,7 @@ It records structured memory events called **beads** — decisions, lessons, out
 | Approach | Failure Mode | Core Memory |
 |---|---|---|
 | Chat log replay | Context window explodes | Bounded rolling window with compaction |
-| Vector similarity | “Similar” ≠ “relevant” | Semantic-first anchors + causal trace over typed bead links |
+| Vector similarity | “Similar” ≠ “relevant” | Semantic-first anchors + causal trace over explicit bead links |
 | Tool call logs | No reasoning structure | Explicit bead → bead associations |
 
 **Core local write flow has zero required runtime dependencies beyond Python.**
@@ -259,12 +277,14 @@ from core_memory.integrations.api import emit_turn_finalized
 - PydanticAI native adapter
 - SpringAI / HTTP companion service
 - LangChain (`CoreMemory`, `CoreMemoryRetriever`)
+- LangChain (`CoreMemory` + `CoreMemoryRetriever`)
 
 ### Good starting points
 
 - [examples/quickstart.py](examples/quickstart.py)
 - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
 - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
+- [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)
 
 ---
 
@@ -305,6 +325,12 @@ Canonical retrieval surfaces:
 Semantic mode behavior:
 - `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` (default) fails closed for query-based anchor lookup when semantic backend is unavailable.
 - `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` allows explicit degraded lexical fallback with markers.
+
+Hydration is explicit post-selection source recovery (turn/tools/adjacent), not a general retrieval mode.
+
+Deep recall exists as a separate capability and is not the same thing as canonical hydration.
+
+Retrieval is deterministic from indexed state.
 
 ---
 

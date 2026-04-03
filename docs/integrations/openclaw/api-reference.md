@@ -30,6 +30,4 @@ Notes:
 
 ## Validation/eval surfaces
 - `eval/memory_execute_eval.py`
-- `eval/memory_search_ab_compare.py`
-- `eval/retrieval_eval.py`
-- `eval/paraphrase_eval.py`
+- `tests/test_openclaw_read_bridge.py`

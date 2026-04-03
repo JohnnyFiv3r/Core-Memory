@@ -16,3 +16,8 @@ Status: Canonical landing page
 
 ## Notes
 PydanticAI uses the in-process Python integration path. This folder is now the canonical location for its v1 integration docs.
+
+Strengths for this adapter:
+- ergonomic tool wiring
+- deterministic `execute` entrypoint
+- explicit control when choosing `search` vs `trace` vs `execute`

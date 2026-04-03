@@ -1,20 +1,41 @@
 # LangChain Integration Guide
 
-## CoreMemory
-`CoreMemory` implements a memory interface for continuity injection plus finalized-turn writeback.
+Status: Canonical
 
-Use it when you want conversation continuity and durable turn persistence with minimal wiring.
+## Architecture fit
+LangChain integration maps to the same Core Memory split used by other adapters:
+- write ingestion (finalized-turn event path)
+- runtime retrieval (search/trace/execute model in Core Memory)
+- optional hydration if downstream flow needs raw source payloads
 
-## CoreMemoryRetriever
-`CoreMemoryRetriever` maps Core Memory search results into LangChain `Document` objects.
+## Surface 1: `CoreMemory`
+File: `core_memory/integrations/langchain/memory.py`
 
-Current behavior:
-- canonical anchor retrieval from Core Memory
-- enrichment by bead id for stronger `page_content` (title + summary/detail when available)
-- metadata includes bead id/type/status/score and source markers
+Role:
+- implements LangChain `BaseMemory`
+- loads continuity text into prompt memory variables
+- saves context by emitting finalized turns to Core Memory
 
-## Practical split
-- continuity/context support: `CoreMemory`
-- retrieval support: `CoreMemoryRetriever`
+Practical behavior:
+- continuity is prompt context support, not full retrieval planning
+- writeback is append-only event ingest, not destructive memory mutation
 
-Use both when your app needs continuity and explicit retriever-driven recall.
+## Surface 2: `CoreMemoryRetriever`
+File: `core_memory/integrations/langchain/retriever.py`
+
+Role:
+- implements LangChain `BaseRetriever`
+- executes Core Memory search and returns LangChain `Document` objects
+
+Practical behavior:
+- retrieval returns bead-oriented recall data with metadata
+- retriever enriches anchors by bead id so `Document.page_content` includes summary/detail when available
+- this is read-time recall, complementary to `CoreMemory` writeback/continuity
+
+## Usage guidance
+- Use `CoreMemory` when you want conversation memory continuity + automatic writeback.
+- Use `CoreMemoryRetriever` when you want retriever-style document recall in RAG chains.
+- Use both when you need continuity and explicit retriever recall in one app.
+
+## Scope honesty
+Current LangChain integration is practical and usable, but still lighter-weight than the most mature adapters. Treat it as a clean adapter surface, not a full framework rewrite.

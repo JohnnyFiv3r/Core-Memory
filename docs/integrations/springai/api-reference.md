@@ -100,6 +100,9 @@ Purpose:
 ## Auth
 Conditional auth when `CORE_MEMORY_HTTP_TOKEN` is set.
 
+## Tenant behavior
+For tenant-isolated deployments, stateful memory endpoints accept `X-Tenant-Id` and scope write/read/flush/continuity to the same tenant namespace.
+
 ## Semantic mode transport behavior
 For query-based anchor lookup:
 - `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` and unavailable semantic backend -> HTTP `503` with payload `error.code="semantic_backend_unavailable"`

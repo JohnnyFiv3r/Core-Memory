@@ -1,11 +1,13 @@
 import importlib
 import json
+import os
 import sys
 import tempfile
 import types
 import unittest
 from contextlib import contextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.persistence.rolling_record_store import write_rolling_records
 from core_memory.persistence.store import MemoryStore
@@ -68,6 +70,7 @@ def _fake_langchain_core_modules():
         sys.modules["langchain_core.documents"] = docs
         sys.modules["langchain_core.retrievers"] = ret
 
+        # Ensure Core Memory langchain modules are re-imported against fakes.
         for n in [
             "core_memory.integrations.langchain",
             "core_memory.integrations.langchain.memory",
@@ -137,13 +140,13 @@ class TestLangChainAdapterContract(unittest.TestCase):
             Retriever = rmod.CoreMemoryRetriever
             retriever = Retriever(root=str(root), k=5, explain=True)
 
-            import os
-            from unittest.mock import patch
-
             with patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
                 docs = retriever._get_relevant_documents("candidate promotion")
+
             self.assertTrue(len(docs) >= 1)
             first = docs[0]
+            self.assertTrue(hasattr(first, "page_content"))
+            self.assertTrue(hasattr(first, "metadata"))
             self.assertIn("promotion workflow", first.page_content.lower())
             self.assertIn("candidate-only", first.page_content.lower())
             self.assertIn("bead_id", first.metadata)

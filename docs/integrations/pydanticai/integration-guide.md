@@ -60,6 +60,7 @@ Design intent:
 - no separate auth/token concerns for runtime calls
 - direct Python function access
 - lower integration overhead than SpringAI
+- strong tool ergonomics for explicit policy routing (`execute` default, `search`/`trace` when needed)
 
 ## Recommended usage model
 - use `run_with_memory(...)` or equivalent finalized-turn emission for writes
