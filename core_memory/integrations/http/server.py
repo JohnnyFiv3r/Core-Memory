@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from pathlib import Path
 from typing import Any, Optional
@@ -16,15 +17,21 @@ from core_memory.write_pipeline.continuity_injection import load_continuity_inje
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
+TENANT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
 
 
 def _resolve_tenant(x_tenant_id: Optional[str]) -> Optional[str]:
-    """Extract and sanitize tenant ID from header."""
+    """Extract and validate tenant ID from header.
+
+    Security: reject invalid values rather than normalizing potentially unsafe
+    path-like input.
+    """
     raw = str(x_tenant_id or "").strip()
     if not raw:
         return None
-    cleaned = "".join(ch if (ch.isalnum() or ch in {"-", "_", "."}) else "_" for ch in raw).strip("._-")
-    return cleaned or None
+    if not TENANT_ID_PATTERN.fullmatch(raw):
+        raise HTTPException(status_code=400, detail="invalid_tenant_id")
+    return raw
 
 
 class TurnFinalizedRequest(BaseModel):

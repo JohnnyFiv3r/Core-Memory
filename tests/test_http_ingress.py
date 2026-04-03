@@ -403,6 +403,25 @@ class TestHttpIngress(unittest.TestCase):
             checkpoints_a = tenant_a_root / ".beads" / "events" / "flush-checkpoints.jsonl"
             self.assertTrue(checkpoints_a.exists())
 
+    def test_http_rejects_invalid_tenant_id_header(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            c = TestClient(app)
+            r = c.post(
+                "/v1/memory/execute",
+                json={
+                    "root": root,
+                    "request": {"raw_query": "q", "intent": "remember", "k": 3},
+                    "explain": True,
+                },
+                headers={"X-Tenant-Id": "../../other-root"},
+            )
+            self.assertEqual(400, r.status_code)
+            self.assertEqual("invalid_tenant_id", (r.json() or {}).get("detail"))
+
 
 if __name__ == "__main__":
     unittest.main()
