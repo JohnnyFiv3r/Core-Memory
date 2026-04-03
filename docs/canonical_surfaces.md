@@ -69,8 +69,6 @@ Current canonical docs:
 - `docs/integrations/pydanticai/integration-guide.md`
 - `docs/core_adapters_architecture.md`
 - `docs/integrations/shared/README.md` (supporting overview)
-- `docs/memory_search_skill.md`
-- `docs/memory_search_agent_playbook.md`
 
 Transitional stub retained:
 - `docs/springai_adapter.md`
@@ -87,8 +85,6 @@ Transitional stub retained:
 
 These are useful but not the preferred first interface for contributors:
 - `core_memory.memory_skill.*` internals
-- `core_memory.tools.memory_search.*` (legacy)
-- `core_memory.tools.memory_reason.memory_reason` (legacy)
 - retrieval internals in `core_memory/retrieval/*`
 
 ## Transitional / compatibility surfaces

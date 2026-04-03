@@ -9,7 +9,7 @@ Canonical surfaces:
 - `hydrate_bead_sources(...)`
 - `memory.execute`
 - `memory.search`
-- `memory.reason`
+- `memory.trace`
 
 ## Architecture
 OpenClaw is the native/original environment where Core Memory runs in-process with the main agent runtime.
@@ -44,8 +44,7 @@ Canonical runtime surface:
 
 OpenClaw can also access lower-level runtime operations:
 - `memory.search`
-- `memory.reason`
-- `memory.get_search_form`
+- `memory.trace`
 
 Hydration path (explicit, non-default):
 - retrieve beads/causal structure first
@@ -94,5 +93,3 @@ Operational policy:
 ## Current docs to consult
 - `../../canonical_surfaces.md`
 - `../../core_adapters_architecture.md`
-- `../../memory_search_skill.md`
-- `../../memory_search_agent_playbook.md`

@@ -8,7 +8,7 @@ Role: **Adapter layer** (thin callable shim), not agent skill semantics.
 
 ### What it is
 - A stable Python entrypoint that delegates to canonical memory skill/runtime functions.
-- A compatibility boundary for integrations that call `get_search_form`, `search`, `reason`, and `execute`.
+- A compatibility boundary for integrations that call `search`, `trace`, and `execute`.
 - A feature-flag gate for `memory.execute` rollout controls.
 
 ### What it is NOT
@@ -17,9 +17,8 @@ Role: **Adapter layer** (thin callable shim), not agent skill semantics.
 - Not the read-side retrieval/reasoning implementation owner.
 
 ### Delegation map
-- `get_search_form(...)` -> `memory_get_search_form(...)`
 - `search(...)` -> `memory_search_typed(...)`
-- `reason(...)` -> `memory_reason(...)`
+- `trace(...)` -> `memory_trace(...)`
 - `execute(...)` -> `memory_execute(...)` (+ env flag guards)
 
 ### Refactor guidance

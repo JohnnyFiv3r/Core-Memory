@@ -5,8 +5,7 @@ Status: Canonical
 ## Primary runtime code surfaces
 - `core_memory.retrieval.tools.memory.execute(request, root=".", explain=True)`
 - `core_memory.retrieval.tools.memory.search(form_submission, root=".", explain=True)`
-- `core_memory.retrieval.tools.memory.reason(query, root=".", k=8, ...)`
-- `core_memory.retrieval.tools.memory.get_search_form(root=".")`
+- `core_memory.retrieval.tools.memory.trace(query, root=".", k=8, ...)`
 
 ## Primary write-path surface
 - `core_memory.integrations.api.emit_turn_finalized(...)`
@@ -23,10 +22,9 @@ Notes:
 - `hydrate_bead_sources` is a convenience path that resolves bead `source_turn_ids` to full turn payloads.
 
 ## CLI surfaces
-- `core-memory memory form`
-- `core-memory memory search --typed ...`
+- `core-memory memory search --query ...`
+- `core-memory memory trace --query ...`
 - `core-memory memory execute --request ...`
-- `core-memory reason <query>`
 - `core-memory graph ...`
 - `core-memory metrics ...`
 

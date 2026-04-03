@@ -8,8 +8,6 @@ This folder is the future home for shared integration concepts used by all orche
 - `../../canonical_surfaces.md`
 - `../../canonical_paths.md`
 - `../../contracts/http_api.v1.json`
-- `../../memory_search_skill.md`
-- `../../memory_search_agent_playbook.md`
 - `../../core_adapters_architecture.md`
 - `../../memory_surfaces_spec.md`
 - `../../truth_hierarchy_policy.md`

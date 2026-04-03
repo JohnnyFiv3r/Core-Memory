@@ -30,13 +30,11 @@ class CoreMemoryRetriever(BaseRetriever):
         root: Path to memory root directory.
         k: Number of results to return.
         explain: Whether to include explanation in metadata.
-        search_mode: "search" for typed search, "reason" for causal reasoning.
     """
 
     root: str = "."
     k: int = 8
     explain: bool = True
-    search_mode: str = "search"
 
     def _get_relevant_documents(
         self,
@@ -45,19 +43,11 @@ class CoreMemoryRetriever(BaseRetriever):
         run_manager: CallbackManagerForRetrieverRun | None = None,
     ) -> list[Document]:
         """Retrieve relevant beads as LangChain Documents."""
-        if self.search_mode == "reason":
-            result = memory_tools.reason(
-                query=query,
-                root=self.root,
-                k=self.k,
-                explain=self.explain,
-            )
-        else:
-            result = memory_tools.search(
-                form_submission={"query_text": query, "k": self.k},
-                root=self.root,
-                explain=self.explain,
-            )
+        result = memory_tools.search(
+            form_submission={"query_text": query, "k": self.k},
+            root=self.root,
+            explain=self.explain,
+        )
 
         documents = []
         for item in result.get("results") or []:

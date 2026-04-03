@@ -117,7 +117,7 @@ If behavior changes, these owners must be updated first.
 - `core_memory.retrieval.visible_corpus`
 
 ### B4. Reasoning / causal grounding path
-- `core_memory.retrieval.tools.memory_reason`
+- `core_memory.retrieval.pipeline.canonical.trace_request`
 - `core_memory.graph.semantic`
 - `core_memory.graph.structural`
 - `core_memory.graph.traversal`

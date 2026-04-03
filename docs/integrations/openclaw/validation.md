@@ -5,7 +5,7 @@ Status: Canonical
 ## Core checks
 ```bash
 python -m unittest tests.test_memory_execute_contract
-python -m unittest tests.test_memory_reason_pins
+python -m unittest tests.test_temporal_only_grounding_guard
 python -m unittest tests.test_http_ingress
 python eval/memory_execute_eval.py
 ```

@@ -3,15 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from .catalog import build_catalog
-from core_memory.retrieval.search_form import get_search_form
 from .snap import snap_form
 from .canonical import search_request as _search_request, execute_request as _execute_request, trace_request as _trace_request
-
-
-def memory_get_search_form(root: str) -> dict:
-    rp = Path(root)
-    catalog = build_catalog(rp)
-    return get_search_form(catalog)
 
 
 def memory_search_typed(root: str, submission: dict, explain: bool = False) -> dict:

@@ -24,9 +24,8 @@ Both paths converge in the same sidecar/event pipeline.
 
 In addition to write ingress, HTTP adapters can call runtime memory tools:
 - `POST /v1/memory/execute` (preferred single-call correctness path)
-- `GET /v1/memory/search-form`
 - `POST /v1/memory/search`
-- `POST /v1/memory/reason`
+- `POST /v1/memory/trace`
 - `POST /v1/memory/classify-intent` (optional pre-call for telemetry/UX, not required)
 
 ## Why this works

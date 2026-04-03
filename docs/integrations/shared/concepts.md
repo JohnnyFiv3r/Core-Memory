@@ -4,8 +4,6 @@ Status: Canonical
 See also:
 - `../../canonical_surfaces.md`
 - `../../contracts/http_api.v1.json`
-- `../../memory_search_skill.md`
-- `../../memory_search_agent_playbook.md`
 
 ## Core ideas
 
@@ -13,9 +11,8 @@ Core Memory provides a deterministic memory operating layer for agents.
 
 The current public memory surfaces are:
 - `memory.execute` — unified request/response orchestrator
-- `memory.search` — typed retrieval/search
-- `memory.reason` — causal chain / grounded reasoning
-- `memory.get_search_form` — machine-readable typed form
+- `memory.search` — canonical anchor search
+- `memory.trace` — canonical causal traversal after anchor identification
 - `emit_turn_finalized(...)` — canonical finalized-turn write path
 
 ## Memory model
