@@ -38,12 +38,12 @@ class TestOpenClawReadBridge(unittest.TestCase):
         self.assertFalse(result.get("ok", True))
         self.assertIn("missing", result.get("error", ""))
 
-    def test_reason(self):
-        result = dispatch({"action": "reason", "query": "why PostgreSQL?", "root": self.root})
+    def test_trace(self):
+        result = dispatch({"action": "trace", "query": "why PostgreSQL?", "root": self.root})
         self.assertIn("ok", result)
 
-    def test_reason_missing_query(self):
-        result = dispatch({"action": "reason", "root": self.root})
+    def test_trace_missing_query(self):
+        result = dispatch({"action": "trace", "root": self.root})
         self.assertFalse(result.get("ok", True))
 
     def test_continuity_json(self):
@@ -66,13 +66,14 @@ class TestOpenClawReadBridge(unittest.TestCase):
         result = dispatch({"action": "execute", "root": self.root})
         self.assertFalse(result.get("ok", True))
 
-    def test_search_form(self):
-        result = dispatch({"action": "search-form", "root": self.root})
-        self.assertIn("schema_version", result)
+    def test_removed_actions_are_unknown(self):
+        result = dispatch({"action": "reason", "root": self.root})
+        self.assertFalse(result.get("ok", True))
+        self.assertIn("unknown_action", result.get("error", ""))
 
-    def test_search_form_underscore(self):
-        result = dispatch({"action": "search_form", "root": self.root})
-        self.assertIn("schema_version", result)
+        result2 = dispatch({"action": "search-form", "root": self.root})
+        self.assertFalse(result2.get("ok", True))
+        self.assertIn("unknown_action", result2.get("error", ""))
 
     def test_unknown_action(self):
         result = dispatch({"action": "bogus", "root": self.root})

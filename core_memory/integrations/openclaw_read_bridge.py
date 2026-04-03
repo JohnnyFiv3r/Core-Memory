@@ -1,7 +1,7 @@
 """OpenClaw read bridge: stdin/stdout JSON dispatch for memory read operations.
 
-Mirrors the write bridge pattern (openclaw_agent_end_bridge.py) but for read-path
-operations: search, reason, continuity, execute (+ legacy search-form compatibility).
+Mirrors the write bridge pattern (openclaw_agent_end_bridge.py) but for canonical
+read-path operations: search, trace, continuity, execute.
 
 Usage (stdin → stdout):
     echo '{"action": "search", "query": "why PostgreSQL?", "root": "./memory"}' \
@@ -9,10 +9,9 @@ Usage (stdin → stdout):
 
 Supported actions:
     search      — typed search (query → form_submission shorthand or full form)
-    reason      — causal reasoning
+    trace       — causal traversal/grounding
     continuity  — rolling-window continuity injection
     execute     — unified auto-detect intent routing
-    search-form — deprecated compatibility action for typed search form schema
 """
 from __future__ import annotations
 
@@ -43,20 +42,17 @@ def _handle_search(payload: dict[str, Any]) -> dict[str, Any]:
     return memory_tools.search(form_submission=form, root=root, explain=explain)
 
 
-def _handle_reason(payload: dict[str, Any]) -> dict[str, Any]:
+def _handle_trace(payload: dict[str, Any]) -> dict[str, Any]:
     root = _resolve_root(payload)
     query = str(payload.get("query") or "").strip()
     if not query:
         return {"ok": False, "error": "missing_query"}
-    return memory_tools.reason(
+    return memory_tools.trace(
         query=query,
         root=root,
         k=int(payload.get("k", 8)),
-        debug=bool(payload.get("debug", False)),
-        explain=bool(payload.get("explain", False)),
-        pinned_incident_ids=payload.get("pinned_incident_ids"),
-        pinned_topic_keys=payload.get("pinned_topic_keys"),
-        pinned_bead_ids=payload.get("pinned_bead_ids"),
+        anchor_ids=payload.get("anchor_ids"),
+        hydration=payload.get("hydration"),
     )
 
 
@@ -89,18 +85,11 @@ def _handle_execute(payload: dict[str, Any]) -> dict[str, Any]:
     return memory_tools.execute(request=request, root=root, explain=explain)
 
 
-def _handle_search_form(payload: dict[str, Any]) -> dict[str, Any]:
-    root = _resolve_root(payload)
-    return memory_tools.get_search_form(root=root)
-
-
 _DISPATCH: dict[str, Any] = {
     "search": _handle_search,
-    "reason": _handle_reason,
+    "trace": _handle_trace,
     "continuity": _handle_continuity,
     "execute": _handle_execute,
-    "search-form": _handle_search_form,
-    "search_form": _handle_search_form,
 }
 
 

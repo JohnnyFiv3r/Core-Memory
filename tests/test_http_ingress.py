@@ -132,36 +132,6 @@ class TestHttpIngress(unittest.TestCase):
         self.assertEqual('causal', data.get('intent_class'))
         self.assertTrue(bool(data.get('causal_intent')))
 
-    def test_http_reason_endpoint_with_pins(self):
-        from fastapi.testclient import TestClient
-        from core_memory.integrations.http.server import app
-        from core_memory.persistence.store import MemoryStore
-
-        with tempfile.TemporaryDirectory() as td:
-            root = str(Path(td) / "memory")
-            s = MemoryStore(root)
-            bid = s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
-
-            c = TestClient(app)
-            r = c.post(
-                "/v1/memory/reason",
-                json={
-                    "root": root,
-                    "query": "why candidate-first promotion",
-                    "k": 6,
-                    "pinned_incident_ids": ["promotion_inflation_2026q1"],
-                    "pinned_topic_keys": ["promotion_workflow"],
-                    "pinned_bead_ids": [bid],
-                },
-            )
-            self.assertEqual(200, r.status_code)
-            data = r.json()
-            self.assertTrue(bool(data.get("ok")))
-            intent = data.get("intent") or {}
-            self.assertIn("pinned_incident_ids", intent)
-            self.assertIn("pinned_topic_keys", intent)
-            self.assertIn("pinned_bead_ids", intent)
-
     def test_http_execute_deterministic_response(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
@@ -204,16 +174,34 @@ class TestHttpIngress(unittest.TestCase):
         os.environ["CORE_MEMORY_HTTP_TOKEN"] = "secret"
         try:
             c = TestClient(srv.app)
-            r1 = c.get("/v1/memory/search-form")
+            r1 = c.post(
+                "/v1/memory/execute",
+                json={"request": {"raw_query": "x", "intent": "remember", "k": 3}, "explain": True},
+            )
             self.assertEqual(401, r1.status_code)
-            r2 = c.get("/v1/memory/search-form", headers={"Authorization": "Bearer secret"})
+            r2 = c.post(
+                "/v1/memory/execute",
+                json={"request": {"raw_query": "x", "intent": "remember", "k": 3}, "explain": True},
+                headers={"Authorization": "Bearer secret"},
+            )
             self.assertEqual(200, r2.status_code)
-            self.assertEqual("memory_search_form.v1", (r2.json() or {}).get("schema_version"))
+            self.assertTrue((r2.json() or {}).get("ok") is not False)
         finally:
             if old is None:
                 os.environ.pop("CORE_MEMORY_HTTP_TOKEN", None)
             else:
                 os.environ["CORE_MEMORY_HTTP_TOKEN"] = old
+
+    def test_removed_http_surfaces_return_not_found(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        c = TestClient(app)
+        r1 = c.get("/v1/memory/search-form")
+        self.assertEqual(404, r1.status_code)
+
+        r2 = c.post("/v1/memory/reason", json={"query": "why"})
+        self.assertEqual(404, r2.status_code)
 
     def test_http_idempotent_same_turn_id(self):
         from fastapi.testclient import TestClient

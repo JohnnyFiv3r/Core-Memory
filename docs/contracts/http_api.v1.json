@@ -33,17 +33,6 @@
       "errors": ["401 unauthorized"]
     },
     {
-      "method": "GET",
-      "path": "/v1/memory/search-form",
-      "deprecated": true,
-      "authRequired": "conditional",
-      "requestSchema": "query param root?",
-      "requiredFields": [],
-      "notes": ["Compatibility-only endpoint; not part of forward recommended surface"],
-      "response": {"schema_version": "memory_search_form.v1", "fields": "object", "catalog": "object"},
-      "errors": ["401 unauthorized"]
-    },
-    {
       "method": "POST",
       "path": "/v1/memory/search",
       "authRequired": "conditional",
@@ -54,12 +43,11 @@
     },
     {
       "method": "POST",
-      "path": "/v1/memory/reason",
+      "path": "/v1/memory/trace",
       "authRequired": "conditional",
-      "requestSchema": "MemoryReasonRequest",
-      "requiredFields": ["query"],
-      "notes": ["Supports pinning fields: pinned_incident_ids, pinned_topic_keys, pinned_bead_ids"],
-      "response": {"ok": "bool", "chains": "array", "citations": "array", "intent": "object", "grounding": "object"},
+      "requestSchema": "MemoryTraceRequest",
+      "requiredFields": [],
+      "response": {"ok": "bool", "anchors": "array", "chains": "array", "grounding": "object", "hydration": "object"},
       "errors": ["401 unauthorized"]
     },
     {
@@ -68,9 +56,27 @@
       "authRequired": "conditional",
       "requestSchema": "MemoryExecuteRequest",
       "requiredFields": ["request"],
-      "notes": ["Single-call correctness path for SpringAI", "Supports request.facets.pinned_bead_ids and pinned routing via reason fallback"],
+      "notes": ["Single-call canonical retrieval orchestration path"],
       "response": {"ok": "bool", "request": "object", "snapped": "object", "results": "array", "chains": "array", "grounding": "object", "confidence": "string", "next_action": "string", "warnings": "array", "explain": "object?"},
       "errors": ["401 unauthorized", "memory_execute_disabled", "memory_execute_causal_disabled"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/session-flush",
+      "authRequired": "conditional",
+      "requestSchema": "SessionFlushRequest",
+      "requiredFields": ["session_id"],
+      "response": {"ok": "bool"},
+      "errors": ["401 unauthorized"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/continuity",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "format": "string", "records": "array?", "text": "string?"},
+      "errors": ["401 unauthorized"]
     }
   ]
 }

@@ -18,13 +18,9 @@ Everything else is internal and may change without notice.
 - `core_memory.event_state` — canonical pass-state alias module.
 
 ## Retrieval/runtime tool surface
-- `core_memory.tools.memory.get_search_form(root: str) -> dict` — return typed search form/catalog.
-- `core_memory.tools.memory.search(root: str, typed: dict, explain: bool=False) -> dict` — typed retrieval.
+- `core_memory.tools.memory.search(root: str, typed: dict, explain: bool=False) -> dict` — canonical retrieval anchors.
+- `core_memory.tools.memory.trace(query: str, root: str='.', k: int=8, ...) -> dict` — canonical causal traversal after anchor identification.
 - `core_memory.tools.memory.execute(root: str, request: dict, explain: bool=False) -> dict` — unified memory request entrypoint.
-- `core_memory.tools.memory.reason(query: str, k: int=8, root: str='.') -> dict` — causal+semantic reasoned recall.
-
-## Retrieval schema authority
-- `core_memory.retrieval.search_form`
 
 ## Launch adapters
 - OpenClaw bridge: `core_memory.integrations.openclaw_agent_end_bridge`

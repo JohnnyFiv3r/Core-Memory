@@ -20,7 +20,7 @@ Non-authoritative continuity artifacts:
 ### Unified memory skill surface
 - `core_memory.tools.memory.execute`
 - `core_memory.tools.memory.search`
-- `core_memory.tools.memory.reason`
+- `core_memory.tools.memory.trace`
 
 These are the preferred tool-facing entry points for runtime retrieval/reasoning.
 
@@ -40,14 +40,10 @@ Endpoints:
 - `POST /v1/memory/session-flush`
 - `POST /v1/memory/classify-intent`
 - `POST /v1/memory/search`
-- `POST /v1/memory/reason`
 - `POST /v1/memory/trace`
 - `POST /v1/memory/execute`
 - `GET /v1/memory/continuity`
 - `GET /v1/metrics`
-
-Compatibility endpoint (deprecated; not a forward surface):
-- `GET /v1/memory/search-form`
 
 Canonical machine-readable contract:
 - `docs/contracts/http_api.v1.json`
@@ -58,10 +54,9 @@ Served by:
 - `core_memory.cli`
 
 Current canonical memory-related commands:
-- `core-memory memory form`
-- `core-memory memory search --typed ...`
+- `core-memory memory search --query ...`
+- `core-memory memory trace --query ...`
 - `core-memory memory execute --request ...`
-- `core-memory reason <query>`
 - `core-memory graph ...`
 - `core-memory metrics ...`
 
@@ -92,8 +87,8 @@ Transitional stub retained:
 
 These are useful but not the preferred first interface for contributors:
 - `core_memory.memory_skill.*` internals
-- `core_memory.tools.memory_search.*`
-- `core_memory.tools.memory_reason.memory_reason`
+- `core_memory.tools.memory_search.*` (legacy)
+- `core_memory.tools.memory_reason.memory_reason` (legacy)
 - retrieval internals in `core_memory/retrieval/*`
 
 ## Transitional / compatibility surfaces
