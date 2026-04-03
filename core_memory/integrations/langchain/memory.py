@@ -1,0 +1,108 @@
+"""LangChain BaseMemory implementation for Core Memory.
+
+Maps LangChain's memory protocol to Core Memory's causal memory system:
+- load_memory_variables() → continuity injection + optional search
+- save_context() → emit_turn_finalized (write path)
+- clear() → no-op (Core Memory never deletes, only archives)
+"""
+from __future__ import annotations
+
+import uuid
+from typing import Any
+
+try:
+    from langchain_core.memory import BaseMemory
+except ImportError:
+    raise ImportError(
+        "LangChain integration requires langchain-core. "
+        "Install with: pip install core-memory[langchain]"
+    )
+
+from core_memory.integrations.api import IntegrationContext, emit_turn_finalized
+from core_memory.write_pipeline.continuity_injection import load_continuity_injection
+
+
+class CoreMemory(BaseMemory):
+    """LangChain memory backed by Core Memory's causal bead system.
+
+    Injects rolling-window continuity context into the chain's prompt
+    and writes each turn back to Core Memory for future recall.
+
+    Args:
+        root: Path to memory root directory.
+        session_id: Session identifier for grouping turns.
+        memory_key: Key used in load_memory_variables output.
+        input_key: Key for user input in save_context.
+        output_key: Key for AI output in save_context.
+        max_items: Max continuity records to inject.
+        return_messages: Whether to return as message objects (not supported, returns str).
+    """
+
+    root: str = "."
+    session_id: str = "langchain-default"
+    memory_key: str = "memory"
+    input_key: str = "input"
+    output_key: str = "output"
+    max_items: int = 80
+    return_messages: bool = False
+    _turn_counter: int = 0
+
+    class Config:
+        arbitrary_types_allowed = True
+
+    @property
+    def memory_variables(self) -> list[str]:
+        return [self.memory_key]
+
+    def load_memory_variables(self, inputs: dict[str, Any] | None = None) -> dict[str, Any]:
+        """Load continuity context from Core Memory.
+
+        Returns a dict with {memory_key: str} containing the rolling-window
+        continuity injection text.
+        """
+        result = load_continuity_injection(self.root, max_items=self.max_items)
+        records = result.get("records") or []
+
+        if not records:
+            return {self.memory_key: ""}
+
+        lines = []
+        for r in records:
+            typ = r.get("type", "")
+            title = r.get("title", "")
+            summary = " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", ""))
+            lines.append(f"[{typ}] {title}: {summary}")
+
+        return {self.memory_key: "\n".join(lines)}
+
+    def save_context(self, inputs: dict[str, Any], outputs: dict[str, str]) -> None:
+        """Write the completed turn to Core Memory."""
+        user_query = str(inputs.get(self.input_key) or inputs.get("question") or "")
+        assistant_final = str(outputs.get(self.output_key) or outputs.get("answer") or "")
+
+        if not user_query and not assistant_final:
+            return
+
+        self._turn_counter += 1
+        turn_id = f"lc-turn-{self._turn_counter}-{uuid.uuid4().hex[:6]}"
+
+        ictx = IntegrationContext(
+            framework="langchain",
+            source="langchain_memory",
+            adapter_kind="memory",
+            adapter_status="active",
+        )
+
+        emit_turn_finalized(
+            root=self.root,
+            session_id=self.session_id,
+            turn_id=turn_id,
+            transaction_id=f"tx-{turn_id}",
+            user_query=user_query,
+            assistant_final=assistant_final,
+            metadata=ictx.to_metadata(),
+        )
+
+    def clear(self) -> None:
+        """No-op. Core Memory uses archival, not deletion."""
+        pass

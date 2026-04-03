@@ -11,7 +11,8 @@ Canonical contributor docs:
 - docs/public_surface.md
 """
 
-from .persistence.store import MemoryStore, DEFAULT_ROOT
+from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError, VERSION
+from .persistence.backend import StorageBackend, JsonFileBackend, SqliteBackend, create_backend
 from .schema.models import (
     Bead,
     BeadType,
@@ -24,11 +25,17 @@ from .schema.models import (
     Event,
 )
 
-__version__ = "1.0.1"
+__version__ = VERSION
 
 __all__ = [
     "MemoryStore",
     "DEFAULT_ROOT",
+    "DiagnosticError",
+    "VERSION",
+    "StorageBackend",
+    "JsonFileBackend",
+    "SqliteBackend",
+    "create_backend",
     "Bead",
     "BeadType",
     "Scope",

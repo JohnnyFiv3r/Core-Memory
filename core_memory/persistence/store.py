@@ -33,6 +33,15 @@ from ..policy.promotion import compute_promotion_score, compute_adaptive_thresho
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "."
+VERSION = "1.1.0"
+
+
+class DiagnosticError(Exception):
+    """Raised with recovery instructions when a persistence file is corrupt."""
+
+    def __init__(self, message: str, recovery: str):
+        self.recovery = recovery
+        super().__init__(f"{message}\n  Recovery: {recovery}")
 BEADS_DIR = ".beads"
 TURNS_DIR = ".turns"
 EVENTS_DIR = ".beads/events"
@@ -61,12 +70,26 @@ class MemoryStore:
         memory.consolidate(session_id="chat-123")
     """
     
-    def __init__(self, root: str = DEFAULT_ROOT):
-        """Initialize MemoryStore at the given root directory."""
+    def __init__(self, root: str = DEFAULT_ROOT, backend: str = "json", tenant_id: str | None = None):
+        """Initialize MemoryStore at the given root directory.
+
+        Args:
+            root: Root directory for memory storage.
+            backend: Storage backend - "json" (default) or "sqlite".
+                     Can also be set via CORE_MEMORY_BACKEND env var.
+            tenant_id: Optional tenant ID for multi-tenant isolation.
+                       Each tenant gets its own subtree under .beads/tenants/{tenant_id}/.
+        """
         self.root = Path(root)
-        self.beads_dir = self.root / BEADS_DIR
-        self.turns_dir = self.root / TURNS_DIR
-        self.metrics_state_file = self.root / ".beads" / "events" / "metrics-state.json"
+        self.tenant_id = tenant_id
+
+        if tenant_id:
+            self.beads_dir = self.root / BEADS_DIR / "tenants" / tenant_id
+            self.turns_dir = self.root / TURNS_DIR / "tenants" / tenant_id
+        else:
+            self.beads_dir = self.root / BEADS_DIR
+            self.turns_dir = self.root / TURNS_DIR
+        self.metrics_state_file = self.beads_dir / "events" / "metrics-state.json"
 
         # Per-add association controls (fast derived links)
         self.associate_on_add = os.environ.get("CORE_MEMORY_ASSOCIATE_ON_ADD", "1") != "0"
@@ -92,7 +115,11 @@ class MemoryStore:
         # Ensure directories exist
         self.beads_dir.mkdir(parents=True, exist_ok=True)
         self.turns_dir.mkdir(parents=True, exist_ok=True)
-        
+
+        # Storage backend (json default, sqlite opt-in)
+        from ..persistence.backend import create_backend
+        self._backend = create_backend(self.beads_dir, backend=backend)
+
         # Initialize index if needed
         self._init_index()
     
@@ -123,9 +150,20 @@ class MemoryStore:
                 })
     
     def _read_json(self, path: Path) -> dict:
-        """Read a JSON file."""
-        with open(path, 'r') as f:
-            return json.load(f)
+        """Read a JSON file. Raises DiagnosticError with recovery steps on corruption."""
+        try:
+            with open(path, 'r') as f:
+                return json.load(f)
+        except json.JSONDecodeError as exc:
+            raise DiagnosticError(
+                f"Corrupt JSON file: {path} ({exc})",
+                recovery=(
+                    f"1. Back up the corrupt file: cp '{path}' '{path}.bak'\n"
+                    f"  2. Rebuild from session authority: "
+                    f"python -c \"from core_memory import MemoryStore; MemoryStore('{self.root}').rebuild_index_projection_from_sessions()\"\n"
+                    f"  3. If rebuild fails, delete '{path}' and re-initialize."
+                ),
+            ) from exc
     
     def _write_json(self, path: Path, data: dict):
         """Write JSON atomically."""

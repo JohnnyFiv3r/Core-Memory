@@ -831,6 +831,8 @@ def memory_reason(
     low_quality = primary_q < float(QUALITY_THRESHOLD_LONG)
 
     used_retry = False
+    # Preserve the detected intent label: for causal queries, even if we fall back to
+    # the "remember" planner for better results, the selected intent stays "why".
     chosen_route = primary_route
     causal_query = bool(intent_meta.get("causal_intent"))
     retry = {"ok": False}
@@ -839,7 +841,7 @@ def memory_reason(
     if no_hits or low_quality:
         retry_route = hint_route if hint_route in planners else "remember"
         if retry_route == primary_route:
-            retry_route = "remember"
+            retry_route = "remember" if primary_route != "remember" else ""
         retry = planners.get(retry_route, _plan_remember)(store, root_p, retrieval_query, k) if retry_route else {"ok": False}
         if retry_route and retry.get("ok"):
             retry_q = _quality_score(retry)
@@ -851,7 +853,9 @@ def memory_reason(
             if should_take:
                 primary = retry
                 primary_q = retry_q
-                chosen_route = retry_route
+                # For causal queries, keep the "why" label even when using remember planner
+                if not causal_query:
+                    chosen_route = retry_route
             used_retry = True
 
     # Structural grounding constraint for causal queries.

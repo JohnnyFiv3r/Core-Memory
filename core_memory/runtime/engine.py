@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .live_session import read_live_session_beads
+from datetime import datetime, timezone
 from ..association.crawler_contract import build_crawler_context, merge_crawler_updates_for_flush, _crawler_updates_log_path
 from .association_pass import run_association_pass
 from ..write_pipeline.continuity_injection import load_continuity_injection
@@ -85,150 +86,44 @@ def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
     return out
 
 
-def _latest_session_bead_id(root: str, session_id: str) -> str | None:
-    s = MemoryStore(root=root)
-    idx = s._read_json(Path(root) / ".beads" / "index.json")
-    latest = None
-    latest_ts = ""
-    for bid, bead in (idx.get("beads") or {}).items():
-        if str((bead or {}).get("session_id") or "") != str(session_id):
-            continue
-        ts = str((bead or {}).get("created_at") or "")
-        if ts >= latest_ts:
-            latest_ts = ts
-            latest = str(bid)
-    return latest
-
-
-def _build_narrative_fields(user_query: str, assistant_final: str) -> tuple[str, list[str], str]:
-    uq = str(user_query or "").strip()
-    af = str(assistant_final or "").strip()
-    detail = (af or uq or "").strip()[:1200]
-
-    # Build compact sentence candidates.
-    sentences = [s.strip() for s in re.split(r"[\n\.!?]+", detail) if s.strip()]
-    first = (sentences[0] if sentences else (af or uq or "assistant turn")).strip()
-
-    # Prefer causal headline when available.
-    causal_cues = ["because", "due to", "so that", "to avoid", "therefore", "which enabled", "enabled", "caused", "blocked", "unblocked", "refined"]
-    causal_line = ""
-    for s in sentences[:6]:
-        low = s.lower()
-        if any(c in low for c in causal_cues):
-            causal_line = s
-            break
-
-    title_src = causal_line or first
-    title_src = re.sub(r"^\s*\*+\s*", "", title_src)
-    title = title_src[:160] if title_src else "assistant turn"
-
-    summary: list[str] = []
-    if first:
-        summary.append(first[:220])  # what changed / decision
-    if causal_line and causal_line != first:
-        summary.append(causal_line[:220])  # why
-    # outcome/impact hint
-    for s in sentences[1:8]:
-        low = s.lower()
-        if any(k in low for k in ["result", "outcome", "completed", "resolved", "now", "ready", "shipped", "verified"]):
-            if s[:220] not in summary:
-                summary.append(s[:220])
-            break
-    if not summary and detail:
-        summary = [detail[:220]]
-
-    # Keep compact + deterministic
-    deduped: list[str] = []
-    seen = set()
-    for s in summary:
-        k = s.strip().lower()
-        if not k or k in seen:
-            continue
-        seen.add(k)
-        deduped.append(s.strip())
-    return title, deduped[:3], detail
+def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
+    user_query = str(req.get("user_query") or "").strip()
+    assistant_final = str(req.get("assistant_final") or "").strip()
+    title = (user_query or assistant_final or "Turn memory").splitlines()[0][:160]
+    summary = (user_query or assistant_final or "turn memory")
+    # Extract a "because" reason from the user query for promotion quality gate
+    because = [user_query[:240]] if user_query else []
+    return {
+        "beads_create": [
+            {
+                "type": _infer_semantic_bead_type(user_query, assistant_final),
+                "title": title or "Turn memory",
+                "summary": [summary[:240]],
+                "because": because,
+                "source_turn_ids": [str(req.get("turn_id") or "")],
+                "tags": ["crawler_reviewed", "turn_finalized"],
+                "detail": assistant_final[:1200] if assistant_final else summary[:1200],
+            }
+        ]
+    }
 
 
 def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
-    """Repair required turn-row fields after hook/crawler mutations.
-
-    This is adapter-safe (OpenClaw/PydanticAI): it never hard-fails hooks;
-    it only fills missing critical fields.
-    """
-    out = dict(row or {})
-    uq = str(req.get("user_query") or "")
-    af = str(req.get("assistant_final") or "")
-    title, summary, detail = _build_narrative_fields(uq, af)
-    retrieval_eligible = not is_runtime_meta_chatter(user_query=uq, assistant_final=af)
-
-    out.setdefault("type", _infer_semantic_bead_type(uq, af))
-    out["title"] = str(out.get("title") or title or "assistant turn")[:160]
-
-    existing_summary = out.get("summary")
-    if not isinstance(existing_summary, list) or not [str(x).strip() for x in existing_summary if str(x).strip()]:
-        out["summary"] = summary
-
-    if not str(out.get("detail") or "").strip():
-        out["detail"] = detail
-
-    if not isinstance(out.get("source_turn_ids"), list) or not out.get("source_turn_ids"):
-        out["source_turn_ids"] = [str(req.get("turn_id") or "")]
-
-    md = req.get("metadata") or {}
-    if out.get("turn_index") is None:
-        out["turn_index"] = int(md.get("turn_index") or 0) or None
-    if out.get("prev_bead_id") is None:
-        out["prev_bead_id"] = _latest_session_bead_id(root=root, session_id=str(req.get("session_id") or ""))
-
-    # Preserve/repair retrieval enrichment fields
-    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", retrieval_eligible))
-    if out.get("retrieval_eligible"):
-        if not str(out.get("retrieval_title") or "").strip():
-            out["retrieval_title"] = str(out.get("title") or title)[:160]
-        rf = out.get("retrieval_facts")
-        if not isinstance(rf, list) or not [str(x).strip() for x in rf if str(x).strip()]:
-            out["retrieval_facts"] = (summary[:2] if summary else ([detail[:240]] if detail else []))
-
-    # Ensure because list shape (for promotion quality gate)
-    because = out.get("because")
-    if because is None:
-        because = [uq[:240]] if uq.strip() else []
-    if not isinstance(because, list):
-        because = [str(because)] if str(because).strip() else []
-    out["because"] = [str(x).strip() for x in because if str(x).strip()][:5]
-
-    tags = [str(x) for x in (out.get("tags") or []) if str(x)]
-    if "narrative_essence" not in tags:
-        tags.append("narrative_essence")
-    out["tags"] = tags[:15]
-
-    return enforce_bead_hygiene_contract(out)
-
-
-def _default_crawler_updates(root: str, req: dict[str, Any]) -> dict[str, Any]:
-    user_query = str(req.get("user_query") or "")
-    assistant_final = str(req.get("assistant_final") or "")
-    title, summary, detail = _build_narrative_fields(user_query, assistant_final)
-
-    # Thin-by-default for runtime/meta chatter; richer turns can be upgraded by crawler/hygiene.
-    retrieval_eligible = not is_runtime_meta_chatter(user_query=user_query, assistant_final=assistant_final)
-
-    row = {
-        "type": _infer_semantic_bead_type(user_query, assistant_final),
-        "title": title or "assistant turn",
-        "summary": summary,
-        "because": ([user_query[:240]] if user_query.strip() else []),
-        "source_turn_ids": [str(req.get("turn_id") or "")],
-        "turn_index": int((req.get("metadata") or {}).get("turn_index") or 0) or None,
-        "prev_bead_id": _latest_session_bead_id(root=root, session_id=str(req.get("session_id") or "")),
-        "tags": ["crawler_reviewed", "turn_finalized", "narrative_essence"],
-        "detail": (assistant_final[:1200] if assistant_final else detail),
-        "retrieval_eligible": bool(retrieval_eligible),
-        "retrieval_title": (title[:160] if retrieval_eligible else None),
-        "retrieval_facts": (summary[:2] if retrieval_eligible and summary else ([detail[:240]] if retrieval_eligible and detail else [])),
-    }
-    row = _enforce_turn_row_invariants(root, req, row)
-    return {"beads_create": [row]}
+    """Enforce per-turn bead row invariants: source_turn_ids, required fields."""
+    out = dict(row)
+    turn_id = str(req.get("turn_id") or "")
+    if turn_id:
+        src = [str(x) for x in (out.get("source_turn_ids") or []) if str(x).strip()]
+        if turn_id not in src:
+            src.append(turn_id)
+        out["source_turn_ids"] = src
+    if not out.get("type"):
+        user_query = str(req.get("user_query") or "")
+        assistant_final = str(req.get("assistant_final") or "")
+        out["type"] = _infer_semantic_bead_type(user_query, assistant_final)
+    if not out.get("tags"):
+        out["tags"] = ["crawler_reviewed", "turn_finalized"]
+    return out
 
 
 def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
@@ -249,32 +144,21 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
             break
 
     if not has_turn:
-        uq = str(req.get("user_query") or "")
-        af = str(req.get("assistant_final") or "")
-        title, summary, detail = _build_narrative_fields(uq, af)
-        retrieval_eligible = not is_runtime_meta_chatter(
-            user_query=uq,
-            assistant_final=af,
-        )
+        user_query = str(req.get("user_query") or "").strip()
+        assistant_final = str(req.get("assistant_final") or "").strip()
+        title = (user_query or assistant_final or "Turn memory").splitlines()[0][:160]
+        summary = (user_query or assistant_final or "turn memory")
+        because = [user_query[:240]] if user_query else []
         rows.append(
-            _enforce_turn_row_invariants(
-                root,
-                req,
-                {
-                    "type": _infer_semantic_bead_type(uq, af),
-                    "title": title or "assistant turn",
-                    "summary": summary,
-                    "because": ([uq[:240]] if uq.strip() else []),
-                    "source_turn_ids": [turn_id],
-                    "turn_index": int((req.get("metadata") or {}).get("turn_index") or 0) or None,
-                    "prev_bead_id": _latest_session_bead_id(root=root, session_id=str(req.get("session_id") or "")),
-                    "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine", "narrative_essence"],
-                    "detail": (af[:1200] if af else detail),
-                    "retrieval_eligible": bool(retrieval_eligible),
-                    "retrieval_title": (title[:160] if retrieval_eligible else None),
-                    "retrieval_facts": (summary[:2] if retrieval_eligible and summary else ([detail[:240]] if retrieval_eligible and detail else [])),
-                },
-            )
+            {
+                "type": _infer_semantic_bead_type(user_query, assistant_final),
+                "title": title or "Turn memory",
+                "summary": [summary[:240]],
+                "because": because,
+                "source_turn_ids": [turn_id],
+                "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine"],
+                "detail": assistant_final[:1200] if assistant_final else summary[:1200],
+            }
         )
 
     out[key] = rows
@@ -282,52 +166,56 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
 
 
 def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: list[str]) -> int:
-    """Promote association_preview candidates to queued association appends for flush commit."""
+    """Promote association_preview candidates from newly created beads to the side log.
+
+    Reads the index for session beads that have association_preview entries,
+    and queues them as association_append entries so they commit at flush.
+    """
     store = MemoryStore(root=root)
     idx = store._read_json(Path(root) / ".beads" / "index.json")
     beads = idx.get("beads") or {}
+    visible = set(visible_bead_ids)
     log_path = _crawler_updates_log_path(root, session_id)
     now = datetime.now(timezone.utc).isoformat()
 
+    # Collect existing association keys to avoid duplicates
     existing_keys: set[tuple[str, str]] = set()
     for a in (idx.get("associations") or []):
-        src = str(a.get("source_bead") or a.get("source_bead_id") or "")
-        tgt = str(a.get("target_bead") or a.get("target_bead_id") or "")
+        src = str(a.get("source_bead") or "")
+        tgt = str(a.get("target_bead") or "")
         if src and tgt:
             existing_keys.add((src, tgt))
 
-    visible = set([str(x) for x in (visible_bead_ids or []) if str(x)])
     queued = 0
     for bid, bead in beads.items():
-        if str((bead or {}).get("session_id") or "") != str(session_id):
+        if str(bead.get("session_id") or "") != session_id:
             continue
-        if visible and str(bid) not in visible:
-            continue
-        previews = (bead or {}).get("association_preview") or []
+        previews = bead.get("association_preview") or []
         for preview in previews:
-            target_id = str((preview or {}).get("bead_id") or "")
+            target_id = str(preview.get("bead_id") or "")
             if not target_id or target_id not in beads:
                 continue
-            if (str(bid), target_id) in existing_keys or (target_id, str(bid)) in existing_keys:
+            if (bid, target_id) in existing_keys or (target_id, bid) in existing_keys:
                 continue
-            rel = str((preview or {}).get("relationship") or "related_to")
+            rel = str(preview.get("relationship") or "related_to")
             append_jsonl(
                 log_path,
                 {
                     "schema": "openclaw.memory.crawler_update.v1",
                     "kind": "association_append",
-                    "session_id": str(session_id),
+                    "session_id": session_id,
                     "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
-                    "source_bead": str(bid),
+                    "source_bead": bid,
                     "target_bead": target_id,
                     "relationship": rel,
                     "edge_class": "preview_promoted",
-                    "confidence": float((preview or {}).get("score") or 0.0),
+                    "confidence": preview.get("score", 0),
                     "created_at": now,
                 },
             )
-            existing_keys.add((str(bid), target_id))
+            existing_keys.add((bid, target_id))
             queued += 1
+
     return queued
 
 
@@ -461,7 +349,7 @@ def process_turn_finalized(
     md = req.get("metadata") or {}
     reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
     if not isinstance(reviewed_updates, dict) or not reviewed_updates:
-        reviewed_updates = _default_crawler_updates(root, req)
+        reviewed_updates = _default_crawler_updates(req)
     reviewed_updates = _ensure_turn_creation_update(root, req, reviewed_updates)
 
     crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
@@ -475,11 +363,13 @@ def process_turn_finalized(
         visible_bead_ids=visible_ids,
     )
 
-    # Recompute visibility after association pass may have created/updated beads.
+    # Recompute visible IDs after association pass created new beads.
     session_visible_after = _session_visible_bead_ids(root=root, session_id=req["session_id"])
-    visible_ids = sorted(set(visible_ids + session_visible_after))
+    visible_ids = sorted(set(crawler_visible + session_visible_after))
 
-    # Promote store-written association previews into queued association appends for flush commit.
+    # Infer associations from store's association_preview candidates.
+    # The store writes preview candidates when a bead is created; promote
+    # them to queued associations so they commit at flush.
     preview_queued = _queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
 
     # Canonical per-turn state decision pass for all visible session beads.

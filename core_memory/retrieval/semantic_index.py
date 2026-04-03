@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -10,6 +11,9 @@ from typing import Any
 from .visible_corpus import build_visible_corpus
 from .lifecycle import enqueue_semantic_rebuild
 from .normalize import tokenize
+
+logger = logging.getLogger(__name__)
+_faiss_warning_emitted = False
 
 
 def _now() -> str:
@@ -207,8 +211,17 @@ def build_semantic_index(root: Path) -> dict:
             vecs = _hash_vectors(texts, dim=256)
             backend = "faiss-hash"
         else:
-            vecs = _provider_vectors(texts, provider=provider, model=model)
-            backend = f"faiss-{provider}"
+            try:
+                vecs = _provider_vectors(texts, provider=provider, model=model)
+                backend = f"faiss-{provider}"
+            except Exception as exc:
+                logger.warning(
+                    "core-memory: embedding provider '%s' unavailable (%s). "
+                    "Falling back to lexical search. To fix: set CORE_MEMORY_EMBEDDINGS_PROVIDER=hash "
+                    "or install the provider SDK (pip install core-memory[openai]).",
+                    provider, exc,
+                )
+                raise
 
         dim = int(vecs.shape[1]) if len(texts) else 256
         idx = faiss.IndexFlatIP(dim)
@@ -216,6 +229,15 @@ def build_semantic_index(root: Path) -> dict:
             idx.add(vecs)
         faiss_file.parent.mkdir(parents=True, exist_ok=True)
         faiss.write_index(idx, str(faiss_file))
+    except ImportError:
+        global _faiss_warning_emitted
+        if not _faiss_warning_emitted:
+            logger.warning(
+                "core-memory: faiss-cpu and/or numpy not installed. Semantic search will use lexical fallback. "
+                "Install with: pip install core-memory[semantic]"
+            )
+            _faiss_warning_emitted = True
+        backend = "lexical"
     except Exception:
         backend = "lexical"
         dim = 0
@@ -380,7 +402,17 @@ def semantic_lookup(root: Path, query: str, k: int = 8) -> dict:
                 "stale_age_ms": stale_age_ms,
                 "results": out,
             }
-        except Exception:
+        except ImportError:
+            global _faiss_warning_emitted
+            if not _faiss_warning_emitted:
+                logger.warning(
+                    "core-memory: faiss-cpu/numpy not available for semantic lookup. "
+                    "Install with: pip install core-memory[semantic]"
+                )
+                _faiss_warning_emitted = True
+            warnings.append("semantic_backend_query_failed_lexical_fallback")
+        except Exception as exc:
+            logger.debug("core-memory: semantic lookup failed, using lexical fallback: %s", exc)
             warnings.append("semantic_backend_query_failed_lexical_fallback")
 
     return {

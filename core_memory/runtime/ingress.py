@@ -132,9 +132,10 @@ def maybe_emit_finalize_memory_event(
     )
     envelope.finalize_hashes(full_text_override=full_text if not store_full_text else None)
 
-    if prior and prior.get("status") == "done":
-        if prior.get("envelope_hash") == envelope.envelope_hash:
+    if prior and prior.get("envelope_hash") == envelope.envelope_hash:
+        if prior.get("status") in ("done", "pending"):
             return {"emitted": False, "reason": "idempotent_done"}
+    if prior and prior.get("status") == "done":
         previous_envelope_hash = str(prior.get("envelope_hash") or "")
         envelope.metadata = dict(envelope.metadata or {})
         if previous_envelope_hash:
