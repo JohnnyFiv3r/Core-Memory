@@ -6,6 +6,10 @@ from typing import Any
 from .config import Neo4jConfig
 
 
+CM_OWNER_KEY = "cm_owner"
+CM_OWNER_VALUE = "core_memory_shadow_v1"
+
+
 class Neo4jDependencyError(RuntimeError):
     pass
 
@@ -112,6 +116,7 @@ class Neo4jClient:
         nodes: list[dict[str, Any]],
         edges: list[dict[str, Any]],
         prune: bool = False,
+        keep_assoc_ids: list[str] | None = None,
         scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not self.config.enabled:
@@ -158,6 +163,7 @@ class Neo4jClient:
             with driver.session(database=self.config.database) as session:
                 for node in list(nodes or []):
                     props = dict(node.get("properties") or {})
+                    props.setdefault(CM_OWNER_KEY, CM_OWNER_VALUE)
                     bead_id = str(props.get("bead_id") or "").strip()
                     if not bead_id:
                         continue
@@ -179,6 +185,7 @@ class Neo4jClient:
 
                 for edge in list(edges or []):
                     props = dict(edge.get("properties") or {})
+                    props.setdefault(CM_OWNER_KEY, CM_OWNER_VALUE)
                     assoc_id = str(props.get("association_id") or "").strip()
                     src = str(edge.get("start_bead_id") or "").strip()
                     dst = str(edge.get("end_bead_id") or "").strip()
@@ -206,11 +213,19 @@ class Neo4jClient:
                     )
                     keep_assoc_ids = sorted(
                         {
-                            str((e.get("properties") or {}).get("association_id") or "").strip()
-                            for e in list(edges or [])
-                            if str((e.get("properties") or {}).get("association_id") or "").strip()
+                            str(x or "").strip()
+                            for x in (keep_assoc_ids or [])
+                            if str(x or "").strip()
                         }
                     )
+                    if not keep_assoc_ids:
+                        keep_assoc_ids = sorted(
+                            {
+                                str((e.get("properties") or {}).get("association_id") or "").strip()
+                                for e in list(edges or [])
+                                if str((e.get("properties") or {}).get("association_id") or "").strip()
+                            }
+                        )
 
                     scope_dict = dict(scope or {})
                     sid = str(scope_dict.get("session_id") or "").strip()
@@ -269,23 +284,26 @@ class Neo4jClient:
         if session_id:
             e1 = session.run(
                 "MATCH (s:Bead {session_id: $sid})-[r:ASSOCIATED]->() "
-                "WHERE NOT r.association_id IN $keep_assoc_ids "
+                "WHERE r.cm_owner = $owner AND NOT r.association_id IN $keep_assoc_ids "
                 "DELETE r RETURN count(r) AS n",
                 sid=session_id,
+                owner=CM_OWNER_VALUE,
                 keep_assoc_ids=list(keep_assoc_ids),
             ).single()
             e2 = session.run(
                 "MATCH ()-[r:ASSOCIATED]->(t:Bead {session_id: $sid}) "
-                "WHERE NOT r.association_id IN $keep_assoc_ids "
+                "WHERE r.cm_owner = $owner AND NOT r.association_id IN $keep_assoc_ids "
                 "DELETE r RETURN count(r) AS n",
                 sid=session_id,
+                owner=CM_OWNER_VALUE,
                 keep_assoc_ids=list(keep_assoc_ids),
             ).single()
             n = session.run(
                 "MATCH (b:Bead {session_id: $sid}) "
-                "WHERE NOT b.bead_id IN $keep_bead_ids "
+                "WHERE b.cm_owner = $owner AND NOT b.bead_id IN $keep_bead_ids "
                 "DETACH DELETE b RETURN count(b) AS n",
                 sid=session_id,
+                owner=CM_OWNER_VALUE,
                 keep_bead_ids=list(keep_bead_ids),
             ).single()
             edges_pruned += int((e1 or {}).get("n") or 0) + int((e2 or {}).get("n") or 0)
@@ -295,16 +313,18 @@ class Neo4jClient:
         if requested_bead_ids:
             e = session.run(
                 "MATCH (s:Bead)-[r:ASSOCIATED]->(t:Bead) "
-                "WHERE (s.bead_id IN $scope_bead_ids OR t.bead_id IN $scope_bead_ids) "
+                "WHERE r.cm_owner = $owner AND (s.bead_id IN $scope_bead_ids OR t.bead_id IN $scope_bead_ids) "
                 "AND NOT r.association_id IN $keep_assoc_ids "
                 "DELETE r RETURN count(r) AS n",
+                owner=CM_OWNER_VALUE,
                 scope_bead_ids=list(requested_bead_ids),
                 keep_assoc_ids=list(keep_assoc_ids),
             ).single()
             n = session.run(
                 "MATCH (b:Bead) "
-                "WHERE b.bead_id IN $scope_bead_ids AND NOT b.bead_id IN $keep_bead_ids "
+                "WHERE b.cm_owner = $owner AND b.bead_id IN $scope_bead_ids AND NOT b.bead_id IN $keep_bead_ids "
                 "DETACH DELETE b RETURN count(b) AS n",
+                owner=CM_OWNER_VALUE,
                 scope_bead_ids=list(requested_bead_ids),
                 keep_bead_ids=list(keep_bead_ids),
             ).single()
@@ -314,14 +334,16 @@ class Neo4jClient:
 
         e = session.run(
             "MATCH ()-[r:ASSOCIATED]->() "
-            "WHERE NOT r.association_id IN $keep_assoc_ids "
+            "WHERE r.cm_owner = $owner AND NOT r.association_id IN $keep_assoc_ids "
             "DELETE r RETURN count(r) AS n",
+            owner=CM_OWNER_VALUE,
             keep_assoc_ids=list(keep_assoc_ids),
         ).single()
         n = session.run(
             "MATCH (b:Bead) "
-            "WHERE NOT b.bead_id IN $keep_bead_ids "
+            "WHERE b.cm_owner = $owner AND NOT b.bead_id IN $keep_bead_ids "
             "DETACH DELETE b RETURN count(b) AS n",
+            owner=CM_OWNER_VALUE,
             keep_bead_ids=list(keep_bead_ids),
         ).single()
         edges_pruned += int((e or {}).get("n") or 0)

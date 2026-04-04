@@ -115,6 +115,7 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
         self.assertGreater(int(out.get("edges_pruned") or 0), 0)
         self.assertGreater(int(out.get("nodes_pruned") or 0), 0)
         sql = "\n".join(q for q, _ in sink if q not in {"__session__", "__close__"})
+        self.assertIn("cm_owner", sql)
         self.assertIn("DELETE r RETURN count(r) AS n", sql)
         self.assertIn("DETACH DELETE b RETURN count(b) AS n", sql)
 

@@ -74,5 +74,11 @@ Common error codes:
 - `neo4j_connection_failed`
 - `neo4j_sync_failed`
 
+## Ownership marker
+Rows written by this adapter include:
+- node/relationship property: `cm_owner=core_memory_shadow_v1`
+
+Prune operations are constrained to this marker.
+
 ## Scope guardrail
 Neo4j is projection-only. It is not a canonical source for write or retrieval authority.

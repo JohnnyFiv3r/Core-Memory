@@ -66,3 +66,4 @@ core-memory --root ./memory graph neo4j-sync --session-id s1 --prune
 ```
 
 `--prune` removes shadow-graph entities outside the current sync scope in Neo4j. It does **not** mutate local Core Memory state.
+Prune is constrained to rows marked with `cm_owner=core_memory_shadow_v1`.

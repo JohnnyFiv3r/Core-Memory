@@ -28,6 +28,7 @@ def sync_to_neo4j(
     """Projection-only sync surface (idempotent upsert path)."""
     cfg = config or Neo4jConfig.from_env()
     projection = _collect_projection(root=root, session_id=session_id, bead_ids=bead_ids)
+    prune_keep_assoc_ids = _collect_prune_keep_assoc_ids(root=root, session_id=session_id, bead_ids=bead_ids)
     projection, dedupe_warnings = _dedupe_projection(projection)
 
     if not cfg.enabled and not dry_run:
@@ -67,6 +68,7 @@ def sync_to_neo4j(
             nodes=list(projection.get("nodes") or []),
             edges=list(projection.get("edges") or []),
             prune=bool(prune),
+            keep_assoc_ids=list(prune_keep_assoc_ids),
             scope={
                 "session_id": session_id,
                 "bead_ids": [str(x) for x in (bead_ids or []) if str(x).strip()],
@@ -131,6 +133,50 @@ def _collect_projection(root: str, *, session_id: str | None, bead_ids: list[str
             edges.append(edge)
 
     return {"nodes": nodes, "edges": edges}
+
+
+def _collect_prune_keep_assoc_ids(root: str, *, session_id: str | None, bead_ids: list[str] | None) -> list[str]:
+    idx_file = Path(root) / ".beads" / "index.json"
+    if not idx_file.exists():
+        return []
+
+    try:
+        idx = json.loads(idx_file.read_text(encoding="utf-8"))
+    except Exception:
+        return []
+
+    beads = {str(k): dict(v) for k, v in ((idx.get("beads") or {}).items()) if isinstance(v, dict)}
+    bead_id_filter = {str(x) for x in (bead_ids or []) if str(x).strip()}
+
+    selected_bead_ids: set[str] = set()
+    for bid, bead in beads.items():
+        if bead_id_filter and bid not in bead_id_filter:
+            continue
+        if session_id and str(bead.get("session_id") or "") != str(session_id):
+            continue
+        selected_bead_ids.add(bid)
+
+    if not session_id and not bead_id_filter:
+        selected_bead_ids = set(beads.keys())
+
+    keep_ids: list[str] = []
+    seen: set[str] = set()
+    for assoc in list(idx.get("associations") or []):
+        if not isinstance(assoc, dict):
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
+        dst = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")
+        if selected_bead_ids and src not in selected_bead_ids and dst not in selected_bead_ids:
+            continue
+
+        edge = association_to_edge(assoc)
+        assoc_id = str((edge.get("properties") or {}).get("association_id") or "").strip()
+        if not assoc_id or assoc_id in seen:
+            continue
+        seen.add(assoc_id)
+        keep_ids.append(assoc_id)
+
+    return keep_ids
 
 
 def _dedupe_projection(projection: dict[str, list[dict[str, Any]]]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:

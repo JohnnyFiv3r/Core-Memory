@@ -70,9 +70,10 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
         }
         captured: dict = {}
 
-        def _fake_upsert(self, *, nodes, edges, prune=False, scope=None):
+        def _fake_upsert(self, *, nodes, edges, prune=False, keep_assoc_ids=None, scope=None):
             captured["nodes"] = list(nodes)
             captured["edges"] = list(edges)
+            captured["keep_assoc_ids"] = list(keep_assoc_ids or [])
             return {
                 "ok": True,
                 "database": "neo4j",
@@ -112,8 +113,9 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             MemoryStore(td)
             captured = {}
 
-            def _fake_upsert(self, *, nodes, edges, prune=False, scope=None):
+            def _fake_upsert(self, *, nodes, edges, prune=False, keep_assoc_ids=None, scope=None):
                 captured["prune"] = bool(prune)
+                captured["keep_assoc_ids"] = list(keep_assoc_ids or [])
                 return {
                     "ok": True,
                     "database": "neo4j",
@@ -132,6 +134,7 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             self.assertTrue(captured.get("prune"))
             self.assertEqual(3, int(out.get("nodes_pruned") or 0))
             self.assertEqual(4, int(out.get("edges_pruned") or 0))
+            self.assertIsInstance(captured.get("keep_assoc_ids"), list)
 
     def test_sync_failure_does_not_mutate_local_store(self):
         with tempfile.TemporaryDirectory() as td:
@@ -152,6 +155,38 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             after = idx_file.read_text(encoding="utf-8")
             self.assertFalse(out.get("ok"))
             self.assertEqual(before, after)
+
+    def test_scoped_prune_keeps_cross_scope_association_ids(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            a = s.add_bead(type="decision", title="s1", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b = s.add_bead(type="outcome", title="s2", summary=["y"], session_id="s2", source_turn_ids=["t2"])
+            assoc_id = s.link(source_id=a, target_id=b, relationship="supports", explanation="cross")
+
+            captured = {}
+
+            def _fake_upsert(self, *, nodes, edges, prune=False, keep_assoc_ids=None, scope=None):
+                captured["edges"] = list(edges)
+                captured["keep_assoc_ids"] = list(keep_assoc_ids or [])
+                return {
+                    "ok": True,
+                    "database": "neo4j",
+                    "nodes_upserted": len(nodes),
+                    "edges_upserted": len(edges),
+                    "nodes_pruned": 0,
+                    "edges_pruned": 0,
+                    "warnings": [],
+                    "errors": [],
+                }
+
+            with patch("core_memory.integrations.neo4j.sync.Neo4jClient.upsert_projection", new=_fake_upsert):
+                out = sync_to_neo4j(td, session_id="s1", prune=True, config=self._enabled_config(), dry_run=False)
+
+            self.assertTrue(out.get("ok"))
+            # Projection edges remain scoped (both endpoints required), so cross-session edge may be absent.
+            self.assertEqual(0, len(captured.get("edges") or []))
+            # But prune keep-set must preserve canonical cross-scope association ids.
+            self.assertIn(assoc_id, set(captured.get("keep_assoc_ids") or []))
 
 
 if __name__ == "__main__":

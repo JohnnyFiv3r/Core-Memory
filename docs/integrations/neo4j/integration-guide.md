@@ -45,6 +45,10 @@ It is not a canonical runtime dependency.
 - dry-run (`--dry-run`)
 - optional prune (`--prune`) scoped to selected sync scope
 
+### Prune safety boundary
+Prune only targets shadow-projected rows owned by Core Memory (`cm_owner=core_memory_shadow_v1`).
+It does not prune unrelated `:Bead` / `:ASSOCIATED` data that lacks this ownership marker.
+
 ## Failure isolation guarantees
 - Neo4j dependency/config/connection errors return explicit diagnostic payloads
 - local Core Memory data is not mutated by Neo4j sync operations
