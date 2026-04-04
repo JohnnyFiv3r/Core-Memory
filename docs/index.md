@@ -42,6 +42,7 @@ Use this page as the authoritative map of current docs.
 ## Contracts
 - [`contracts/http_api.v1.json`](contracts/http_api.v1.json)
 - [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
+- [`adapter_parity_matrix.md`](adapter_parity_matrix.md)
 
 ## Evaluation entrypoints
 - `../eval/memory_execute_eval.py`

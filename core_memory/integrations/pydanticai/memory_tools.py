@@ -55,6 +55,8 @@ CONTINUITY_EMPTY = ""
 def continuity_prompt(
     root: Optional[str] = None,
     max_items: int = 80,
+    session_id: Optional[str] = None,
+    ensure_session_start: bool = True,
 ) -> str:
     """Load the rolling-window continuity context as a system-prompt string.
 
@@ -63,7 +65,12 @@ def continuity_prompt(
     """
     root_final = _resolve_root(root)
     try:
-        ctx = load_continuity_injection(root_final, max_items=max_items)
+        ctx = load_continuity_injection(
+            root_final,
+            max_items=max_items,
+            session_id=str(session_id or "") or None,
+            ensure_session_start=bool(ensure_session_start and session_id),
+        )
     except Exception:
         logger.debug("continuity injection load failed; returning empty", exc_info=True)
         return CONTINUITY_EMPTY

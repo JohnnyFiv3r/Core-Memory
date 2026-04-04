@@ -10,7 +10,12 @@ from typing import Any
 
 from .live_session import read_live_session_beads
 from datetime import datetime, timezone
-from ..association.crawler_contract import build_crawler_context, merge_crawler_updates_for_flush, _crawler_updates_log_path
+from ..association.crawler_contract import (
+    build_crawler_context,
+    merge_crawler_updates,
+    merge_crawler_updates_for_flush,
+    _crawler_updates_log_path,
+)
 from .association_pass import run_association_pass
 from ..write_pipeline.continuity_injection import load_continuity_injection
 from .state import get_memory_pass, mark_memory_pass, try_claim_memory_pass
@@ -372,7 +377,7 @@ def process_turn_finalized(
     # them to queued associations and merge at the per-turn boundary.
     preview_queued = _queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
 
-    turn_merge = merge_crawler_updates_for_flush(root=root, session_id=req["session_id"])
+    turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
 
     # Canonical per-turn state decision pass for all visible session beads.
     decision_pass = run_session_decision_pass(

@@ -61,7 +61,14 @@ def _handle_trace(payload: dict[str, Any]) -> dict[str, Any]:
 def _handle_continuity(payload: dict[str, Any]) -> dict[str, Any]:
     root = _resolve_root(payload)
     max_items = int(payload.get("max_items", 80))
-    result = load_continuity_injection(root, max_items=max_items)
+    session_id = str(payload.get("session_id") or "").strip() or None
+    ensure_session_start = bool(payload.get("ensure_session_start", True))
+    result = load_continuity_injection(
+        root,
+        max_items=max_items,
+        session_id=session_id,
+        ensure_session_start=bool(ensure_session_start and session_id),
+    )
     fmt = str(payload.get("format", "json")).strip().lower()
     if fmt == "text":
         records = result.get("records") or []

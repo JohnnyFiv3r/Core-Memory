@@ -32,14 +32,14 @@ def _ensure_session_start_marker(workspace_root: str | Path, session_id: str) ->
                 return
 
         store.add_bead(
-            type="context",
-            title="Session start",
-            summary=["Session-start continuity boundary"],
+            type="lifecycle",
+            title="Session start boundary",
+            summary=["Session-start lifecycle boundary"],
             session_id=sid,
             source_turn_ids=[f"session-start:{sid}"],
             tags=["session_start", "lifecycle_boundary"],
             retrieval_eligible=False,
-            detail="Generated when continuity is requested with ensure_session_start enabled.",
+            detail="Lifecycle marker generated when continuity is requested with ensure_session_start enabled.",
         )
     finally:
         store.close()

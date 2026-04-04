@@ -318,15 +318,22 @@ async def memory_classify_intent(
 @app.get("/v1/memory/continuity")
 async def memory_continuity(
     root: Optional[str] = None,
+    session_id: Optional[str] = None,
     max_items: int = 80,
     format: str = "json",
+    ensure_session_start: bool = True,
     authorization: Optional[str] = Header(default=None),
     x_memory_token: Optional[str] = Header(default=None),
     x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
     resolved = _resolve_root(root, x_tenant_id)
-    result = load_continuity_injection(resolved, max_items=max(1, int(max_items)))
+    result = load_continuity_injection(
+        resolved,
+        max_items=max(1, int(max_items)),
+        session_id=str(session_id or "") or None,
+        ensure_session_start=bool(ensure_session_start and session_id),
+    )
     fmt = str(format).strip().lower()
     if fmt == "text":
         records = result.get("records") or []

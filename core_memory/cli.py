@@ -30,7 +30,7 @@ from pathlib import Path
 from .persistence.store import MemoryStore, DEFAULT_ROOT
 from .persistence.archive_index import rebuild_archive_index
 from .graph.api import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
-from .retrieval.semantic_index import build_semantic_index, semantic_lookup
+from .retrieval.semantic_index import build_semantic_index, semantic_lookup, semantic_doctor
 from .retrieval.tools.memory import (
     execute as memory_execute_tool,
     execute as memory_execute,
@@ -502,6 +502,7 @@ def main():
     graph_sub.add_parser("stats", help="Show graph edge/node stats")
     graph_sub.add_parser("decay", help="Run semantic edge decay pass")
     g_sem_build = graph_sub.add_parser("semantic-build", help="Build semantic lookup index")
+    graph_sub.add_parser("semantic-doctor", help="Show semantic mode/backend diagnostics")
     g_sem_lookup = graph_sub.add_parser("semantic-lookup", help="Semantic lookup by query")
     g_sem_lookup.add_argument("--query", required=True)
     g_sem_lookup.add_argument("--k", type=int, default=8)
@@ -976,6 +977,8 @@ def main():
             print(json.dumps(decay_semantic_edges(memory.root), indent=2))
         elif args.graph_cmd == "semantic-build":
             print(json.dumps(build_semantic_index(memory.root), indent=2))
+        elif args.graph_cmd == "semantic-doctor":
+            print(json.dumps(semantic_doctor(memory.root), indent=2))
         elif args.graph_cmd == "semantic-lookup":
             print(json.dumps(semantic_lookup(memory.root, query=args.query, k=args.k), indent=2))
         elif args.graph_cmd == "traverse":

@@ -139,6 +139,23 @@ class TestMemorySearchTool(unittest.TestCase):
             self.assertTrue(rows)
             self.assertTrue(all(str(r.get("type") or "") == "decision" for r in rows))
 
+    def test_scope_alias_is_applied(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            s = MemoryStore(root)
+            s.add_bead(type="decision", title="D", summary=["scope test"], scope="project", session_id="main", source_turn_ids=["t1"])
+            s.add_bead(type="decision", title="E", summary=["scope test"], scope="global", session_id="main", source_turn_ids=["t2"])
+
+            tool = memory_search_tool(root=root)
+            with patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
+                result = json.loads(tool("scope test", scope="project"))
+
+            rows = result.get("results") or []
+            self.assertTrue(rows)
+            titles = {str(r.get("title") or "") for r in rows}
+            self.assertIn("D", titles)
+            self.assertNotIn("E", titles)
+
 
 class TestMemoryTraceTool(unittest.TestCase):
     def test_returns_callable(self):

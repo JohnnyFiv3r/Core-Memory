@@ -17,7 +17,7 @@ Status: Canonical
 - `core_memory.integrations.api.hydrate_bead_sources(root=".", bead_ids=[...], turn_ids=[...], include_tools=False, before=0, after=0)`
 
 ## PydanticAI memory tool factories
-- `continuity_prompt(root=".")`
+- `continuity_prompt(root=".", session_id=None, ensure_session_start=True)`
 - `memory_search_tool(root=".")`
 - `memory_trace_tool(root=".")`
 - `memory_execute_tool(root=".")`
@@ -37,8 +37,17 @@ Behavior:
 
 ## Primary runtime tool surfaces
 - `core_memory.retrieval.tools.memory.execute(request, root=".", explain=True)`
-- `core_memory.retrieval.tools.memory.search(form_submission, root=".", explain=True)`
+- `core_memory.retrieval.tools.memory.search(request, root=".", explain=True)`
 - `core_memory.retrieval.tools.memory.trace(query, root=".", k=8, ...)`
+
+### Search tool alias mapping
+`memory_search_tool(...)` keeps friendly aliases:
+- `type_filter` -> canonical `bead_types`
+- `scope` -> canonical `scope`
+
+### Tool payload shape
+The PydanticAI tool helpers return compact JSON payloads (not hydrated transcript bodies by default).
+Use explicit hydration helpers when full source payloads are required.
 
 ## Useful CLI/eval references
 - `core-memory memory execute --request ...`

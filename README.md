@@ -129,6 +129,7 @@ This is the fastest “I want to see it work” flow.
 ```bash
 core-memory --root ./memory setup init
 core-memory --root ./memory setup doctor
+core-memory --root ./memory graph semantic-doctor
 core-memory --root ./memory store add \
  --type decision \
  --title "Redis fix" \
