@@ -18,6 +18,7 @@ Status: Canonical
 
 ## PydanticAI memory tool factories
 - `continuity_prompt(root=".", session_id=None, ensure_session_start=True)`
+- `ensure_session_start(root=".", session_id=..., source="pydanticai", max_items=80)`
 - `memory_search_tool(root=".")`
 - `memory_trace_tool(root=".")`
 - `memory_execute_tool(root=".")`
@@ -48,6 +49,10 @@ Behavior:
 ### Tool payload shape
 The PydanticAI tool helpers return compact JSON payloads (not hydrated transcript bodies by default).
 Use explicit hydration helpers when full source payloads are required.
+
+### Session-start behavior
+- `ensure_session_start(...)` is the explicit adapter-owned session-start boundary.
+- `continuity_prompt(..., ensure_session_start=True)` invokes the explicit boundary helper first, then performs a pure continuity read.
 
 ## Useful CLI/eval references
 - `core-memory memory execute --request ...`

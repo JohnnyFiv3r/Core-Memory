@@ -31,3 +31,7 @@ Notes:
 ## Validation/eval surfaces
 - `eval/memory_execute_eval.py`
 - `tests/test_openclaw_read_bridge.py`
+
+## Read bridge lifecycle actions
+- `action=continuity` -> pure-read continuity payload
+- `action=session_start` -> explicit session-start lifecycle boundary write

@@ -71,11 +71,21 @@
       "errors": ["401 unauthorized"]
     },
     {
+      "method": "POST",
+      "path": "/v1/memory/session-start",
+      "authRequired": "conditional",
+      "requestSchema": "SessionStartRequest",
+      "requiredFields": ["session_id"],
+      "response": {"ok": "bool", "created": "bool", "bead_id": "string"},
+      "errors": ["401 unauthorized"]
+    },
+    {
       "method": "GET",
       "path": "/v1/memory/continuity",
       "authRequired": "conditional",
       "requestSchema": "query params",
       "requiredFields": [],
+      "notes": ["Pure-read continuity surface; does not create session_start implicitly"],
       "response": {"ok": "bool", "format": "string", "records": "array?", "text": "string?"},
       "errors": ["401 unauthorized"]
     }

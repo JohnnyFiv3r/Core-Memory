@@ -11,6 +11,7 @@ A surface is canonical only if it is both:
 
 ## Write ingress
 - `core_memory.runtime.engine.process_turn_finalized(...)` — canonical per-turn write boundary
+- `core_memory.runtime.engine.process_session_start(...)` — canonical session-start lifecycle boundary
 - `core_memory.runtime.engine.process_flush(...)` — canonical session-end flush boundary
 - `core_memory.integrations.api.emit_turn_finalized(...)` — ingress helper used by adapters that defer in-process turn handling
 
@@ -42,6 +43,12 @@ Hydration is explicit post-selection source recovery (turn/tool/adjacent payload
 It is not a replacement for retrieval planning.
 
 Deep recall is separate from canonical hydration.
+
+### Session-start vs continuity semantics
+- `session_start` is a first-class lifecycle write boundary and continuity snapshot bead.
+- `load_continuity_injection(...)` is a pure read helper over continuity authority surfaces.
+- Continuity reads must not implicitly create beads or mark semantic state dirty.
+- Adapters that support session start must invoke explicit adapter-owned boundary logic.
 
 ## Adapter entrypoints
 - OpenClaw bridge surfaces under `core_memory.integrations.openclaw.*`

@@ -9,6 +9,9 @@ Purpose: single answer to “what is real and supported today?”
 ### Finalized-turn ingestion (write path)
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
+### Session-start boundary (write path)
+- `core_memory.runtime.engine.process_session_start(...)`
+
 ### Canonical retrieval family (read/runtime path)
 - `core_memory.tools.memory.search`
 - `core_memory.tools.memory.trace`
@@ -18,6 +21,8 @@ Canonical retrieval story is exactly: **search → trace → execute**.
 
 ### Continuity surface
 - `core_memory.continuity_injection.load_continuity_injection(...)`
+
+Continuity reads are pure-read by contract (no implicit bead writes).
 
 Continuity authority order:
 1. `rolling-window.records.json`
@@ -46,6 +51,7 @@ Deep recall exists, but it is separate from canonical hydration.
 Served by `core_memory.integrations.http.server`:
 - `GET /healthz`
 - `POST /v1/memory/turn-finalized`
+- `POST /v1/memory/session-start`
 - `POST /v1/memory/session-flush`
 - `POST /v1/memory/classify-intent`
 - `POST /v1/memory/search`

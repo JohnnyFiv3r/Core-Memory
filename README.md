@@ -248,6 +248,12 @@ Minimum useful fields:
 - `user_query`
 - `assistant_final`
 
+Session lifecycle boundaries:
+
+- `POST /v1/memory/session-start` (explicit session-start snapshot boundary)
+- `POST /v1/memory/session-flush` (session-end flush boundary)
+- `GET /v1/memory/continuity` (pure-read continuity payload; no implicit writes)
+
 ### SpringAI runtime path
 
 Preferred single-call endpoint:

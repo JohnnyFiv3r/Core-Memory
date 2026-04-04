@@ -40,6 +40,9 @@ Runtime guard:
 Preferred unified runtime surface:
 - `core_memory.tools.memory.execute`
 
+Session-start boundary helper:
+- `ensure_session_start(root=..., session_id=...)`
+
 Optional direct surfaces:
 - `memory.search`
 - `memory.trace`
@@ -54,6 +57,10 @@ Design intent:
 - Beads answer: "what matters and why"
 - Hydrated turns answer: "what exactly happened"
 - Tool traces answer: "what evidence/work produced this"
+
+Continuity semantics:
+- `continuity_prompt(...)` is prompt-time continuity read context.
+- with `ensure_session_start=True`, it first calls explicit adapter-owned session-start boundary helper, then performs pure continuity read.
 
 ## Why this path is attractive
 - no HTTP bridge required

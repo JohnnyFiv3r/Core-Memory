@@ -24,7 +24,7 @@ Key methods:
 - `clear()` (session-end flush boundary)
 
 Behavior summary:
-- load: continuity injection text (+ optional session-start lifecycle marker)
+- load: explicit session-start boundary (`process_session_start`) then continuity injection text
 - save: canonical per-turn write boundary
 - clear: canonical session-end flush boundary
 
