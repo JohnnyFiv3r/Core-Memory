@@ -139,11 +139,18 @@ class TestAdapterParityMatrixContract(unittest.TestCase):
             self.assertEqual(200, r1.status_code)
 
             # session start continuity boundary
-            r2 = c.get(
+            r2 = c.post(
+                "/v1/memory/session-start",
+                json={"root": root, "session_id": session_id, "max_items": 10},
+            )
+            self.assertEqual(200, r2.status_code)
+            self.assertTrue(_has_session_start_marker(root, session_id))
+
+            r2b = c.get(
                 "/v1/memory/continuity",
                 params={"root": root, "session_id": session_id, "max_items": 10},
             )
-            self.assertEqual(200, r2.status_code)
+            self.assertEqual(200, r2b.status_code)
             self.assertTrue(_has_session_start_marker(root, session_id))
 
             # session flush boundary
@@ -183,7 +190,9 @@ class TestAdapterParityMatrixContract(unittest.TestCase):
             )
             self.assertTrue(out.get("ok"))
 
-            # session start + continuity
+            # explicit session-start + continuity read
+            ss = dispatch({"action": "session_start", "root": root, "session_id": session_id, "max_items": 10})
+            self.assertTrue(ss.get("ok"))
             c = dispatch({"action": "continuity", "root": root, "session_id": session_id, "max_items": 10})
             self.assertTrue(c.get("ok"))
             self.assertTrue(_has_session_start_marker(root, session_id))
@@ -211,6 +220,7 @@ class TestAdapterParityMatrixContract(unittest.TestCase):
         from core_memory.integrations.pydanticai import run_with_memory_sync, flush_session
         from core_memory.integrations.pydanticai.memory_tools import (
             continuity_prompt,
+            ensure_session_start,
             memory_search_tool,
             memory_trace_tool,
             memory_execute_tool,
@@ -227,7 +237,9 @@ class TestAdapterParityMatrixContract(unittest.TestCase):
             # turn finalized boundary
             run_with_memory_sync(_DummySyncAgent(), "why did we change", root=root, session_id=session_id)
 
-            # session start + continuity
+            # explicit adapter-owned session start + continuity
+            ss = ensure_session_start(root=root, session_id=session_id, max_items=10)
+            self.assertTrue(ss.get("ok"))
             prompt = continuity_prompt(root=root, session_id=session_id, max_items=10)
             self.assertIsInstance(prompt, str)
             self.assertTrue(_has_session_start_marker(root, session_id))

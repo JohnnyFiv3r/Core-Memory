@@ -22,6 +22,7 @@ import traceback
 from typing import Any
 
 from core_memory.persistence.store import DEFAULT_ROOT
+from core_memory.runtime.engine import process_session_start
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 
@@ -82,6 +83,21 @@ def _handle_continuity(payload: dict[str, Any]) -> dict[str, Any]:
     return {"ok": True, "format": "json", **result}
 
 
+def _handle_session_start(payload: dict[str, Any]) -> dict[str, Any]:
+    root = _resolve_root(payload)
+    session_id = str(payload.get("session_id") or "").strip()
+    if not session_id:
+        return {"ok": False, "error": "missing_session_id"}
+    source = str(payload.get("source") or "openclaw_read_bridge")
+    max_items = int(payload.get("max_items", 80))
+    return process_session_start(
+        root=root,
+        session_id=session_id,
+        source=source,
+        max_items=max_items,
+    )
+
+
 def _handle_execute(payload: dict[str, Any]) -> dict[str, Any]:
     root = _resolve_root(payload)
     request = payload.get("request")
@@ -98,6 +114,7 @@ _DISPATCH: dict[str, Any] = {
     "search": _handle_search,
     "trace": _handle_trace,
     "continuity": _handle_continuity,
+    "session_start": _handle_session_start,
     "execute": _handle_execute,
 }
 

@@ -65,6 +65,11 @@ class TestOpenClawReadBridge(unittest.TestCase):
         self.assertEqual(result.get("format"), "text")
         self.assertIn("text", result)
 
+    def test_session_start_boundary_action(self):
+        result = dispatch({"action": "session_start", "root": self.root, "session_id": "s1"})
+        self.assertTrue(result.get("ok"))
+        self.assertIn("bead_id", result)
+
     def test_execute_with_query(self):
         result = dispatch({"action": "execute", "query": "PostgreSQL", "root": self.root})
         self.assertIn("ok", result)

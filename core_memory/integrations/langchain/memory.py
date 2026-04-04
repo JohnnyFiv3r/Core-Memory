@@ -19,7 +19,7 @@ except ImportError:
     )
 
 from core_memory.integrations.api import IntegrationContext
-from core_memory.runtime.engine import process_flush, process_turn_finalized
+from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 
 
@@ -61,6 +61,17 @@ class CoreMemory(BaseMemory):
         Returns a dict with {memory_key: str} containing the rolling-window
         continuity injection text.
         """
+        try:
+            process_session_start(
+                root=self.root,
+                session_id=self.session_id,
+                source="langchain_memory.load_memory_variables",
+                max_items=self.max_items,
+            )
+        except Exception:
+            # fail-open on session-start boundary creation
+            pass
+
         result = load_continuity_injection(
             self.root,
             max_items=self.max_items,

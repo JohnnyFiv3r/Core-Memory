@@ -11,7 +11,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import IntegrationContext
-from core_memory.runtime.engine import process_flush, process_turn_finalized
+from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
@@ -76,6 +76,13 @@ class SessionFlushRequest(BaseModel):
     promote: bool = True
     token_budget: int = 1200
     max_beads: int = 12
+
+
+class SessionStartRequest(BaseModel):
+    root: Optional[str] = None
+    session_id: str
+    source: str = "http"
+    max_items: int = 80
 
 
 class MemoryTraceRequest(BaseModel):
@@ -345,6 +352,23 @@ async def memory_continuity(
             lines.append(f"[{typ}] {title}: {summary}")
         return {"ok": True, "format": "text", "text": "\n".join(lines), "count": len(records)}
     return {"ok": True, "format": "json", **result}
+
+
+@app.post("/v1/memory/session-start")
+async def memory_session_start(
+    payload: SessionStartRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = process_session_start(
+        root=_resolve_root(payload.root, x_tenant_id),
+        session_id=payload.session_id,
+        source=payload.source,
+        max_items=max(1, int(payload.max_items)),
+    )
+    return out
 
 
 @app.get("/v1/metrics")
