@@ -47,6 +47,9 @@ Use this page as the authoritative map of current docs.
 ## Evaluation entrypoints
 - `../eval/memory_execute_eval.py`
 
+## Evaluation entrypoints
+- `../eval/memory_execute_eval.py`
+
 ## Compatibility / historical material
 - [`archive/`](archive/) — superseded migration/process/history docs
 - [`reports/`](reports/) — dated snapshots and audits
