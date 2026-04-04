@@ -521,6 +521,14 @@ def main():
     g_backfill_causal.add_argument("--no-require-shared-turn", action="store_true")
     g_backfill_causal.add_argument("--bead-id", action="append", help="Limit proposals to pairs touching these bead IDs")
     g_backfill_causal.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs for targeted mode")
+    g_neo4j_status = graph_sub.add_parser("neo4j-status", help="Check Neo4j shadow adapter config/connectivity")
+    g_neo4j_status.add_argument("--strict", action="store_true", help="Return exit code 2 when status is not ok")
+    g_neo4j_sync = graph_sub.add_parser("neo4j-sync", help="Sync Core Memory bead/association projection into Neo4j")
+    g_neo4j_sync.add_argument("--session-id", help="Optional session scope filter")
+    g_neo4j_sync.add_argument("--bead-id", action="append", help="Optional bead_id filter (repeatable)")
+    g_neo4j_sync.add_argument("--prune", action="store_true", help="Prune non-matching shadow graph data (optional)")
+    g_neo4j_sync.add_argument("--full", action="store_true", help="Ignore filters and sync full projection")
+    g_neo4j_sync.add_argument("--dry-run", action="store_true", help="Plan projection without remote writes")
 
     # metrics command (legacy top-level; use `ops`/`dev` surfaces)
     metrics_parser = subparsers.add_parser("metrics", help=legacy_help)
@@ -1005,6 +1013,28 @@ def main():
                 require_shared_turn=not bool(args.no_require_shared_turn),
                 include_bead_ids=target_ids,
             ), indent=2))
+        elif args.graph_cmd == "neo4j-status":
+            from .integrations.neo4j import neo4j_status
+
+            out = neo4j_status()
+            print(json.dumps(out, indent=2))
+            if bool(args.strict) and not bool(out.get("ok")):
+                raise SystemExit(2)
+        elif args.graph_cmd == "neo4j-sync":
+            from .integrations.neo4j import sync_to_neo4j
+
+            sid = None if bool(args.full) else (str(args.session_id or "").strip() or None)
+            bead_ids = None if bool(args.full) else [str(x) for x in (args.bead_id or []) if str(x).strip()]
+            out = sync_to_neo4j(
+                str(memory.root),
+                session_id=sid,
+                bead_ids=bead_ids,
+                prune=bool(args.prune),
+                dry_run=bool(args.dry_run),
+            )
+            print(json.dumps(out, indent=2))
+            if not bool(out.get("ok")):
+                raise SystemExit(2)
         else:
             graph_parser.print_help()
 
