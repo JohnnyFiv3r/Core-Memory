@@ -25,15 +25,10 @@ def sync_to_neo4j(
     dry_run: bool = False,
     config: Neo4jConfig | None = None,
 ) -> dict[str, Any]:
-    """Projection-only sync surface.
-
-    Slice 1 scaffold behavior:
-    - collects a deterministic local projection payload
-    - supports dry-run planning output
-    - does not yet perform remote upserts (implemented in Slice 3)
-    """
+    """Projection-only sync surface (idempotent upsert path)."""
     cfg = config or Neo4jConfig.from_env()
     projection = _collect_projection(root=root, session_id=session_id, bead_ids=bead_ids)
+    projection, dedupe_warnings = _dedupe_projection(projection)
 
     if not cfg.enabled and not dry_run:
         return {
@@ -63,12 +58,21 @@ def sync_to_neo4j(
             "edges_upserted": 0,
             "nodes_pruned": 0,
             "edges_pruned": 0,
-            "warnings": ["neo4j_sync_dry_run_only"],
+            "warnings": ["neo4j_sync_dry_run_only", *dedupe_warnings],
             "errors": [],
         }
 
-    status = neo4j_status(config=cfg)
-    if not status.get("ok"):
+    try:
+        out = Neo4jClient(cfg).upsert_projection(
+            nodes=list(projection.get("nodes") or []),
+            edges=list(projection.get("edges") or []),
+            prune=bool(prune),
+            scope={
+                "session_id": session_id,
+                "bead_ids": [str(x) for x in (bead_ids or []) if str(x).strip()],
+            },
+        )
+    except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
             "database": cfg.database,
@@ -76,25 +80,19 @@ def sync_to_neo4j(
             "edges_upserted": 0,
             "nodes_pruned": 0,
             "edges_pruned": 0,
-            "warnings": list(status.get("warnings") or []),
-            "errors": [status.get("error") or {"code": "neo4j_unavailable", "message": "neo4j unavailable"}],
+            "warnings": list(dedupe_warnings),
+            "errors": [{"code": "neo4j_sync_failed", "message": str(exc)}],
         }
 
-    return {
-        "ok": False,
-        "database": cfg.database,
-        "nodes_upserted": 0,
-        "edges_upserted": 0,
-        "nodes_pruned": 0,
-        "edges_pruned": 0,
-        "warnings": [],
-        "errors": [
-            {
-                "code": "neo4j_sync_not_implemented",
-                "message": "Neo4j upsert execution is implemented in a later slice. Use --dry-run for now.",
-            }
-        ],
-    }
+    out.setdefault("database", cfg.database)
+    out.setdefault("nodes_upserted", 0)
+    out.setdefault("edges_upserted", 0)
+    out.setdefault("nodes_pruned", 0)
+    out.setdefault("edges_pruned", 0)
+    out.setdefault("warnings", [])
+    out.setdefault("errors", [])
+    out["warnings"] = list(out.get("warnings") or []) + list(dedupe_warnings)
+    return out
 
 
 def _collect_projection(root: str, *, session_id: str | None, bead_ids: list[str] | None) -> dict[str, list[dict[str, Any]]]:
@@ -133,3 +131,44 @@ def _collect_projection(root: str, *, session_id: str | None, bead_ids: list[str
             edges.append(edge)
 
     return {"nodes": nodes, "edges": edges}
+
+
+def _dedupe_projection(projection: dict[str, list[dict[str, Any]]]) -> tuple[dict[str, list[dict[str, Any]]], list[str]]:
+    warnings: list[str] = []
+
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    duplicate_nodes = 0
+    for node in list(projection.get("nodes") or []):
+        props = dict((node or {}).get("properties") or {})
+        bead_id = str(props.get("bead_id") or "").strip()
+        if not bead_id:
+            continue
+        if bead_id in nodes_by_id:
+            duplicate_nodes += 1
+        nodes_by_id[bead_id] = dict(node)
+
+    edges_by_key: dict[str, dict[str, Any]] = {}
+    duplicate_edges = 0
+    for edge in list(projection.get("edges") or []):
+        props = dict((edge or {}).get("properties") or {})
+        assoc_id = str(props.get("association_id") or "").strip()
+        if not assoc_id:
+            assoc_id = str(props.get("dedupe_key") or "").strip()
+        if not assoc_id:
+            src = str((edge or {}).get("start_bead_id") or "").strip()
+            dst = str((edge or {}).get("end_bead_id") or "").strip()
+            rel = str(props.get("relationship") or "associated_with").strip().lower()
+            assoc_id = f"{src}|{dst}|{rel}"
+        if assoc_id in edges_by_key:
+            duplicate_edges += 1
+        edges_by_key[assoc_id] = dict(edge)
+
+    if duplicate_nodes:
+        warnings.append("neo4j_projection_duplicate_nodes_deduped")
+    if duplicate_edges:
+        warnings.append("neo4j_projection_duplicate_edges_deduped")
+
+    return {
+        "nodes": list(nodes_by_id.values()),
+        "edges": list(edges_by_key.values()),
+    }, warnings
