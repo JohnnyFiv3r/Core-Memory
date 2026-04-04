@@ -35,12 +35,14 @@ chromadb = ["chromadb"]
 pgvector = ["psycopg[binary]"]
 langchain = ["langchain-core"]
 crewai = ["crewai"]
+neo4j = ["neo4j"]
 encryption = ["cryptography"]
 all = [
     "fastapi", "uvicorn", "httpx",
     "pydantic-ai",
     "numpy", "faiss-cpu",
     "openai",
+    "neo4j",
 ]
 
 [project.scripts]
