@@ -77,6 +77,31 @@ class TestSessionStartBoundary(unittest.TestCase):
 
             self.assertEqual(len(before_lines), len(after_lines))
 
+    def test_session_start_snapshot_filters_prior_session_start_records(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td) / "memory"
+            MemoryStore(str(root))
+
+            write_rolling_records(
+                str(root),
+                records=[
+                    {"type": "session_start", "title": "Session start", "summary": ["old snapshot"]},
+                    {"type": "decision", "title": "Carry substantive context", "summary": ["real context"]},
+                ],
+                meta={},
+                included_bead_ids=[],
+                excluded_bead_ids=[],
+            )
+
+            out = process_session_start(root=str(root), session_id="s2", source="test", max_items=20)
+            self.assertTrue(out.get("ok"))
+
+            idx = json.loads((root / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = (idx.get("beads") or {}).get(str(out.get("bead_id") or "")) or {}
+            detail = str(bead.get("detail") or "")
+            self.assertIn("Carry substantive context", detail)
+            self.assertNotIn("[session_start] Session start", detail)
+
 
 if __name__ == "__main__":
     unittest.main()

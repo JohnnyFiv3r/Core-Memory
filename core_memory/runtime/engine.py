@@ -844,7 +844,18 @@ def _find_existing_session_start_bead(root: str, session_id: str) -> dict[str, A
 
 
 def _build_session_start_snapshot(*, session_id: str, continuity: dict[str, Any], max_items: int) -> dict[str, Any]:
-    records = list(continuity.get("records") or [])[: max(1, int(max_items))]
+    raw_records = list(continuity.get("records") or [])
+
+    def _is_session_start_record(rec: dict[str, Any]) -> bool:
+        typ = str((rec or {}).get("type") or "").strip().lower()
+        if typ == "session_start":
+            return True
+        tags = {str(t).strip().lower() for t in ((rec or {}).get("tags") or []) if str(t).strip()}
+        return "session_start" in tags
+
+    filtered_records = [r for r in raw_records if not _is_session_start_record(r)]
+    filtered_session_start_count = max(0, len(raw_records) - len(filtered_records))
+    records = filtered_records[: max(1, int(max_items))]
     authority = str(continuity.get("authority") or "unknown")
     included_bead_ids = [str(x) for x in (continuity.get("included_bead_ids") or []) if str(x).strip()]
     meta = dict(continuity.get("meta") or {})
@@ -863,6 +874,8 @@ def _build_session_start_snapshot(*, session_id: str, continuity: dict[str, Any]
         f"Carried records: {len(records)}",
         f"Included bead refs: {len(included_bead_ids)}",
     ]
+    if filtered_session_start_count:
+        summary.append(f"Filtered prior session_start records: {filtered_session_start_count}")
     for rec in records[:3]:
         r_type = str(rec.get("type") or "memory")
         r_title = str(rec.get("title") or "").strip() or r_type
@@ -875,6 +888,8 @@ def _build_session_start_snapshot(*, session_id: str, continuity: dict[str, Any]
         f"record_count={len(records)}",
         f"included_bead_ids={','.join(included_bead_ids) if included_bead_ids else '-'}",
     ]
+    if filtered_session_start_count:
+        detail_lines.append(f"filtered_prior_session_start_records={filtered_session_start_count}")
     if meta:
         detail_lines.append(f"meta={json.dumps(meta, ensure_ascii=False, sort_keys=True)}")
     for i, rec in enumerate(records, 1):
@@ -896,6 +911,7 @@ def _build_session_start_snapshot(*, session_id: str, continuity: dict[str, Any]
         "retrieval_eligible": True,
         "continuity_authority": authority,
         "continuity_record_count": len(records),
+        "continuity_filtered_session_start_count": filtered_session_start_count,
         "continuity_included_bead_ids": included_bead_ids,
     }
 
@@ -938,6 +954,7 @@ def process_session_start(
             retrieval_eligible=bool(bead.get("retrieval_eligible", True)),
             continuity_authority=str(bead.get("continuity_authority") or ""),
             continuity_record_count=int(bead.get("continuity_record_count") or 0),
+            continuity_filtered_session_start_count=int(bead.get("continuity_filtered_session_start_count") or 0),
             continuity_included_bead_ids=list(bead.get("continuity_included_bead_ids") or []),
             created_by_source=str(source or "runtime"),
         )
@@ -952,7 +969,7 @@ def process_session_start(
         "source": source,
         "type": "session_start",
         "authority": continuity.get("authority"),
-        "record_count": len(continuity.get("records") or []),
+        "record_count": int(bead.get("continuity_record_count") or 0),
     }
 
 
