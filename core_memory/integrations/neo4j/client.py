@@ -126,8 +126,6 @@ class Neo4jClient:
             }
 
         warnings: list[str] = []
-        if prune:
-            warnings.append("neo4j_prune_not_implemented_in_slice3")
 
         try:
             driver = self._open_driver()
@@ -154,6 +152,8 @@ class Neo4jClient:
 
         nodes_upserted = 0
         edges_upserted = 0
+        nodes_pruned = 0
+        edges_pruned = 0
         try:
             with driver.session(database=self.config.database) as session:
                 for node in list(nodes or []):
@@ -196,13 +196,43 @@ class Neo4jClient:
                     )
                     edges_upserted += 1
 
+                if prune:
+                    keep_bead_ids = sorted(
+                        {
+                            str((n.get("properties") or {}).get("bead_id") or "").strip()
+                            for n in list(nodes or [])
+                            if str((n.get("properties") or {}).get("bead_id") or "").strip()
+                        }
+                    )
+                    keep_assoc_ids = sorted(
+                        {
+                            str((e.get("properties") or {}).get("association_id") or "").strip()
+                            for e in list(edges or [])
+                            if str((e.get("properties") or {}).get("association_id") or "").strip()
+                        }
+                    )
+
+                    scope_dict = dict(scope or {})
+                    sid = str(scope_dict.get("session_id") or "").strip()
+                    requested_bead_ids = [str(x) for x in (scope_dict.get("bead_ids") or []) if str(x).strip()]
+
+                    p = self._prune_scope(
+                        session=session,
+                        keep_bead_ids=keep_bead_ids,
+                        keep_assoc_ids=keep_assoc_ids,
+                        session_id=sid or None,
+                        requested_bead_ids=requested_bead_ids,
+                    )
+                    nodes_pruned = int(p.get("nodes_pruned") or 0)
+                    edges_pruned = int(p.get("edges_pruned") or 0)
+
             return {
                 "ok": True,
                 "database": self.config.database,
                 "nodes_upserted": int(nodes_upserted),
                 "edges_upserted": int(edges_upserted),
-                "nodes_pruned": 0,
-                "edges_pruned": 0,
+                "nodes_pruned": int(nodes_pruned),
+                "edges_pruned": int(edges_pruned),
                 "warnings": warnings,
                 "errors": [],
                 "scope": dict(scope or {}),
@@ -213,8 +243,8 @@ class Neo4jClient:
                 "database": self.config.database,
                 "nodes_upserted": int(nodes_upserted),
                 "edges_upserted": int(edges_upserted),
-                "nodes_pruned": 0,
-                "edges_pruned": 0,
+                "nodes_pruned": int(nodes_pruned),
+                "edges_pruned": int(edges_pruned),
                 "warnings": warnings,
                 "errors": [{"code": "neo4j_sync_failed", "message": str(exc)}],
             }
@@ -223,6 +253,80 @@ class Neo4jClient:
                 driver.close()
             except Exception:
                 pass
+
+    def _prune_scope(
+        self,
+        *,
+        session: Any,
+        keep_bead_ids: list[str],
+        keep_assoc_ids: list[str],
+        session_id: str | None,
+        requested_bead_ids: list[str],
+    ) -> dict[str, int]:
+        edges_pruned = 0
+        nodes_pruned = 0
+
+        if session_id:
+            e1 = session.run(
+                "MATCH (s:Bead {session_id: $sid})-[r:ASSOCIATED]->() "
+                "WHERE NOT r.association_id IN $keep_assoc_ids "
+                "DELETE r RETURN count(r) AS n",
+                sid=session_id,
+                keep_assoc_ids=list(keep_assoc_ids),
+            ).single()
+            e2 = session.run(
+                "MATCH ()-[r:ASSOCIATED]->(t:Bead {session_id: $sid}) "
+                "WHERE NOT r.association_id IN $keep_assoc_ids "
+                "DELETE r RETURN count(r) AS n",
+                sid=session_id,
+                keep_assoc_ids=list(keep_assoc_ids),
+            ).single()
+            n = session.run(
+                "MATCH (b:Bead {session_id: $sid}) "
+                "WHERE NOT b.bead_id IN $keep_bead_ids "
+                "DETACH DELETE b RETURN count(b) AS n",
+                sid=session_id,
+                keep_bead_ids=list(keep_bead_ids),
+            ).single()
+            edges_pruned += int((e1 or {}).get("n") or 0) + int((e2 or {}).get("n") or 0)
+            nodes_pruned += int((n or {}).get("n") or 0)
+            return {"nodes_pruned": nodes_pruned, "edges_pruned": edges_pruned}
+
+        if requested_bead_ids:
+            e = session.run(
+                "MATCH (s:Bead)-[r:ASSOCIATED]->(t:Bead) "
+                "WHERE (s.bead_id IN $scope_bead_ids OR t.bead_id IN $scope_bead_ids) "
+                "AND NOT r.association_id IN $keep_assoc_ids "
+                "DELETE r RETURN count(r) AS n",
+                scope_bead_ids=list(requested_bead_ids),
+                keep_assoc_ids=list(keep_assoc_ids),
+            ).single()
+            n = session.run(
+                "MATCH (b:Bead) "
+                "WHERE b.bead_id IN $scope_bead_ids AND NOT b.bead_id IN $keep_bead_ids "
+                "DETACH DELETE b RETURN count(b) AS n",
+                scope_bead_ids=list(requested_bead_ids),
+                keep_bead_ids=list(keep_bead_ids),
+            ).single()
+            edges_pruned += int((e or {}).get("n") or 0)
+            nodes_pruned += int((n or {}).get("n") or 0)
+            return {"nodes_pruned": nodes_pruned, "edges_pruned": edges_pruned}
+
+        e = session.run(
+            "MATCH ()-[r:ASSOCIATED]->() "
+            "WHERE NOT r.association_id IN $keep_assoc_ids "
+            "DELETE r RETURN count(r) AS n",
+            keep_assoc_ids=list(keep_assoc_ids),
+        ).single()
+        n = session.run(
+            "MATCH (b:Bead) "
+            "WHERE NOT b.bead_id IN $keep_bead_ids "
+            "DETACH DELETE b RETURN count(b) AS n",
+            keep_bead_ids=list(keep_bead_ids),
+        ).single()
+        edges_pruned += int((e or {}).get("n") or 0)
+        nodes_pruned += int((n or {}).get("n") or 0)
+        return {"nodes_pruned": nodes_pruned, "edges_pruned": edges_pruned}
 
 
 def _sanitize_labels(labels: list[Any]) -> list[str]:

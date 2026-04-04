@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from core_memory.integrations.neo4j.config import Neo4jConfig
@@ -105,6 +106,52 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
         self.assertFalse(out.get("ok"))
         err = (out.get("errors") or [{}])[0]
         self.assertEqual("neo4j_sync_failed", err.get("code"))
+
+    def test_sync_passes_prune_flag_to_client(self):
+        with tempfile.TemporaryDirectory() as td:
+            MemoryStore(td)
+            captured = {}
+
+            def _fake_upsert(self, *, nodes, edges, prune=False, scope=None):
+                captured["prune"] = bool(prune)
+                return {
+                    "ok": True,
+                    "database": "neo4j",
+                    "nodes_upserted": 0,
+                    "edges_upserted": 0,
+                    "nodes_pruned": 3 if prune else 0,
+                    "edges_pruned": 4 if prune else 0,
+                    "warnings": [],
+                    "errors": [],
+                }
+
+            with patch("core_memory.integrations.neo4j.sync.Neo4jClient.upsert_projection", new=_fake_upsert):
+                out = sync_to_neo4j(td, config=self._enabled_config(), prune=True, dry_run=False)
+
+            self.assertTrue(out.get("ok"))
+            self.assertTrue(captured.get("prune"))
+            self.assertEqual(3, int(out.get("nodes_pruned") or 0))
+            self.assertEqual(4, int(out.get("edges_pruned") or 0))
+
+    def test_sync_failure_does_not_mutate_local_store(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="decision", title="d", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="outcome", title="o", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+            s.link(source_id=b1, target_id=b2, relationship="supports", explanation="why")
+
+            idx_file = Path(td) / ".beads" / "index.json"
+            before = idx_file.read_text(encoding="utf-8")
+
+            with patch(
+                "core_memory.integrations.neo4j.sync.Neo4jClient.upsert_projection",
+                side_effect=RuntimeError("boom"),
+            ):
+                out = sync_to_neo4j(td, config=self._enabled_config(), dry_run=False)
+
+            after = idx_file.read_text(encoding="utf-8")
+            self.assertFalse(out.get("ok"))
+            self.assertEqual(before, after)
 
 
 if __name__ == "__main__":
