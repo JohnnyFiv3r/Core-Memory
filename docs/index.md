@@ -32,12 +32,14 @@ Use this page as the authoritative map of current docs.
 - PydanticAI: [`integrations/pydanticai/README.md`](integrations/pydanticai/README.md)
 - SpringAI / HTTP: [`integrations/springai/README.md`](integrations/springai/README.md)
 - LangChain: [`integrations/langchain/README.md`](integrations/langchain/README.md)
+- Neo4j (shadow graph): [`integrations/neo4j/README.md`](integrations/neo4j/README.md)
 
 ## Integration quickstarts
 - [`integrations/openclaw/quickstart.md`](integrations/openclaw/quickstart.md)
 - [`integrations/springai/quickstart.md`](integrations/springai/quickstart.md)
 - [`integrations/pydanticai/quickstart.md`](integrations/pydanticai/quickstart.md)
 - [`integrations/langchain/quickstart.md`](integrations/langchain/quickstart.md)
+- [`integrations/neo4j/quickstart.md`](integrations/neo4j/quickstart.md)
 
 ## Contracts
 - [`contracts/http_api.v1.json`](contracts/http_api.v1.json)

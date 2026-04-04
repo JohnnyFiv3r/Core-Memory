@@ -30,7 +30,7 @@
 - [docs/concepts/why-core-memory.md](docs/concepts/why-core-memory.md)
 - [docs/architecture_overview.md](docs/architecture_overview.md)
 - [docs/canonical_surfaces.md](docs/canonical_surfaces.md)
-- [docs/integrations/](docs/integrations/) (OpenClaw / PydanticAI / SpringAI / LangChain)
+- [docs/integrations/](docs/integrations/) (OpenClaw / PydanticAI / SpringAI / LangChain / Neo4j shadow graph)
 
 ## Current Status
 
@@ -110,6 +110,12 @@ PydanticAI adapter:
 
 ```bash
 pip install "core-memory[pydanticai]"
+```
+
+Neo4j shadow graph adapter (visualization/inspection only):
+
+```bash
+pip install "core-memory[neo4j]"
 ```
 
 Developer/test extras:
@@ -284,7 +290,7 @@ from core_memory.integrations.api import emit_turn_finalized
 - PydanticAI native adapter
 - SpringAI / HTTP companion service
 - LangChain (`CoreMemory`, `CoreMemoryRetriever`)
-- LangChain (`CoreMemory` + `CoreMemoryRetriever`)
+- Neo4j shadow graph adapter (projection-only visualization/inspection)
 
 ### Good starting points
 
@@ -292,6 +298,7 @@ from core_memory.integrations.api import emit_turn_finalized
 - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
 - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
 - [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)
+- [docs/integrations/neo4j/quickstart.md](docs/integrations/neo4j/quickstart.md)
 
 ---
 

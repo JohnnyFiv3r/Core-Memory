@@ -35,6 +35,9 @@ Adapters should not teach deprecated retrieval flows as forward guidance.
 - **LangChain**:
   - `CoreMemory` (conversation memory / continuity + finalized-turn writeback)
   - `CoreMemoryRetriever` (read-time recall retriever)
+- **Neo4j (shadow graph adapter)**:
+  - projection-only mirror of beads/associations for visualization and inspection
+  - explicitly non-authoritative for canonical write/retrieval runtime
 
 ## Tenant-aware HTTP behavior
 Stateful HTTP memory endpoints support `X-Tenant-Id` and are expected to preserve read/write isolation by tenant.
