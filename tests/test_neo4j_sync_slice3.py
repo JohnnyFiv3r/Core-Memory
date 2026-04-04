@@ -17,6 +17,8 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             password="pw",
             database="neo4j",
             dataset="",
+            node_label_mode="bead_plus_type",
+            edge_mode="associated",
             tls=False,
             timeout_ms=1000,
         )
@@ -47,6 +49,41 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             self.assertEqual(2, int(out.get("nodes_upserted") or 0))
             self.assertEqual(1, int(out.get("edges_upserted") or 0))
             self.assertEqual(1, up.call_count)
+
+    def test_sync_typed_edge_mode_projects_typed_relationships(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="decision", title="d", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="outcome", title="o", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+            s.link(source_id=b1, target_id=b2, relationship="supports", explanation="why")
+            captured = {}
+
+            def _fake_upsert(self, *, nodes, edges, prune=False, dataset_key="", keep_assoc_ids=None, scope=None):
+                captured["edges"] = list(edges)
+                return {
+                    "ok": True,
+                    "database": "neo4j",
+                    "nodes_upserted": len(nodes),
+                    "edges_upserted": len(edges),
+                    "nodes_pruned": 0,
+                    "edges_pruned": 0,
+                    "warnings": [],
+                    "errors": [],
+                }
+
+            with patch("core_memory.integrations.neo4j.sync.Neo4jClient.upsert_projection", new=_fake_upsert):
+                out = sync_to_neo4j(
+                    td,
+                    session_id="s1",
+                    config=self._enabled_config(),
+                    dry_run=False,
+                    edge_mode="typed",
+                )
+
+            self.assertTrue(out.get("ok"))
+            edges = list(captured.get("edges") or [])
+            self.assertTrue(edges)
+            self.assertEqual("SUPPORTS", str((edges[0] or {}).get("type") or ""))
 
     def test_sync_dedupes_projection_before_upsert(self):
         projection = {
@@ -203,6 +240,8 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
                 password="pw",
                 database="neo4j",
                 dataset="team-alpha",
+                node_label_mode="bead_plus_type",
+                edge_mode="associated",
                 tls=False,
                 timeout_ms=1000,
             )

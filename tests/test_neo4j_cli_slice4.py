@@ -15,6 +15,17 @@ class TestNeo4jCliSlice4(unittest.TestCase):
     def _run_cli(self, root: str, args: list[str], env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         cmd = [sys.executable, "-m", "core_memory.cli", "--root", root, *args]
         merged_env = dict(os.environ)
+        for k in [
+            "CORE_MEMORY_NEO4J_ENABLED",
+            "CORE_MEMORY_NEO4J_URI",
+            "CORE_MEMORY_NEO4J_USER",
+            "CORE_MEMORY_NEO4J_PASSWORD",
+            "CORE_MEMORY_NEO4J_DATABASE",
+            "CORE_MEMORY_NEO4J_DATASET",
+            "CORE_MEMORY_NEO4J_NODE_LABEL_MODE",
+            "CORE_MEMORY_NEO4J_EDGE_MODE",
+        ]:
+            merged_env.pop(k, None)
         if env:
             merged_env.update(env)
         cwd = Path(__file__).resolve().parents[1]

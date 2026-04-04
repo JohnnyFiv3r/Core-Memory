@@ -7,7 +7,12 @@ from typing import Any
 
 from .client import Neo4jClient
 from .config import Neo4jConfig
-from .mapper import bead_to_node, association_to_edge
+from .mapper import (
+    EDGE_MODE_ASSOCIATED,
+    NODE_LABEL_MODE_BEAD_PLUS_TYPE,
+    association_to_edge,
+    bead_to_node,
+)
 
 
 def neo4j_status(*, config: Neo4jConfig | None = None) -> dict[str, Any]:
@@ -24,12 +29,22 @@ def sync_to_neo4j(
     bead_ids: list[str] | None = None,
     prune: bool = False,
     dry_run: bool = False,
+    node_label_mode: str | None = None,
+    edge_mode: str | None = None,
     config: Neo4jConfig | None = None,
 ) -> dict[str, Any]:
     """Projection-only sync surface (idempotent upsert path)."""
     cfg = config or Neo4jConfig.from_env()
+    node_label_mode_final = _resolve_node_label_mode(node_label_mode=node_label_mode, config=cfg)
+    edge_mode_final = _resolve_edge_mode(edge_mode=edge_mode, config=cfg)
     dataset_key = _resolve_dataset_key(root=root, config=cfg)
-    projection = _collect_projection(root=root, session_id=session_id, bead_ids=bead_ids)
+    projection = _collect_projection(
+        root=root,
+        session_id=session_id,
+        bead_ids=bead_ids,
+        node_label_mode=node_label_mode_final,
+        edge_mode=edge_mode_final,
+    )
     prune_keep_assoc_ids = _collect_prune_keep_assoc_ids(root=root, session_id=session_id, bead_ids=bead_ids)
     projection, dedupe_warnings = _dedupe_projection(projection)
 
@@ -78,6 +93,8 @@ def sync_to_neo4j(
                 "session_id": session_id,
                 "bead_ids": [str(x) for x in (bead_ids or []) if str(x).strip()],
                 "dataset_key": dataset_key,
+                "node_label_mode": node_label_mode_final,
+                "edge_mode": edge_mode_final,
             },
         )
     except Exception as exc:  # noqa: BLE001
@@ -117,7 +134,28 @@ def _resolve_dataset_key(*, root: str, config: Neo4jConfig) -> str:
     return f"root-{digest}"
 
 
-def _collect_projection(root: str, *, session_id: str | None, bead_ids: list[str] | None) -> dict[str, list[dict[str, Any]]]:
+def _resolve_node_label_mode(*, node_label_mode: str | None, config: Neo4jConfig) -> str:
+    mode = str(node_label_mode or getattr(config, "node_label_mode", NODE_LABEL_MODE_BEAD_PLUS_TYPE) or "").strip().lower()
+    if mode not in {"bead_plus_type", "type_only"}:
+        return NODE_LABEL_MODE_BEAD_PLUS_TYPE
+    return mode
+
+
+def _resolve_edge_mode(*, edge_mode: str | None, config: Neo4jConfig) -> str:
+    mode = str(edge_mode or getattr(config, "edge_mode", EDGE_MODE_ASSOCIATED) or "").strip().lower()
+    if mode not in {"associated", "typed"}:
+        return EDGE_MODE_ASSOCIATED
+    return mode
+
+
+def _collect_projection(
+    root: str,
+    *,
+    session_id: str | None,
+    bead_ids: list[str] | None,
+    node_label_mode: str,
+    edge_mode: str,
+) -> dict[str, list[dict[str, Any]]]:
     idx_file = Path(root) / ".beads" / "index.json"
     if not idx_file.exists():
         return {"nodes": [], "edges": []}
@@ -140,13 +178,13 @@ def _collect_projection(root: str, *, session_id: str | None, bead_ids: list[str
         row.setdefault("id", bid)
         selected[bid] = row
 
-    nodes = [bead_to_node(b) for b in selected.values()]
+    nodes = [bead_to_node(b, label_mode=node_label_mode) for b in selected.values()]
 
     edges: list[dict[str, Any]] = []
     for assoc in list(idx.get("associations") or []):
         if not isinstance(assoc, dict):
             continue
-        edge = association_to_edge(assoc)
+        edge = association_to_edge(assoc, edge_mode=edge_mode)
         src = str(edge.get("start_bead_id") or "")
         dst = str(edge.get("end_bead_id") or "")
         if src in selected and dst in selected:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from typing import Any
 
 
@@ -12,7 +13,18 @@ def _as_list(value: Any) -> list[str]:
     return [str(value)]
 
 
-def bead_to_node(bead: dict[str, Any]) -> dict[str, Any]:
+NODE_LABEL_MODE_BEAD_PLUS_TYPE = "bead_plus_type"
+NODE_LABEL_MODE_TYPE_ONLY = "type_only"
+
+EDGE_MODE_ASSOCIATED = "associated"
+EDGE_MODE_TYPED = "typed"
+
+
+def bead_to_node(
+    bead: dict[str, Any],
+    *,
+    label_mode: str = NODE_LABEL_MODE_BEAD_PLUS_TYPE,
+) -> dict[str, Any]:
     """Map a Core Memory bead into Neo4j node payload (projection-only)."""
     typ = str(bead.get("type") or "unknown").strip()
     type_label = _to_type_label(typ)
@@ -44,13 +56,21 @@ def bead_to_node(bead: dict[str, Any]) -> dict[str, Any]:
         "effective_from": str(bead.get("effective_from") or ""),
         "effective_to": str(bead.get("effective_to") or ""),
     }
+    labels = [type_label]
+    if str(label_mode or NODE_LABEL_MODE_BEAD_PLUS_TYPE).strip().lower() != NODE_LABEL_MODE_TYPE_ONLY:
+        labels = ["Bead", type_label]
+
     return {
-        "labels": ["Bead", type_label],
+        "labels": labels,
         "properties": props,
     }
 
 
-def association_to_edge(assoc: dict[str, Any]) -> dict[str, Any]:
+def association_to_edge(
+    assoc: dict[str, Any],
+    *,
+    edge_mode: str = EDGE_MODE_ASSOCIATED,
+) -> dict[str, Any]:
     src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
     dst = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")
     relationship = str(assoc.get("relationship") or "associated_with").strip().lower() or "associated_with"
@@ -58,8 +78,13 @@ def association_to_edge(assoc: dict[str, Any]) -> dict[str, Any]:
     if not aid:
         aid = _stable_association_id(src=src, dst=dst, relationship=relationship)
 
+    e_mode = str(edge_mode or EDGE_MODE_ASSOCIATED).strip().lower()
+    rel_type = "ASSOCIATED"
+    if e_mode == EDGE_MODE_TYPED:
+        rel_type = _to_relationship_type(relationship)
+
     return {
-        "type": "ASSOCIATED",
+        "type": rel_type,
         "start_bead_id": src,
         "end_bead_id": dst,
         "properties": {
@@ -89,3 +114,14 @@ def _to_type_label(bead_type: str) -> str:
 def _stable_association_id(*, src: str, dst: str, relationship: str) -> str:
     raw = f"{src}|{dst}|{relationship}".encode("utf-8")
     return f"assoc-{hashlib.sha1(raw).hexdigest()[:16]}"
+
+
+def _to_relationship_type(relationship: str) -> str:
+    rel = str(relationship or "associated_with").strip().lower()
+    rel = re.sub(r"[^a-z0-9_]+", "_", rel)
+    rel = re.sub(r"_+", "_", rel).strip("_")
+    if not rel:
+        rel = "associated_with"
+    if rel[:1].isdigit():
+        rel = f"r_{rel}"
+    return rel.upper()
