@@ -36,6 +36,7 @@ from core_memory.integrations.api import (
     get_adjacent_turns,
     hydrate_bead_sources,
 )
+from core_memory.runtime.engine import process_session_start
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.retrieval.tools.memory import (
     execute as memory_execute,
@@ -52,6 +53,42 @@ CONTINUITY_EMPTY = ""
 # ── Continuity injection ──────────────────────────────────────────────
 
 
+def ensure_session_start_boundary(
+    root: Optional[str] = None,
+    *,
+    session_id: str,
+    source: str = "pydanticai",
+    max_items: int = 80,
+) -> dict[str, Any]:
+    """Explicit adapter-owned session-start boundary helper."""
+    sid = str(session_id or "").strip()
+    if not sid:
+        return {"ok": False, "error": "missing_session_id"}
+    root_final = _resolve_root(root)
+    return process_session_start(
+        root=root_final,
+        session_id=sid,
+        source=source,
+        max_items=max(1, int(max_items)),
+    )
+
+
+def ensure_session_start(
+    root: Optional[str] = None,
+    *,
+    session_id: str,
+    source: str = "pydanticai",
+    max_items: int = 80,
+) -> dict[str, Any]:
+    """Backward/adapter-facing alias for explicit session-start boundary."""
+    return ensure_session_start_boundary(
+        root=root,
+        session_id=session_id,
+        source=source,
+        max_items=max_items,
+    )
+
+
 def continuity_prompt(
     root: Optional[str] = None,
     max_items: int = 80,
@@ -64,12 +101,25 @@ def continuity_prompt(
     always safe to concatenate into a system prompt.
     """
     root_final = _resolve_root(root)
+    if ensure_session_start and session_id:
+        try:
+            ensure_session_start_result = ensure_session_start_boundary(
+                root=root_final,
+                session_id=str(session_id),
+                source="pydanticai_continuity_prompt",
+                max_items=max_items,
+            )
+            if not ensure_session_start_result.get("ok"):
+                logger.debug("ensure_session_start returned non-ok: %s", ensure_session_start_result)
+        except Exception:
+            logger.debug("ensure_session_start failed", exc_info=True)
+
     try:
         ctx = load_continuity_injection(
             root_final,
             max_items=max_items,
             session_id=str(session_id or "") or None,
-            ensure_session_start=bool(ensure_session_start and session_id),
+            ensure_session_start=False,
         )
     except Exception:
         logger.debug("continuity injection load failed; returning empty", exc_info=True)

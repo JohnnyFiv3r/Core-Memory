@@ -93,13 +93,23 @@ Notes:
 Purpose:
 - flush pending memory event stream into canonical bead/index projections
 
+### `POST /v1/memory/session-start`
+Purpose:
+- explicit session-start lifecycle boundary write
+
+Minimum request fields:
+- `session_id`
+
 ### `GET /v1/memory/continuity`
 Purpose:
 - runtime continuity injection surface
 
 Optional params:
-- `session_id` (enables session-start lifecycle marker when `ensure_session_start=true`)
-- `ensure_session_start` (default true when `session_id` provided)
+- `session_id` (read scoping aid only; no write-side mutation)
+
+Notes:
+- continuity is pure-read and does not create `session_start` implicitly
+- create `session_start` through `POST /v1/memory/session-start`
 
 ## Auth
 Conditional auth when `CORE_MEMORY_HTTP_TOKEN` is set.

@@ -1,6 +1,7 @@
 from .run import run_with_memory, run_with_memory_sync, flush_session, flush_session_async
 from .memory_tools import (
     continuity_prompt,
+    ensure_session_start,
     memory_search_tool,
     memory_trace_tool,
     memory_execute_tool,
@@ -16,6 +17,7 @@ __all__ = [
     "flush_session",
     "flush_session_async",
     "continuity_prompt",
+    "ensure_session_start",
     "memory_search_tool",
     "memory_trace_tool",
     "memory_execute_tool",

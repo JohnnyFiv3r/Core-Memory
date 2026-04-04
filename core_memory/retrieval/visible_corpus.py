@@ -35,7 +35,9 @@ def _lexical_text(bead: dict[str, Any]) -> str:
 def _is_system_row(bead: dict[str, Any]) -> bool:
     tags = {str(x).lower() for x in (bead.get("tags") or [])}
     typ = str(bead.get("type") or "").lower()
-    return ("process_flush" in tags) or (typ in {"checkpoint", "session_end", "session_start"})
+    # session_start is intentionally searchable as a first-class continuity
+    # snapshot. Keep operational rows (flush/checkpoint/end) out by default.
+    return ("process_flush" in tags) or (typ in {"checkpoint", "session_end"})
 
 
 def _admit(bead: dict[str, Any], include_system: bool = False) -> bool:

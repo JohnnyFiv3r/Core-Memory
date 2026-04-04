@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from core_memory.integrations.pydanticai.memory_tools import (
     continuity_prompt,
+    ensure_session_start,
     memory_search_tool,
     memory_trace_tool,
     memory_execute_tool,
@@ -99,6 +100,15 @@ class TestContinuityPrompt(unittest.TestCase):
                 self.assertIn("EnvTest", result)
             finally:
                 os.environ.pop("CORE_MEMORY_ROOT", None)
+
+    def test_ensure_session_start_helper_creates_boundary(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            Path(root).mkdir()
+            out = ensure_session_start(root=root, session_id="pyd-s1", max_items=5)
+            self.assertTrue(out.get("ok"))
+            idx = Path(root) / ".beads" / "index.json"
+            self.assertTrue(idx.exists())
 
 
 class TestMemorySearchTool(unittest.TestCase):
@@ -252,6 +262,7 @@ class TestImportsFromInit(unittest.TestCase):
     def test_all_surfaces_importable(self):
         from core_memory.integrations.pydanticai import (
             continuity_prompt,
+            ensure_session_start,
             memory_search_tool,
             memory_trace_tool,
             memory_execute_tool,
@@ -261,6 +272,7 @@ class TestImportsFromInit(unittest.TestCase):
             hydrate_bead_sources_tool,
         )
         self.assertTrue(callable(continuity_prompt))
+        self.assertTrue(callable(ensure_session_start))
         self.assertTrue(callable(memory_search_tool))
         self.assertTrue(callable(memory_trace_tool))
         self.assertTrue(callable(memory_execute_tool))

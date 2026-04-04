@@ -107,6 +107,42 @@ def _status_rank(status: str) -> int:
     return order.get(str(status or "").lower(), 9)
 
 
+CONTINUITY_QUERY_HINTS = (
+    "session start",
+    "continuity",
+    "carry forward",
+    "carried forward",
+    "left off",
+    "working memory",
+)
+
+
+def _is_continuity_query(query: str) -> bool:
+    q = str(query or "").strip().lower()
+    if not q:
+        return False
+    return any(h in q for h in CONTINUITY_QUERY_HINTS)
+
+
+def _type_priority_rank(bead_type: str, *, continuity_query: bool) -> int:
+    t = str(bead_type or "").strip().lower()
+    if t in {"decision", "lesson", "outcome", "evidence", "correction", "precedent"}:
+        return 0
+    if t == "session_start":
+        return 1 if continuity_query else 4
+    if t in {"goal", "context", "design_principle", "constraint", "failed_hypothesis"}:
+        return 2
+    return 3
+
+
+def _session_start_score_adjustment(*, bead_type: str, continuity_query: bool) -> float:
+    t = str(bead_type or "").strip().lower()
+    if t != "session_start":
+        return 0.0
+    # session_start stays searchable but is demoted for generic queries.
+    return 0.20 if continuity_query else -0.35
+
+
 def _lexical_rescue(query: str, corpus: list[dict[str, Any]], *, max_add: int = 2) -> list[dict[str, Any]]:
     q = str(query or "").strip().lower()
     if not q:
@@ -274,9 +310,19 @@ def search_request(
             provider=str(sem.get("provider") or ""),
         )
     sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
+    continuity_query = _is_continuity_query(query)
     for r in sem_rows:
         r.setdefault("anchor_reason", "retrieved")
         r.setdefault("source_surface", (by_id.get(str(r.get("bead_id") or ""), {}) or {}).get("source_surface", "projection"))
+        bead = ((by_id.get(str(r.get("bead_id") or ""), {}) or {}).get("bead") or {})
+        bead_type = str(bead.get("type") or "").strip().lower()
+        adjust = _session_start_score_adjustment(bead_type=bead_type, continuity_query=continuity_query)
+        effective = max(0.0, float(r.get("score") or 0.0) + adjust)
+        r["_bead_type"] = bead_type
+        r["_type_priority_rank"] = _type_priority_rank(bead_type, continuity_query=continuity_query)
+        r["score"] = effective
+        if bead_type == "session_start":
+            r["anchor_reason"] = "continuity_snapshot" if continuity_query else "continuity_snapshot_demoted"
 
     strong_sem = [r for r in sem_rows if float(r.get("score") or 0.0) >= 0.55 and r.get("anchor_reason") == "retrieved"]
     if len(strong_sem) < 3:
@@ -289,6 +335,7 @@ def search_request(
     sem_rows.sort(
         key=lambda r: (
             0 if str(r.get("anchor_reason") or "") == "pinned" else (1 if str(r.get("anchor_reason") or "") == "strict_facet_match" else 2),
+            (int(r.get("_type_priority_rank")) if r.get("_type_priority_rank") is not None else 9),
             -float(r.get("score") or 0.0),
             -float(r.get("context_bias_score") or 0.0),
             _status_rank(str(r.get("status") or "")),
@@ -399,6 +446,10 @@ def trace_request(
         has_decision_like = bool(types.intersection({"decision", "precedent"}))
         has_support_like = bool(types.intersection({"evidence", "lesson", "outcome"}))
         grounding = "partial" if (anchors and has_decision_like and has_support_like) else "none"
+
+    anchor_types = {str(a.get("type") or "").strip().lower() for a in anchors if str(a.get("type") or "").strip()}
+    if grounding == "full" and anchor_types and anchor_types.issubset({"session_start"}):
+        grounding = "partial"
 
     next_action = "answer" if grounding in {"full", "partial"} else "ask_clarifying"
     confidence = "high" if grounding == "full" else ("medium" if grounding == "partial" else ("medium" if anchors else "low"))

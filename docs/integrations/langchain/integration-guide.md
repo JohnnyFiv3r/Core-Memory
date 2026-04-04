@@ -14,6 +14,7 @@ File: `core_memory/integrations/langchain/memory.py`
 Role:
 - implements LangChain `BaseMemory`
 - loads continuity text into prompt memory variables
+- creates session-start boundary via explicit runtime helper on first load for the session
 - saves context through canonical per-turn boundary (`process_turn_finalized`)
 - treats `clear()` as session-end flush boundary (`process_flush`)
 
