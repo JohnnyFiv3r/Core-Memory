@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ def sync_to_neo4j(
 ) -> dict[str, Any]:
     """Projection-only sync surface (idempotent upsert path)."""
     cfg = config or Neo4jConfig.from_env()
+    dataset_key = _resolve_dataset_key(root=root, config=cfg)
     projection = _collect_projection(root=root, session_id=session_id, bead_ids=bead_ids)
     prune_keep_assoc_ids = _collect_prune_keep_assoc_ids(root=root, session_id=session_id, bead_ids=bead_ids)
     projection, dedupe_warnings = _dedupe_projection(projection)
@@ -35,6 +37,7 @@ def sync_to_neo4j(
         return {
             "ok": False,
             "database": cfg.database,
+            "dataset_key": dataset_key,
             "nodes_upserted": 0,
             "edges_upserted": 0,
             "nodes_pruned": 0,
@@ -53,6 +56,7 @@ def sync_to_neo4j(
             "ok": True,
             "mode": "dry_run",
             "database": cfg.database,
+            "dataset_key": dataset_key,
             "nodes_planned": len(projection["nodes"]),
             "edges_planned": len(projection["edges"]),
             "nodes_upserted": 0,
@@ -68,16 +72,19 @@ def sync_to_neo4j(
             nodes=list(projection.get("nodes") or []),
             edges=list(projection.get("edges") or []),
             prune=bool(prune),
+            dataset_key=dataset_key,
             keep_assoc_ids=list(prune_keep_assoc_ids),
             scope={
                 "session_id": session_id,
                 "bead_ids": [str(x) for x in (bead_ids or []) if str(x).strip()],
+                "dataset_key": dataset_key,
             },
         )
     except Exception as exc:  # noqa: BLE001
         return {
             "ok": False,
             "database": cfg.database,
+            "dataset_key": dataset_key,
             "nodes_upserted": 0,
             "edges_upserted": 0,
             "nodes_pruned": 0,
@@ -87,6 +94,7 @@ def sync_to_neo4j(
         }
 
     out.setdefault("database", cfg.database)
+    out.setdefault("dataset_key", dataset_key)
     out.setdefault("nodes_upserted", 0)
     out.setdefault("edges_upserted", 0)
     out.setdefault("nodes_pruned", 0)
@@ -95,6 +103,18 @@ def sync_to_neo4j(
     out.setdefault("errors", [])
     out["warnings"] = list(out.get("warnings") or []) + list(dedupe_warnings)
     return out
+
+
+def _resolve_dataset_key(*, root: str, config: Neo4jConfig) -> str:
+    explicit = str(getattr(config, "dataset", "") or "").strip()
+    if explicit:
+        return explicit
+    try:
+        resolved = str(Path(root).resolve())
+    except Exception:
+        resolved = str(Path(root))
+    digest = hashlib.sha1(resolved.encode("utf-8")).hexdigest()[:16]
+    return f"root-{digest}"
 
 
 def _collect_projection(root: str, *, session_id: str | None, bead_ids: list[str] | None) -> dict[str, list[dict[str, Any]]]:

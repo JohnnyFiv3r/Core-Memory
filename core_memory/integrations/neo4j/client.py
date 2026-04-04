@@ -116,6 +116,7 @@ class Neo4jClient:
         nodes: list[dict[str, Any]],
         edges: list[dict[str, Any]],
         prune: bool = False,
+        dataset_key: str,
         keep_assoc_ids: list[str] | None = None,
         scope: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
@@ -131,6 +132,17 @@ class Neo4jClient:
             }
 
         warnings: list[str] = []
+        ds = str(dataset_key or "").strip()
+        if not ds:
+            return {
+                "ok": False,
+                "nodes_upserted": 0,
+                "edges_upserted": 0,
+                "nodes_pruned": 0,
+                "edges_pruned": 0,
+                "warnings": warnings,
+                "errors": [{"code": "neo4j_dataset_key_missing", "message": "dataset_key is required"}],
+            }
 
         try:
             driver = self._open_driver()
@@ -164,21 +176,26 @@ class Neo4jClient:
                 for node in list(nodes or []):
                     props = dict(node.get("properties") or {})
                     props.setdefault(CM_OWNER_KEY, CM_OWNER_VALUE)
+                    props.setdefault("cm_dataset", ds)
                     bead_id = str(props.get("bead_id") or "").strip()
                     if not bead_id:
                         continue
 
                     labels = _sanitize_labels(list(node.get("labels") or []))
                     session.run(
-                        "MERGE (b:Bead {bead_id: $bead_id}) "
+                        "MERGE (b:Bead {cm_owner: $owner, cm_dataset: $dataset, bead_id: $bead_id}) "
                         "SET b += $props",
+                        owner=CM_OWNER_VALUE,
+                        dataset=ds,
                         bead_id=bead_id,
                         props=props,
                     )
                     if labels:
                         label_clause = ":" + ":".join(labels)
                         session.run(
-                            f"MATCH (b:Bead {{bead_id: $bead_id}}) SET b{label_clause}",
+                            f"MATCH (b:Bead {{cm_owner: $owner, cm_dataset: $dataset, bead_id: $bead_id}}) SET b{label_clause}",
+                            owner=CM_OWNER_VALUE,
+                            dataset=ds,
                             bead_id=bead_id,
                         )
                     nodes_upserted += 1
@@ -186,6 +203,7 @@ class Neo4jClient:
                 for edge in list(edges or []):
                     props = dict(edge.get("properties") or {})
                     props.setdefault(CM_OWNER_KEY, CM_OWNER_VALUE)
+                    props.setdefault("cm_dataset", ds)
                     assoc_id = str(props.get("association_id") or "").strip()
                     src = str(edge.get("start_bead_id") or "").strip()
                     dst = str(edge.get("end_bead_id") or "").strip()
@@ -193,9 +211,12 @@ class Neo4jClient:
                         continue
 
                     session.run(
-                        "MATCH (s:Bead {bead_id: $src}), (t:Bead {bead_id: $dst}) "
-                        "MERGE (s)-[r:ASSOCIATED {association_id: $association_id}]->(t) "
+                        "MATCH (s:Bead {cm_owner: $owner, cm_dataset: $dataset, bead_id: $src}), "
+                        "(t:Bead {cm_owner: $owner, cm_dataset: $dataset, bead_id: $dst}) "
+                        "MERGE (s)-[r:ASSOCIATED {cm_owner: $owner, cm_dataset: $dataset, association_id: $association_id}]->(t) "
                         "SET r += $props",
+                        owner=CM_OWNER_VALUE,
+                        dataset=ds,
                         src=src,
                         dst=dst,
                         association_id=assoc_id,
@@ -235,6 +256,7 @@ class Neo4jClient:
                         session=session,
                         keep_bead_ids=keep_bead_ids,
                         keep_assoc_ids=keep_assoc_ids,
+                        dataset_key=ds,
                         session_id=sid or None,
                         requested_bead_ids=requested_bead_ids,
                     )
@@ -250,6 +272,7 @@ class Neo4jClient:
                 "edges_pruned": int(edges_pruned),
                 "warnings": warnings,
                 "errors": [],
+                "dataset_key": ds,
                 "scope": dict(scope or {}),
             }
         except Exception as exc:  # noqa: BLE001
@@ -262,6 +285,7 @@ class Neo4jClient:
                 "edges_pruned": int(edges_pruned),
                 "warnings": warnings,
                 "errors": [{"code": "neo4j_sync_failed", "message": str(exc)}],
+                "dataset_key": ds,
             }
         finally:
             try:
@@ -275,6 +299,7 @@ class Neo4jClient:
         session: Any,
         keep_bead_ids: list[str],
         keep_assoc_ids: list[str],
+        dataset_key: str,
         session_id: str | None,
         requested_bead_ids: list[str],
     ) -> dict[str, int]:
@@ -284,26 +309,29 @@ class Neo4jClient:
         if session_id:
             e1 = session.run(
                 "MATCH (s:Bead {session_id: $sid})-[r:ASSOCIATED]->() "
-                "WHERE r.cm_owner = $owner AND NOT r.association_id IN $keep_assoc_ids "
+                "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND NOT r.association_id IN $keep_assoc_ids "
                 "DELETE r RETURN count(r) AS n",
                 sid=session_id,
                 owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
                 keep_assoc_ids=list(keep_assoc_ids),
             ).single()
             e2 = session.run(
                 "MATCH ()-[r:ASSOCIATED]->(t:Bead {session_id: $sid}) "
-                "WHERE r.cm_owner = $owner AND NOT r.association_id IN $keep_assoc_ids "
+                "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND NOT r.association_id IN $keep_assoc_ids "
                 "DELETE r RETURN count(r) AS n",
                 sid=session_id,
                 owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
                 keep_assoc_ids=list(keep_assoc_ids),
             ).single()
             n = session.run(
                 "MATCH (b:Bead {session_id: $sid}) "
-                "WHERE b.cm_owner = $owner AND NOT b.bead_id IN $keep_bead_ids "
+                "WHERE b.cm_owner = $owner AND b.cm_dataset = $dataset AND NOT b.bead_id IN $keep_bead_ids "
                 "DETACH DELETE b RETURN count(b) AS n",
                 sid=session_id,
                 owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
                 keep_bead_ids=list(keep_bead_ids),
             ).single()
             edges_pruned += int((e1 or {}).get("n") or 0) + int((e2 or {}).get("n") or 0)
@@ -313,18 +341,20 @@ class Neo4jClient:
         if requested_bead_ids:
             e = session.run(
                 "MATCH (s:Bead)-[r:ASSOCIATED]->(t:Bead) "
-                "WHERE r.cm_owner = $owner AND (s.bead_id IN $scope_bead_ids OR t.bead_id IN $scope_bead_ids) "
+                "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND (s.bead_id IN $scope_bead_ids OR t.bead_id IN $scope_bead_ids) "
                 "AND NOT r.association_id IN $keep_assoc_ids "
                 "DELETE r RETURN count(r) AS n",
                 owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
                 scope_bead_ids=list(requested_bead_ids),
                 keep_assoc_ids=list(keep_assoc_ids),
             ).single()
             n = session.run(
                 "MATCH (b:Bead) "
-                "WHERE b.cm_owner = $owner AND b.bead_id IN $scope_bead_ids AND NOT b.bead_id IN $keep_bead_ids "
+                "WHERE b.cm_owner = $owner AND b.cm_dataset = $dataset AND b.bead_id IN $scope_bead_ids AND NOT b.bead_id IN $keep_bead_ids "
                 "DETACH DELETE b RETURN count(b) AS n",
                 owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
                 scope_bead_ids=list(requested_bead_ids),
                 keep_bead_ids=list(keep_bead_ids),
             ).single()
@@ -334,16 +364,18 @@ class Neo4jClient:
 
         e = session.run(
             "MATCH ()-[r:ASSOCIATED]->() "
-            "WHERE r.cm_owner = $owner AND NOT r.association_id IN $keep_assoc_ids "
+            "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND NOT r.association_id IN $keep_assoc_ids "
             "DELETE r RETURN count(r) AS n",
             owner=CM_OWNER_VALUE,
+            dataset=dataset_key,
             keep_assoc_ids=list(keep_assoc_ids),
         ).single()
         n = session.run(
             "MATCH (b:Bead) "
-            "WHERE b.cm_owner = $owner AND NOT b.bead_id IN $keep_bead_ids "
+            "WHERE b.cm_owner = $owner AND b.cm_dataset = $dataset AND NOT b.bead_id IN $keep_bead_ids "
             "DETACH DELETE b RETURN count(b) AS n",
             owner=CM_OWNER_VALUE,
+            dataset=dataset_key,
             keep_bead_ids=list(keep_bead_ids),
         ).single()
         edges_pruned += int((e or {}).get("n") or 0)

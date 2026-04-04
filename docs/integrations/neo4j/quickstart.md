@@ -18,6 +18,8 @@ export CORE_MEMORY_NEO4J_URI="bolt://localhost:7687"
 export CORE_MEMORY_NEO4J_USER="neo4j"
 export CORE_MEMORY_NEO4J_PASSWORD="<password>"
 export CORE_MEMORY_NEO4J_DATABASE="neo4j"
+# optional but recommended for shared Neo4j databases
+export CORE_MEMORY_NEO4J_DATASET="team-a-prod"
 # optional
 export CORE_MEMORY_NEO4J_TLS=1
 export CORE_MEMORY_NEO4J_TIMEOUT_MS=5000

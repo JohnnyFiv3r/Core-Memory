@@ -11,6 +11,7 @@ class Neo4jConfig:
     user: str
     password: str
     database: str
+    dataset: str
     tls: bool
     timeout_ms: int
 
@@ -22,6 +23,7 @@ class Neo4jConfig:
             user=str(os.environ.get("CORE_MEMORY_NEO4J_USER") or "").strip(),
             password=str(os.environ.get("CORE_MEMORY_NEO4J_PASSWORD") or "").strip(),
             database=str(os.environ.get("CORE_MEMORY_NEO4J_DATABASE") or "neo4j").strip() or "neo4j",
+            dataset=str(os.environ.get("CORE_MEMORY_NEO4J_DATASET") or "").strip(),
             tls=_env_bool("CORE_MEMORY_NEO4J_TLS", True),
             timeout_ms=_env_int("CORE_MEMORY_NEO4J_TIMEOUT_MS", 5000),
         )
@@ -32,6 +34,7 @@ class Neo4jConfig:
             "uri": self.uri,
             "user": self.user,
             "database": self.database,
+            "dataset": self.dataset,
             "tls": bool(self.tls),
             "timeout_ms": int(self.timeout_ms),
             "password_set": bool(self.password),

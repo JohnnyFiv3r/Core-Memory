@@ -63,6 +63,7 @@ Options:
 - `CORE_MEMORY_NEO4J_USER`
 - `CORE_MEMORY_NEO4J_PASSWORD`
 - `CORE_MEMORY_NEO4J_DATABASE`
+- `CORE_MEMORY_NEO4J_DATASET` (recommended for shared Neo4j databases)
 - `CORE_MEMORY_NEO4J_TLS` (optional)
 - `CORE_MEMORY_NEO4J_TIMEOUT_MS` (optional)
 
@@ -77,6 +78,7 @@ Common error codes:
 ## Ownership marker
 Rows written by this adapter include:
 - node/relationship property: `cm_owner=core_memory_shadow_v1`
+- node/relationship property: `cm_dataset=<dataset-key>`
 
 Prune operations are constrained to this marker.
 

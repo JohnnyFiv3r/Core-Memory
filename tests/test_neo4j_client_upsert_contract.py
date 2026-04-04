@@ -53,6 +53,7 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
             user="neo4j",
             password="pw",
             database="neo4j",
+            dataset="team-a",
             tls=False,
             timeout_ms=1000,
         )
@@ -75,7 +76,13 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
         ]
 
         with patch.object(client, "_open_driver", return_value=_FakeDriver(sink)):
-            out = client.upsert_projection(nodes=nodes, edges=edges, prune=False, scope={"session_id": "s1"})
+            out = client.upsert_projection(
+                nodes=nodes,
+                edges=edges,
+                prune=False,
+                dataset_key="team-a",
+                scope={"session_id": "s1"},
+            )
 
         self.assertTrue(out.get("ok"))
         self.assertEqual(1, int(out.get("nodes_upserted") or 0))
@@ -83,6 +90,7 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
 
         sql = "\n".join(q for q, _ in sink if q not in {"__session__", "__close__"})
         self.assertIn("MERGE (b:Bead", sql)
+        self.assertIn("cm_dataset", sql)
         self.assertIn("MERGE (s)-[r:ASSOCIATED", sql)
 
     def test_upsert_projection_prune_executes_delete_queries(self):
@@ -92,6 +100,7 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
             user="neo4j",
             password="pw",
             database="neo4j",
+            dataset="team-a",
             tls=False,
             timeout_ms=1000,
         )
@@ -109,7 +118,13 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
         ]
 
         with patch.object(client, "_open_driver", return_value=_FakeDriver(sink)):
-            out = client.upsert_projection(nodes=nodes, edges=edges, prune=True, scope={"session_id": "s1"})
+            out = client.upsert_projection(
+                nodes=nodes,
+                edges=edges,
+                prune=True,
+                dataset_key="team-a",
+                scope={"session_id": "s1"},
+            )
 
         self.assertTrue(out.get("ok"))
         self.assertGreater(int(out.get("edges_pruned") or 0), 0)

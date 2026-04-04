@@ -16,6 +16,7 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             user="neo4j",
             password="pw",
             database="neo4j",
+            dataset="",
             tls=False,
             timeout_ms=1000,
         )
@@ -70,9 +71,10 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
         }
         captured: dict = {}
 
-        def _fake_upsert(self, *, nodes, edges, prune=False, keep_assoc_ids=None, scope=None):
+        def _fake_upsert(self, *, nodes, edges, prune=False, dataset_key="", keep_assoc_ids=None, scope=None):
             captured["nodes"] = list(nodes)
             captured["edges"] = list(edges)
+            captured["dataset_key"] = str(dataset_key)
             captured["keep_assoc_ids"] = list(keep_assoc_ids or [])
             return {
                 "ok": True,
@@ -93,6 +95,7 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
         self.assertTrue(out.get("ok"))
         self.assertEqual(1, len(captured.get("nodes") or []))
         self.assertEqual(1, len(captured.get("edges") or []))
+        self.assertTrue(str(captured.get("dataset_key") or "").startswith("root-"))
         warns = set(out.get("warnings") or [])
         self.assertIn("neo4j_projection_duplicate_nodes_deduped", warns)
         self.assertIn("neo4j_projection_duplicate_edges_deduped", warns)
@@ -113,8 +116,9 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             MemoryStore(td)
             captured = {}
 
-            def _fake_upsert(self, *, nodes, edges, prune=False, keep_assoc_ids=None, scope=None):
+            def _fake_upsert(self, *, nodes, edges, prune=False, dataset_key="", keep_assoc_ids=None, scope=None):
                 captured["prune"] = bool(prune)
+                captured["dataset_key"] = str(dataset_key)
                 captured["keep_assoc_ids"] = list(keep_assoc_ids or [])
                 return {
                     "ok": True,
@@ -132,6 +136,7 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
 
             self.assertTrue(out.get("ok"))
             self.assertTrue(captured.get("prune"))
+            self.assertTrue(str(captured.get("dataset_key") or "").startswith("root-"))
             self.assertEqual(3, int(out.get("nodes_pruned") or 0))
             self.assertEqual(4, int(out.get("edges_pruned") or 0))
             self.assertIsInstance(captured.get("keep_assoc_ids"), list)
@@ -165,8 +170,9 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
 
             captured = {}
 
-            def _fake_upsert(self, *, nodes, edges, prune=False, keep_assoc_ids=None, scope=None):
+            def _fake_upsert(self, *, nodes, edges, prune=False, dataset_key="", keep_assoc_ids=None, scope=None):
                 captured["edges"] = list(edges)
+                captured["dataset_key"] = str(dataset_key)
                 captured["keep_assoc_ids"] = list(keep_assoc_ids or [])
                 return {
                     "ok": True,
@@ -187,6 +193,39 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             self.assertEqual(0, len(captured.get("edges") or []))
             # But prune keep-set must preserve canonical cross-scope association ids.
             self.assertIn(assoc_id, set(captured.get("keep_assoc_ids") or []))
+
+    def test_explicit_dataset_is_used_when_configured(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Neo4jConfig(
+                enabled=True,
+                uri="bolt://localhost:7687",
+                user="neo4j",
+                password="pw",
+                database="neo4j",
+                dataset="team-alpha",
+                tls=False,
+                timeout_ms=1000,
+            )
+            captured = {}
+
+            def _fake_upsert(self, *, nodes, edges, prune=False, dataset_key="", keep_assoc_ids=None, scope=None):
+                captured["dataset_key"] = str(dataset_key)
+                return {
+                    "ok": True,
+                    "database": "neo4j",
+                    "nodes_upserted": 0,
+                    "edges_upserted": 0,
+                    "nodes_pruned": 0,
+                    "edges_pruned": 0,
+                    "warnings": [],
+                    "errors": [],
+                }
+
+            with patch("core_memory.integrations.neo4j.sync.Neo4jClient.upsert_projection", new=_fake_upsert):
+                out = sync_to_neo4j(td, config=cfg, dry_run=False)
+
+            self.assertTrue(out.get("ok"))
+            self.assertEqual("team-alpha", captured.get("dataset_key"))
 
 
 if __name__ == "__main__":

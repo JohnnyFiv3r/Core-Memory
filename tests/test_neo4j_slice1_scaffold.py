@@ -19,6 +19,7 @@ class TestNeo4jSlice1Scaffold(unittest.TestCase):
                 "CORE_MEMORY_NEO4J_USER": "neo4j",
                 "CORE_MEMORY_NEO4J_PASSWORD": "pw",
                 "CORE_MEMORY_NEO4J_DATABASE": "neo4j",
+                "CORE_MEMORY_NEO4J_DATASET": "team-a",
                 "CORE_MEMORY_NEO4J_TLS": "0",
                 "CORE_MEMORY_NEO4J_TIMEOUT_MS": "9000",
             },
@@ -27,6 +28,7 @@ class TestNeo4jSlice1Scaffold(unittest.TestCase):
             cfg = Neo4jConfig.from_env()
             self.assertTrue(cfg.enabled)
             self.assertEqual("bolt://localhost:7687", cfg.uri)
+            self.assertEqual("team-a", cfg.dataset)
             self.assertFalse(cfg.tls)
             self.assertEqual(9000, cfg.timeout_ms)
 
@@ -37,6 +39,7 @@ class TestNeo4jSlice1Scaffold(unittest.TestCase):
             user="neo4j",
             password="pw",
             database="neo4j",
+            dataset="",
             tls=False,
             timeout_ms=1000,
         )
@@ -66,7 +69,7 @@ class TestNeo4jSlice1Scaffold(unittest.TestCase):
     def test_sync_non_dry_run_requires_enabled_flag(self):
         with tempfile.TemporaryDirectory() as td:
             MemoryStore(td)
-            cfg = Neo4jConfig(enabled=False, uri="", user="", password="", database="neo4j", tls=True, timeout_ms=5000)
+            cfg = Neo4jConfig(enabled=False, uri="", user="", password="", database="neo4j", dataset="", tls=True, timeout_ms=5000)
             out = sync_to_neo4j(td, config=cfg, dry_run=False)
             self.assertFalse(out.get("ok"))
             errs = out.get("errors") or []
