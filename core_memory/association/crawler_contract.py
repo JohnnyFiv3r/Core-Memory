@@ -173,7 +173,7 @@ def _crawler_updates_log_path(root: str, session_id: str) -> Path:
     return Path(root) / ".beads" / "events" / f"crawler-updates-{sid}.jsonl"
 
 
-def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any]:
+def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
     """Flush-merge queued crawler side-log updates into index projection."""
     idx_file = Path(root) / ".beads" / "index.json"
     log_path = _crawler_updates_log_path(root, session_id)
@@ -266,8 +266,19 @@ def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any
         "merged": len(rows),
         "promotions_marked": promoted,
         "associations_appended": appended,
-        "authority_path": "flush_merge_projection",
+        "authority_path": "merge_projection",
     }
+
+
+def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any]:
+    """Compatibility wrapper for legacy flush-named callsites.
+
+    Canonical behavior is neutral merge via `merge_crawler_updates(...)`.
+    """
+    out = merge_crawler_updates(root=root, session_id=session_id)
+    if isinstance(out, dict):
+        out["authority_path"] = "flush_merge_projection"
+    return out
 
 
 def apply_crawler_updates(

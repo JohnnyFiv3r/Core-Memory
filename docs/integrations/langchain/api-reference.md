@@ -21,11 +21,12 @@ Key fields:
 Key methods:
 - `load_memory_variables(inputs)`
 - `save_context(inputs, outputs)`
-- `clear()` (no-op; Core Memory is archival)
+- `clear()` (session-end flush boundary)
 
 Behavior summary:
-- load: continuity injection text
-- save: finalized-turn writeback via Core Memory ingest path
+- load: continuity injection text (+ optional session-start lifecycle marker)
+- save: canonical per-turn write boundary
+- clear: canonical session-end flush boundary
 
 ## `CoreMemoryRetriever`
 Implementation: `core_memory.integrations.langchain.retriever.CoreMemoryRetriever`

@@ -26,6 +26,52 @@ def _normalize_semantic_mode(mode: str | None) -> str:
     return m
 
 
+def semantic_doctor(root: Path) -> dict[str, Any]:
+    """Operational diagnostics for canonical semantic mode."""
+    manifest_file, faiss_file, rows_file, *_ = _paths(root)
+    mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
+    degraded_enabled = mode == SEMANTIC_MODE_DEGRADED_ALLOWED
+
+    manifest: dict[str, Any] = {}
+    if manifest_file.exists():
+        try:
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        except Exception:
+            manifest = {}
+
+    backend = str(manifest.get("backend") or "")
+    provider = str(manifest.get("provider") or os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "")
+    rows_count = 0
+    if rows_file.exists():
+        try:
+            rows_count = len(json.loads(rows_file.read_text(encoding="utf-8")) or [])
+        except Exception:
+            rows_count = 0
+
+    usable_backend = bool(backend.startswith("faiss") and faiss_file.exists() and rows_count > 0)
+
+    if usable_backend:
+        next_step = "Semantic backend is ready for canonical query-based anchor lookup."
+    elif mode == SEMANTIC_MODE_REQUIRED:
+        next_step = "Install semantic extras and run: core-memory graph semantic-build"
+    else:
+        next_step = "Degraded lexical mode is enabled; install semantic extras + run semantic-build for canonical mode."
+
+    return {
+        "ok": True,
+        "mode": mode,
+        "degraded_mode_enabled": degraded_enabled,
+        "manifest_path": str(manifest_file),
+        "manifest_exists": manifest_file.exists(),
+        "backend": backend or "not_built",
+        "provider": provider or "unknown",
+        "rows_count": int(rows_count),
+        "faiss_index_exists": faiss_file.exists(),
+        "usable_backend": usable_backend,
+        "next_step": next_step,
+    }
+
+
 def semantic_unavailable_payload(*, query: str, warnings: list[str] | None = None, provider: str | None = None) -> dict[str, Any]:
     ws = list(warnings or [])
     if "semantic_backend_unavailable" not in ws:
@@ -261,9 +307,16 @@ def build_semantic_index(root: Path) -> dict:
     except ImportError:
         global _faiss_warning_emitted
         if not _faiss_warning_emitted:
+            mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
+            mode_hint = (
+                "query-based anchor lookup may fail closed in required mode"
+                if mode == SEMANTIC_MODE_REQUIRED
+                else "query-based lookup may run in degraded lexical mode"
+            )
             logger.warning(
-                "core-memory: faiss-cpu and/or numpy not installed. Semantic search will use lexical fallback. "
-                "Install with: pip install core-memory[semantic]"
+                "core-memory: faiss-cpu and/or numpy not installed. %s. "
+                "Install with: pip install core-memory[semantic]",
+                mode_hint,
             )
             _faiss_warning_emitted = True
         backend = "lexical"

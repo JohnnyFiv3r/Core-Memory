@@ -175,6 +175,7 @@ def _apply_typed_filters(
     warnings: list[str] = []
 
     incident_id = str(s.get("incident_id") or "").strip()
+    scope = str(s.get("scope") or "").strip().lower()
     topic_keys = {str(x).strip().lower() for x in (s.get("topic_keys") or []) if str(x).strip()}
     bead_types = {str(x).strip().lower() for x in (s.get("bead_types") or []) if str(x).strip()}
     must_terms = [str(x).strip().lower() for x in (s.get("must_terms") or []) if str(x).strip()]
@@ -190,7 +191,7 @@ def _apply_typed_filters(
         tr_from = None
         tr_to = None
 
-    if not any([incident_id, topic_keys, bead_types, must_terms, avoid_terms, tr_from, tr_to]):
+    if not any([incident_id, scope, topic_keys, bead_types, must_terms, avoid_terms, tr_from, tr_to]):
         return rows, warnings
 
     out: list[dict[str, Any]] = []
@@ -200,6 +201,9 @@ def _apply_typed_filters(
         bead = row.get("bead") or {}
 
         if incident_id and str(bead.get("incident_id") or "") != incident_id:
+            continue
+
+        if scope and str(bead.get("scope") or "").strip().lower() != scope:
             continue
 
         if topic_keys:
@@ -331,7 +335,7 @@ def search_request(
             **{
                 key: value
                 for key, value in dict(submission or {}).items()
-                if key in {"incident_id", "topic_keys", "bead_types", "relation_types", "must_terms", "avoid_terms", "time_range", "require_structural"}
+                if key in {"incident_id", "scope", "topic_keys", "bead_types", "relation_types", "must_terms", "avoid_terms", "time_range", "require_structural"}
             },
         },
     }
@@ -486,6 +490,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "intent": intent,
             "k": k,
             "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
+            "scope": str(facets.get("scope") or "").strip() or None,
             "topic_keys": list(facets.get("topic_keys") or []),
             "bead_types": list(facets.get("bead_types") or []),
             "relation_types": list(facets.get("relation_types") or []),
@@ -518,6 +523,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "intent": intent,
             "k": k,
             "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
+            "scope": str(facets.get("scope") or "").strip() or None,
             "topic_keys": list(facets.get("topic_keys") or []),
             "bead_types": list(facets.get("bead_types") or []),
             "relation_types": list(facets.get("relation_types") or []),

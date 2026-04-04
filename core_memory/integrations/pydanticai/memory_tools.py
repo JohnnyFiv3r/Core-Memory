@@ -55,6 +55,8 @@ CONTINUITY_EMPTY = ""
 def continuity_prompt(
     root: Optional[str] = None,
     max_items: int = 80,
+    session_id: Optional[str] = None,
+    ensure_session_start: bool = True,
 ) -> str:
     """Load the rolling-window continuity context as a system-prompt string.
 
@@ -63,7 +65,12 @@ def continuity_prompt(
     """
     root_final = _resolve_root(root)
     try:
-        ctx = load_continuity_injection(root_final, max_items=max_items)
+        ctx = load_continuity_injection(
+            root_final,
+            max_items=max_items,
+            session_id=str(session_id or "") or None,
+            ensure_session_start=bool(ensure_session_start and session_id),
+        )
     except Exception:
         logger.debug("continuity injection load failed; returning empty", exc_info=True)
         return CONTINUITY_EMPTY
@@ -93,8 +100,8 @@ def continuity_prompt(
 def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
     """Return a plain tool function for PydanticAI that searches memory.
 
-    The agent provides a natural-language query; the tool runs it through
-    Core Memory's typed-search pipeline and returns results as JSON.
+    The agent provides a natural-language query; the tool runs canonical
+    search and returns compact JSON results.
     """
     root_final = _resolve_root(root)
 
@@ -110,10 +117,10 @@ def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
         if scope:
             submission["scope"] = scope
         if type_filter:
-            submission["type"] = type_filter
+            submission["bead_types"] = [type_filter]
 
         try:
-            result = memory_search(submission, root=root_final, explain=False)
+            result = memory_search(request=submission, root=root_final, explain=False)
         except Exception as exc:
             return json.dumps({"error": str(exc)})
 

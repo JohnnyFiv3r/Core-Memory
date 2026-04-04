@@ -97,6 +97,10 @@ Purpose:
 Purpose:
 - runtime continuity injection surface
 
+Optional params:
+- `session_id` (enables session-start lifecycle marker when `ensure_session_start=true`)
+- `ensure_session_start` (default true when `session_id` provided)
+
 ## Auth
 Conditional auth when `CORE_MEMORY_HTTP_TOKEN` is set.
 
