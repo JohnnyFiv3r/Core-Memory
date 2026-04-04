@@ -198,6 +198,21 @@ class SqliteBackend:
         # In-memory cache for load_index() calls (avoid full table scan on every read)
         self._cache: dict[str, Any] | None = None
 
+    def close(self) -> None:
+        conn = self._conn
+        self._conn = None
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
+
+    def __del__(self):  # pragma: no cover
+        try:
+            self.close()
+        except Exception:
+            pass
+
     def _invalidate_cache(self) -> None:
         self._cache = None
 

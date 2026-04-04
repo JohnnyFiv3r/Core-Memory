@@ -10,7 +10,9 @@ A surface is canonical only if it is both:
 2. documented as forward-supported in current docs.
 
 ## Write ingress
-- `core_memory.integrations.api.emit_turn_finalized(...)`
+- `core_memory.runtime.engine.process_turn_finalized(...)` — canonical per-turn write boundary
+- `core_memory.runtime.engine.process_flush(...)` — canonical session-end flush boundary
+- `core_memory.integrations.api.emit_turn_finalized(...)` — ingress helper used by adapters that defer in-process turn handling
 
 ## Retrieval/runtime tool surface
 - `core_memory.tools.memory.search(request: dict, root='.', explain=False)` — canonical anchor retrieval.

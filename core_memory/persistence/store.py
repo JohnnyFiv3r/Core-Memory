@@ -122,6 +122,20 @@ class MemoryStore:
 
         # Initialize index if needed
         self._init_index()
+
+    def close(self) -> None:
+        close_fn = getattr(self._backend, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                pass
+
+    def __del__(self):  # pragma: no cover
+        try:
+            self.close()
+        except Exception:
+            pass
     
     def _init_index(self):
         """Initialize the index + heads files if they don't exist."""

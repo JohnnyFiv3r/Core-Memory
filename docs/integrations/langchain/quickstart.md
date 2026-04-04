@@ -22,6 +22,7 @@ memory = CoreMemory(root="./memory", session_id="lc-session-1")
 
 `CoreMemory.save_context(...)` writes finalized turns into Core Memory.
 `CoreMemory.load_memory_variables(...)` injects continuity context.
+`CoreMemory.clear()` triggers session-end flush boundary for that session.
 
 ## 3) Retriever usage (read-time recall)
 ```python

@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.integrations.pydanticai.memory_tools import (
     continuity_prompt,
@@ -122,6 +123,21 @@ class TestMemorySearchTool(unittest.TestCase):
             tool = memory_search_tool(root=root)
             result = json.loads(tool("nonexistent topic"))
             self.assertEqual(result["results"], [])
+
+    def test_type_filter_is_applied(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            s = MemoryStore(root)
+            s.add_bead(type="decision", title="D", summary=["promotion workflow"], session_id="main", source_turn_ids=["t1"])
+            s.add_bead(type="evidence", title="E", summary=["promotion workflow"], session_id="main", source_turn_ids=["t2"])
+
+            tool = memory_search_tool(root=root)
+            with patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
+                result = json.loads(tool("promotion workflow", type_filter="decision"))
+
+            rows = result.get("results") or []
+            self.assertTrue(rows)
+            self.assertTrue(all(str(r.get("type") or "") == "decision" for r in rows))
 
 
 class TestMemoryTraceTool(unittest.TestCase):

@@ -10,8 +10,8 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from core_memory.integrations.api import IntegrationContext, emit_turn_finalized
-from core_memory.runtime.engine import process_flush
+from core_memory.integrations.api import IntegrationContext
+from core_memory.runtime.engine import process_flush, process_turn_finalized
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
@@ -206,7 +206,7 @@ async def turn_finalized(
     merged_metadata = ictx.to_metadata()
     merged_metadata.update(payload.metadata or {})
 
-    event_id = emit_turn_finalized(
+    out = process_turn_finalized(
         root=_resolve_root(payload.root, x_tenant_id),
         session_id=payload.session_id,
         turn_id=payload.turn_id,
@@ -221,7 +221,14 @@ async def turn_finalized(
         window_bead_ids=payload.window_bead_ids,
         metadata=merged_metadata,
     )
-    return {"accepted": True, "event_id": str(event_id or ""), "ok": True}
+    event_id = str(((((out.get("emitted") or {}).get("payload") or {}).get("event") or {}).get("event_id") or ""))
+    return {
+        "accepted": True,
+        "ok": bool(out.get("ok", True)),
+        "event_id": event_id,
+        "processed": int(out.get("processed") or 0),
+        "authority_path": str(out.get("authority_path") or "canonical_in_process"),
+    }
 
 
 @app.post("/v1/memory/session-flush")

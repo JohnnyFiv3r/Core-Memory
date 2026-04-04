@@ -38,6 +38,13 @@ class TestTurnAssociationVisibility(unittest.TestCase):
             auto_apply = ((out.get("crawler_handoff") or {}).get("auto_apply") or {})
             self.assertGreaterEqual(int(auto_apply.get("associations_appended") or 0), 1)
 
+            turn_merge = ((out.get("crawler_handoff") or {}).get("turn_merge") or {})
+            self.assertGreaterEqual(int(turn_merge.get("associations_appended") or 0), 1)
+
+            idx = s._read_json(s.beads_dir / "index.json")
+            rels = [a for a in (idx.get("associations") or []) if str(a.get("relationship") or "") == "supports"]
+            self.assertGreaterEqual(len(rels), 1)
+
 
 if __name__ == "__main__":
     unittest.main()

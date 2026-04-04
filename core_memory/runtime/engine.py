@@ -369,8 +369,10 @@ def process_turn_finalized(
 
     # Infer associations from store's association_preview candidates.
     # The store writes preview candidates when a bead is created; promote
-    # them to queued associations so they commit at flush.
+    # them to queued associations and merge at the per-turn boundary.
     preview_queued = _queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
+
+    turn_merge = merge_crawler_updates_for_flush(root=root, session_id=req["session_id"])
 
     # Canonical per-turn state decision pass for all visible session beads.
     decision_pass = run_session_decision_pass(
@@ -393,6 +395,12 @@ def process_turn_finalized(
             "context_visible_count": len(visible_ids),
             "auto_apply": auto_apply,
             "preview_association_queued": int(preview_queued),
+            "turn_merge": {
+                "ok": bool(turn_merge.get("ok", True)),
+                "merged": int(turn_merge.get("merged") or 0),
+                "promotions_marked": int(turn_merge.get("promotions_marked") or 0),
+                "associations_appended": int(turn_merge.get("associations_appended") or 0),
+            },
             "decision_pass": decision_pass,
         },
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},

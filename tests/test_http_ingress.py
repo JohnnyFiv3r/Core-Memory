@@ -34,10 +34,16 @@ class TestHttpIngress(unittest.TestCase):
             data = r.json()
             self.assertTrue(data.get("accepted"))
             self.assertTrue(str(data.get("event_id", "")).startswith("mev-"))
+            self.assertEqual("canonical_in_process", data.get("authority_path"))
+            self.assertEqual(1, int(data.get("processed") or 0))
 
             events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
             rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
             self.assertEqual(1, len(rows))
+
+            idx_file = Path(root) / ".beads" / "index.json"
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            self.assertGreaterEqual(len((idx.get("beads") or {})), 1)
 
     def test_http_runtime_execute_endpoint(self):
         from fastapi.testclient import TestClient

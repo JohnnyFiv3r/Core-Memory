@@ -261,9 +261,16 @@ def build_semantic_index(root: Path) -> dict:
     except ImportError:
         global _faiss_warning_emitted
         if not _faiss_warning_emitted:
+            mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
+            mode_hint = (
+                "query-based anchor lookup may fail closed in required mode"
+                if mode == SEMANTIC_MODE_REQUIRED
+                else "query-based lookup may run in degraded lexical mode"
+            )
             logger.warning(
-                "core-memory: faiss-cpu and/or numpy not installed. Semantic search will use lexical fallback. "
-                "Install with: pip install core-memory[semantic]"
+                "core-memory: faiss-cpu and/or numpy not installed. %s. "
+                "Install with: pip install core-memory[semantic]",
+                mode_hint,
             )
             _faiss_warning_emitted = True
         backend = "lexical"

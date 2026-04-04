@@ -93,8 +93,8 @@ def continuity_prompt(
 def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
     """Return a plain tool function for PydanticAI that searches memory.
 
-    The agent provides a natural-language query; the tool runs it through
-    Core Memory's typed-search pipeline and returns results as JSON.
+    The agent provides a natural-language query; the tool runs canonical
+    search and returns compact JSON results.
     """
     root_final = _resolve_root(root)
 
@@ -110,10 +110,10 @@ def memory_search_tool(root: Optional[str] = None) -> Callable[..., str]:
         if scope:
             submission["scope"] = scope
         if type_filter:
-            submission["type"] = type_filter
+            submission["bead_types"] = [type_filter]
 
         try:
-            result = memory_search(submission, root=root_final, explain=False)
+            result = memory_search(request=submission, root=root_final, explain=False)
         except Exception as exc:
             return json.dumps({"error": str(exc)})
 

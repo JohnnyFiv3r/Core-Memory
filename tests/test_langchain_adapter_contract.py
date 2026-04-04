@@ -108,6 +108,11 @@ class TestLangChainAdapterContract(unittest.TestCase):
             self.assertIn("memory", out)
             self.assertIn("Use canonical execute", out["memory"])
 
+            idx = root / ".beads" / "index.json"
+            obj = json.loads(idx.read_text(encoding="utf-8"))
+            beads = list((obj.get("beads") or {}).values())
+            self.assertTrue(any("session_start" in set(b.get("tags") or []) for b in beads))
+
     def test_corememory_save_context_emits_turn_event(self):
         with tempfile.TemporaryDirectory() as td, _fake_langchain_core_modules():
             root = Path(td) / "memory"
@@ -121,6 +126,15 @@ class TestLangChainAdapterContract(unittest.TestCase):
             self.assertTrue(events.exists())
             rows = [json.loads(line) for line in events.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(1, len(rows))
+
+            idx = root / ".beads" / "index.json"
+            self.assertTrue(idx.exists())
+            obj = json.loads(idx.read_text(encoding="utf-8"))
+            self.assertGreaterEqual(len((obj.get("beads") or {})), 1)
+
+            cm.clear()
+            checkpoints = root / ".beads" / "events" / "flush-checkpoints.jsonl"
+            self.assertTrue(checkpoints.exists())
 
     def test_corememory_retriever_returns_enriched_documents(self):
         with tempfile.TemporaryDirectory() as td, _fake_langchain_core_modules():

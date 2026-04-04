@@ -2,8 +2,8 @@
 
 Maps LangChain's memory protocol to Core Memory's causal memory system:
 - load_memory_variables() → continuity injection + optional search
-- save_context() → emit_turn_finalized (write path)
-- clear() → no-op (Core Memory never deletes, only archives)
+- save_context() → process_turn_finalized (per-turn write boundary)
+- clear() → process_flush (session-end flush boundary)
 """
 from __future__ import annotations
 
@@ -18,7 +18,8 @@ except ImportError:
         "Install with: pip install core-memory[langchain]"
     )
 
-from core_memory.integrations.api import IntegrationContext, emit_turn_finalized
+from core_memory.integrations.api import IntegrationContext
+from core_memory.runtime.engine import process_flush, process_turn_finalized
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 
 
@@ -60,7 +61,12 @@ class CoreMemory(BaseMemory):
         Returns a dict with {memory_key: str} containing the rolling-window
         continuity injection text.
         """
-        result = load_continuity_injection(self.root, max_items=self.max_items)
+        result = load_continuity_injection(
+            self.root,
+            max_items=self.max_items,
+            session_id=self.session_id,
+            ensure_session_start=True,
+        )
         records = result.get("records") or []
 
         if not records:
@@ -93,7 +99,7 @@ class CoreMemory(BaseMemory):
             adapter_status="active",
         )
 
-        emit_turn_finalized(
+        process_turn_finalized(
             root=self.root,
             session_id=self.session_id,
             turn_id=turn_id,
@@ -104,5 +110,15 @@ class CoreMemory(BaseMemory):
         )
 
     def clear(self) -> None:
-        """No-op. Core Memory uses archival, not deletion."""
-        pass
+        """Session-end boundary hook.
+
+        LangChain's clear is treated as a flush boundary for this session.
+        """
+        process_flush(
+            root=self.root,
+            session_id=self.session_id,
+            promote=True,
+            token_budget=1200,
+            max_beads=12,
+            source="langchain_clear",
+        )
