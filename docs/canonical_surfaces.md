@@ -74,6 +74,9 @@ Machine-readable contract:
 - `docs/integrations/springai/README.md`
 - `docs/integrations/langchain/README.md`
 
+Optional shadow-adapter docs (non-canonical runtime authority):
+- `docs/integrations/neo4j/README.md`
+
 ## Compatibility and historical notes
 - Compatibility/historical material lives under `docs/archive/` and `docs/reports/`.
 - If older modules still exist in code (for migration/history), they are not forward product surfaces unless listed above.

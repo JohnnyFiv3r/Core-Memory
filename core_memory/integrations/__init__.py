@@ -15,6 +15,8 @@ __all__ = [
     "hydrate_bead_sources",
     "rebuild_turn_indexes",
     "backfill_bead_session_ids",
+    "neo4j_status",
+    "sync_to_neo4j",
 ]
 
 
@@ -34,5 +36,9 @@ def __getattr__(name: str):
     if name in {"rebuild_turn_indexes", "backfill_bead_session_ids"}:
         from . import migration as _migration
         return getattr(_migration, name)
+
+    if name in {"neo4j_status", "sync_to_neo4j"}:
+        from .neo4j import sync as _neo4j_sync
+        return getattr(_neo4j_sync, name)
 
     raise AttributeError(name)

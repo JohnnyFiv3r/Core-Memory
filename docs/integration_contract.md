@@ -48,6 +48,7 @@ Product expectation:
 ## 5) Adapter classification
 - Native finalized-turn adapter
 - Bridge adapter (reconstruct + emit finalized-turn)
+- Shadow projection adapter (read/export mirror only; non-authoritative)
 - Compatibility/historical adapter surfaces (non-forward)
 
 Current adapter families:
@@ -55,3 +56,4 @@ Current adapter families:
 - PydanticAI
 - SpringAI/HTTP
 - LangChain
+- Neo4j (shadow graph projection)

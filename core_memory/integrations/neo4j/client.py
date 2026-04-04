@@ -1,0 +1,398 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Any
+
+from .config import Neo4jConfig
+
+
+CM_OWNER_KEY = "cm_owner"
+CM_OWNER_VALUE = "core_memory_shadow_v1"
+
+
+class Neo4jDependencyError(RuntimeError):
+    pass
+
+
+class Neo4jConfigError(RuntimeError):
+    pass
+
+
+@dataclass
+class Neo4jClient:
+    config: Neo4jConfig
+
+    def _require_dependency(self):
+        try:
+            from neo4j import GraphDatabase  # type: ignore
+        except ImportError as exc:
+            raise Neo4jDependencyError(
+                "Neo4j adapter requires the 'neo4j' package. "
+                "Install with: pip install core-memory[neo4j]"
+            ) from exc
+        return GraphDatabase
+
+    def _validate_config(self) -> None:
+        if not self.config.uri:
+            raise Neo4jConfigError("missing_config: CORE_MEMORY_NEO4J_URI")
+        if not self.config.user:
+            raise Neo4jConfigError("missing_config: CORE_MEMORY_NEO4J_USER")
+        if not self.config.password:
+            raise Neo4jConfigError("missing_config: CORE_MEMORY_NEO4J_PASSWORD")
+
+    def _open_driver(self):
+        self._validate_config()
+        GraphDatabase = self._require_dependency()
+        return GraphDatabase.driver(
+            self.config.uri,
+            auth=(self.config.user, self.config.password),
+            encrypted=bool(self.config.tls),
+            connection_timeout=float(self.config.timeout_ms) / 1000.0,
+        )
+
+    def status(self) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {
+                "ok": True,
+                "enabled": False,
+                "status": "disabled",
+                "warnings": ["neo4j_disabled"],
+            }
+
+        try:
+            driver = self._open_driver()
+        except Neo4jConfigError as exc:
+            return {
+                "ok": False,
+                "enabled": True,
+                "status": "misconfigured",
+                "error": {"code": "neo4j_config_error", "message": str(exc)},
+                "warnings": [],
+            }
+        except Neo4jDependencyError as exc:
+            return {
+                "ok": False,
+                "enabled": True,
+                "status": "missing_dependency",
+                "error": {"code": "neo4j_dependency_missing", "message": str(exc)},
+                "warnings": [],
+            }
+
+        try:
+            with driver.session(database=self.config.database) as session:
+                ping = session.run("RETURN 1 AS ok").single()
+                ok_val = int((ping or {}).get("ok", 0)) if ping is not None else 0
+                counts = session.run(
+                    "MATCH (n:Bead) WITH count(n) AS nodes "
+                    "OPTIONAL MATCH ()-[r:ASSOCIATED]->() RETURN nodes, count(r) AS edges"
+                ).single()
+                return {
+                    "ok": bool(ok_val == 1),
+                    "enabled": True,
+                    "status": "ready" if ok_val == 1 else "unknown",
+                    "database": self.config.database,
+                    "nodes": int((counts or {}).get("nodes", 0)) if counts is not None else 0,
+                    "edges": int((counts or {}).get("edges", 0)) if counts is not None else 0,
+                    "warnings": [],
+                }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "enabled": True,
+                "status": "connection_failed",
+                "database": self.config.database,
+                "error": {"code": "neo4j_connection_failed", "message": str(exc)},
+                "warnings": [],
+            }
+        finally:
+            try:
+                driver.close()
+            except Exception:
+                pass
+
+    def upsert_projection(
+        self,
+        *,
+        nodes: list[dict[str, Any]],
+        edges: list[dict[str, Any]],
+        prune: bool = False,
+        dataset_key: str,
+        keep_assoc_ids: list[str] | None = None,
+        scope: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if not self.config.enabled:
+            return {
+                "ok": False,
+                "nodes_upserted": 0,
+                "edges_upserted": 0,
+                "nodes_pruned": 0,
+                "edges_pruned": 0,
+                "warnings": ["neo4j_disabled"],
+                "errors": [{"code": "neo4j_disabled", "message": "CORE_MEMORY_NEO4J_ENABLED=0"}],
+            }
+
+        warnings: list[str] = []
+        ds = str(dataset_key or "").strip()
+        if not ds:
+            return {
+                "ok": False,
+                "nodes_upserted": 0,
+                "edges_upserted": 0,
+                "nodes_pruned": 0,
+                "edges_pruned": 0,
+                "warnings": warnings,
+                "errors": [{"code": "neo4j_dataset_key_missing", "message": "dataset_key is required"}],
+            }
+
+        try:
+            driver = self._open_driver()
+        except Neo4jConfigError as exc:
+            return {
+                "ok": False,
+                "nodes_upserted": 0,
+                "edges_upserted": 0,
+                "nodes_pruned": 0,
+                "edges_pruned": 0,
+                "warnings": warnings,
+                "errors": [{"code": "neo4j_config_error", "message": str(exc)}],
+            }
+        except Neo4jDependencyError as exc:
+            return {
+                "ok": False,
+                "nodes_upserted": 0,
+                "edges_upserted": 0,
+                "nodes_pruned": 0,
+                "edges_pruned": 0,
+                "warnings": warnings,
+                "errors": [{"code": "neo4j_dependency_missing", "message": str(exc)}],
+            }
+
+        nodes_upserted = 0
+        edges_upserted = 0
+        nodes_pruned = 0
+        edges_pruned = 0
+        try:
+            with driver.session(database=self.config.database) as session:
+                for node in list(nodes or []):
+                    props = dict(node.get("properties") or {})
+                    props.setdefault(CM_OWNER_KEY, CM_OWNER_VALUE)
+                    props.setdefault("cm_dataset", ds)
+                    bead_id = str(props.get("bead_id") or "").strip()
+                    if not bead_id:
+                        continue
+
+                    labels = _sanitize_labels(list(node.get("labels") or []))
+                    session.run(
+                        "MERGE (b:Bead {cm_owner: $owner, cm_dataset: $dataset, bead_id: $bead_id}) "
+                        "SET b += $props",
+                        owner=CM_OWNER_VALUE,
+                        dataset=ds,
+                        bead_id=bead_id,
+                        props=props,
+                    )
+                    if labels:
+                        label_clause = ":" + ":".join(labels)
+                        session.run(
+                            f"MATCH (b:Bead {{cm_owner: $owner, cm_dataset: $dataset, bead_id: $bead_id}}) SET b{label_clause}",
+                            owner=CM_OWNER_VALUE,
+                            dataset=ds,
+                            bead_id=bead_id,
+                        )
+                    nodes_upserted += 1
+
+                for edge in list(edges or []):
+                    props = dict(edge.get("properties") or {})
+                    props.setdefault(CM_OWNER_KEY, CM_OWNER_VALUE)
+                    props.setdefault("cm_dataset", ds)
+                    assoc_id = str(props.get("association_id") or "").strip()
+                    src = str(edge.get("start_bead_id") or "").strip()
+                    dst = str(edge.get("end_bead_id") or "").strip()
+                    if not assoc_id or not src or not dst:
+                        continue
+
+                    session.run(
+                        "MATCH (s:Bead {cm_owner: $owner, cm_dataset: $dataset, bead_id: $src}), "
+                        "(t:Bead {cm_owner: $owner, cm_dataset: $dataset, bead_id: $dst}) "
+                        "MERGE (s)-[r:ASSOCIATED {cm_owner: $owner, cm_dataset: $dataset, association_id: $association_id}]->(t) "
+                        "SET r += $props",
+                        owner=CM_OWNER_VALUE,
+                        dataset=ds,
+                        src=src,
+                        dst=dst,
+                        association_id=assoc_id,
+                        props=props,
+                    )
+                    edges_upserted += 1
+
+                if prune:
+                    keep_bead_ids = sorted(
+                        {
+                            str((n.get("properties") or {}).get("bead_id") or "").strip()
+                            for n in list(nodes or [])
+                            if str((n.get("properties") or {}).get("bead_id") or "").strip()
+                        }
+                    )
+                    keep_assoc_ids = sorted(
+                        {
+                            str(x or "").strip()
+                            for x in (keep_assoc_ids or [])
+                            if str(x or "").strip()
+                        }
+                    )
+                    if not keep_assoc_ids:
+                        keep_assoc_ids = sorted(
+                            {
+                                str((e.get("properties") or {}).get("association_id") or "").strip()
+                                for e in list(edges or [])
+                                if str((e.get("properties") or {}).get("association_id") or "").strip()
+                            }
+                        )
+
+                    scope_dict = dict(scope or {})
+                    sid = str(scope_dict.get("session_id") or "").strip()
+                    requested_bead_ids = [str(x) for x in (scope_dict.get("bead_ids") or []) if str(x).strip()]
+
+                    p = self._prune_scope(
+                        session=session,
+                        keep_bead_ids=keep_bead_ids,
+                        keep_assoc_ids=keep_assoc_ids,
+                        dataset_key=ds,
+                        session_id=sid or None,
+                        requested_bead_ids=requested_bead_ids,
+                    )
+                    nodes_pruned = int(p.get("nodes_pruned") or 0)
+                    edges_pruned = int(p.get("edges_pruned") or 0)
+
+            return {
+                "ok": True,
+                "database": self.config.database,
+                "nodes_upserted": int(nodes_upserted),
+                "edges_upserted": int(edges_upserted),
+                "nodes_pruned": int(nodes_pruned),
+                "edges_pruned": int(edges_pruned),
+                "warnings": warnings,
+                "errors": [],
+                "dataset_key": ds,
+                "scope": dict(scope or {}),
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "database": self.config.database,
+                "nodes_upserted": int(nodes_upserted),
+                "edges_upserted": int(edges_upserted),
+                "nodes_pruned": int(nodes_pruned),
+                "edges_pruned": int(edges_pruned),
+                "warnings": warnings,
+                "errors": [{"code": "neo4j_sync_failed", "message": str(exc)}],
+                "dataset_key": ds,
+            }
+        finally:
+            try:
+                driver.close()
+            except Exception:
+                pass
+
+    def _prune_scope(
+        self,
+        *,
+        session: Any,
+        keep_bead_ids: list[str],
+        keep_assoc_ids: list[str],
+        dataset_key: str,
+        session_id: str | None,
+        requested_bead_ids: list[str],
+    ) -> dict[str, int]:
+        edges_pruned = 0
+        nodes_pruned = 0
+
+        if session_id:
+            e1 = session.run(
+                "MATCH (s:Bead {session_id: $sid})-[r:ASSOCIATED]->() "
+                "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND NOT r.association_id IN $keep_assoc_ids "
+                "DELETE r RETURN count(r) AS n",
+                sid=session_id,
+                owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
+                keep_assoc_ids=list(keep_assoc_ids),
+            ).single()
+            e2 = session.run(
+                "MATCH ()-[r:ASSOCIATED]->(t:Bead {session_id: $sid}) "
+                "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND NOT r.association_id IN $keep_assoc_ids "
+                "DELETE r RETURN count(r) AS n",
+                sid=session_id,
+                owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
+                keep_assoc_ids=list(keep_assoc_ids),
+            ).single()
+            n = session.run(
+                "MATCH (b:Bead {session_id: $sid}) "
+                "WHERE b.cm_owner = $owner AND b.cm_dataset = $dataset AND NOT b.bead_id IN $keep_bead_ids "
+                "DETACH DELETE b RETURN count(b) AS n",
+                sid=session_id,
+                owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
+                keep_bead_ids=list(keep_bead_ids),
+            ).single()
+            edges_pruned += int((e1 or {}).get("n") or 0) + int((e2 or {}).get("n") or 0)
+            nodes_pruned += int((n or {}).get("n") or 0)
+            return {"nodes_pruned": nodes_pruned, "edges_pruned": edges_pruned}
+
+        if requested_bead_ids:
+            e = session.run(
+                "MATCH (s:Bead)-[r:ASSOCIATED]->(t:Bead) "
+                "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND (s.bead_id IN $scope_bead_ids OR t.bead_id IN $scope_bead_ids) "
+                "AND NOT r.association_id IN $keep_assoc_ids "
+                "DELETE r RETURN count(r) AS n",
+                owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
+                scope_bead_ids=list(requested_bead_ids),
+                keep_assoc_ids=list(keep_assoc_ids),
+            ).single()
+            n = session.run(
+                "MATCH (b:Bead) "
+                "WHERE b.cm_owner = $owner AND b.cm_dataset = $dataset AND b.bead_id IN $scope_bead_ids AND NOT b.bead_id IN $keep_bead_ids "
+                "DETACH DELETE b RETURN count(b) AS n",
+                owner=CM_OWNER_VALUE,
+                dataset=dataset_key,
+                scope_bead_ids=list(requested_bead_ids),
+                keep_bead_ids=list(keep_bead_ids),
+            ).single()
+            edges_pruned += int((e or {}).get("n") or 0)
+            nodes_pruned += int((n or {}).get("n") or 0)
+            return {"nodes_pruned": nodes_pruned, "edges_pruned": edges_pruned}
+
+        e = session.run(
+            "MATCH ()-[r:ASSOCIATED]->() "
+            "WHERE r.cm_owner = $owner AND r.cm_dataset = $dataset AND NOT r.association_id IN $keep_assoc_ids "
+            "DELETE r RETURN count(r) AS n",
+            owner=CM_OWNER_VALUE,
+            dataset=dataset_key,
+            keep_assoc_ids=list(keep_assoc_ids),
+        ).single()
+        n = session.run(
+            "MATCH (b:Bead) "
+            "WHERE b.cm_owner = $owner AND b.cm_dataset = $dataset AND NOT b.bead_id IN $keep_bead_ids "
+            "DETACH DELETE b RETURN count(b) AS n",
+            owner=CM_OWNER_VALUE,
+            dataset=dataset_key,
+            keep_bead_ids=list(keep_bead_ids),
+        ).single()
+        edges_pruned += int((e or {}).get("n") or 0)
+        nodes_pruned += int((n or {}).get("n") or 0)
+        return {"nodes_pruned": nodes_pruned, "edges_pruned": edges_pruned}
+
+
+def _sanitize_labels(labels: list[Any]) -> list[str]:
+    out: list[str] = []
+    for label in labels:
+        s = str(label or "").strip()
+        if not s:
+            continue
+        if not s[:1].isalpha():
+            continue
+        if any((not c.isalnum()) and c != "_" for c in s):
+            continue
+        if s not in out and s != "Bead":
+            out.append(s)
+    return out
