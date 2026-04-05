@@ -817,6 +817,7 @@ def causal_traverse(
     idx_file = root / ".beads" / "index.json"
     assoc_seen = 0
     assoc_kept = 0
+    assoc_inactive_filtered = 0
     try:
         if idx_file.exists():
             idx = json.loads(idx_file.read_text(encoding="utf-8"))
@@ -824,6 +825,10 @@ def causal_traverse(
                 if not isinstance(a, dict):
                     continue
                 assoc_seen += 1
+                status = str(a.get("status") or "active").strip().lower() or "active"
+                if status in {"retracted", "superseded", "inactive"}:
+                    assoc_inactive_filtered += 1
+                    continue
                 src = str(a.get("source_bead") or a.get("source_bead_id") or "")
                 dst = str(a.get("target_bead") or a.get("target_bead_id") or "")
                 rel = str(a.get("relationship") or "supports")
@@ -1007,6 +1012,7 @@ def causal_traverse(
         "assoc_diag": {
             "assoc_edges_total_seen": int(assoc_seen),
             "assoc_edges_after_conf_floor": int(assoc_kept),
+            "assoc_edges_inactive_filtered": int(assoc_inactive_filtered),
             "assoc_conf_floor": 0.45,
         },
     }
