@@ -11,11 +11,10 @@ from typing import Any
 from .live_session import read_live_session_beads
 from datetime import datetime, timezone
 from core_memory.integrations.openclaw_flags import (
-    agent_authored_fail_open_enabled,
-    agent_authored_required_enabled,
     agent_min_semantic_associations_after_first,
     preview_association_allow_shared_tag,
     preview_association_promotion_enabled,
+    resolved_agent_authored_gate,
 )
 from ..association.crawler_contract import (
     build_crawler_context,
@@ -138,12 +137,15 @@ def _resolve_reviewed_updates(
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     md = req.get("metadata") or {}
     reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
-    required = agent_authored_required_enabled()
-    fail_open = agent_authored_fail_open_enabled()
+    resolved_gate = resolved_agent_authored_gate()
+    required = bool(resolved_gate.get("required"))
+    fail_open = bool(resolved_gate.get("fail_open"))
+    mode = str(resolved_gate.get("mode") or "observe")
 
     gate = {
         "required": bool(required),
         "fail_open": bool(fail_open),
+        "mode": mode,
         "source": str(source_override or ("metadata.crawler_updates" if isinstance(reviewed, dict) and reviewed else "default_fallback")),
         "used_fallback": False,
         "blocked": False,
@@ -514,11 +516,7 @@ def process_turn_finalized(
 
     # Slice 4 quality policy: after first session turn, require minimum
     # non-temporal semantic associations in strict agent-authored mode.
-    if (
-        agent_authored_required_enabled()
-        and not agent_authored_fail_open_enabled()
-        and isinstance(reviewed_updates, dict)
-    ):
+    if bool(gate.get("required")) and (not bool(gate.get("fail_open"))) and isinstance(reviewed_updates, dict):
         prior_beads = _session_visible_bead_ids(root=root, session_id=req["session_id"])
         min_required = int(agent_min_semantic_associations_after_first())
         semantic_count = int(_non_temporal_semantic_association_count(reviewed_updates))

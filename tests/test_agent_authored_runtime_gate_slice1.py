@@ -274,6 +274,52 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_semantic_coverage_missing", out.get("error_code"))
 
+    def test_mode_observe_overrides_strict_flags(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "observe",
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                user_query="q",
+                assistant_final="a",
+                metadata={},
+            )
+            self.assertTrue(out.get("ok"))
+            gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
+            self.assertEqual("observe", gate.get("mode"))
+            self.assertTrue(gate.get("used_fallback"))
+
+    def test_mode_enforce_blocks_even_if_legacy_flags_relaxed(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "enforce",
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "0",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "1",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                user_query="q",
+                assistant_final="a",
+                metadata={},
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertIn(out.get("error_code"), {"agent_callable_missing", "agent_updates_missing"})
+            gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
+            self.assertEqual("enforce", gate.get("mode"))
+
 
 if __name__ == "__main__":
     unittest.main()

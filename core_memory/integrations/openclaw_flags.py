@@ -102,6 +102,38 @@ def preview_association_allow_shared_tag() -> bool:
     return _env_bool("CORE_MEMORY_PREVIEW_ASSOC_ALLOW_SHARED_TAG", False)
 
 
+def agent_authored_mode() -> str:
+    """Rollout mode for agent-authored turn memory.
+
+    Explicit values:
+    - observe: no strict blocking, deterministic fallback allowed
+    - warn: validate strictly, fallback allowed (no blocking)
+    - enforce: validate strictly, no fallback (blocking)
+
+    If unset/invalid, mode is derived from legacy flags.
+    """
+    raw = str(os.environ.get("CORE_MEMORY_AGENT_AUTHORED_MODE") or "").strip().lower()
+    if raw in {"observe", "warn", "enforce"}:
+        return raw
+
+    req = agent_authored_required_enabled()
+    fail_open = agent_authored_fail_open_enabled()
+    if req and not fail_open:
+        return "enforce"
+    if req and fail_open:
+        return "warn"
+    return "observe"
+
+
+def resolved_agent_authored_gate() -> dict[str, object]:
+    mode = agent_authored_mode()
+    if mode == "enforce":
+        return {"mode": mode, "required": True, "fail_open": False}
+    if mode == "warn":
+        return {"mode": mode, "required": True, "fail_open": True}
+    return {"mode": "observe", "required": False, "fail_open": True}
+
+
 def runtime_flags_snapshot() -> dict[str, object]:
     return {
         "core_memory_enabled": core_memory_enabled(),
@@ -113,6 +145,8 @@ def runtime_flags_snapshot() -> dict[str, object]:
         "default_adjacent_turns": default_adjacent_turns(),
         "agent_authored_required_enabled": agent_authored_required_enabled(),
         "agent_authored_fail_open_enabled": agent_authored_fail_open_enabled(),
+        "agent_authored_mode": agent_authored_mode(),
+        "agent_authored_gate_resolved": resolved_agent_authored_gate(),
         "agent_crawler_invoke_enabled": agent_crawler_invoke_enabled(),
         "agent_crawler_max_attempts": agent_crawler_max_attempts(),
         "agent_min_semantic_associations_after_first": agent_min_semantic_associations_after_first(),

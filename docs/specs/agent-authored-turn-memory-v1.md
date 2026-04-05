@@ -57,6 +57,14 @@ These do not replace semantic authorship.
   - When enabled, runtime may fallback when payload is missing/invalid.
   - Intended default for strict production posture is disabled (`0`).
 
+Rollout control (slice 7):
+- `CORE_MEMORY_AGENT_AUTHORED_MODE`
+  - `observe` -> no blocking, fallback allowed
+  - `warn` -> strict validation with fallback allowed
+  - `enforce` -> strict validation with fail-closed behavior
+
+If mode is unset, runtime derives mode from legacy flags for backward compatibility.
+
 Slice 1 introduces runtime gating and strict/fail-open behavior.
 Slice 2 hardens strict payload shape validation.
 
@@ -119,6 +127,16 @@ Primary gate dimensions:
 - fail-closed rate
 - average non-temporal semantic associations per successful turn
 - active shared_tag ratio in current graph view
+
+## Rollout playbook (slice 7)
+
+Recommended progression:
+1. **observe**: collect quality telemetry without blocking turns.
+2. **warn**: enforce strict schema checks but allow fail-open fallback.
+3. **enforce**: fail-closed when agent-authored payloads are missing/invalid.
+
+Operational check:
+- `core-memory graph association-slo-check --strict`
 
 ---
 
