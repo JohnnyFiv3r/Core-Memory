@@ -50,7 +50,10 @@ Status: Canonical reviewer guide
 - `docs/concepts/why-core-memory.md`
 - `docs/architecture_overview.md`
 - `docs/integrations/`
+- `examples/canonical_5min.py`
 - `examples/quickstart.py`
+- `examples/proof_carry_forward.py`
+- `examples/store_compat_quickstart.py` (compatibility/direct-store reference)
 - `examples/pydanticai_basic.py`
 - `examples/pydanticai_demo_roundtrip.py`
 - `examples/pydanticai_live_demo.py`

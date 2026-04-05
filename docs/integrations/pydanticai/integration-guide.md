@@ -5,7 +5,8 @@ Canonical surfaces:
 - `run_with_memory(...)`
 - `run_with_memory_sync(...)`
 - `flush_session(...)`
-- `emit_turn_finalized(...)`
+- `process_turn_finalized(...)`
+- `emit_turn_finalized(...)` (adapter/helper ingress)
 - `get_turn(...)`
 - `get_turn_tools(...)`
 - `get_adjacent_turns(...)`
@@ -21,7 +22,10 @@ Two paths exist:
 3. **Hydration path** — retrieve raw turn/tool provenance on demand
 
 ## Write path
-Canonical write path:
+Canonical write boundary:
+- `core_memory.runtime.engine.process_turn_finalized(...)`
+
+Adapter/helper write ingress:
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
 Convenience helper:

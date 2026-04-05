@@ -5,8 +5,8 @@ Status: Canonical
 ## Per-turn (primary)
 1. Runtime finalizes top-level assistant reply.
 2. Adapter emits canonical finalized-turn payload (`session_id`, `turn_id`, user/assistant text, metadata).
-3. `emit_turn_finalized(...)` records canonical event envelope.
-4. `memory_engine.process_turn_finalized(...)` runs idempotent processing once per `session_id:turn_id`.
+3. `emit_turn_finalized(...)` helper records canonical event envelope.
+4. `memory_engine.process_turn_finalized(...)` is the canonical idempotent write boundary per `session_id:turn_id`.
 
 ## In-session semantic judgment updates
 - Agent-reviewed crawler outputs are canonical for:

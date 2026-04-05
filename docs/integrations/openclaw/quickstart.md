@@ -33,6 +33,9 @@ Hydration (optional, post-selection):
 - `hydrate_bead_sources(...)`
 
 Primary write-path ingestion:
+- `process_turn_finalized(...)`
+
+Adapter/helper ingress for bridge code:
 - `emit_turn_finalized(...)`
 
 ## 4) Validate

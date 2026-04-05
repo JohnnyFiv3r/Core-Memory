@@ -6,6 +6,9 @@ Core Memory is an event/session-first memory system that separates write ingesti
 
 ## 1) Write path
 Primary ingress:
+- `core_memory.runtime.engine.process_turn_finalized(...)`
+
+Adapter/helper ingress:
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
 Responsibilities:

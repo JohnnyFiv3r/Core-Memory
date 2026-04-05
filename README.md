@@ -34,7 +34,8 @@
 
 ## Current Status
 
-- **Canonical surfaces:** finalized-turn ingest + `search` / `trace` / `execute`
+- **Canonical surfaces:** `process_turn_finalized` / `process_session_start` / `process_flush` + `search` / `trace` / `execute`
+- **Adapter helper ingress:** `emit_turn_finalized(...)` remains supported for bridge/integration adapters
 - **Compatibility surfaces:** archived or non-primary docs/modules retained for migration/history only
 - **Experimental areas:** optional adapters and evaluation harnesses that are useful but not yet hard product contract
 - **Not yet integrated:** ideas/proposals not represented in canonical docs or adapter references are intentionally out of current contract scope
@@ -128,31 +129,32 @@ pip install "core-memory[dev]"
 
 ## Fastest Paths
 
-### 1) Local CLI path
+### 1) Smallest believable product path (5 minutes)
 
-This is the fastest “I want to see it work” flow.
+No adapters, no direct `MemoryStore` calls, canonical boundaries only.
 
 ```bash
 core-memory --root ./memory setup init
-core-memory --root ./memory setup doctor
-core-memory --root ./memory graph semantic-doctor
-core-memory --root ./memory store add \
- --type decision \
- --title "Redis fix" \
- --summary "Raised pool size" \
- --session-id s1 \
- --source-turn-ids t1
-# Option A (recommended): semantic backend installed via core-memory[semantic]
-# Option B (degraded mode):
-#   export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed
-core-memory --root ./memory memory search --query "Redis fix"
+
+# Base install path (no semantic extras)
+export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed
+PYTHONPATH=. python3 examples/canonical_5min.py
 ```
 
-Expected result: the recall command should surface the bead you just wrote.
+Expected output:
+- `ok: true`
+- a non-zero `result_count`
+- `degraded: true` is acceptable in this base-install path
 
-### 2) Python canonical runtime/retrieval path
+If you want strict canonical semantic mode instead:
 
-Use finalized-turn ingestion + request-first retrieval tools.
+```bash
+pip install "core-memory[semantic]"
+unset CORE_MEMORY_CANONICAL_SEMANTIC_MODE
+PYTHONPATH=. python3 examples/canonical_5min.py
+```
+
+### 2) Canonical Python runtime/retrieval path
 
 ```python
 from core_memory import process_turn_finalized, memory_execute
@@ -176,26 +178,23 @@ out = memory_execute(
 print(out.get("ok"), len(out.get("results") or []))
 ```
 
-### 3) Compatibility store API (advanced / direct persistence)
+### 3) CLI retrieval surface
 
-`MemoryStore` remains available for direct persistence workflows, migrations, and
-advanced local tooling, but it is not the primary canonical runtime path.
+Once memory exists, canonical retrieval CLI is:
 
-```python
-from core_memory import MemoryStore
-
-store = MemoryStore("./memory")
-store.add_bead(
- type="decision",
- title="Redis fix",
- summary=["Raised pool size"],
- session_id="s1",
- source_turn_ids=["t1"],
-)
-
-for bead in store.query(limit=5):
- print(f"[{bead['type']}] {bead['title']}")
+```bash
+core-memory --root ./memory memory search --query "redis pool"
+core-memory --root ./memory memory trace --query "why redis pool"
+core-memory --root ./memory memory execute --request '{"raw_query":"why redis","intent":"causal","k":5}'
 ```
+
+### 4) Compatibility store API (advanced / direct persistence)
+
+`MemoryStore` remains available for direct persistence workflows and migrations,
+but it is not the primary canonical runtime path.
+
+See:
+- `examples/store_compat_quickstart.py`
 
 ---
 
@@ -208,8 +207,13 @@ For JVM, JS/TS-adjacent, or service-oriented architectures, run Core Memory as a
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -U pip
 pip install -e ".[http]"
+python3 -m core_memory.integrations.http.server
+```
+
+Equivalent startup command:
+
+```bash
 python3 -m uvicorn core_memory.integrations.http.server:app --host 0.0.0.0 --port 8000
 ```
 
@@ -278,6 +282,12 @@ See also:
 ### Canonical ingress port
 
 ```python
+from core_memory import process_turn_finalized
+```
+
+Adapter/helper ingress remains available for bridge code:
+
+```python
 from core_memory.integrations.api import emit_turn_finalized
 ```
 
@@ -292,6 +302,9 @@ from core_memory.integrations.api import emit_turn_finalized
 ### Good starting points
 
 - [examples/quickstart.py](examples/quickstart.py)
+- [examples/canonical_5min.py](examples/canonical_5min.py)
+- [examples/proof_carry_forward.py](examples/proof_carry_forward.py)
+- [examples/store_compat_quickstart.py](examples/store_compat_quickstart.py)
 - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
 - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
 - [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)

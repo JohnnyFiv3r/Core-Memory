@@ -1,4 +1,4 @@
-# Public Surface (Pre-OSS)
+# Public Surface
 
 Status: Canonical
 
@@ -51,7 +51,7 @@ Deep recall is separate from canonical hydration.
 
 ### Session-start vs continuity semantics
 - `session_start` is a first-class lifecycle write boundary and continuity snapshot bead.
-- `load_continuity_injection(...)` is a pure read helper over continuity authority surfaces.
+- `core_memory.write_pipeline.continuity_injection.load_continuity_injection(...)` is a pure read helper over continuity authority surfaces.
 - Continuity reads must not implicitly create beads or mark semantic state dirty.
 - Adapters that support session start must invoke explicit adapter-owned boundary logic.
 

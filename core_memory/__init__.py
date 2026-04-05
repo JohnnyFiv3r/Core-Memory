@@ -31,16 +31,17 @@ from .schema.models import (
 __version__ = VERSION
 
 __all__ = [
-    # Canonical runtime write ingress
+    # Canonical runtime write boundaries
     "process_turn_finalized",
     "process_session_start",
     "process_flush",
-    "emit_turn_finalized",
     # Canonical retrieval tool surface
     "memory_search",
     "memory_trace",
     "memory_execute",
-    # Compatibility surface (legacy/root exports)
+    # Adapter/helper ingress surface
+    "emit_turn_finalized",
+    # Compatibility surface (advanced/legacy/root exports)
     "MemoryStore",
     "DEFAULT_ROOT",
     "DiagnosticError",

@@ -10,11 +10,19 @@ See also:
 Run Core Memory in-process with a PydanticAI-based agent.
 
 ## 1) Install
+
+Base install (stub-friendly examples only):
+
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -U pip
 pip install -e .
+```
+
+Real PydanticAI agent usage requires the adapter extra:
+
+```bash
+pip install -e ".[pydanticai]"
 ```
 
 ## 2) Use the integration helper

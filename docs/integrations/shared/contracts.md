@@ -8,7 +8,8 @@ Primary machine-readable HTTP contract:
 ## Canonical runtime contracts
 
 ### Write contract
-- `emit_turn_finalized(...)`
+- `process_turn_finalized(...)`
+- adapter/helper ingress: `emit_turn_finalized(...)`
 - HTTP `POST /v1/memory/turn-finalized`
 
 ### Retrieval contract
