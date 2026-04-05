@@ -19,6 +19,9 @@ For the current-turn bead row:
 - `title`
 - `summary`
 
+Shape requirement:
+- `beads_create` must contain exactly **one** current-turn bead row.
+
 For inferred semantic associations:
 
 - `source_bead_id`
@@ -26,6 +29,9 @@ For inferred semantic associations:
 - `relationship`
 - `reason_text`
 - `confidence`
+
+Shape requirement:
+- `associations` must be present and non-empty in strict mode.
 
 ---
 
@@ -43,7 +49,7 @@ These do not replace semantic authorship.
 
 ---
 
-## Strictness flags (scaffolded in slice 0)
+## Strictness flags
 
 - `CORE_MEMORY_AGENT_AUTHORED_REQUIRED`
   - When enabled, runtime should require agent-authored payloads for semantic turn memory.
@@ -51,8 +57,8 @@ These do not replace semantic authorship.
   - When enabled, runtime may fallback when payload is missing/invalid.
   - Intended default for strict production posture is disabled (`0`).
 
-Slice 0 only introduces flags and contract constants.
-Runtime enforcement lands in follow-up slices.
+Slice 1 introduces runtime gating and strict/fail-open behavior.
+Slice 2 hardens strict payload shape validation.
 
 ---
 

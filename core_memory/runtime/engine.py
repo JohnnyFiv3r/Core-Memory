@@ -33,10 +33,9 @@ from ..policy.bead_typing import classify_bead_type
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..retrieval.lifecycle import mark_turn_checkpoint, mark_flush_checkpoint
 from .agent_authored_contract import (
-    AGENT_AUTHORED_REQUIRED_BEAD_FIELDS,
-    ERROR_AGENT_BEAD_FIELDS_MISSING,
     ERROR_AGENT_UPDATES_INVALID,
     ERROR_AGENT_UPDATES_MISSING,
+    validate_agent_authored_updates,
 )
 
 logger = logging.getLogger(__name__)
@@ -123,34 +122,6 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _field_present_for_contract(row: dict[str, Any], key: str) -> bool:
-    val = row.get(key)
-    if key == "summary":
-        if isinstance(val, list):
-            return any(str(x).strip() for x in val)
-        if isinstance(val, str):
-            return bool(val.strip())
-        return False
-    return bool(str(val or "").strip())
-
-
-def _validate_agent_authored_updates_minimal(updates: dict[str, Any]) -> tuple[bool, str | None]:
-    rows = updates.get("beads_create")
-    if not isinstance(rows, list) or not rows:
-        return False, ERROR_AGENT_UPDATES_INVALID
-
-    has_valid_row = False
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        if all(_field_present_for_contract(row, f) for f in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS):
-            has_valid_row = True
-            break
-    if not has_valid_row:
-        return False, ERROR_AGENT_BEAD_FIELDS_MISSING
-    return True, None
-
-
 def _resolve_reviewed_updates(req: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     md = req.get("metadata") or {}
     reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
@@ -168,7 +139,8 @@ def _resolve_reviewed_updates(req: dict[str, Any]) -> tuple[dict[str, Any] | Non
 
     if isinstance(reviewed, dict) and reviewed:
         if required:
-            ok, code = _validate_agent_authored_updates_minimal(reviewed)
+            ok, code, details = validate_agent_authored_updates(reviewed)
+            gate["validation"] = details
             if not ok:
                 gate["error_code"] = code
                 if fail_open:
