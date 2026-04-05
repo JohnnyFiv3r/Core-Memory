@@ -73,6 +73,17 @@ Deterministic invocation errors:
 - `agent_callable_missing`
 - `agent_invocation_exhausted`
 
+## Association quality policy (slice 4)
+
+- Deterministic preview association promotion is disabled by default:
+  - `CORE_MEMORY_PREVIEW_ASSOC_PROMOTION=0` (default)
+- `shared_tag` preview relation is blocked by default even when preview promotion is enabled:
+  - `CORE_MEMORY_PREVIEW_ASSOC_ALLOW_SHARED_TAG=0` (default)
+- Canonical temporal direction for new inferred edges is `follows`; non-canonical temporal forms are quarantined under strict policy.
+- In strict agent-authored mode, non-initial turns require minimum non-temporal semantic association coverage:
+  - `CORE_MEMORY_AGENT_MIN_SEMANTIC_ASSOC_AFTER_FIRST` (default `1`)
+  - violation code: `agent_semantic_coverage_missing`
+
 ---
 
 ## Error code contract (scaffolded)

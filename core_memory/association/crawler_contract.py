@@ -201,8 +201,13 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         beads = index.get("beads") or {}
         assoc = list(index.get("associations") or [])
 
+        strict_default = os.environ.get("CORE_MEMORY_ASSOC_STRICT", "1") != "0"
+        inference_mode = INFERENCE_MODE_STRICT if strict_default else INFERENCE_MODE_PERMISSIVE
+        quarantine_path = Path(root) / ".beads" / "events" / "association-quarantine.jsonl"
+
         promoted = 0
         appended = 0
+        quarantined = 0
 
         for row in rows:
             kind = str(row.get("kind") or "")
@@ -223,6 +228,37 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 rel = str(row.get("relationship") or "").strip()
                 if not src or not tgt or not rel:
                     continue
+
+                validated = validate_and_normalize_inference_payload(
+                    {
+                        "source_bead": src,
+                        "target_bead": tgt,
+                        "relationship": rel,
+                        "reason_text": str(row.get("reason_text") or ""),
+                        "confidence": row.get("confidence"),
+                        "provenance": str(row.get("provenance") or "model_inferred"),
+                        "reason_code": row.get("reason_code"),
+                        "evidence_fields": list(row.get("evidence_fields") or []),
+                        "relationship_raw": str(row.get("relationship_raw") or ""),
+                    },
+                    mode=inference_mode,
+                )
+                row_n = validated.record
+                if not validated.ok:
+                    write_quarantine(
+                        Path(root),
+                        row_n,
+                        reasons=list(validated.quarantine_reasons),
+                        warnings=list(validated.warnings),
+                        original_payload=row,
+                        session_id=str(session_id),
+                    )
+                    quarantined += 1
+                    continue
+
+                src = str(row_n.get("source_bead") or "")
+                tgt = str(row_n.get("target_bead") or "")
+                rel = str(row_n.get("relationship") or "")
                 if src not in beads or tgt not in beads:
                     continue
                 exists = any(
@@ -239,15 +275,15 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                         "target_bead": tgt,
                         "relationship": rel,
                         "edge_class": str(row.get("edge_class") or "agent_judged"),
-                        "confidence": row.get("confidence"),
-                        "reason_text": row.get("reason_text"),
-                        "rationale": row.get("rationale") or row.get("reason_text"),
-                        "provenance": row.get("provenance") or "model_inferred",
-                        "relationship_raw": row.get("relationship_raw"),
-                        "warnings": list(row.get("warnings") or []),
-                        "reason_code": row.get("reason_code"),
-                        "evidence_fields": list(row.get("evidence_fields") or []),
-                        "normalization_applied": bool(row.get("normalization_applied", False)),
+                        "confidence": row_n.get("confidence"),
+                        "reason_text": row_n.get("reason_text"),
+                        "rationale": row_n.get("reason_text"),
+                        "provenance": row_n.get("provenance") or "model_inferred",
+                        "relationship_raw": row_n.get("relationship_raw"),
+                        "warnings": list(row_n.get("warnings") or []),
+                        "reason_code": row_n.get("reason_code"),
+                        "evidence_fields": list(row_n.get("evidence_fields") or []),
+                        "normalization_applied": bool(row_n.get("normalization_applied", False)),
                         "created_at": str(row.get("created_at") or datetime.now(timezone.utc).isoformat()),
                     }
                 )
@@ -266,6 +302,8 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         "merged": len(rows),
         "promotions_marked": promoted,
         "associations_appended": appended,
+        "associations_quarantined": quarantined,
+        "quarantine_path": str(quarantine_path),
         "authority_path": "merge_projection",
     }
 

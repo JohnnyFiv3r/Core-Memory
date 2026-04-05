@@ -229,6 +229,51 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_invocation_exhausted", out.get("error_code"))
 
+    def test_strict_mode_blocks_when_only_temporal_associations_after_first_turn(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
+                "CORE_MEMORY_AGENT_MIN_SEMANTIC_ASSOC_AFTER_FIRST": "1",
+            },
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            src_id = s.add_bead(type="context", title="src", summary=["s"], session_id="s1", source_turn_ids=["seed-1"])
+            target_id = s.add_bead(type="context", title="target", summary=["t"], session_id="s1", source_turn_ids=["seed-2"])
+
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                user_query="q",
+                assistant_final="a",
+                metadata={
+                    "crawler_updates": {
+                        "beads_create": [
+                            {
+                                "type": "decision",
+                                "title": "Agent decided",
+                                "summary": ["summary"],
+                                "source_turn_ids": ["t1"],
+                            }
+                        ],
+                        "associations": [
+                            {
+                                "source_bead_id": src_id,
+                                "target_bead_id": target_id,
+                                "relationship": "follows",
+                                "reason_text": "temporal only",
+                                "confidence": 0.7,
+                            }
+                        ],
+                    }
+                },
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("agent_semantic_coverage_missing", out.get("error_code"))
+
 
 if __name__ == "__main__":
     unittest.main()

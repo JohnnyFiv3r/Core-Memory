@@ -13,6 +13,9 @@ from datetime import datetime, timezone
 from core_memory.integrations.openclaw_flags import (
     agent_authored_fail_open_enabled,
     agent_authored_required_enabled,
+    agent_min_semantic_associations_after_first,
+    preview_association_allow_shared_tag,
+    preview_association_promotion_enabled,
 )
 from ..association.crawler_contract import (
     build_crawler_context,
@@ -35,6 +38,7 @@ from ..retrieval.lifecycle import mark_turn_checkpoint, mark_flush_checkpoint
 from .agent_crawler_invoke import invoke_turn_crawler_agent
 from .agent_authored_contract import (
     ERROR_AGENT_CALLABLE_MISSING,
+    ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
     ERROR_AGENT_UPDATES_INVALID,
     ERROR_AGENT_INVOCATION_EXHAUSTED,
     ERROR_AGENT_UPDATES_MISSING,
@@ -240,6 +244,11 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
     Reads the index for session beads that have association_preview entries,
     and queues them as association_append entries so they commit at flush.
     """
+    if not preview_association_promotion_enabled():
+        return 0
+
+    allow_shared_tag = preview_association_allow_shared_tag()
+
     store = MemoryStore(root=root)
     idx = store._read_json(Path(root) / ".beads" / "index.json")
     beads = idx.get("beads") or {}
@@ -267,6 +276,10 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
             if (bid, target_id) in existing_keys or (target_id, bid) in existing_keys:
                 continue
             rel = str(preview.get("relationship") or "related_to")
+            if rel == "shared_tag" and not allow_shared_tag:
+                continue
+            if rel == "precedes":
+                continue
             append_jsonl(
                 log_path,
                 {
@@ -286,6 +299,19 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
             queued += 1
 
     return queued
+
+
+def _non_temporal_semantic_association_count(updates: dict[str, Any]) -> int:
+    associations = list((updates or {}).get("associations") or [])
+    excluded = {"follows", "precedes", "shared_tag", "associated_with"}
+    count = 0
+    for row in associations:
+        if not isinstance(row, dict):
+            continue
+        rel = str(row.get("relationship") or "").strip().lower()
+        if rel and rel not in excluded:
+            count += 1
+    return count
 
 
 def process_turn_finalized(
@@ -415,6 +441,40 @@ def process_turn_finalized(
             },
             "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
         }
+
+    # Slice 4 quality policy: after first session turn, require minimum
+    # non-temporal semantic associations in strict agent-authored mode.
+    if (
+        agent_authored_required_enabled()
+        and not agent_authored_fail_open_enabled()
+        and isinstance(reviewed_updates, dict)
+    ):
+        prior_beads = _session_visible_bead_ids(root=root, session_id=req["session_id"])
+        min_required = int(agent_min_semantic_associations_after_first())
+        semantic_count = int(_non_temporal_semantic_association_count(reviewed_updates))
+        gate["semantic_policy"] = {
+            "prior_bead_count": len(prior_beads),
+            "min_required_after_first": min_required,
+            "semantic_assoc_count": semantic_count,
+        }
+        if len(prior_beads) >= 1 and semantic_count < min_required:
+            gate["blocked"] = True
+            gate["error_code"] = ERROR_AGENT_SEMANTIC_COVERAGE_MISSING
+            return {
+                "ok": False,
+                "mode": "turn",
+                "authority_path": "canonical_in_process",
+                "processed": 0,
+                "failed": 1,
+                "error_code": ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
+                "error": "insufficient non-temporal semantic associations for non-initial turn",
+                "emitted": emitted,
+                "crawler_handoff": {
+                    "required": True,
+                    "agent_authored_gate": gate,
+                },
+                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+            }
 
     claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
     if not claimed:

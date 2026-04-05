@@ -77,6 +77,31 @@ def agent_crawler_max_attempts() -> int:
         return 2
 
 
+def agent_min_semantic_associations_after_first() -> int:
+    """Minimum non-temporal semantic associations required after first session turn.
+
+    Enforced in strict agent-authored mode.
+    """
+    raw = os.environ.get("CORE_MEMORY_AGENT_MIN_SEMANTIC_ASSOC_AFTER_FIRST")
+    try:
+        return max(0, int(raw or 1))
+    except ValueError:
+        return 1
+
+
+def preview_association_promotion_enabled() -> bool:
+    """Enable deterministic promotion of store association_preview candidates.
+
+    Default off for quality-first agent-authored association policy.
+    """
+    return _env_bool("CORE_MEMORY_PREVIEW_ASSOC_PROMOTION", False)
+
+
+def preview_association_allow_shared_tag() -> bool:
+    """Allow shared_tag relation during preview promotion when enabled."""
+    return _env_bool("CORE_MEMORY_PREVIEW_ASSOC_ALLOW_SHARED_TAG", False)
+
+
 def runtime_flags_snapshot() -> dict[str, object]:
     return {
         "core_memory_enabled": core_memory_enabled(),
@@ -90,4 +115,7 @@ def runtime_flags_snapshot() -> dict[str, object]:
         "agent_authored_fail_open_enabled": agent_authored_fail_open_enabled(),
         "agent_crawler_invoke_enabled": agent_crawler_invoke_enabled(),
         "agent_crawler_max_attempts": agent_crawler_max_attempts(),
+        "agent_min_semantic_associations_after_first": agent_min_semantic_associations_after_first(),
+        "preview_association_promotion_enabled": preview_association_promotion_enabled(),
+        "preview_association_allow_shared_tag": preview_association_allow_shared_tag(),
     }

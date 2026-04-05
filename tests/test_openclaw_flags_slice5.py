@@ -44,4 +44,6 @@ def test_flags_snapshot_shape():
     snap = runtime_flags_snapshot()
     assert "core_memory_enabled" in snap
     assert "supersede_openclaw_summary_enabled" in snap
-
+    assert "agent_min_semantic_associations_after_first" in snap
+    assert "preview_association_promotion_enabled" in snap
+    assert "preview_association_allow_shared_tag" in snap

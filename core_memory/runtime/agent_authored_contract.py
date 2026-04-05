@@ -14,6 +14,7 @@ ERROR_AGENT_ASSOCIATIONS_MISSING = "agent_associations_missing"
 ERROR_AGENT_BEAD_FIELDS_MISSING = "agent_bead_fields_missing"
 ERROR_AGENT_INVOCATION_EXHAUSTED = "agent_invocation_exhausted"
 ERROR_AGENT_CALLABLE_MISSING = "agent_callable_missing"
+ERROR_AGENT_SEMANTIC_COVERAGE_MISSING = "agent_semantic_coverage_missing"
 
 AGENT_AUTHORED_REQUIRED_BEAD_FIELDS = (
     "type",
@@ -127,6 +128,7 @@ def contract_snapshot() -> dict[str, object]:
             ERROR_AGENT_BEAD_FIELDS_MISSING,
             ERROR_AGENT_INVOCATION_EXHAUSTED,
             ERROR_AGENT_CALLABLE_MISSING,
+            ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
         ],
         "required_bead_fields": list(AGENT_AUTHORED_REQUIRED_BEAD_FIELDS),
         "required_association_fields": list(AGENT_AUTHORED_REQUIRED_ASSOC_FIELDS),
