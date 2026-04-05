@@ -138,7 +138,28 @@ core-memory --root ./memory setup init
 
 # Base install path (no semantic extras)
 export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed
-PYTHONPATH=. python3 examples/canonical_5min.py
+python3 - <<'PY'
+from core_memory import process_turn_finalized, memory_execute
+
+root = "./memory"
+process_turn_finalized(
+    root=root,
+    session_id="five-minute",
+    turn_id="t1",
+    user_query="What should we do about Redis timeouts?",
+    assistant_final="Decision: increase pool size to 200.",
+)
+out = memory_execute(
+    request={"raw_query": "why redis timeouts", "intent": "causal", "k": 5},
+    root=root,
+    explain=True,
+)
+print({
+    "ok": out.get("ok"),
+    "degraded": out.get("degraded", False),
+    "result_count": len(out.get("results") or []),
+})
+PY
 ```
 
 Expected output:
@@ -151,6 +172,33 @@ If you want strict canonical semantic mode instead:
 ```bash
 pip install "core-memory[semantic]"
 unset CORE_MEMORY_CANONICAL_SEMANTIC_MODE
+python3 - <<'PY'
+from core_memory import process_turn_finalized, memory_execute
+
+root = "./memory"
+process_turn_finalized(
+    root=root,
+    session_id="five-minute",
+    turn_id="t1",
+    user_query="What should we do about Redis timeouts?",
+    assistant_final="Decision: increase pool size to 200.",
+)
+out = memory_execute(
+    request={"raw_query": "why redis timeouts", "intent": "causal", "k": 5},
+    root=root,
+    explain=True,
+)
+print({
+    "ok": out.get("ok"),
+    "degraded": out.get("degraded", False),
+    "result_count": len(out.get("results") or []),
+})
+PY
+```
+
+Source-checkout equivalent example script:
+
+```bash
 PYTHONPATH=. python3 examples/canonical_5min.py
 ```
 
