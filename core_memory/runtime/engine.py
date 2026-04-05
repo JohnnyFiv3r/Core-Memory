@@ -10,6 +10,10 @@ from typing import Any
 
 from .live_session import read_live_session_beads
 from datetime import datetime, timezone
+from core_memory.integrations.openclaw_flags import (
+    agent_authored_fail_open_enabled,
+    agent_authored_required_enabled,
+)
 from ..association.crawler_contract import (
     build_crawler_context,
     merge_crawler_updates,
@@ -28,6 +32,12 @@ from .decision_pass import run_session_decision_pass
 from ..policy.bead_typing import classify_bead_type
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..retrieval.lifecycle import mark_turn_checkpoint, mark_flush_checkpoint
+from .agent_authored_contract import (
+    AGENT_AUTHORED_REQUIRED_BEAD_FIELDS,
+    ERROR_AGENT_BEAD_FIELDS_MISSING,
+    ERROR_AGENT_UPDATES_INVALID,
+    ERROR_AGENT_UPDATES_MISSING,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -111,6 +121,73 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
             }
         ]
     }
+
+
+def _field_present_for_contract(row: dict[str, Any], key: str) -> bool:
+    val = row.get(key)
+    if key == "summary":
+        if isinstance(val, list):
+            return any(str(x).strip() for x in val)
+        if isinstance(val, str):
+            return bool(val.strip())
+        return False
+    return bool(str(val or "").strip())
+
+
+def _validate_agent_authored_updates_minimal(updates: dict[str, Any]) -> tuple[bool, str | None]:
+    rows = updates.get("beads_create")
+    if not isinstance(rows, list) or not rows:
+        return False, ERROR_AGENT_UPDATES_INVALID
+
+    has_valid_row = False
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        if all(_field_present_for_contract(row, f) for f in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS):
+            has_valid_row = True
+            break
+    if not has_valid_row:
+        return False, ERROR_AGENT_BEAD_FIELDS_MISSING
+    return True, None
+
+
+def _resolve_reviewed_updates(req: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    md = req.get("metadata") or {}
+    reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
+    required = agent_authored_required_enabled()
+    fail_open = agent_authored_fail_open_enabled()
+
+    gate = {
+        "required": bool(required),
+        "fail_open": bool(fail_open),
+        "source": "metadata.crawler_updates" if isinstance(reviewed, dict) and reviewed else "default_fallback",
+        "used_fallback": False,
+        "blocked": False,
+        "error_code": None,
+    }
+
+    if isinstance(reviewed, dict) and reviewed:
+        if required:
+            ok, code = _validate_agent_authored_updates_minimal(reviewed)
+            if not ok:
+                gate["error_code"] = code
+                if fail_open:
+                    gate["source"] = "default_fallback"
+                    gate["used_fallback"] = True
+                    return _default_crawler_updates(req), gate
+                gate["blocked"] = True
+                return None, gate
+        return dict(reviewed), gate
+
+    if required:
+        gate["error_code"] = ERROR_AGENT_UPDATES_INVALID if (isinstance(md, dict) and "crawler_updates" in md) else ERROR_AGENT_UPDATES_MISSING
+        if not fail_open:
+            gate["blocked"] = True
+            return None, gate
+
+    gate["source"] = "default_fallback"
+    gate["used_fallback"] = True
+    return _default_crawler_updates(req), gate
 
 
 def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
@@ -313,6 +390,24 @@ def process_turn_finalized(
                 "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
             }
 
+    reviewed_updates, gate = _resolve_reviewed_updates(req)
+    if gate.get("blocked"):
+        return {
+            "ok": False,
+            "mode": "turn",
+            "authority_path": "canonical_in_process",
+            "processed": 0,
+            "failed": 1,
+            "error_code": str(gate.get("error_code") or ERROR_AGENT_UPDATES_MISSING),
+            "error": "agent-authored crawler updates required",
+            "emitted": emitted,
+            "crawler_handoff": {
+                "required": True,
+                "agent_authored_gate": gate,
+            },
+            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+        }
+
     claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
     if not claimed:
         return {
@@ -351,9 +446,7 @@ def process_turn_finalized(
     # V2P15 Step 2: enforce canonical crawler handoff framing from turn pipeline.
     crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
     auto_apply = None
-    md = req.get("metadata") or {}
-    reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
-    if not isinstance(reviewed_updates, dict) or not reviewed_updates:
+    if not isinstance(reviewed_updates, dict):
         reviewed_updates = _default_crawler_updates(req)
     reviewed_updates = _ensure_turn_creation_update(root, req, reviewed_updates)
 
@@ -397,6 +490,7 @@ def process_turn_finalized(
         "emitted": emitted,
         "crawler_handoff": {
             "required": True,
+            "agent_authored_gate": gate,
             "context_visible_count": len(visible_ids),
             "auto_apply": auto_apply,
             "preview_association_queued": int(preview_queued),
