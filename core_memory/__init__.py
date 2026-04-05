@@ -11,6 +11,9 @@ Canonical contributor docs:
 - docs/public_surface.md
 """
 
+from .runtime.engine import process_turn_finalized, process_session_start, process_flush, emit_turn_finalized
+from .retrieval.tools.memory import search as memory_search, trace as memory_trace, execute as memory_execute
+
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError, VERSION
 from .persistence.backend import StorageBackend, JsonFileBackend, SqliteBackend, create_backend
 from .schema.models import (
@@ -28,6 +31,16 @@ from .schema.models import (
 __version__ = VERSION
 
 __all__ = [
+    # Canonical runtime write ingress
+    "process_turn_finalized",
+    "process_session_start",
+    "process_flush",
+    "emit_turn_finalized",
+    # Canonical retrieval tool surface
+    "memory_search",
+    "memory_trace",
+    "memory_execute",
+    # Compatibility surface (legacy/root exports)
     "MemoryStore",
     "DEFAULT_ROOT",
     "DiagnosticError",

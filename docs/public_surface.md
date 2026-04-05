@@ -16,9 +16,14 @@ A surface is canonical only if it is both:
 - `core_memory.integrations.api.emit_turn_finalized(...)` — ingress helper used by adapters that defer in-process turn handling
 
 ## Retrieval/runtime tool surface
-- `core_memory.tools.memory.search(request: dict, root='.', explain=False)` — canonical anchor retrieval.
-- `core_memory.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)` — canonical causal traversal after anchor identification.
-- `core_memory.tools.memory.execute(request: dict, root='.', explain=False)` — unified memory request entrypoint.
+- `core_memory.retrieval.tools.memory.search(request: dict, root='.', explain=False)` — canonical anchor retrieval.
+- `core_memory.retrieval.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)` — canonical causal traversal after anchor identification.
+- `core_memory.retrieval.tools.memory.execute(request: dict, root='.', explain=False)` — unified memory request entrypoint.
+
+Convenience package-root aliases are also exported:
+- `core_memory.memory_search`
+- `core_memory.memory_trace`
+- `core_memory.memory_execute`
 
 ### Retrieval semantics
 - `search`: anchor retrieval
