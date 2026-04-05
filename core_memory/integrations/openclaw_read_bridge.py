@@ -8,7 +8,7 @@ Usage (stdin → stdout):
         | python -m core_memory.integrations.openclaw_read_bridge
 
 Supported actions:
-    search      — typed search (query → form_submission shorthand or full form)
+    search      — canonical request-first search (query shorthand or request payload)
     trace       — causal traversal/grounding
     continuity  — rolling-window continuity injection
     execute     — unified auto-detect intent routing
@@ -33,14 +33,14 @@ def _resolve_root(payload: dict[str, Any]) -> str:
 
 def _handle_search(payload: dict[str, Any]) -> dict[str, Any]:
     root = _resolve_root(payload)
-    form = payload.get("form_submission")
-    if not form:
+    request = dict(payload.get("request") or payload.get("form_submission") or {})
+    if not request:
         query = str(payload.get("query") or "").strip()
         if not query:
-            return {"ok": False, "error": "missing_query_or_form_submission"}
-        form = {"query_text": query, "k": int(payload.get("k", 8))}
+            return {"ok": False, "error": "missing_query_or_request_or_form_submission"}
+        request = {"query_text": query, "k": int(payload.get("k", 8))}
     explain = bool(payload.get("explain", True))
-    return memory_tools.search(form_submission=form, root=root, explain=explain)
+    return memory_tools.search(request=request, root=root, explain=explain)
 
 
 def _handle_trace(payload: dict[str, Any]) -> dict[str, Any]:

@@ -997,7 +997,7 @@ def main():
                 "query_text": str(getattr(args, "query", "") or ""),
                 "k": int(getattr(args, "k", 8) or 8),
             }
-            out = memory_search_tool(form_submission=payload, root=str(memory.root), explain=bool(args.explain))
+            out = memory_search_tool(request=payload, root=str(memory.root), explain=bool(args.explain))
             if not (out.get("results") or []):
                 fallback = _simple_recall_fallback(memory, str(payload.get("query_text") or ""), int(payload.get("k") or 8))
                 if fallback.get("results"):
