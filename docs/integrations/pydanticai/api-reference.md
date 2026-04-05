@@ -8,6 +8,9 @@ Status: Canonical
 - `core_memory.integrations.pydanticai.flush_session`
 
 ## Primary write-path port
+- `core_memory.runtime.engine.process_turn_finalized(...)`
+
+Adapter/helper write ingress:
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
 ## Transcript hydration ports

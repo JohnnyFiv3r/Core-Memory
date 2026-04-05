@@ -4,8 +4,9 @@ Status: Canonical
 Purpose: single reference for primary runtime/data-flow paths.
 
 ## Runtime authority
-- Runtime center: `core_memory/memory_engine.py`
-- Finalized-turn ingress authority: `core_memory/integrations/api.py::emit_turn_finalized`
+- Runtime center: `core_memory/runtime/engine.py`
+- Finalized-turn canonical write boundary: `core_memory.runtime.engine.process_turn_finalized(...)`
+- Adapter/helper ingress: `core_memory.integrations.api.emit_turn_finalized(...)`
 
 ## Live authority surfaces
 - Session authority: `.beads/session-<id>.jsonl`

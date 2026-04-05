@@ -2,7 +2,8 @@
 
 Status: Canonical
 Canonical surfaces:
-- `emit_turn_finalized(...)`
+- `process_turn_finalized(...)`
+- `emit_turn_finalized(...)` (adapter/helper ingress)
 - `get_turn(...)`
 - `get_turn_tools(...)`
 - `get_adjacent_turns(...)`
@@ -21,7 +22,10 @@ Core pieces:
 4. eval/validation harnesses
 
 ## Write path
-Canonical write port:
+Canonical write boundary:
+- `core_memory.runtime.engine.process_turn_finalized(...)`
+
+Adapter/helper write ingress:
 - `core_memory.integrations.api.emit_turn_finalized(...)`
 
 Turn-finalized ingest now writes both:

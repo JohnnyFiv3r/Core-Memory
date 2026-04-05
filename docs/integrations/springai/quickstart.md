@@ -16,9 +16,14 @@ Get Core Memory running as a SpringAI companion service with:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -U pip
 pip install -e ".[http]"
 python3 -m core_memory.integrations.http.server
+```
+
+Equivalent startup command:
+
+```bash
+python3 -m uvicorn core_memory.integrations.http.server:app --host 127.0.0.1 --port 8000
 ```
 
 Why `.[http]`:

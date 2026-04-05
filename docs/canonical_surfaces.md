@@ -7,10 +7,17 @@ Purpose: single answer to “what is real and supported today?”
 ## Canonical runtime surfaces
 
 ### Finalized-turn ingestion (write path)
+- `core_memory.runtime.engine.process_turn_finalized(...)`
+
+Adapter/helper ingress:
 - `core_memory.integrations.api.emit_turn_finalized(...)`
+  (bridge/helper port that routes into canonical turn-finalized processing)
 
 ### Session-start boundary (write path)
 - `core_memory.runtime.engine.process_session_start(...)`
+
+### Session-flush boundary (write path)
+- `core_memory.runtime.engine.process_flush(...)`
 
 ### Canonical retrieval family (read/runtime path)
 - `core_memory.retrieval.tools.memory.search`

@@ -17,7 +17,8 @@ All adapters converge on the same core contract:
 - hydrate sources explicitly when fidelity is needed
 
 ## Write ingress convergence
-- In-process adapters: call `emit_turn_finalized(...)`
+- Canonical boundary: `process_turn_finalized(...)`
+- In-process adapters: call `emit_turn_finalized(...)` helper (routes to canonical boundary)
 - HTTP/service adapters: call `POST /v1/memory/turn-finalized`
 
 ## Runtime parity model

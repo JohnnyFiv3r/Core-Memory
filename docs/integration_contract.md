@@ -5,9 +5,12 @@ Status: Canonical
 This contract defines what adapters must do today.
 
 ## 1) Write contract (required)
-All adapters must converge on finalized-turn ingest:
-- `emit_turn_finalized(...)`
-- or HTTP `POST /v1/memory/turn-finalized`
+Canonical write boundary:
+- `process_turn_finalized(...)`
+
+Adapters converge on finalized-turn ingress by either:
+- calling `emit_turn_finalized(...)` helper (which routes to canonical processing), or
+- calling HTTP `POST /v1/memory/turn-finalized`
 
 Required payload (conceptual minimum):
 - `session_id`
