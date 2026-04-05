@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -194,8 +195,14 @@ def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[i
     assocs = index.get("associations") or []
     scanned = 0
     added = 0
+
+    # Build desired active association-sync edges per source bead.
+    desired_by_src: dict[str, set[tuple[str, str]]] = defaultdict(set)
     for a in assocs:
         if not isinstance(a, dict):
+            continue
+        status = str(a.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
             continue
         rel0 = str(a.get("relationship") or "").strip()
         rel = rel_map.get(rel0, rel0)
@@ -209,10 +216,31 @@ def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[i
         if not src or not dst or src not in beads or dst not in beads:
             continue
         scanned += 1
-        links = beads[src].setdefault("links", [])
-        if not any(isinstance(l, dict) and str(l.get("type") or "") == rel and str(l.get("bead_id") or "") == dst for l in links):
-            links.append({"type": rel, "bead_id": dst, "source": "association_sync"})
-            added += 1
+        desired_by_src[src].add((rel, dst))
+
+    # Rewrite association_sync subset to exactly match active association projection.
+    for src, bead in beads.items():
+        links = bead.get("links")
+        if not isinstance(links, list):
+            links = []
+
+        preserved = [
+            l for l in links
+            if not (isinstance(l, dict) and str(l.get("source") or "").strip().lower() == "association_sync")
+        ]
+
+        existing_pairs = {
+            (str(l.get("type") or ""), str(l.get("bead_id") or ""))
+            for l in links
+            if isinstance(l, dict) and str(l.get("source") or "").strip().lower() == "association_sync"
+        }
+        desired_pairs = desired_by_src.get(str(src), set())
+
+        bead["links"] = preserved
+        for rel, dst in sorted(desired_pairs):
+            bead["links"].append({"type": rel, "bead_id": dst, "source": "association_sync"})
+            if (rel, dst) not in existing_pairs:
+                added += 1
     return scanned, added
 
 

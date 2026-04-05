@@ -46,6 +46,11 @@ Use this page as the authoritative map of current docs.
 - [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
 - [`adapter_parity_matrix.md`](adapter_parity_matrix.md)
 
+## Specs
+- [`specs/association-inference-v2.1.md`](specs/association-inference-v2.1.md)
+- [`specs/agent-authored-turn-memory-v1.md`](specs/agent-authored-turn-memory-v1.md)
+- [`specs/agent-authored-rollout-playbook.md`](specs/agent-authored-rollout-playbook.md)
+
 ## Evaluation entrypoints
 - `../eval/memory_execute_eval.py`
 

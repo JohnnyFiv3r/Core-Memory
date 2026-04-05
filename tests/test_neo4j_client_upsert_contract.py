@@ -54,6 +54,8 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
             password="pw",
             database="neo4j",
             dataset="team-a",
+            node_label_mode="bead_plus_type",
+            edge_mode="associated",
             tls=False,
             timeout_ms=1000,
         )
@@ -89,7 +91,7 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
         self.assertEqual(1, int(out.get("edges_upserted") or 0))
 
         sql = "\n".join(q for q, _ in sink if q not in {"__session__", "__close__"})
-        self.assertIn("MERGE (b:Bead", sql)
+        self.assertIn("MERGE (b {cm_owner", sql)
         self.assertIn("cm_dataset", sql)
         self.assertIn("MERGE (s)-[r:ASSOCIATED", sql)
 
@@ -101,6 +103,8 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
             password="pw",
             database="neo4j",
             dataset="team-a",
+            node_label_mode="bead_plus_type",
+            edge_mode="associated",
             tls=False,
             timeout_ms=1000,
         )
@@ -133,6 +137,42 @@ class TestNeo4jClientUpsertContract(unittest.TestCase):
         self.assertIn("cm_owner", sql)
         self.assertIn("DELETE r RETURN count(r) AS n", sql)
         self.assertIn("DETACH DELETE b RETURN count(b) AS n", sql)
+
+    def test_upsert_projection_supports_typed_relationships(self):
+        cfg = Neo4jConfig(
+            enabled=True,
+            uri="bolt://localhost:7687",
+            user="neo4j",
+            password="pw",
+            database="neo4j",
+            dataset="team-a",
+            node_label_mode="bead_plus_type",
+            edge_mode="typed",
+            tls=False,
+            timeout_ms=1000,
+        )
+        client = Neo4jClient(cfg)
+        sink = []
+
+        nodes = [
+            {"labels": ["Decision"], "properties": {"bead_id": "b1", "type": "decision"}},
+            {"labels": ["Outcome"], "properties": {"bead_id": "b2", "type": "outcome"}},
+        ]
+        edges = [
+            {
+                "type": "SUPPORTS",
+                "start_bead_id": "b1",
+                "end_bead_id": "b2",
+                "properties": {"association_id": "assoc-2", "relationship": "supports"},
+            }
+        ]
+
+        with patch.object(client, "_open_driver", return_value=_FakeDriver(sink)):
+            out = client.upsert_projection(nodes=nodes, edges=edges, prune=False, dataset_key="team-a", scope={})
+
+        self.assertTrue(out.get("ok"))
+        sql = "\n".join(q for q, _ in sink if q not in {"__session__", "__close__"})
+        self.assertIn("MERGE (s)-[r:SUPPORTS", sql)
 
 
 if __name__ == "__main__":

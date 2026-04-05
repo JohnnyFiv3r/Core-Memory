@@ -12,6 +12,8 @@ class Neo4jConfig:
     password: str
     database: str
     dataset: str
+    node_label_mode: str
+    edge_mode: str
     tls: bool
     timeout_ms: int
 
@@ -24,6 +26,8 @@ class Neo4jConfig:
             password=str(os.environ.get("CORE_MEMORY_NEO4J_PASSWORD") or "").strip(),
             database=str(os.environ.get("CORE_MEMORY_NEO4J_DATABASE") or "neo4j").strip() or "neo4j",
             dataset=str(os.environ.get("CORE_MEMORY_NEO4J_DATASET") or "").strip(),
+            node_label_mode=str(os.environ.get("CORE_MEMORY_NEO4J_NODE_LABEL_MODE") or "bead_plus_type").strip().lower(),
+            edge_mode=str(os.environ.get("CORE_MEMORY_NEO4J_EDGE_MODE") or "associated").strip().lower(),
             tls=_env_bool("CORE_MEMORY_NEO4J_TLS", True),
             timeout_ms=_env_int("CORE_MEMORY_NEO4J_TIMEOUT_MS", 5000),
         )
@@ -35,6 +39,8 @@ class Neo4jConfig:
             "user": self.user,
             "database": self.database,
             "dataset": self.dataset,
+            "node_label_mode": self.node_label_mode,
+            "edge_mode": self.edge_mode,
             "tls": bool(self.tls),
             "timeout_ms": int(self.timeout_ms),
             "password_set": bool(self.password),

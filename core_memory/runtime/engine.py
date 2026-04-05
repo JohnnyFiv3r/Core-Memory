@@ -10,6 +10,12 @@ from typing import Any
 
 from .live_session import read_live_session_beads
 from datetime import datetime, timezone
+from core_memory.integrations.openclaw_flags import (
+    agent_min_semantic_associations_after_first,
+    preview_association_allow_shared_tag,
+    preview_association_promotion_enabled,
+    resolved_agent_authored_gate,
+)
 from ..association.crawler_contract import (
     build_crawler_context,
     merge_crawler_updates,
@@ -24,10 +30,20 @@ from .worker import SidecarPolicy, process_memory_event
 from ..write_pipeline.orchestrate import run_consolidate_pipeline
 from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
+from ..persistence import events
 from .decision_pass import run_session_decision_pass
 from ..policy.bead_typing import classify_bead_type
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..retrieval.lifecycle import mark_turn_checkpoint, mark_flush_checkpoint
+from .agent_crawler_invoke import invoke_turn_crawler_agent
+from .agent_authored_contract import (
+    ERROR_AGENT_CALLABLE_MISSING,
+    ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
+    ERROR_AGENT_UPDATES_INVALID,
+    ERROR_AGENT_INVOCATION_EXHAUSTED,
+    ERROR_AGENT_UPDATES_MISSING,
+    validate_agent_authored_updates,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +129,61 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def _resolve_reviewed_updates(
+    req: dict[str, Any],
+    *,
+    source_override: str | None = None,
+    invocation_diag: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+    md = req.get("metadata") or {}
+    reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
+    resolved_gate = resolved_agent_authored_gate()
+    required = bool(resolved_gate.get("required"))
+    fail_open = bool(resolved_gate.get("fail_open"))
+    mode = str(resolved_gate.get("mode") or "observe")
+
+    gate = {
+        "required": bool(required),
+        "fail_open": bool(fail_open),
+        "mode": mode,
+        "source": str(source_override or ("metadata.crawler_updates" if isinstance(reviewed, dict) and reviewed else "default_fallback")),
+        "used_fallback": False,
+        "blocked": False,
+        "error_code": None,
+        "agent_invocation": dict(invocation_diag or {}),
+    }
+
+    if isinstance(reviewed, dict) and reviewed:
+        if required:
+            ok, code, details = validate_agent_authored_updates(reviewed)
+            gate["validation"] = details
+            if not ok:
+                gate["error_code"] = code
+                if fail_open:
+                    gate["source"] = "default_fallback"
+                    gate["used_fallback"] = True
+                    return _default_crawler_updates(req), gate
+                gate["blocked"] = True
+                return None, gate
+        return dict(reviewed), gate
+
+    if required:
+        if isinstance(invocation_diag, dict) and invocation_diag.get("error_code") in {
+            ERROR_AGENT_INVOCATION_EXHAUSTED,
+            ERROR_AGENT_CALLABLE_MISSING,
+        }:
+            gate["error_code"] = str(invocation_diag.get("error_code") or ERROR_AGENT_UPDATES_MISSING)
+        else:
+            gate["error_code"] = ERROR_AGENT_UPDATES_INVALID if (isinstance(md, dict) and "crawler_updates" in md) else ERROR_AGENT_UPDATES_MISSING
+        if not fail_open:
+            gate["blocked"] = True
+            return None, gate
+
+    gate["source"] = "default_fallback"
+    gate["used_fallback"] = True
+    return _default_crawler_updates(req), gate
+
+
 def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
     """Enforce per-turn bead row invariants: source_turn_ids, required fields."""
     out = dict(row)
@@ -176,6 +247,11 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
     Reads the index for session beads that have association_preview entries,
     and queues them as association_append entries so they commit at flush.
     """
+    if not preview_association_promotion_enabled():
+        return 0
+
+    allow_shared_tag = preview_association_allow_shared_tag()
+
     store = MemoryStore(root=root)
     idx = store._read_json(Path(root) / ".beads" / "index.json")
     beads = idx.get("beads") or {}
@@ -203,6 +279,10 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
             if (bid, target_id) in existing_keys or (target_id, bid) in existing_keys:
                 continue
             rel = str(preview.get("relationship") or "related_to")
+            if rel == "shared_tag" and not allow_shared_tag:
+                continue
+            if rel == "precedes":
+                continue
             append_jsonl(
                 log_path,
                 {
@@ -222,6 +302,80 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
             queued += 1
 
     return queued
+
+
+def _non_temporal_semantic_association_count(updates: dict[str, Any]) -> int:
+    associations = list((updates or {}).get("associations") or [])
+    excluded = {"follows", "precedes", "shared_tag", "associated_with"}
+    count = 0
+    for row in associations:
+        if not isinstance(row, dict):
+            continue
+        rel = str(row.get("relationship") or "").strip().lower()
+        if rel and rel not in excluded:
+            count += 1
+    return count
+
+
+def _association_mix_stats(updates: dict[str, Any] | None) -> dict[str, int]:
+    rows = list((updates or {}).get("associations") or []) if isinstance(updates, dict) else []
+    total = 0
+    shared_tag = 0
+    temporal = 0
+    semantic = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        total += 1
+        rel = str(row.get("relationship") or "").strip().lower()
+        if rel == "shared_tag":
+            shared_tag += 1
+        elif rel in {"follows", "precedes"}:
+            temporal += 1
+        elif rel:
+            semantic += 1
+    return {
+        "associations_total": total,
+        "shared_tag_count": shared_tag,
+        "temporal_count": temporal,
+        "non_temporal_semantic_count": semantic,
+    }
+
+
+def _emit_agent_turn_quality_metric(
+    *,
+    root: str,
+    req: dict[str, Any],
+    gate: dict[str, Any] | None,
+    updates: dict[str, Any] | None,
+    result: str,
+    error_code: str | None = None,
+    preview_association_queued: int = 0,
+    merge_associations_appended: int = 0,
+) -> None:
+    gate = dict(gate or {})
+    mix = _association_mix_stats(updates)
+    rec = {
+        "run_id": f"turn:{req.get('session_id')}:{req.get('turn_id')}",
+        "task_id": "agent_turn_quality",
+        "mode": "core_memory",
+        "phase": "agent_authored",
+        "result": str(result),
+        "session_id": str(req.get("session_id") or ""),
+        "turn_id": str(req.get("turn_id") or ""),
+        "agent_required": bool(gate.get("required")),
+        "agent_source": str(gate.get("source") or ""),
+        "agent_used_fallback": bool(gate.get("used_fallback")),
+        "agent_blocked": bool(gate.get("blocked")),
+        "error_code": str(error_code or gate.get("error_code") or "") or None,
+        "preview_association_queued": int(preview_association_queued or 0),
+        "merge_associations_appended": int(merge_associations_appended or 0),
+        **mix,
+    }
+    try:
+        events.append_metric(Path(root), rec)
+    except Exception:
+        pass
 
 
 def process_turn_finalized(
@@ -313,8 +467,100 @@ def process_turn_finalized(
                 "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
             }
 
+    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
+    invoked_updates, invocation_diag = invoke_turn_crawler_agent(
+        root=root,
+        req=req,
+        crawler_context=crawler_ctx,
+    )
+
+    req_for_updates = dict(req)
+    md_for_updates = dict(req.get("metadata") or {})
+    source_override = None
+    if isinstance(md_for_updates.get("crawler_updates"), dict) and md_for_updates.get("crawler_updates"):
+        source_override = "metadata.crawler_updates"
+    elif isinstance(invoked_updates, dict) and invoked_updates:
+        md_for_updates["crawler_updates"] = dict(invoked_updates)
+        source_override = "agent_callable"
+    req_for_updates["metadata"] = md_for_updates
+
+    reviewed_updates, gate = _resolve_reviewed_updates(
+        req_for_updates,
+        source_override=source_override,
+        invocation_diag=invocation_diag,
+    )
+    if gate.get("blocked"):
+        _emit_agent_turn_quality_metric(
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
+            result="blocked",
+            error_code=str(gate.get("error_code") or ERROR_AGENT_UPDATES_MISSING),
+        )
+        return {
+            "ok": False,
+            "mode": "turn",
+            "authority_path": "canonical_in_process",
+            "processed": 0,
+            "failed": 1,
+            "error_code": str(gate.get("error_code") or ERROR_AGENT_UPDATES_MISSING),
+            "error": "agent-authored crawler updates required",
+            "emitted": emitted,
+            "crawler_handoff": {
+                "required": True,
+                "agent_authored_gate": gate,
+            },
+            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+        }
+
+    # Slice 4 quality policy: after first session turn, require minimum
+    # non-temporal semantic associations in strict agent-authored mode.
+    if bool(gate.get("required")) and (not bool(gate.get("fail_open"))) and isinstance(reviewed_updates, dict):
+        prior_beads = _session_visible_bead_ids(root=root, session_id=req["session_id"])
+        min_required = int(agent_min_semantic_associations_after_first())
+        semantic_count = int(_non_temporal_semantic_association_count(reviewed_updates))
+        gate["semantic_policy"] = {
+            "prior_bead_count": len(prior_beads),
+            "min_required_after_first": min_required,
+            "semantic_assoc_count": semantic_count,
+        }
+        if len(prior_beads) >= 1 and semantic_count < min_required:
+            gate["blocked"] = True
+            gate["error_code"] = ERROR_AGENT_SEMANTIC_COVERAGE_MISSING
+            _emit_agent_turn_quality_metric(
+                root=root,
+                req=req,
+                gate=gate,
+                updates=reviewed_updates,
+                result="blocked",
+                error_code=ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
+            )
+            return {
+                "ok": False,
+                "mode": "turn",
+                "authority_path": "canonical_in_process",
+                "processed": 0,
+                "failed": 1,
+                "error_code": ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
+                "error": "insufficient non-temporal semantic associations for non-initial turn",
+                "emitted": emitted,
+                "crawler_handoff": {
+                    "required": True,
+                    "agent_authored_gate": gate,
+                },
+                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+            }
+
     claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
     if not claimed:
+        _emit_agent_turn_quality_metric(
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
+            result="not_claimed",
+        )
         return {
             "ok": True,
             "mode": "turn",
@@ -338,6 +584,14 @@ def process_turn_finalized(
             reason="direct_turn_exception",
             error=str(exc),
         )
+        _emit_agent_turn_quality_metric(
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
+            result="error",
+            error_code="direct_turn_exception",
+        )
         return {
             "ok": False,
             "mode": "turn",
@@ -349,11 +603,8 @@ def process_turn_finalized(
         }
 
     # V2P15 Step 2: enforce canonical crawler handoff framing from turn pipeline.
-    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
     auto_apply = None
-    md = req.get("metadata") or {}
-    reviewed_updates = md.get("crawler_updates") if isinstance(md, dict) else None
-    if not isinstance(reviewed_updates, dict) or not reviewed_updates:
+    if not isinstance(reviewed_updates, dict):
         reviewed_updates = _default_crawler_updates(req)
     reviewed_updates = _ensure_turn_creation_update(root, req, reviewed_updates)
 
@@ -387,6 +638,16 @@ def process_turn_finalized(
         turn_id=req["turn_id"],
     )
 
+    _emit_agent_turn_quality_metric(
+        root=root,
+        req=req,
+        gate=gate,
+        updates=reviewed_updates,
+        result="success",
+        preview_association_queued=int(preview_queued),
+        merge_associations_appended=int(turn_merge.get("associations_appended") or 0),
+    )
+
     return {
         "ok": True,
         "mode": "turn",
@@ -397,6 +658,7 @@ def process_turn_finalized(
         "emitted": emitted,
         "crawler_handoff": {
             "required": True,
+            "agent_authored_gate": gate,
             "context_visible_count": len(visible_ids),
             "auto_apply": auto_apply,
             "preview_association_queued": int(preview_queued),

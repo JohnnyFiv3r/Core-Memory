@@ -521,6 +521,16 @@ def main():
     g_backfill_causal.add_argument("--no-require-shared-turn", action="store_true")
     g_backfill_causal.add_argument("--bead-id", action="append", help="Limit proposals to pairs touching these bead IDs")
     g_backfill_causal.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs for targeted mode")
+    g_assoc_health = graph_sub.add_parser("association-health", help="Report association quality and isolation stats")
+    g_assoc_health.add_argument("--session-id", help="Optional session scope")
+    g_assoc_slo = graph_sub.add_parser("association-slo-check", help="Evaluate association quality SLO gates")
+    g_assoc_slo.add_argument("--since", default="7d")
+    g_assoc_slo.add_argument("--min-agent-authored-rate", type=float, default=0.8)
+    g_assoc_slo.add_argument("--max-fallback-rate", type=float, default=0.1)
+    g_assoc_slo.add_argument("--max-fail-closed-rate", type=float, default=0.25)
+    g_assoc_slo.add_argument("--min-avg-non-temporal-semantic", type=float, default=1.0)
+    g_assoc_slo.add_argument("--max-active-shared-tag-ratio", type=float, default=0.4)
+    g_assoc_slo.add_argument("--strict", action="store_true", help="Exit code 2 when SLO check fails")
     g_neo4j_status = graph_sub.add_parser("neo4j-status", help="Check Neo4j shadow adapter config/connectivity")
     g_neo4j_status.add_argument("--strict", action="store_true", help="Return exit code 2 when status is not ok")
     g_neo4j_sync = graph_sub.add_parser("neo4j-sync", help="Sync Core Memory bead/association projection into Neo4j")
@@ -1013,6 +1023,25 @@ def main():
                 require_shared_turn=not bool(args.no_require_shared_turn),
                 include_bead_ids=target_ids,
             ), indent=2))
+        elif args.graph_cmd == "association-health":
+            from .association.health import association_health_report
+
+            print(json.dumps(association_health_report(str(memory.root), session_id=(str(args.session_id or "").strip() or None)), indent=2))
+        elif args.graph_cmd == "association-slo-check":
+            from .association.slo import association_slo_check
+
+            out = association_slo_check(
+                str(memory.root),
+                since=str(args.since or "7d"),
+                min_agent_authored_rate=float(args.min_agent_authored_rate),
+                max_fallback_rate=float(args.max_fallback_rate),
+                max_fail_closed_rate=float(args.max_fail_closed_rate),
+                min_avg_non_temporal_semantic=float(args.min_avg_non_temporal_semantic),
+                max_active_shared_tag_ratio=float(args.max_active_shared_tag_ratio),
+            )
+            print(json.dumps(out, indent=2))
+            if bool(args.strict) and not bool(out.get("ok")):
+                raise SystemExit(2)
         elif args.graph_cmd == "neo4j-status":
             from .integrations.neo4j import neo4j_status
 

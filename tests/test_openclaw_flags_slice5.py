@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from core_memory.integrations.api import get_turn, hydrate_bead_sources
-from core_memory.integrations.openclaw_flags import runtime_flags_snapshot
+from core_memory.integrations.openclaw_flags import agent_authored_mode, resolved_agent_authored_gate, runtime_flags_snapshot
 from core_memory.integrations.openclaw_onboard import run_openclaw_onboard
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
 
@@ -44,4 +44,21 @@ def test_flags_snapshot_shape():
     snap = runtime_flags_snapshot()
     assert "core_memory_enabled" in snap
     assert "supersede_openclaw_summary_enabled" in snap
+    assert "agent_min_semantic_associations_after_first" in snap
+    assert "preview_association_promotion_enabled" in snap
+    assert "preview_association_allow_shared_tag" in snap
+    assert "agent_authored_mode" in snap
+    assert "agent_authored_gate_resolved" in snap
 
+
+def test_agent_authored_mode_explicit_and_derived(monkeypatch):
+    monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_MODE", "warn")
+    assert agent_authored_mode() == "warn"
+    gate = resolved_agent_authored_gate()
+    assert gate["required"] is True
+    assert gate["fail_open"] is True
+
+    monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_MODE", "")
+    monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_REQUIRED", "1")
+    monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN", "0")
+    assert agent_authored_mode() == "enforce"

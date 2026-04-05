@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -17,6 +18,8 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             password="pw",
             database="neo4j",
             dataset="",
+            node_label_mode="bead_plus_type",
+            edge_mode="associated",
             tls=False,
             timeout_ms=1000,
         )
@@ -47,6 +50,41 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
             self.assertEqual(2, int(out.get("nodes_upserted") or 0))
             self.assertEqual(1, int(out.get("edges_upserted") or 0))
             self.assertEqual(1, up.call_count)
+
+    def test_sync_typed_edge_mode_projects_typed_relationships(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="decision", title="d", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="outcome", title="o", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+            s.link(source_id=b1, target_id=b2, relationship="supports", explanation="why")
+            captured = {}
+
+            def _fake_upsert(self, *, nodes, edges, prune=False, dataset_key="", keep_assoc_ids=None, scope=None):
+                captured["edges"] = list(edges)
+                return {
+                    "ok": True,
+                    "database": "neo4j",
+                    "nodes_upserted": len(nodes),
+                    "edges_upserted": len(edges),
+                    "nodes_pruned": 0,
+                    "edges_pruned": 0,
+                    "warnings": [],
+                    "errors": [],
+                }
+
+            with patch("core_memory.integrations.neo4j.sync.Neo4jClient.upsert_projection", new=_fake_upsert):
+                out = sync_to_neo4j(
+                    td,
+                    session_id="s1",
+                    config=self._enabled_config(),
+                    dry_run=False,
+                    edge_mode="typed",
+                )
+
+            self.assertTrue(out.get("ok"))
+            edges = list(captured.get("edges") or [])
+            self.assertTrue(edges)
+            self.assertEqual("SUPPORTS", str((edges[0] or {}).get("type") or ""))
 
     def test_sync_dedupes_projection_before_upsert(self):
         projection = {
@@ -203,6 +241,8 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
                 password="pw",
                 database="neo4j",
                 dataset="team-alpha",
+                node_label_mode="bead_plus_type",
+                edge_mode="associated",
                 tls=False,
                 timeout_ms=1000,
             )
@@ -226,6 +266,24 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
 
             self.assertTrue(out.get("ok"))
             self.assertEqual("team-alpha", captured.get("dataset_key"))
+
+    def test_dry_run_skips_inactive_associations(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="decision", title="d", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="outcome", title="o", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+            assoc_id = s.link(source_id=b1, target_id=b2, relationship="supports", explanation="why")
+
+            idx_file = Path(td) / ".beads" / "index.json"
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            for a in (idx.get("associations") or []):
+                if str(a.get("id") or "") == str(assoc_id):
+                    a["status"] = "retracted"
+            idx_file.write_text(json.dumps(idx, indent=2), encoding="utf-8")
+
+            out = sync_to_neo4j(td, session_id="s1", config=self._enabled_config(), dry_run=True)
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(0, int(out.get("edges_planned") or 0))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,11 @@
 import unittest
 
-from core_memory.integrations.neo4j.mapper import association_to_edge, bead_to_node
+from core_memory.integrations.neo4j.mapper import (
+    EDGE_MODE_TYPED,
+    NODE_LABEL_MODE_TYPE_ONLY,
+    association_to_edge,
+    bead_to_node,
+)
 
 
 class TestNeo4jMappingContract(unittest.TestCase):
@@ -101,6 +106,19 @@ class TestNeo4jMappingContract(unittest.TestCase):
         self.assertEqual(p1.get("association_id"), p2.get("association_id"))
         self.assertEqual(p1.get("dedupe_key"), p2.get("dedupe_key"))
         self.assertEqual("supports", p1.get("relationship"))
+
+    def test_type_only_node_label_mode(self):
+        out = bead_to_node({"id": "b1", "type": "decision"}, label_mode=NODE_LABEL_MODE_TYPE_ONLY)
+        labels = out.get("labels") or []
+        self.assertIn("Decision", labels)
+        self.assertNotIn("Bead", labels)
+
+    def test_typed_edge_mode_uses_relationship_as_type(self):
+        edge = association_to_edge(
+            {"source_bead": "a", "target_bead": "b", "relationship": "blocks_unblocks"},
+            edge_mode=EDGE_MODE_TYPED,
+        )
+        self.assertEqual("BLOCKS_UNBLOCKS", edge.get("type"))
 
 
 if __name__ == "__main__":

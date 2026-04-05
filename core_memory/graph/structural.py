@@ -29,42 +29,74 @@ def _load_structural_relation_map() -> dict[str, str]:
 
 
 def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[int, int]:
-    """Sync associations to causal links for beads without explicit links.
-    
+    """Sync active associations to bead.links and prune stale association_sync links.
+
     Returns (updated_count, new_links_count).
     """
+    beads = index.get("beads") or {}
+    assocs = index.get("associations") or []
+
+    desired_by_src: dict[str, list[tuple[str, str]]] = {}
+    for assoc in assocs:
+        if not isinstance(assoc, dict):
+            continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
+        dst = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")
+        rel = str(assoc.get("relationship") or "").strip()
+        if not src or not dst or src not in beads or dst not in beads:
+            continue
+        desired_by_src.setdefault(src, []).append((rel_map.get(rel, "related"), dst))
+
     updated = 0
     new_links = 0
-    
-    for bead in (index.get("beads") or {}).values():
-        existing_links = bead.get("links") or {}
-        if existing_links:
-            continue
-            
-        assoc_candidates = []
-        for assoc in (index.get("associations") or []):
-            src = str(assoc.get("source_bead") or "")
-            dst = str(assoc.get("target_bead") or "")
-            rel = str(assoc.get("relationship") or "")
-            
-            if src == bead.get("id"):
-                assoc_candidates.append((dst, rel))
-            elif dst == bead.get("id"):
-                assoc_candidates.append((src, rel))
-        
-        if not assoc_candidates:
-            continue
-            
-        links = {}
-        for target_id, rel in assoc_candidates[:3]:
-            mapped = rel_map.get(rel, "related")
-            links[mapped] = [target_id]
-            
-        if links:
-            bead["links"] = links
-            new_links += 1
+
+    for bead_id, bead in beads.items():
+        links = bead.get("links")
+
+        # Normalize legacy dict-form links into list-form for source-tagged sync entries.
+        normalized: list[dict[str, Any]] = []
+        if isinstance(links, dict):
+            for rel, targets in links.items():
+                if isinstance(targets, list):
+                    for tid in targets:
+                        tid_s = str(tid or "").strip()
+                        if tid_s:
+                            normalized.append({"type": str(rel), "bead_id": tid_s, "source": "legacy_links"})
+                else:
+                    tid_s = str(targets or "").strip()
+                    if tid_s:
+                        normalized.append({"type": str(rel), "bead_id": tid_s, "source": "legacy_links"})
+        elif isinstance(links, list):
+            for row in links:
+                if isinstance(row, dict):
+                    normalized.append(dict(row))
+
+        preserved = [
+            l
+            for l in normalized
+            if str((l or {}).get("source") or "").strip().lower() != "association_sync"
+        ]
+
+        existing_sync = {
+            (str((l or {}).get("type") or ""), str((l or {}).get("bead_id") or ""))
+            for l in normalized
+            if str((l or {}).get("source") or "").strip().lower() == "association_sync"
+        }
+
+        desired_pairs = {(rel, dst) for rel, dst in desired_by_src.get(str(bead_id), [])}
+        out = list(preserved)
+        for rel, dst in sorted(desired_pairs):
+            out.append({"type": rel, "bead_id": dst, "source": "association_sync"})
+            if (rel, dst) not in existing_sync:
+                new_links += 1
+
+        if out != normalized:
+            bead["links"] = out
             updated += 1
-            
+
     return updated, new_links
 
 

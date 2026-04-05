@@ -6,6 +6,7 @@ Status: Optional shadow-adapter docs
 - `quickstart.md`
 - `integration-guide.md`
 - `api-reference.md`
+- `v2-visualization-contract.md` (planned visualization-oriented contract)
 
 ## Scope guardrail
 Neo4j support in Core Memory is projection-only:
