@@ -4,8 +4,12 @@ Status: Canonical
 
 ## Primary runtime code surfaces
 - `core_memory.retrieval.tools.memory.execute(request, root=".", explain=True)`
-- `core_memory.retrieval.tools.memory.search(form_submission, root=".", explain=True)`
+- `core_memory.retrieval.tools.memory.search(request, root=".", explain=True)`
 - `core_memory.retrieval.tools.memory.trace(query, root=".", k=8, ...)`
+
+Compatibility note:
+- `form_submission` is accepted as an alias by the search tool wrapper, but
+  forward callers should use `request`.
 
 ## Primary write-path surface
 - `core_memory.integrations.api.emit_turn_finalized(...)`

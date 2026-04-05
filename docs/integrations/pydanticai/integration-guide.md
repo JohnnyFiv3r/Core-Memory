@@ -38,7 +38,7 @@ Runtime guard:
 
 ## Runtime path
 Preferred unified runtime surface:
-- `core_memory.tools.memory.execute`
+- `core_memory.retrieval.tools.memory.execute`
 
 Session-start boundary helper:
 - `ensure_session_start(root=..., session_id=...)`

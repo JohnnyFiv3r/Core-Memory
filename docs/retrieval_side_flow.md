@@ -3,9 +3,9 @@
 Status: Canonical
 
 ## Entry surfaces
-- `core_memory.tools.memory.search`
-- `core_memory.tools.memory.trace`
-- `core_memory.tools.memory.execute` (preferred unified path)
+- `core_memory.retrieval.tools.memory.search`
+- `core_memory.retrieval.tools.memory.trace`
+- `core_memory.retrieval.tools.memory.execute` (preferred unified path)
 
 ## Retrieval behavior
 1. Canonical request normalization

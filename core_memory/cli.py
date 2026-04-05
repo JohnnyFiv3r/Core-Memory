@@ -55,11 +55,82 @@ class _CliHelpFormatter(argparse.HelpFormatter):
         if isinstance(action, argparse._SubParsersAction):
             original = list(action._choices_actions)
             try:
-                action._choices_actions = [a for a in original if getattr(a, "help", None) != argparse.SUPPRESS]
+                action._choices_actions = [
+                    a
+                    for a in original
+                    if getattr(a, "help", None) not in {argparse.SUPPRESS, "==SUPPRESS=="}
+                ]
                 return super()._format_action(action)
             finally:
                 action._choices_actions = original
         return super()._format_action(action)
+
+
+class _CliParser(argparse.ArgumentParser):
+    """ArgumentParser variant that consistently applies CLI help filtering."""
+
+    def __init__(self, *args, **kwargs):
+        kwargs.setdefault("formatter_class", _CliHelpFormatter)
+        super().__init__(*args, **kwargs)
+
+
+def _add_memory_command_surface(
+    parent_subparsers: argparse._SubParsersAction,
+    *,
+    name: str,
+    help_text: str,
+    dest: str,
+) -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
+    """Attach canonical memory search/trace/execute command set to a parser tree."""
+    memory_parser = parent_subparsers.add_parser(name, help=help_text)
+    memory_sub = memory_parser.add_subparsers(dest=dest)
+
+    mem_search = memory_sub.add_parser("search", help="Run canonical memory search")
+    mem_search.add_argument("--query", default="")
+    mem_search.add_argument("--intent", default="remember")
+    mem_search.add_argument("--k", type=int, default=8)
+    mem_search.add_argument("--explain", action="store_true")
+
+    mem_trace = memory_sub.add_parser("trace", help="Run canonical memory trace")
+    mem_trace.add_argument("--query", default="")
+    mem_trace.add_argument("--k", type=int, default=8)
+    mem_trace.add_argument("--anchor-ids", nargs="*")
+
+    mem_exec = memory_sub.add_parser("execute", help="Run unified MemoryRequest execution")
+    mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
+    mem_exec.add_argument("--explain", action="store_true")
+
+    return memory_parser, memory_sub
+
+
+def _rewrite_legacy_dev_memory_argv(argv: list[str]) -> list[str]:
+    """Compatibility shim: treat `dev memory ...` as `memory ...`.
+
+    Slice-5 taxonomy cleanup keeps canonical memory commands at top level while
+    preserving legacy automation entrypoints.
+    """
+    tokens = list(argv or [])
+    cmd_idx = None
+    i = 0
+    while i < len(tokens):
+        t = tokens[i]
+        if t == "--root":
+            i += 2
+            continue
+        if t.startswith("--root="):
+            i += 1
+            continue
+        if t.startswith("-"):
+            i += 1
+            continue
+        cmd_idx = i
+        break
+
+    if cmd_idx is None:
+        return tokens
+    if tokens[cmd_idx] == "dev" and (cmd_idx + 1) < len(tokens) and tokens[cmd_idx + 1] == "memory":
+        return tokens[:cmd_idx] + ["memory"] + tokens[cmd_idx + 2 :]
+    return tokens
 
 
 def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
@@ -232,12 +303,12 @@ def _simple_recall_fallback(memory: MemoryStore, query_text: str, limit: int = 8
 
 def main():
     """CLI entry point for core-memory command."""
-    parser = argparse.ArgumentParser(description="Core-Memory CLI", formatter_class=_CliHelpFormatter)
+    parser = _CliParser(description="Core-Memory CLI")
     parser.add_argument("--root", default=DEFAULT_ROOT, help="Memory root directory")
 
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{setup,store,recall,inspect,integrations,ops,dev}",
+        metavar="{setup,store,memory,inspect,integrations,ops,dev}",
     )
 
     # Grouped surface (preferred)
@@ -274,7 +345,7 @@ def main():
     store_rw.add_argument("--token-budget", type=int, default=1200)
     store_rw.add_argument("--max-beads", type=int, default=12)
 
-    recall_parser = subparsers.add_parser("recall", help="Retrieve/interpret memory")
+    recall_parser = subparsers.add_parser("recall", help=argparse.SUPPRESS)
     recall_sub = recall_parser.add_subparsers(dest="recall_cmd")
     recall_search = recall_sub.add_parser("search", help="Canonical memory search")
     recall_search.add_argument("query", nargs="?", default="", help="Natural-language query (plug-and-play mode)")
@@ -327,21 +398,11 @@ def main():
     ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
 
     dev_parser = subparsers.add_parser("dev", help="Advanced developer-facing command surfaces")
-    dev_sub = dev_parser.add_subparsers(dest="dev_cmd")
-    dev_memory = dev_sub.add_parser("memory", help="Canonical memory skill interface")
-    dev_memory_sub = dev_memory.add_subparsers(dest="dev_memory_cmd")
-    dev_mem_search = dev_memory_sub.add_parser("search", help="Run canonical memory search")
-    dev_mem_search.add_argument("--query", default="")
-    dev_mem_search.add_argument("--intent", default="remember")
-    dev_mem_search.add_argument("--k", type=int, default=8)
-    dev_mem_search.add_argument("--explain", action="store_true")
-    dev_mem_trace = dev_memory_sub.add_parser("trace", help="Run canonical memory trace")
-    dev_mem_trace.add_argument("--query", default="")
-    dev_mem_trace.add_argument("--k", type=int, default=8)
-    dev_mem_trace.add_argument("--anchor-ids", nargs="*")
-    dev_mem_exec = dev_memory_sub.add_parser("execute", help="Run unified MemoryRequest execution")
-    dev_mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
-    dev_mem_exec.add_argument("--explain", action="store_true")
+    dev_parser.add_argument(
+        "_dev_reserved",
+        nargs="*",
+        help=argparse.SUPPRESS,
+    )
     
     legacy_help = argparse.SUPPRESS
 
@@ -480,20 +541,12 @@ def main():
     hygiene_parser.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs")
     hygiene_parser.add_argument("--apply", action="store_true")
 
-    mem_parser = subparsers.add_parser("memory", help=legacy_help)
-    mem_sub = mem_parser.add_subparsers(dest="memory_cmd")
-    mem_search = mem_sub.add_parser("search", help="Run canonical memory search")
-    mem_search.add_argument("--query", default="")
-    mem_search.add_argument("--intent", default="remember")
-    mem_search.add_argument("--k", type=int, default=8)
-    mem_search.add_argument("--explain", action="store_true")
-    mem_trace = mem_sub.add_parser("trace", help="Run canonical memory trace")
-    mem_trace.add_argument("--query", default="")
-    mem_trace.add_argument("--k", type=int, default=8)
-    mem_trace.add_argument("--anchor-ids", nargs="*")
-    mem_exec = mem_sub.add_parser("execute", help="Run unified MemoryRequest execution")
-    mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
-    mem_exec.add_argument("--explain", action="store_true")
+    mem_parser, _ = _add_memory_command_surface(
+        subparsers,
+        name="memory",
+        help_text="Canonical memory interface (search/trace/execute)",
+        dest="memory_cmd",
+    )
 
     # graph command (legacy top-level)
     graph_parser = subparsers.add_parser("graph", help=legacy_help)
@@ -633,7 +686,7 @@ def main():
     metrics_canonical = metrics_sub.add_parser("canonical-health", help="Run canonical contract health checks")
     metrics_canonical.add_argument("--write", help="Optional JSON output path")
     
-    args = parser.parse_args()
+    args = parser.parse_args(_rewrite_legacy_dev_memory_argv(sys.argv[1:]))
 
     if args.command in {"setup", "store", "recall", "inspect", "integrations", "ops", "dev"}:
         sub_name = {
@@ -733,14 +786,6 @@ def main():
             args.graph_cmd = "sync-structural"
             args.apply = True
             args.strict = False
-
-    if args.command == "dev":
-        if args.dev_cmd == "memory":
-            if not getattr(args, "dev_memory_cmd", None):
-                dev_memory.print_help()
-                return
-            args.command = "memory"
-            args.memory_cmd = args.dev_memory_cmd
 
     memory = MemoryStore(root=args.root)
     
@@ -952,7 +997,7 @@ def main():
                 "query_text": str(getattr(args, "query", "") or ""),
                 "k": int(getattr(args, "k", 8) or 8),
             }
-            out = memory_search_tool(form_submission=payload, root=str(memory.root), explain=bool(args.explain))
+            out = memory_search_tool(request=payload, root=str(memory.root), explain=bool(args.explain))
             if not (out.get("results") or []):
                 fallback = _simple_recall_fallback(memory, str(payload.get("query_text") or ""), int(payload.get("k") or 8))
                 if fallback.get("results"):

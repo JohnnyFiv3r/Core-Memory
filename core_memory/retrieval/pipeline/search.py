@@ -6,7 +6,7 @@ from pathlib import Path
 
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
-from core_memory.graph.api import causal_traverse
+from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 
 
 def _parse_iso(ts: str) -> datetime | None:

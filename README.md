@@ -150,15 +150,41 @@ core-memory --root ./memory memory search --query "Redis fix"
 
 Expected result: the recall command should surface the bead you just wrote.
 
-### 2) Python embed path
+### 2) Python canonical runtime/retrieval path
 
-This is the simplest in-process usage.
+Use finalized-turn ingestion + request-first retrieval tools.
+
+```python
+from core_memory import process_turn_finalized, memory_execute
+
+root = "./memory"
+
+process_turn_finalized(
+ root=root,
+ session_id="s1",
+ turn_id="t1",
+ user_query="Why did Redis fail?",
+ assistant_final="Decision: increase Redis pool to 200 to prevent exhaustion.",
+)
+
+out = memory_execute(
+ request={"raw_query": "why redis", "intent": "causal", "k": 5},
+ root=root,
+ explain=True,
+)
+
+print(out.get("ok"), len(out.get("results") or []))
+```
+
+### 3) Compatibility store API (advanced / direct persistence)
+
+`MemoryStore` remains available for direct persistence workflows, migrations, and
+advanced local tooling, but it is not the primary canonical runtime path.
 
 ```python
 from core_memory import MemoryStore
 
 store = MemoryStore("./memory")
-
 store.add_bead(
  type="decision",
  title="Redis fix",
@@ -169,35 +195,6 @@ store.add_bead(
 
 for bead in store.query(limit=5):
  print(f"[{bead['type']}] {bead['title']}")
-```
-
-### 3) Write and recall a causal chain
-
-```python
-from core_memory import MemoryStore, BeadType
-
-store = MemoryStore("./memory")
-
-store.add_bead(
- type=BeadType.LESSON,
- title="Redis timeouts under high load",
- summary=["Worker count exceeded connection pool limit"],
-)
-
-store.add_bead(
- type=BeadType.DECISION,
- title="Increased Redis max connections to 200",
- summary=["Pool exhaustion was root cause", "Resolved P1 incident"],
-)
-
-packet = store.query(limit=5)
-for bead in packet:
- print(f"[{bead['type']}] {bead['title']}")
-```
-
-```text
-[lesson] Redis timeouts under high load
-[decision] Increased Redis max connections to 200
 ```
 
 ---

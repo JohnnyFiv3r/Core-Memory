@@ -33,6 +33,16 @@ class TestOpenClawReadBridge(unittest.TestCase):
         })
         self.assertIn("results", result)
 
+    def test_search_with_request_payload(self):
+        result = dispatch(
+            {
+                "action": "search",
+                "root": self.root,
+                "request": {"query_text": "database", "k": 3},
+            }
+        )
+        self.assertIn("results", result)
+
     def test_search_missing_query(self):
         result = dispatch({"action": "search", "root": self.root})
         self.assertFalse(result.get("ok", True))

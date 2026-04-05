@@ -72,7 +72,7 @@ class CoreMemoryRetriever(BaseRetriever):
     ) -> list[Document]:
         """Retrieve relevant beads as LangChain Documents."""
         result = memory_tools.search(
-            form_submission={"query_text": query, "k": self.k},
+            request={"query_text": query, "k": self.k},
             root=self.root,
             explain=self.explain,
         )

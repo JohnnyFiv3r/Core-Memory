@@ -38,7 +38,7 @@ class CoreMemoryShortTerm:
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search short-term memories (open/candidate beads)."""
         result = memory_tools.search(
-            form_submission={
+            request={
                 "query_text": query,
                 "k": limit,
                 "status_filter": ["open", "candidate"],
@@ -93,7 +93,7 @@ class CoreMemoryLongTerm:
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search long-term memories (promoted/archived beads)."""
         result = memory_tools.search(
-            form_submission={
+            request={
                 "query_text": query,
                 "k": limit,
                 "status_filter": ["promoted", "archived"],
@@ -146,7 +146,7 @@ class CoreMemoryEntity:
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search entity memories."""
         result = memory_tools.search(
-            form_submission={"query_text": query, "k": limit},
+            request={"query_text": query, "k": limit},
             root=self.root,
             explain=False,
         )

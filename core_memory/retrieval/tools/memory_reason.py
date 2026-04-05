@@ -16,7 +16,8 @@ import hashlib
 from pathlib import Path
 from typing import Any
 
-from core_memory.graph.api import causal_traverse, reinforce_semantic_edges
+from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
+from core_memory.graph.semantic import reinforce_semantic_edges
 from core_memory.retrieval.semantic_index import semantic_lookup
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates

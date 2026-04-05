@@ -13,14 +13,14 @@ Purpose: single answer to “what is real and supported today?”
 - `core_memory.runtime.engine.process_session_start(...)`
 
 ### Canonical retrieval family (read/runtime path)
-- `core_memory.tools.memory.search`
-- `core_memory.tools.memory.trace`
-- `core_memory.tools.memory.execute`
+- `core_memory.retrieval.tools.memory.search`
+- `core_memory.retrieval.tools.memory.trace`
+- `core_memory.retrieval.tools.memory.execute`
 
 Canonical retrieval story is exactly: **search → trace → execute**.
 
 ### Continuity surface
-- `core_memory.continuity_injection.load_continuity_injection(...)`
+- `core_memory.write_pipeline.continuity_injection.load_continuity_injection(...)`
 
 Continuity reads are pure-read by contract (no implicit bead writes).
 
