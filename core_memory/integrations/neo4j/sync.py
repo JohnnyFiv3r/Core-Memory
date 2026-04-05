@@ -184,6 +184,9 @@ def _collect_projection(
     for assoc in list(idx.get("associations") or []):
         if not isinstance(assoc, dict):
             continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
+            continue
         edge = association_to_edge(assoc, edge_mode=edge_mode)
         src = str(edge.get("start_bead_id") or "")
         dst = str(edge.get("end_bead_id") or "")
@@ -221,6 +224,9 @@ def _collect_prune_keep_assoc_ids(root: str, *, session_id: str | None, bead_ids
     seen: set[str] = set()
     for assoc in list(idx.get("associations") or []):
         if not isinstance(assoc, dict):
+            continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
             continue
         src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
         dst = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")

@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -265,6 +266,24 @@ class TestNeo4jSyncSlice3(unittest.TestCase):
 
             self.assertTrue(out.get("ok"))
             self.assertEqual("team-alpha", captured.get("dataset_key"))
+
+    def test_dry_run_skips_inactive_associations(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="decision", title="d", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="outcome", title="o", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+            assoc_id = s.link(source_id=b1, target_id=b2, relationship="supports", explanation="why")
+
+            idx_file = Path(td) / ".beads" / "index.json"
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            for a in (idx.get("associations") or []):
+                if str(a.get("id") or "") == str(assoc_id):
+                    a["status"] = "retracted"
+            idx_file.write_text(json.dumps(idx, indent=2), encoding="utf-8")
+
+            out = sync_to_neo4j(td, session_id="s1", config=self._enabled_config(), dry_run=True)
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(0, int(out.get("edges_planned") or 0))
 
 
 if __name__ == "__main__":

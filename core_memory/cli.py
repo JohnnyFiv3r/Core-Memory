@@ -521,6 +521,8 @@ def main():
     g_backfill_causal.add_argument("--no-require-shared-turn", action="store_true")
     g_backfill_causal.add_argument("--bead-id", action="append", help="Limit proposals to pairs touching these bead IDs")
     g_backfill_causal.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs for targeted mode")
+    g_assoc_health = graph_sub.add_parser("association-health", help="Report association quality and isolation stats")
+    g_assoc_health.add_argument("--session-id", help="Optional session scope")
     g_neo4j_status = graph_sub.add_parser("neo4j-status", help="Check Neo4j shadow adapter config/connectivity")
     g_neo4j_status.add_argument("--strict", action="store_true", help="Return exit code 2 when status is not ok")
     g_neo4j_sync = graph_sub.add_parser("neo4j-sync", help="Sync Core Memory bead/association projection into Neo4j")
@@ -1013,6 +1015,10 @@ def main():
                 require_shared_turn=not bool(args.no_require_shared_turn),
                 include_bead_ids=target_ids,
             ), indent=2))
+        elif args.graph_cmd == "association-health":
+            from .association.health import association_health_report
+
+            print(json.dumps(association_health_report(str(memory.root), session_id=(str(args.session_id or "").strip() or None)), indent=2))
         elif args.graph_cmd == "neo4j-status":
             from .integrations.neo4j import neo4j_status
 

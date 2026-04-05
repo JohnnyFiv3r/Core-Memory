@@ -20,10 +20,11 @@ from core_memory.policy.association_inference_v21 import (
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract, can_be_retrieval_eligible, rewrite_generic_title
 
 
-def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]]]:
+def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
     """Accept normalized crawler payload shapes."""
     promotions = [str(x) for x in (updates.get("promotions") or []) if str(x)]
     associations = [x for x in (updates.get("associations") or []) if isinstance(x, dict)]
+    lifecycle_rows = [x for x in (updates.get("association_lifecycle") or []) if isinstance(x, dict)]
 
     reviewed = [x for x in (updates.get("reviewed_beads") or []) if isinstance(x, dict)]
     for row in reviewed:
@@ -45,6 +46,19 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                         "reason_code": a.get("reason_code"),
                         "evidence_fields": a.get("evidence_fields"),
                         "relationship_raw": a.get("relationship_raw"),
+                    }
+                )
+
+        for act in (row.get("association_actions") or []):
+            if isinstance(act, dict):
+                lifecycle_rows.append(
+                    {
+                        "association_id": str(act.get("association_id") or "").strip(),
+                        "action": str(act.get("action") or "").strip().lower(),
+                        "replacement_association_id": str(act.get("replacement_association_id") or "").strip(),
+                        "reason_text": str(act.get("reason_text") or act.get("reason") or "").strip(),
+                        "confidence": act.get("confidence"),
+                        "provenance": str(act.get("provenance") or "model_inferred").strip().lower() or "model_inferred",
                     }
                 )
 
@@ -72,7 +86,20 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                 "relationship_raw": str(a.get("relationship_raw") or "").strip().lower(),
             }
         )
-    return promotions_dedup, associations_norm
+
+    lifecycle_norm: list[dict[str, Any]] = []
+    for row in lifecycle_rows:
+        lifecycle_norm.append(
+            {
+                "association_id": str(row.get("association_id") or "").strip(),
+                "action": str(row.get("action") or "").strip().lower(),
+                "replacement_association_id": str(row.get("replacement_association_id") or "").strip(),
+                "reason_text": str(row.get("reason_text") or row.get("reason") or "").strip(),
+                "confidence": row.get("confidence"),
+                "provenance": str(row.get("provenance") or "model_inferred").strip().lower() or "model_inferred",
+            }
+        )
+    return promotions_dedup, associations_norm, lifecycle_norm
 
 
 def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
@@ -208,6 +235,14 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         promoted = 0
         appended = 0
         quarantined = 0
+        lifecycle_applied = 0
+
+        assoc_by_id: dict[str, dict[str, Any]] = {}
+        for a in assoc:
+            if isinstance(a, dict):
+                aid0 = str(a.get("id") or "")
+                if aid0:
+                    assoc_by_id[aid0] = a
 
         for row in rows:
             kind = str(row.get("kind") or "")
@@ -274,6 +309,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                         "source_bead": src,
                         "target_bead": tgt,
                         "relationship": rel,
+                        "status": "active",
                         "edge_class": str(row.get("edge_class") or "agent_judged"),
                         "confidence": row_n.get("confidence"),
                         "reason_text": row_n.get("reason_text"),
@@ -287,7 +323,60 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                         "created_at": str(row.get("created_at") or datetime.now(timezone.utc).isoformat()),
                     }
                 )
+                assoc_by_id[str(assoc[-1].get("id") or "")] = assoc[-1]
                 appended += 1
+            elif kind == "association_lifecycle":
+                aid = str(row.get("association_id") or "").strip()
+                action = str(row.get("action") or "").strip().lower()
+                if not aid or action not in {"retract", "supersede", "reaffirm"}:
+                    continue
+                target = assoc_by_id.get(aid)
+                if not isinstance(target, dict):
+                    continue
+
+                now = str(row.get("created_at") or datetime.now(timezone.utc).isoformat())
+                reason_text = str(row.get("reason_text") or "").strip()
+                provenance = str(row.get("provenance") or "model_inferred").strip().lower() or "model_inferred"
+
+                if action == "retract":
+                    target["status"] = "retracted"
+                    target["retracted_at"] = now
+                    if reason_text:
+                        target["lifecycle_reason"] = reason_text
+                    target["lifecycle_provenance"] = provenance
+                    lifecycle_applied += 1
+                elif action == "reaffirm":
+                    target["status"] = "active"
+                    target["reaffirmed_at"] = now
+                    if row.get("confidence") is not None:
+                        try:
+                            conf = float(row.get("confidence"))
+                            old = target.get("confidence")
+                            target["confidence"] = max(float(old), conf) if old is not None else conf
+                        except Exception:
+                            pass
+                    if reason_text:
+                        target["lifecycle_reason"] = reason_text
+                    target["lifecycle_provenance"] = provenance
+                    lifecycle_applied += 1
+                elif action == "supersede":
+                    replacement_id = str(row.get("replacement_association_id") or "").strip()
+                    target["status"] = "superseded"
+                    target["superseded_at"] = now
+                    if replacement_id:
+                        target["superseded_by_association_id"] = replacement_id
+                        replacement = assoc_by_id.get(replacement_id)
+                        if isinstance(replacement, dict):
+                            replacement["status"] = "active"
+                            replacement["supersedes_association_id"] = aid
+                    if reason_text:
+                        target["lifecycle_reason"] = reason_text
+                    target["lifecycle_provenance"] = provenance
+                    lifecycle_applied += 1
+
+        for a in assoc:
+            if isinstance(a, dict) and not str(a.get("status") or "").strip():
+                a["status"] = "active"
 
         index["beads"] = beads
         index["associations"] = sorted(assoc, key=lambda a: (a.get("created_at", ""), a.get("id", "")))
@@ -302,6 +391,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         "merged": len(rows),
         "promotions_marked": promoted,
         "associations_appended": appended,
+        "association_lifecycle_applied": lifecycle_applied,
         "associations_quarantined": quarantined,
         "quarantine_path": str(quarantine_path),
         "authority_path": "merge_projection",
@@ -386,7 +476,7 @@ def apply_crawler_updates(
         else:
             allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
 
-        promotions, assoc_rows = _normalize_review_rows(updates or {})
+        promotions, assoc_rows, lifecycle_rows = _normalize_review_rows(updates or {})
         now = datetime.now(timezone.utc).isoformat()
         log_path = _crawler_updates_log_path(root, session_id)
         strict_default = os.environ.get("CORE_MEMORY_ASSOC_STRICT", "1") != "0"
@@ -424,6 +514,7 @@ def apply_crawler_updates(
             promoted += 1
 
         appended = 0
+        lifecycle_queued = 0
         for row in assoc_rows:
             if not isinstance(row, dict):
                 continue
@@ -489,11 +580,34 @@ def apply_crawler_updates(
             queued_assoc_keys.add(dedupe_key)
             appended += 1
 
+        for row in lifecycle_rows:
+            aid = str(row.get("association_id") or "").strip()
+            action = str(row.get("action") or "").strip().lower()
+            if not aid or action not in {"retract", "supersede", "reaffirm"}:
+                continue
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "association_lifecycle",
+                    "session_id": str(session_id),
+                    "association_id": aid,
+                    "action": action,
+                    "replacement_association_id": str(row.get("replacement_association_id") or "") or None,
+                    "reason_text": str(row.get("reason_text") or "") or None,
+                    "confidence": row.get("confidence"),
+                    "provenance": str(row.get("provenance") or "model_inferred"),
+                    "created_at": now,
+                },
+            )
+            lifecycle_queued += 1
+
     return {
         "ok": True,
         "beads_created": created,
         "promotions_marked": promoted,
         "associations_appended": appended,
+        "association_lifecycle_queued": lifecycle_queued,
         "associations_quarantined": quarantined,
         "quarantine_path": str(quarantine_path),
         "queued_to": str(log_path),

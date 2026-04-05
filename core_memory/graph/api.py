@@ -197,6 +197,9 @@ def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[i
     for a in assocs:
         if not isinstance(a, dict):
             continue
+        status = str(a.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
+            continue
         rel0 = str(a.get("relationship") or "").strip()
         rel = rel_map.get(rel0, rel0)
         if rel not in STRUCTURAL_RELS:

@@ -84,6 +84,25 @@ Deterministic invocation errors:
   - `CORE_MEMORY_AGENT_MIN_SEMANTIC_ASSOC_AFTER_FIRST` (default `1`)
   - violation code: `agent_semantic_coverage_missing`
 
+## Association lifecycle overlay + recovery (slice 5)
+
+Append-only history is preserved while allowing current-truth edge state to evolve.
+
+Lifecycle actions (queued via crawler updates):
+- `retract`
+- `supersede` (with `replacement_association_id`)
+- `reaffirm`
+
+Association status fields:
+- `status` (`active|retracted|superseded`)
+- `superseded_by_association_id`
+- `supersedes_association_id`
+
+Default projection behavior uses active associations only.
+
+Operational visibility:
+- `core-memory graph association-health [--session-id ...]`
+
 ---
 
 ## Error code contract (scaffolded)
