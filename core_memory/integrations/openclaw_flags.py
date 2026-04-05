@@ -47,6 +47,22 @@ def default_adjacent_turns() -> int:
         return 0
 
 
+def agent_authored_required_enabled() -> bool:
+    """When enabled, semantic turn memory must come from agent-authored payloads.
+
+    Slice-0 scaffold only: runtime enforcement lands in follow-up slices.
+    """
+    return _env_bool("CORE_MEMORY_AGENT_AUTHORED_REQUIRED", False)
+
+
+def agent_authored_fail_open_enabled() -> bool:
+    """Allow deterministic fallback when agent-authored payload is missing/invalid.
+
+    Intended default for strict mode is False.
+    """
+    return _env_bool("CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN", False)
+
+
 def runtime_flags_snapshot() -> dict[str, object]:
     return {
         "core_memory_enabled": core_memory_enabled(),
@@ -56,5 +72,6 @@ def runtime_flags_snapshot() -> dict[str, object]:
         "soul_promotion_enabled": soul_promotion_enabled(),
         "default_hydrate_tools_enabled": default_hydrate_tools_enabled(),
         "default_adjacent_turns": default_adjacent_turns(),
+        "agent_authored_required_enabled": agent_authored_required_enabled(),
+        "agent_authored_fail_open_enabled": agent_authored_fail_open_enabled(),
     }
-
