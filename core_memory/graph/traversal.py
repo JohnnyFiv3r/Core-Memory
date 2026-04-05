@@ -44,20 +44,58 @@ def _build_adjacency(beads: dict[str, Any], associations: list[dict]) -> tuple[d
     forward: dict[str, list[str]] = defaultdict(list)
     reverse: dict[str, list[str]] = defaultdict(list)
 
-    # From bead links
+    # Precompute active association pairs so stale association_sync links are ignored.
+    active_assoc_pairs: set[tuple[str, str]] = set()
+    for assoc in associations:
+        if not isinstance(assoc, dict):
+            continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
+        tgt = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")
+        if src and tgt:
+            active_assoc_pairs.add((src, tgt))
+
+    # From bead links (support legacy dict form and list-of-dicts form).
     for bead_id, bead in beads.items():
         links = bead.get("links") or {}
-        for rel, targets in links.items():
-            if isinstance(targets, list):
-                for tid in targets:
-                    if tid:
-                        forward[bead_id].append(tid)
-                        reverse[tid].append(bead_id)
+        if isinstance(links, dict):
+            for _rel, targets in links.items():
+                if isinstance(targets, list):
+                    for tid in targets:
+                        tid_s = str(tid or "").strip()
+                        if tid_s:
+                            forward[bead_id].append(tid_s)
+                            reverse[tid_s].append(bead_id)
+                else:
+                    tid_s = str(targets or "").strip()
+                    if tid_s:
+                        forward[bead_id].append(tid_s)
+                        reverse[tid_s].append(bead_id)
+        elif isinstance(links, list):
+            for row in links:
+                if not isinstance(row, dict):
+                    continue
+                tid_s = str(row.get("bead_id") or "").strip()
+                if not tid_s:
+                    continue
+                src_tag = str(row.get("source") or "").strip().lower()
+                if src_tag == "association_sync" and (bead_id, tid_s) not in active_assoc_pairs:
+                    # stale sync link from an inactive association; skip traversal
+                    continue
+                forward[bead_id].append(tid_s)
+                reverse[tid_s].append(bead_id)
 
     # From associations
     for assoc in associations:
-        src = assoc.get("source_bead") or ""
-        tgt = assoc.get("target_bead") or ""
+        if not isinstance(assoc, dict):
+            continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
+            continue
+        src = assoc.get("source_bead") or assoc.get("source_bead_id") or ""
+        tgt = assoc.get("target_bead") or assoc.get("target_bead_id") or ""
         if src and tgt:
             forward[src].append(tgt)
             reverse[tgt].append(src)

@@ -320,6 +320,26 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
             self.assertEqual("enforce", gate.get("mode"))
 
+    def test_enforce_invalid_callable_returns_deterministic_gate_error(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "enforce",
+                "CORE_MEMORY_AGENT_CRAWLER_CALLABLE": "not_a_module:not_a_fn",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                user_query="q",
+                assistant_final="a",
+                metadata={},
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("agent_callable_missing", out.get("error_code"))
+
 
 if __name__ == "__main__":
     unittest.main()

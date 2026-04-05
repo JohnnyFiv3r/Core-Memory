@@ -65,7 +65,19 @@ def invoke_turn_crawler_agent(
         }
 
     max_attempts = int(agent_crawler_max_attempts())
-    fn = _load_callable(callable_path)
+    try:
+        fn = _load_callable(callable_path)
+    except Exception as exc:  # noqa: BLE001
+        return None, {
+            "attempted": True,
+            "ok": False,
+            "source": "agent_callable",
+            "attempts": 0,
+            "error_code": ERROR_AGENT_CALLABLE_MISSING,
+            "reason": "invalid_CORE_MEMORY_AGENT_CRAWLER_CALLABLE",
+            "error": str(exc),
+            "callable": callable_path,
+        }
 
     last_error = ""
     for attempt in range(1, max_attempts + 1):

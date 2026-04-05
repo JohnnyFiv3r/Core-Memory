@@ -375,13 +375,14 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                     lifecycle_applied += 1
                 elif action == "supersede":
                     replacement_id = str(row.get("replacement_association_id") or "").strip()
-                    target["status"] = "superseded"
-                    target["superseded_at"] = now
                     if replacement_id:
                         replacement = assoc_by_id.get(replacement_id)
                         if not isinstance(replacement, dict) or (not _association_in_session_scope(replacement)):
                             lifecycle_rejected += 1
                             continue
+                    target["status"] = "superseded"
+                    target["superseded_at"] = now
+                    if replacement_id:
                         target["superseded_by_association_id"] = replacement_id
                         if isinstance(replacement, dict):
                             replacement["status"] = "active"

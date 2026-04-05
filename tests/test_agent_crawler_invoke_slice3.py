@@ -46,6 +46,20 @@ class TestAgentCrawlerInvokeSlice3(unittest.TestCase):
             self.assertTrue(diag.get("attempted"))
             self.assertEqual("agent_callable_missing", diag.get("error_code"))
 
+    def test_invalid_callable_configuration_does_not_raise(self):
+        with patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_CRAWLER_CALLABLE": "not_a_module:not_a_fn",
+            },
+            clear=False,
+        ):
+            updates, diag = invoke_turn_crawler_agent(root="/tmp", req=self._req(), crawler_context={})
+            self.assertIsNone(updates)
+            self.assertTrue(diag.get("attempted"))
+            self.assertEqual("agent_callable_missing", diag.get("error_code"))
+
     def test_retry_then_success(self):
         agent_crawler_fixtures.reset_state()
         with patch.dict(
