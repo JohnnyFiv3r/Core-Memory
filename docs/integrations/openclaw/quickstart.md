@@ -19,7 +19,7 @@ Use the repository root as the working workspace for the main agent.
 
 ## 3) Use current memory surfaces
 Primary runtime surface:
-- `core_memory.tools.memory.execute`
+- `core_memory.retrieval.tools.memory.execute`
 
 Canonical retrieval family (when you need direct calls):
 - `memory.search`

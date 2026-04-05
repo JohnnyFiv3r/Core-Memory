@@ -40,7 +40,7 @@ Decision lock (V2P11):
 
 ## Runtime path
 Canonical runtime surface:
-- `core_memory.tools.memory.execute`
+- `core_memory.retrieval.tools.memory.execute`
 
 OpenClaw can also access lower-level runtime operations:
 - `memory.search`

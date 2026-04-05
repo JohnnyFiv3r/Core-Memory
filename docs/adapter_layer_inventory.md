@@ -8,7 +8,7 @@ Labeling reminder:
 - compatibility/historical: archived or non-forward-only references
 - experimental: useful but not yet hard contract
 
-## `core_memory/tools/memory.py`
+## `core_memory/retrieval/tools/memory.py`
 Role: **Adapter layer** (thin callable shim), not agent skill semantics.
 
 ### What it is
@@ -22,7 +22,7 @@ Role: **Adapter layer** (thin callable shim), not agent skill semantics.
 - Not the read-side retrieval/reasoning implementation owner.
 
 ### Delegation map
-- `search(...)` -> `memory_search_typed(...)`
+- `search(...)` -> `memory_search_request(...)`
 - `trace(...)` -> `memory_trace(...)`
 - `execute(...)` -> `memory_execute(...)` (+ env flag guards)
 
