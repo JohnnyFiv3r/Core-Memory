@@ -46,6 +46,27 @@ class TestAssociationHealthSlice5(unittest.TestCase):
             self.assertEqual("s1", out.get("session_id"))
             self.assertEqual(1, int(out.get("beads") or 0))
 
+    def test_active_noise_pct_excludes_inactive_noise_edges(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            a = s.add_bead(type="context", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+
+            noise_id = s.link(source_id=a, target_id=b, relationship="shared_tag", explanation="noise")
+            s.link(source_id=a, target_id=b, relationship="supports", explanation="semantic")
+
+            idx_file = Path(td) / ".beads" / "index.json"
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            for row in (idx.get("associations") or []):
+                if str(row.get("id") or "") == str(noise_id):
+                    row["status"] = "retracted"
+            idx_file.write_text(json.dumps(idx, indent=2), encoding="utf-8")
+
+            out = association_health_report(td)
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(1, int(out.get("associations_active") or 0))
+            self.assertEqual(0.0, float(out.get("active_noise_pct") or 0.0))
+
 
 if __name__ == "__main__":
     unittest.main()

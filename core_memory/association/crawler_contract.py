@@ -236,6 +236,16 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         appended = 0
         quarantined = 0
         lifecycle_applied = 0
+        lifecycle_rejected = 0
+
+        session_bead_ids = {
+            bid for bid, bead in beads.items() if str((bead or {}).get("session_id") or "") == str(session_id)
+        }
+
+        def _association_in_session_scope(assoc_row: dict[str, Any]) -> bool:
+            src0 = str((assoc_row or {}).get("source_bead") or (assoc_row or {}).get("source_bead_id") or "")
+            tgt0 = str((assoc_row or {}).get("target_bead") or (assoc_row or {}).get("target_bead_id") or "")
+            return bool(src0 and tgt0 and src0 in session_bead_ids and tgt0 in session_bead_ids)
 
         assoc_by_id: dict[str, dict[str, Any]] = {}
         for a in assoc:
@@ -334,6 +344,10 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 if not isinstance(target, dict):
                     continue
 
+                if not _association_in_session_scope(target):
+                    lifecycle_rejected += 1
+                    continue
+
                 now = str(row.get("created_at") or datetime.now(timezone.utc).isoformat())
                 reason_text = str(row.get("reason_text") or "").strip()
                 provenance = str(row.get("provenance") or "model_inferred").strip().lower() or "model_inferred"
@@ -364,8 +378,11 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                     target["status"] = "superseded"
                     target["superseded_at"] = now
                     if replacement_id:
-                        target["superseded_by_association_id"] = replacement_id
                         replacement = assoc_by_id.get(replacement_id)
+                        if not isinstance(replacement, dict) or (not _association_in_session_scope(replacement)):
+                            lifecycle_rejected += 1
+                            continue
+                        target["superseded_by_association_id"] = replacement_id
                         if isinstance(replacement, dict):
                             replacement["status"] = "active"
                             replacement["supersedes_association_id"] = aid
@@ -392,6 +409,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         "promotions_marked": promoted,
         "associations_appended": appended,
         "association_lifecycle_applied": lifecycle_applied,
+        "association_lifecycle_rejected": lifecycle_rejected,
         "associations_quarantined": quarantined,
         "quarantine_path": str(quarantine_path),
         "authority_path": "merge_projection",
@@ -484,6 +502,7 @@ def apply_crawler_updates(
         quarantine_path = Path(root) / ".beads" / "events" / "association-quarantine.jsonl"
 
         existing_assoc_keys: set[tuple[str, str, str]] = set()
+        existing_assoc_by_id: dict[str, dict[str, Any]] = {}
         for a in (index.get("associations") or []):
             if not isinstance(a, dict):
                 continue
@@ -492,6 +511,9 @@ def apply_crawler_updates(
             rel0 = str(a.get("relationship") or "").strip().lower()
             if src0 and tgt0 and rel0:
                 existing_assoc_keys.add((src0, tgt0, rel0))
+            aid0 = str(a.get("id") or "")
+            if aid0:
+                existing_assoc_by_id[aid0] = a
 
         queued_assoc_keys: set[tuple[str, str, str]] = set()
         quarantined = 0
@@ -515,6 +537,7 @@ def apply_crawler_updates(
 
         appended = 0
         lifecycle_queued = 0
+        lifecycle_rejected = 0
         for row in assoc_rows:
             if not isinstance(row, dict):
                 continue
@@ -585,6 +608,46 @@ def apply_crawler_updates(
             action = str(row.get("action") or "").strip().lower()
             if not aid or action not in {"retract", "supersede", "reaffirm"}:
                 continue
+
+            target = existing_assoc_by_id.get(aid)
+            if not isinstance(target, dict):
+                lifecycle_rejected += 1
+                continue
+
+            src = str(target.get("source_bead") or target.get("source_bead_id") or "")
+            tgt = str(target.get("target_bead") or target.get("target_bead_id") or "")
+            sb = beads.get(src)
+            tb = beads.get(tgt)
+            if not sb or not tb:
+                lifecycle_rejected += 1
+                continue
+            if str(sb.get("session_id") or "") != str(session_id) or str(tb.get("session_id") or "") != str(session_id):
+                lifecycle_rejected += 1
+                continue
+            if src not in session_bead_ids:
+                lifecycle_rejected += 1
+                continue
+            if tgt not in allowed_targets:
+                lifecycle_rejected += 1
+                continue
+
+            replacement_id = str(row.get("replacement_association_id") or "").strip()
+            if action == "supersede" and replacement_id:
+                replacement = existing_assoc_by_id.get(replacement_id)
+                if not isinstance(replacement, dict):
+                    lifecycle_rejected += 1
+                    continue
+                rs = str(replacement.get("source_bead") or replacement.get("source_bead_id") or "")
+                rt = str(replacement.get("target_bead") or replacement.get("target_bead_id") or "")
+                rb_s = beads.get(rs)
+                rb_t = beads.get(rt)
+                if not rb_s or not rb_t:
+                    lifecycle_rejected += 1
+                    continue
+                if str(rb_s.get("session_id") or "") != str(session_id) or str(rb_t.get("session_id") or "") != str(session_id):
+                    lifecycle_rejected += 1
+                    continue
+
             append_jsonl(
                 log_path,
                 {
@@ -608,6 +671,7 @@ def apply_crawler_updates(
         "promotions_marked": promoted,
         "associations_appended": appended,
         "association_lifecycle_queued": lifecycle_queued,
+        "association_lifecycle_rejected": lifecycle_rejected,
         "associations_quarantined": quarantined,
         "quarantine_path": str(quarantine_path),
         "queued_to": str(log_path),

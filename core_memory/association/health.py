@@ -32,6 +32,7 @@ def association_health_report(root: str, *, session_id: str | None = None) -> di
         beads = {bid: b for bid, b in beads.items() if bid in scope_ids}
 
     rel = Counter()
+    rel_active = Counter()
     status = Counter()
     deg = defaultdict(int)
     for a in assocs:
@@ -41,6 +42,7 @@ def association_health_report(root: str, *, session_id: str | None = None) -> di
         status[st] += 1
         if st in {"retracted", "superseded", "inactive"}:
             continue
+        rel_active[r] += 1
         s = str(a.get("source_bead") or a.get("source_bead_id") or "")
         t = str(a.get("target_bead") or a.get("target_bead_id") or "")
         if s:
@@ -52,7 +54,7 @@ def association_health_report(root: str, *, session_id: str | None = None) -> di
     isolated = sum(1 for bid in beads if deg.get(bid, 0) == 0)
 
     noise_rels = {"shared_tag", "follows", "precedes"}
-    active_noise = sum(v for k, v in rel.items() if k in noise_rels)
+    active_noise = sum(v for k, v in rel_active.items() if k in noise_rels)
 
     return {
         "ok": True,
@@ -62,6 +64,7 @@ def association_health_report(root: str, *, session_id: str | None = None) -> di
         "associations_active": active_assocs,
         "status_distribution": dict(status),
         "relationship_top": rel.most_common(20),
+        "relationship_top_active": rel_active.most_common(20),
         "isolated_beads": isolated,
         "isolated_pct": round((isolated / max(1, len(beads))) * 100.0, 2),
         "active_noise_pct": round((active_noise / max(1, active_assocs)) * 100.0, 2),
