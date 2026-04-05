@@ -3,10 +3,22 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .catalog import build_catalog
-from .snap import snap_form
 from .canonical import search_request as _search_request, execute_request as _execute_request, trace_request as _trace_request
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
+
+
+def _snap_typed_submission(rp: Path, submission: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+    """Compatibility-only typed form snapping.
+
+    Kept lazy-imported so canonical request-first search path remains decoupled
+    from typed snap/catalog internals.
+    """
+    from .catalog import build_catalog
+    from .snap import snap_form
+
+    catalog = build_catalog(rp)
+    snapped = snap_form(submission, catalog)
+    return dict(snapped.get("snapped") or {}), list(snapped.get("decisions") or [])
 
 
 def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -118,9 +130,7 @@ def memory_search_typed(root: str, submission: dict, explain: bool = False) -> d
     Canonical callers should use memory_search_request(request=...).
     """
     rp = Path(root)
-    catalog = build_catalog(rp)
-    snapped = snap_form(submission, catalog)
-    s = snapped.get("snapped") or {}
+    s, decisions = _snap_typed_submission(rp, dict(submission or {}))
 
     out = memory_search_request(root=root, request=s, explain=bool(explain))
 
@@ -128,7 +138,7 @@ def memory_search_typed(root: str, submission: dict, explain: bool = False) -> d
     if explain:
         out.setdefault("explain", {})
         out["explain"]["snapped_query"] = s
-        out["explain"]["snap_decisions"] = snapped.get("decisions") or []
+        out["explain"]["snap_decisions"] = decisions
     return out
 
 
