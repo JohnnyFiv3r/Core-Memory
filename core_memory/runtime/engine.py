@@ -31,6 +31,7 @@ from .worker import SidecarPolicy, process_memory_event
 from ..write_pipeline.orchestrate import run_consolidate_pipeline
 from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
+from ..persistence import events
 from .decision_pass import run_session_decision_pass
 from ..policy.bead_typing import classify_bead_type
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
@@ -314,6 +315,67 @@ def _non_temporal_semantic_association_count(updates: dict[str, Any]) -> int:
     return count
 
 
+def _association_mix_stats(updates: dict[str, Any] | None) -> dict[str, int]:
+    rows = list((updates or {}).get("associations") or []) if isinstance(updates, dict) else []
+    total = 0
+    shared_tag = 0
+    temporal = 0
+    semantic = 0
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        total += 1
+        rel = str(row.get("relationship") or "").strip().lower()
+        if rel == "shared_tag":
+            shared_tag += 1
+        elif rel in {"follows", "precedes"}:
+            temporal += 1
+        elif rel:
+            semantic += 1
+    return {
+        "associations_total": total,
+        "shared_tag_count": shared_tag,
+        "temporal_count": temporal,
+        "non_temporal_semantic_count": semantic,
+    }
+
+
+def _emit_agent_turn_quality_metric(
+    *,
+    root: str,
+    req: dict[str, Any],
+    gate: dict[str, Any] | None,
+    updates: dict[str, Any] | None,
+    result: str,
+    error_code: str | None = None,
+    preview_association_queued: int = 0,
+    merge_associations_appended: int = 0,
+) -> None:
+    gate = dict(gate or {})
+    mix = _association_mix_stats(updates)
+    rec = {
+        "run_id": f"turn:{req.get('session_id')}:{req.get('turn_id')}",
+        "task_id": "agent_turn_quality",
+        "mode": "core_memory",
+        "phase": "agent_authored",
+        "result": str(result),
+        "session_id": str(req.get("session_id") or ""),
+        "turn_id": str(req.get("turn_id") or ""),
+        "agent_required": bool(gate.get("required")),
+        "agent_source": str(gate.get("source") or ""),
+        "agent_used_fallback": bool(gate.get("used_fallback")),
+        "agent_blocked": bool(gate.get("blocked")),
+        "error_code": str(error_code or gate.get("error_code") or "") or None,
+        "preview_association_queued": int(preview_association_queued or 0),
+        "merge_associations_appended": int(merge_associations_appended or 0),
+        **mix,
+    }
+    try:
+        events.append_metric(Path(root), rec)
+    except Exception:
+        pass
+
+
 def process_turn_finalized(
     *,
     root: str,
@@ -426,6 +488,14 @@ def process_turn_finalized(
         invocation_diag=invocation_diag,
     )
     if gate.get("blocked"):
+        _emit_agent_turn_quality_metric(
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
+            result="blocked",
+            error_code=str(gate.get("error_code") or ERROR_AGENT_UPDATES_MISSING),
+        )
         return {
             "ok": False,
             "mode": "turn",
@@ -460,6 +530,14 @@ def process_turn_finalized(
         if len(prior_beads) >= 1 and semantic_count < min_required:
             gate["blocked"] = True
             gate["error_code"] = ERROR_AGENT_SEMANTIC_COVERAGE_MISSING
+            _emit_agent_turn_quality_metric(
+                root=root,
+                req=req,
+                gate=gate,
+                updates=reviewed_updates,
+                result="blocked",
+                error_code=ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
+            )
             return {
                 "ok": False,
                 "mode": "turn",
@@ -478,6 +556,13 @@ def process_turn_finalized(
 
     claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
     if not claimed:
+        _emit_agent_turn_quality_metric(
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
+            result="not_claimed",
+        )
         return {
             "ok": True,
             "mode": "turn",
@@ -500,6 +585,14 @@ def process_turn_finalized(
             envelope_hash=(state_after or {}).get("envelope_hash", ""),
             reason="direct_turn_exception",
             error=str(exc),
+        )
+        _emit_agent_turn_quality_metric(
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
+            result="error",
+            error_code="direct_turn_exception",
         )
         return {
             "ok": False,
@@ -545,6 +638,16 @@ def process_turn_finalized(
         session_id=req["session_id"],
         visible_bead_ids=visible_ids,
         turn_id=req["turn_id"],
+    )
+
+    _emit_agent_turn_quality_metric(
+        root=root,
+        req=req,
+        gate=gate,
+        updates=reviewed_updates,
+        result="success",
+        preview_association_queued=int(preview_queued),
+        merge_associations_appended=int(turn_merge.get("associations_appended") or 0),
     )
 
     return {

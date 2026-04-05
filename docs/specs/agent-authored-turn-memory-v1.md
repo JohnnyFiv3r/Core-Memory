@@ -103,6 +103,23 @@ Default projection behavior uses active associations only.
 Operational visibility:
 - `core-memory graph association-health [--session-id ...]`
 
+## Telemetry + SLO gates (slice 6)
+
+Per-turn quality telemetry is emitted as metrics rows with:
+- `task_id=agent_turn_quality`
+- source/fallback/block diagnostics
+- association mix counts (`shared_tag`, temporal, non-temporal semantic)
+
+SLO report/check surfaces:
+- `core-memory graph association-slo-check`
+
+Primary gate dimensions:
+- agent-authored source rate
+- fallback rate
+- fail-closed rate
+- average non-temporal semantic associations per successful turn
+- active shared_tag ratio in current graph view
+
 ---
 
 ## Error code contract (scaffolded)
