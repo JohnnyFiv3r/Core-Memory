@@ -2,7 +2,7 @@
 
 Date: 2026-03-11 (UTC)
 Scope: Full repository code-reading pass with canonical-path focus
-Author: OpenClaw assistant (pairing session)
+Author: Johnny Fiv3r
 
 ## Purpose
 This document is the long-form technical appendix snapshot ("B") requested during architecture convergence.
