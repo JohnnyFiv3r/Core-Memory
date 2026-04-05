@@ -19,7 +19,7 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
         self.assertEqual(0, out.returncode)
         self.assertIn("setup", out.stdout)
         self.assertIn("store", out.stdout)
-        self.assertIn("recall", out.stdout)
+        self.assertIn("memory", out.stdout)
         self.assertIn("inspect", out.stdout)
         self.assertNotIn("myelinate", out.stdout)
         self.assertNotIn("retrieve-context", out.stdout)
@@ -28,7 +28,7 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
         cwd = Path(__file__).resolve().parents[1]
         cases = {
             "setup": "init",
-            "recall": "search",
+            "memory": "search",
             "integrations": "openclaw",
         }
         for group, expected in cases.items():
@@ -38,7 +38,7 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
 
     def test_group_help_boots(self):
         cwd = Path(__file__).resolve().parents[1]
-        for group in ["setup", "store", "recall", "inspect", "integrations", "ops", "dev"]:
+        for group in ["setup", "store", "memory", "inspect", "integrations", "ops", "dev"]:
             out = _run_cli([group, "--help"], cwd)
             self.assertEqual(0, out.returncode)
             self.assertIn("usage:", out.stdout)
@@ -86,8 +86,9 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
                 [
                     "--root",
                     str(root),
-                    "recall",
+                    "memory",
                     "search",
+                    "--query",
                     "cli test",
                     "--k",
                     "5",
@@ -98,9 +99,14 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
             self.assertIn('"ok"', recall_out.stdout)
             self.assertIn("CLI test", recall_out.stdout)
 
-            trace_out = _run_cli(["--root", str(root), "recall", "trace", "cli test", "--k", "3"], cwd)
+            trace_out = _run_cli(["--root", str(root), "memory", "trace", "--query", "cli test", "--k", "3"], cwd)
             self.assertEqual(0, trace_out.returncode)
             self.assertIn('"anchors"', trace_out.stdout)
+
+            # Recall remains compatibility-only alias for legacy automation.
+            recall_alias_out = _run_cli(["--root", str(root), "recall", "search", "cli test", "--k", "3"], cwd)
+            self.assertEqual(0, recall_alias_out.returncode)
+            self.assertIn('"ok"', recall_alias_out.stdout)
 
             inspect_out = _run_cli(["--root", str(root), "inspect", "stats"], cwd)
             self.assertEqual(0, inspect_out.returncode)

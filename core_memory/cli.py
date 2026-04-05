@@ -308,7 +308,7 @@ def main():
 
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{setup,store,recall,inspect,integrations,ops,memory,dev}",
+        metavar="{setup,store,memory,inspect,integrations,ops,dev}",
     )
 
     # Grouped surface (preferred)
@@ -345,7 +345,7 @@ def main():
     store_rw.add_argument("--token-budget", type=int, default=1200)
     store_rw.add_argument("--max-beads", type=int, default=12)
 
-    recall_parser = subparsers.add_parser("recall", help="Retrieve/interpret memory")
+    recall_parser = subparsers.add_parser("recall", help=argparse.SUPPRESS)
     recall_sub = recall_parser.add_subparsers(dest="recall_cmd")
     recall_search = recall_sub.add_parser("search", help="Canonical memory search")
     recall_search.add_argument("query", nargs="?", default="", help="Natural-language query (plug-and-play mode)")

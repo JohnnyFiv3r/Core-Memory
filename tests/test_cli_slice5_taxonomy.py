@@ -23,7 +23,10 @@ class TestCliSlice5Taxonomy(unittest.TestCase):
         cwd = Path(__file__).resolve().parents[1]
         out = _run_cli(["dev", "--help"], cwd)
         self.assertEqual(0, out.returncode)
-        self.assertNotIn("memory", out.stdout)
+        # Avoid fragile raw "memory" substring checks because usage banners may
+        # include module names like `core_memory.cli` depending on Python/runtime.
+        self.assertNotIn("{memory}", out.stdout)
+        self.assertNotRegex(out.stdout, r"(?m)^\s*memory\s")
 
     def test_memory_command_executes_search(self):
         cwd = Path(__file__).resolve().parents[1]
