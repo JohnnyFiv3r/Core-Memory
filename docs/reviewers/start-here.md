@@ -55,6 +55,6 @@ Status: Canonical reviewer guide
 - `examples/proof_carry_forward.py`
 - `examples/store_compat_quickstart.py` (compatibility/direct-store reference)
 - `examples/pydanticai_basic.py`
-- `examples/pydanticai_demo_roundtrip.py`
+- `examples/pydanticai_demo_roundtrip.py` (canonical run_with_memory + execute/search/trace roundtrip)
 - `examples/pydanticai_live_demo.py`
-- `examples/pydanticai_with_memory.py`
+- `examples/pydanticai_with_memory.py` (behavior-change proof via durable memory)
