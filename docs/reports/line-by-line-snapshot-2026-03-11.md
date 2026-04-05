@@ -2,7 +2,7 @@
 
 Date: 2026-03-11 (UTC)
 Scope: Full repository code-reading pass with canonical-path focus
-Author: Johnny Fiv3r
+Author: John Inniger
 
 ## Purpose
 This document is the long-form technical appendix snapshot ("B") requested during architecture convergence.
