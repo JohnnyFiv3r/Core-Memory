@@ -877,127 +877,21 @@ class MemoryStore:
         }
 
     def _promotion_score(self, index: dict, bead: dict) -> tuple[float, dict]:
-        t = str(bead.get("type") or "").lower()
-        priors = {
-            "design_principle": 0.72,
-            "precedent": 0.7,
-            "decision": 0.66,
-            "lesson": 0.62,
-            "outcome": 0.6,
-            "evidence": 0.58,
-            "goal": 0.56,
-            "context": 0.35,
-            "checkpoint": 0.35,
-        }
-        score = priors.get(t, 0.4)
-
-        has_evidence = self._has_evidence(bead)
-        detail_len = len((bead.get("detail") or "").strip())
-        has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-        if has_evidence:
-            score += 0.12
-        if detail_len >= 80:
-            score += 0.1
-        if has_link:
-            score += 0.08
-
-        rs = self._reinforcement_signals(index, bead)
-        score += min(0.16, 0.03 * float(rs.get("association_degree", 0)))
-        if rs.get("recurrence"):
-            score += 0.06
-        if rs.get("recalled"):
-            score += 0.05
-        if rs.get("links_in", 0) > 0:
-            score += 0.05
-
-        # outcome coupling boost
-        if t == "outcome" and str(bead.get("linked_bead_id") or "").strip():
-            score += 0.05
-
-        # age/decay: small freshness bonus only
-        created_at = str(bead.get("created_at") or "")
-        freshness = 0.0
-        if created_at:
-            try:
-                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                age_days = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
-                freshness = 0.05 if age_days <= 2.0 else 0.0
-            except ValueError:
-                freshness = 0.0
-        score += freshness
-
-        score = max(0.0, min(1.0, score))
-        return score, {
-            "has_evidence": has_evidence,
-            "detail_len": detail_len,
-            "has_link": has_link,
-            "freshness": freshness,
-            "reinforcement": rs,
-        }
+        return compute_promotion_score(index, bead)
 
     def _adaptive_promotion_threshold(self, index: dict) -> float:
-        beads = list((index.get("beads") or {}).values())
-        if not beads:
-            return 0.72
-        promoted = sum(1 for b in beads if str(b.get("status") or "") == "promoted")
-        ratio = promoted / max(1, len(beads))
-        thr = 0.72
-        if ratio > 0.25:
-            thr += min(0.2, (ratio - 0.25) * 0.6)
-        return max(0.68, min(0.92, thr))
+        return compute_adaptive_threshold(index)
 
     def _candidate_promotable(self, index: dict, bead: dict) -> tuple[bool, dict]:
-        score, factors = self._promotion_score(index, bead)
-        threshold = self._adaptive_promotion_threshold(index)
-        reinforcement_count = int((factors.get("reinforcement") or {}).get("count", 0))
-        allow = score >= threshold and reinforcement_count >= 1
-        reason = "score+reinforcement" if allow else "insufficient_score_or_reinforcement"
-        meta = {
-            "score": round(score, 4),
-            "threshold": round(threshold, 4),
-            "reinforcement_count": reinforcement_count,
-            "reason": reason,
-        }
-        return allow, meta
+        return is_candidate_promotable(index, bead)
 
     def _candidate_recommendation_rows(self, index: dict, query_text: str = "") -> tuple[list[dict], float]:
-        beads = list((index.get("beads") or {}).values())
-        threshold = self._adaptive_promotion_threshold(index)
-        q_tokens = self._expand_query_tokens(query_text, self._tokenize(query_text), max_extra=12)
-
-        rows = []
-        for bead in beads:
-            if str(bead.get("status") or "") != "candidate":
-                continue
-            score, factors = self._promotion_score(index, bead)
-            reinf = int((factors.get("reinforcement") or {}).get("count", 0))
-            text_tokens = self._tokenize((bead.get("title") or "") + " " + " ".join(bead.get("summary") or []))
-            q_overlap = len(q_tokens.intersection(text_tokens)) if q_tokens else 0
-            if score >= threshold and reinf >= 1:
-                rec = "strong"
-            elif score >= max(0.6, threshold - 0.08):
-                rec = "review"
-            else:
-                rec = "hold"
-
-            rows.append({
-                "bead_id": bead.get("id"),
-                "type": bead.get("type"),
-                "title": bead.get("title"),
-                "summary": (bead.get("summary") or [])[:2],
-                "promotion_score": round(score, 4),
-                "promotion_threshold": round(threshold, 4),
-                "recommendation": rec,
-                "query_overlap": q_overlap,
-                "reinforcement": factors.get("reinforcement") or {},
-                "has_evidence": bool(factors.get("has_evidence")),
-                "has_link": bool(factors.get("has_link")),
-                "detail_len": int(factors.get("detail_len") or 0),
-                "created_at": bead.get("created_at"),
-            })
-
-        rows = sorted(rows, key=lambda r: (r.get("query_overlap", 0), r.get("promotion_score", 0.0), r.get("created_at") or ""), reverse=True)
-        return rows, threshold
+        return get_recommendation_rows(
+            index,
+            query_text=query_text,
+            query_tokenize_fn=self._tokenize,
+            query_expand_fn=self._expand_query_tokens,
+        )
 
     def promotion_slate(self, limit: int = 20, query_text: str = "") -> dict:
         """Build bounded candidate promotion slate with advisory recommendations."""

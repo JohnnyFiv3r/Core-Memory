@@ -29,7 +29,6 @@ from .worker import SidecarPolicy, process_memory_event
 from ..write_pipeline.orchestrate import run_consolidate_pipeline
 from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
-from ..persistence import events
 from .decision_pass import run_session_decision_pass
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..retrieval.lifecycle import mark_turn_checkpoint, mark_flush_checkpoint
@@ -44,6 +43,12 @@ from .agent_authored_contract import (
 )
 from .turn_prep import normalize_turn_request as _normalize_turn_request, infer_semantic_bead_type as _infer_semantic_bead_type
 from .session_start_flow import process_session_start_impl
+from .turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
+from .flush_state import (
+    read_flush_state as _read_flush_state,
+    write_flush_state as _write_flush_state,
+    upsert_process_flush_checkpoint_bead as _upsert_process_flush_checkpoint_bead,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -272,67 +277,6 @@ def _non_temporal_semantic_association_count(updates: dict[str, Any]) -> int:
         if rel and rel not in excluded:
             count += 1
     return count
-
-
-def _association_mix_stats(updates: dict[str, Any] | None) -> dict[str, int]:
-    rows = list((updates or {}).get("associations") or []) if isinstance(updates, dict) else []
-    total = 0
-    shared_tag = 0
-    temporal = 0
-    semantic = 0
-    for row in rows:
-        if not isinstance(row, dict):
-            continue
-        total += 1
-        rel = str(row.get("relationship") or "").strip().lower()
-        if rel == "shared_tag":
-            shared_tag += 1
-        elif rel in {"follows", "precedes"}:
-            temporal += 1
-        elif rel:
-            semantic += 1
-    return {
-        "associations_total": total,
-        "shared_tag_count": shared_tag,
-        "temporal_count": temporal,
-        "non_temporal_semantic_count": semantic,
-    }
-
-
-def _emit_agent_turn_quality_metric(
-    *,
-    root: str,
-    req: dict[str, Any],
-    gate: dict[str, Any] | None,
-    updates: dict[str, Any] | None,
-    result: str,
-    error_code: str | None = None,
-    preview_association_queued: int = 0,
-    merge_associations_appended: int = 0,
-) -> None:
-    gate = dict(gate or {})
-    mix = _association_mix_stats(updates)
-    rec = {
-        "run_id": f"turn:{req.get('session_id')}:{req.get('turn_id')}",
-        "task_id": "agent_turn_quality",
-        "mode": "core_memory",
-        "phase": "agent_authored",
-        "result": str(result),
-        "session_id": str(req.get("session_id") or ""),
-        "turn_id": str(req.get("turn_id") or ""),
-        "agent_required": bool(gate.get("required")),
-        "agent_source": str(gate.get("source") or ""),
-        "agent_used_fallback": bool(gate.get("used_fallback")),
-        "agent_blocked": bool(gate.get("blocked")),
-        "error_code": str(error_code or gate.get("error_code") or "") or None,
-        "preview_association_queued": int(preview_association_queued or 0),
-        "merge_associations_appended": int(merge_associations_appended or 0),
-        **mix,
-    }
-    try:
-        events.append_metric(Path(root), rec)
-    except Exception:
-        pass
 
 
 def process_turn_finalized(
@@ -629,88 +573,6 @@ def process_turn_finalized(
         },
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
-
-
-def _flush_state_file(root: str) -> Path:
-    return Path(root) / ".beads" / "events" / "flush-state.json"
-
-
-def _read_flush_state(root: str) -> dict[str, Any]:
-    p = _flush_state_file(root)
-    if not p.exists():
-        return {"sessions": {}}
-    try:
-        obj = json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(obj, dict):
-            obj.setdefault("sessions", {})
-            return obj
-    except Exception:
-        pass
-    return {"sessions": {}}
-
-
-def _write_flush_state(root: str, state: dict[str, Any]) -> None:
-    p = _flush_state_file(root)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    p.write_text(json.dumps(state, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
-def _upsert_process_flush_checkpoint_bead(
-    *,
-    root: str,
-    session_id: str,
-    flush_tx_id: str,
-    latest_turn_id: str,
-    latest_done_turn_id: str,
-    latest_turn_status: str,
-    source: str,
-    token_budget: int,
-    max_beads: int,
-    promote: bool,
-) -> tuple[str, bool]:
-    """Create idempotent process_flush checkpoint bead; returns (bead_id, created_now)."""
-    store = MemoryStore(root)
-    idx = store._read_json(store.beads_dir / "index.json")
-    for b in (idx.get("beads") or {}).values():
-        if str(b.get("type") or "") != "process_flush":
-            continue
-        if str(b.get("flush_tx_id") or "") == str(flush_tx_id):
-            return str(b.get("id") or ""), False
-
-    title = f"process_flush checkpoint ({session_id})"
-    summary = [
-        f"flush_tx_id={flush_tx_id}",
-        f"latest_turn_id={latest_turn_id or '-'}",
-        f"latest_done_turn_id={latest_done_turn_id or '-'}",
-        f"latest_turn_status={latest_turn_status or 'unknown'}",
-    ]
-    detail = (
-        "Causal checkpoint written at process_flush commit boundary. "
-        f"Source={source}; token_budget={int(token_budget)}; max_beads={int(max_beads)}; promote={bool(promote)}."
-    )
-    bead_id = store.add_bead(
-        type="process_flush",
-        title=title,
-        summary=summary,
-        detail=detail,
-        session_id=str(session_id or ""),
-        scope="project",
-        tags=["checkpoint", "process_flush", "system_checkpoint"],
-        source_turn_ids=[str(latest_done_turn_id or latest_turn_id or "")],
-        authority="system",
-        status="open",
-        retrieval_exclude_default=True,
-        checkpoint_scope="window",
-        flush_tx_id=str(flush_tx_id),
-        latest_turn_id=str(latest_turn_id or ""),
-        latest_done_turn_id=str(latest_done_turn_id or ""),
-        latest_turn_status=str(latest_turn_status or "unknown"),
-        flush_source=str(source or "flush_hook"),
-        flush_token_budget=int(token_budget),
-        flush_max_beads=int(max_beads),
-        flush_promote=bool(promote),
-    )
-    return str(bead_id), True
 
 
 def process_flush(
