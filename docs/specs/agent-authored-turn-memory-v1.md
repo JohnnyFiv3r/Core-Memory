@@ -60,6 +60,19 @@ These do not replace semantic authorship.
 Slice 1 introduces runtime gating and strict/fail-open behavior.
 Slice 2 hardens strict payload shape validation.
 
+## Turn-time agent invocation (slice 3)
+
+When `metadata.crawler_updates` is absent, runtime can invoke a crawler agent callable before association apply.
+
+Environment controls:
+- `CORE_MEMORY_AGENT_CRAWLER_INVOKE`
+- `CORE_MEMORY_AGENT_CRAWLER_CALLABLE` (`module:function`)
+- `CORE_MEMORY_AGENT_CRAWLER_MAX_ATTEMPTS` (bounded retries)
+
+Deterministic invocation errors:
+- `agent_callable_missing`
+- `agent_invocation_exhausted`
+
 ---
 
 ## Error code contract (scaffolded)

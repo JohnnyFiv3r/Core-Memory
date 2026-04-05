@@ -63,6 +63,20 @@ def agent_authored_fail_open_enabled() -> bool:
     return _env_bool("CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN", False)
 
 
+def agent_crawler_invoke_enabled() -> bool:
+    """Enable turn-time crawler agent invocation hook."""
+    return _env_bool("CORE_MEMORY_AGENT_CRAWLER_INVOKE", False)
+
+
+def agent_crawler_max_attempts() -> int:
+    """Max attempts for crawler agent invocation per turn (bounded retries)."""
+    raw = os.environ.get("CORE_MEMORY_AGENT_CRAWLER_MAX_ATTEMPTS")
+    try:
+        return max(1, int(raw or 2))
+    except ValueError:
+        return 2
+
+
 def runtime_flags_snapshot() -> dict[str, object]:
     return {
         "core_memory_enabled": core_memory_enabled(),
@@ -74,4 +88,6 @@ def runtime_flags_snapshot() -> dict[str, object]:
         "default_adjacent_turns": default_adjacent_turns(),
         "agent_authored_required_enabled": agent_authored_required_enabled(),
         "agent_authored_fail_open_enabled": agent_authored_fail_open_enabled(),
+        "agent_crawler_invoke_enabled": agent_crawler_invoke_enabled(),
+        "agent_crawler_max_attempts": agent_crawler_max_attempts(),
     }

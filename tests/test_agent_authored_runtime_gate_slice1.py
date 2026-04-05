@@ -29,7 +29,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 metadata={},
             )
             self.assertFalse(out.get("ok"))
-            self.assertEqual("agent_updates_missing", out.get("error_code"))
+            self.assertEqual("agent_callable_missing", out.get("error_code"))
             gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
             self.assertTrue(gate.get("required"))
             self.assertTrue(gate.get("blocked"))
@@ -154,6 +154,80 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             )
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_associations_missing", out.get("error_code"))
+
+    def test_strict_mode_accepts_agent_callable_updates(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
+            },
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            src_id = s.add_bead(type="context", title="src", summary=["s"], session_id="s1", source_turn_ids=["seed-1"])
+            target_id = s.add_bead(type="context", title="target", summary=["t"], session_id="s1", source_turn_ids=["seed-2"])
+
+            invoked = {
+                "beads_create": [
+                    {
+                        "type": "decision",
+                        "title": "Agent callable row",
+                        "summary": ["summary"],
+                        "source_turn_ids": ["t1"],
+                    }
+                ],
+                "associations": [
+                    {
+                        "source_bead_id": src_id,
+                        "target_bead_id": target_id,
+                        "relationship": "supports",
+                        "reason_text": "callable provided",
+                        "confidence": 0.8,
+                    }
+                ],
+            }
+
+            with patch(
+                "core_memory.runtime.engine.invoke_turn_crawler_agent",
+                return_value=(invoked, {"attempted": True, "ok": True, "source": "agent_callable", "attempts": 1}),
+            ):
+                out = process_turn_finalized(
+                    root=td,
+                    session_id="s1",
+                    turn_id="t1",
+                    user_query="q",
+                    assistant_final="a",
+                    metadata={},
+                )
+
+            self.assertTrue(out.get("ok"))
+            gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
+            self.assertEqual("agent_callable", gate.get("source"))
+            self.assertFalse(gate.get("used_fallback"))
+
+    def test_strict_mode_blocks_on_invocation_exhaustion(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
+            },
+            clear=False,
+        ), patch(
+            "core_memory.runtime.engine.invoke_turn_crawler_agent",
+            return_value=(None, {"attempted": True, "ok": False, "error_code": "agent_invocation_exhausted", "attempts": 2}),
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                user_query="q",
+                assistant_final="a",
+                metadata={},
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("agent_invocation_exhausted", out.get("error_code"))
 
 
 if __name__ == "__main__":

@@ -32,8 +32,11 @@ from .decision_pass import run_session_decision_pass
 from ..policy.bead_typing import classify_bead_type
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..retrieval.lifecycle import mark_turn_checkpoint, mark_flush_checkpoint
+from .agent_crawler_invoke import invoke_turn_crawler_agent
 from .agent_authored_contract import (
+    ERROR_AGENT_CALLABLE_MISSING,
     ERROR_AGENT_UPDATES_INVALID,
+    ERROR_AGENT_INVOCATION_EXHAUSTED,
     ERROR_AGENT_UPDATES_MISSING,
     validate_agent_authored_updates,
 )
@@ -122,7 +125,12 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _resolve_reviewed_updates(req: dict[str, Any]) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+def _resolve_reviewed_updates(
+    req: dict[str, Any],
+    *,
+    source_override: str | None = None,
+    invocation_diag: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     md = req.get("metadata") or {}
     reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
     required = agent_authored_required_enabled()
@@ -131,10 +139,11 @@ def _resolve_reviewed_updates(req: dict[str, Any]) -> tuple[dict[str, Any] | Non
     gate = {
         "required": bool(required),
         "fail_open": bool(fail_open),
-        "source": "metadata.crawler_updates" if isinstance(reviewed, dict) and reviewed else "default_fallback",
+        "source": str(source_override or ("metadata.crawler_updates" if isinstance(reviewed, dict) and reviewed else "default_fallback")),
         "used_fallback": False,
         "blocked": False,
         "error_code": None,
+        "agent_invocation": dict(invocation_diag or {}),
     }
 
     if isinstance(reviewed, dict) and reviewed:
@@ -152,7 +161,13 @@ def _resolve_reviewed_updates(req: dict[str, Any]) -> tuple[dict[str, Any] | Non
         return dict(reviewed), gate
 
     if required:
-        gate["error_code"] = ERROR_AGENT_UPDATES_INVALID if (isinstance(md, dict) and "crawler_updates" in md) else ERROR_AGENT_UPDATES_MISSING
+        if isinstance(invocation_diag, dict) and invocation_diag.get("error_code") in {
+            ERROR_AGENT_INVOCATION_EXHAUSTED,
+            ERROR_AGENT_CALLABLE_MISSING,
+        }:
+            gate["error_code"] = str(invocation_diag.get("error_code") or ERROR_AGENT_UPDATES_MISSING)
+        else:
+            gate["error_code"] = ERROR_AGENT_UPDATES_INVALID if (isinstance(md, dict) and "crawler_updates" in md) else ERROR_AGENT_UPDATES_MISSING
         if not fail_open:
             gate["blocked"] = True
             return None, gate
@@ -362,7 +377,28 @@ def process_turn_finalized(
                 "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
             }
 
-    reviewed_updates, gate = _resolve_reviewed_updates(req)
+    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
+    invoked_updates, invocation_diag = invoke_turn_crawler_agent(
+        root=root,
+        req=req,
+        crawler_context=crawler_ctx,
+    )
+
+    req_for_updates = dict(req)
+    md_for_updates = dict(req.get("metadata") or {})
+    source_override = None
+    if isinstance(md_for_updates.get("crawler_updates"), dict) and md_for_updates.get("crawler_updates"):
+        source_override = "metadata.crawler_updates"
+    elif isinstance(invoked_updates, dict) and invoked_updates:
+        md_for_updates["crawler_updates"] = dict(invoked_updates)
+        source_override = "agent_callable"
+    req_for_updates["metadata"] = md_for_updates
+
+    reviewed_updates, gate = _resolve_reviewed_updates(
+        req_for_updates,
+        source_override=source_override,
+        invocation_diag=invocation_diag,
+    )
     if gate.get("blocked"):
         return {
             "ok": False,
@@ -416,7 +452,6 @@ def process_turn_finalized(
         }
 
     # V2P15 Step 2: enforce canonical crawler handoff framing from turn pipeline.
-    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
     auto_apply = None
     if not isinstance(reviewed_updates, dict):
         reviewed_updates = _default_crawler_updates(req)
