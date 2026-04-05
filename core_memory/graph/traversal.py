@@ -211,3 +211,31 @@ def causal_traverse_bidirectional(
         "visited": len(merged),
         "results": list(merged.values()),
     }
+
+
+def causal_traverse_chains(
+    root: Path,
+    *,
+    anchor_ids: list[str],
+    max_depth: int = 4,
+    max_chains: int = 50,
+    semantic_expansion_hops: int = 1,
+    semantic_w_min: float = 0.35,
+) -> dict[str, Any]:
+    """Canonical rich causal traversal used by retrieval surfaces.
+
+    This delegates to the shared internal graph implementation and keeps the
+    chain-scoring output contract stable while `graph.api` stays a compatibility
+    facade.
+    """
+
+    from . import _api_impl
+
+    return _api_impl.causal_traverse(
+        root,
+        anchor_ids=anchor_ids,
+        max_depth=max_depth,
+        max_chains=max_chains,
+        semantic_expansion_hops=semantic_expansion_hops,
+        semantic_w_min=semantic_w_min,
+    )

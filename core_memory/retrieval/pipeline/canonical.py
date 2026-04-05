@@ -6,7 +6,7 @@ import os
 from datetime import datetime
 import json
 
-from core_memory.graph.api import causal_traverse
+from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
     SEMANTIC_MODE_REQUIRED,

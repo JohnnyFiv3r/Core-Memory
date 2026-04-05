@@ -5,7 +5,7 @@ from pathlib import Path
 from .catalog import build_catalog
 from .snap import snap_form
 from .canonical import search_request as _search_request, execute_request as _execute_request, trace_request as _trace_request
-from core_memory.graph.api import causal_traverse
+from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 
 
 def memory_search_typed(root: str, submission: dict, explain: bool = False) -> dict:
