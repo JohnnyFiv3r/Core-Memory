@@ -13,6 +13,8 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.store import DEFAULT_ROOT
+from core_memory.integrations.openclaw_compaction_queue import drain_compaction_queue
+from core_memory.retrieval.semantic_index import build_semantic_index
 
 
 def _read_json(path: Path, default: Any) -> Any:
@@ -119,8 +121,61 @@ def async_jobs_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | None = N
     }
 
 
+def run_async_jobs(
+    root: str | Path = DEFAULT_ROOT,
+    *,
+    run_semantic: bool = True,
+    max_compaction: int = 1,
+) -> dict[str, Any]:
+    """Drain processable async work in a bounded, operator-invoked pass."""
+    root_p = Path(root)
+
+    sem_before = semantic_rebuild_queue_status(root_p)
+    sem_run: dict[str, Any] = {
+        "attempted": bool(run_semantic),
+        "ran": False,
+        "ok": True,
+        "reason": "not_queued",
+        "result": None,
+    }
+
+    if run_semantic and bool(sem_before.get("queued")):
+        sem_run["ran"] = True
+        sem_run["reason"] = "queued"
+        try:
+            result = build_semantic_index(root_p)
+            sem_run["result"] = result
+            sem_run["ok"] = bool(result.get("ok"))
+        except Exception as exc:
+            sem_run["result"] = {"ok": False, "error": str(exc)}
+            sem_run["ok"] = False
+
+    try:
+        comp_run = drain_compaction_queue(root=str(root_p), max_items=max(0, int(max_compaction)))
+    except Exception as exc:
+        comp_run = {
+            "ok": False,
+            "processed": 0,
+            "failed": 0,
+            "queue_depth": 0,
+            "error": str(exc),
+        }
+
+    status_after = async_jobs_status(root_p)
+    ok = bool(sem_run.get("ok")) and bool(comp_run.get("ok")) and bool(status_after.get("ok"))
+    return {
+        "ok": ok,
+        "root": str(root_p),
+        "semantic_before": sem_before,
+        "semantic_run": sem_run,
+        "compaction_run": comp_run,
+        "status_after": status_after,
+    }
+
+
 __all__ = [
     "async_jobs_status",
+    "run_async_jobs",
     "semantic_rebuild_queue_status",
     "compaction_queue_status",
 ]
