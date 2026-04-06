@@ -11,6 +11,7 @@ class TestSemanticBackendModes(unittest.TestCase):
     def test_build_without_provider_uses_safe_backend(self):
         with tempfile.TemporaryDirectory() as td:
             os.environ.pop("CORE_MEMORY_EMBEDDINGS_PROVIDER", None)
+            os.environ.pop("CORE_MEMORY_VECTOR_BACKEND", None)
             s = MemoryStore(td)
             s.add_bead(type="decision", title="A", summary=["alpha"], session_id="main", source_turn_ids=["t1"])
             out = build_semantic_index(Path(td))

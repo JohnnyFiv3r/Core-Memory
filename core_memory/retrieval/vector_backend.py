@@ -53,7 +53,7 @@ class QdrantBackend:
     Requires: pip install core-memory[qdrant]
     """
 
-    def __init__(self, collection_name: str = "core_memory_beads", url: str = "http://localhost:6333"):
+    def __init__(self, collection_name: str = "core_memory_beads", url: str = "http://localhost:6333", dimensions: int = 1536):
         try:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, VectorParams
@@ -68,7 +68,7 @@ class QdrantBackend:
         if collection_name not in collections:
             self._client.create_collection(
                 collection_name=collection_name,
-                vectors_config=VectorParams(size=1536, distance=Distance.COSINE),
+                vectors_config=VectorParams(size=int(dimensions), distance=Distance.COSINE),
             )
 
     def upsert(self, bead_id: str, embedding: list[float], metadata: dict[str, Any]) -> None:

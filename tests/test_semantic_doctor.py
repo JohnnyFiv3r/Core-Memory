@@ -39,7 +39,7 @@ class TestSemanticDoctor(unittest.TestCase):
             sem = Path(td) / ".beads" / "semantic"
             sem.mkdir(parents=True, exist_ok=True)
             (sem / "manifest.json").write_text(json.dumps({"backend": "faiss-openai", "provider": "openai"}), encoding="utf-8")
-            (sem / "rows.jsonl").write_text(json.dumps([{"bead_id": "b1"}]), encoding="utf-8")
+            (sem / "rows.jsonl").write_text(json.dumps({"bead_id": "b1"}) + "\n", encoding="utf-8")
             (sem / "index.faiss").write_text("x", encoding="utf-8")
 
             out = semantic_doctor(Path(td))
@@ -54,6 +54,7 @@ class TestSemanticDoctor(unittest.TestCase):
             sem = Path(td) / ".beads" / "semantic"
             sem.mkdir(parents=True, exist_ok=True)
             (sem / "manifest.json").write_text(json.dumps({"backend": "qdrant", "provider": "openai"}), encoding="utf-8")
+            (sem / "rows.jsonl").write_text(json.dumps({"bead_id": "b1"}) + "\n", encoding="utf-8")
 
             out = semantic_doctor(Path(td))
             self.assertEqual("qdrant", out.get("backend"))
