@@ -16,10 +16,12 @@ class TestRuntimeJobsSlice52A(unittest.TestCase):
             comp = compaction_queue_status(root, now_ts=100)
 
             self.assertTrue(sem.get("ok"))
+            self.assertEqual("core_memory.async_jobs.v1", sem.get("schema_version"))
             self.assertFalse(sem.get("queued"))
             self.assertEqual(0, sem.get("pending"))
 
             self.assertTrue(comp.get("ok"))
+            self.assertEqual("core_memory.async_jobs.v1", comp.get("schema_version"))
             self.assertEqual(0, comp.get("queue_depth"))
             self.assertEqual(0, comp.get("retry_ready"))
             self.assertEqual(0, comp.get("processable_now"))
@@ -79,6 +81,7 @@ class TestRuntimeJobsSlice52A(unittest.TestCase):
 
             out = async_jobs_status(root, now_ts=100)
             self.assertTrue(out.get("ok"))
+            self.assertEqual("core_memory.async_jobs.v1", out.get("schema_version"))
             self.assertEqual(2, out.get("pending_total"))
             self.assertEqual(2, out.get("processable_now"))
             self.assertIn("semantic_rebuild", out.get("queues") or {})

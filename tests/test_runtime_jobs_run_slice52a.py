@@ -18,6 +18,7 @@ class TestRuntimeJobsRunSlice52A(unittest.TestCase):
         out = run_async_jobs("/tmp/x", run_semantic=True, max_compaction=2)
 
         self.assertTrue(out.get("ok"))
+        self.assertEqual("core_memory.async_jobs.v1", out.get("schema_version"))
         self.assertFalse((out.get("semantic_run") or {}).get("ran"))
         self.assertEqual("not_queued", (out.get("semantic_run") or {}).get("reason"))
         drain_compaction.assert_called_once()
@@ -53,6 +54,8 @@ class TestRuntimeJobsRunSlice52A(unittest.TestCase):
 
         self.assertFalse(out.get("ok"))
         self.assertFalse((out.get("semantic_run") or {}).get("ok"))
+        errs = out.get("errors") or []
+        self.assertTrue(any((e or {}).get("code") == "semantic_run_failed" for e in errs))
 
 
 if __name__ == "__main__":

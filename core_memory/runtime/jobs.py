@@ -19,6 +19,24 @@ from core_memory.integrations.openclaw_compaction_queue import enqueue_compactio
 from core_memory.retrieval.semantic_index import build_semantic_index
 
 
+ASYNC_JOBS_SCHEMA_VERSION = "core_memory.async_jobs.v1"
+
+
+def _error(code: str, message: str, **extra: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "code": str(code),
+        "message": str(message),
+    }
+    payload.update(extra)
+    return payload
+
+
+def _with_schema(payload: dict[str, Any]) -> dict[str, Any]:
+    out = dict(payload)
+    out.setdefault("schema_version", ASYNC_JOBS_SCHEMA_VERSION)
+    return out
+
+
 def _read_json(path: Path, default: Any) -> Any:
     if not path.exists():
         return deepcopy(default)
@@ -48,7 +66,7 @@ def semantic_rebuild_queue_status(root: str | Path = DEFAULT_ROOT) -> dict[str, 
         payload = {"queued": False, "queued_at": None, "epoch": 0}
 
     queued = bool(payload.get("queued"))
-    return {
+    return _with_schema({
         "ok": True,
         "kind": "semantic_rebuild",
         "path": str(p),
@@ -56,7 +74,7 @@ def semantic_rebuild_queue_status(root: str | Path = DEFAULT_ROOT) -> dict[str, 
         "queued_at": payload.get("queued_at"),
         "epoch": int(payload.get("epoch") or 0),
         "pending": 1 if queued else 0,
-    }
+    })
 
 
 def compaction_queue_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | None = None) -> dict[str, Any]:
@@ -90,7 +108,7 @@ def compaction_queue_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | No
 
     processable_now = 0 if circuit_open else retry_ready
 
-    return {
+    return _with_schema({
         "ok": True,
         "kind": "compaction",
         "path": str(q_path),
@@ -103,7 +121,7 @@ def compaction_queue_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | No
         "opened_until": opened_until,
         "consecutive_failures": int(state.get("consecutive_failures") or 0),
         "last_error": str(state.get("last_error") or ""),
-    }
+    })
 
 
 def async_jobs_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | None = None) -> dict[str, Any]:
@@ -111,7 +129,7 @@ def async_jobs_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | None = N
     comp = compaction_queue_status(root, now_ts=now_ts)
     pending_total = int(sem.get("pending") or 0) + int(comp.get("queue_depth") or 0)
     processable_now = int(comp.get("processable_now") or 0) + int(sem.get("pending") or 0)
-    return {
+    return _with_schema({
         "ok": True,
         "root": str(root),
         "queues": {
@@ -120,7 +138,7 @@ def async_jobs_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | None = N
         },
         "pending_total": pending_total,
         "processable_now": processable_now,
-    }
+    })
 
 
 def _normalize_job_kind(kind: str | None) -> str:
@@ -148,27 +166,31 @@ def enqueue_async_job(
 
     if k == "semantic-rebuild":
         out = enqueue_semantic_rebuild(root_p)
-        return {
+        return _with_schema({
             "ok": bool(out.get("ok")),
             "kind": "semantic-rebuild",
             "queue": out,
             "status": semantic_rebuild_queue_status(root_p),
-        }
+        })
 
     if k == "compaction":
         out = enqueue_compaction_event(event=dict(event or {}), ctx=dict(ctx or {}), root=str(root_p))
-        return {
+        return _with_schema({
             "ok": bool(out.get("ok")),
             "kind": "compaction",
             "queue": out,
             "status": compaction_queue_status(root_p),
-        }
+        })
 
-    return {
+    return _with_schema({
         "ok": False,
-        "error": f"unknown_kind:{kind}",
-        "allowed": ["semantic-rebuild", "compaction"],
-    }
+        "error": _error(
+            "unknown_kind",
+            "Unknown async job kind",
+            kind=str(kind),
+            allowed=["semantic-rebuild", "compaction"],
+        ),
+    })
 
 
 def run_async_jobs(
@@ -213,14 +235,23 @@ def run_async_jobs(
 
     status_after = async_jobs_status(root_p)
     ok = bool(sem_run.get("ok")) and bool(comp_run.get("ok")) and bool(status_after.get("ok"))
-    return {
+    errors: list[dict[str, Any]] = []
+    if not bool(sem_run.get("ok")):
+        errors.append(_error("semantic_run_failed", "Semantic rebuild step failed"))
+    if not bool(comp_run.get("ok")):
+        errors.append(_error("compaction_run_failed", "Compaction drain step failed"))
+    if not bool(status_after.get("ok")):
+        errors.append(_error("status_after_failed", "Async status computation failed"))
+
+    return _with_schema({
         "ok": ok,
         "root": str(root_p),
         "semantic_before": sem_before,
         "semantic_run": sem_run,
         "compaction_run": comp_run,
         "status_after": status_after,
-    }
+        "errors": errors,
+    })
 
 
 __all__ = [

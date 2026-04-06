@@ -94,6 +94,7 @@ Async jobs CLI notes:
 - `jobs-status` is read-only queue observability.
 - `jobs-enqueue` is explicit operator-driven enqueue.
 - `jobs-run` performs one bounded drain pass and returns structured substep status.
+- async payload schema tag: `schema_version = core_memory.async_jobs.v1`.
 
 ## Adapter docs (canonical)
 - `docs/integrations/openclaw/README.md`

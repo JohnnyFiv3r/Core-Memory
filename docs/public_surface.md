@@ -42,6 +42,9 @@ Convenience package-root aliases are also exported:
 - `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction', ...)`
 - `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1)`
 
+All async ops payloads include:
+- `schema_version = "core_memory.async_jobs.v1"`
+
 CLI operators map to these runtime ops:
 - `core-memory ops jobs-status`
 - `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction`
