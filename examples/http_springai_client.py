@@ -1,5 +1,8 @@
 """HTTP/SpringAI client example — write + search + continuity via REST API.
 
+Contract Level: Recommended
+Audience: HTTP/SpringAI integrators
+
 Prerequisites:
     pip install core-memory[http]
     # Terminal 1: start the server

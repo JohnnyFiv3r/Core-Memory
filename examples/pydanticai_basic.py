@@ -1,5 +1,8 @@
 """Basic PydanticAI integration example (stub-friendly).
 
+Contract Level: Recommended
+Audience: PydanticAI adapter adopters
+
 This example avoids live model requirements by using a fake agent object.
 """
 
