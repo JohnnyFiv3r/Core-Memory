@@ -33,6 +33,15 @@ Each queued row includes:
 - expected decision impact
 - run metadata (run id, mode, session/flush context)
 
+## Scoring direction (structural replay oriented)
+
+Dreamer scoring should prioritize structural signals over lexical similarity alone, including:
+- decision → outcome → lesson shape matches
+- repeated incident / failure-recovery patterns
+- cross-session recurrence
+- cross-scope transferability
+- contradiction / supersession cues
+
 ## Modes
 
 Configured by `CORE_MEMORY_DREAMER_MODE`:
