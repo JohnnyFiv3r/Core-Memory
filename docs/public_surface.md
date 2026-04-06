@@ -37,6 +37,19 @@ Convenience package-root aliases are also exported:
 - `core_memory.memory_trace`
 - `core_memory.memory_execute`
 
+## Async job/queue operations (canonical ops surface)
+- `core_memory.runtime.jobs.async_jobs_status(root='...')`
+- `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction', ...)`
+- `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1)`
+
+All async ops payloads include:
+- `schema_version = "core_memory.async_jobs.v1"`
+
+CLI operators map to these runtime ops:
+- `core-memory ops jobs-status`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction`
+- `core-memory ops jobs-run [--max-compaction N] [--no-semantic]`
+
 ### Retrieval semantics
 - `search`: anchor retrieval
 - `trace`: causal traversal/grounding after anchor identification
@@ -72,6 +85,11 @@ Deep recall is separate from canonical hydration.
 - PydanticAI surfaces under `core_memory.integrations.pydanticai.*`
 - SpringAI/HTTP surfaces under `core_memory.integrations.http.*` and docs contract
 - LangChain surfaces under `core_memory.integrations.langchain.*`
+
+HTTP async ops surfaces (operator tooling):
+- `GET /v1/ops/async-jobs/status`
+- `POST /v1/ops/async-jobs/enqueue`
+- `POST /v1/ops/async-jobs/run`
 
 ## Compatibility / non-primary
 - Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`

@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import IntegrationContext
 from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
+from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
@@ -91,6 +92,19 @@ class MemoryTraceRequest(BaseModel):
     anchor_ids: list[str] = Field(default_factory=list)
     k: int = 8
     hydration: dict[str, Any] = Field(default_factory=dict)
+
+
+class AsyncJobsEnqueueRequest(BaseModel):
+    root: Optional[str] = None
+    kind: str
+    event: dict[str, Any] = Field(default_factory=dict)
+    ctx: dict[str, Any] = Field(default_factory=dict)
+
+
+class AsyncJobsRunRequest(BaseModel):
+    root: Optional[str] = None
+    run_semantic: bool = True
+    max_compaction: int = 1
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
@@ -379,6 +393,54 @@ async def metrics(
     _check_auth(authorization, x_memory_token)
     from core_memory.runtime.observability import get_metrics
     return get_metrics()
+
+
+@app.get("/v1/ops/async-jobs/status")
+async def ops_async_jobs_status(
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return async_jobs_status(_resolve_root(root, x_tenant_id))
+
+
+@app.post("/v1/ops/async-jobs/enqueue")
+async def ops_async_jobs_enqueue(
+    payload: AsyncJobsEnqueueRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = enqueue_async_job(
+        root=_resolve_root(payload.root, x_tenant_id),
+        kind=str(payload.kind or ""),
+        event=dict(payload.event or {}),
+        ctx=dict(payload.ctx or {}),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
+@app.post("/v1/ops/async-jobs/run")
+async def ops_async_jobs_run(
+    payload: AsyncJobsRunRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = run_async_jobs(
+        root=_resolve_root(payload.root, x_tenant_id),
+        run_semantic=bool(payload.run_semantic),
+        max_compaction=max(0, int(payload.max_compaction)),
+    )
+    # Run responses are always structured status payloads; keep 200 for
+    # operator observability even when substeps report ok=false.
+    return out
 
 
 def main() -> None:
