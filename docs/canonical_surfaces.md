@@ -78,6 +78,9 @@ Served by `core_memory.integrations.http.server`:
 - `POST /v1/memory/execute`
 - `GET /v1/memory/continuity`
 - `GET /v1/metrics`
+- `GET /v1/ops/async-jobs/status`
+- `POST /v1/ops/async-jobs/enqueue`
+- `POST /v1/ops/async-jobs/run`
 
 Machine-readable contract:
 - `docs/contracts/http_api.v1.json`

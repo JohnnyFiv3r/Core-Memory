@@ -86,6 +86,11 @@ Deep recall is separate from canonical hydration.
 - SpringAI/HTTP surfaces under `core_memory.integrations.http.*` and docs contract
 - LangChain surfaces under `core_memory.integrations.langchain.*`
 
+HTTP async ops surfaces (operator tooling):
+- `GET /v1/ops/async-jobs/status`
+- `POST /v1/ops/async-jobs/enqueue`
+- `POST /v1/ops/async-jobs/run`
+
 ## Compatibility / non-primary
 - Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`
 - Non-canonical helper modules may remain in-tree but are not forward contract unless listed above

@@ -88,6 +88,34 @@
       "notes": ["Pure-read continuity surface; does not create session_start implicitly"],
       "response": {"ok": "bool", "format": "string", "records": "array?", "text": "string?"},
       "errors": ["401 unauthorized"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/ops/async-jobs/status",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "schema_version": "core_memory.async_jobs.v1", "queues": "object", "pending_total": "int", "processable_now": "int"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/ops/async-jobs/enqueue",
+      "authRequired": "conditional",
+      "requestSchema": "AsyncJobsEnqueueRequest",
+      "requiredFields": ["kind"],
+      "response": {"ok": "bool", "schema_version": "core_memory.async_jobs.v1", "kind": "string", "queue": "object", "status": "object"},
+      "errors": ["400 unknown_kind", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/ops/async-jobs/run",
+      "authRequired": "conditional",
+      "requestSchema": "AsyncJobsRunRequest",
+      "requiredFields": [],
+      "notes": ["Always returns structured status payload; `ok=false` is reported in-body rather than non-200 status."],
+      "response": {"ok": "bool", "schema_version": "core_memory.async_jobs.v1", "semantic_run": "object", "compaction_run": "object", "status_after": "object", "errors": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     }
   ]
 }
