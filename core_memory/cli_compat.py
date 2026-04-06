@@ -135,5 +135,7 @@ def apply_grouped_aliases(args: Any, *, openclaw_group_parser: argparse.Argument
             args.strict = False
         elif args.ops_cmd == "jobs-status":
             args.command = "async-jobs-status"
+        elif args.ops_cmd == "jobs-run":
+            args.command = "async-jobs-run"
 
     return False
