@@ -22,9 +22,7 @@ Examples:
 
 import argparse
 import json
-import os
 import sys
-from pathlib import Path
 
 # Use relative import to avoid circular import
 from .persistence.store import MemoryStore, DEFAULT_ROOT
@@ -34,12 +32,6 @@ from .retrieval.tools.memory import (
     search as memory_search_tool,
     trace as memory_trace_tool,
 )
-from .runtime.engine import process_turn_finalized, process_flush
-from .integrations.openclaw_runtime import (
-    coordinator_finalize_hook,
-    finalize_and_process_turn,
-)
-from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
 from .cli_compat import (
     rewrite_legacy_dev_memory_argv,
     ensure_group_subcommand_selected,
@@ -50,6 +42,21 @@ from .cli_parser_memory import add_memory_command_surface
 from .cli_handlers_store import handle_store_commands
 from .cli_handlers_graph import handle_graph_command
 from .cli_handlers_metrics import handle_metrics_command
+from .cli_handlers_integrations import handle_integration_commands
+from .cli_diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
+
+
+# Compatibility wrappers for tests/legacy imports during CLI boundary split.
+def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
+    return canonical_health_report(root, write_path=write_path)
+
+
+def _doctor_report(root: str) -> dict:
+    return doctor_report(root)
+
+
+def _simple_recall_fallback(memory: MemoryStore, query_text: str, limit: int = 8) -> dict:
+    return simple_recall_fallback(memory, query_text=query_text, limit=limit)
 
 
 class _CliHelpFormatter(argparse.HelpFormatter):
@@ -76,174 +83,6 @@ class _CliParser(argparse.ArgumentParser):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("formatter_class", _CliHelpFormatter)
         super().__init__(*args, **kwargs)
-
-
-def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
-    import tempfile
-
-    checks = {}
-    with tempfile.TemporaryDirectory() as td:
-        # Turn + flush + rolling window + archive ergonomics
-        t1 = process_turn_finalized(
-            root=td,
-            session_id="health",
-            turn_id="t1",
-            user_query="remember canonical decision",
-            assistant_final="Decision: keep canonical path and stable retrieval.",
-        )
-        f1 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
-        f2 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
-
-        phase_trace = ((f1.get("result") or {}).get("phase_trace") or [])
-        checks["turn_path"] = bool(t1.get("ok"))
-        checks["flush_once_per_cycle"] = bool(
-            f2.get("skipped")
-            and str(f2.get("reason") or "") in {"already_flushed_for_latest_turn", "already_flushed_for_latest_done_turn"}
-        )
-        checks["rolling_window_maintenance"] = bool("rolling_window_write" in phase_trace)
-        checks["archive_ergonomics"] = bool("archive_compact_session" in phase_trace and "archive_compact_historical" in phase_trace)
-
-        # Full retrieval path via tool execute
-        req = {"raw_query": "canonical decision", "intent": "remember", "k": 5}
-        ret = memory_execute_tool(req, root=td, explain=True)
-        checks["retrieval_path"] = bool((ret.get("ok") is True) or (ret.get("results") is not None) or (ret.get("items") is not None))
-
-    out = {
-        "ok": True,
-        "schema": "openclaw.memory.canonical_health_report.v1",
-        "root": str(root),
-        "checks": checks,
-        "all_green": all(bool(v) for v in checks.values()),
-    }
-    if write_path:
-        p = Path(write_path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(out, indent=2), encoding="utf-8")
-        out["written"] = str(p)
-    return out
-
-
-def _doctor_report(root: str) -> dict:
-    root_p = Path(root)
-    beads_dir = root_p / ".beads"
-    idx_file = beads_dir / "index.json"
-    from core_memory.persistence.rolling_record_store import read_rolling_records
-
-    checks: list[dict] = []
-
-    exists = beads_dir.exists() and beads_dir.is_dir()
-    writable = os.access(beads_dir, os.W_OK) if exists else False
-    checks.append({
-        "name": ".beads directory exists and writable",
-        "pass": bool(exists and writable),
-        "detail": {"path": str(beads_dir), "exists": bool(exists), "writable": bool(writable)},
-    })
-
-    index_ok = False
-    index = {}
-    index_error = ""
-    try:
-        index = json.loads(idx_file.read_text(encoding="utf-8"))
-        index_ok = True
-    except Exception as e:
-        index_error = str(e)
-    checks.append({
-        "name": "index.json exists and valid JSON",
-        "pass": bool(index_ok),
-        "detail": {"path": str(idx_file), "error": index_error or None},
-    })
-
-    beads = (index.get("beads") or {}) if isinstance(index, dict) else {}
-    by_status: dict[str, int] = {}
-    for b in beads.values():
-        s = str((b or {}).get("status") or "unknown")
-        by_status[s] = by_status.get(s, 0) + 1
-    checks.append({
-        "name": "bead count",
-        "pass": bool(index_ok),
-        "detail": {"total": int(len(beads)), "by_status": by_status},
-    })
-
-    session_count = len(list(beads_dir.glob("session-*.jsonl"))) if exists else 0
-    checks.append({
-        "name": "session file count",
-        "pass": bool(exists),
-        "detail": {"count": int(session_count)},
-    })
-
-    # Fresh/early stores may not have rolling-window records until first flush/
-    # rolling-window maintenance cycle.
-    checkpoints_file = beads_dir / "events" / "flush-checkpoints.jsonl"
-    flush_cycle_seen = bool(checkpoints_file.exists() and checkpoints_file.stat().st_size > 0)
-    rr = read_rolling_records(root)
-    rolling_exists = bool(rr.get("records"))
-    checks.append({
-        "name": "rolling-window records present (required after first flush cycle)",
-        "pass": bool(rolling_exists or not flush_cycle_seen),
-        "detail": {
-            "path": str(root_p),
-            "exists": rolling_exists,
-            "required_after_first_flush": True,
-            "flush_cycle_seen": flush_cycle_seen,
-        },
-    })
-
-    orphan_count = 0
-    if index_ok:
-        bead_ids = set(str(k) for k in beads.keys())
-        for a in (index.get("associations") or []):
-            src = str((a or {}).get("source_bead") or (a or {}).get("source_bead_id") or "")
-            dst = str((a or {}).get("target_bead") or (a or {}).get("target_bead_id") or "")
-            if (src and src not in bead_ids) or (dst and dst not in bead_ids):
-                orphan_count += 1
-    checks.append({
-        "name": "no orphaned association references",
-        "pass": bool(index_ok and orphan_count == 0),
-        "detail": {"orphaned_associations": int(orphan_count)},
-    })
-
-    ok = all(bool(c.get("pass")) for c in checks)
-    return {
-        "ok": bool(ok),
-        "schema": "core_memory.doctor.v1",
-        "root": str(root_p),
-        "checks": checks,
-    }
-
-
-def _simple_recall_fallback(memory: MemoryStore, query_text: str, limit: int = 8) -> dict:
-    """Best-effort lexical fallback for plug-and-play recall search.
-
-    This preserves underlying retrieval behavior while ensuring first-run UX can
-    surface newly added beads for obvious title/summary matches.
-    """
-    q = str(query_text or "").strip().lower()
-    if not q:
-        return {"ok": True, "results": []}
-
-    tokens = [t for t in q.split() if t]
-    candidates = memory.query(limit=500)
-    out = []
-    for b in candidates:
-        title = str((b or {}).get("title") or "")
-        summary = " ".join(str(x) for x in ((b or {}).get("summary") or []))
-        detail = str((b or {}).get("detail") or "")
-        tags = " ".join(str(x) for x in ((b or {}).get("tags") or []))
-        hay = f"{title} {summary} {detail} {tags}".lower()
-        if q in hay or any(tok in hay for tok in tokens):
-            score = 1.0 if q in hay else 0.8
-            out.append(
-                {
-                    "bead_id": str((b or {}).get("id") or ""),
-                    "type": str((b or {}).get("type") or ""),
-                    "title": title,
-                    "summary": (b or {}).get("summary") or [],
-                    "score": score,
-                    "source": "cli_simple_fallback",
-                }
-            )
-    out = sorted(out, key=lambda r: float(r.get("score") or 0.0), reverse=True)[: max(1, int(limit or 8))]
-    return {"ok": True, "results": out}
 
 
 def main():
@@ -659,82 +498,22 @@ def main():
 
     memory = MemoryStore(root=args.root)
     
-    if handle_store_commands(args=args, memory=memory, doctor_report=_doctor_report):
+    if handle_store_commands(args=args, memory=memory, doctor_report=doctor_report):
         pass
 
-    elif args.command == "sidecar":
-        if args.sidecar_cmd == "finalize":
-            result = coordinator_finalize_hook(
-                root=args.root,
-                session_id=args.session_id,
-                turn_id=args.turn_id,
-                transaction_id=args.transaction_id,
-                trace_id=args.trace_id,
-                user_query=args.user_query,
-                assistant_final=args.assistant_final,
-                trace_depth=args.trace_depth,
-                origin=args.origin,
-            )
-            print(json.dumps(result, indent=2))
-        elif args.sidecar_cmd == "turn":
-            metadata = {
-                "constraint_violation": bool(args.meta_constraint_violation),
-                "wrong_transfer": bool(args.meta_wrong_transfer),
-                "goal_carryover": bool(args.meta_goal_carryover),
-                "store_full_text": (args.store_full_text == "true"),
-            }
-            result = finalize_and_process_turn(
-                root=args.root,
-                session_id=args.session_id,
-                turn_id=args.turn_id,
-                transaction_id=args.transaction_id,
-                trace_id=args.trace_id,
-                user_query=args.user_query,
-                assistant_final=args.assistant_final,
-                trace_depth=args.trace_depth,
-                origin=args.origin,
-                metadata=metadata,
-            )
-            print(json.dumps(result, indent=2))
-        else:
-            sidecar_parser.print_help()
-
-    elif args.command == "openclaw":
-        if args.openclaw_cmd == "onboard":
-            out = run_openclaw_onboard(
-                openclaw_bin=args.openclaw_bin,
-                plugin_dir=args.plugin_dir,
-                replace_memory_core=bool(args.replace_memory_core),
-                dry_run=bool(args.dry_run),
-            )
-            print(render_onboard_report(out))
-            if not out.get("ok"):
-                raise SystemExit(2)
-        else:
-            oc_parser.print_help()
-
-    elif args.command == "integrations-api-emit-turn":
-        from core_memory.integrations.api import emit_turn_finalized_from_envelope
-
-        envelope = json.loads(Path(args.from_file).read_text(encoding="utf-8"))
-        event_id = emit_turn_finalized_from_envelope(root=str(memory.root), envelope=envelope, strict=False)
-        print(json.dumps({"ok": True, "event_id": event_id}, indent=2))
-
-    elif args.command == "integrations-migrate-rebuild-turn-indexes":
-        from core_memory.integrations.migration import rebuild_turn_indexes
-
-        print(json.dumps(rebuild_turn_indexes(root=str(memory.root)), indent=2))
-
-    elif args.command == "integrations-migrate-backfill-bead-session-ids":
-        from core_memory.integrations.migration import backfill_bead_session_ids
-
-        print(json.dumps(backfill_bead_session_ids(root=str(memory.root)), indent=2))
+    elif handle_integration_commands(
+        args=args,
+        memory=memory,
+        sidecar_parser=sidecar_parser,
+        openclaw_parser=oc_parser,
+    ):
+        pass
 
     elif handle_memory_command(
         args=args,
         memory=memory,
         mem_parser=mem_parser,
-        simple_recall_fallback=_simple_recall_fallback,
+        simple_recall_fallback=simple_recall_fallback,
         memory_search_tool=memory_search_tool,
         memory_trace_tool=memory_trace_tool,
         memory_execute=memory_execute,
@@ -748,7 +527,7 @@ def main():
         args=args,
         memory=memory,
         metrics_parser=metrics_parser,
-        canonical_health_report=_canonical_health_report,
+        canonical_health_report=canonical_health_report,
     ):
         pass
 
