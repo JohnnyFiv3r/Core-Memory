@@ -27,6 +27,13 @@ def _enabled_set() -> set[str]:
     return out
 
 
+def _dreamer_mode() -> str:
+    m = str(os.environ.get("CORE_MEMORY_DREAMER_MODE") or "suggest").strip().lower()
+    if m not in {"off", "suggest", "reviewed_apply"}:
+        return "suggest"
+    return m
+
+
 def enqueue_post_write_side_effects(
     *,
     root: str,
@@ -51,6 +58,7 @@ def enqueue_post_write_side_effects(
         out["enqueued"]["semantic-rebuild"] = enqueue_semantic_rebuild(root)
 
     if "dreamer-run" in enabled or "dreamer" in enabled:
+        dreamer_mode = _dreamer_mode()
         out["enqueued"]["dreamer-run"] = enqueue_side_effect_event(
             root=root,
             kind="dreamer-run",
@@ -58,6 +66,7 @@ def enqueue_post_write_side_effects(
                 "session_id": str(session_id),
                 "flush_tx_id": str(flush_tx_id),
                 "source": str(source),
+                "mode": dreamer_mode,
                 "novel_only": True,
                 "seen_window_runs": 3,
                 "max_exposure": 10,

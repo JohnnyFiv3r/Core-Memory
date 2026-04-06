@@ -108,6 +108,10 @@ Async jobs CLI notes:
 - `jobs-run` performs one bounded drain pass across compaction + side-effects and returns structured substep status.
 - async payload schema tag: `schema_version = core_memory.async_jobs.v1`.
 
+Dreamer contract:
+- Dreamer runs asynchronously and writes candidate hypotheses to reviewable queue records.
+- See `docs/dreamer_contract.md`.
+
 ## Adapter docs (canonical)
 - `docs/integrations/openclaw/README.md`
 - `docs/integrations/pydanticai/README.md`
