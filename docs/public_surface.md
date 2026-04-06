@@ -4,6 +4,18 @@ Status: Canonical
 
 This page defines what external integrators should call.
 
+## Plain-English contract (quick read)
+
+- **Required:** `process_turn_finalized(...)` for writes and `memory.search/trace/execute` for reads.
+- **Recommended:** install semantic extras for strict semantic retrieval behavior.
+- **Compatibility:** `MemoryStore` and helper ingress APIs remain supported for migration/advanced workflows.
+- **Experimental:** optional adapter/eval surfaces that are not listed under canonical runtime surfaces.
+
+Term translations:
+- "canonical semantic mode" = strict semantic retrieval mode
+- `degraded_allowed` = allow lexical fallback if semantic backend is missing
+- "hydration" = load source details after selecting retrieval results
+
 ## Canonical decision rule
 A surface is canonical only if it is both:
 1. tested as active contract, and

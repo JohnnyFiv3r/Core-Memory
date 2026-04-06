@@ -1,5 +1,8 @@
 """Smallest believable product path (no adapters, no MemoryStore).
 
+Contract Level: Canonical
+Audience: First-touch adopters
+
 Run:
   PYTHONPATH=. python3 examples/canonical_5min.py
 """

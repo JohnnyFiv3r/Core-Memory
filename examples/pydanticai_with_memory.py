@@ -1,5 +1,8 @@
 """PydanticAI-style demo where durable memory changes a later answer.
 
+Contract Level: Experimental
+Audience: Adapter experimentation and custom wiring
+
 Demonstrates:
 1) baseline answer before memory exists
 2) canonical writeback via `run_with_memory(...)`

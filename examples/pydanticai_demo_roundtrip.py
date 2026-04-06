@@ -1,5 +1,8 @@
 """PydanticAI roundtrip demo using canonical runtime/retrieval surfaces.
 
+Contract Level: Recommended
+Audience: PydanticAI adapter adopters
+
 This script demonstrates value without direct MemoryStore orchestration:
 1) finalized-turn writeback via `run_with_memory(...)`
 2) continuity read via `continuity_prompt(...)`

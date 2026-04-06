@@ -1,5 +1,8 @@
 """Proof-first demo: memory changes future behavior across turns/sessions.
 
+Contract Level: Recommended
+Audience: Product/value reviewers
+
 Run:
   PYTHONPATH=. python3 examples/proof_carry_forward.py
 """

@@ -4,6 +4,18 @@ Status: Canonical
 
 Purpose: single answer to “what is real and supported today?”
 
+## Plain-English tiering
+
+- **Required:** use canonical runtime write boundaries and canonical retrieval family.
+- **Recommended:** semantic extras + strict semantic retrieval mode when semantic guarantees matter.
+- **Compatibility:** helper ingress / legacy compatibility APIs remain supported but are non-primary.
+- **Experimental:** eval harnesses and adapter experiments outside this page.
+
+Term translations:
+- "canonical semantic mode" = strict semantic retrieval mode
+- `degraded_allowed` = allow lexical fallback if semantic backend is missing
+- "hydration" = load source details after selecting retrieval results
+
 ## Canonical runtime surfaces
 
 ### Finalized-turn ingestion (write path)

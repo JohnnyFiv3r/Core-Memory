@@ -1,5 +1,8 @@
 """Live PydanticAI + Core Memory demo with real LLM calls.
 
+Contract Level: Experimental
+Audience: Advanced adapter experimentation with live providers
+
 This demonstrates the full memory loop with an actual model:
   1. Seed beads into the memory store
   2. Rebuild the rolling window
