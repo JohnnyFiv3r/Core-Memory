@@ -32,7 +32,6 @@ from ..policy.promotion import compute_promotion_score, compute_adaptive_thresho
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "."
-VERSION = "1.1.0"
 
 
 class DiagnosticError(Exception):

@@ -40,6 +40,24 @@
 - **Experimental areas:** optional adapters and evaluation harnesses that are useful but not yet hard product contract
 - **Not yet integrated:** ideas/proposals not represented in canonical docs or adapter references are intentionally out of current contract scope
 
+## Product Contract (Plain English)
+
+If you're new here, this is the shortest trust contract for what is stable now:
+
+- **Required (core product):**
+  - write memory with `process_turn_finalized(...)`
+  - read memory with `memory search|trace|execute` (or Python equivalents)
+- **Recommended for most users:**
+  - keep `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` on base installs
+  - install `core-memory[semantic]` when you want strict semantic retrieval behavior
+- **Compatibility (supported, not primary):**
+  - direct `MemoryStore` workflows
+  - legacy CLI aliases like `recall ...`
+- **Experimental / adapter-specific:**
+  - optional integrations and eval harnesses that are not listed as canonical surfaces
+
+If a feature is not in this contract or `docs/public_surface.md`, treat it as non-primary.
+
 ---
 
 ## Live Demo
