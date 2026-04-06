@@ -16,6 +16,7 @@ class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
         out = enqueue_async_job("/tmp/x", kind="semantic-rebuild")
 
         self.assertTrue(out.get("ok"))
+        self.assertEqual("core_memory.async_jobs.v1", out.get("schema_version"))
         self.assertEqual("semantic-rebuild", out.get("kind"))
         self.assertTrue((out.get("queue") or {}).get("queued"))
         self.assertTrue((out.get("status") or {}).get("queued"))
@@ -34,6 +35,7 @@ class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
         )
 
         self.assertTrue(out.get("ok"))
+        self.assertEqual("core_memory.async_jobs.v1", out.get("schema_version"))
         self.assertEqual("compaction", out.get("kind"))
         self.assertEqual(2, (out.get("queue") or {}).get("queue_depth"))
         self.assertEqual(2, (out.get("status") or {}).get("queue_depth"))
@@ -41,7 +43,10 @@ class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
     def test_enqueue_rejects_unknown_kind(self):
         out = enqueue_async_job("/tmp/x", kind="does-not-exist")
         self.assertFalse(out.get("ok"))
-        self.assertIn("unknown_kind", str(out.get("error") or ""))
+        self.assertEqual("core_memory.async_jobs.v1", out.get("schema_version"))
+        err = out.get("error") or {}
+        self.assertEqual("unknown_kind", err.get("code"))
+        self.assertIn("allowed", err)
 
 
 if __name__ == "__main__":
