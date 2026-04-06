@@ -14,8 +14,7 @@ from typing import Any
 
 from core_memory.persistence.store import DEFAULT_ROOT
 from core_memory.retrieval.lifecycle import enqueue_semantic_rebuild
-from core_memory.integrations.openclaw_compaction_queue import drain_compaction_queue
-from core_memory.integrations.openclaw_compaction_queue import enqueue_compaction_event
+from core_memory.runtime.compaction_queue import drain_compaction_queue, enqueue_compaction_event
 from core_memory.retrieval.semantic_index import build_semantic_index
 
 

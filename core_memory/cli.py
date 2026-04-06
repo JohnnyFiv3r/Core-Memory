@@ -39,6 +39,7 @@ from .cli_compat import (
 )
 from .cli_memory_handlers import handle_memory_command
 from .cli_parser_memory import add_memory_command_surface
+from .cli_parser_ops import add_async_jobs_command_surfaces
 from .cli_parser_extended import (
     add_sidecar_openclaw_parsers,
     add_graph_parser,
@@ -48,6 +49,7 @@ from .cli_handlers_store import handle_store_commands
 from .cli_handlers_graph import handle_graph_command
 from .cli_handlers_metrics import handle_metrics_command
 from .cli_handlers_integrations import handle_integration_commands
+from .cli_handlers_ops import handle_ops_commands
 from .cli_diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
 
 
@@ -185,7 +187,6 @@ def main():
     ops_sub.add_parser("rebuild", help="Rebuild index from events")
     ops_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index")
     ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
-    ops_sub.add_parser("jobs-status", help="Show canonical async queue/job status")
 
     dev_parser = subparsers.add_parser("dev", help="Advanced developer-facing command surfaces")
     dev_parser.add_argument(
@@ -202,6 +203,12 @@ def main():
     )
     
     legacy_help = argparse.SUPPRESS
+
+    add_async_jobs_command_surfaces(
+        ops_sub=ops_sub,
+        subparsers=subparsers,
+        legacy_help=legacy_help,
+    )
 
     # add command (legacy top-level; use `store add`)
     add_parser = subparsers.add_parser("add", help=legacy_help)
@@ -291,9 +298,6 @@ def main():
     myelinate_parser = subparsers.add_parser("myelinate", help=legacy_help)
     myelinate_parser.add_argument("--apply", action="store_true", help="Apply changes (default dry-run)")
 
-    # async jobs status (legacy top-level; use `ops jobs-status`)
-    subparsers.add_parser("async-jobs-status", help=legacy_help)
-
     # sidecar integration command (legacy top-level; use `dev` surfaces)
     sidecar_parser, oc_parser = add_sidecar_openclaw_parsers(
         subparsers,
@@ -347,6 +351,9 @@ def main():
         sidecar_parser=sidecar_parser,
         openclaw_parser=oc_parser,
     ):
+        pass
+
+    elif handle_ops_commands(args=args, memory=memory):
         pass
 
     elif handle_memory_command(
