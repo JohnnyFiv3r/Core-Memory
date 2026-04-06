@@ -66,6 +66,11 @@ Compatibility note:
   - `degraded=false`
 - In `degraded_allowed` mode, payloads remain `ok=true` with explicit `degraded=true` + degradation warnings.
 
+Semantic backend deployment guidance:
+- `faiss-*` local backend is intended for dev/single-process use.
+- `qdrant` and `pgvector` are recommended for distributed-safe production deployments.
+- For backend mode details, see `docs/semantic_backend_modes.md`.
+
 Trace calls with explicit `anchor_ids` bypass semantic anchor lookup.
 
 ### Hydration semantics
