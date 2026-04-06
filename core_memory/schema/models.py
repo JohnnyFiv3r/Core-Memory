@@ -6,7 +6,7 @@ This module contains all type definitions and enums.
 
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
@@ -262,7 +262,7 @@ class Bead:
     id: str
     type: str  # BeadType as string for JSON compatibility
     title: str
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     session_id: Optional[str] = None
     summary: list = field(default_factory=list)  # optional by contract
     detail: str = ""
@@ -365,7 +365,7 @@ class Association:
     source_bead: str
     target_bead: str
     relationship: str  # RelationshipType as string
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     explanation: str = ""
     novelty: float = 0.5
     confidence: float = 0.5
@@ -389,7 +389,7 @@ class Event:
     event_type: str
     session_id: Optional[str]
     payload: dict
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
