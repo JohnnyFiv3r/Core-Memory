@@ -55,3 +55,8 @@ Look at:
 - `multi_worker_safe`
 - `concurrency_warning`
 - `recommended_production_backends`
+
+Concurrency hardening notes:
+- semantic index builds use a build lock (`.beads/semantic/build.lock`) to avoid overlapping rebuild writes.
+- if the lock is held, rebuild is treated as retryable and queued.
+- stale locks are reclaimed automatically.

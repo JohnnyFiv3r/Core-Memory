@@ -394,138 +394,225 @@ def _write_manifest(path: Path, manifest: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
+def _lock_info(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return payload
+    except Exception:
+        pass
+    return {}
+
+
+def _acquire_build_lock(path: Path, *, stale_seconds: int = 300) -> tuple[bool, dict[str, Any]]:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    payload = {"acquired_at": _now(), "pid": os.getpid()}
+    data = (json.dumps(payload, ensure_ascii=False, indent=2) + "\n").encode("utf-8")
+
+    # Try create-once lock.
+    try:
+        fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        try:
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+        return True, payload
+    except FileExistsError:
+        pass
+    except Exception:
+        return False, {"reason": "lock_create_failed"}
+
+    # Existing lock: reclaim if stale.
+    info = _lock_info(path)
+    acquired_at = _parse_iso(str(info.get("acquired_at") or ""))
+    is_stale = False
+    if acquired_at is not None:
+        age = (datetime.now(timezone.utc) - acquired_at).total_seconds()
+        is_stale = age > max(5, int(stale_seconds))
+
+    if is_stale:
+        try:
+            path.unlink(missing_ok=True)
+        except Exception:
+            return False, {"reason": "stale_lock_unlink_failed", "lock": info}
+        try:
+            fd = os.open(str(path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            try:
+                os.write(fd, data)
+            finally:
+                os.close(fd)
+            payload["reclaimed_stale_lock"] = True
+            return True, payload
+        except Exception:
+            return False, {"reason": "lock_recreate_failed", "lock": info}
+
+    return False, {"reason": "lock_held", "lock": info}
+
+
+def _release_build_lock(path: Path) -> None:
+    try:
+        path.unlink(missing_ok=True)
+    except Exception:
+        pass
+
+
 def build_semantic_index(root: Path) -> dict:
-    manifest_file, faiss_file, rows_file, _build_lock, _queue_file = _paths(root)
+    manifest_file, faiss_file, rows_file, build_lock, _queue_file = _paths(root)
 
-    corpus = build_visible_corpus(root)
-    rows = _rows_from_corpus(corpus)
-    texts = [str(r.get("semantic_text") or "") for r in rows]
+    acquired, lock_meta = _acquire_build_lock(build_lock)
+    if not acquired:
+        enqueue_semantic_rebuild(root)
+        return {
+            "ok": False,
+            "retryable": True,
+            "error": {
+                "code": "semantic_build_lock_held",
+                "message": "semantic build lock is already held",
+                "detail": lock_meta,
+            },
+            "queued": True,
+            "lock_path": str(build_lock),
+        }
 
-    provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
-    model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "text-embedding-004").strip()
-    vector_backend = _configured_vector_backend()
+    try:
+        corpus = build_visible_corpus(root)
+        rows = _rows_from_corpus(corpus)
+        texts = [str(r.get("semantic_text") or "") for r in rows]
 
-    backend = "lexical"
-    dim = 0
-    if vector_backend in _EXTERNAL_VECTOR_BACKENDS:
-        try:
-            vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
-            dim = _vector_dim(vecs, fallback=256 if texts else 0)
-            vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
-            for row, emb in zip(rows, _vector_rows(vecs)):
-                vb.upsert(
-                    bead_id=str(row.get("bead_id") or ""),
-                    embedding=emb,
-                    metadata={
-                        "status": row.get("status"),
-                        "session_id": row.get("session_id"),
-                        "source_surface": row.get("source_surface"),
-                        "created_at": row.get("created_at"),
-                    },
-                )
-            backend = vector_backend
-            # no local faiss artifact in external backend mode
-            if faiss_file.exists():
-                try:
-                    faiss_file.unlink()
-                except Exception:
-                    pass
-        except Exception as exc:
-            logger.warning(
-                "core-memory: external vector backend '%s' unavailable (%s). Falling back to lexical.",
-                vector_backend,
-                exc,
-            )
-            backend = "lexical"
-            dim = 0
-    else:
-        try:
-            import faiss  # type: ignore
+        provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
+        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "text-embedding-004").strip()
+        vector_backend = _configured_vector_backend()
 
-            vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
-            dim = _vector_dim(vecs, fallback=256 if texts else 0)
-            if provider == "hash":
-                backend = "faiss-hash"
-            else:
-                backend = f"faiss-{provider}"
-
-            idx = faiss.IndexFlatIP(dim or 256)
-            if len(texts):
-                idx.add(vecs)
-            faiss_file.parent.mkdir(parents=True, exist_ok=True)
-            faiss.write_index(idx, str(faiss_file))
-        except ImportError:
-            global _faiss_warning_emitted
-            if not _faiss_warning_emitted:
-                mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
-                mode_hint = (
-                    "query-based anchor lookup may fail closed in required mode"
-                    if mode == SEMANTIC_MODE_REQUIRED
-                    else "query-based lookup may run in degraded lexical mode"
-                )
+        backend = "lexical"
+        dim = 0
+        if vector_backend in _EXTERNAL_VECTOR_BACKENDS:
+            try:
+                vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
+                dim = _vector_dim(vecs, fallback=256 if texts else 0)
+                vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+                for row, emb in zip(rows, _vector_rows(vecs)):
+                    vb.upsert(
+                        bead_id=str(row.get("bead_id") or ""),
+                        embedding=emb,
+                        metadata={
+                            "status": row.get("status"),
+                            "session_id": row.get("session_id"),
+                            "source_surface": row.get("source_surface"),
+                            "created_at": row.get("created_at"),
+                        },
+                    )
+                backend = vector_backend
+                # no local faiss artifact in external backend mode
+                if faiss_file.exists():
+                    try:
+                        faiss_file.unlink()
+                    except Exception:
+                        pass
+            except Exception as exc:
                 logger.warning(
-                    "core-memory: faiss-cpu and/or numpy not installed. %s. "
-                    "Install with: pip install core-memory[semantic]",
-                    mode_hint,
+                    "core-memory: external vector backend '%s' unavailable (%s). Falling back to lexical.",
+                    vector_backend,
+                    exc,
                 )
-                _faiss_warning_emitted = True
-            backend = "lexical"
-            dim = 0
-        except Exception as exc:
-            logger.warning(
-                "core-memory: local-faiss semantic build failed (%s). Falling back to lexical.",
-                exc,
-            )
-            backend = "lexical"
-            dim = 0
+                backend = "lexical"
+                dim = 0
+        else:
+            try:
+                import faiss  # type: ignore
 
-    _write_rows(rows_file, rows)
-    fp = _fingerprint(rows)
-    prev = _read_manifest(manifest_file)
-    manifest = {
-        "provider": provider,
-        "model": model,
-        "dimension": int(dim),
-        "backend": backend,
-        "vector_backend": vector_backend,
-        "backend_version": "v9-s2",
-        "corpus_fingerprint": fp,
-        "built_at": _now(),
-        "row_count": len(rows),
-        "dirty": False,
-        "last_dirty_at": prev.get("last_dirty_at"),
-        "last_dirty_reason": prev.get("last_dirty_reason"),
-        "last_turn_id": prev.get("last_turn_id"),
-        "last_flush_tx_id": prev.get("last_flush_tx_id"),
-        "visible_statuses": ["open", "candidate", "promoted", "archived"],
-    }
-    _write_manifest(manifest_file, manifest)
+                vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
+                dim = _vector_dim(vecs, fallback=256 if texts else 0)
+                if provider == "hash":
+                    backend = "faiss-hash"
+                else:
+                    backend = f"faiss-{provider}"
 
-    # consume queue epoch on successful build
-    q = _read_queue(_queue_file)
-    q["queued"] = False
-    q["queued_at"] = None
-    _write_queue(_queue_file, q)
+                idx = faiss.IndexFlatIP(dim or 256)
+                if len(texts):
+                    idx.add(vecs)
+                faiss_file.parent.mkdir(parents=True, exist_ok=True)
+                faiss.write_index(idx, str(faiss_file))
+            except ImportError:
+                global _faiss_warning_emitted
+                if not _faiss_warning_emitted:
+                    mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
+                    mode_hint = (
+                        "query-based anchor lookup may fail closed in required mode"
+                        if mode == SEMANTIC_MODE_REQUIRED
+                        else "query-based lookup may run in degraded lexical mode"
+                    )
+                    logger.warning(
+                        "core-memory: faiss-cpu and/or numpy not installed. %s. "
+                        "Install with: pip install core-memory[semantic]",
+                        mode_hint,
+                    )
+                    _faiss_warning_emitted = True
+                backend = "lexical"
+                dim = 0
+            except Exception as exc:
+                logger.warning(
+                    "core-memory: local-faiss semantic build failed (%s). Falling back to lexical.",
+                    exc,
+                )
+                backend = "lexical"
+                dim = 0
 
-    return {
-        "ok": True,
-        "backend": backend,
-        "entries": len(rows),
-        "manifest": str(manifest_file),
-        "faiss": str(faiss_file),
-        "rows": str(rows_file),
-    }
+        _write_rows(rows_file, rows)
+        fp = _fingerprint(rows)
+        prev = _read_manifest(manifest_file)
+        manifest = {
+            "provider": provider,
+            "model": model,
+            "dimension": int(dim),
+            "backend": backend,
+            "vector_backend": vector_backend,
+            "backend_version": "v9-s2",
+            "corpus_fingerprint": fp,
+            "built_at": _now(),
+            "row_count": len(rows),
+            "dirty": False,
+            "last_dirty_at": prev.get("last_dirty_at"),
+            "last_dirty_reason": prev.get("last_dirty_reason"),
+            "last_turn_id": prev.get("last_turn_id"),
+            "last_flush_tx_id": prev.get("last_flush_tx_id"),
+            "visible_statuses": ["open", "candidate", "promoted", "archived"],
+        }
+        _write_manifest(manifest_file, manifest)
+
+        # consume queue epoch on successful build
+        q = _read_queue(_queue_file)
+        q["queued"] = False
+        q["queued_at"] = None
+        _write_queue(_queue_file, q)
+
+        return {
+            "ok": True,
+            "backend": backend,
+            "entries": len(rows),
+            "manifest": str(manifest_file),
+            "faiss": str(faiss_file),
+            "rows": str(rows_file),
+            "lock": {"path": str(build_lock), **dict(lock_meta or {})},
+        }
+    finally:
+        _release_build_lock(build_lock)
 
 
 def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None) -> dict:
-    manifest_file, faiss_file, rows_file, build_lock, queue_file = _paths(root)
+    manifest_file, faiss_file, rows_file, _build_lock, queue_file = _paths(root)
     warnings: list[str] = []
     mode_n = _normalize_semantic_mode(mode)
 
     if not manifest_file.exists() or not rows_file.exists():
         built = build_semantic_index(root)
         if not built.get("ok"):
-            return built
+            code = str(((built.get("error") or {}).get("code") or "")).strip()
+            if code == "semantic_build_lock_held":
+                warnings.append("semantic_build_lock_held")
+            else:
+                warnings.append("semantic_index_build_failed")
 
     manifest = _read_manifest(manifest_file)
     rows = _read_rows(rows_file)
@@ -538,10 +625,13 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
         (manifest.get("provider") and (str(manifest.get("provider")) != req_provider or str(manifest.get("model")) != req_model))
         or (manifest.get("vector_backend") and _normalize_vector_backend(str(manifest.get("vector_backend"))) != req_vector_backend)
     ):
-        build_semantic_index(root)
-        manifest = _read_manifest(manifest_file)
-        rows = _read_rows(rows_file)
-        warnings.append("semantic_index_rebuilt_config_mismatch")
+        rebuilt = build_semantic_index(root)
+        if rebuilt.get("ok"):
+            manifest = _read_manifest(manifest_file)
+            rows = _read_rows(rows_file)
+            warnings.append("semantic_index_rebuilt_config_mismatch")
+        else:
+            warnings.append("semantic_index_rebuild_config_mismatch_failed")
 
     # Dirty/fingerprint mismatch -> serve stale + enqueue rebuild when possible.
     current_fp = _fingerprint(_rows_from_corpus(build_visible_corpus(root)))
@@ -558,25 +648,17 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
         # background_stale contract: never rebuild synchronously on hot query path
         # when a usable index already exists.
         mode = str(os.getenv("CORE_MEMORY_SEMANTIC_REBUILD_MODE", "background_stale") or "background_stale").strip().lower()
-        if mode in {"eager", "sync"} and not build_lock.exists():
-            try:
-                build_lock.parent.mkdir(parents=True, exist_ok=True)
-                build_lock.write_text(_now(), encoding="utf-8")
-                q = _read_queue(queue_file)
-                if bool(q.get("queued")):
-                    build_semantic_index(root)
+        if mode in {"eager", "sync"}:
+            q = _read_queue(queue_file)
+            if bool(q.get("queued")):
+                rebuilt = build_semantic_index(root)
+                if rebuilt.get("ok"):
                     warnings.append("semantic_index_rebuilt_sync")
                     manifest = _read_manifest(manifest_file)
                     rows = _read_rows(rows_file)
                     dirty = False
-            except Exception:
-                warnings.append("semantic_rebuild_sync_failed")
-            finally:
-                if build_lock.exists():
-                    try:
-                        build_lock.unlink()
-                    except Exception:
-                        pass
+                else:
+                    warnings.append("semantic_rebuild_sync_failed")
 
     backend = str(manifest.get("backend") or "lexical")
 
@@ -600,9 +682,12 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
 
     # If no usable rows yet, do sync build then lexical fallback response.
     if not rows:
-        build_semantic_index(root)
-        manifest = _read_manifest(manifest_file)
-        rows = _read_rows(rows_file)
+        rebuilt = build_semantic_index(root)
+        if rebuilt.get("ok"):
+            manifest = _read_manifest(manifest_file)
+            rows = _read_rows(rows_file)
+        else:
+            warnings.append("semantic_index_rebuild_no_rows_failed")
 
     if _normalize_vector_backend(backend) in _EXTERNAL_VECTOR_BACKENDS and rows:
         try:
