@@ -23,12 +23,20 @@ from ..persistence.io_utils import store_lock, atomic_write_json, append_jsonl
 from ..persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from ..runtime.session_surface import read_session_surface
 from ..runtime.turn_archive import find_turn_record
-from ..policy.promotion_contract import validate_transition, classify_signal, is_promotion_locked, current_promotion_state
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
 from ..policy.hygiene import enforce_bead_hygiene_contract
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
+from ..persistence.promotion_service import (
+    promotion_slate_for_store,
+    evaluate_candidates_for_store,
+    decide_promotion_for_store,
+    decide_promotion_bulk_for_store,
+    decide_session_promotion_states_for_store,
+    promotion_kpis_for_store,
+    rebalance_promotions_for_store,
+)
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "."
@@ -776,64 +784,10 @@ class MemoryStore:
         }
 
     def metrics_report(self, since: str = "7d") -> dict:
-        """Deterministic metrics aggregation from metrics.jsonl."""
-        window_start = None
-        m = re.fullmatch(r"(\d+)([dh])", (since or "").strip().lower())
-        if m:
-            n = int(m.group(1))
-            unit = m.group(2)
-            delta = timedelta(days=n) if unit == "d" else timedelta(hours=n)
-            window_start = datetime.now(timezone.utc) - delta
+        """Deterministic metrics aggregation delegated to reporting module."""
+        from ..reporting.store_reporting import metrics_report_for_store
 
-        rows = []
-        for row in events.iter_metrics(self.root) or []:
-            ts = row.get("ts")
-            if window_start and ts:
-                try:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    if dt < window_start:
-                        continue
-                except ValueError:
-                    continue
-            rows.append(row)
-
-        rows = sorted(rows, key=lambda r: (r.get("ts", ""), r.get("run_id", "")))
-        if not rows:
-            return {
-                "runs": 0,
-                "repeat_failure_rate": 0.0,
-                "decision_flip_rate": 0.0,
-                "median_steps": 0,
-                "median_tool_calls": 0,
-                "compression_ratio": 0.0,
-                "rationale_recall_avg": 0.0,
-            }
-
-        def median(values):
-            s = sorted(values)
-            n = len(s)
-            return s[n // 2] if n % 2 else (s[n // 2 - 1] + s[n // 2]) / 2
-
-        runs = len(rows)
-        repeat_fail = sum(1 for r in rows if r.get("repeat_failure")) / runs
-        flips = sum(int(r.get("unjustified_flips", 0) or 0) for r in rows)
-        decision_conflicts = sum(int(r.get("decision_conflicts", 0) or 0) for r in rows)
-        flip_rate = (flips / decision_conflicts) if decision_conflicts else 0.0
-
-        steps = [int(r.get("steps", 0) or 0) for r in rows]
-        tools = [int(r.get("tool_calls", 0) or 0) for r in rows]
-        cr = [float(r.get("compression_ratio", 0) or 0) for r in rows if float(r.get("compression_ratio", 0) or 0) > 0]
-        rr = [int(r.get("rationale_recall_score", 0) or 0) for r in rows]
-
-        return {
-            "runs": runs,
-            "repeat_failure_rate": round(repeat_fail, 4),
-            "decision_flip_rate": round(flip_rate, 4),
-            "median_steps": median(steps),
-            "median_tool_calls": median(tools),
-            "compression_ratio": round(sum(cr) / len(cr), 4) if cr else 0.0,
-            "rationale_recall_avg": round(sum(rr) / len(rr), 4) if rr else 0.0,
-        }
+        return metrics_report_for_store(self, since=since)
 
     def append_autonomy_kpi(
         self,
@@ -873,136 +827,16 @@ class MemoryStore:
         return self.append_metric(rec)
 
     def autonomy_report(self, since: str = "7d") -> dict:
-        """Aggregate autonomy KPIs from metrics stream."""
-        window_start = None
-        m = re.fullmatch(r"(\d+)([dh])", (since or "").strip().lower())
-        if m:
-            n = int(m.group(1))
-            unit = m.group(2)
-            delta = timedelta(days=n) if unit == "d" else timedelta(hours=n)
-            window_start = datetime.now(timezone.utc) - delta
+        """Aggregate autonomy KPIs delegated to reporting module."""
+        from ..reporting.store_reporting import autonomy_report_for_store
 
-        rows = []
-        for row in events.iter_metrics(self.root) or []:
-            if row.get("task_id") != "autonomy_kpi":
-                continue
-            ts = row.get("ts")
-            if window_start and ts:
-                try:
-                    dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
-                    if dt < window_start:
-                        continue
-                except ValueError:
-                    continue
-            rows.append(row)
-
-        rows = sorted(rows, key=lambda r: (r.get("ts", ""), r.get("run_id", "")))
-        total = len(rows)
-        if total == 0:
-            return {
-                "runs": 0,
-                "repeat_failure_rate": 0.0,
-                "unjustified_flip_rate": 0.0,
-                "constraint_violation_rate": 0.0,
-                "wrong_transfer_rate": 0.0,
-                "goal_carryover_rate": 0.0,
-                "contradiction_resolution_rate": 0.0,
-                "contradiction_latency_avg": 0.0,
-            }
-
-        def rate(pred):
-            return round(sum(1 for r in rows if pred(r)) / total, 4)
-
-        lat = [int(r.get("kpi_contradiction_latency_turns", 0) or 0) for r in rows if r.get("kpi_contradiction_resolved")]
-        lat_avg = round(sum(lat) / len(lat), 4) if lat else 0.0
-
-        return {
-            "runs": total,
-            "repeat_failure_rate": rate(lambda r: bool(r.get("repeat_failure"))),
-            "unjustified_flip_rate": rate(lambda r: bool(r.get("unjustified_flips"))),
-            "constraint_violation_rate": rate(lambda r: bool(r.get("kpi_constraint_violation"))),
-            "wrong_transfer_rate": rate(lambda r: bool(r.get("kpi_wrong_transfer"))),
-            "goal_carryover_rate": rate(lambda r: bool(r.get("kpi_goal_carryover"))),
-            "contradiction_resolution_rate": rate(lambda r: bool(r.get("kpi_contradiction_resolved"))),
-            "contradiction_latency_avg": lat_avg,
-        }
+        return autonomy_report_for_store(self, since=since)
 
     def schema_quality_report(self, write_path: Optional[str] = None) -> dict:
         """Report required-field warnings and promotion gate blockers."""
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        beads = list((index.get("beads") or {}).values())
+        from ..reporting.store_reporting import schema_quality_report_for_store
 
-        total_by_type: dict[str, int] = {}
-        status_counts: dict[str, int] = {}
-        warnings_by_type: dict[str, int] = {}
-        warning_keys: dict[str, int] = {}
-        promotion_block_reasons: dict[str, int] = {}
-
-        def inc(d: dict[str, int], k: str, n: int = 1):
-            d[k] = d.get(k, 0) + n
-
-        for bead in beads:
-            t = str(bead.get("type") or "")
-            st = str(bead.get("status") or "")
-            inc(total_by_type, t)
-            inc(status_counts, st)
-
-            for w in (bead.get("validation_warnings") or []):
-                inc(warnings_by_type, t)
-                inc(warning_keys, str(w))
-
-            if st != "open" or t not in {"decision", "lesson", "outcome", "precedent"}:
-                continue
-
-            because = bool(bead.get("because"))
-            detail = bool((bead.get("detail") or "").strip())
-            has_evidence = self._has_evidence(bead)
-            has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-
-            if t == "decision" and not (because and (has_evidence or detail)):
-                inc(promotion_block_reasons, "decision_missing_because_and_evidence_or_detail")
-            elif t == "lesson" and not because:
-                inc(promotion_block_reasons, "lesson_missing_because")
-            elif t == "outcome":
-                result = str(bead.get("result") or "").strip().lower()
-                if result not in {"resolved", "failed", "partial", "confirmed"}:
-                    inc(promotion_block_reasons, "outcome_invalid_result")
-                if not (has_link or has_evidence):
-                    inc(promotion_block_reasons, "outcome_missing_link_or_evidence")
-            elif t == "precedent":
-                if not (str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip()):
-                    inc(promotion_block_reasons, "precedent_missing_condition_action")
-
-        report = {
-            "ok": True,
-            "total_beads": len(beads),
-            "status_counts": status_counts,
-            "total_by_type": total_by_type,
-            "warnings_by_type": warnings_by_type,
-            "top_warning_keys": sorted(warning_keys.items(), key=lambda kv: kv[1], reverse=True)[:20],
-            "promotion_block_reasons": promotion_block_reasons,
-        }
-
-        if write_path:
-            out = Path(write_path)
-            out.parent.mkdir(parents=True, exist_ok=True)
-            lines = [
-                f"# Schema Quality Report ({datetime.now(timezone.utc).isoformat()})",
-                "",
-                f"- Total beads: {report['total_beads']}",
-                f"- Status counts: {report['status_counts']}",
-                f"- Type counts: {report['total_by_type']}",
-                "",
-                "## Validation warnings",
-                str(report["top_warning_keys"] or "none"),
-                "",
-                "## Promotion block reasons",
-                str(report["promotion_block_reasons"] or "none"),
-            ]
-            out.write_text("\n".join(lines), encoding="utf-8")
-            report["written"] = str(out)
-
-        return report
+        return schema_quality_report_for_store(self, write_path=write_path)
 
     def _reinforcement_signals(self, index: dict, bead: dict) -> dict:
         bead_id = str(bead.get("id") or "")
@@ -1051,139 +885,25 @@ class MemoryStore:
         }
 
     def _promotion_score(self, index: dict, bead: dict) -> tuple[float, dict]:
-        t = str(bead.get("type") or "").lower()
-        priors = {
-            "design_principle": 0.72,
-            "precedent": 0.7,
-            "decision": 0.66,
-            "lesson": 0.62,
-            "outcome": 0.6,
-            "evidence": 0.58,
-            "goal": 0.56,
-            "context": 0.35,
-            "checkpoint": 0.35,
-        }
-        score = priors.get(t, 0.4)
-
-        has_evidence = self._has_evidence(bead)
-        detail_len = len((bead.get("detail") or "").strip())
-        has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-        if has_evidence:
-            score += 0.12
-        if detail_len >= 80:
-            score += 0.1
-        if has_link:
-            score += 0.08
-
-        rs = self._reinforcement_signals(index, bead)
-        score += min(0.16, 0.03 * float(rs.get("association_degree", 0)))
-        if rs.get("recurrence"):
-            score += 0.06
-        if rs.get("recalled"):
-            score += 0.05
-        if rs.get("links_in", 0) > 0:
-            score += 0.05
-
-        # outcome coupling boost
-        if t == "outcome" and str(bead.get("linked_bead_id") or "").strip():
-            score += 0.05
-
-        # age/decay: small freshness bonus only
-        created_at = str(bead.get("created_at") or "")
-        freshness = 0.0
-        if created_at:
-            try:
-                dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
-                age_days = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
-                freshness = 0.05 if age_days <= 2.0 else 0.0
-            except ValueError:
-                freshness = 0.0
-        score += freshness
-
-        score = max(0.0, min(1.0, score))
-        return score, {
-            "has_evidence": has_evidence,
-            "detail_len": detail_len,
-            "has_link": has_link,
-            "freshness": freshness,
-            "reinforcement": rs,
-        }
+        return compute_promotion_score(index, bead)
 
     def _adaptive_promotion_threshold(self, index: dict) -> float:
-        beads = list((index.get("beads") or {}).values())
-        if not beads:
-            return 0.72
-        promoted = sum(1 for b in beads if str(b.get("status") or "") == "promoted")
-        ratio = promoted / max(1, len(beads))
-        thr = 0.72
-        if ratio > 0.25:
-            thr += min(0.2, (ratio - 0.25) * 0.6)
-        return max(0.68, min(0.92, thr))
+        return compute_adaptive_threshold(index)
 
     def _candidate_promotable(self, index: dict, bead: dict) -> tuple[bool, dict]:
-        score, factors = self._promotion_score(index, bead)
-        threshold = self._adaptive_promotion_threshold(index)
-        reinforcement_count = int((factors.get("reinforcement") or {}).get("count", 0))
-        allow = score >= threshold and reinforcement_count >= 1
-        reason = "score+reinforcement" if allow else "insufficient_score_or_reinforcement"
-        meta = {
-            "score": round(score, 4),
-            "threshold": round(threshold, 4),
-            "reinforcement_count": reinforcement_count,
-            "reason": reason,
-        }
-        return allow, meta
+        return is_candidate_promotable(index, bead)
 
     def _candidate_recommendation_rows(self, index: dict, query_text: str = "") -> tuple[list[dict], float]:
-        beads = list((index.get("beads") or {}).values())
-        threshold = self._adaptive_promotion_threshold(index)
-        q_tokens = self._expand_query_tokens(query_text, self._tokenize(query_text), max_extra=12)
-
-        rows = []
-        for bead in beads:
-            if str(bead.get("status") or "") != "candidate":
-                continue
-            score, factors = self._promotion_score(index, bead)
-            reinf = int((factors.get("reinforcement") or {}).get("count", 0))
-            text_tokens = self._tokenize((bead.get("title") or "") + " " + " ".join(bead.get("summary") or []))
-            q_overlap = len(q_tokens.intersection(text_tokens)) if q_tokens else 0
-            if score >= threshold and reinf >= 1:
-                rec = "strong"
-            elif score >= max(0.6, threshold - 0.08):
-                rec = "review"
-            else:
-                rec = "hold"
-
-            rows.append({
-                "bead_id": bead.get("id"),
-                "type": bead.get("type"),
-                "title": bead.get("title"),
-                "summary": (bead.get("summary") or [])[:2],
-                "promotion_score": round(score, 4),
-                "promotion_threshold": round(threshold, 4),
-                "recommendation": rec,
-                "query_overlap": q_overlap,
-                "reinforcement": factors.get("reinforcement") or {},
-                "has_evidence": bool(factors.get("has_evidence")),
-                "has_link": bool(factors.get("has_link")),
-                "detail_len": int(factors.get("detail_len") or 0),
-                "created_at": bead.get("created_at"),
-            })
-
-        rows = sorted(rows, key=lambda r: (r.get("query_overlap", 0), r.get("promotion_score", 0.0), r.get("created_at") or ""), reverse=True)
-        return rows, threshold
+        return get_recommendation_rows(
+            index,
+            query_text=query_text,
+            query_tokenize_fn=self._tokenize,
+            query_expand_fn=self._expand_query_tokens,
+        )
 
     def promotion_slate(self, limit: int = 20, query_text: str = "") -> dict:
         """Build bounded candidate promotion slate with advisory recommendations."""
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        rows, threshold = self._candidate_recommendation_rows(index, query_text=query_text)
-        return {
-            "ok": True,
-            "candidate_total": len(rows),
-            "adaptive_threshold": round(threshold, 4),
-            "query": query_text,
-            "results": rows[: max(1, int(limit))],
-        }
+        return promotion_slate_for_store(self, limit=limit, query_text=query_text)
 
     def evaluate_candidates(
         self,
@@ -1192,90 +912,14 @@ class MemoryStore:
         auto_archive_hold: bool = False,
         min_age_hours: int = 12,
     ) -> dict:
-        """Refresh advisory recommendation fields for candidates (called each turn).
-
-        If auto_archive_hold=True, same-turn archive low-signal hold candidates
-        (no reinforcement, no query overlap, age >= min_age_hours).
-        """
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            rows, threshold = self._candidate_recommendation_rows(index, query_text=query_text)
-            now_dt = datetime.now(timezone.utc)
-            now = now_dt.isoformat()
-            updated = 0
-            auto_archived = 0
-            decision_log = self.beads_dir / "events" / "promotion-decisions.jsonl"
-
-            for row in rows[: max(1, int(limit))]:
-                bid = str(row.get("bead_id") or "")
-                bead = (index.get("beads") or {}).get(bid)
-                if not bead:
-                    continue
-
-                bead["promotion_score"] = row.get("promotion_score")
-                bead["promotion_threshold"] = row.get("promotion_threshold")
-                bead["promotion_recommendation"] = row.get("recommendation")
-                bead["promotion_last_evaluated_at"] = now
-                bead["promotion_last_query_overlap"] = row.get("query_overlap", 0)
-
-                rec = str(row.get("recommendation") or "")
-                reinf = int((row.get("reinforcement") or {}).get("count", 0))
-                q_overlap = int(row.get("query_overlap", 0) or 0)
-                age_ok = False
-                created = str(bead.get("created_at") or "")
-                if created:
-                    try:
-                        dt = datetime.fromisoformat(created.replace("Z", "+00:00"))
-                        age_ok = ((now_dt - dt).total_seconds() / 3600.0) >= max(0, int(min_age_hours))
-                    except ValueError:
-                        age_ok = True
-
-                if auto_archive_hold and rec == "hold" and reinf == 0 and q_overlap == 0 and age_ok and str(bead.get("status") or "") == "candidate":
-                    revision_id = f"rev-{uuid.uuid4().hex[:12]}"
-                    append_archive_snapshot(
-                        self.root,
-                        {
-                            "bead_id": bid,
-                            "revision_id": revision_id,
-                            "archived_at": now,
-                            "archived_from_status": bead.get("status"),
-                            "snapshot": dict(bead),
-                            "reason": "auto_archive_hold_same_turn",
-                        },
-                    )
-                    bead["archive_ptr"] = {"revision_id": revision_id}
-                    bead["detail"] = ""
-                    bead["summary"] = (bead.get("summary") or [])[:2]
-                    bead["status"] = "archived"
-                    bead["demotion_reason"] = "auto_archive_hold_no_reinforcement_same_turn"
-                    bead["promotion_decision"] = "archive"
-                    bead["promotion_reason"] = "auto_archive_hold_same_turn"
-                    bead["promotion_decided_at"] = now
-                    append_jsonl(
-                        decision_log,
-                        {
-                            "ts": now,
-                            "bead_id": bid,
-                            "before_status": "candidate",
-                            "after_status": "archived",
-                            "decision": "archive",
-                            "reason": "auto_archive_hold_same_turn",
-                            "considerations": ["no_reinforcement", "no_query_overlap", f"age_hours>={int(min_age_hours)}"],
-                        },
-                    )
-                    auto_archived += 1
-
-                index["beads"][bid] = bead
-                updated += 1
-
-            self._write_json(self.beads_dir / INDEX_FILE, index)
-            return {
-                "ok": True,
-                "candidate_total": len(rows),
-                "evaluated": updated,
-                "auto_archived": auto_archived,
-                "adaptive_threshold": round(threshold, 4),
-            }
+        """Refresh advisory recommendation fields for candidates."""
+        return evaluate_candidates_for_store(
+            self,
+            limit=limit,
+            query_text=query_text,
+            auto_archive_hold=auto_archive_hold,
+            min_age_hours=min_age_hours,
+        )
 
     def decide_promotion(
         self,
@@ -1285,323 +929,35 @@ class MemoryStore:
         reason: str = "",
         considerations: Optional[list[str]] = None,
     ) -> dict:
-        """Apply agent-led promotion decision for a bead.
-
-        decision: promote | keep_candidate | archive
-        reason: required for promote/archive
-        """
-        decision_n = str(decision or "").strip().lower()
-        if decision_n not in {"promote", "keep_candidate", "archive"}:
-            return {"ok": False, "error": "invalid_decision"}
-
-        if decision_n in {"promote", "archive"} and not str(reason or "").strip():
-            return {"ok": False, "error": "reason_required_for_promote_or_archive"}
-
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            bead = (index.get("beads") or {}).get(bead_id)
-            if not bead:
-                return {"ok": False, "error": f"bead_not_found:{bead_id}"}
-
-            before = str(bead.get("status") or "")
-            now = datetime.now(timezone.utc).isoformat()
-
-            # Canonical state normalization / policy enforcement.
-            current_state = current_promotion_state(bead)
-            is_locked = is_promotion_locked(bead)
-            ok_transition, err = validate_transition(bead=bead, decision=decision_n)
-            if not ok_transition:
-                return {"ok": False, "error": err, "bead_id": bead_id, "decision": decision_n}
-
-            # Snapshot advisory recommendation at decision time.
-            score, factors = self._promotion_score(index, bead)
-            threshold = self._adaptive_promotion_threshold(index)
-            reinf = int((factors.get("reinforcement") or {}).get("count", 0))
-            if score >= threshold and reinf >= 1:
-                recommendation = "strong"
-            elif score >= max(0.6, threshold - 0.08):
-                recommendation = "review"
-            else:
-                recommendation = "hold"
-            bead["promotion_score"] = round(score, 4)
-            bead["promotion_threshold"] = round(threshold, 4)
-            bead["promotion_recommendation"] = recommendation
-
-            if decision_n == "promote":
-                bead["status"] = "promoted"
-                bead["promotion_state"] = "promoted"
-                bead["promotion_locked"] = True
-                bead["promoted_at"] = now
-                bead["promotion_reason"] = str(reason).strip()
-                bead["promotion_evidence"] = {
-                    "reason": str(reason).strip(),
-                    "score": round(score, 4),
-                    "threshold": round(threshold, 4),
-                }
-            elif decision_n == "keep_candidate":
-                bead["status"] = "candidate"
-                bead["promotion_state"] = "candidate"
-                bead["promotion_locked"] = False
-            elif decision_n == "archive":
-                revision_id = f"rev-{uuid.uuid4().hex[:12]}"
-                append_archive_snapshot(
-                    self.root,
-                    {
-                        "bead_id": bead_id,
-                        "revision_id": revision_id,
-                        "archived_at": now,
-                        "archived_from_status": bead.get("status"),
-                        "snapshot": dict(bead),
-                        "reason": "agent_decision_archive",
-                    },
-                )
-                bead["archive_ptr"] = {"revision_id": revision_id}
-                bead["detail"] = ""
-                bead["summary"] = (bead.get("summary") or [])[:2]
-                bead["status"] = "archived"
-                bead["promotion_state"] = "null"
-                bead["promotion_locked"] = False
-                bead["demotion_reason"] = str(reason).strip()
-
-            bead["promotion_decision"] = decision_n
-            bead["promotion_decided_at"] = now
-            bead["promotion_decision_turn_id"] = str((bead.get("source_turn_ids") or [""])[-1] or "")
-            if considerations:
-                bead["promotion_considerations"] = [str(c) for c in considerations][:8]
-
-            index["beads"][bead_id] = bead
-            self._write_json(self.beads_dir / INDEX_FILE, index)
-
-            # append audit row
-            decision_log = self.beads_dir / "events" / "promotion-decisions.jsonl"
-            append_jsonl(
-                decision_log,
-                {
-                    "ts": now,
-                    "bead_id": bead_id,
-                    "before_status": before,
-                    "after_status": bead.get("status"),
-                    "decision": decision_n,
-                    "reason": str(reason or ""),
-                    "considerations": [str(c) for c in (considerations or [])][:8],
-                },
-            )
-
-            mark_semantic_dirty(self.root, reason="decide_promotion")
-
-            return {
-                "ok": True,
-                "bead_id": bead_id,
-                "before_status": before,
-                "after_status": bead.get("status"),
-                "decision": decision_n,
-            }
+        """Apply agent-led promotion decision for a bead."""
+        return decide_promotion_for_store(
+            self,
+            bead_id=bead_id,
+            decision=decision,
+            reason=reason,
+            considerations=considerations,
+        )
 
     def decide_promotion_bulk(self, decisions: list[dict]) -> dict:
         """Apply a bounded batch of agent promotion decisions."""
-        rows = decisions or []
-        out = []
-        for row in rows[:100]:
-            out.append(
-                self.decide_promotion(
-                    bead_id=str(row.get("bead_id") or row.get("id") or "").strip(),
-                    decision=str(row.get("decision") or "").strip(),
-                    reason=str(row.get("reason") or "").strip(),
-                    considerations=[str(x) for x in (row.get("considerations") or [])],
-                )
-            )
-        return {
-            "ok": True,
-            "requested": len(rows),
-            "applied": len(out),
-            "results": out,
-        }
+        return decide_promotion_bulk_for_store(self, decisions)
 
     def decide_session_promotion_states(self, *, session_id: str, visible_bead_ids: Optional[list[str]] = None, turn_id: str = "") -> dict:
-        """Per-turn session decision pass: promoted|candidate|null for visible beads.
-
-        Promotion is terminal: promoted beads remain locked.
-        """
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            beads = index.get("beads") or {}
-
-            allowed = set(str(x) for x in (visible_bead_ids or []) if str(x).strip())
-            ids = []
-            for bid, bead in beads.items():
-                if str((bead or {}).get("session_id") or "") != str(session_id):
-                    continue
-                if allowed and str(bid) not in allowed:
-                    continue
-                ids.append(str(bid))
-            ids.sort(key=lambda bid: (str((beads.get(bid) or {}).get("created_at") or ""), bid))
-
-            now = datetime.now(timezone.utc).isoformat()
-            counts = {"promoted": 0, "candidate": 0, "null": 0, "locked": 0, "evaluated": 0}
-
-            for bid in ids:
-                bead = beads.get(bid) or {}
-                counts["evaluated"] += 1
-
-                status = str(bead.get("status") or "").strip().lower()
-                state = current_promotion_state(bead)
-                locked = is_promotion_locked(bead)
-
-                if locked:
-                    bead["status"] = "promoted"
-                    bead["promotion_state"] = "promoted"
-                    bead["promotion_locked"] = True
-                    bead["promotion_decision"] = "promoted_locked"
-                    bead["promotion_decided_at"] = now
-                    if turn_id:
-                        bead["promotion_decision_turn_id"] = str(turn_id)
-                    counts["locked"] += 1
-                    counts["promoted"] += 1
-                    beads[bid] = bead
-                    continue
-
-                decision = classify_signal(bead=bead)
-
-                if decision == "promoted":
-                    bead["status"] = "promoted"
-                    bead["promotion_state"] = "promoted"
-                    bead["promotion_locked"] = True
-                    bead["promoted_at"] = str(bead.get("promoted_at") or now)
-                    bead["promotion_decision"] = "promote"
-                    bead["promotion_decided_at"] = now
-                    bead["promotion_reason"] = str(bead.get("promotion_reason") or "session_turn_evidence")
-                    bead["promotion_evidence"] = {
-                        "reason": bead.get("promotion_reason"),
-                    }
-                    counts["promoted"] += 1
-                elif decision == "candidate":
-                    bead["status"] = "candidate"
-                    bead["promotion_state"] = "candidate"
-                    bead["promotion_locked"] = False
-                    bead["promotion_decision"] = "keep_candidate"
-                    bead["promotion_decided_at"] = now
-                    counts["candidate"] += 1
-                else:
-                    if str(bead.get("status") or "").strip().lower() not in {"promoted", "archived"}:
-                        bead["status"] = "open"
-                    bead["promotion_state"] = "null"
-                    bead["promotion_locked"] = False
-                    bead["promotion_decision"] = "null"
-                    bead["promotion_decided_at"] = now
-                    counts["null"] += 1
-
-                if turn_id:
-                    bead["promotion_decision_turn_id"] = str(turn_id)
-                beads[bid] = bead
-
-            index["beads"] = beads
-            self._write_json(self.beads_dir / INDEX_FILE, index)
-            mark_semantic_dirty(self.root, reason="decide_session_promotion_states")
-            return {"ok": True, "session_id": str(session_id), "turn_id": str(turn_id or ""), "counts": counts, "evaluated_bead_ids": ids}
+        """Per-turn session decision pass: promoted|candidate|null for visible beads."""
+        return decide_session_promotion_states_for_store(
+            self,
+            session_id=session_id,
+            visible_bead_ids=visible_bead_ids,
+            turn_id=turn_id,
+        )
 
     def promotion_kpis(self, limit: int = 500) -> dict:
         """Report promotion decision volume, reasons, and rec-vs-decision alignment."""
-        idx = self._read_json(self.beads_dir / INDEX_FILE)
-        beads = idx.get("beads") or {}
-        decision_log = self.beads_dir / "events" / "promotion-decisions.jsonl"
-
-        decisions = []
-        if decision_log.exists():
-            with open(decision_log, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        decisions.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        continue
-        decisions = decisions[-max(1, int(limit)) :]
-
-        by_decision: dict[str, int] = {}
-        reason_hist: dict[str, int] = {}
-        aligned = 0
-        compared = 0
-
-        for d in decisions:
-            dec = str(d.get("decision") or "")
-            by_decision[dec] = by_decision.get(dec, 0) + 1
-            reason = str(d.get("reason") or "").strip()
-            if reason:
-                reason_hist[reason] = reason_hist.get(reason, 0) + 1
-
-            bid = str(d.get("bead_id") or "")
-            bead = beads.get(bid) or {}
-            rec = str(bead.get("promotion_recommendation") or "").strip().lower()
-            if rec:
-                compared += 1
-                # coarse alignment mapping
-                if (rec == "strong" and dec == "promote") or (rec == "hold" and dec in {"archive", "keep_candidate"}) or (rec == "review"):
-                    aligned += 1
-
-        agreement = round(aligned / compared, 4) if compared else None
-
-        return {
-            "ok": True,
-            "decision_count": len(decisions),
-            "by_decision": by_decision,
-            "top_reasons": sorted(reason_hist.items(), key=lambda kv: kv[1], reverse=True)[:20],
-            "recommendation_alignment": {
-                "compared": compared,
-                "aligned": aligned,
-                "agreement_rate": agreement,
-            },
-        }
+        return promotion_kpis_for_store(self, limit=limit)
 
     def rebalance_promotions(self, apply: bool = False) -> dict:
         """Phase B: score promoted beads and demote weakly-supported promotions."""
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            promoted_ids = [bid for bid, b in (index.get("beads") or {}).items() if str(b.get("status") or "") == "promoted"]
-            threshold = self._adaptive_promotion_threshold(index)
-            demote: list[dict] = []
-
-            for bid in promoted_ids:
-                bead = index["beads"][bid]
-                score, factors = self._promotion_score(index, bead)
-                reinf = int((factors.get("reinforcement") or {}).get("count", 0))
-                if score < threshold and reinf == 0 and str(bead.get("type") or "") != "session_end" and str(bead.get("type") or "") != "session_start":
-                    demote.append({"bead_id": bid, "score": round(score, 4), "reinforcement": reinf})
-
-            applied = 0
-            if apply:
-                for row in demote:
-                    bid = row["bead_id"]
-                    bead = index["beads"].get(bid)
-                    if not bead:
-                        continue
-                    revision_id = f"rev-{uuid.uuid4().hex[:12]}"
-                    append_archive_snapshot(self.root, {
-                        "bead_id": bid,
-                        "revision_id": revision_id,
-                        "archived_at": datetime.now(timezone.utc).isoformat(),
-                        "archived_from_status": bead.get("status"),
-                        "snapshot": dict(bead),
-                    })
-                    bead["archive_ptr"] = {"revision_id": revision_id}
-                    bead["detail"] = ""
-                    bead["summary"] = (bead.get("summary") or [])[:2]
-                    bead["status"] = "archived"
-                    bead["demoted_at"] = datetime.now(timezone.utc).isoformat()
-                    bead["demotion_reason"] = "phase_b_rebalance"
-                    index["beads"][bid] = bead
-                    applied += 1
-
-                self._write_json(self.beads_dir / INDEX_FILE, index)
-
-            return {
-                "ok": True,
-                "promoted_total": len(promoted_ids),
-                "adaptive_threshold": round(threshold, 4),
-                "demote_candidates": len(demote),
-                "applied": applied,
-                "sample": demote[:50],
-            }
+        return rebalance_promotions_for_store(self, apply=apply)
 
     def _normalize_links(self, links) -> list[dict]:
         """Normalize links to canonical list[{type, bead_id}] format."""
