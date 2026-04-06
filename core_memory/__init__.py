@@ -13,8 +13,9 @@ Canonical contributor docs:
 
 from .runtime.engine import process_turn_finalized, process_session_start, process_flush, emit_turn_finalized
 from .retrieval.tools.memory import search as memory_search, trace as memory_trace, execute as memory_execute
+from ._version import VERSION, __version__
 
-from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError, VERSION
+from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
 from .persistence.backend import StorageBackend, JsonFileBackend, SqliteBackend, create_backend
 from .schema.models import (
     Bead,
@@ -27,8 +28,6 @@ from .schema.models import (
     Association,
     Event,
 )
-
-__version__ = VERSION
 
 __all__ = [
     # Canonical runtime write boundaries

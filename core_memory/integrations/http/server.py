@@ -133,7 +133,7 @@ def _resolve_root(root: Optional[str], tenant_id: Optional[str] = None) -> str:
 async def healthz(root: Optional[str] = None):
     import json as _json
     from pathlib import Path
-    from core_memory.persistence.store import VERSION
+    from core_memory._version import VERSION
 
     info: dict[str, Any] = {"ok": True, "version": VERSION}
     resolved = _resolve_root(root)

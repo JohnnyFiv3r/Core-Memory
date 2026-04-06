@@ -10,7 +10,10 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "Apache-2.0"}
 authors = [
-    {name = "Krusty", email = "krusty@clawdio.dev"}
+    {name = "John Inniger", email = "john@linelead.io"}
+]
+maintainers = [
+    {name = "John Inniger", email = "john@linelead.io"}
 ]
 keywords = ["memory", "agent", "causal", "beads", "compaction"]
 classifiers = [
@@ -23,6 +26,11 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
 ]
 dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/JohnnyFiv3r/Core-Memory"
+Repository = "https://github.com/JohnnyFiv3r/Core-Memory"
+Issues = "https://github.com/JohnnyFiv3r/Core-Memory/issues"
 
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy"]

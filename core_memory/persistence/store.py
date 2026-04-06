@@ -40,7 +40,6 @@ from ..persistence.promotion_service import (
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "."
-VERSION = "1.1.0"
 
 
 class DiagnosticError(Exception):
