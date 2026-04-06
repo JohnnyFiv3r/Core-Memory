@@ -46,6 +46,13 @@ from .integrations.openclaw_runtime import (
     finalize_and_process_turn,
 )
 from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
+from .cli_compat import (
+    rewrite_legacy_dev_memory_argv,
+    ensure_group_subcommand_selected,
+    apply_grouped_aliases,
+)
+from .cli_memory_handlers import handle_memory_command
+from .cli_parser_memory import add_memory_command_surface
 
 
 class _CliHelpFormatter(argparse.HelpFormatter):
@@ -72,65 +79,6 @@ class _CliParser(argparse.ArgumentParser):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("formatter_class", _CliHelpFormatter)
         super().__init__(*args, **kwargs)
-
-
-def _add_memory_command_surface(
-    parent_subparsers: argparse._SubParsersAction,
-    *,
-    name: str,
-    help_text: str,
-    dest: str,
-) -> tuple[argparse.ArgumentParser, argparse._SubParsersAction]:
-    """Attach canonical memory search/trace/execute command set to a parser tree."""
-    memory_parser = parent_subparsers.add_parser(name, help=help_text)
-    memory_sub = memory_parser.add_subparsers(dest=dest)
-
-    mem_search = memory_sub.add_parser("search", help="Run canonical memory search")
-    mem_search.add_argument("--query", default="")
-    mem_search.add_argument("--intent", default="remember")
-    mem_search.add_argument("--k", type=int, default=8)
-    mem_search.add_argument("--explain", action="store_true")
-
-    mem_trace = memory_sub.add_parser("trace", help="Run canonical memory trace")
-    mem_trace.add_argument("--query", default="")
-    mem_trace.add_argument("--k", type=int, default=8)
-    mem_trace.add_argument("--anchor-ids", nargs="*")
-
-    mem_exec = memory_sub.add_parser("execute", help="Run unified MemoryRequest execution")
-    mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
-    mem_exec.add_argument("--explain", action="store_true")
-
-    return memory_parser, memory_sub
-
-
-def _rewrite_legacy_dev_memory_argv(argv: list[str]) -> list[str]:
-    """Compatibility shim: treat `dev memory ...` as `memory ...`.
-
-    Slice-5 taxonomy cleanup keeps canonical memory commands at top level while
-    preserving legacy automation entrypoints.
-    """
-    tokens = list(argv or [])
-    cmd_idx = None
-    i = 0
-    while i < len(tokens):
-        t = tokens[i]
-        if t == "--root":
-            i += 2
-            continue
-        if t.startswith("--root="):
-            i += 1
-            continue
-        if t.startswith("-"):
-            i += 1
-            continue
-        cmd_idx = i
-        break
-
-    if cmd_idx is None:
-        return tokens
-    if tokens[cmd_idx] == "dev" and (cmd_idx + 1) < len(tokens) and tokens[cmd_idx + 1] == "memory":
-        return tokens[:cmd_idx] + ["memory"] + tokens[cmd_idx + 2 :]
-    return tokens
 
 
 def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
@@ -541,7 +489,7 @@ def main():
     hygiene_parser.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs")
     hygiene_parser.add_argument("--apply", action="store_true")
 
-    mem_parser, _ = _add_memory_command_surface(
+    mem_parser, _ = add_memory_command_surface(
         subparsers,
         name="memory",
         help_text="Canonical memory interface (search/trace/execute)",
@@ -686,19 +634,11 @@ def main():
     metrics_canonical = metrics_sub.add_parser("canonical-health", help="Run canonical contract health checks")
     metrics_canonical.add_argument("--write", help="Optional JSON output path")
     
-    args = parser.parse_args(_rewrite_legacy_dev_memory_argv(sys.argv[1:]))
+    args = parser.parse_args(rewrite_legacy_dev_memory_argv(sys.argv[1:]))
 
-    if args.command in {"setup", "store", "recall", "inspect", "integrations", "ops", "dev"}:
-        sub_name = {
-            "setup": "setup_cmd",
-            "store": "store_cmd",
-            "recall": "recall_cmd",
-            "inspect": "inspect_cmd",
-            "integrations": "integrations_cmd",
-            "ops": "ops_cmd",
-            "dev": "dev_cmd",
-        }[args.command]
-        group_parser = {
+    if ensure_group_subcommand_selected(
+        args,
+        {
             "setup": setup_parser,
             "store": store_parser,
             "recall": recall_parser,
@@ -706,86 +646,19 @@ def main():
             "integrations": integrations_parser,
             "ops": ops_parser,
             "dev": dev_parser,
-        }[args.command]
-        if not getattr(args, sub_name, None):
-            group_parser.print_help()
-            return
+        },
+    ):
+        return
 
-    # Grouped-surface command mapping (preferred UX) -> canonical handlers below.
-    if args.command == "setup":
-        if args.setup_cmd == "init":
-            memory = MemoryStore(root=args.root)
-            print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
-            return
-        if args.setup_cmd == "doctor":
-            args.command = "doctor"
-        elif args.setup_cmd == "paths":
-            memory = MemoryStore(root=args.root)
-            print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
-            return
+    if apply_grouped_aliases(args, openclaw_group_parser=int_openclaw):
+        return
 
-    if args.command == "store":
-        if args.store_cmd == "add":
-            args.command = "add"
-        elif args.store_cmd == "stats":
-            args.command = "stats"
-        elif args.store_cmd == "compact":
-            args.command = "compact"
-        elif args.store_cmd == "uncompact":
-            args.command = "uncompact"
-        elif args.store_cmd == "consolidate":
-            args.command = "consolidate"
-        elif args.store_cmd == "rolling-window":
-            args.command = "rolling-window"
-
-    if args.command == "recall":
-        if args.recall_cmd == "search":
-            args.command = "memory"
-            args.memory_cmd = "search"
-        elif args.recall_cmd == "heads":
-            args.command = "heads"
-        elif args.recall_cmd == "trace":
-            args.command = "memory"
-            args.memory_cmd = "trace"
-
-    if args.command == "inspect":
-        if args.inspect_cmd == "list":
-            args.command = "query"
-        elif args.inspect_cmd == "stats":
-            args.command = "stats"
-        elif args.inspect_cmd == "health":
-            args.command = "doctor"
-
-    if args.command == "integrations":
-        if args.integrations_cmd == "openclaw":
-            if not getattr(args, "integrations_openclaw_cmd", None):
-                int_openclaw.print_help()
-                return
-            if args.integrations_openclaw_cmd == "onboard":
-                args.command = "openclaw"
-                args.openclaw_cmd = "onboard"
-        elif args.integrations_cmd == "api":
-            if args.integrations_api_cmd == "emit-turn":
-                args.command = "integrations-api-emit-turn"
-        elif args.integrations_cmd == "migrate":
-            if args.integrations_migrate_cmd == "rebuild-turn-indexes":
-                args.command = "integrations-migrate-rebuild-turn-indexes"
-            elif args.integrations_migrate_cmd == "backfill-bead-session-ids":
-                args.command = "integrations-migrate-backfill-bead-session-ids"
-
-    if args.command == "ops":
-        if args.ops_cmd == "doctor":
-            args.command = "doctor"
-        elif args.ops_cmd == "rebuild":
-            args.command = "rebuild"
-        elif args.ops_cmd == "archive-index-rebuild":
-            args.command = "metrics"
-            args.metrics_cmd = "archive-index-rebuild"
-        elif args.ops_cmd == "graph-sync":
-            args.command = "graph"
-            args.graph_cmd = "sync-structural"
-            args.apply = True
-            args.strict = False
+    # setup init/paths are direct grouped-surface operations and intentionally
+    # stay local to the CLI shell.
+    if args.command == "setup" and args.setup_cmd in {"init", "paths"}:
+        memory = MemoryStore(root=args.root)
+        print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
+        return
 
     memory = MemoryStore(root=args.root)
     
@@ -990,44 +863,16 @@ def main():
 
         print(json.dumps(backfill_bead_session_ids(root=str(memory.root)), indent=2))
 
-    elif args.command == "memory":
-        if args.memory_cmd == "search":
-            payload = {
-                "intent": str(getattr(args, "intent", "remember") or "remember"),
-                "query_text": str(getattr(args, "query", "") or ""),
-                "k": int(getattr(args, "k", 8) or 8),
-            }
-            out = memory_search_tool(request=payload, root=str(memory.root), explain=bool(args.explain))
-            if not (out.get("results") or []):
-                fallback = _simple_recall_fallback(memory, str(payload.get("query_text") or ""), int(payload.get("k") or 8))
-                if fallback.get("results"):
-                    out["results"] = fallback.get("results") or []
-                    out["fallback_applied"] = True
-                    warnings = list(out.get("warnings") or [])
-                    if "no_strong_anchor_match_free_text_mode" in warnings:
-                        warnings = [w for w in warnings if w != "no_strong_anchor_match_free_text_mode"]
-                    warnings.append("cli_simple_fallback_applied")
-                    out["warnings"] = warnings
-                    out["confidence"] = "medium"
-                    out["suggested_next"] = "answer"
-            print(json.dumps(out, indent=2))
-        elif args.memory_cmd == "trace":
-            out = memory_trace_tool(
-                query=str(getattr(args, "query", "") or ""),
-                root=str(memory.root),
-                k=int(getattr(args, "k", 8) or 8),
-                anchor_ids=list(getattr(args, "anchor_ids", []) or []),
-            )
-            print(json.dumps(out, indent=2))
-        elif args.memory_cmd == "execute":
-            req = str(args.request or "")
-            if req.strip().startswith("{"):
-                payload = json.loads(req)
-            else:
-                payload = json.loads(Path(req).read_text(encoding="utf-8"))
-            print(json.dumps(memory_execute(request=payload, root=str(memory.root), explain=bool(args.explain)), indent=2))
-        else:
-            mem_parser.print_help()
+    elif handle_memory_command(
+        args=args,
+        memory=memory,
+        mem_parser=mem_parser,
+        simple_recall_fallback=_simple_recall_fallback,
+        memory_search_tool=memory_search_tool,
+        memory_trace_tool=memory_trace_tool,
+        memory_execute=memory_execute,
+    ):
+        pass
 
     elif args.command == "graph":
         if args.graph_cmd == "build":

@@ -1,102 +1,90 @@
-"""End-to-end demo: write beads, rebuild rolling window, read them back.
+"""PydanticAI roundtrip demo using canonical runtime/retrieval surfaces.
 
-This script shows the full memory round-trip through the PydanticAI
-integration — no live LLM required. Run it and watch memory flow:
+This script demonstrates value without direct MemoryStore orchestration:
+1) finalized-turn writeback via `run_with_memory(...)`
+2) continuity read via `continuity_prompt(...)`
+3) retrieval via canonical tools (`memory_execute/search/trace`)
 
-    .venv/bin/python examples/pydanticai_demo_roundtrip.py
+Run:
+  PYTHONPATH=. python3 examples/pydanticai_demo_roundtrip.py
 """
 
+from __future__ import annotations
+
+import asyncio
 import json
+import os
 import tempfile
 from pathlib import Path
 
-from core_memory.persistence.store import MemoryStore
-from core_memory.write_pipeline.rolling_window import build_rolling_surface, write_rolling_surface
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
+    memory_execute_tool,
     memory_search_tool,
     memory_trace_tool,
+    run_with_memory,
 )
 
 
-def main():
+class FakeResult:
+    def __init__(self, output: str):
+        self.output = output
+
+
+class FakeAgent:
+    """Stub agent that simulates model output while memory is managed by run_with_memory."""
+
+    async def run(self, user_query: str) -> FakeResult:
+        return FakeResult(output=f"Stub answer: {user_query}")
+
+
+async def main() -> None:
+    os.environ.setdefault("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", "degraded_allowed")
+
     with tempfile.TemporaryDirectory() as td:
         root = str(Path(td) / "memory")
+        agent = FakeAgent()
 
-        # ── Step 1: Seed some beads ──────────────────────────────────
-        print("Step 1: Creating beads in the memory store...\n")
-        store = MemoryStore(root=root)
-
-        b1 = store.add_bead(
-            type="decision",
-            title="Chose PostgreSQL",
-            summary=["JSONB support for flexible schema", "Strong community and tooling"],
-            detail="Evaluated MySQL, SQLite, and PostgreSQL. PostgreSQL won due to native JSONB.",
-            session_id="s-demo",
-            scope="project",
+        print("Step 1: finalized-turn writeback via run_with_memory")
+        turn1 = await run_with_memory(
+            agent,
+            "We chose PostgreSQL for JSONB support and transactional consistency.",
+            root=root,
+            session_id="pyd-demo",
+            turn_id="t1",
         )
-        print(f"  Created bead: {b1} (decision: Chose PostgreSQL)")
+        print("  turn1:", turn1.output)
 
-        b2 = store.add_bead(
-            type="lesson",
-            title="Always benchmark before choosing a database",
-            summary=["Ran pgbench and sysbench", "PostgreSQL was 2x faster for our JSON workload"],
-            detail="Performance testing prevented us from choosing MySQL which would have been slower.",
-            session_id="s-demo",
-            scope="project",
+        turn2 = await run_with_memory(
+            agent,
+            "Outcome: reliability improved after the DB decision.",
+            root=root,
+            session_id="pyd-demo",
+            turn_id="t2",
         )
-        print(f"  Created bead: {b2} (lesson: Always benchmark)")
+        print("  turn2:", turn2.output)
 
-        b3 = store.add_bead(
-            type="goal",
-            title="Migrate auth to OAuth2",
-            summary=["Legal flagged session token storage", "Deadline: end of Q2"],
-            session_id="s-demo",
-            scope="project",
-        )
-        print(f"  Created bead: {b3} (goal: Migrate auth)")
+        print("\nStep 2: continuity injection preview")
+        prompt = continuity_prompt(root=root, session_id="pyd-demo")
+        preview = (prompt[:240] + "...") if len(prompt) > 240 else prompt
+        print("  continuity:", preview or "<empty>")
 
-        # ── Step 2: Build the rolling window ─────────────────────────
-        print("\nStep 2: Building rolling window (continuity surface)...\n")
-        text, meta, included_ids, excluded_ids = build_rolling_surface(root)
-        meta["records"] = [
-            store._read_json(store.beads_dir / "index.json")["beads"][bid]
-            for bid in included_ids
-            if bid in store._read_json(store.beads_dir / "index.json")["beads"]
-        ]
-        write_rolling_surface(root, text, meta, included_ids, excluded_ids)
-        print(f"  Rolling window includes {len(included_ids)} bead(s)")
+        print("\nStep 3: canonical retrieval tools")
+        execute_memory = memory_execute_tool(root=root)
+        search_memory = memory_search_tool(root=root)
+        trace_memory = memory_trace_tool(root=root)
 
-        # ── Step 3: Continuity injection ─────────────────────────────
-        print("\nStep 3: Loading continuity prompt (what gets injected into system prompt)...\n")
-        prompt = continuity_prompt(root=root)
-        print("--- CONTINUITY PROMPT ---")
-        print(prompt)
-        print("--- END ---")
+        execute_out = json.loads(execute_memory("why did we choose postgresql", intent="causal"))
+        print("  execute.ok:", execute_out.get("ok"), "results:", len(execute_out.get("results") or []))
+        if execute_out.get("ok") is not True:
+            print("  execute.error:", execute_out.get("error"))
 
-        # ── Step 4: Memory search tool ───────────────────────────────
-        print("\nStep 4: Using memory search tool...\n")
-        search = memory_search_tool(root=root)
+        search_out = json.loads(search_memory("postgresql jsonb", k=5))
+        print("  search.results:", len(search_out.get("results") or []))
 
-        result = json.loads(search("PostgreSQL"))
-        print(f"  Search 'PostgreSQL': {len(result.get('results', []))} hit(s)")
-        for hit in result.get("results", []):
-            print(f"    - [{hit.get('type')}] {hit.get('title')}: {hit.get('summary')}")
-
-        result2 = json.loads(search("auth OAuth"))
-        print(f"\n  Search 'auth OAuth': {len(result2.get('results', []))} hit(s)")
-        for hit in result2.get("results", []):
-            print(f"    - [{hit.get('type')}] {hit.get('title')}: {hit.get('summary')}")
-
-        # ── Step 5: Memory trace tool ────────────────────────────────
-        print("\nStep 5: Using memory trace tool...\n")
-        trace = memory_trace_tool(root=root)
-        result3 = json.loads(trace("Why did we choose PostgreSQL?"))
-        print(f"  Trace 'Why PostgreSQL?': ok={result3.get('ok')}")
-        print(f"  Anchors: {len(result3.get('anchors') or [])}, Chains: {len(result3.get('chains') or [])}")
-
-        print("\nDone! Full round-trip: write → rolling window → continuity + search + trace")
+        trace_out = json.loads(trace_memory("why did we choose postgresql", k=5))
+        print("  trace.ok:", trace_out.get("ok"), "chains:", len(trace_out.get("chains") or []))
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

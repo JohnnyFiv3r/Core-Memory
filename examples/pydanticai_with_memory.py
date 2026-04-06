@@ -1,53 +1,23 @@
-"""PydanticAI integration example with full read+write memory loop.
+"""PydanticAI-style demo where durable memory changes a later answer.
 
 Demonstrates:
-  1. Continuity injection — rolling-window context as a dynamic system prompt
-  2. Memory tools — search and trace available to the agent mid-conversation
-  3. Write-back — turn finalization after each agent run
+1) baseline answer before memory exists
+2) canonical writeback via `run_with_memory(...)`
+3) changed answer after retrieval sees durable memory
 
-This example uses stub objects so it runs without a live LLM.
-Replace FakeAgent with a real pydantic_ai.Agent to use with a model.
-
-Real-world wiring (with pydantic_ai installed):
-
-    from pydantic_ai import Agent
-    from core_memory.integrations.pydanticai import (
-        continuity_prompt,
-        memory_search_tool,
-        memory_trace_tool,
-        run_with_memory,
-    )
-
-    MEMORY_ROOT = "./memory"
-
-    agent = Agent(
-        "openai:gpt-4o",
-        tools=[
-            memory_search_tool(root=MEMORY_ROOT),
-            memory_trace_tool(root=MEMORY_ROOT),
-        ],
-    )
-
-    @agent.system_prompt
-    def inject_memory():
-        return continuity_prompt(root=MEMORY_ROOT)
-
-    result = await run_with_memory(
-        agent, "Why did we choose PostgreSQL?",
-        root=MEMORY_ROOT, session_id="sess-001",
-    )
+Run:
+  PYTHONPATH=. python3 examples/pydanticai_with_memory.py
 """
 
+from __future__ import annotations
+
 import asyncio
+import json
+import os
 import tempfile
 from pathlib import Path
 
-from core_memory.integrations.pydanticai import (
-    continuity_prompt,
-    memory_search_tool,
-    memory_trace_tool,
-    run_with_memory,
-)
+from core_memory.integrations.pydanticai import memory_execute_tool, run_with_memory
 
 
 class FakeResult:
@@ -56,55 +26,50 @@ class FakeResult:
 
 
 class FakeAgent:
-    """Stub agent that simulates a PydanticAI agent with memory awareness."""
-
-    def __init__(self, root: str):
-        self._root = root
-        self._search = memory_search_tool(root=root)
-        self._trace = memory_trace_tool(root=root)
+    """Stub agent used only for finalized-turn writeback via run_with_memory."""
 
     async def run(self, user_query: str) -> FakeResult:
-        # Step 1: Load continuity context (what a real @agent.system_prompt would do)
-        context = continuity_prompt(root=self._root)
-
-        # Step 2: Simulate the agent using memory tools
-        search_result = self._search(user_query)
-        trace_result = self._trace(user_query)
-
-        # Step 3: Compose a response (a real LLM would do this)
-        parts = [f"Query: {user_query}"]
-        if context:
-            parts.append(f"Memory context loaded ({len(context)} chars)")
-        else:
-            parts.append("No prior memory context")
-        parts.append(f"Search: {search_result[:100]}")
-        parts.append(f"Trace: {trace_result[:100]}")
-
-        return FakeResult(output=" | ".join(parts))
+        return FakeResult(output=f"Stub answer: {user_query}")
 
 
-async def main():
+def _answer_from_execute(payload: dict) -> str:
+    rows = list(payload.get("results") or [])
+    preferred = [r for r in rows if str(r.get("type") or "") != "session_start"]
+    top = (preferred or rows or [{}])[0] or {}
+    title = str(top.get("title") or "").strip()
+    if not title:
+        return "I don't have a recorded durable reason yet."
+    return f"Based on memory, reason: {title}"
+
+
+async def main() -> None:
+    os.environ.setdefault("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", "degraded_allowed")
+
     with tempfile.TemporaryDirectory() as td:
         root = str(Path(td) / "memory")
-        agent = FakeAgent(root=root)
+        session_id = "demo"
+        agent = FakeAgent()
+        execute_memory = memory_execute_tool(root=root)
 
-        # Turn 1: First interaction — no memory yet
-        print("── Turn 1 ──")
-        r1 = await run_with_memory(
-            agent, "We chose PostgreSQL for its JSONB support.",
-            root=root, session_id="demo", turn_id="t1",
+        # Before writing any memory
+        before_payload = json.loads(execute_memory("why did we choose postgresql", intent="causal"))
+        before_answer = _answer_from_execute(before_payload)
+        print("Before:", before_answer)
+
+        # Write one durable turn through canonical finalized-turn writeback
+        await run_with_memory(
+            agent,
+            "Decision: choose PostgreSQL for JSONB and transactional consistency.",
+            root=root,
+            session_id=session_id,
+            turn_id="t1",
         )
-        print(r1.output)
 
-        # Turn 2: Second interaction — memory from turn 1 may be available
-        print("\n── Turn 2 ──")
-        r2 = await run_with_memory(
-            agent, "Why did we choose PostgreSQL?",
-            root=root, session_id="demo", turn_id="t2",
-        )
-        print(r2.output)
-
-        print("\nDone. Memory stored at:", root)
+        # Query again after writeback
+        after_payload = json.loads(execute_memory("why did we choose postgresql", intent="causal"))
+        after_answer = _answer_from_execute(after_payload)
+        print("After:", after_answer)
+        print("Behavior changed:", before_answer != after_answer)
 
 
 if __name__ == "__main__":
