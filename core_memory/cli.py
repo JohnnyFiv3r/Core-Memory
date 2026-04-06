@@ -185,6 +185,7 @@ def main():
     ops_sub.add_parser("rebuild", help="Rebuild index from events")
     ops_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index")
     ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
+    ops_sub.add_parser("jobs-status", help="Show canonical async queue/job status")
 
     dev_parser = subparsers.add_parser("dev", help="Advanced developer-facing command surfaces")
     dev_parser.add_argument(
@@ -289,6 +290,9 @@ def main():
     # myelinate command (legacy top-level)
     myelinate_parser = subparsers.add_parser("myelinate", help=legacy_help)
     myelinate_parser.add_argument("--apply", action="store_true", help="Apply changes (default dry-run)")
+
+    # async jobs status (legacy top-level; use `ops jobs-status`)
+    subparsers.add_parser("async-jobs-status", help=legacy_help)
 
     # sidecar integration command (legacy top-level; use `dev` surfaces)
     sidecar_parser, oc_parser = add_sidecar_openclaw_parsers(
