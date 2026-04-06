@@ -6,13 +6,13 @@ import tempfile
 from pathlib import Path
 
 from core_memory import memory_execute, process_turn_finalized
-from core_memory.persistence.store import MemoryStore
 
 
 def _choose_rollout(root: str, scenario: str) -> tuple[str, dict]:
-    """Choose rollout strategy from memory evidence (canonical-first, deterministic fallback)."""
+    """Choose rollout strategy from canonical memory.execute evidence."""
+    retrieval_query = "payments canary-first rollout policy" if "payments" in scenario.lower() else f"deployment policy {scenario}"
     out = memory_execute(
-        request={"raw_query": f"deployment policy {scenario}", "intent": "remember", "k": 8},
+        request={"raw_query": retrieval_query, "intent": "remember", "k": 8},
         root=root,
         explain=True,
     )
@@ -31,24 +31,6 @@ def _choose_rollout(root: str, scenario: str) -> tuple[str, dict]:
         ]
     )
 
-    if not text:
-        # deterministic fallback for environments where retrieval surface has no rows
-        store = MemoryStore(root=root)
-        fallback_rows = store.query(tags=["payments", "deploy_policy"], limit=20)
-        store.close()
-        text = "\n".join(
-            [
-                (
-                    str(r.get("title") or "")
-                    + " "
-                    + " ".join(str(x) for x in (r.get("summary") or []))
-                    + " "
-                    + str(r.get("detail") or "")
-                ).lower()
-                for r in fallback_rows
-            ]
-        )
-
     action = "canary" if "canary" in text else "full_rollout"
     return action, out
 
@@ -66,27 +48,9 @@ def main() -> int:
             root=root,
             session_id="reviewer-eval",
             turn_id="t1",
-            user_query="Should we full-rollout payments deployment tonight?",
+            user_query="payments canary-first rollout policy",
             assistant_final="Outcome: full rollout increased risk. Lesson: payments deployments must use canary-first rollout.",
         )
-
-        # Deterministic policy anchor for cross-environment comparability.
-        store = MemoryStore(root=root)
-        store.add_bead(
-            type="lesson",
-            title="Policy anchor: payments require canary-first rollout",
-            summary=["Payments deployments must use canary-first rollout."],
-            because=["Full rollout increased incident risk."],
-            retrieval_title="Payments rollout policy",
-            retrieval_facts=["Payments deployments must use canary-first rollout."],
-            supporting_facts=["Full rollout increased incident risk."],
-            tags=["payments", "deploy_policy", "canary_first"],
-            status="open",
-            retrieval_eligible=True,
-            session_id="reviewer-eval",
-            source_turn_ids=["t1"],
-        )
-        store.close()
 
         after_choice, after_out = _choose_rollout(root, "payments deployment tonight")
 
