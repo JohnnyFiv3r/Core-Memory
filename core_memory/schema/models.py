@@ -12,7 +12,7 @@ from typing import Any, Optional
 
 # === Enums ===
 
-class BeadType(Enum):
+class BeadType(str, Enum):
     """Canonical bead types (aligned to core_memory.schema)."""
     SESSION_START = "session_start"
     SESSION_END = "session_end"
@@ -35,14 +35,14 @@ class BeadType(Enum):
     CORRECTION = "correction"
 
 
-class Scope(Enum):
+class Scope(str, Enum):
     """Scope of a bead's relevance."""
     PERSONAL = "personal"
     PROJECT = "project"
     GLOBAL = "global"
 
 
-class Status(Enum):
+class Status(str, Enum):
     """Canonical bead status values (aligned to core_memory.schema)."""
     OPEN = "open"
     CANDIDATE = "candidate"
@@ -52,14 +52,14 @@ class Status(Enum):
     ARCHIVED = "archived"
 
 
-class Authority(Enum):
+class Authority(str, Enum):
     """How a bead was created/confirmed."""
     AGENT_INFERRED = "agent_inferred"
     USER_CONFIRMED = "user_confirmed"
     SYSTEM = "system"
 
 
-class RelationshipType(Enum):
+class RelationshipType(str, Enum):
     """Canonical relation values (aligned to core_memory.schema)."""
     CAUSED_BY = "caused_by"
     LED_TO = "led_to"
@@ -87,7 +87,7 @@ class RelationshipType(Enum):
     FOLLOWS = "follows"
 
 
-class ImpactLevel(Enum):
+class ImpactLevel(str, Enum):
     """Impact level of a bead."""
     LOW = "low"
     MEDIUM = "medium"
