@@ -7,8 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core_memory import process_session_start, process_turn_finalized
-from core_memory.persistence.store import MemoryStore
+from core_memory import memory_execute, process_session_start, process_turn_finalized
 
 
 @dataclass(frozen=True)
@@ -77,9 +76,12 @@ class _CoreMemoryPolicy:
         if episode.policy_key != "payments_canary":
             return "full_rollout"
 
-        store = MemoryStore(root=self.root)
-        rows = store.query(tags=["payments"], limit=50)
-        store.close()
+        out = memory_execute(
+            request={"raw_query": "payments canary-first rollout policy", "intent": "remember", "k": 8},
+            root=self.root,
+            explain=True,
+        )
+        rows = [r for r in (out.get("results") or []) if str(r.get("type") or "") != "session_start"]
         text = "\n".join(
             [
                 (
@@ -87,7 +89,7 @@ class _CoreMemoryPolicy:
                     + " "
                     + " ".join(str(x) for x in (r.get("summary") or []))
                     + " "
-                    + str(r.get("detail") or "")
+                    + str(r.get("snippet") or "")
                 ).lower()
                 for r in rows
             ]
@@ -97,13 +99,13 @@ class _CoreMemoryPolicy:
     def observe(self, episode: Episode, action: str, correct: bool) -> None:
         outcome = "success" if correct else "failure"
         if episode.policy_key == "payments_canary" and not correct:
-            user_query = f"Incident retrospective for {episode.scenario}."
+            user_query = "payments canary-first rollout policy"
             assistant_final = (
                 f"Outcome: {outcome}. Action was {action}. "
                 "Lesson: payments deployments must use canary-first rollout."
             )
         elif episode.policy_key == "payments_canary" and correct:
-            user_query = f"Incident retrospective for {episode.scenario}."
+            user_query = "payments canary-first rollout policy"
             assistant_final = (
                 f"Outcome: {outcome}. Action was {action}. "
                 "Reinforcement: canary rollout reduced deployment risk for payments."
@@ -119,56 +121,6 @@ class _CoreMemoryPolicy:
             user_query=user_query,
             assistant_final=assistant_final,
         )
-
-        # Deterministic eval anchor bead so retrieval behavior can be compared
-        # across strategies without depending on optional crawler extraction modes.
-        store = MemoryStore(root=self.root)
-        if episode.policy_key == "payments_canary" and not correct:
-            store.add_bead(
-                type="lesson",
-                title="Policy anchor: payments require canary-first rollout",
-                summary=["Payments deployments must use canary-first rollout."],
-                because=["Full rollout increased incident risk."],
-                retrieval_title="Payments rollout policy",
-                retrieval_facts=["Payments deployments must use canary-first rollout."],
-                supporting_facts=["Full rollout increased incident risk."],
-                tags=["payments", "deploy_policy", "canary_first"],
-                status="open",
-                retrieval_eligible=True,
-                session_id=episode.session_id,
-                source_turn_ids=[f"ep-{episode.idx}"],
-            )
-        elif episode.policy_key == "payments_canary" and correct:
-            store.add_bead(
-                type="outcome",
-                title="Policy outcome: canary rollout prevented payments incident",
-                summary=["Canary-first rollout reduced deployment risk."],
-                because=["Canary exposure limited blast radius."],
-                retrieval_title="Canary rollout outcome",
-                retrieval_facts=["Canary-first rollout reduced deployment risk."],
-                supporting_facts=["Canary exposure limited blast radius."],
-                tags=["payments", "deploy_policy", "canary_first"],
-                status="open",
-                retrieval_eligible=True,
-                session_id=episode.session_id,
-                source_turn_ids=[f"ep-{episode.idx}"],
-            )
-        else:
-            store.add_bead(
-                type="decision",
-                title="Policy anchor: auth low-risk patches allow full rollout",
-                summary=["Auth patch accepted full rollout for this low-risk change."],
-                because=["Auth patch was low-risk and reversible."],
-                retrieval_title="Auth rollout policy",
-                retrieval_facts=["Low-risk auth patches can use full rollout."],
-                supporting_facts=["Patch was low-risk and reversible."],
-                tags=["auth", "deploy_policy"],
-                status="open",
-                retrieval_eligible=True,
-                session_id=episode.session_id,
-                source_turn_ids=[f"ep-{episode.idx}"],
-            )
-        store.close()
 
 
 def _safe_div(a: float, b: float) -> float:

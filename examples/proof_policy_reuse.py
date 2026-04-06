@@ -11,21 +11,24 @@ import tempfile
 import json
 from pathlib import Path
 
-from core_memory import process_session_start, process_turn_finalized
-from core_memory.persistence.store import MemoryStore
+from core_memory import memory_execute, process_session_start, process_turn_finalized
 
 
 def _choose_rollout(root: str, query: str) -> str:
-    store = MemoryStore(root=root)
-    rows = store.query(tags=["payments", "deploy_policy"], limit=30)
-    store.close()
+    retrieval_query = "payments canary-first rollout policy" if "payments" in (query or "").lower() else str(query or "")
+    out = memory_execute(
+        request={"raw_query": retrieval_query, "intent": "remember", "k": 8},
+        root=root,
+        explain=True,
+    )
+    rows = [r for r in (out.get("results") or []) if str(r.get("type") or "") != "session_start"]
     text = "\n".join(
         [
             str(r.get("title") or "")
             + " "
             + " ".join(str(x) for x in (r.get("summary") or []))
             + " "
-            + str(r.get("detail") or "")
+            + str(r.get("snippet") or "")
             for r in rows
         ]
     ).lower()
@@ -47,28 +50,12 @@ def main() -> None:
             root=root,
             session_id="s1",
             turn_id="t1",
-            user_query="Should we full-rollout payments deployment?",
+            user_query="payments canary-first rollout policy",
             assistant_final=(
                 "Outcome: full rollout caused incident risk. "
                 "Lesson: payments deployments must use canary-first rollout."
             ),
         )
-        store = MemoryStore(root=root)
-        store.add_bead(
-            type="lesson",
-            title="Policy anchor: payments require canary-first rollout",
-            summary=["Payments deployments must use canary-first rollout."],
-            because=["Full rollout increased incident risk."],
-            retrieval_title="Payments rollout policy",
-            retrieval_facts=["Payments deployments must use canary-first rollout."],
-            supporting_facts=["Full rollout increased incident risk."],
-            tags=["payments", "deploy_policy", "canary_first"],
-            status="open",
-            retrieval_eligible=True,
-            session_id="s1",
-            source_turn_ids=["t1"],
-        )
-        store.close()
 
         # New session should reuse durable lesson and change action
         process_session_start(root=root, session_id="s2", source="proof_policy_reuse")
