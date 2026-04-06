@@ -82,6 +82,10 @@ Served by `core_memory.integrations.http.server`:
 - `POST /v1/ops/async-jobs/enqueue`
 - `POST /v1/ops/async-jobs/run`
 
+Async ops HTTP semantics:
+- enqueue unknown kind returns HTTP 400 with structured `error.code=unknown_kind`.
+- run endpoint always returns HTTP 200 with structured `ok/errors` payload for operator visibility.
+
 Machine-readable contract:
 - `docs/contracts/http_api.v1.json`
 

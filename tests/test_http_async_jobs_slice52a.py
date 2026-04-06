@@ -5,6 +5,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 class TestHttpAsyncJobsSlice52A(unittest.TestCase):
@@ -103,6 +104,52 @@ class TestHttpAsyncJobsSlice52A(unittest.TestCase):
                 os.environ.pop("CORE_MEMORY_HTTP_TOKEN", None)
             else:
                 os.environ["CORE_MEMORY_HTTP_TOKEN"] = old
+
+    def test_enqueue_unknown_kind_returns_400_structured_error(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            c = TestClient(app)
+            r = c.post(
+                "/v1/ops/async-jobs/enqueue",
+                json={"root": root, "kind": "does-not-exist"},
+            )
+            self.assertEqual(400, r.status_code)
+            data = r.json()
+            self.assertFalse(data.get("ok"))
+            self.assertEqual("core_memory.async_jobs.v1", data.get("schema_version"))
+            err = data.get("error") or {}
+            self.assertEqual("unknown_kind", err.get("code"))
+            self.assertIn("allowed", err)
+
+    def test_run_endpoint_returns_200_even_when_substep_reports_failure(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            c = TestClient(app)
+            with patch("core_memory.integrations.http.server.run_async_jobs") as mocked:
+                mocked.return_value = {
+                    "ok": False,
+                    "schema_version": "core_memory.async_jobs.v1",
+                    "semantic_run": {"ok": False, "ran": True},
+                    "compaction_run": {"ok": True, "processed": 0},
+                    "status_after": {"ok": True},
+                    "errors": [{"code": "semantic_run_failed", "message": "Semantic rebuild step failed"}],
+                }
+                r = c.post(
+                    "/v1/ops/async-jobs/run",
+                    json={"root": root, "run_semantic": True, "max_compaction": 1},
+                )
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertFalse(data.get("ok"))
+            self.assertEqual("core_memory.async_jobs.v1", data.get("schema_version"))
+            errs = data.get("errors") or []
+            self.assertTrue(any((e or {}).get("code") == "semantic_run_failed" for e in errs))
 
 
 if __name__ == "__main__":
