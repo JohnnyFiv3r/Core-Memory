@@ -10,6 +10,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
 
+from .normalization import is_allowed_bead_type, normalize_bead_type, normalize_relation_type, relation_kind
+
 
 # === Enums ===
 
@@ -118,6 +120,138 @@ def _dataclass_from_dict(cls: type, data: dict[str, Any]) -> Any:
     return cls(**_known_dataclass_kwargs(cls, data))
 
 
+def _normalize_choice(value: Any, *, allowed: set[str], default: str | None = None, allow_none: bool = False) -> str | None:
+    if value is None:
+        return None if allow_none else default
+    v = str(value).strip().lower()
+    if not v:
+        return None if allow_none else default
+    if v in allowed:
+        return v
+    return None if allow_none else default
+
+
+def _coerce_float(value: Any, *, default: float) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return float(default)
+
+
+def _coerce_float_01(value: Any, *, default: float) -> float:
+    f = _coerce_float(value, default=default)
+    if f < 0.0:
+        return 0.0
+    if f > 1.0:
+        return 1.0
+    return f
+
+
+def _coerce_int(value: Any, *, default: int) -> int:
+    try:
+        return int(value)
+    except Exception:
+        return int(default)
+
+
+def _coerce_list(value: Any) -> list:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return value
+    if isinstance(value, tuple):
+        return list(value)
+    return [value]
+
+
+def _coerce_dict(value: Any) -> dict:
+    if isinstance(value, dict):
+        return value
+    return {}
+
+
+def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
+    out = dict(data or {})
+
+    bead_type = normalize_bead_type(out.get("type"))
+    out["type"] = bead_type if is_allowed_bead_type(bead_type) else BeadType.CONTEXT.value
+
+    out["scope"] = _normalize_choice(
+        out.get("scope"),
+        allowed={x.value for x in Scope},
+        default=Scope.PROJECT.value,
+    )
+    out["authority"] = _normalize_choice(
+        out.get("authority"),
+        allowed={x.value for x in Authority},
+        default=Authority.AGENT_INFERRED.value,
+    )
+    out["status"] = _normalize_choice(
+        out.get("status"),
+        allowed={x.value for x in Status},
+        default=Status.OPEN.value,
+    )
+    out["impact_level"] = _normalize_choice(
+        out.get("impact_level"),
+        allowed={x.value for x in ImpactLevel},
+        allow_none=True,
+    )
+
+    out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
+    out["uncertainty"] = _coerce_float_01(out.get("uncertainty"), default=0.5)
+    out["recall_count"] = max(0, _coerce_int(out.get("recall_count"), default=0))
+    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", False))
+
+    list_fields = [
+        "summary",
+        "tags",
+        "source_turn_ids",
+        "retrieval_facts",
+        "entities",
+        "topics",
+        "incident_keys",
+        "decision_keys",
+        "goal_keys",
+        "action_keys",
+        "outcome_keys",
+        "time_keys",
+        "because",
+        "supporting_facts",
+        "evidence_refs",
+        "cause_candidates",
+        "effect_candidates",
+        "supersedes",
+        "superseded_by",
+    ]
+    for key in list_fields:
+        if key in out:
+            out[key] = _coerce_list(out.get(key))
+
+    if "links" in out:
+        out["links"] = _coerce_dict(out.get("links"))
+    if "state_change" in out and out.get("state_change") is not None:
+        out["state_change"] = _coerce_dict(out.get("state_change"))
+
+    return out
+
+
+def _normalize_association_payload(data: dict[str, Any]) -> dict[str, Any]:
+    out = dict(data or {})
+    rel = normalize_relation_type(out.get("relationship"))
+    out["relationship"] = rel if relation_kind(rel) == "canonical" else RelationshipType.ASSOCIATED_WITH.value
+    out["novelty"] = _coerce_float_01(out.get("novelty"), default=0.5)
+    out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.5)
+    out["decay_score"] = max(0.0, _coerce_float(out.get("decay_score"), default=1.0))
+    out["reinforced_count"] = max(0, _coerce_int(out.get("reinforced_count"), default=0))
+    return out
+
+
+def _normalize_event_payload(data: dict[str, Any]) -> dict[str, Any]:
+    out = dict(data or {})
+    out["payload"] = _coerce_dict(out.get("payload"))
+    return out
+
+
 @dataclass
 class Bead:
     """A bead is the canonical record for one turn.
@@ -219,7 +353,7 @@ class Bead:
     @classmethod
     def from_dict(cls, data: dict) -> "Bead":
         """Create from dictionary, ignoring unknown keys."""
-        obj = _dataclass_from_dict(cls, data)
+        obj = _dataclass_from_dict(cls, _normalize_bead_payload(data))
         obj.validate_retrieval_eligibility()
         return obj
 
@@ -245,7 +379,7 @@ class Association:
     @classmethod
     def from_dict(cls, data: dict) -> "Association":
         """Create from dictionary, ignoring unknown keys."""
-        return _dataclass_from_dict(cls, data)
+        return _dataclass_from_dict(cls, _normalize_association_payload(data))
 
 
 @dataclass
@@ -264,4 +398,4 @@ class Event:
     @classmethod
     def from_dict(cls, data: dict) -> "Event":
         """Create from dictionary, ignoring unknown keys."""
-        return _dataclass_from_dict(cls, data)
+        return _dataclass_from_dict(cls, _normalize_event_payload(data))
