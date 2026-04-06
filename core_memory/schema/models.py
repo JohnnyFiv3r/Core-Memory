@@ -4,7 +4,8 @@ Core-Memory data models.
 This module contains all type definitions and enums.
 """
 
-from dataclasses import dataclass, field, fields
+from copy import deepcopy
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime
 from enum import Enum
 from typing import Any, Optional
@@ -99,7 +100,22 @@ class ImpactLevel(str, Enum):
 
 def _known_dataclass_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
     allowed = {f.name for f in fields(cls)}
-    return {k: v for k, v in (data or {}).items() if k in allowed}
+    # Defensive copy so mutable payload inputs are not shared by reference.
+    return {k: deepcopy(v) for k, v in (data or {}).items() if k in allowed}
+
+
+def _dataclass_to_dict(obj: Any) -> dict[str, Any]:
+    """Stable dataclass serialization helper.
+
+    We intentionally centralize serializer behavior so future schema additions
+    don't require hand-maintained field maps in each model class.
+    """
+    return asdict(obj)
+
+
+def _dataclass_from_dict(cls: type, data: dict[str, Any]) -> Any:
+    """Create a dataclass instance from known keys only."""
+    return cls(**_known_dataclass_kwargs(cls, data))
 
 
 @dataclass
@@ -174,58 +190,7 @@ class Bead:
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
-            "id": self.id,
-            "type": self.type,
-            "title": self.title,
-            "created_at": self.created_at,
-            "session_id": self.session_id,
-            "summary": self.summary,
-            "detail": self.detail,
-            "scope": self.scope,
-            "authority": self.authority,
-            "confidence": self.confidence,
-            "tags": self.tags,
-            "links": self.links,
-            "status": self.status,
-            "recall_count": self.recall_count,
-            "last_recalled": self.last_recalled,
-            "source_turn_ids": self.source_turn_ids,
-            "turn_index": self.turn_index,
-            "prev_bead_id": self.prev_bead_id,
-            "next_bead_id": self.next_bead_id,
-            "retrieval_eligible": self.retrieval_eligible,
-            "retrieval_title": self.retrieval_title,
-            "retrieval_facts": self.retrieval_facts,
-            "entities": self.entities,
-            "topics": self.topics,
-            "incident_keys": self.incident_keys,
-            "decision_keys": self.decision_keys,
-            "goal_keys": self.goal_keys,
-            "action_keys": self.action_keys,
-            "outcome_keys": self.outcome_keys,
-            "time_keys": self.time_keys,
-            "because": self.because,
-            "supporting_facts": self.supporting_facts,
-            "evidence_refs": self.evidence_refs,
-            "cause_candidates": self.cause_candidates,
-            "effect_candidates": self.effect_candidates,
-            "state_change": self.state_change,
-            "observed_at": self.observed_at,
-            "recorded_at": self.recorded_at,
-            "effective_from": self.effective_from,
-            "effective_to": self.effective_to,
-            "validity": self.validity,
-            "supersedes": self.supersedes,
-            "superseded_by": self.superseded_by,
-            "mechanism": self.mechanism,
-            "impact_level": self.impact_level,
-            "uncertainty": self.uncertainty,
-            "what_almost_happened": self.what_almost_happened,
-            "what_was_rejected": self.what_was_rejected,
-            "what_felt_risky": self.what_felt_risky,
-            "assumption": self.assumption,
-        }
+        return _dataclass_to_dict(self)
     
     def is_retrieval_rich(self) -> bool:
         """True when structured retrieval payload is meaningfully populated."""
@@ -254,7 +219,7 @@ class Bead:
     @classmethod
     def from_dict(cls, data: dict) -> "Bead":
         """Create from dictionary, ignoring unknown keys."""
-        obj = cls(**_known_dataclass_kwargs(cls, data))
+        obj = _dataclass_from_dict(cls, data)
         obj.validate_retrieval_eligibility()
         return obj
 
@@ -275,23 +240,12 @@ class Association:
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
-            "id": self.id,
-            "source_bead": self.source_bead,
-            "target_bead": self.target_bead,
-            "relationship": self.relationship,
-            "created_at": self.created_at,
-            "explanation": self.explanation,
-            "novelty": self.novelty,
-            "confidence": self.confidence,
-            "reinforced_count": self.reinforced_count,
-            "decay_score": self.decay_score,
-        }
+        return _dataclass_to_dict(self)
     
     @classmethod
     def from_dict(cls, data: dict) -> "Association":
         """Create from dictionary, ignoring unknown keys."""
-        return cls(**_known_dataclass_kwargs(cls, data))
+        return _dataclass_from_dict(cls, data)
 
 
 @dataclass
@@ -305,15 +259,9 @@ class Event:
     
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
-        return {
-            "id": self.id,
-            "event_type": self.event_type,
-            "session_id": self.session_id,
-            "payload": self.payload,
-            "created_at": self.created_at,
-        }
+        return _dataclass_to_dict(self)
     
     @classmethod
     def from_dict(cls, data: dict) -> "Event":
         """Create from dictionary, ignoring unknown keys."""
-        return cls(**_known_dataclass_kwargs(cls, data))
+        return _dataclass_from_dict(cls, data)
