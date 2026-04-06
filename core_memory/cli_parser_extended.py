@@ -188,4 +188,9 @@ def add_metrics_parser(subparsers: argparse._SubParsersAction, *, legacy_help: s
     metrics_canonical = metrics_sub.add_parser("canonical-health", help="Run canonical contract health checks")
     metrics_canonical.add_argument("--write", help="Optional JSON output path")
 
+    metrics_dreamer_eval = metrics_sub.add_parser("dreamer-eval", help="Compute Dreamer behavior-change eval summary")
+    metrics_dreamer_eval.add_argument("--since", default="30d")
+    metrics_dreamer_eval.add_argument("--strict", action="store_true", help="Exit code 2 when core metrics are all zero")
+    metrics_dreamer_eval.add_argument("--write", help="Optional JSON output path")
+
     return metrics_parser

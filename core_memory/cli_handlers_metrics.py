@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from .persistence.archive_index import rebuild_archive_index
+from .runtime.dreamer_eval import dreamer_eval_report
 
 
 def handle_metrics_command(*, args: Any, memory: Any, metrics_parser: Any, canonical_health_report: Callable[[str, str | None], dict]) -> bool:
@@ -109,6 +110,20 @@ def handle_metrics_command(*, args: Any, memory: Any, metrics_parser: Any, canon
         print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
     elif args.metrics_cmd == "canonical-health":
         print(json.dumps(canonical_health_report(str(memory.root), write_path=args.write), indent=2))
+    elif args.metrics_cmd == "dreamer-eval":
+        out = dreamer_eval_report(memory.root, since=args.since)
+        print(json.dumps(out, indent=2))
+        if args.write:
+            Path(args.write).write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+        if args.strict:
+            m = out.get("metrics") or {}
+            core = [
+                float(m.get("accepted_candidate_rate") or 0.0),
+                float(m.get("cross_session_transfer_success_rate") or 0.0),
+                float(m.get("downstream_retrieval_use_rate_of_accepted_outputs") or 0.0),
+            ]
+            if not any(v > 0.0 for v in core):
+                raise SystemExit(2)
     else:
         metrics_parser.print_help()
 
