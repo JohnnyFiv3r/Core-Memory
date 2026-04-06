@@ -13,6 +13,23 @@ def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
 
 
 class TestRuntimeJobsCliSlice52A(unittest.TestCase):
+    def test_ops_jobs_enqueue_semantic_sets_semantic_pending(self):
+        cwd = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix="cm-ops-jobs-") as td:
+            root = Path(td) / "memory"
+
+            enq = _run_cli(["--root", str(root), "ops", "jobs-enqueue", "--kind", "semantic-rebuild"], cwd)
+            self.assertEqual(0, enq.returncode)
+            enq_payload = json.loads(enq.stdout)
+            self.assertTrue(enq_payload.get("ok"))
+
+            status = _run_cli(["--root", str(root), "ops", "jobs-status"], cwd)
+            self.assertEqual(0, status.returncode)
+            payload = json.loads(status.stdout)
+            sem = ((payload.get("queues") or {}).get("semantic_rebuild") or {})
+            self.assertTrue(sem.get("queued"))
+            self.assertEqual(1, sem.get("pending"))
+
     def test_ops_jobs_status_prints_async_queue_report(self):
         cwd = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix="cm-ops-jobs-") as td:
@@ -60,6 +77,35 @@ class TestRuntimeJobsCliSlice52A(unittest.TestCase):
             payload = json.loads(out.stdout)
             self.assertTrue(payload.get("ok"))
             self.assertIn("semantic_before", payload)
+
+    def test_hidden_legacy_enqueue_alias_still_works_for_compaction(self):
+        cwd = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix="cm-ops-jobs-") as td:
+            root = Path(td) / "memory"
+
+            out = _run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "async-jobs-enqueue",
+                    "--kind",
+                    "compaction",
+                    "--session-id",
+                    "main",
+                    "--run-id",
+                    "r-1",
+                ],
+                cwd,
+            )
+            self.assertEqual(0, out.returncode)
+            payload = json.loads(out.stdout)
+            self.assertTrue(payload.get("ok"))
+
+            status = _run_cli(["--root", str(root), "ops", "jobs-status"], cwd)
+            self.assertEqual(0, status.returncode)
+            status_payload = json.loads(status.stdout)
+            comp = ((status_payload.get("queues") or {}).get("compaction") or {})
+            self.assertGreaterEqual(int(comp.get("queue_depth") or 0), 1)
 
 
 if __name__ == "__main__":
