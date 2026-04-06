@@ -5,6 +5,20 @@ from core_memory.runtime import engine
 
 
 class TestRuntimeEngineBoundariesSlice46A(unittest.TestCase):
+    def test_process_turn_finalized_delegates_to_turn_flow(self):
+        expected = {"ok": True, "processed": 1}
+        with patch.object(engine, "process_turn_finalized_impl", return_value=expected) as spy:
+            out = engine.process_turn_finalized(
+                root=".",
+                session_id="s1",
+                turn_id="t1",
+                user_query="q",
+                assistant_final="a",
+            )
+
+        self.assertEqual(expected, out)
+        self.assertEqual(1, spy.call_count)
+
     def test_process_session_start_delegates_to_session_start_flow(self):
         expected = {"ok": True, "created": False, "bead_id": "bead-x"}
         with patch.object(engine, "process_session_start_impl", return_value=expected) as spy:

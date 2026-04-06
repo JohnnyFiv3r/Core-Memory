@@ -44,6 +44,7 @@ from .turn_prep import normalize_turn_request as _normalize_turn_request, infer_
 from .session_start_flow import process_session_start_impl
 from .turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
 from .flush_flow import process_flush_impl
+from .turn_flow import process_turn_finalized_impl
 
 logger = logging.getLogger(__name__)
 
@@ -292,7 +293,9 @@ def process_turn_finalized(
     metadata: dict[str, Any] | None = None,
     policy: SidecarPolicy | None = None,
 ) -> dict[str, Any]:
-    req = _normalize_turn_request(
+    """Canonical turn-finalized boundary entrypoint (implementation delegated)."""
+    return process_turn_finalized_impl(
+        root=root,
         session_id=session_id,
         turn_id=turn_id,
         transaction_id=transaction_id,
@@ -306,268 +309,30 @@ def process_turn_finalized(
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
         metadata=metadata,
+        policy=policy,
+        normalize_turn_request=_normalize_turn_request,
+        mark_turn_checkpoint=mark_turn_checkpoint,
+        maybe_emit_finalize_memory_event=maybe_emit_finalize_memory_event,
+        build_crawler_context=build_crawler_context,
+        invoke_turn_crawler_agent=invoke_turn_crawler_agent,
+        resolve_reviewed_updates=_resolve_reviewed_updates,
+        emit_agent_turn_quality_metric=_emit_agent_turn_quality_metric,
+        session_visible_bead_ids=_session_visible_bead_ids,
+        non_temporal_semantic_association_count=_non_temporal_semantic_association_count,
+        agent_min_semantic_associations_after_first=agent_min_semantic_associations_after_first,
+        try_claim_memory_pass=try_claim_memory_pass,
+        mark_memory_pass=mark_memory_pass,
+        process_memory_event=process_memory_event,
+        default_crawler_updates=_default_crawler_updates,
+        ensure_turn_creation_update=_ensure_turn_creation_update,
+        run_association_pass=run_association_pass,
+        queue_preview_associations=_queue_preview_associations,
+        merge_crawler_updates=merge_crawler_updates,
+        run_session_decision_pass=run_session_decision_pass,
+        error_agent_updates_missing=ERROR_AGENT_UPDATES_MISSING,
+        error_agent_semantic_coverage_missing=ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
+        logger=logger,
     )
-
-    mark_turn_checkpoint(root, turn_id=req["turn_id"])
-
-    emitted = maybe_emit_finalize_memory_event(
-        root,
-        session_id=req["session_id"],
-        turn_id=req["turn_id"],
-        transaction_id=req["transaction_id"],
-        trace_id=req["trace_id"],
-        user_query=req["user_query"],
-        assistant_final=req["assistant_final"],
-        trace_depth=req["trace_depth"],
-        origin=req["origin"],
-        tools_trace=req["tools_trace"],
-        mesh_trace=req["mesh_trace"],
-        window_turn_ids=req["window_turn_ids"],
-        window_bead_ids=req["window_bead_ids"],
-        metadata=req["metadata"],
-    )
-
-    if not emitted.get("emitted"):
-        return {
-            "ok": True,
-            "mode": "turn",
-            "authority_path": "canonical_in_process",
-            "processed": 0,
-            "failed": 0,
-            "emitted": emitted,
-            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-        }
-
-    row = emitted.get("payload")
-    if not row:
-        events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
-        if events_file.exists():
-            for line in events_file.read_text(encoding="utf-8").splitlines():
-                if not line.strip():
-                    continue
-                try:
-                    r = json.loads(line)
-                except Exception:
-                    continue
-                env = r.get("envelope") or {}
-                if env.get("session_id") == req["session_id"] and env.get("turn_id") == req["turn_id"]:
-                    row = r
-        if not row:
-            return {
-                "ok": False,
-                "mode": "turn",
-                "authority_path": "canonical_in_process",
-                "processed": 0,
-                "failed": 1,
-                "error": "event_row_not_found",
-                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-            }
-
-    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
-    invoked_updates, invocation_diag = invoke_turn_crawler_agent(
-        root=root,
-        req=req,
-        crawler_context=crawler_ctx,
-    )
-
-    req_for_updates = dict(req)
-    md_for_updates = dict(req.get("metadata") or {})
-    source_override = None
-    if isinstance(md_for_updates.get("crawler_updates"), dict) and md_for_updates.get("crawler_updates"):
-        source_override = "metadata.crawler_updates"
-    elif isinstance(invoked_updates, dict) and invoked_updates:
-        md_for_updates["crawler_updates"] = dict(invoked_updates)
-        source_override = "agent_callable"
-    req_for_updates["metadata"] = md_for_updates
-
-    reviewed_updates, gate = _resolve_reviewed_updates(
-        req_for_updates,
-        source_override=source_override,
-        invocation_diag=invocation_diag,
-    )
-    if gate.get("blocked"):
-        _emit_agent_turn_quality_metric(
-            root=root,
-            req=req,
-            gate=gate,
-            updates=reviewed_updates,
-            result="blocked",
-            error_code=str(gate.get("error_code") or ERROR_AGENT_UPDATES_MISSING),
-        )
-        return {
-            "ok": False,
-            "mode": "turn",
-            "authority_path": "canonical_in_process",
-            "processed": 0,
-            "failed": 1,
-            "error_code": str(gate.get("error_code") or ERROR_AGENT_UPDATES_MISSING),
-            "error": "agent-authored crawler updates required",
-            "emitted": emitted,
-            "crawler_handoff": {
-                "required": True,
-                "agent_authored_gate": gate,
-            },
-            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-        }
-
-    # Slice 4 quality policy: after first session turn, require minimum
-    # non-temporal semantic associations in strict agent-authored mode.
-    if bool(gate.get("required")) and (not bool(gate.get("fail_open"))) and isinstance(reviewed_updates, dict):
-        prior_beads = _session_visible_bead_ids(root=root, session_id=req["session_id"])
-        min_required = int(agent_min_semantic_associations_after_first())
-        semantic_count = int(_non_temporal_semantic_association_count(reviewed_updates))
-        gate["semantic_policy"] = {
-            "prior_bead_count": len(prior_beads),
-            "min_required_after_first": min_required,
-            "semantic_assoc_count": semantic_count,
-        }
-        if len(prior_beads) >= 1 and semantic_count < min_required:
-            gate["blocked"] = True
-            gate["error_code"] = ERROR_AGENT_SEMANTIC_COVERAGE_MISSING
-            _emit_agent_turn_quality_metric(
-                root=root,
-                req=req,
-                gate=gate,
-                updates=reviewed_updates,
-                result="blocked",
-                error_code=ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
-            )
-            return {
-                "ok": False,
-                "mode": "turn",
-                "authority_path": "canonical_in_process",
-                "processed": 0,
-                "failed": 1,
-                "error_code": ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
-                "error": "insufficient non-temporal semantic associations for non-initial turn",
-                "emitted": emitted,
-                "crawler_handoff": {
-                    "required": True,
-                    "agent_authored_gate": gate,
-                },
-                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-            }
-
-    claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
-    if not claimed:
-        _emit_agent_turn_quality_metric(
-            root=root,
-            req=req,
-            gate=gate,
-            updates=reviewed_updates,
-            result="not_claimed",
-        )
-        return {
-            "ok": True,
-            "mode": "turn",
-            "authority_path": "canonical_in_process",
-            "processed": 0,
-            "failed": 0,
-            "reason": "not_claimed",
-            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-        }
-
-    try:
-        delta = process_memory_event(root, row, policy=policy)
-    except Exception as exc:
-        logger.warning("memory_engine.turn.process_memory_event_failed", exc_info=exc)
-        mark_memory_pass(
-            Path(root),
-            req["session_id"],
-            req["turn_id"],
-            "failed",
-            envelope_hash=(state_after or {}).get("envelope_hash", ""),
-            reason="direct_turn_exception",
-            error=str(exc),
-        )
-        _emit_agent_turn_quality_metric(
-            root=root,
-            req=req,
-            gate=gate,
-            updates=reviewed_updates,
-            result="error",
-            error_code="direct_turn_exception",
-        )
-        return {
-            "ok": False,
-            "mode": "turn",
-            "authority_path": "canonical_in_process",
-            "processed": 0,
-            "failed": 1,
-            "error": str(exc),
-            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-        }
-
-    # V2P15 Step 2: enforce canonical crawler handoff framing from turn pipeline.
-    auto_apply = None
-    if not isinstance(reviewed_updates, dict):
-        reviewed_updates = _default_crawler_updates(req)
-    reviewed_updates = _ensure_turn_creation_update(root, req, reviewed_updates)
-
-    crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
-    session_visible = _session_visible_bead_ids(root=root, session_id=req["session_id"])
-    visible_ids = sorted(set(crawler_visible + session_visible))
-
-    auto_apply = run_association_pass(
-        root=root,
-        session_id=req["session_id"],
-        updates=reviewed_updates,
-        visible_bead_ids=visible_ids,
-    )
-
-    # Recompute visible IDs after association pass created new beads.
-    session_visible_after = _session_visible_bead_ids(root=root, session_id=req["session_id"])
-    visible_ids = sorted(set(crawler_visible + session_visible_after))
-
-    # Infer associations from store's association_preview candidates.
-    # The store writes preview candidates when a bead is created; promote
-    # them to queued associations and merge at the per-turn boundary.
-    preview_queued = _queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
-
-    turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
-
-    # Canonical per-turn state decision pass for all visible session beads.
-    decision_pass = run_session_decision_pass(
-        root=root,
-        session_id=req["session_id"],
-        visible_bead_ids=visible_ids,
-        turn_id=req["turn_id"],
-    )
-
-    _emit_agent_turn_quality_metric(
-        root=root,
-        req=req,
-        gate=gate,
-        updates=reviewed_updates,
-        result="success",
-        preview_association_queued=int(preview_queued),
-        merge_associations_appended=int(turn_merge.get("associations_appended") or 0),
-    )
-
-    return {
-        "ok": True,
-        "mode": "turn",
-        "authority_path": "canonical_in_process",
-        "processed": 1,
-        "failed": 0,
-        "delta": delta,
-        "emitted": emitted,
-        "crawler_handoff": {
-            "required": True,
-            "agent_authored_gate": gate,
-            "context_visible_count": len(visible_ids),
-            "auto_apply": auto_apply,
-            "preview_association_queued": int(preview_queued),
-            "turn_merge": {
-                "ok": bool(turn_merge.get("ok", True)),
-                "merged": int(turn_merge.get("merged") or 0),
-                "promotions_marked": int(turn_merge.get("promotions_marked") or 0),
-                "associations_appended": int(turn_merge.get("associations_appended") or 0),
-            },
-            "decision_pass": decision_pass,
-        },
-        "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-    }
 
 
 def process_flush(
