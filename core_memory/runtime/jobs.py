@@ -13,7 +13,9 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.store import DEFAULT_ROOT
+from core_memory.retrieval.lifecycle import enqueue_semantic_rebuild
 from core_memory.integrations.openclaw_compaction_queue import drain_compaction_queue
+from core_memory.integrations.openclaw_compaction_queue import enqueue_compaction_event
 from core_memory.retrieval.semantic_index import build_semantic_index
 
 
@@ -121,6 +123,54 @@ def async_jobs_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | None = N
     }
 
 
+def _normalize_job_kind(kind: str | None) -> str:
+    k = str(kind or "").strip().lower().replace("_", "-")
+    aliases = {
+        "semantic": "semantic-rebuild",
+        "semantic-rebuild": "semantic-rebuild",
+        "semantic_rebuild": "semantic-rebuild",
+        "compaction": "compaction",
+        "compaction-flush": "compaction",
+    }
+    return aliases.get(k, k)
+
+
+def enqueue_async_job(
+    root: str | Path = DEFAULT_ROOT,
+    *,
+    kind: str,
+    event: dict[str, Any] | None = None,
+    ctx: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Enqueue async work on canonical queue surfaces."""
+    root_p = Path(root)
+    k = _normalize_job_kind(kind)
+
+    if k == "semantic-rebuild":
+        out = enqueue_semantic_rebuild(root_p)
+        return {
+            "ok": bool(out.get("ok")),
+            "kind": "semantic-rebuild",
+            "queue": out,
+            "status": semantic_rebuild_queue_status(root_p),
+        }
+
+    if k == "compaction":
+        out = enqueue_compaction_event(event=dict(event or {}), ctx=dict(ctx or {}), root=str(root_p))
+        return {
+            "ok": bool(out.get("ok")),
+            "kind": "compaction",
+            "queue": out,
+            "status": compaction_queue_status(root_p),
+        }
+
+    return {
+        "ok": False,
+        "error": f"unknown_kind:{kind}",
+        "allowed": ["semantic-rebuild", "compaction"],
+    }
+
+
 def run_async_jobs(
     root: str | Path = DEFAULT_ROOT,
     *,
@@ -175,6 +225,7 @@ def run_async_jobs(
 
 __all__ = [
     "async_jobs_status",
+    "enqueue_async_job",
     "run_async_jobs",
     "semantic_rebuild_queue_status",
     "compaction_queue_status",

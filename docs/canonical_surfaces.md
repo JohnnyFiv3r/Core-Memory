@@ -86,6 +86,14 @@ Machine-readable contract:
 - `core-memory memory search --query ...`
 - `core-memory memory trace --query ...`
 - `core-memory memory execute --request ...`
+- `core-memory ops jobs-status`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction`
+- `core-memory ops jobs-run [--max-compaction N] [--no-semantic]`
+
+Async jobs CLI notes:
+- `jobs-status` is read-only queue observability.
+- `jobs-enqueue` is explicit operator-driven enqueue.
+- `jobs-run` performs one bounded drain pass and returns structured substep status.
 
 ## Adapter docs (canonical)
 - `docs/integrations/openclaw/README.md`

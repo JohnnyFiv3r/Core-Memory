@@ -37,6 +37,16 @@ Convenience package-root aliases are also exported:
 - `core_memory.memory_trace`
 - `core_memory.memory_execute`
 
+## Async job/queue operations (canonical ops surface)
+- `core_memory.runtime.jobs.async_jobs_status(root='...')`
+- `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction', ...)`
+- `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1)`
+
+CLI operators map to these runtime ops:
+- `core-memory ops jobs-status`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction`
+- `core-memory ops jobs-run [--max-compaction N] [--no-semantic]`
+
 ### Retrieval semantics
 - `search`: anchor retrieval
 - `trace`: causal traversal/grounding after anchor identification
