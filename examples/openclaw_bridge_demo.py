@@ -1,5 +1,8 @@
 """OpenClaw bridge demo — stdin/stdout JSON dispatch for read + write.
 
+Contract Level: Recommended
+Audience: OpenClaw adapter integrators
+
 This demonstrates both the write bridge (agent-end) and read bridge (search,
 trace, execute, continuity) using the same stdin/stdout JSON protocol that OpenClaw
 hooks use.

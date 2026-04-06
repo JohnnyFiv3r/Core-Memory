@@ -1,5 +1,8 @@
 """PydanticAI integration example with full read+write memory loop.
 
+Contract Level: Experimental
+Audience: Adapter experimentation and custom wiring
+
 Demonstrates:
   1. Continuity injection — rolling-window context as a dynamic system prompt
   2. Memory tools — search and trace available to the agent mid-conversation

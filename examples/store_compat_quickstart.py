@@ -1,5 +1,8 @@
 """Compatibility quickstart for direct MemoryStore persistence workflows.
 
+Contract Level: Compatibility
+Audience: Advanced users doing direct-store workflows/migrations
+
 Run:
   PYTHONPATH=. python3 examples/store_compat_quickstart.py
 

@@ -26,10 +26,15 @@
 
 ## Reviewer Quick Path
 
+1. `core-memory --root ./memory setup init`
+2. `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed PYTHONPATH=. python3 examples/canonical_5min.py`
+3. `PYTHONPATH=. python3 examples/proof_carry_forward.py`
+4. `PYTHONPATH=. python3 eval/reviewer_quick_value_eval.py`
+
+Then use:
 - [docs/reviewers/start-here.md](docs/reviewers/start-here.md)
-- [docs/concepts/why-core-memory.md](docs/concepts/why-core-memory.md)
-- [docs/architecture_overview.md](docs/architecture_overview.md)
 - [docs/canonical_surfaces.md](docs/canonical_surfaces.md)
+- [docs/architecture_overview.md](docs/architecture_overview.md)
 - [docs/integrations/](docs/integrations/) (OpenClaw / PydanticAI / SpringAI / LangChain / Neo4j shadow graph)
 
 ## Current Status
@@ -57,6 +62,29 @@ If you're new here, this is the shortest trust contract for what is stable now:
   - optional integrations and eval harnesses that are not listed as canonical surfaces
 
 If a feature is not in this contract or `docs/public_surface.md`, treat it as non-primary.
+
+### 30-second tier map (mandatory vs optional)
+
+- **Required**
+  - base install: `pip install core-memory`
+  - canonical write boundary: `process_turn_finalized(...)`
+  - canonical retrieval: `memory search|trace|execute` (or Python equivalents)
+- **Recommended**
+  - semantic extras: `pip install "core-memory[semantic]"`
+  - strict semantic retrieval mode (`CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required`) when you need hard semantic guarantees
+- **Compatibility (supported, not primary)**
+  - `MemoryStore` direct workflows
+  - adapter helper ingress `emit_turn_finalized(...)`
+- **Experimental / optional extensions**
+  - Neo4j shadow adapter (visualization/inspection)
+  - eval harnesses under `eval/`
+
+### Plain-English glossary for first-touch terms
+
+- **canonical semantic mode** → strict semantic retrieval mode
+- **`degraded_allowed`** → allow lexical fallback if semantic backend is missing
+- **companion service** → optional HTTP service mode
+- **hydration** → load source details after selecting retrieval results
 
 ---
 

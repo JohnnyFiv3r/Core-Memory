@@ -1,5 +1,8 @@
 """Canonical Core Memory quickstart (5-minute path).
 
+Contract Level: Canonical
+Audience: First-touch adopters who want a fuller walkthrough
+
 Run:
   PYTHONPATH=. python3 examples/quickstart.py
 

@@ -1,5 +1,8 @@
 """End-to-end demo: write beads, rebuild rolling window, read them back.
 
+Contract Level: Compatibility
+Audience: Adapter developers investigating direct-store internals
+
 This script shows the full memory round-trip through the PydanticAI
 integration — no live LLM required. Run it and watch memory flow:
 
