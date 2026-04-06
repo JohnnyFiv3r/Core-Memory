@@ -64,3 +64,5 @@ Deep recall is separate from canonical hydration.
 ## Compatibility / non-primary
 - Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`
 - Non-canonical helper modules may remain in-tree but are not forward contract unless listed above
+- `core_memory.persistence.store.MemoryStore` remains supported for advanced/direct persistence workflows, but it is not the primary runtime/retrieval product surface
+- CLI compatibility aliases (for example legacy `recall` routes) may remain available, but canonical CLI retrieval surface is `core-memory memory ...`
