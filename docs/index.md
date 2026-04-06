@@ -14,6 +14,7 @@ Use this page as the authoritative map of current docs.
 - [`concepts/why-core-memory.md`](concepts/why-core-memory.md)
 - [`memory_surfaces_spec.md`](memory_surfaces_spec.md)
 - [`semantic_backend_modes.md`](semantic_backend_modes.md)
+- [`dreamer_contract.md`](dreamer_contract.md)
 - [`truth_hierarchy.md`](truth_hierarchy.md)
 - [`truth_hierarchy_policy.md`](truth_hierarchy_policy.md)
 

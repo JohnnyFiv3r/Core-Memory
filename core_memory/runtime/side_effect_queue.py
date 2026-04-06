@@ -10,6 +10,7 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.integrations.neo4j.sync import sync_to_neo4j
 from core_memory import dreamer
+from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates
 
 
 _SIDE_EFFECT_KINDS = {"dreamer-run", "neo4j-sync", "health-recompute"}
@@ -145,18 +146,47 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
     p = dict(payload or {})
 
     if k == "dreamer-run":
+        mode = str(p.get("mode") or "suggest").strip().lower()
+        if mode not in {"off", "suggest", "reviewed_apply"}:
+            mode = "suggest"
+        if mode == "off":
+            return {
+                "ok": True,
+                "kind": k,
+                "mode": mode,
+                "skipped": True,
+                "reason": "dreamer_mode_off",
+            }
+
         store = MemoryStore(root=str(root))
+        run_id = f"dream-sidefx-{uuid.uuid4().hex[:10]}"
         out = dreamer.run_analysis(
             store=store,
             novel_only=bool(p.get("novel_only", True)),
             seen_window_runs=int(p.get("seen_window_runs", 3)),
             max_exposure=int(p.get("max_exposure", 10)),
         )
+        queue_out = enqueue_dreamer_candidates(
+            root=root,
+            associations=list(out if isinstance(out, list) else []),
+            run_metadata={
+                "run_id": run_id,
+                "mode": mode,
+                "source": "side_effect_queue",
+                "session_id": str(p.get("session_id") or ""),
+                "flush_tx_id": str(p.get("flush_tx_id") or ""),
+                "novel_only": bool(p.get("novel_only", True)),
+                "seen_window_runs": int(p.get("seen_window_runs", 3)),
+                "max_exposure": int(p.get("max_exposure", 10)),
+            },
+        )
         return {
             "ok": True,
             "kind": k,
+            "mode": mode,
             "results": out,
             "result_count": len(out) if isinstance(out, list) else 0,
+            "candidate_queue": queue_out,
         }
 
     if k == "neo4j-sync":
