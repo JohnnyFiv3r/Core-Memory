@@ -28,9 +28,6 @@ from pathlib import Path
 
 # Use relative import to avoid circular import
 from .persistence.store import MemoryStore, DEFAULT_ROOT
-from .persistence.archive_index import rebuild_archive_index
-from .graph.api import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
-from .retrieval.semantic_index import build_semantic_index, semantic_lookup, semantic_doctor
 from .retrieval.tools.memory import (
     execute as memory_execute_tool,
     execute as memory_execute,
@@ -38,9 +35,6 @@ from .retrieval.tools.memory import (
     trace as memory_trace_tool,
 )
 from .runtime.engine import process_turn_finalized, process_flush
-from .write_pipeline.orchestrate import run_rolling_window_pipeline
-from .policy.incidents import tag_incident, tag_topic_key
-from .policy.hygiene import curated_type_title_hygiene
 from .integrations.openclaw_runtime import (
     coordinator_finalize_hook,
     finalize_and_process_turn,
@@ -53,6 +47,9 @@ from .cli_compat import (
 )
 from .cli_memory_handlers import handle_memory_command
 from .cli_parser_memory import add_memory_command_surface
+from .cli_handlers_store import handle_store_commands
+from .cli_handlers_graph import handle_graph_command
+from .cli_handlers_metrics import handle_metrics_command
 
 
 class _CliHelpFormatter(argparse.HelpFormatter):
@@ -662,121 +659,8 @@ def main():
 
     memory = MemoryStore(root=args.root)
     
-    if args.command == "add":
-        bead_id = memory.add_bead(
-            type=args.type,
-            title=args.title,
-            summary=args.summary,
-            because=args.because,
-            source_turn_ids=args.source_turn_ids,
-            tags=args.tags,
-            context_tags=args.context_tags,
-            session_id=args.session_id
-        )
-        print(f"Created bead: {bead_id}")
-    
-    elif args.command == "query":
-        results = memory.query(
-            type=args.type,
-            status=args.status,
-            tags=args.tags,
-            limit=args.limit
-        )
-        for bead in results:
-            print(f"{bead['id']}: [{bead['type']}] {bead['title']}")
-    
-    elif args.command == "stats":
-        stats = memory.stats()
-        print(json.dumps(stats, indent=2))
-
-    elif args.command == "doctor":
-        report = _doctor_report(args.root)
-        for chk in report.get("checks", []):
-            label = "PASS" if chk.get("pass") else "FAIL"
-            print(f"{label} {chk.get('name')}")
-        print(json.dumps(report, indent=2))
-        if not report.get("ok"):
-            raise SystemExit(1)
-
-    elif args.command == "heads":
-        heads = memory._read_heads()
-        if args.topic_id:
-            print(json.dumps({"topic_id": args.topic_id, "head": (heads.get("topics") or {}).get(args.topic_id)}, indent=2))
-        elif args.goal_id:
-            print(json.dumps({"goal_id": args.goal_id, "head": (heads.get("goals") or {}).get(args.goal_id)}, indent=2))
-        else:
-            print(json.dumps(heads, indent=2))
-
-    elif args.command == "preflight":
-        result = memory.preflight_failure_check(
-            plan=args.plan,
-            limit=args.limit,
-            context_tags=args.context_tags,
-        )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "constraints":
-        print(json.dumps({"ok": True, "constraints": memory.active_constraints(limit=args.limit)}, indent=2))
-
-    elif args.command == "check-plan":
-        result = memory.check_plan_constraints(plan=args.plan, limit=args.limit)
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "retrieve-context":
-        result = memory.retrieve_with_context(
-            query_text=args.query,
-            context_tags=args.context_tags,
-            limit=args.limit,
-            strict_first=not args.no_strict_first,
-            deep_recall=args.deep_recall,
-            max_uncompact_per_turn=args.max_uncompact_per_turn,
-            auto_memory_intent=not args.no_auto_memory_intent,
-        )
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == "dream":
-        results = memory.dream(
-            novel_only=args.novel_only,
-            seen_window_runs=args.seen_window_runs,
-            max_exposure=args.max_exposure,
-        )
-        print(json.dumps(results, indent=2))
-    
-    elif args.command == "rebuild":
-        index = memory.rebuild_index()
-        print(f"Rebuilt index with {index['stats']['total_beads']} beads")
-
-    elif args.command == "compact":
-        result = memory.compact(session_id=args.session, promote=args.promote)
-        print(json.dumps(result))
-
-    elif args.command == "consolidate":
-        result = process_flush(
-            root=str(memory.root),
-            session_id=args.session,
-            promote=bool(args.promote),
-            token_budget=int(args.token_budget),
-            max_beads=int(args.max_beads),
-            source=str(args.source or "admin_cli"),
-        )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "rolling-window":
-        result = run_rolling_window_pipeline(
-            token_budget=int(args.token_budget),
-            max_beads=int(args.max_beads),
-        )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "uncompact":
-        result = memory.uncompact(args.id)
-        print(json.dumps(result))
-        if not result.get("ok"):
-            raise SystemExit(1)
-
-    elif args.command == "myelinate":
-        result = memory.myelinate(apply=args.apply)
-        print(json.dumps(result))
+    if handle_store_commands(args=args, memory=memory, doctor_report=_doctor_report):
+        pass
 
     elif args.command == "sidecar":
         if args.sidecar_cmd == "finalize":
@@ -829,23 +713,6 @@ def main():
         else:
             oc_parser.print_help()
 
-    elif args.command == "tag":
-        if bool(args.incident) == bool(args.topic_key):
-            raise SystemExit("tag requires exactly one of --incident or --topic-key")
-        if args.incident:
-            print(json.dumps(tag_incident(memory.root, incident_id=args.incident, bead_ids=args.bead_ids), indent=2))
-        else:
-            print(json.dumps(tag_topic_key(memory.root, topic_key=args.topic_key, bead_ids=args.bead_ids), indent=2))
-
-    elif args.command == "hygiene":
-        target_ids = list(args.bead_id or [])
-        if args.bead_ids_file:
-            payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
-            if not isinstance(payload, list):
-                raise SystemExit("--bead-ids-file must contain a JSON array")
-            target_ids.extend([str(x) for x in payload])
-        print(json.dumps(curated_type_title_hygiene(memory.root, target_ids, apply=args.apply), indent=2))
-
     elif args.command == "integrations-api-emit-turn":
         from core_memory.integrations.api import emit_turn_finalized_from_envelope
 
@@ -874,177 +741,16 @@ def main():
     ):
         pass
 
-    elif args.command == "graph":
-        if args.graph_cmd == "build":
-            b = backfill_structural_edges(memory.root)
-            g = build_graph(memory.root, write_snapshot=True)
-            print(json.dumps({"ok": True, "backfill": b, "graph": graph_stats(memory.root), "snapshot": g.get("snapshot")}, indent=2))
-        elif args.graph_cmd == "stats":
-            print(json.dumps(graph_stats(memory.root), indent=2))
-        elif args.graph_cmd == "decay":
-            print(json.dumps(decay_semantic_edges(memory.root), indent=2))
-        elif args.graph_cmd == "semantic-build":
-            print(json.dumps(build_semantic_index(memory.root), indent=2))
-        elif args.graph_cmd == "semantic-doctor":
-            print(json.dumps(semantic_doctor(memory.root), indent=2))
-        elif args.graph_cmd == "semantic-lookup":
-            print(json.dumps(semantic_lookup(memory.root, query=args.query, k=args.k), indent=2))
-        elif args.graph_cmd == "traverse":
-            print(json.dumps(causal_traverse(memory.root, anchor_ids=args.anchor), indent=2))
-        elif args.graph_cmd == "infer-structural":
-            print(json.dumps(infer_structural_edges(memory.root, min_confidence=args.min_confidence, apply=args.apply), indent=2))
-        elif args.graph_cmd == "sync-structural":
-            out = sync_structural_pipeline(memory.root, apply=args.apply, strict=args.strict)
-            print(json.dumps(out, indent=2))
-            if args.strict and not out.get("ok"):
-                raise SystemExit(2)
-        elif args.graph_cmd == "backfill-causal-links":
-            target_ids = list(args.bead_id or [])
-            if args.bead_ids_file:
-                payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
-                if not isinstance(payload, list):
-                    raise SystemExit("--bead-ids-file must contain a JSON array")
-                target_ids.extend([str(x) for x in payload])
-            print(json.dumps(backfill_causal_links(
-                memory.root,
-                apply=args.apply,
-                max_per_target=args.max_per_target,
-                min_overlap=args.min_overlap,
-                require_shared_turn=not bool(args.no_require_shared_turn),
-                include_bead_ids=target_ids,
-            ), indent=2))
-        elif args.graph_cmd == "association-health":
-            from .association.health import association_health_report
+    elif handle_graph_command(args=args, memory=memory, graph_parser=graph_parser):
+        pass
 
-            print(json.dumps(association_health_report(str(memory.root), session_id=(str(args.session_id or "").strip() or None)), indent=2))
-        elif args.graph_cmd == "association-slo-check":
-            from .association.slo import association_slo_check
-
-            out = association_slo_check(
-                str(memory.root),
-                since=str(args.since or "7d"),
-                min_agent_authored_rate=float(args.min_agent_authored_rate),
-                max_fallback_rate=float(args.max_fallback_rate),
-                max_fail_closed_rate=float(args.max_fail_closed_rate),
-                min_avg_non_temporal_semantic=float(args.min_avg_non_temporal_semantic),
-                max_active_shared_tag_ratio=float(args.max_active_shared_tag_ratio),
-            )
-            print(json.dumps(out, indent=2))
-            if bool(args.strict) and not bool(out.get("ok")):
-                raise SystemExit(2)
-        elif args.graph_cmd == "neo4j-status":
-            from .integrations.neo4j import neo4j_status
-
-            out = neo4j_status()
-            print(json.dumps(out, indent=2))
-            if bool(args.strict) and not bool(out.get("ok")):
-                raise SystemExit(2)
-        elif args.graph_cmd == "neo4j-sync":
-            from .integrations.neo4j import sync_to_neo4j
-
-            sid = None if bool(args.full) else (str(args.session_id or "").strip() or None)
-            bead_ids = None if bool(args.full) else [str(x) for x in (args.bead_id or []) if str(x).strip()]
-            out = sync_to_neo4j(
-                str(memory.root),
-                session_id=sid,
-                bead_ids=bead_ids,
-                prune=bool(args.prune),
-                dry_run=bool(args.dry_run),
-            )
-            print(json.dumps(out, indent=2))
-            if not bool(out.get("ok")):
-                raise SystemExit(2)
-        else:
-            graph_parser.print_help()
-
-    elif args.command == "metrics":
-        if args.metrics_cmd == "report":
-            print(json.dumps(memory.metrics_report(since=args.since), indent=2))
-        elif args.metrics_cmd == "schema-quality":
-            print(json.dumps(memory.schema_quality_report(write_path=args.write), indent=2))
-        elif args.metrics_cmd == "rebalance-promotions":
-            print(json.dumps(memory.rebalance_promotions(apply=args.apply), indent=2))
-        elif args.metrics_cmd == "promotion-slate":
-            print(json.dumps(memory.promotion_slate(limit=args.limit, query_text=args.query), indent=2))
-        elif args.metrics_cmd == "decide-promotion":
-            print(json.dumps(memory.decide_promotion(
-                bead_id=args.id,
-                decision=args.decision,
-                reason=args.reason,
-                considerations=args.consideration or [],
-            ), indent=2))
-        elif args.metrics_cmd == "decide-promotion-bulk":
-            payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
-            if not isinstance(payload, list):
-                raise SystemExit("--file must contain a JSON array")
-            print(json.dumps(memory.decide_promotion_bulk(payload), indent=2))
-        elif args.metrics_cmd == "promotion-kpis":
-            print(json.dumps(memory.promotion_kpis(limit=args.limit), indent=2))
-        elif args.metrics_cmd == "archive-index-rebuild":
-            print(json.dumps(rebuild_archive_index(memory.root), indent=2))
-        elif args.metrics_cmd == "start-run":
-            print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
-        elif args.metrics_cmd == "step":
-            print(json.dumps(memory.track_step(args.count), indent=2))
-        elif args.metrics_cmd == "tool":
-            print(json.dumps(memory.track_tool_call(args.count), indent=2))
-        elif args.metrics_cmd == "turn":
-            print(json.dumps(memory.track_turn_processed(args.count), indent=2))
-        elif args.metrics_cmd == "bead":
-            cur = memory.current_run_metrics()
-            if args.created:
-                cur = memory.track_bead_created(args.created)
-            if args.recalled:
-                cur = memory.track_bead_recalled(args.recalled)
-            print(json.dumps(cur, indent=2))
-        elif args.metrics_cmd == "finalize-run":
-            print(json.dumps(memory.finalize_task_run(result=args.result), indent=2))
-        elif args.metrics_cmd == "recall-eval":
-            result = memory.evaluate_rationale_recall(args.question, args.answer, bead_id=args.bead_id)
-            if not args.no_log:
-                memory.append_metric({
-                    "task_id": "rationale_recall",
-                    "result": "success" if result.get("score", 0) > 0 else "fail",
-                    "rationale_recall_score": result.get("score", 0),
-                })
-            print(json.dumps(result, indent=2))
-        elif args.metrics_cmd == "log":
-            rec = memory.append_metric({
-                "run_id": args.run_id,
-                "mode": args.mode,
-                "task_id": args.task_id,
-                "result": args.result,
-                "steps": args.steps,
-                "tool_calls": args.tool_calls,
-                "beads_created": args.beads_created,
-                "beads_recalled": args.beads_recalled,
-                "repeat_failure": args.repeat_failure,
-                "decision_conflicts": args.decision_conflicts,
-                "unjustified_flips": args.unjustified_flips,
-                "rationale_recall_score": args.rationale_recall_score,
-                "turns_processed": args.turns_processed,
-                "compression_ratio": args.compression_ratio,
-                "phase": args.phase,
-            })
-            print(json.dumps(rec, indent=2))
-        elif args.metrics_cmd == "autonomy-log":
-            rec = memory.append_autonomy_kpi(
-                run_id=args.run_id,
-                repeat_failure=args.repeat_failure,
-                contradiction_resolved=args.contradiction_resolved,
-                contradiction_latency_turns=args.contradiction_latency_turns,
-                unjustified_flip=args.unjustified_flip,
-                constraint_violation=args.constraint_violation,
-                wrong_transfer=args.wrong_transfer,
-                goal_carryover=args.goal_carryover,
-            )
-            print(json.dumps(rec, indent=2))
-        elif args.metrics_cmd == "autonomy-report":
-            print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
-        elif args.metrics_cmd == "canonical-health":
-            print(json.dumps(_canonical_health_report(str(memory.root), write_path=args.write), indent=2))
-        else:
-            metrics_parser.print_help()
+    elif handle_metrics_command(
+        args=args,
+        memory=memory,
+        metrics_parser=metrics_parser,
+        canonical_health_report=_canonical_health_report,
+    ):
+        pass
 
     else:
         parser.print_help()
