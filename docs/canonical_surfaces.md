@@ -78,6 +78,13 @@ Served by `core_memory.integrations.http.server`:
 - `POST /v1/memory/execute`
 - `GET /v1/memory/continuity`
 - `GET /v1/metrics`
+- `GET /v1/ops/async-jobs/status`
+- `POST /v1/ops/async-jobs/enqueue`
+- `POST /v1/ops/async-jobs/run`
+
+Async ops HTTP semantics:
+- enqueue unknown kind returns HTTP 400 with structured `error.code=unknown_kind`.
+- run endpoint always returns HTTP 200 with structured `ok/errors` payload for operator visibility.
 
 Machine-readable contract:
 - `docs/contracts/http_api.v1.json`
@@ -86,6 +93,15 @@ Machine-readable contract:
 - `core-memory memory search --query ...`
 - `core-memory memory trace --query ...`
 - `core-memory memory execute --request ...`
+- `core-memory ops jobs-status`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction`
+- `core-memory ops jobs-run [--max-compaction N] [--no-semantic]`
+
+Async jobs CLI notes:
+- `jobs-status` is read-only queue observability.
+- `jobs-enqueue` is explicit operator-driven enqueue.
+- `jobs-run` performs one bounded drain pass and returns structured substep status.
+- async payload schema tag: `schema_version = core_memory.async_jobs.v1`.
 
 ## Adapter docs (canonical)
 - `docs/integrations/openclaw/README.md`
