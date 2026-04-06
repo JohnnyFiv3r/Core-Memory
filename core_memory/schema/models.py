@@ -4,6 +4,8 @@ Core-Memory data models.
 This module contains all type definitions and enums.
 """
 
+import logging
+from collections import Counter
 from copy import deepcopy
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
@@ -11,6 +13,10 @@ from enum import Enum
 from typing import Any, Optional
 
 from .normalization import is_allowed_bead_type, normalize_bead_type, normalize_relation_type, relation_kind
+
+
+_LOG = logging.getLogger(__name__)
+_UNKNOWN_FIELD_COUNTS: dict[str, Counter[str]] = {}
 
 
 # === Enums ===
@@ -102,8 +108,37 @@ class ImpactLevel(str, Enum):
 
 def _known_dataclass_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
     allowed = {f.name for f in fields(cls)}
+    known: dict[str, Any] = {}
+    dropped: list[str] = []
+    for k, v in (data or {}).items():
+        if k in allowed:
+            # Defensive copy so mutable payload inputs are not shared by reference.
+            known[k] = deepcopy(v)
+        else:
+            dropped.append(str(k))
+
+    if dropped:
+        model_name = getattr(cls, "__name__", str(cls))
+        bucket = _UNKNOWN_FIELD_COUNTS.setdefault(model_name, Counter())
+        for key in dropped:
+            bucket[key] += 1
+        _LOG.debug("Dropping unknown %s fields: %s", model_name, sorted(dropped))
+
     # Defensive copy so mutable payload inputs are not shared by reference.
-    return {k: deepcopy(v) for k, v in (data or {}).items() if k in allowed}
+    return known
+
+
+def schema_unknown_field_counters() -> dict[str, dict[str, int]]:
+    """Return cumulative counts of unknown fields dropped by model name."""
+    return {
+        model: dict(counter)
+        for model, counter in _UNKNOWN_FIELD_COUNTS.items()
+    }
+
+
+def reset_schema_unknown_field_counters() -> None:
+    """Reset dropped-unknown-field counters (primarily for diagnostics/tests)."""
+    _UNKNOWN_FIELD_COUNTS.clear()
 
 
 def _dataclass_to_dict(obj: Any) -> dict[str, Any]:
