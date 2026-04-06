@@ -193,4 +193,9 @@ def add_metrics_parser(subparsers: argparse._SubParsersAction, *, legacy_help: s
     metrics_dreamer_eval.add_argument("--strict", action="store_true", help="Exit code 2 when core metrics are all zero")
     metrics_dreamer_eval.add_argument("--write", help="Optional JSON output path")
 
+    metrics_longitudinal = metrics_sub.add_parser("longitudinal-benchmark-v2", help="Compute longitudinal benchmark cohort comparison")
+    metrics_longitudinal.add_argument("--since", default="30d")
+    metrics_longitudinal.add_argument("--strict", action="store_true", help="Exit code 2 when dreamer cohort does not beat no-memory baseline")
+    metrics_longitudinal.add_argument("--write", help="Optional JSON output path")
+
     return metrics_parser
