@@ -26,10 +26,14 @@
 
 ## Reviewer Quick Path
 
+1. `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed PYTHONPATH=. python3 examples/canonical_5min.py`
+2. `PYTHONPATH=. python3 examples/proof_carry_forward.py`
+3. `PYTHONPATH=. python3 eval/reviewer_quick_value_eval.py`
+
+Then use:
 - [docs/reviewers/start-here.md](docs/reviewers/start-here.md)
-- [docs/concepts/why-core-memory.md](docs/concepts/why-core-memory.md)
-- [docs/architecture_overview.md](docs/architecture_overview.md)
 - [docs/canonical_surfaces.md](docs/canonical_surfaces.md)
+- [docs/architecture_overview.md](docs/architecture_overview.md)
 - [docs/integrations/](docs/integrations/) (OpenClaw / PydanticAI / SpringAI / LangChain / Neo4j shadow graph)
 
 ## Current Status
@@ -353,6 +357,8 @@ from core_memory.integrations.api import emit_turn_finalized
 - [examples/canonical_5min.py](examples/canonical_5min.py)
 - [examples/proof_carry_forward.py](examples/proof_carry_forward.py)
 - [examples/proof_policy_reuse.py](examples/proof_policy_reuse.py)
+- [eval/reviewer_quick_value_eval.py](eval/reviewer_quick_value_eval.py)
+- [eval/longitudinal_learning_eval.py](eval/longitudinal_learning_eval.py)
 - [examples/store_compat_quickstart.py](examples/store_compat_quickstart.py)
 - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
 - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
