@@ -133,5 +133,7 @@ def apply_grouped_aliases(args: Any, *, openclaw_group_parser: argparse.Argument
             args.graph_cmd = "sync-structural"
             args.apply = True
             args.strict = False
+        elif args.ops_cmd == "jobs-status":
+            args.command = "async-jobs-status"
 
     return False
