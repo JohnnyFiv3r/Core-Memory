@@ -72,6 +72,50 @@ class TestDreamerAnalysisSlice62A(unittest.TestCase):
         out2 = dreamer.score_association(b3, b4, 0.8)
         self.assertEqual("generalizes", out2.get("relationship"))
 
+    def test_structural_replay_signals_raise_structural_score(self):
+        b1 = {
+            "id": "b1",
+            "type": "decision",
+            "session_id": "s1",
+            "scope": "project",
+            "summary": ["we learned this lesson and should apply it"],
+            "decision_keys": ["retry_policy"],
+            "incident_keys": ["api-timeout"],
+            "tags": ["resilience"],
+        }
+        b2 = {
+            "id": "b2",
+            "type": "lesson",
+            "session_id": "s2",
+            "scope": "global",
+            "summary": ["transfer this pattern across systems"],
+            "outcome_keys": ["retry_policy"],
+            "incident_keys": ["api-timeout"],
+            "tags": ["resilience"],
+        }
+        out = dreamer.score_association(b1, b2, 0.8)
+        self.assertGreater(float(out.get("structural_score") or 0.0), 0.25)
+        self.assertTrue((out.get("structural_signals") or []))
+        self.assertIn(out.get("relationship"), {"transferable_lesson", "structural_symmetry"})
+        self.assertTrue(str(out.get("expected_decision_impact") or ""))
+
+    def test_failure_recovery_signal_present(self):
+        b1 = {
+            "id": "b1",
+            "type": "failed_hypothesis",
+            "session_id": "s1",
+            "summary": ["this assumption failed badly"],
+        }
+        b2 = {
+            "id": "b2",
+            "type": "lesson",
+            "session_id": "s2",
+            "summary": ["lesson: recover with staged rollout"],
+        }
+        out = dreamer.score_association(b1, b2, 0.9)
+        names = {str((s or {}).get("name") or "") for s in (out.get("structural_signals") or [])}
+        self.assertIn("failure_recovery_pattern", names)
+
 
 if __name__ == "__main__":
     unittest.main()
