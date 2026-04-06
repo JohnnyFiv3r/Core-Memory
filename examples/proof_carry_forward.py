@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import tempfile
+import json
 from pathlib import Path
 
 from core_memory import process_turn_finalized, process_session_start, memory_execute
@@ -19,7 +20,9 @@ def _count_results(payload: dict) -> int:
 
 def _answer_with_memory(payload: dict) -> str:
     """Tiny policy shim to demonstrate behavior change from retrieval evidence."""
-    top = ((payload.get("results") or [{}])[0] or {})
+    rows = list(payload.get("results") or [])
+    preferred = [r for r in rows if str(r.get("type") or "") != "session_start"]
+    top = ((preferred or rows or [{}])[0] or {})
     title = str(top.get("title") or "")
     if not title:
         return "I don't have a recorded durable reason yet."
@@ -65,14 +68,19 @@ def main() -> None:
         )
         after_answer = _answer_with_memory(after)
 
-        print({
-            "before_result_count": _count_results(before),
-            "after_result_count": _count_results(after),
-            "before_answer": before_answer,
-            "after_answer": after_answer,
-            "behavior_changed": before_answer != after_answer,
-            "after_degraded": after.get("degraded", False),
-        })
+        print(
+            json.dumps(
+                {
+                    "before_result_count": _count_results(before),
+                    "after_result_count": _count_results(after),
+                    "before_answer": before_answer,
+                    "after_answer": after_answer,
+                    "behavior_changed": before_answer != after_answer,
+                    "after_degraded": after.get("degraded", False),
+                },
+                indent=2,
+            )
+        )
 
 
 if __name__ == "__main__":

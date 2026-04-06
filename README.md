@@ -352,11 +352,30 @@ from core_memory.integrations.api import emit_turn_finalized
 - [examples/quickstart.py](examples/quickstart.py)
 - [examples/canonical_5min.py](examples/canonical_5min.py)
 - [examples/proof_carry_forward.py](examples/proof_carry_forward.py)
+- [examples/proof_policy_reuse.py](examples/proof_policy_reuse.py)
 - [examples/store_compat_quickstart.py](examples/store_compat_quickstart.py)
 - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
 - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
 - [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)
 - [docs/integrations/neo4j/quickstart.md](docs/integrations/neo4j/quickstart.md)
+
+### Behavior-proof and longitudinal eval
+
+```bash
+PYTHONPATH=. python3 examples/proof_policy_reuse.py
+PYTHONPATH=. python3 eval/longitudinal_learning_eval.py
+```
+
+The eval reports comparative metrics for:
+- `no_memory`
+- `summary_only`
+- `core_memory`
+
+with explicit learning-oriented signals:
+- repeated mistake rate
+- recovery speed
+- policy consistency
+- lesson reuse across sessions
 
 ---
 

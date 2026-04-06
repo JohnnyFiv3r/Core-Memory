@@ -3,11 +3,10 @@
 Status: Canonical reviewer guide
 
 ## 5-minute path
-1. Read `README.md`
-2. Read `docs/concepts/why-core-memory.md`
-3. Read `docs/architecture_overview.md`
-4. Check `docs/canonical_surfaces.md`
-5. Pick one adapter doc folder under `docs/integrations/`
+1. Run `PYTHONPATH=. python3 examples/canonical_5min.py`
+2. Run `PYTHONPATH=. python3 examples/proof_policy_reuse.py`
+3. Run `PYTHONPATH=. python3 eval/longitudinal_learning_eval.py`
+4. Then read `docs/canonical_surfaces.md` and `docs/architecture_overview.md`
 
 ## Fastest evaluation routes
 
@@ -47,12 +46,14 @@ Status: Canonical reviewer guide
 
 ## Useful links
 - `README.md`
+- `eval/longitudinal_learning_eval.py`
 - `docs/concepts/why-core-memory.md`
 - `docs/architecture_overview.md`
 - `docs/integrations/`
 - `examples/canonical_5min.py`
 - `examples/quickstart.py`
 - `examples/proof_carry_forward.py`
+- `examples/proof_policy_reuse.py`
 - `examples/store_compat_quickstart.py` (compatibility/direct-store reference)
 - `examples/pydanticai_basic.py`
 - `examples/pydanticai_demo_roundtrip.py` (canonical run_with_memory + execute/search/trace roundtrip)
