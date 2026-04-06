@@ -54,6 +54,8 @@ CLI operators map to these runtime ops:
 - `core-memory ops jobs-status`
 - `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute`
 - `core-memory ops jobs-run [--max-compaction N] [--max-side-effects N] [--no-semantic]`
+- `core-memory ops dreamer-candidates [--status pending|accepted|rejected] [--limit N]`
+- `core-memory ops dreamer-decide --id <candidate-id> --decision accept|reject [--apply]`
 
 ### Retrieval semantics
 - `search`: anchor retrieval
@@ -100,6 +102,8 @@ HTTP async ops surfaces (operator tooling):
 - `GET /v1/ops/async-jobs/status`
 - `POST /v1/ops/async-jobs/enqueue`
 - `POST /v1/ops/async-jobs/run`
+- `GET /v1/ops/dreamer/candidates`
+- `POST /v1/ops/dreamer/candidates/decide`
 
 ## Compatibility / non-primary
 - Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`

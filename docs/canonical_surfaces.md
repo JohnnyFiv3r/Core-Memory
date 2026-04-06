@@ -86,6 +86,8 @@ Served by `core_memory.integrations.http.server`:
 - `GET /v1/ops/async-jobs/status`
 - `POST /v1/ops/async-jobs/enqueue`
 - `POST /v1/ops/async-jobs/run`
+- `GET /v1/ops/dreamer/candidates`
+- `POST /v1/ops/dreamer/candidates/decide`
 
 Async ops HTTP semantics:
 - enqueue unknown kind returns HTTP 400 with structured `error.code=unknown_kind`.
@@ -101,6 +103,8 @@ Machine-readable contract:
 - `core-memory ops jobs-status`
 - `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute`
 - `core-memory ops jobs-run [--max-compaction N] [--max-side-effects N] [--no-semantic]`
+- `core-memory ops dreamer-candidates [--status pending|accepted|rejected] [--limit N]`
+- `core-memory ops dreamer-decide --id <candidate-id> --decision accept|reject [--apply]`
 
 Async jobs CLI notes:
 - `jobs-status` is read-only queue observability.

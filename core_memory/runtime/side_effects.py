@@ -34,6 +34,23 @@ def _dreamer_mode() -> str:
     return m
 
 
+def _dreamer_triggers() -> set[str]:
+    raw = str(os.environ.get("CORE_MEMORY_DREAMER_TRIGGERS") or "flush,session_end,operator")
+    out: set[str] = set()
+    for part in raw.split(","):
+        p = part.strip().lower().replace("_", "-")
+        if p:
+            out.add(p)
+    return out
+
+
+def _derive_trigger(source: str) -> str:
+    s = str(source or "").strip().lower()
+    if "session_end" in s or "session-end" in s:
+        return "session_end"
+    return "flush"
+
+
 def enqueue_post_write_side_effects(
     *,
     root: str,
@@ -59,20 +76,32 @@ def enqueue_post_write_side_effects(
 
     if "dreamer-run" in enabled or "dreamer" in enabled:
         dreamer_mode = _dreamer_mode()
-        out["enqueued"]["dreamer-run"] = enqueue_side_effect_event(
-            root=root,
-            kind="dreamer-run",
-            payload={
-                "session_id": str(session_id),
-                "flush_tx_id": str(flush_tx_id),
-                "source": str(source),
-                "mode": dreamer_mode,
-                "novel_only": True,
-                "seen_window_runs": 3,
-                "max_exposure": 10,
-            },
-            idempotency_key=f"dreamer:{session_id}:{flush_tx_id}",
-        )
+        trigger = _derive_trigger(source)
+        allowed_triggers = _dreamer_triggers()
+        if trigger in allowed_triggers:
+            out["enqueued"]["dreamer-run"] = enqueue_side_effect_event(
+                root=root,
+                kind="dreamer-run",
+                payload={
+                    "session_id": str(session_id),
+                    "flush_tx_id": str(flush_tx_id),
+                    "source": str(source),
+                    "trigger": trigger,
+                    "mode": dreamer_mode,
+                    "novel_only": True,
+                    "seen_window_runs": 3,
+                    "max_exposure": 10,
+                },
+                idempotency_key=f"dreamer:{session_id}:{flush_tx_id}",
+            )
+        else:
+            out["enqueued"]["dreamer-run"] = {
+                "ok": True,
+                "skipped": True,
+                "reason": "trigger_not_enabled",
+                "trigger": trigger,
+                "allowed_triggers": sorted(allowed_triggers),
+            }
 
     if "neo4j-sync" in enabled or "neo4j" in enabled:
         out["enqueued"]["neo4j-sync"] = enqueue_side_effect_event(
