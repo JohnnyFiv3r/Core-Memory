@@ -74,6 +74,7 @@ def handle_ops_commands(*, args: Any, memory: Any) -> bool:
             memory.root,
             run_semantic=not bool(args.no_semantic),
             max_compaction=int(args.max_compaction),
+            max_side_effects=int(getattr(args, "max_side_effects", 2)),
         )
         print(json.dumps(out, indent=2))
         if not out.get("ok"):

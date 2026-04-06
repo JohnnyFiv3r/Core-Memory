@@ -48,6 +48,17 @@ class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
         self.assertEqual("unknown_kind", err.get("code"))
         self.assertIn("allowed", err)
 
+    @patch("core_memory.runtime.jobs.side_effect_queue_status")
+    @patch("core_memory.runtime.jobs.enqueue_side_effect_event")
+    def test_enqueue_dreamer_side_effect_kind(self, enqueue_side_effect, side_effect_status):
+        enqueue_side_effect.return_value = {"ok": True, "id": "se-1", "queue_depth": 1, "kind": "dreamer-run"}
+        side_effect_status.return_value = {"ok": True, "kind": "side_effects", "queue_depth": 1}
+
+        out = enqueue_async_job("/tmp/x", kind="dreamer-run", event={"session_id": "s1"})
+        self.assertTrue(out.get("ok"))
+        self.assertEqual("dreamer-run", out.get("kind"))
+        self.assertEqual(1, ((out.get("status") or {}).get("queue_depth") or 0))
+
 
 if __name__ == "__main__":
     unittest.main()

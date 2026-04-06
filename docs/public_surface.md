@@ -39,16 +39,16 @@ Convenience package-root aliases are also exported:
 
 ## Async job/queue operations (canonical ops surface)
 - `core_memory.runtime.jobs.async_jobs_status(root='...')`
-- `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction', ...)`
-- `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1)`
+- `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute', ...)`
+- `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
 
 All async ops payloads include:
 - `schema_version = "core_memory.async_jobs.v1"`
 
 CLI operators map to these runtime ops:
 - `core-memory ops jobs-status`
-- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction`
-- `core-memory ops jobs-run [--max-compaction N] [--no-semantic]`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute`
+- `core-memory ops jobs-run [--max-compaction N] [--max-side-effects N] [--no-semantic]`
 
 ### Retrieval semantics
 - `search`: anchor retrieval
