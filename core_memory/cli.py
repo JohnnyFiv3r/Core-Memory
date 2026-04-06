@@ -22,30 +22,16 @@ Examples:
 
 import argparse
 import json
-import os
 import sys
-from pathlib import Path
 
 # Use relative import to avoid circular import
 from .persistence.store import MemoryStore, DEFAULT_ROOT
-from .persistence.archive_index import rebuild_archive_index
-from .graph.api import backfill_structural_edges, build_graph, graph_stats, decay_semantic_edges, causal_traverse, infer_structural_edges, sync_structural_pipeline, backfill_causal_links
-from .retrieval.semantic_index import build_semantic_index, semantic_lookup, semantic_doctor
 from .retrieval.tools.memory import (
     execute as memory_execute_tool,
     execute as memory_execute,
     search as memory_search_tool,
     trace as memory_trace_tool,
 )
-from .runtime.engine import process_turn_finalized, process_flush
-from .write_pipeline.orchestrate import run_rolling_window_pipeline
-from .policy.incidents import tag_incident, tag_topic_key
-from .policy.hygiene import curated_type_title_hygiene
-from .integrations.openclaw_runtime import (
-    coordinator_finalize_hook,
-    finalize_and_process_turn,
-)
-from .integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
 from .cli_compat import (
     rewrite_legacy_dev_memory_argv,
     ensure_group_subcommand_selected,
@@ -53,6 +39,29 @@ from .cli_compat import (
 )
 from .cli_memory_handlers import handle_memory_command
 from .cli_parser_memory import add_memory_command_surface
+from .cli_parser_extended import (
+    add_sidecar_openclaw_parsers,
+    add_graph_parser,
+    add_metrics_parser,
+)
+from .cli_handlers_store import handle_store_commands
+from .cli_handlers_graph import handle_graph_command
+from .cli_handlers_metrics import handle_metrics_command
+from .cli_handlers_integrations import handle_integration_commands
+from .cli_diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
+
+
+# Compatibility wrappers for tests/legacy imports during CLI boundary split.
+def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
+    return canonical_health_report(root, write_path=write_path)
+
+
+def _doctor_report(root: str) -> dict:
+    return doctor_report(root)
+
+
+def _simple_recall_fallback(memory: MemoryStore, query_text: str, limit: int = 8) -> dict:
+    return simple_recall_fallback(memory, query_text=query_text, limit=limit)
 
 
 class _CliHelpFormatter(argparse.HelpFormatter):
@@ -79,174 +88,6 @@ class _CliParser(argparse.ArgumentParser):
     def __init__(self, *args, **kwargs):
         kwargs.setdefault("formatter_class", _CliHelpFormatter)
         super().__init__(*args, **kwargs)
-
-
-def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
-    import tempfile
-
-    checks = {}
-    with tempfile.TemporaryDirectory() as td:
-        # Turn + flush + rolling window + archive ergonomics
-        t1 = process_turn_finalized(
-            root=td,
-            session_id="health",
-            turn_id="t1",
-            user_query="remember canonical decision",
-            assistant_final="Decision: keep canonical path and stable retrieval.",
-        )
-        f1 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
-        f2 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
-
-        phase_trace = ((f1.get("result") or {}).get("phase_trace") or [])
-        checks["turn_path"] = bool(t1.get("ok"))
-        checks["flush_once_per_cycle"] = bool(
-            f2.get("skipped")
-            and str(f2.get("reason") or "") in {"already_flushed_for_latest_turn", "already_flushed_for_latest_done_turn"}
-        )
-        checks["rolling_window_maintenance"] = bool("rolling_window_write" in phase_trace)
-        checks["archive_ergonomics"] = bool("archive_compact_session" in phase_trace and "archive_compact_historical" in phase_trace)
-
-        # Full retrieval path via tool execute
-        req = {"raw_query": "canonical decision", "intent": "remember", "k": 5}
-        ret = memory_execute_tool(req, root=td, explain=True)
-        checks["retrieval_path"] = bool((ret.get("ok") is True) or (ret.get("results") is not None) or (ret.get("items") is not None))
-
-    out = {
-        "ok": True,
-        "schema": "openclaw.memory.canonical_health_report.v1",
-        "root": str(root),
-        "checks": checks,
-        "all_green": all(bool(v) for v in checks.values()),
-    }
-    if write_path:
-        p = Path(write_path)
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(json.dumps(out, indent=2), encoding="utf-8")
-        out["written"] = str(p)
-    return out
-
-
-def _doctor_report(root: str) -> dict:
-    root_p = Path(root)
-    beads_dir = root_p / ".beads"
-    idx_file = beads_dir / "index.json"
-    from core_memory.persistence.rolling_record_store import read_rolling_records
-
-    checks: list[dict] = []
-
-    exists = beads_dir.exists() and beads_dir.is_dir()
-    writable = os.access(beads_dir, os.W_OK) if exists else False
-    checks.append({
-        "name": ".beads directory exists and writable",
-        "pass": bool(exists and writable),
-        "detail": {"path": str(beads_dir), "exists": bool(exists), "writable": bool(writable)},
-    })
-
-    index_ok = False
-    index = {}
-    index_error = ""
-    try:
-        index = json.loads(idx_file.read_text(encoding="utf-8"))
-        index_ok = True
-    except Exception as e:
-        index_error = str(e)
-    checks.append({
-        "name": "index.json exists and valid JSON",
-        "pass": bool(index_ok),
-        "detail": {"path": str(idx_file), "error": index_error or None},
-    })
-
-    beads = (index.get("beads") or {}) if isinstance(index, dict) else {}
-    by_status: dict[str, int] = {}
-    for b in beads.values():
-        s = str((b or {}).get("status") or "unknown")
-        by_status[s] = by_status.get(s, 0) + 1
-    checks.append({
-        "name": "bead count",
-        "pass": bool(index_ok),
-        "detail": {"total": int(len(beads)), "by_status": by_status},
-    })
-
-    session_count = len(list(beads_dir.glob("session-*.jsonl"))) if exists else 0
-    checks.append({
-        "name": "session file count",
-        "pass": bool(exists),
-        "detail": {"count": int(session_count)},
-    })
-
-    # Fresh/early stores may not have rolling-window records until first flush/
-    # rolling-window maintenance cycle.
-    checkpoints_file = beads_dir / "events" / "flush-checkpoints.jsonl"
-    flush_cycle_seen = bool(checkpoints_file.exists() and checkpoints_file.stat().st_size > 0)
-    rr = read_rolling_records(root)
-    rolling_exists = bool(rr.get("records"))
-    checks.append({
-        "name": "rolling-window records present (required after first flush cycle)",
-        "pass": bool(rolling_exists or not flush_cycle_seen),
-        "detail": {
-            "path": str(root_p),
-            "exists": rolling_exists,
-            "required_after_first_flush": True,
-            "flush_cycle_seen": flush_cycle_seen,
-        },
-    })
-
-    orphan_count = 0
-    if index_ok:
-        bead_ids = set(str(k) for k in beads.keys())
-        for a in (index.get("associations") or []):
-            src = str((a or {}).get("source_bead") or (a or {}).get("source_bead_id") or "")
-            dst = str((a or {}).get("target_bead") or (a or {}).get("target_bead_id") or "")
-            if (src and src not in bead_ids) or (dst and dst not in bead_ids):
-                orphan_count += 1
-    checks.append({
-        "name": "no orphaned association references",
-        "pass": bool(index_ok and orphan_count == 0),
-        "detail": {"orphaned_associations": int(orphan_count)},
-    })
-
-    ok = all(bool(c.get("pass")) for c in checks)
-    return {
-        "ok": bool(ok),
-        "schema": "core_memory.doctor.v1",
-        "root": str(root_p),
-        "checks": checks,
-    }
-
-
-def _simple_recall_fallback(memory: MemoryStore, query_text: str, limit: int = 8) -> dict:
-    """Best-effort lexical fallback for plug-and-play recall search.
-
-    This preserves underlying retrieval behavior while ensuring first-run UX can
-    surface newly added beads for obvious title/summary matches.
-    """
-    q = str(query_text or "").strip().lower()
-    if not q:
-        return {"ok": True, "results": []}
-
-    tokens = [t for t in q.split() if t]
-    candidates = memory.query(limit=500)
-    out = []
-    for b in candidates:
-        title = str((b or {}).get("title") or "")
-        summary = " ".join(str(x) for x in ((b or {}).get("summary") or []))
-        detail = str((b or {}).get("detail") or "")
-        tags = " ".join(str(x) for x in ((b or {}).get("tags") or []))
-        hay = f"{title} {summary} {detail} {tags}".lower()
-        if q in hay or any(tok in hay for tok in tokens):
-            score = 1.0 if q in hay else 0.8
-            out.append(
-                {
-                    "bead_id": str((b or {}).get("id") or ""),
-                    "type": str((b or {}).get("type") or ""),
-                    "title": title,
-                    "summary": (b or {}).get("summary") or [],
-                    "score": score,
-                    "source": "cli_simple_fallback",
-                }
-            )
-    out = sorted(out, key=lambda r: float(r.get("score") or 0.0), reverse=True)[: max(1, int(limit or 8))]
-    return {"ok": True, "results": out}
 
 
 def main():
@@ -351,6 +192,13 @@ def main():
         nargs="*",
         help=argparse.SUPPRESS,
     )
+
+    mem_parser, _ = add_memory_command_surface(
+        subparsers,
+        name="memory",
+        help_text="Canonical memory interface (search/trace/execute)",
+        dest="memory_cmd",
+    )
     
     legacy_help = argparse.SUPPRESS
 
@@ -443,197 +291,21 @@ def main():
     myelinate_parser.add_argument("--apply", action="store_true", help="Apply changes (default dry-run)")
 
     # sidecar integration command (legacy top-level; use `dev` surfaces)
-    sidecar_parser = subparsers.add_parser("sidecar", help=legacy_help)
-    sidecar_sub = sidecar_parser.add_subparsers(dest="sidecar_cmd")
-
-    sc_finalize = sidecar_sub.add_parser("finalize", help="Emit finalize memory event (coordinator shim)")
-    sc_finalize.add_argument("--session-id", required=True)
-    sc_finalize.add_argument("--turn-id", required=True)
-    sc_finalize.add_argument("--transaction-id", required=True)
-    sc_finalize.add_argument("--trace-id", required=True)
-    sc_finalize.add_argument("--user-query", required=True)
-    sc_finalize.add_argument("--assistant-final", required=True)
-    sc_finalize.add_argument("--trace-depth", type=int, default=0)
-    sc_finalize.add_argument("--origin", default="USER_TURN")
-
-    sc_turn = sidecar_sub.add_parser("turn", help="Atomically finalize and process one turn")
-    sc_turn.add_argument("--session-id", required=True)
-    sc_turn.add_argument("--turn-id", required=True)
-    sc_turn.add_argument("--transaction-id", required=True)
-    sc_turn.add_argument("--trace-id", required=True)
-    sc_turn.add_argument("--user-query", required=True)
-    sc_turn.add_argument("--assistant-final", required=True)
-    sc_turn.add_argument("--trace-depth", type=int, default=0)
-    sc_turn.add_argument("--origin", default="USER_TURN")
-    sc_turn.add_argument("--meta-constraint-violation", action="store_true")
-    sc_turn.add_argument("--meta-wrong-transfer", action="store_true")
-    sc_turn.add_argument("--meta-goal-carryover", action="store_true")
-    sc_turn.add_argument("--store-full-text", choices=["true", "false"], default="true")
-
-    # openclaw integration onboarding (legacy top-level; use `integrations openclaw`)
-    oc_parser = subparsers.add_parser("openclaw", help=legacy_help)
-    oc_sub = oc_parser.add_subparsers(dest="openclaw_cmd")
-    oc_onboard = oc_sub.add_parser("onboard", help="Install/enable Core Memory bridge plugin in OpenClaw")
-    oc_onboard.add_argument("--openclaw-bin", default="openclaw")
-    oc_onboard.add_argument("--plugin-dir", help="Path to core-memory bridge plugin directory")
-    oc_onboard.add_argument("--replace-memory-core", action="store_true", help="Disable stock memory-core plugin")
-    oc_onboard.add_argument("--dry-run", action="store_true")
-
-    tag_parser = subparsers.add_parser("tag", help=legacy_help)
-    tag_parser.add_argument("--incident", help="Incident ID")
-    tag_parser.add_argument("--topic-key", help="Topic key tag")
-    tag_parser.add_argument("bead_ids", nargs="+", help="Bead IDs to update")
-
-    hygiene_parser = subparsers.add_parser("hygiene", help=legacy_help)
-    hygiene_parser.add_argument("--bead-id", action="append", help="Target bead id (repeatable)")
-    hygiene_parser.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs")
-    hygiene_parser.add_argument("--apply", action="store_true")
-
-    mem_parser, _ = add_memory_command_surface(
+    sidecar_parser, oc_parser = add_sidecar_openclaw_parsers(
         subparsers,
-        name="memory",
-        help_text="Canonical memory interface (search/trace/execute)",
-        dest="memory_cmd",
+        legacy_help=legacy_help,
     )
 
-    # graph command (legacy top-level)
-    graph_parser = subparsers.add_parser("graph", help=legacy_help)
-    graph_sub = graph_parser.add_subparsers(dest="graph_cmd")
-    graph_sub.add_parser("build", help="Backfill structural edges and rebuild graph snapshot")
-    graph_sub.add_parser("stats", help="Show graph edge/node stats")
-    graph_sub.add_parser("decay", help="Run semantic edge decay pass")
-    g_sem_build = graph_sub.add_parser("semantic-build", help="Build semantic lookup index")
-    graph_sub.add_parser("semantic-doctor", help="Show semantic mode/backend diagnostics")
-    g_sem_lookup = graph_sub.add_parser("semantic-lookup", help="Semantic lookup by query")
-    g_sem_lookup.add_argument("--query", required=True)
-    g_sem_lookup.add_argument("--k", type=int, default=8)
-    g_traverse = graph_sub.add_parser("traverse", help="Run structural-first causal traversal from anchors")
-    g_traverse.add_argument("--anchor", nargs="+", required=True)
-    g_infer = graph_sub.add_parser("infer-structural", help="Run deterministic structural edge inference (safe-gated)")
-    g_infer.add_argument("--min-confidence", type=float, default=0.9)
-    g_infer.add_argument("--apply", action="store_true")
-    g_sync = graph_sub.add_parser("sync-structural", help="Sync associations->links->immutable structural edges->graph")
-    g_sync.add_argument("--apply", action="store_true")
-    g_sync.add_argument("--strict", action="store_true")
-    g_backfill_causal = graph_sub.add_parser("backfill-causal-links", help="Programmatic causal backfill for existing content")
-    g_backfill_causal.add_argument("--apply", action="store_true")
-    g_backfill_causal.add_argument("--max-per-target", type=int, default=3)
-    g_backfill_causal.add_argument("--min-overlap", type=int, default=2)
-    g_backfill_causal.add_argument("--no-require-shared-turn", action="store_true")
-    g_backfill_causal.add_argument("--bead-id", action="append", help="Limit proposals to pairs touching these bead IDs")
-    g_backfill_causal.add_argument("--bead-ids-file", help="Path to JSON array of bead IDs for targeted mode")
-    g_assoc_health = graph_sub.add_parser("association-health", help="Report association quality and isolation stats")
-    g_assoc_health.add_argument("--session-id", help="Optional session scope")
-    g_assoc_slo = graph_sub.add_parser("association-slo-check", help="Evaluate association quality SLO gates")
-    g_assoc_slo.add_argument("--since", default="7d")
-    g_assoc_slo.add_argument("--min-agent-authored-rate", type=float, default=0.8)
-    g_assoc_slo.add_argument("--max-fallback-rate", type=float, default=0.1)
-    g_assoc_slo.add_argument("--max-fail-closed-rate", type=float, default=0.25)
-    g_assoc_slo.add_argument("--min-avg-non-temporal-semantic", type=float, default=1.0)
-    g_assoc_slo.add_argument("--max-active-shared-tag-ratio", type=float, default=0.4)
-    g_assoc_slo.add_argument("--strict", action="store_true", help="Exit code 2 when SLO check fails")
-    g_neo4j_status = graph_sub.add_parser("neo4j-status", help="Check Neo4j shadow adapter config/connectivity")
-    g_neo4j_status.add_argument("--strict", action="store_true", help="Return exit code 2 when status is not ok")
-    g_neo4j_sync = graph_sub.add_parser("neo4j-sync", help="Sync Core Memory bead/association projection into Neo4j")
-    g_neo4j_sync.add_argument("--session-id", help="Optional session scope filter")
-    g_neo4j_sync.add_argument("--bead-id", action="append", help="Optional bead_id filter (repeatable)")
-    g_neo4j_sync.add_argument("--prune", action="store_true", help="Prune non-matching shadow graph data (optional)")
-    g_neo4j_sync.add_argument("--full", action="store_true", help="Ignore filters and sync full projection")
-    g_neo4j_sync.add_argument("--dry-run", action="store_true", help="Plan projection without remote writes")
+    graph_parser = add_graph_parser(
+        subparsers,
+        legacy_help=legacy_help,
+    )
 
-    # metrics command (legacy top-level; use `ops`/`dev` surfaces)
-    metrics_parser = subparsers.add_parser("metrics", help=legacy_help)
-    metrics_sub = metrics_parser.add_subparsers(dest="metrics_cmd")
+    metrics_parser = add_metrics_parser(
+        subparsers,
+        legacy_help=legacy_help,
+    )
 
-    metrics_report = metrics_sub.add_parser("report", help="Aggregate metrics.jsonl deterministically")
-    metrics_report.add_argument("--since", default="7d", help="Window, e.g. 7d or 48h")
-
-    metrics_start = metrics_sub.add_parser("start-run", help="Start/reset aggregated run counters")
-    metrics_start.add_argument("--run-id", required=True)
-    metrics_start.add_argument("--task-id", required=True)
-    metrics_start.add_argument("--mode", default="core_memory")
-    metrics_start.add_argument("--phase", default="core_memory")
-
-    metrics_step = metrics_sub.add_parser("step", help="Increment step counter for current run")
-    metrics_step.add_argument("--count", type=int, default=1)
-
-    metrics_tool = metrics_sub.add_parser("tool", help="Increment tool-call counter for current run")
-    metrics_tool.add_argument("--count", type=int, default=1)
-
-    metrics_turn = metrics_sub.add_parser("turn", help="Increment turns-processed counter for current run")
-    metrics_turn.add_argument("--count", type=int, default=1)
-
-    metrics_bead = metrics_sub.add_parser("bead", help="Increment bead counters for current run")
-    metrics_bead.add_argument("--created", type=int, default=0)
-    metrics_bead.add_argument("--recalled", type=int, default=0)
-
-    metrics_finalize = metrics_sub.add_parser("finalize-run", help="Append final KPI row with derived compression ratio")
-    metrics_finalize.add_argument("--result", default="success")
-
-    metrics_recall = metrics_sub.add_parser("recall-eval", help="Score rationale recall (0/1/2) deterministically")
-    metrics_recall.add_argument("--question", required=True)
-    metrics_recall.add_argument("--answer", required=True)
-    metrics_recall.add_argument("--bead-id")
-    metrics_recall.add_argument("--no-log", action="store_true")
-
-    metrics_schema = metrics_sub.add_parser("schema-quality", help="Report required-field warnings and promotion gate blocks")
-    metrics_schema.add_argument("--write", help="Optional path to write markdown report")
-
-    metrics_rebalance = metrics_sub.add_parser("rebalance-promotions", help="Phase-B scoring rebalance for promoted beads")
-    metrics_rebalance.add_argument("--apply", action="store_true", help="Apply demotions; default is dry-run")
-
-    metrics_slate = metrics_sub.add_parser("promotion-slate", help="Build bounded candidate promotion slate (advisory)")
-    metrics_slate.add_argument("--limit", type=int, default=20)
-    metrics_slate.add_argument("--query", default="")
-
-    metrics_decide = metrics_sub.add_parser("decide-promotion", help="Apply agent promotion decision for one bead")
-    metrics_decide.add_argument("--id", required=True, help="Bead ID")
-    metrics_decide.add_argument("--decision", required=True, choices=["promote", "keep_candidate", "archive"])
-    metrics_decide.add_argument("--reason", default="", help="Required for promote/archive")
-    metrics_decide.add_argument("--consideration", nargs="*", help="Optional decision considerations")
-
-    metrics_decide_bulk = metrics_sub.add_parser("decide-promotion-bulk", help="Apply agent promotion decisions from JSON file")
-    metrics_decide_bulk.add_argument("--file", required=True, help="Path to JSON array of {bead_id,decision,reason?,considerations?}")
-
-    metrics_promo_kpis = metrics_sub.add_parser("promotion-kpis", help="Report promotion decision KPIs and recommendation alignment")
-    metrics_promo_kpis.add_argument("--limit", type=int, default=500)
-
-    metrics_archive_rebuild = metrics_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index from archive.jsonl")
-
-    metrics_log = metrics_sub.add_parser("log", help="Append one metrics record")
-    metrics_log.add_argument("--run-id", required=True)
-    metrics_log.add_argument("--mode", default="core_memory")
-    metrics_log.add_argument("--task-id", required=True)
-    metrics_log.add_argument("--result", default="success")
-    metrics_log.add_argument("--steps", type=int, default=0)
-    metrics_log.add_argument("--tool-calls", type=int, default=0)
-    metrics_log.add_argument("--beads-created", type=int, default=0)
-    metrics_log.add_argument("--beads-recalled", type=int, default=0)
-    metrics_log.add_argument("--repeat-failure", action="store_true")
-    metrics_log.add_argument("--decision-conflicts", type=int, default=0)
-    metrics_log.add_argument("--unjustified-flips", type=int, default=0)
-    metrics_log.add_argument("--rationale-recall-score", type=int, default=0)
-    metrics_log.add_argument("--turns-processed", type=int, default=0)
-    metrics_log.add_argument("--compression-ratio", type=float, default=0.0)
-    metrics_log.add_argument("--phase", default="core_memory")
-
-    metrics_auto = metrics_sub.add_parser("autonomy-log", help="Append one autonomy KPI record")
-    metrics_auto.add_argument("--run-id", required=True)
-    metrics_auto.add_argument("--repeat-failure", action="store_true")
-    metrics_auto.add_argument("--contradiction-resolved", action="store_true")
-    metrics_auto.add_argument("--contradiction-latency-turns", type=int, default=0)
-    metrics_auto.add_argument("--unjustified-flip", action="store_true")
-    metrics_auto.add_argument("--constraint-violation", action="store_true")
-    metrics_auto.add_argument("--wrong-transfer", action="store_true")
-    metrics_auto.add_argument("--goal-carryover", action="store_true")
-
-    metrics_auto_report = metrics_sub.add_parser("autonomy-report", help="Aggregate autonomy KPIs")
-    metrics_auto_report.add_argument("--since", default="7d")
-
-
-    metrics_canonical = metrics_sub.add_parser("canonical-health", help="Run canonical contract health checks")
-    metrics_canonical.add_argument("--write", help="Optional JSON output path")
-    
     args = parser.parse_args(rewrite_legacy_dev_memory_argv(sys.argv[1:]))
 
     if ensure_group_subcommand_selected(
@@ -662,389 +334,38 @@ def main():
 
     memory = MemoryStore(root=args.root)
     
-    if args.command == "add":
-        bead_id = memory.add_bead(
-            type=args.type,
-            title=args.title,
-            summary=args.summary,
-            because=args.because,
-            source_turn_ids=args.source_turn_ids,
-            tags=args.tags,
-            context_tags=args.context_tags,
-            session_id=args.session_id
-        )
-        print(f"Created bead: {bead_id}")
-    
-    elif args.command == "query":
-        results = memory.query(
-            type=args.type,
-            status=args.status,
-            tags=args.tags,
-            limit=args.limit
-        )
-        for bead in results:
-            print(f"{bead['id']}: [{bead['type']}] {bead['title']}")
-    
-    elif args.command == "stats":
-        stats = memory.stats()
-        print(json.dumps(stats, indent=2))
+    if handle_store_commands(args=args, memory=memory, doctor_report=doctor_report):
+        pass
 
-    elif args.command == "doctor":
-        report = _doctor_report(args.root)
-        for chk in report.get("checks", []):
-            label = "PASS" if chk.get("pass") else "FAIL"
-            print(f"{label} {chk.get('name')}")
-        print(json.dumps(report, indent=2))
-        if not report.get("ok"):
-            raise SystemExit(1)
-
-    elif args.command == "heads":
-        heads = memory._read_heads()
-        if args.topic_id:
-            print(json.dumps({"topic_id": args.topic_id, "head": (heads.get("topics") or {}).get(args.topic_id)}, indent=2))
-        elif args.goal_id:
-            print(json.dumps({"goal_id": args.goal_id, "head": (heads.get("goals") or {}).get(args.goal_id)}, indent=2))
-        else:
-            print(json.dumps(heads, indent=2))
-
-    elif args.command == "preflight":
-        result = memory.preflight_failure_check(
-            plan=args.plan,
-            limit=args.limit,
-            context_tags=args.context_tags,
-        )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "constraints":
-        print(json.dumps({"ok": True, "constraints": memory.active_constraints(limit=args.limit)}, indent=2))
-
-    elif args.command == "check-plan":
-        result = memory.check_plan_constraints(plan=args.plan, limit=args.limit)
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "retrieve-context":
-        result = memory.retrieve_with_context(
-            query_text=args.query,
-            context_tags=args.context_tags,
-            limit=args.limit,
-            strict_first=not args.no_strict_first,
-            deep_recall=args.deep_recall,
-            max_uncompact_per_turn=args.max_uncompact_per_turn,
-            auto_memory_intent=not args.no_auto_memory_intent,
-        )
-        print(json.dumps(result, indent=2))
-    
-    elif args.command == "dream":
-        results = memory.dream(
-            novel_only=args.novel_only,
-            seen_window_runs=args.seen_window_runs,
-            max_exposure=args.max_exposure,
-        )
-        print(json.dumps(results, indent=2))
-    
-    elif args.command == "rebuild":
-        index = memory.rebuild_index()
-        print(f"Rebuilt index with {index['stats']['total_beads']} beads")
-
-    elif args.command == "compact":
-        result = memory.compact(session_id=args.session, promote=args.promote)
-        print(json.dumps(result))
-
-    elif args.command == "consolidate":
-        result = process_flush(
-            root=str(memory.root),
-            session_id=args.session,
-            promote=bool(args.promote),
-            token_budget=int(args.token_budget),
-            max_beads=int(args.max_beads),
-            source=str(args.source or "admin_cli"),
-        )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "rolling-window":
-        result = run_rolling_window_pipeline(
-            token_budget=int(args.token_budget),
-            max_beads=int(args.max_beads),
-        )
-        print(json.dumps(result, indent=2))
-
-    elif args.command == "uncompact":
-        result = memory.uncompact(args.id)
-        print(json.dumps(result))
-        if not result.get("ok"):
-            raise SystemExit(1)
-
-    elif args.command == "myelinate":
-        result = memory.myelinate(apply=args.apply)
-        print(json.dumps(result))
-
-    elif args.command == "sidecar":
-        if args.sidecar_cmd == "finalize":
-            result = coordinator_finalize_hook(
-                root=args.root,
-                session_id=args.session_id,
-                turn_id=args.turn_id,
-                transaction_id=args.transaction_id,
-                trace_id=args.trace_id,
-                user_query=args.user_query,
-                assistant_final=args.assistant_final,
-                trace_depth=args.trace_depth,
-                origin=args.origin,
-            )
-            print(json.dumps(result, indent=2))
-        elif args.sidecar_cmd == "turn":
-            metadata = {
-                "constraint_violation": bool(args.meta_constraint_violation),
-                "wrong_transfer": bool(args.meta_wrong_transfer),
-                "goal_carryover": bool(args.meta_goal_carryover),
-                "store_full_text": (args.store_full_text == "true"),
-            }
-            result = finalize_and_process_turn(
-                root=args.root,
-                session_id=args.session_id,
-                turn_id=args.turn_id,
-                transaction_id=args.transaction_id,
-                trace_id=args.trace_id,
-                user_query=args.user_query,
-                assistant_final=args.assistant_final,
-                trace_depth=args.trace_depth,
-                origin=args.origin,
-                metadata=metadata,
-            )
-            print(json.dumps(result, indent=2))
-        else:
-            sidecar_parser.print_help()
-
-    elif args.command == "openclaw":
-        if args.openclaw_cmd == "onboard":
-            out = run_openclaw_onboard(
-                openclaw_bin=args.openclaw_bin,
-                plugin_dir=args.plugin_dir,
-                replace_memory_core=bool(args.replace_memory_core),
-                dry_run=bool(args.dry_run),
-            )
-            print(render_onboard_report(out))
-            if not out.get("ok"):
-                raise SystemExit(2)
-        else:
-            oc_parser.print_help()
-
-    elif args.command == "tag":
-        if bool(args.incident) == bool(args.topic_key):
-            raise SystemExit("tag requires exactly one of --incident or --topic-key")
-        if args.incident:
-            print(json.dumps(tag_incident(memory.root, incident_id=args.incident, bead_ids=args.bead_ids), indent=2))
-        else:
-            print(json.dumps(tag_topic_key(memory.root, topic_key=args.topic_key, bead_ids=args.bead_ids), indent=2))
-
-    elif args.command == "hygiene":
-        target_ids = list(args.bead_id or [])
-        if args.bead_ids_file:
-            payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
-            if not isinstance(payload, list):
-                raise SystemExit("--bead-ids-file must contain a JSON array")
-            target_ids.extend([str(x) for x in payload])
-        print(json.dumps(curated_type_title_hygiene(memory.root, target_ids, apply=args.apply), indent=2))
-
-    elif args.command == "integrations-api-emit-turn":
-        from core_memory.integrations.api import emit_turn_finalized_from_envelope
-
-        envelope = json.loads(Path(args.from_file).read_text(encoding="utf-8"))
-        event_id = emit_turn_finalized_from_envelope(root=str(memory.root), envelope=envelope, strict=False)
-        print(json.dumps({"ok": True, "event_id": event_id}, indent=2))
-
-    elif args.command == "integrations-migrate-rebuild-turn-indexes":
-        from core_memory.integrations.migration import rebuild_turn_indexes
-
-        print(json.dumps(rebuild_turn_indexes(root=str(memory.root)), indent=2))
-
-    elif args.command == "integrations-migrate-backfill-bead-session-ids":
-        from core_memory.integrations.migration import backfill_bead_session_ids
-
-        print(json.dumps(backfill_bead_session_ids(root=str(memory.root)), indent=2))
+    elif handle_integration_commands(
+        args=args,
+        memory=memory,
+        sidecar_parser=sidecar_parser,
+        openclaw_parser=oc_parser,
+    ):
+        pass
 
     elif handle_memory_command(
         args=args,
         memory=memory,
         mem_parser=mem_parser,
-        simple_recall_fallback=_simple_recall_fallback,
+        simple_recall_fallback=simple_recall_fallback,
         memory_search_tool=memory_search_tool,
         memory_trace_tool=memory_trace_tool,
         memory_execute=memory_execute,
     ):
         pass
 
-    elif args.command == "graph":
-        if args.graph_cmd == "build":
-            b = backfill_structural_edges(memory.root)
-            g = build_graph(memory.root, write_snapshot=True)
-            print(json.dumps({"ok": True, "backfill": b, "graph": graph_stats(memory.root), "snapshot": g.get("snapshot")}, indent=2))
-        elif args.graph_cmd == "stats":
-            print(json.dumps(graph_stats(memory.root), indent=2))
-        elif args.graph_cmd == "decay":
-            print(json.dumps(decay_semantic_edges(memory.root), indent=2))
-        elif args.graph_cmd == "semantic-build":
-            print(json.dumps(build_semantic_index(memory.root), indent=2))
-        elif args.graph_cmd == "semantic-doctor":
-            print(json.dumps(semantic_doctor(memory.root), indent=2))
-        elif args.graph_cmd == "semantic-lookup":
-            print(json.dumps(semantic_lookup(memory.root, query=args.query, k=args.k), indent=2))
-        elif args.graph_cmd == "traverse":
-            print(json.dumps(causal_traverse(memory.root, anchor_ids=args.anchor), indent=2))
-        elif args.graph_cmd == "infer-structural":
-            print(json.dumps(infer_structural_edges(memory.root, min_confidence=args.min_confidence, apply=args.apply), indent=2))
-        elif args.graph_cmd == "sync-structural":
-            out = sync_structural_pipeline(memory.root, apply=args.apply, strict=args.strict)
-            print(json.dumps(out, indent=2))
-            if args.strict and not out.get("ok"):
-                raise SystemExit(2)
-        elif args.graph_cmd == "backfill-causal-links":
-            target_ids = list(args.bead_id or [])
-            if args.bead_ids_file:
-                payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
-                if not isinstance(payload, list):
-                    raise SystemExit("--bead-ids-file must contain a JSON array")
-                target_ids.extend([str(x) for x in payload])
-            print(json.dumps(backfill_causal_links(
-                memory.root,
-                apply=args.apply,
-                max_per_target=args.max_per_target,
-                min_overlap=args.min_overlap,
-                require_shared_turn=not bool(args.no_require_shared_turn),
-                include_bead_ids=target_ids,
-            ), indent=2))
-        elif args.graph_cmd == "association-health":
-            from .association.health import association_health_report
+    elif handle_graph_command(args=args, memory=memory, graph_parser=graph_parser):
+        pass
 
-            print(json.dumps(association_health_report(str(memory.root), session_id=(str(args.session_id or "").strip() or None)), indent=2))
-        elif args.graph_cmd == "association-slo-check":
-            from .association.slo import association_slo_check
-
-            out = association_slo_check(
-                str(memory.root),
-                since=str(args.since or "7d"),
-                min_agent_authored_rate=float(args.min_agent_authored_rate),
-                max_fallback_rate=float(args.max_fallback_rate),
-                max_fail_closed_rate=float(args.max_fail_closed_rate),
-                min_avg_non_temporal_semantic=float(args.min_avg_non_temporal_semantic),
-                max_active_shared_tag_ratio=float(args.max_active_shared_tag_ratio),
-            )
-            print(json.dumps(out, indent=2))
-            if bool(args.strict) and not bool(out.get("ok")):
-                raise SystemExit(2)
-        elif args.graph_cmd == "neo4j-status":
-            from .integrations.neo4j import neo4j_status
-
-            out = neo4j_status()
-            print(json.dumps(out, indent=2))
-            if bool(args.strict) and not bool(out.get("ok")):
-                raise SystemExit(2)
-        elif args.graph_cmd == "neo4j-sync":
-            from .integrations.neo4j import sync_to_neo4j
-
-            sid = None if bool(args.full) else (str(args.session_id or "").strip() or None)
-            bead_ids = None if bool(args.full) else [str(x) for x in (args.bead_id or []) if str(x).strip()]
-            out = sync_to_neo4j(
-                str(memory.root),
-                session_id=sid,
-                bead_ids=bead_ids,
-                prune=bool(args.prune),
-                dry_run=bool(args.dry_run),
-            )
-            print(json.dumps(out, indent=2))
-            if not bool(out.get("ok")):
-                raise SystemExit(2)
-        else:
-            graph_parser.print_help()
-
-    elif args.command == "metrics":
-        if args.metrics_cmd == "report":
-            print(json.dumps(memory.metrics_report(since=args.since), indent=2))
-        elif args.metrics_cmd == "schema-quality":
-            print(json.dumps(memory.schema_quality_report(write_path=args.write), indent=2))
-        elif args.metrics_cmd == "rebalance-promotions":
-            print(json.dumps(memory.rebalance_promotions(apply=args.apply), indent=2))
-        elif args.metrics_cmd == "promotion-slate":
-            print(json.dumps(memory.promotion_slate(limit=args.limit, query_text=args.query), indent=2))
-        elif args.metrics_cmd == "decide-promotion":
-            print(json.dumps(memory.decide_promotion(
-                bead_id=args.id,
-                decision=args.decision,
-                reason=args.reason,
-                considerations=args.consideration or [],
-            ), indent=2))
-        elif args.metrics_cmd == "decide-promotion-bulk":
-            payload = json.loads(Path(args.file).read_text(encoding="utf-8"))
-            if not isinstance(payload, list):
-                raise SystemExit("--file must contain a JSON array")
-            print(json.dumps(memory.decide_promotion_bulk(payload), indent=2))
-        elif args.metrics_cmd == "promotion-kpis":
-            print(json.dumps(memory.promotion_kpis(limit=args.limit), indent=2))
-        elif args.metrics_cmd == "archive-index-rebuild":
-            print(json.dumps(rebuild_archive_index(memory.root), indent=2))
-        elif args.metrics_cmd == "start-run":
-            print(json.dumps(memory.start_task_run(args.run_id, args.task_id, mode=args.mode, phase=args.phase), indent=2))
-        elif args.metrics_cmd == "step":
-            print(json.dumps(memory.track_step(args.count), indent=2))
-        elif args.metrics_cmd == "tool":
-            print(json.dumps(memory.track_tool_call(args.count), indent=2))
-        elif args.metrics_cmd == "turn":
-            print(json.dumps(memory.track_turn_processed(args.count), indent=2))
-        elif args.metrics_cmd == "bead":
-            cur = memory.current_run_metrics()
-            if args.created:
-                cur = memory.track_bead_created(args.created)
-            if args.recalled:
-                cur = memory.track_bead_recalled(args.recalled)
-            print(json.dumps(cur, indent=2))
-        elif args.metrics_cmd == "finalize-run":
-            print(json.dumps(memory.finalize_task_run(result=args.result), indent=2))
-        elif args.metrics_cmd == "recall-eval":
-            result = memory.evaluate_rationale_recall(args.question, args.answer, bead_id=args.bead_id)
-            if not args.no_log:
-                memory.append_metric({
-                    "task_id": "rationale_recall",
-                    "result": "success" if result.get("score", 0) > 0 else "fail",
-                    "rationale_recall_score": result.get("score", 0),
-                })
-            print(json.dumps(result, indent=2))
-        elif args.metrics_cmd == "log":
-            rec = memory.append_metric({
-                "run_id": args.run_id,
-                "mode": args.mode,
-                "task_id": args.task_id,
-                "result": args.result,
-                "steps": args.steps,
-                "tool_calls": args.tool_calls,
-                "beads_created": args.beads_created,
-                "beads_recalled": args.beads_recalled,
-                "repeat_failure": args.repeat_failure,
-                "decision_conflicts": args.decision_conflicts,
-                "unjustified_flips": args.unjustified_flips,
-                "rationale_recall_score": args.rationale_recall_score,
-                "turns_processed": args.turns_processed,
-                "compression_ratio": args.compression_ratio,
-                "phase": args.phase,
-            })
-            print(json.dumps(rec, indent=2))
-        elif args.metrics_cmd == "autonomy-log":
-            rec = memory.append_autonomy_kpi(
-                run_id=args.run_id,
-                repeat_failure=args.repeat_failure,
-                contradiction_resolved=args.contradiction_resolved,
-                contradiction_latency_turns=args.contradiction_latency_turns,
-                unjustified_flip=args.unjustified_flip,
-                constraint_violation=args.constraint_violation,
-                wrong_transfer=args.wrong_transfer,
-                goal_carryover=args.goal_carryover,
-            )
-            print(json.dumps(rec, indent=2))
-        elif args.metrics_cmd == "autonomy-report":
-            print(json.dumps(memory.autonomy_report(since=args.since), indent=2))
-        elif args.metrics_cmd == "canonical-health":
-            print(json.dumps(_canonical_health_report(str(memory.root), write_path=args.write), indent=2))
-        else:
-            metrics_parser.print_help()
+    elif handle_metrics_command(
+        args=args,
+        memory=memory,
+        metrics_parser=metrics_parser,
+        canonical_health_report=canonical_health_report,
+    ):
+        pass
 
     else:
         parser.print_help()

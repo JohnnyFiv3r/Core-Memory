@@ -30,6 +30,7 @@ Expected signal:
 ## Then inspect contracts and architecture
 
 - `README.md`
+- `docs/contributor_map.md`
 - `docs/public_surface.md`
 - `docs/canonical_surfaces.md`
 - `docs/architecture_overview.md`

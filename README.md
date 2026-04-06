@@ -33,6 +33,7 @@
 
 Then use:
 - [docs/reviewers/start-here.md](docs/reviewers/start-here.md)
+- [docs/contributor_map.md](docs/contributor_map.md)
 - [docs/canonical_surfaces.md](docs/canonical_surfaces.md)
 - [docs/architecture_overview.md](docs/architecture_overview.md)
 - [docs/integrations/](docs/integrations/) (OpenClaw / PydanticAI / SpringAI / LangChain / Neo4j shadow graph)
