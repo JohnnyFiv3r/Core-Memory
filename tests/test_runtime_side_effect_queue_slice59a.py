@@ -6,6 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.side_effect_queue import (
     drain_side_effect_queue,
     enqueue_side_effect_event,
@@ -117,6 +118,28 @@ class TestRuntimeSideEffectQueueSlice59A(unittest.TestCase):
             )
             self.assertTrue(out.get("ok"))
             self.assertTrue(bool(out.get("skipped")))
+
+    def test_dreamer_side_effect_does_not_write_associations_directly(self):
+        with tempfile.TemporaryDirectory(prefix="cm-se-") as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="decision", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="lesson", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+            with patch("core_memory.runtime.side_effect_queue.dreamer.run_analysis") as ra:
+                ra.return_value = [
+                    {
+                        "source": b1,
+                        "target": b2,
+                        "relationship": "transferable_lesson",
+                        "novelty": 0.8,
+                        "grounding": 0.9,
+                        "confidence": 0.7,
+                    }
+                ]
+                out = process_side_effect_event(root=td, kind="dreamer-run", payload={"mode": "suggest"})
+            self.assertTrue(out.get("ok"))
+
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual([], idx.get("associations") or [])
 
 
 if __name__ == "__main__":

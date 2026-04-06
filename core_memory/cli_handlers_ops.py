@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from .runtime.dreamer_candidates import decide_dreamer_candidate, list_dreamer_candidates
 from .runtime.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 
 
@@ -75,6 +76,29 @@ def handle_ops_commands(*, args: Any, memory: Any) -> bool:
             run_semantic=not bool(args.no_semantic),
             max_compaction=int(args.max_compaction),
             max_side_effects=int(getattr(args, "max_side_effects", 2)),
+        )
+        print(json.dumps(out, indent=2))
+        if not out.get("ok"):
+            raise SystemExit(2)
+        return True
+
+    if cmd == "dreamer-candidates":
+        out = list_dreamer_candidates(
+            root=memory.root,
+            status=getattr(args, "status", None),
+            limit=int(getattr(args, "limit", 100)),
+        )
+        print(json.dumps(out, indent=2))
+        return True
+
+    if cmd == "dreamer-decide":
+        out = decide_dreamer_candidate(
+            root=memory.root,
+            candidate_id=str(getattr(args, "id", "")),
+            decision=str(getattr(args, "decision", "")),
+            reviewer=str(getattr(args, "reviewer", "") or ""),
+            notes=str(getattr(args, "notes", "") or ""),
+            apply=bool(getattr(args, "apply", False)),
         )
         print(json.dumps(out, indent=2))
         if not out.get("ok"):

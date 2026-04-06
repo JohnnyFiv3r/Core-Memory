@@ -187,10 +187,22 @@ def score_association(bead1: dict, bead2: dict, distance: float) -> dict:
     s1 = summary1.lower()
     s2 = summary2.lower()
 
+    generalization_cues = {"usually", "generally", "often", "in most cases", "typically"}
+    absolute_cues = {"always", "never", "all", "every", "must"}
+    transfer_cues = {"lesson", "reuse", "apply", "transfer", "pattern"}
+
     # Check for contradiction
     if any(w in s1 for w in ["not", "no", "don't", "never"]):
         if any(w in s2 for w in ["yes", "always", "do", "need"]):
             relationship = "contradicts"
+
+    elif (any(w in s1 for w in absolute_cues) and any(w in s2 for w in generalization_cues)) or (
+        any(w in s2 for w in absolute_cues) and any(w in s1 for w in generalization_cues)
+    ):
+        relationship = "generalizes"
+
+    elif any(w in s1 for w in transfer_cues) and any(w in s2 for w in transfer_cues):
+        relationship = "transferable_lesson"
 
     # Check for reinforcement
     elif bool(set(s1.split()) & set(s2.split())):
