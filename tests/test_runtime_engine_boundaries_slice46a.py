@@ -13,6 +13,30 @@ class TestRuntimeEngineBoundariesSlice46A(unittest.TestCase):
         self.assertEqual(expected, out)
         spy.assert_called_once_with(root=".", session_id="s1", source="test", max_items=10)
 
+    def test_process_flush_delegates_to_flush_flow(self):
+        expected = {"ok": True, "flush_tx_id": "fx-1"}
+        with patch.object(engine, "process_flush_impl", return_value=expected) as spy:
+            out = engine.process_flush(
+                root=".",
+                session_id="s1",
+                promote=False,
+                token_budget=100,
+                max_beads=20,
+                source="test",
+                flush_tx_id="fx-1",
+            )
+
+        self.assertEqual(expected, out)
+        spy.assert_called_once_with(
+            root=".",
+            session_id="s1",
+            promote=False,
+            token_budget=100,
+            max_beads=20,
+            source="test",
+            flush_tx_id="fx-1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
