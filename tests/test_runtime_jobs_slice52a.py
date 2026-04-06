@@ -86,6 +86,7 @@ class TestRuntimeJobsSlice52A(unittest.TestCase):
             self.assertEqual(2, out.get("processable_now"))
             self.assertIn("semantic_rebuild", out.get("queues") or {})
             self.assertIn("compaction", out.get("queues") or {})
+            self.assertIn("side_effects", out.get("queues") or {})
 
 
 if __name__ == "__main__":
