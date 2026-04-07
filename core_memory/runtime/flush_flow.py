@@ -15,6 +15,7 @@ from .flush_state import (
     write_flush_state,
     upsert_process_flush_checkpoint_bead,
 )
+from .side_effects import enqueue_post_write_side_effects
 
 
 def process_flush_impl(
@@ -233,6 +234,13 @@ def process_flush_impl(
 
     mark_flush_checkpoint(root, flush_tx_id=flush_id_final)
 
+    side_effects = enqueue_post_write_side_effects(
+        root=root,
+        session_id=str(session_id or ""),
+        flush_tx_id=flush_id_final,
+        source=str(source or "flush_hook"),
+    )
+
     flush_ok = {
         "ok": True,
         "authority_path": "canonical_in_process",
@@ -243,6 +251,7 @@ def process_flush_impl(
         "checkpoint_bead_id": str(checkpoint_bead_id or ""),
         "checkpoint_bead_created": bool(checkpoint_created),
         "crawler_merge": merge_out,
+        "post_write_side_effects": side_effects,
         "result": out,
         "engine": {
             "entry": "process_flush",
@@ -262,6 +271,7 @@ def process_flush_impl(
             "latest_turn_id": str(latest_turn or ""),
             "latest_done_turn_id": str(flush_anchor_turn or ""),
             "latest_turn_status": str(latest_turn_status or "unknown"),
+            "post_write_side_effects": side_effects,
             "result": flush_ok,
         },
     )

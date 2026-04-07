@@ -105,6 +105,7 @@ class AsyncJobsRunRequest(BaseModel):
     root: Optional[str] = None
     run_semantic: bool = True
     max_compaction: int = 1
+    max_side_effects: int = 2
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
@@ -437,6 +438,7 @@ async def ops_async_jobs_run(
         root=_resolve_root(payload.root, x_tenant_id),
         run_semantic=bool(payload.run_semantic),
         max_compaction=max(0, int(payload.max_compaction)),
+        max_side_effects=max(0, int(payload.max_side_effects)),
     )
     # Run responses are always structured status payloads; keep 200 for
     # operator observability even when substeps report ok=false.

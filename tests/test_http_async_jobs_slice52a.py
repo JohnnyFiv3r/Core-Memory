@@ -53,6 +53,7 @@ class TestHttpAsyncJobsSlice52A(unittest.TestCase):
             self.assertEqual(200, run.status_code)
             run_data = run.json()
             self.assertIn("semantic_run", run_data)
+            self.assertIn("side_effect_run", run_data)
             self.assertIn("status_after", run_data)
             self.assertEqual("core_memory.async_jobs.v1", run_data.get("schema_version"))
 
