@@ -21,7 +21,7 @@ from ..persistence.io_utils import store_lock, atomic_write_json, append_jsonl
 from ..persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from ..runtime.session_surface import read_session_surface
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
-from ..retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
+from ..retrieval.lifecycle import mark_semantic_dirty
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
 from ..policy.hygiene import enforce_bead_hygiene_contract
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
@@ -1264,55 +1264,10 @@ class MemoryStore:
         )
     
     def promote(self, bead_id: str, promotion_reason: Optional[str] = None) -> bool:
-        """
-        Promote a bead to long-term memory.
+        """Promote a bead to long-term memory."""
+        from ..persistence.store_relationship_ops import promote_for_store
 
-        High-value types enforce stricter promotion quality gates.
-        """
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-
-            if bead_id not in index["beads"]:
-                return False
-
-            bead = index["beads"][bead_id]
-            btype = str(bead.get("type") or "").lower()
-            because = bead.get("because") or []
-            detail = (bead.get("detail") or "").strip()
-            has_evidence = self._has_evidence(bead)
-
-            # Strict promotion gates for high-value beads
-            if btype in {"decision", "lesson", "outcome", "precedent"}:
-                if btype == "decision" and not (because and (has_evidence or detail)):
-                    return False
-                if btype == "lesson" and not because:
-                    return False
-                if btype == "outcome":
-                    result = str(bead.get("result") or "").strip().lower()
-                    has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-                    if result not in {"resolved", "failed", "partial", "confirmed"}:
-                        return False
-                    if not (has_link or has_evidence):
-                        return False
-                if btype == "precedent":
-                    if not (str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip()):
-                        return False
-
-            bead["status"] = "promoted"
-            bead["promotion_state"] = "promoted"
-            bead["promotion_locked"] = True
-            bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
-            bead["promotion_reason"] = (promotion_reason or bead.get("promotion_reason") or "policy_auto_promote").strip()
-
-            index["beads"][bead_id] = bead
-            self._write_json(self.beads_dir / INDEX_FILE, index)
-
-            # Append audit event (rebuild support)
-            events.event_bead_promoted(self.root, bead_id, use_lock=False)
-
-            mark_semantic_dirty(self.root, reason="promote")
-
-            return True
+        return promote_for_store(self, bead_id=bead_id, promotion_reason=promotion_reason)
     
     def link(
         self,
@@ -1322,83 +1277,23 @@ class MemoryStore:
         explanation: str = "",
         confidence: float = 0.8,
     ) -> str:
-        """
-        Create a link between two beads.
-        
-        Args:
-            source_id: Source bead ID
-            target_id: Target bead ID
-            relationship: Link type (caused_by, led_to, contradicts, etc.)
-            explanation: Why they're linked
-            
-        Returns:
-            Association ID
-        """
-        assoc_id = f"assoc-{uuid.uuid4().hex[:12].upper()}"
-        
-        assoc = {
-            "id": assoc_id,
-            "type": "association",
-            "source_bead": source_id,
-            "target_bead": target_id,
-            "relationship": relationship,
-            "explanation": explanation,
-            "confidence": float(confidence),
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }
-        
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            index["associations"].append(assoc)
-            index["stats"]["total_associations"] += 1
-            self._write_json(self.beads_dir / INDEX_FILE, index)
+        """Create a link between two beads."""
+        from ..persistence.store_relationship_ops import link_for_store
 
-            # Append audit event (rebuild support)
-            events.event_association_created(self.root, assoc, use_lock=False)
-
-            mark_trace_dirty(self.root, reason="link")
-
-            return assoc_id
+        return link_for_store(
+            self,
+            source_id=source_id,
+            target_id=target_id,
+            relationship=relationship,
+            explanation=explanation,
+            confidence=confidence,
+        )
     
     def recall(self, bead_id: str) -> bool:
-        """
-        Record a recall (strengthens association, myelination).
-        
-        Args:
-            bead_id: ID of bead being recalled
-            
-        Returns:
-            Success
-        """
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
+        """Record a recall (strengthens association, myelination)."""
+        from ..persistence.store_relationship_ops import recall_for_store
 
-            if bead_id not in index["beads"]:
-                return False
-
-            bead = index["beads"][bead_id]
-            bead["recall_count"] = bead.get("recall_count", 0) + 1
-            bead["last_recalled"] = datetime.now(timezone.utc).isoformat()
-
-            index["beads"][bead_id] = bead
-            self._write_json(self.beads_dir / INDEX_FILE, index)
-
-            # Append audit event (rebuild support)
-            events.event_bead_recalled(self.root, bead_id, use_lock=False)
-
-            # Edge traversal telemetry for myelination/reinforcement modeling
-            for assoc in index.get("associations", []):
-                if assoc.get("source_bead") == bead_id or assoc.get("target_bead") == bead_id:
-                    events.event_edge_traversed(
-                        self.root,
-                        edge_id=assoc.get("id", ""),
-                        source_bead=assoc.get("source_bead"),
-                        target_bead=assoc.get("target_bead"),
-                        use_lock=False,
-                    )
-
-        self.track_bead_recalled(1)
-        return True
+        return recall_for_store(self, bead_id=bead_id)
     
     def dream(self, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
         """
@@ -1425,36 +1320,16 @@ class MemoryStore:
             return [{"error": "Dreamer not available"}]
     
     def rebuild_index(self) -> dict:
-        """
-        Rebuild the index from all events.
-        
-        This is the canonical way to ensure index consistency.
-        Call this if you suspect index corruption.
-        
-        Returns:
-            The rebuilt index
-        """
+        """Rebuild the index from all events."""
+        from ..persistence.store_relationship_ops import rebuild_index_for_store
 
-        return events.rebuild_index(self.root)
+        return rebuild_index_for_store(self)
     
     def stats(self) -> dict:
         """Get memory statistics."""
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        
-        by_type = {}
-        by_status = {}
-        for bead in index.get("beads", {}).values():
-            t = bead.get("type", "unknown")
-            s = bead.get("status", "unknown")
-            by_type[t] = by_type.get(t, 0) + 1
-            by_status[s] = by_status.get(s, 0) + 1
-        
-        return {
-            "total_beads": len(index.get("beads", {})),
-            "total_associations": len(index.get("associations", [])),
-            "by_type": by_type,
-            "by_status": by_status
-        }
+        from ..persistence.store_relationship_ops import stats_for_store
+
+        return stats_for_store(self)
     
     # === Internal ===
     
