@@ -22,7 +22,6 @@ from ..persistence import events
 from ..persistence.io_utils import store_lock, atomic_write_json, append_jsonl
 from ..persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from ..runtime.session_surface import read_session_surface
-from ..runtime.turn_archive import find_turn_record
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
@@ -947,93 +946,24 @@ class MemoryStore:
             bead["validation_warnings"] = issues
 
     def _resolve_bead_session_id(self, *, session_id: Optional[str], source_turn_ids: Optional[list]) -> str:
-        sid = str(session_id or "").strip()
-        if sid:
-            return sid
+        from ..persistence.store_add_helpers import resolve_bead_session_id_for_store
 
-        mode = self.bead_session_id_mode
-        if mode not in {"infer", "strict", "unknown"}:
-            mode = "infer"
-
-        inferred = ""
-        if mode in {"infer", "strict"}:
-            for tid in (source_turn_ids or []):
-                t = str(tid or "").strip()
-                if not t:
-                    continue
-                row = find_turn_record(root=self.root, turn_id=t, session_id=None)
-                if isinstance(row, dict):
-                    inferred = str(row.get("session_id") or "").strip()
-                    if inferred:
-                        break
-
-        if inferred:
-            return inferred
-
-        if mode == "strict":
-            raise ValueError("missing:session_id (strict mode; unable to infer from source_turn_ids)")
-
-        # keep schema invariant non-null/non-empty even when unresolved
-        return "unknown"
+        return resolve_bead_session_id_for_store(self, session_id=session_id, source_turn_ids=source_turn_ids)
 
     def _title_tokens(self, text: str) -> set[str]:
-        return {t for t in self._tokenize(text) if t not in {"the", "and", "for", "with", "this", "that"}}
+        from ..persistence.store_add_helpers import title_tokens_for_store
+
+        return title_tokens_for_store(self, text)
 
     def _is_contradictory_decision(self, a_title: str, b_title: str) -> bool:
-        a = (a_title or "").lower()
-        b = (b_title or "").lower()
-        neg = [" not ", " don't ", " never ", " avoid ", " disable ", " remove "]
-        a_neg = any(x in f" {a} " for x in neg)
-        b_neg = any(x in f" {b} " for x in neg)
-        if a_neg != b_neg:
-            return True
-        antonym_pairs = [("enable", "disable"), ("use", "avoid"), ("allow", "deny")]
-        for p, q in antonym_pairs:
-            if (p in a and q in b) or (q in a and p in b):
-                return True
-        return False
+        from ..persistence.store_add_helpers import is_contradictory_decision
+
+        return is_contradictory_decision(a_title, b_title)
 
     def _detect_decision_conflicts(self, index: dict, bead: dict) -> tuple[int, int, list[str]]:
-        """Heuristic conflict detector for new decision bead.
+        from ..persistence.store_add_helpers import detect_decision_conflicts_for_store
 
-        Returns: (decision_conflicts, unjustified_flips, conflicting_bead_ids)
-        """
-        if bead.get("type") != "decision":
-            return 0, 0, []
-
-        new_tokens = self._title_tokens(bead.get("title", ""))
-        if not new_tokens:
-            return 0, 0, []
-
-        conflicts = []
-        assocs = index.get("associations", [])
-
-        for prior in index.get("beads", {}).values():
-            if prior.get("id") == bead.get("id"):
-                continue
-            if prior.get("type") != "decision":
-                continue
-            overlap = len(new_tokens.intersection(self._title_tokens(prior.get("title", ""))))
-            if overlap < 2:
-                continue
-            if not self._is_contradictory_decision(bead.get("title", ""), prior.get("title", "")):
-                continue
-
-            # justified if prior already superseded/reversed in history
-            prior_id = prior.get("id")
-            justified = (prior.get("status") == "superseded") or any(
-                (
-                    (a.get("source_bead") == prior_id or a.get("target_bead") == prior_id)
-                    and a.get("relationship") in {"supersedes", "reversal", "reversed_by"}
-                )
-                for a in assocs
-            )
-            if not justified:
-                conflicts.append(prior_id)
-
-        if not conflicts:
-            return 0, 0, []
-        return len(conflicts), 1, sorted(conflicts)
+        return detect_decision_conflicts_for_store(self, index, bead)
 
     def _quick_association_candidates(self, index: dict, bead: dict, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
         """Fast, deterministic association inference for newly added beads."""
@@ -1042,37 +972,25 @@ class MemoryStore:
         return run_association_pass(index, bead, max_lookback=max_lookback, top_k=top_k)
 
     def _norm_text(self, s: str) -> str:
-        return " ".join(re.findall(r"[a-z0-9]+", str(s or "").lower()))
+        from ..persistence.store_add_helpers import norm_text
+
+        return norm_text(s)
 
     def _bead_similarity(self, a: dict, b: dict) -> float:
-        ta = self._norm_text((a.get("title") or "") + " " + " ".join(a.get("summary") or []))
-        tb = self._norm_text((b.get("title") or "") + " " + " ".join(b.get("summary") or []))
-        sa = set(ta.split())
-        sb = set(tb.split())
-        if not sa or not sb:
-            return 0.0
-        inter = len(sa.intersection(sb))
-        union = len(sa.union(sb))
-        return float(inter) / float(max(1, union))
+        from ..persistence.store_add_helpers import bead_similarity
+
+        return bead_similarity(a, b)
 
     def _find_recent_duplicate_bead_id(self, index: dict, bead: dict, session_id: str | None, window: int = 25) -> str | None:
-        beads = list((index.get("beads") or {}).values())
-        if session_id:
-            beads = [b for b in beads if str((b or {}).get("session_id") or "") == str(session_id)]
-        beads = sorted(beads, key=lambda b: str((b or {}).get("created_at") or ""), reverse=True)[: max(1, int(window))]
+        from ..persistence.store_add_helpers import find_recent_duplicate_bead_id_for_store
 
-        for prior in beads:
-            if str(prior.get("type") or "") != str(bead.get("type") or ""):
-                continue
-            # exact turn duplicate
-            a_turns = set([str(x) for x in (bead.get("source_turn_ids") or []) if str(x)])
-            p_turns = set([str(x) for x in (prior.get("source_turn_ids") or []) if str(x)])
-            if a_turns and p_turns and a_turns.intersection(p_turns):
-                return str(prior.get("id") or "") or None
-            sim = self._bead_similarity(bead, prior)
-            if sim >= 0.9:
-                return str(prior.get("id") or "") or None
-        return None
+        return find_recent_duplicate_bead_id_for_store(
+            self,
+            index,
+            bead,
+            session_id=session_id,
+            window=window,
+        )
     
     # === Core API ===
     
