@@ -22,6 +22,7 @@ If you're new, this is the shortest map of where behavior lives.
 - bead validation helpers: `core_memory/persistence/store_validation_helpers.py`
 - constraint retrieval/compliance helpers: `core_memory/persistence/store_constraints.py`
 - query/read helper surface: `core_memory/persistence/store_query.py`
+- context-aware retrieval helper: `core_memory/persistence/store_retrieval_context.py`
 - session turn/consolidation helpers: `core_memory/persistence/store_session_ops.py`
 - promote/link/recall/stats helpers: `core_memory/persistence/store_relationship_ops.py`
 - compaction/archive/myelination helpers: `core_memory/persistence/store_compaction_ops.py`
