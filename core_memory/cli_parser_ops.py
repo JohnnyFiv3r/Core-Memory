@@ -29,6 +29,17 @@ def add_async_jobs_command_surfaces(
     ops_jobs_run.add_argument("--max-side-effects", type=int, default=2)
     ops_jobs_run.add_argument("--no-semantic", action="store_true", help="Skip semantic rebuild even if queued")
 
+    ops_dreamer_list = ops_sub.add_parser("dreamer-candidates", help="List Dreamer candidate queue records")
+    ops_dreamer_list.add_argument("--status", choices=["pending", "accepted", "rejected"], help="Optional candidate status filter")
+    ops_dreamer_list.add_argument("--limit", type=int, default=100)
+
+    ops_dreamer_decide = ops_sub.add_parser("dreamer-decide", help="Accept/reject Dreamer candidate")
+    ops_dreamer_decide.add_argument("--id", required=True, help="Dreamer candidate id")
+    ops_dreamer_decide.add_argument("--decision", required=True, choices=["accept", "reject"])
+    ops_dreamer_decide.add_argument("--reviewer")
+    ops_dreamer_decide.add_argument("--notes")
+    ops_dreamer_decide.add_argument("--apply", action="store_true", help="When accepting, apply canonical association")
+
     # hidden legacy aliases
     subparsers.add_parser("async-jobs-status", help=legacy_help)
 
@@ -47,3 +58,14 @@ def add_async_jobs_command_surfaces(
     async_jobs_run_parser.add_argument("--max-compaction", type=int, default=1)
     async_jobs_run_parser.add_argument("--max-side-effects", type=int, default=2)
     async_jobs_run_parser.add_argument("--no-semantic", action="store_true")
+
+    dreamer_candidates_parser = subparsers.add_parser("dreamer-candidates", help=legacy_help)
+    dreamer_candidates_parser.add_argument("--status", choices=["pending", "accepted", "rejected"])
+    dreamer_candidates_parser.add_argument("--limit", type=int, default=100)
+
+    dreamer_decide_parser = subparsers.add_parser("dreamer-decide", help=legacy_help)
+    dreamer_decide_parser.add_argument("--id", required=True)
+    dreamer_decide_parser.add_argument("--decision", required=True, choices=["accept", "reject"])
+    dreamer_decide_parser.add_argument("--reviewer")
+    dreamer_decide_parser.add_argument("--notes")
+    dreamer_decide_parser.add_argument("--apply", action="store_true")
