@@ -42,6 +42,11 @@ Convenience package-root aliases are also exported:
 - `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute', ...)`
 - `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
 
+Dreamer candidate queue surfaces:
+- `core_memory.runtime.dreamer_candidates.enqueue_dreamer_candidates(...)`
+- `core_memory.runtime.dreamer_candidates.list_dreamer_candidates(...)`
+- `core_memory.runtime.dreamer_candidates.decide_dreamer_candidate(...)`
+
 All async ops payloads include:
 - `schema_version = "core_memory.async_jobs.v1"`
 

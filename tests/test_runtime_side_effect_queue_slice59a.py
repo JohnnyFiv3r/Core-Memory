@@ -4,10 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.runtime.side_effect_queue import (
     drain_side_effect_queue,
     enqueue_side_effect_event,
+    process_side_effect_event,
     side_effect_queue_status,
 )
 
@@ -75,6 +77,46 @@ class TestRuntimeSideEffectQueueSlice59A(unittest.TestCase):
             rows = json.loads(q.read_text(encoding="utf-8"))
             self.assertEqual(1, len(rows))
             self.assertGreater(int(rows[0].get("next_retry_at") or 0), 100)
+
+    def test_dreamer_side_effect_writes_candidate_queue(self):
+        with tempfile.TemporaryDirectory(prefix="cm-se-") as td:
+            with patch("core_memory.runtime.side_effect_queue.dreamer.run_analysis") as ra:
+                ra.return_value = [
+                    {
+                        "source": "b1",
+                        "target": "b2",
+                        "relationship": "transferable_lesson",
+                        "novelty": 0.8,
+                        "grounding": 0.9,
+                        "confidence": 0.7,
+                        "source_title": "s",
+                        "target_title": "t",
+                    }
+                ]
+                out = process_side_effect_event(
+                    root=td,
+                    kind="dreamer-run",
+                    payload={"session_id": "s1", "mode": "suggest"},
+                )
+            self.assertTrue(out.get("ok"))
+            cq = out.get("candidate_queue") or {}
+            self.assertTrue(cq.get("ok"))
+            self.assertEqual(1, cq.get("added"))
+            p = Path(td) / ".beads" / "events" / "dreamer-candidates.json"
+            self.assertTrue(p.exists())
+            rows = json.loads(p.read_text(encoding="utf-8"))
+            self.assertEqual(1, len(rows))
+            self.assertEqual("pending", rows[0].get("status"))
+
+    def test_dreamer_mode_off_skips_processing(self):
+        with tempfile.TemporaryDirectory(prefix="cm-se-") as td:
+            out = process_side_effect_event(
+                root=td,
+                kind="dreamer-run",
+                payload={"mode": "off"},
+            )
+            self.assertTrue(out.get("ok"))
+            self.assertTrue(bool(out.get("skipped")))
 
 
 if __name__ == "__main__":
