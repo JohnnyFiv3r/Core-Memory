@@ -10,9 +10,7 @@ Session-first live authority with index projection:
 
 import json
 import os
-import re
 import uuid
-import shlex
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
@@ -474,99 +472,16 @@ class MemoryStore:
         }
 
     def active_constraints(self, limit: int = 100) -> list[dict]:
-        """Return active constraints from decision/design_principle/goal beads.
+        """Return active constraints from decision/design_principle/goal beads."""
+        from ..persistence.store_constraints import active_constraints_for_store
 
-        Advisory source set for planner compliance checks.
-        """
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        beads = list(index.get("beads", {}).values())
-        beads = sorted(beads, key=lambda b: b.get("created_at", ""), reverse=True)
-        rows: list[dict] = []
-        for b in beads:
-            if str(b.get("status", "")).lower() in {"superseded"}:
-                continue
-            if b.get("type") not in {"decision", "design_principle", "goal"}:
-                continue
-            constraints = b.get("constraints") or []
-            if not constraints:
-                # Avoid extracting policy from raw sidecar narrative noise unless explicitly set.
-                tags = set([str(t).strip().lower() for t in (b.get("tags") or [])])
-                if "sidecar" in tags and "turn-finalized" in tags:
-                    continue
-                text = " ".join([b.get("title", "")] + list(b.get("summary") or []))
-                constraints = self.extract_constraints(text)
-            if not constraints:
-                continue
-            rows.append(
-                {
-                    "bead_id": b.get("id"),
-                    "type": b.get("type"),
-                    "title": b.get("title"),
-                    "constraints": constraints[:5],
-                    "created_at": b.get("created_at"),
-                }
-            )
-            if len(rows) >= max(1, int(limit)):
-                break
-        return rows
+        return active_constraints_for_store(self, limit=limit)
 
     def check_plan_constraints(self, plan: str, limit: int = 20) -> dict:
-        """Advisory compliance check: map active constraints to satisfied/violated/unknown.
+        """Advisory compliance check: map active constraints to satisfied/violated/unknown."""
+        from ..persistence.store_constraints import check_plan_constraints_for_store
 
-        Heuristic only; no hard enforcement in Phase 3.
-        """
-        plan_text = (plan or "").lower().strip()
-        plan_tokens = set(shlex.split(plan_text)) if plan_text else set()
-        active = self.active_constraints(limit=limit)
-        satisfied = []
-        violated = []
-        unknown = []
-
-        def _hits(constraint: str) -> bool:
-            c = re.sub(r"\s+", " ", constraint.lower()).strip()
-            if not c:
-                return False
-            # token overlap heuristic
-            ctoks = set([t for t in re.findall(r"[a-z0-9_\-]+", c) if len(t) > 2])
-            if not ctoks:
-                return False
-            return len(ctoks.intersection(plan_tokens)) >= max(1, min(2, len(ctoks) // 3))
-
-        for row in active:
-            row_s = {"bead_id": row["bead_id"], "title": row["title"], "constraints": []}
-            row_v = {"bead_id": row["bead_id"], "title": row["title"], "constraints": []}
-            row_u = {"bead_id": row["bead_id"], "title": row["title"], "constraints": []}
-            for c in row.get("constraints", []):
-                cl = c.lower()
-                has_not = any(x in cl for x in ["must not", "never", "do not", "avoid"])
-                hit = _hits(c)
-                if has_not:
-                    if hit:
-                        row_v["constraints"].append(c)
-                    else:
-                        row_s["constraints"].append(c)
-                else:
-                    if hit:
-                        row_s["constraints"].append(c)
-                    else:
-                        row_u["constraints"].append(c)
-            if row_s["constraints"]:
-                satisfied.append(row_s)
-            if row_v["constraints"]:
-                violated.append(row_v)
-            if row_u["constraints"]:
-                unknown.append(row_u)
-
-        return {
-            "ok": True,
-            "mode": "advisory",
-            "plan": plan,
-            "active_constraints": len(active),
-            "satisfied": satisfied,
-            "violated": violated,
-            "unknown": unknown,
-            "recommendation": "review" if violated else "proceed",
-        }
+        return check_plan_constraints_for_store(self, plan=plan, limit=limit)
 
     def _read_metrics_state(self) -> dict:
         from ..reporting.store_metrics_runtime import read_metrics_state_for_store
