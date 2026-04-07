@@ -78,6 +78,21 @@ class TestCliHandlerModulesSlice51A(unittest.TestCase):
                 )
             self.assertTrue(handled)
 
+    def test_metrics_handler_reviewer_quick_value_v2(self):
+        with tempfile.TemporaryDirectory(prefix="cm-cli-handler-") as td:
+            memory = Mock()
+            memory.root = Path(td) / "memory"
+            parser = Mock()
+            args = SimpleNamespace(command="metrics", metrics_cmd="reviewer-quick-value-v2", strict=False, write=None)
+            with patch("builtins.print"):
+                handled = handle_metrics_command(
+                    args=args,
+                    memory=memory,
+                    metrics_parser=parser,
+                    canonical_health_report=lambda root, write_path=None: {"ok": True},
+                )
+            self.assertTrue(handled)
+
 
 if __name__ == "__main__":
     unittest.main()

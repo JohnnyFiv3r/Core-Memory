@@ -59,6 +59,10 @@ class TestCliParserExtendedSlice51A(unittest.TestCase):
         self.assertEqual("longitudinal-benchmark-v2", args2.metrics_cmd)
         self.assertEqual("14d", args2.since)
 
+        args3 = parser.parse_args(["metrics", "reviewer-quick-value-v2", "--strict"])
+        self.assertEqual("reviewer-quick-value-v2", args3.metrics_cmd)
+        self.assertTrue(args3.strict)
+
 
 if __name__ == "__main__":
     unittest.main()
