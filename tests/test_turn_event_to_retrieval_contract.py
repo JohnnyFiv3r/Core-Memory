@@ -10,7 +10,7 @@ from core_memory.runtime.worker import SidecarPolicy
 from core_memory.retrieval.tools.memory import execute
 
 
-class TestV2P19TurnToRetrievalContract(unittest.TestCase):
+class TestTurnEventToRetrievalContract(unittest.TestCase):
     def test_turn_creates_semantic_bead_via_canonical_path(self):
         with tempfile.TemporaryDirectory() as td:
             out = process_turn_finalized(
