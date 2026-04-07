@@ -570,152 +570,62 @@ class MemoryStore:
         }
 
     def _read_metrics_state(self) -> dict:
-        default = {
-            "current": {
-                "run_id": None,
-                "task_id": None,
-                "mode": "core_memory",
-                "phase": "core_memory",
-                "steps": 0,
-                "tool_calls": 0,
-                "turns_processed": 0,
-                "beads_created": 0,
-                "beads_recalled": 0,
-            }
-        }
-        if not self.metrics_state_file.exists():
-            return default
-        try:
-            data = json.loads(self.metrics_state_file.read_text(encoding="utf-8"))
-            data.setdefault("current", {})
-            for k, v in default["current"].items():
-                data["current"].setdefault(k, v)
-            return data
-        except json.JSONDecodeError:
-            return default
+        from ..reporting.store_metrics_runtime import read_metrics_state_for_store
+
+        return read_metrics_state_for_store(self)
 
     def _write_metrics_state(self, state: dict):
-        self.metrics_state_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp = self.metrics_state_file.with_suffix(".tmp")
-        tmp.write_text(json.dumps(state, indent=2), encoding="utf-8")
-        tmp.replace(self.metrics_state_file)
+        from ..reporting.store_metrics_runtime import write_metrics_state_for_store
+
+        write_metrics_state_for_store(self, state)
 
     def start_task_run(self, run_id: str, task_id: str, mode: str = "core_memory", phase: str = "core_memory") -> dict:
         """Start/reset current metrics run context for step/tool aggregation."""
-        with store_lock(self.root):
-            state = self._read_metrics_state()
-            state["current"] = {
-                "run_id": run_id,
-                "task_id": task_id,
-                "mode": mode,
-                "phase": phase,
-                "steps": 0,
-                "tool_calls": 0,
-                "turns_processed": 0,
-                "beads_created": 0,
-                "beads_recalled": 0,
-            }
-            self._write_metrics_state(state)
-            return state["current"]
+        from ..reporting.store_metrics_runtime import start_task_run_for_store
+
+        return start_task_run_for_store(self, run_id, task_id, mode=mode, phase=phase)
 
     def track_step(self, count: int = 1) -> dict:
-        with store_lock(self.root):
-            state = self._read_metrics_state()
-            state.setdefault("current", {}).setdefault("steps", 0)
-            state["current"]["steps"] += max(0, int(count))
-            self._write_metrics_state(state)
-            return state["current"]
+        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+
+        return increment_metric_counter_for_store(self, key="steps", count=count)
 
     def track_tool_call(self, count: int = 1) -> dict:
-        with store_lock(self.root):
-            state = self._read_metrics_state()
-            state.setdefault("current", {}).setdefault("tool_calls", 0)
-            state["current"]["tool_calls"] += max(0, int(count))
-            self._write_metrics_state(state)
-            return state["current"]
+        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+
+        return increment_metric_counter_for_store(self, key="tool_calls", count=count)
 
     def track_turn_processed(self, count: int = 1) -> dict:
-        with store_lock(self.root):
-            state = self._read_metrics_state()
-            state.setdefault("current", {}).setdefault("turns_processed", 0)
-            state["current"]["turns_processed"] += max(0, int(count))
-            self._write_metrics_state(state)
-            return state["current"]
+        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+
+        return increment_metric_counter_for_store(self, key="turns_processed", count=count)
 
     def track_bead_created(self, count: int = 1) -> dict:
-        with store_lock(self.root):
-            state = self._read_metrics_state()
-            state.setdefault("current", {}).setdefault("beads_created", 0)
-            state["current"]["beads_created"] += max(0, int(count))
-            self._write_metrics_state(state)
-            return state["current"]
+        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+
+        return increment_metric_counter_for_store(self, key="beads_created", count=count)
 
     def track_bead_recalled(self, count: int = 1) -> dict:
-        with store_lock(self.root):
-            state = self._read_metrics_state()
-            state.setdefault("current", {}).setdefault("beads_recalled", 0)
-            state["current"]["beads_recalled"] += max(0, int(count))
-            self._write_metrics_state(state)
-            return state["current"]
+        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+
+        return increment_metric_counter_for_store(self, key="beads_recalled", count=count)
 
     def current_run_metrics(self) -> dict:
-        with store_lock(self.root):
-            return self._read_metrics_state().get("current", {})
+        from ..reporting.store_metrics_runtime import current_run_metrics_for_store
+
+        return current_run_metrics_for_store(self)
 
     def finalize_task_run(self, result: str = "success", **extra) -> dict:
         """Append final KPI row using current counters and derived compression ratio."""
-        cur = self.current_run_metrics()
-        turns = int(cur.get("turns_processed", 0) or 0)
-        beads_created = int(cur.get("beads_created", 0) or 0)
-        compression_ratio = (turns / beads_created) if beads_created > 0 else 0.0
-        rec = {
-            "run_id": cur.get("run_id"),
-            "task_id": cur.get("task_id"),
-            "mode": cur.get("mode"),
-            "phase": cur.get("phase"),
-            "result": result,
-            "steps": cur.get("steps", 0),
-            "tool_calls": cur.get("tool_calls", 0),
-            "beads_created": beads_created,
-            "beads_recalled": int(cur.get("beads_recalled", 0) or 0),
-            "turns_processed": turns,
-            "compression_ratio": compression_ratio,
-        }
-        rec.update(extra)
-        return self.append_metric(rec)
+        from ..reporting.store_metrics_runtime import finalize_task_run_for_store
+
+        return finalize_task_run_for_store(self, result=result, **extra)
 
     def append_metric(self, record: dict) -> dict:
         """Append a metrics KPI record (v1 schema defaults applied)."""
-        now = datetime.now(timezone.utc).isoformat()
-        current = self.current_run_metrics()
-        m = {
-            "ts": record.get("ts", now),
-            "run_id": record.get("run_id") or current.get("run_id") or f"run-{uuid.uuid4().hex[:12]}",
-            "mode": record.get("mode") or current.get("mode") or "core_memory",
-            "task_id": record.get("task_id") or current.get("task_id") or "unknown",
-            "result": record.get("result", "success"),
-            "steps": int(record.get("steps", current.get("steps", 0)) or 0),
-            "tool_calls": int(record.get("tool_calls", current.get("tool_calls", 0)) or 0),
-            "beads_created": int(record.get("beads_created", current.get("beads_created", 0)) or 0),
-            "beads_recalled": int(record.get("beads_recalled", current.get("beads_recalled", 0)) or 0),
-            "repeat_failure": bool(record.get("repeat_failure", False)),
-            "decision_conflicts": int(record.get("decision_conflicts", 0) or 0),
-            "unjustified_flips": int(record.get("unjustified_flips", 0) or 0),
-            "rationale_recall_score": int(record.get("rationale_recall_score", 0) or 0),
-            "turns_processed": int(record.get("turns_processed", current.get("turns_processed", 0)) or 0),
-            "compression_ratio": float(record.get("compression_ratio", 0) or 0),
-            "phase": record.get("phase") or current.get("phase") or "core_memory",
-        }
-        if m["compression_ratio"] <= 0 and m["beads_created"] > 0 and m["turns_processed"] > 0:
-            m["compression_ratio"] = round(m["turns_processed"] / m["beads_created"], 6)
+        from ..reporting.store_metrics_runtime import append_metric_for_store
 
-        # pass-through extensibility for KPI fields (phase-specific)
-        for k, v in record.items():
-            if k.startswith("kpi_") and k not in m:
-                m[k] = v
-
-        events.append_metric(self.root, m)
-        return m
+        return append_metric_for_store(self, record)
 
     def _infer_target_bead_for_question(self, question: str) -> Optional[dict]:
         """Infer target decision bead for a rationale question using token overlap."""
