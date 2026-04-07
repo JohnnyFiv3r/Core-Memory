@@ -449,6 +449,7 @@ Semantic backend deployment guidance:
 - `faiss-*` local index is development/single-process oriented (single-writer).
 - `qdrant` and `pgvector` are the recommended distributed-safe production backends.
 - For multi-worker production deployments, avoid relying on local FAISS write paths.
+- backend selection is explicit via `CORE_MEMORY_VECTOR_BACKEND` (`local-faiss|qdrant|pgvector|chromadb`).
 
 See `docs/semantic_backend_modes.md` for backend mode details.
 
