@@ -1024,87 +1024,23 @@ class MemoryStore:
         user_message: str = "",
         session_id: str = "default"
     ):
-        """
-        Capture a single turn in the session.
-        
-        Args:
-            role: assistant | user | system
-            content: The message/response content
-            tools_used: List of tools called
-            user_message: The user input (for context)
-            session_id: Session identifier
-        """
-        turn = {
-            "role": role,
-            "content": content,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-            "tools_used": tools_used or []
-        }
-        
-        # Add user message context if provided
-        if user_message:
-            turn["user_message"] = user_message
-        
-        # Write to turns directory (separate from beads)
-        turn_file = self.turns_dir / SESSION_FILE.format(id=session_id)
-        with store_lock(self.root):
-            append_jsonl(turn_file, turn)
+        """Capture a single turn in the session."""
+        from ..persistence.store_session_ops import capture_turn_for_store
 
-        self.track_turn_processed(1)
+        capture_turn_for_store(
+            self,
+            role=role,
+            content=content,
+            tools_used=tools_used,
+            user_message=user_message,
+            session_id=session_id,
+        )
     
     def consolidate(self, session_id: str = "default") -> dict:
-        """
-        Run session-end consolidation:
-        - Summarize session to session_end bead
-        - Update rolling window
-        - Compact old beads
-        
-        Args:
-            session_id: Session to consolidate
-            
-        Returns:
-            Consolidation summary
-        """
-        # Read turns for this session
-        turn_file = self.turns_dir / SESSION_FILE.format(id=session_id)
-        
-        if turn_file.exists():
-            with open(turn_file, 'r') as f:
-                turns = [json.loads(line) for line in f if line.strip()]
-            turn_count = len(turns)
-        else:
-            turn_count = 0
-        
-        # Read beads for this session
-        bead_file = self.beads_dir / SESSION_FILE.format(id=session_id)
-        
-        if bead_file.exists():
-            with open(bead_file, 'r') as f:
-                beads = [json.loads(line) for line in f if line.strip()]
-            bead_count = len(beads)
-        else:
-            bead_count = 0
-        
-        # Create session_end bead
-        end_bead_id = self.add_bead(
-            type="session_end",
-            title=f"Session {session_id} summary",
-            summary=[
-                f"{turn_count} turns",
-                f"{bead_count} events"
-            ],
-            detail=f"Session {session_id} completed.",
-            session_id=session_id,
-            scope="project",
-            tags=["session", session_id]
-        )
-        
-        return {
-            "session_id": session_id,
-            "turns": turn_count,
-            "events": bead_count,
-            "end_bead": end_bead_id
-        }
+        """Run session-end consolidation summary bead."""
+        from ..persistence.store_session_ops import consolidate_for_store
+
+        return consolidate_for_store(self, session_id=session_id)
 
     def compact(
         self,
@@ -1314,60 +1250,18 @@ class MemoryStore:
         limit: int = 20,
         session_id: Optional[str] = None,
     ) -> list:
-        """
-        Query beads with filters.
-        
-        Args:
-            type: Filter by bead type (BeadType enum or string)
-            status: Filter by status (Status enum or string)
-            tags: Filter by tags
-            scope: Filter by scope (Scope enum or string)
-            limit: Max results
-            session_id: Optional session filter; when provided, query uses session surface first
-            
-        Returns:
-            List of matching beads
-        """
-        from ..schema.models import BeadType, Status, Scope
-        
-        # Normalize enums to strings
-        type_filter = self._normalize_enum(type, BeadType)
-        status_filter = self._normalize_enum(status, Status)
-        scope_filter = self._normalize_enum(scope, Scope)
-        
-        results = []
+        """Query beads with filters."""
+        from ..persistence.store_query import query_for_store
 
-        if session_id:
-            # Session-first authority for session-scoped query reads.
-            source_rows = list(read_session_surface(self.root, session_id))
-            if not source_rows:
-                index = self._read_json(self.beads_dir / INDEX_FILE)
-                source_rows = [
-                    b for b in (index.get("beads") or {}).values()
-                    if str((b or {}).get("session_id") or "") == str(session_id)
-                ]
-            iterable = source_rows
-        else:
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            iterable = list((index.get("beads") or {}).values())
-
-        for bead in iterable:
-            if type_filter and bead.get("type") != type_filter:
-                continue
-            if status_filter and bead.get("status") != status_filter:
-                continue
-            if scope_filter and bead.get("scope") != scope_filter:
-                continue
-            if tags:
-                bead_tags = set(bead.get("tags", []))
-                if not bead_tags.intersection(set(tags)):
-                    continue
-            results.append(bead)
-
-            if len(results) >= limit:
-                break
-        
-        return results
+        return query_for_store(
+            self,
+            type=type,
+            status=status,
+            tags=tags,
+            scope=scope,
+            limit=limit,
+            session_id=session_id,
+        )
     
     def promote(self, bead_id: str, promotion_reason: Optional[str] = None) -> bool:
         """
