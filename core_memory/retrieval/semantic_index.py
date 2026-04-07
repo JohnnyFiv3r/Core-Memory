@@ -19,6 +19,33 @@ SEMANTIC_MODE_REQUIRED = "required"
 SEMANTIC_MODE_DEGRADED_ALLOWED = "degraded_allowed"
 
 
+def _backend_deployment_profile(backend: str) -> dict[str, Any]:
+    b = str(backend or "").strip().lower()
+    if b.startswith("faiss"):
+        return {
+            "deployment_profile": "single_process_single_writer",
+            "multi_worker_safe": False,
+            "concurrency_warning": "FAISS/local index is development-oriented and not recommended for concurrent multi-worker writes.",
+        }
+    if b.startswith("qdrant") or b.startswith("pgvector") or b.startswith("postgres"):
+        return {
+            "deployment_profile": "distributed_safe",
+            "multi_worker_safe": True,
+            "concurrency_warning": "",
+        }
+    if b in {"", "lexical", "not_built"}:
+        return {
+            "deployment_profile": "lexical_only",
+            "multi_worker_safe": True,
+            "concurrency_warning": "No semantic backend is currently active; query-based anchors may fail closed in required mode.",
+        }
+    return {
+        "deployment_profile": "unknown",
+        "multi_worker_safe": False,
+        "concurrency_warning": "Unknown backend profile; verify multi-worker safety before production use.",
+    }
+
+
 def _normalize_semantic_mode(mode: str | None) -> str:
     m = str(mode or SEMANTIC_MODE_DEGRADED_ALLOWED).strip().lower()
     if m not in {SEMANTIC_MODE_REQUIRED, SEMANTIC_MODE_DEGRADED_ALLOWED}:
@@ -49,6 +76,7 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
             rows_count = 0
 
     usable_backend = bool(backend.startswith("faiss") and faiss_file.exists() and rows_count > 0)
+    profile = _backend_deployment_profile(backend or "not_built")
 
     if usable_backend:
         next_step = "Semantic backend is ready for canonical query-based anchor lookup."
@@ -68,6 +96,10 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
         "rows_count": int(rows_count),
         "faiss_index_exists": faiss_file.exists(),
         "usable_backend": usable_backend,
+        "deployment_profile": str(profile.get("deployment_profile") or "unknown"),
+        "multi_worker_safe": bool(profile.get("multi_worker_safe")),
+        "concurrency_warning": str(profile.get("concurrency_warning") or ""),
+        "recommended_production_backends": ["qdrant", "pgvector"],
         "next_step": next_step,
     }
 

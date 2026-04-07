@@ -16,6 +16,11 @@ Term translations:
 - `degraded_allowed` = allow lexical fallback if semantic backend is missing
 - "hydration" = load source details after selecting retrieval results
 
+Semantic backend production note:
+- local `faiss-*` is development/single-process oriented
+- `qdrant` and `pgvector` are recommended distributed-safe production paths
+- see `docs/semantic_backend_modes.md` for deployment guidance
+
 ## Canonical runtime surfaces
 
 ### Finalized-turn ingestion (write path)

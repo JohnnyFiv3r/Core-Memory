@@ -445,6 +445,13 @@ Semantic mode behavior:
 - `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` (default) fails closed for query-based anchor lookup when semantic backend is unavailable.
 - `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` allows explicit degraded lexical fallback with markers.
 
+Semantic backend deployment guidance:
+- `faiss-*` local index is development/single-process oriented (single-writer).
+- `qdrant` and `pgvector` are the recommended distributed-safe production backends.
+- For multi-worker production deployments, avoid relying on local FAISS write paths.
+
+See `docs/semantic_backend_modes.md` for backend mode details.
+
 Hydration is explicit post-selection source recovery (turn/tools/adjacent), not a general retrieval mode.
 
 Deep recall exists as a separate capability and is not the same thing as canonical hydration.
