@@ -18,7 +18,6 @@ from typing import Optional
 from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
 from ..persistence.io_utils import store_lock, atomic_write_json
-from ..runtime.session_surface import read_session_surface
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
@@ -184,56 +183,10 @@ class MemoryStore:
         atomic_write_json(path, data)
 
     def rebuild_index_projection_from_sessions(self) -> dict:
-        """Rebuild index projection from session/global JSONL surfaces.
+        """Rebuild index projection from session/global JSONL surfaces."""
+        from ..persistence.store_projection_ops import rebuild_index_projection_from_sessions_for_store
 
-        Authority model: session/global files are source; index is projection cache.
-        Associations are preserved from existing index projection.
-        """
-        with store_lock(self.root):
-            index_file = self.beads_dir / INDEX_FILE
-            existing = self._read_json(index_file)
-            associations = list(existing.get("associations") or [])
-
-            beads = {}
-            for p in sorted(self.beads_dir.glob("session-*.jsonl")):
-                for row in read_session_surface(self.root, p.stem.replace("session-", "")):
-                    bid = str((row or {}).get("id") or "")
-                    if bid:
-                        beads[bid] = row
-
-            global_file = self.beads_dir / "global.jsonl"
-            if global_file.exists():
-                for line in global_file.read_text(encoding="utf-8").splitlines():
-                    if not line.strip():
-                        continue
-                    try:
-                        row = json.loads(line)
-                    except Exception:
-                        continue
-                    bid = str((row or {}).get("id") or "")
-                    if bid:
-                        beads[bid] = row
-
-            out = {
-                "beads": beads,
-                "associations": associations,
-                "stats": {
-                    "total_beads": len(beads),
-                    "total_associations": len(associations),
-                    "created_at": str((existing.get("stats") or {}).get("created_at") or datetime.now(timezone.utc).isoformat()),
-                },
-                "projection": {
-                    "mode": "session_first_projection_cache",
-                    "rebuilt_at": datetime.now(timezone.utc).isoformat(),
-                },
-            }
-            self._write_json(index_file, out)
-            return {
-                "ok": True,
-                "mode": "session_first_projection_cache",
-                "total_beads": len(beads),
-                "total_associations": len(associations),
-            }
+        return rebuild_index_projection_from_sessions_for_store(self)
     
     def _generate_id(self) -> str:
         """Generate a short random bead ID (UUID-derived, non-ULID)."""
