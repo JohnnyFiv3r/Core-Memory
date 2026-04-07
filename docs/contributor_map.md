@@ -47,3 +47,8 @@ If you're new, this is the shortest map of where behavior lives.
 - **Recommended**: semantic extras + strict semantic mode where needed
 - **Compatibility**: `MemoryStore`, helper ingress APIs, legacy CLI aliases
 - **Experimental**: optional adapters/evals not listed as canonical
+
+## Test naming convention (behavior-first)
+- Prefer behavior intent in test filenames (for example: `test_turn_event_to_retrieval_contract.py`)
+- Avoid internal phase/ticket labels in new filenames (`p8b`, `v2p19`, `sliceNN`) when behavior wording is practical
+- Keep tests discoverable with `test_*.py` and group by product behavior rather than implementation milestone
