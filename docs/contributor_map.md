@@ -21,6 +21,8 @@ If you're new, this is the shortest map of where behavior lives.
 - add-bead helper heuristics: `core_memory/persistence/store_add_helpers.py`
 - bead validation helpers: `core_memory/persistence/store_validation_helpers.py`
 - constraint retrieval/compliance helpers: `core_memory/persistence/store_constraints.py`
+- query/read helper surface: `core_memory/persistence/store_query.py`
+- session turn/consolidation helpers: `core_memory/persistence/store_session_ops.py`
 - promotion policy service: `core_memory/persistence/promotion_service.py`
 - reporting service: `core_memory/reporting/store_reporting.py`
 - metrics runtime service: `core_memory/reporting/store_metrics_runtime.py`
