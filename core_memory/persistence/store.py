@@ -17,12 +17,10 @@ from typing import Optional
 
 from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
-from ..persistence.io_utils import store_lock, atomic_write_json, append_jsonl
+from ..persistence.io_utils import store_lock, atomic_write_json
 from ..runtime.session_surface import read_session_surface
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
-from ..retrieval.lifecycle import mark_semantic_dirty
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
-from ..policy.hygiene import enforce_bead_hygiene_contract
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 from ..persistence.promotion_service import (
     promotion_slate_for_store,
@@ -714,209 +712,23 @@ class MemoryStore:
         links: Optional[dict] = None,
         **kwargs
     ) -> str:
-        """
-        Create a new bead.
-        
-        Args:
-            type: Bead type (BeadType enum or string)
-            title: Short descriptive title
-            summary: List of key points
-            detail: Full narrative (preserved in archive)
-            session_id: Associated session
-            scope: Scope (Scope enum or string)
-            tags: List of tags
-            links: Causal/associative links
-            
-        Returns:
-            Bead ID
-        """
-        from ..schema.models import BeadType, Scope
-        
-        # Normalize enums to strings
-        type_value = self._normalize_enum(type, BeadType)
-        scope_value = self._normalize_enum(scope, Scope)
+        """Create a new bead."""
+        from ..persistence.store_add_bead_ops import add_bead_for_store
 
-        # P7 confirmed decision: association is not a bead type.
-        if type_value == "association":
-            raise ValueError("association_is_not_a_bead_type")
-
-        reserved_overrides = {"id"}
-        bad_override = sorted(set(str(k) for k in kwargs.keys()).intersection(reserved_overrides))
-        if bad_override:
-            raise ValueError(f"reserved_overrides_not_allowed:{','.join(bad_override)}")
-
-        bead_id = self._generate_id()
-        now = datetime.now(timezone.utc).isoformat()
-        
-        resolved_session_id = self._resolve_bead_session_id(session_id=session_id, source_turn_ids=source_turn_ids)
-
-        bead = {
-            "id": bead_id,
-            "type": type_value,
-            "created_at": now,
-            "session_id": resolved_session_id,
-            "title": title,
-            "summary": summary or [],
-            "because": because or [],
-            "source_turn_ids": source_turn_ids or [],
-            "detail": detail,
-            "scope": scope_value,
-            "authority": "agent_inferred",
-            "confidence": 0.8,
-            "tags": tags or [],
-            "links": self._normalize_links(links),
-            "status": "open",
-            "recall_count": 0,
-            "last_recalled": None,
-            **kwargs
-        }
-
-        # conservative secret redaction (high-confidence patterns only)
-        bead = self._sanitize_bead_content(bead)
-
-        # Thin-vs-rich hygiene normalization:
-        # - keeps one-bead-per-turn invariant
-        # - preserves temporal minimum surface
-        # - payload-gates retrieval eligibility
-        bead = enforce_bead_hygiene_contract(bead)
-
-        # Phase 3 advisory constraint extraction for commitments/principles
-        if bead.get("type") in {"decision", "design_principle", "goal"} and not bead.get("constraints"):
-            basis = " ".join([bead.get("title", "")] + list(bead.get("summary") or []))
-            extracted = self.extract_constraints(basis)
-            if extracted:
-                bead["constraints"] = extracted
-
-        # stable failure signature for FAILED_HYPOTHESIS beads
-        if bead.get("type") == "failed_hypothesis":
-            basis = " ".join(bead.get("summary", [])) or bead.get("title", "") or bead.get("detail", "")
-            bead["failure_signature"] = self.compute_failure_signature(basis)
-
-        self._validate_bead_fields(bead)
-
-        repeat_failure = False
-        decision_conflicts = 0
-        unjustified_flips = 0
-
-        with store_lock(self.root):
-            index_file = self.beads_dir / INDEX_FILE
-            index = self._read_json(index_file)
-
-            # Write-time duplicate suppression (same-session, recent window).
-            # Keeps corpus signal dense and avoids duplicate-shape beads.
-            try:
-                dedup_window = max(1, int(os.environ.get("CORE_MEMORY_WRITE_DEDUP_WINDOW", "25")))
-            except ValueError:
-                dedup_window = 25
-            dup_id = self._find_recent_duplicate_bead_id(index, bead, session_id=resolved_session_id, window=dedup_window)
-            if dup_id:
-                return dup_id
-
-            # Write to session archive first (durability/rebuild source)
-            if resolved_session_id:
-                bead_file = self.beads_dir / SESSION_FILE.format(id=resolved_session_id)
-            else:
-                bead_file = self.beads_dir / "global.jsonl"
-            append_jsonl(bead_file, bead)
-
-            # Update index after durable archive write
-
-            if bead.get("type") == "failed_hypothesis" and bead.get("failure_signature"):
-                sig = bead.get("failure_signature")
-                repeat_failure = any(
-                    b.get("failure_signature") == sig
-                    for b in index.get("beads", {}).values()
-                )
-
-            decision_conflicts, unjustified_flips, conflict_ids = self._detect_decision_conflicts(index, bead)
-            if conflict_ids:
-                bead["decision_conflict_with"] = conflict_ids
-                bead["unjustified_flip"] = bool(unjustified_flips)
-
-            index["beads"][bead["id"]] = bead
-            index["stats"]["total_beads"] = len(index["beads"])
-
-            # Fast per-add association pass (derived, deterministic, bounded)
-            # Session-first authority: build pass input from session surface first,
-            # then fall back to index projection for missing ids.
-            candidates = []
-            if self.associate_on_add and self.assoc_top_k > 0:
-                assoc_index = dict(index)
-                assoc_beads = dict(index.get("beads") or {})
-                if resolved_session_id:
-                    for row in read_session_surface(self.root, resolved_session_id):
-                        rid = str((row or {}).get("id") or "")
-                        if rid:
-                            assoc_beads[rid] = row
-                assoc_index["beads"] = assoc_beads
-                candidates = self._quick_association_candidates(
-                    assoc_index,
-                    bead,
-                    max_lookback=self.assoc_lookback,
-                    top_k=self.assoc_top_k,
-                )
-
-            bead["association_preview"] = [
-                {
-                    "bead_id": c["other_id"],
-                    "relationship": c["relationship"],
-                    "score": c["score"],
-                    "authoritative": False,
-                    "source": "store_quick_preview",
-                }
-                for c in candidates
-            ]
-            index["beads"][bead["id"]] = bead
-
-            # V2P13 Step 1: store-level quick association pass is preview-only.
-            # Canonical association authorship is owned by crawler-reviewed updates
-            # and flush-merge projection paths.
-            index["associations"] = sorted(
-                index.get("associations", []),
-                key=lambda a: (a.get("created_at", ""), a.get("id", "")),
-            )
-            index["stats"]["total_associations"] = len(index.get("associations", []))
-            index["projection"] = {
-                "mode": "session_first_projection_cache",
-                "rebuilt_at": datetime.now(timezone.utc).isoformat(),
-            }
-            self._write_json(index_file, index)
-
-            # Update canonical HEAD pointers (topic/goal identity)
-            heads = self._read_heads()
-            heads = self._update_heads_for_bead(heads, bead)
-            self._write_heads(heads)
-
-            # Append audit event (minimal - just id + timestamp for rebuild)
-            events.event_bead_created(self.root, resolved_session_id, bead_id, now, use_lock=False)
-
-            # Append metrics event (append-only, no index mutation)
-            events.append_metric(self.root, {
-                "ts": now,
-                "run_id": f"bead-{bead_id}",
-                "mode": "core_memory",
-                "task_id": bead.get("type", "unknown"),
-                "result": "success",
-                "steps": 1,
-                "tool_calls": 0,
-                "beads_created": 1,
-                "beads_recalled": 0,
-                "repeat_failure": repeat_failure,
-                "decision_conflicts": decision_conflicts,
-                "unjustified_flips": unjustified_flips,
-                "rationale_recall_score": 0,
-                "turns_processed": 1,
-                "compression_ratio": 1.0,
-                "phase": "core_memory",
-            }, use_lock=False)
-
-        # aggregate run counters (outside lock helper has its own lock)
-        self.track_bead_created(1)
-
-        # canonical retrieval lifecycle: bead mutation marks semantic corpus dirty
-        mark_semantic_dirty(self.root, reason="add_bead")
-
-        return bead_id
+        return add_bead_for_store(
+            self,
+            type=type,
+            title=title,
+            summary=summary,
+            because=because,
+            source_turn_ids=source_turn_ids,
+            detail=detail,
+            session_id=session_id,
+            scope=scope,
+            tags=tags,
+            links=links,
+            **kwargs,
+        )
     
     def capture_turn(
         self,
