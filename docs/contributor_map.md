@@ -27,6 +27,7 @@ If you're new, this is the shortest map of where behavior lives.
 - session turn/consolidation helpers: `core_memory/persistence/store_session_ops.py`
 - promote/link/recall/stats helpers: `core_memory/persistence/store_relationship_ops.py`
 - compaction/archive/myelination helpers: `core_memory/persistence/store_compaction_ops.py`
+- index projection rebuild helper: `core_memory/persistence/store_projection_ops.py`
 - promotion policy service: `core_memory/persistence/promotion_service.py`
 - reporting service: `core_memory/reporting/store_reporting.py`
 - metrics runtime service: `core_memory/reporting/store_metrics_runtime.py`
