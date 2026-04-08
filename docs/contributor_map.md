@@ -25,6 +25,7 @@ If you're new, this is the shortest map of where behavior lives.
 - json read/write + enum normalization helpers: `core_memory/persistence/store_json_ops.py`
 - tokenization/query-intent/hygiene wrappers: `core_memory/persistence/store_text_hygiene_ops.py`
 - promotion scoring + service entry wrappers: `core_memory/persistence/store_promotion_ops.py`
+- lifecycle/close helpers: `core_memory/persistence/store_lifecycle_ops.py`
 - add-bead helper heuristics: `core_memory/persistence/store_add_helpers.py`
 - bead validation helpers: `core_memory/persistence/store_validation_helpers.py`
 - constraint retrieval/compliance helpers: `core_memory/persistence/store_constraints.py`
