@@ -54,6 +54,9 @@ Look at:
 - `deployment_profile`
 - `multi_worker_safe`
 - `concurrency_warning`
+- `connectivity_checked`
+- `connectivity_ok`
+- `connectivity_error`
 - `recommended_production_backends`
 
 Concurrency hardening notes:
