@@ -39,7 +39,7 @@ def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] 
                 if not (str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip()):
                     return False
 
-        bead["status"] = "promoted"
+        bead["status"] = "default"
         bead["promotion_state"] = "promoted"
         bead["promotion_locked"] = True
         bead["promoted_at"] = datetime.now(timezone.utc).isoformat()

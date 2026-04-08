@@ -76,6 +76,27 @@ class TestSchemaModelsNormalizationSlice51B(unittest.TestCase):
         )
         self.assertEqual(["not", "dict"], ev.payload)
 
+    def test_bead_from_dict_maps_legacy_status_to_split_lifecycle_axes(self):
+        bead_candidate = Bead.from_dict({
+            "id": "b-cand",
+            "type": "lesson",
+            "title": "legacy candidate",
+            "summary": ["x"],
+            "status": "candidate",
+        })
+        self.assertEqual("default", bead_candidate.status)
+        self.assertEqual("candidate", bead_candidate.promotion_state)
+
+        bead_promoted = Bead.from_dict({
+            "id": "b-prom",
+            "type": "lesson",
+            "title": "legacy promoted",
+            "summary": ["x"],
+            "status": "promoted",
+        })
+        self.assertEqual("default", bead_promoted.status)
+        self.assertEqual("promoted", bead_promoted.promotion_state)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -35,7 +35,12 @@ def compact_for_store(
             if bead_id in skip:
                 continue
 
-            if promote and store.auto_promote_on_compact and bead.get("status") != "promoted":
+            bead_status = str(bead.get("status") or "").lower()
+            bead_pstate = str(bead.get("promotion_state") or "").lower()
+            is_promoted_state = bead_pstate == "promoted" or bead_status == "promoted"
+            is_candidate_state = bead_pstate == "candidate" or bead_status == "candidate"
+
+            if promote and store.auto_promote_on_compact and not is_promoted_state:
                 btype = str(bead.get("type") or "").lower()
                 curr_status = str(bead.get("status") or "").lower()
                 because = bead.get("because") or []
@@ -64,7 +69,7 @@ def compact_for_store(
                         allow_promote, score_meta = store._candidate_promotable(index, bead)
 
                 if allow_promote:
-                    bead["status"] = "promoted"
+                    bead["status"] = "default"
                     bead["promotion_state"] = "promoted"
                     bead["promotion_locked"] = True
                     bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
@@ -79,10 +84,11 @@ def compact_for_store(
 
             bead_type = str(bead.get("type", "")).lower()
             bead_status = str(bead.get("status", "")).lower()
+            bead_pstate = str(bead.get("promotion_state") or "").lower()
             is_session_boundary = bead_type in {"session_start", "session_end"}
-            is_promoted = bead_status == "promoted"
+            is_promoted = bead_pstate == "promoted" or bead_status == "promoted"
 
-            if (not force_archive_all) and bead_status == "candidate":
+            if (not force_archive_all) and (bead_pstate == "candidate" or bead_status == "candidate"):
                 index["beads"][bead_id] = bead
                 continue
 
@@ -159,7 +165,7 @@ def uncompact_for_store(store: Any, bead_id: str) -> dict:
         snapshot = found.get("snapshot") if isinstance(found.get("snapshot"), dict) else None
         if snapshot:
             restored = dict(snapshot)
-            restored["status"] = "open" if bead.get("status") == "archived" else bead.get("status")
+                restored["status"] = "default" if bead.get("status") == "archived" else bead.get("status")
             restored["uncompacted_at"] = datetime.now(timezone.utc).isoformat()
             index["beads"][bead_id] = restored
         else:
@@ -167,7 +173,7 @@ def uncompact_for_store(store: Any, bead_id: str) -> dict:
             if found.get("summary"):
                 bead["summary"] = found.get("summary")
             if bead.get("status") == "archived":
-                bead["status"] = "open"
+                bead["status"] = "default"
             bead["uncompacted_at"] = datetime.now(timezone.utc).isoformat()
             index["beads"][bead_id] = bead
 
