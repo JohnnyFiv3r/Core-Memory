@@ -62,6 +62,7 @@ Use this page as the authoritative map of current docs.
 ## Compatibility / historical material
 - [`archive/`](archive/) — superseded migration/process/history docs
 - [`reports/`](reports/) — dated snapshots and audits
+- [`reports/bd2-change-report-2026-04-08.md`](reports/bd2-change-report-2026-04-08.md) — BD-2 decomposition change summary
 - Legacy typed-search/search-form narratives are treated as historical material, not forward path docs.
 
 ## Notes for reviewers
