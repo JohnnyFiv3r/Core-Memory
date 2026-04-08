@@ -83,3 +83,16 @@ Reference surfaces:
 - runtime report: `core_memory.runtime.longitudinal_benchmark.longitudinal_benchmark_v2(...)`
 - CLI: `core-memory metrics longitudinal-benchmark-v2 --since 30d [--strict]`
 - eval script: `python -m eval.longitudinal_benchmark_v2 --root <path> --since 30d`
+
+## PV-2 reviewer quick-value path v2
+
+Provide a 5-10 minute walkthrough that demonstrates:
+1. one canonical write
+2. one retrieval
+3. one repeated-incident improvement
+4. one Dreamer-assisted transfer improvement
+
+Reference surfaces:
+- runtime report: `core_memory.runtime.reviewer_quick_value.reviewer_quick_value_v2(...)`
+- CLI: `core-memory metrics reviewer-quick-value-v2 [--strict]`
+- eval script: `python -m eval.reviewer_quick_value_v2 --root <path> [--strict]`

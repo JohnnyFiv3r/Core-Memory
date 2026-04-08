@@ -198,4 +198,8 @@ def add_metrics_parser(subparsers: argparse._SubParsersAction, *, legacy_help: s
     metrics_longitudinal.add_argument("--strict", action="store_true", help="Exit code 2 when dreamer cohort does not beat no-memory baseline")
     metrics_longitudinal.add_argument("--write", help="Optional JSON output path")
 
+    metrics_reviewer_quick = metrics_sub.add_parser("reviewer-quick-value-v2", help="Run reviewer quick-value walkthrough")
+    metrics_reviewer_quick.add_argument("--strict", action="store_true", help="Exit code 2 when quick-value path does not pass")
+    metrics_reviewer_quick.add_argument("--write", help="Optional JSON output path")
+
     return metrics_parser
