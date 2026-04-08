@@ -144,27 +144,32 @@ class MemoryStore:
         return update_heads_for_bead_for_store(self, heads, bead)
 
     # LEGACY COMPATIBILITY - These methods delegate to extracted modules.
-    # See retrieval/query_norm, retrieval/failure_patterns, hygiene, policy/promotion.
+    # See persistence/store_text_hygiene_ops, persistence/store_failure_ops, policy/promotion.
 
     def _tokenize(self, text: str) -> set[str]:
-        from ..retrieval.query_norm import _tokenize as _tok
-        return _tok(text)
+        from ..persistence.store_text_hygiene_ops import tokenize_for_store
+
+        return tokenize_for_store(self, text)
 
     def _is_memory_intent(self, text: str) -> bool:
-        from ..retrieval.query_norm import _is_memory_intent as _imi
-        return _imi(text)
+        from ..persistence.store_text_hygiene_ops import is_memory_intent_for_store
+
+        return is_memory_intent_for_store(self, text)
 
     def _expand_query_tokens(self, text: str, base_tokens: set[str], max_extra: int = 24) -> set[str]:
-        from ..retrieval.query_norm import _expand_query_tokens as _eqt
-        return _eqt(text, base_tokens, max_extra)
+        from ..persistence.store_text_hygiene_ops import expand_query_tokens_for_store
+
+        return expand_query_tokens_for_store(self, text, base_tokens, max_extra=max_extra)
 
     def _redact_text(self, text: str) -> str:
-        from ..policy.hygiene import _redact_text as _rt
-        return _rt(text)
+        from ..persistence.store_text_hygiene_ops import redact_text_for_store
+
+        return redact_text_for_store(self, text)
 
     def _sanitize_bead_content(self, bead: dict) -> dict:
-        from ..policy.hygiene import sanitize_bead_content as _sbc
-        return _sbc(bead)
+        from ..persistence.store_text_hygiene_ops import sanitize_bead_content_for_store
+
+        return sanitize_bead_content_for_store(self, bead)
 
     # Delegators to failure-pattern helper service
     def compute_failure_signature(self, plan: str) -> str:
@@ -201,8 +206,9 @@ class MemoryStore:
 
     # Delegator to hygiene.extract_constraints
     def extract_constraints(self, text: str) -> list[str]:
-        from ..policy.hygiene import extract_constraints as _ec
-        return _ec(text)
+        from ..persistence.store_text_hygiene_ops import extract_constraints_for_store
+
+        return extract_constraints_for_store(self, text)
 
     def retrieve_with_context(
         self,
