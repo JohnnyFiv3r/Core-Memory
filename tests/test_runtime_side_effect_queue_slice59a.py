@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -58,6 +59,7 @@ class TestRuntimeSideEffectQueueSlice59A(unittest.TestCase):
             self.assertTrue(drained.get("ok"))
             self.assertEqual(2, drained.get("processed"))
             self.assertEqual(0, drained.get("failed"))
+            self.assertGreaterEqual(int(drained.get("claimed") or 0), 2)
 
             status_after = side_effect_queue_status(td, now_ts=100)
             self.assertEqual(0, status_after.get("queue_depth"))
@@ -78,6 +80,29 @@ class TestRuntimeSideEffectQueueSlice59A(unittest.TestCase):
             rows = json.loads(q.read_text(encoding="utf-8"))
             self.assertEqual(1, len(rows))
             self.assertGreater(int(rows[0].get("next_retry_at") or 0), 100)
+            self.assertEqual(0, int(rows[0].get("lease_until") or 0))
+
+    def test_concurrent_enqueues_do_not_lose_updates(self):
+        with tempfile.TemporaryDirectory(prefix="cm-se-") as td:
+            def _worker(prefix: str):
+                for i in range(40):
+                    enqueue_side_effect_event(
+                        root=td,
+                        kind="dreamer-run",
+                        payload={"session_id": "s1", "n": i},
+                        idempotency_key=f"{prefix}:{i}",
+                    )
+
+            t1 = threading.Thread(target=_worker, args=("a",))
+            t2 = threading.Thread(target=_worker, args=("b",))
+            t1.start()
+            t2.start()
+            t1.join()
+            t2.join()
+
+            status = side_effect_queue_status(td)
+            self.assertTrue(status.get("ok"))
+            self.assertEqual(80, int(status.get("queue_depth") or 0))
 
     def test_dreamer_side_effect_writes_candidate_queue(self):
         with tempfile.TemporaryDirectory(prefix="cm-se-") as td:

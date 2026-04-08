@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import os
+import tempfile
 import time
 import uuid
 from pathlib import Path
 from typing import Any, Callable
 
+from core_memory.persistence.io_utils import store_lock
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.integrations.neo4j.sync import sync_to_neo4j
@@ -14,6 +17,7 @@ from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates
 
 
 _SIDE_EFFECT_KINDS = {"dreamer-run", "neo4j-sync", "health-recompute"}
+_CLAIM_LEASE_SECONDS = 120
 
 
 def _events_dir(root: str | Path) -> Path:
@@ -41,7 +45,37 @@ def _read_json(path: Path, default: Any) -> Any:
 
 def _write_json(path: Path, payload: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=str(path.parent))
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(payload, ensure_ascii=False, indent=2) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.unlink(tmp)
+
+
+def _default_state() -> dict[str, Any]:
+    return {"consecutive_failures": 0, "opened_until": 0, "last_error": ""}
+
+
+def _load_queue_and_state_locked(root: str | Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    qpath = _queue_path(root)
+    spath = _state_path(root)
+    queue = _read_json(qpath, [])
+    state = _read_json(spath, _default_state())
+    if not isinstance(queue, list):
+        queue = []
+    if not isinstance(state, dict):
+        state = _default_state()
+    return [x for x in queue if isinstance(x, dict)], dict(state)
+
+
+def _persist_queue_and_state_locked(root: str | Path, queue: list[dict[str, Any]], state: dict[str, Any]) -> None:
+    _write_json(_queue_path(root), list(queue))
+    _write_json(_state_path(root), dict(state))
 
 
 def enqueue_side_effect_event(
@@ -58,58 +92,55 @@ def enqueue_side_effect_event(
             "error": {"code": "unknown_kind", "kind": k, "allowed": sorted(_SIDE_EFFECT_KINDS)},
         }
 
-    qpath = _queue_path(root)
-    queue = _read_json(qpath, [])
-    if not isinstance(queue, list):
-        queue = []
-
     idem = str(idempotency_key or "").strip()
-    if idem:
-        for item in queue:
-            if str((item or {}).get("idempotency_key") or "") == idem:
-                return {
-                    "ok": True,
-                    "duplicate": True,
-                    "id": item.get("id"),
-                    "queue_depth": len(queue),
-                    "kind": k,
-                }
+    with store_lock(Path(root)):
+        queue, state = _load_queue_and_state_locked(root)
 
-    item = {
-        "id": f"se-{uuid.uuid4().hex[:12]}",
-        "kind": k,
-        "payload": dict(payload or {}),
-        "idempotency_key": idem or None,
-        "created_at": int(time.time()),
-        "attempts": 0,
-        "next_retry_at": 0,
-    }
-    queue.append(item)
-    _write_json(qpath, queue)
-    return {
-        "ok": True,
-        "duplicate": False,
-        "id": item["id"],
-        "queue_depth": len(queue),
-        "kind": k,
-    }
+        if idem:
+            for item in queue:
+                if str((item or {}).get("idempotency_key") or "") == idem:
+                    return {
+                        "ok": True,
+                        "duplicate": True,
+                        "id": item.get("id"),
+                        "queue_depth": len(queue),
+                        "kind": k,
+                    }
+
+        item = {
+            "id": f"se-{uuid.uuid4().hex[:12]}",
+            "kind": k,
+            "payload": dict(payload or {}),
+            "idempotency_key": idem or None,
+            "created_at": int(time.time()),
+            "attempts": 0,
+            "next_retry_at": 0,
+            "lease_until": 0,
+            "lease_token": None,
+        }
+        queue.append(item)
+        _persist_queue_and_state_locked(root, queue, state)
+        return {
+            "ok": True,
+            "duplicate": False,
+            "id": item["id"],
+            "queue_depth": len(queue),
+            "kind": k,
+        }
 
 
 def side_effect_queue_status(root: str | Path, *, now_ts: int | None = None) -> dict[str, Any]:
     now = int(now_ts if now_ts is not None else time.time())
     qpath = _queue_path(root)
     spath = _state_path(root)
-    queue = _read_json(qpath, [])
-    state = _read_json(spath, {"consecutive_failures": 0, "opened_until": 0, "last_error": ""})
-    if not isinstance(queue, list):
-        queue = []
-    if not isinstance(state, dict):
-        state = {"consecutive_failures": 0, "opened_until": 0, "last_error": ""}
+    with store_lock(Path(root)):
+        queue, state = _load_queue_and_state_locked(root)
 
     opened_until = int(state.get("opened_until") or 0)
     circuit_open = opened_until > now
 
     ready = 0
+    leased = 0
     next_retry_at: int | None = None
     by_kind: dict[str, int] = {}
     for item in queue:
@@ -118,6 +149,12 @@ def side_effect_queue_status(root: str | Path, *, now_ts: int | None = None) -> 
         k = str(item.get("kind") or "unknown")
         by_kind[k] = int(by_kind.get(k, 0)) + 1
         nr = int(item.get("next_retry_at") or 0)
+        lease_until = int(item.get("lease_until") or 0)
+        if lease_until > now:
+            leased += 1
+            if next_retry_at is None or lease_until < next_retry_at:
+                next_retry_at = lease_until
+            continue
         if nr <= now:
             ready += 1
         else:
@@ -131,6 +168,7 @@ def side_effect_queue_status(root: str | Path, *, now_ts: int | None = None) -> 
         "state_path": str(spath),
         "queue_depth": len(queue),
         "ready": ready,
+        "leased": leased,
         "processable_now": 0 if circuit_open else ready,
         "next_retry_at": next_retry_at,
         "circuit_open": circuit_open,
@@ -238,68 +276,96 @@ def drain_side_effect_queue(
     now_ts: int | None = None,
 ) -> dict[str, Any]:
     now = int(now_ts if now_ts is not None else time.time())
-    qpath = _queue_path(root)
-    spath = _state_path(root)
-
-    queue = _read_json(qpath, [])
-    state = _read_json(spath, {"consecutive_failures": 0, "opened_until": 0, "last_error": ""})
-    if not isinstance(queue, list):
-        queue = []
-    if not isinstance(state, dict):
-        state = {"consecutive_failures": 0, "opened_until": 0, "last_error": ""}
-
-    opened_until = int(state.get("opened_until") or 0)
-    if opened_until > now:
-        return {
-            "ok": True,
-            "processed": 0,
-            "failed": 0,
-            "queue_depth": len(queue),
-            "circuit_open": True,
-            "opened_until": opened_until,
-            "last_error": str(state.get("last_error") or ""),
-        }
-
+    max_n = max(0, int(max_items))
     process_item = processor or process_side_effect_event
+
+    with store_lock(Path(root)):
+        queue, state = _load_queue_and_state_locked(root)
+        opened_until = int(state.get("opened_until") or 0)
+        if opened_until > now:
+            return {
+                "ok": True,
+                "processed": 0,
+                "failed": 0,
+                "queue_depth": len(queue),
+                "circuit_open": True,
+                "opened_until": opened_until,
+                "last_error": str(state.get("last_error") or ""),
+            }
+
+        claimed: list[dict[str, Any]] = []
+        for item in queue:
+            if len(claimed) >= max_n:
+                break
+            if int(item.get("next_retry_at") or 0) > now:
+                continue
+            if int(item.get("lease_until") or 0) > now:
+                continue
+            token = f"lease-{uuid.uuid4().hex[:10]}"
+            item["lease_until"] = now + _CLAIM_LEASE_SECONDS
+            item["lease_token"] = token
+            claimed.append(dict(item))
+
+        _persist_queue_and_state_locked(root, queue, state)
 
     processed = 0
     failed = 0
     skipped_terminal = 0
-    for item in list(queue):
-        if processed >= max(0, int(max_items)):
-            break
-        if int(item.get("next_retry_at") or 0) > now:
-            continue
 
-        out = process_item(root=root, kind=str(item.get("kind") or ""), payload=dict(item.get("payload") or {}))
-        if bool(out.get("ok")):
-            processed += 1
-            if bool(out.get("terminal_skipped")):
-                skipped_terminal += 1
-            queue.remove(item)
-            state["consecutive_failures"] = 0
-            state["opened_until"] = 0
-            state["last_error"] = ""
-            continue
+    for claim in claimed:
+        item_id = str(claim.get("id") or "")
+        lease_token = str(claim.get("lease_token") or "")
+        try:
+            out = process_item(root=root, kind=str(claim.get("kind") or ""), payload=dict(claim.get("payload") or {}))
+        except Exception as exc:
+            out = {"ok": False, "error": {"code": "processor_exception", "message": str(exc)}}
 
-        failed += 1
-        item["attempts"] = int(item.get("attempts") or 0) + 1
-        backoff = min(300, 2 ** min(8, item["attempts"]))
-        item["next_retry_at"] = now + backoff
-        state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
-        err = out.get("error") or {}
-        state["last_error"] = str((err.get("code") if isinstance(err, dict) else err) or "side_effect_failed")
-        if int(state["consecutive_failures"]) >= 3:
-            state["opened_until"] = now + 30
+        with store_lock(Path(root)):
+            queue, state = _load_queue_and_state_locked(root)
+            target = None
+            for row in queue:
+                if str(row.get("id") or "") == item_id and str(row.get("lease_token") or "") == lease_token:
+                    target = row
+                    break
+            if target is None:
+                _persist_queue_and_state_locked(root, queue, state)
+                continue
 
-    _write_json(qpath, queue)
-    _write_json(spath, state)
+            if bool(out.get("ok")):
+                processed += 1
+                if bool(out.get("terminal_skipped")):
+                    skipped_terminal += 1
+                queue = [r for r in queue if str(r.get("id") or "") != item_id]
+                state["consecutive_failures"] = 0
+                state["opened_until"] = 0
+                state["last_error"] = ""
+                _persist_queue_and_state_locked(root, queue, state)
+                continue
+
+            failed += 1
+            target["attempts"] = int(target.get("attempts") or 0) + 1
+            backoff = min(300, 2 ** min(8, int(target.get("attempts") or 0)))
+            target["next_retry_at"] = now + backoff
+            target["lease_until"] = 0
+            target["lease_token"] = None
+
+            state["consecutive_failures"] = int(state.get("consecutive_failures") or 0) + 1
+            err = out.get("error") or {}
+            state["last_error"] = str((err.get("code") if isinstance(err, dict) else err) or "side_effect_failed")
+            if int(state.get("consecutive_failures") or 0) >= 3:
+                state["opened_until"] = now + 30
+
+            _persist_queue_and_state_locked(root, queue, state)
+
+    with store_lock(Path(root)):
+        queue, state = _load_queue_and_state_locked(root)
 
     return {
         "ok": True,
         "processed": processed,
         "failed": failed,
         "skipped_terminal": skipped_terminal,
+        "claimed": len(claimed),
         "queue_depth": len(queue),
         "circuit_open": bool(int(state.get("opened_until") or 0) > int(time.time())),
         "opened_until": int(state.get("opened_until") or 0),
