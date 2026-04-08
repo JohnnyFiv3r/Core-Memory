@@ -39,7 +39,8 @@ class TestRequiredFieldsV2(unittest.TestCase):
             s._write_json(s.beads_dir / "index.json", idx)
             self.assertTrue(s.promote(bid, promotion_reason="foundational design rule"))
             idx2 = s._read_json(s.beads_dir / "index.json")
-            self.assertEqual("promoted", idx2["beads"][bid]["status"])
+            self.assertEqual("default", idx2["beads"][bid]["status"])
+            self.assertEqual("promoted", idx2["beads"][bid]["promotion_state"])
             self.assertEqual("foundational design rule", idx2["beads"][bid]["promotion_reason"])
 
 

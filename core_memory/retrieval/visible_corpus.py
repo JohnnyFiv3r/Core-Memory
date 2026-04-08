@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-VISIBLE_STATUSES = {"open", "candidate", "promoted", "archived"}
+VISIBLE_STATUSES = {"default", "open", "candidate", "promoted", "archived"}
 
 
 def _semantic_text(bead: dict[str, Any]) -> str:

@@ -636,7 +636,7 @@ def build_semantic_index(root: Path) -> dict:
             "last_dirty_reason": prev.get("last_dirty_reason"),
             "last_turn_id": prev.get("last_turn_id"),
             "last_flush_tx_id": prev.get("last_flush_tx_id"),
-            "visible_statuses": ["open", "candidate", "promoted", "archived"],
+            "visible_statuses": ["default", "open", "candidate", "promoted", "archived"],
         }
         _write_manifest(manifest_file, manifest)
 

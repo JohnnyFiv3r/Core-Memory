@@ -72,7 +72,7 @@ def evaluate_candidates_for_store(
                 except ValueError:
                     age_ok = True
 
-            if auto_archive_hold and rec == "hold" and reinf == 0 and q_overlap == 0 and age_ok and str(bead.get("status") or "") == "candidate":
+            if auto_archive_hold and rec == "hold" and reinf == 0 and q_overlap == 0 and age_ok and current_promotion_state(bead) == "candidate":
                 revision_id = f"rev-{uuid.uuid4().hex[:12]}"
                 append_archive_snapshot(
                     store.root,
@@ -98,8 +98,10 @@ def evaluate_candidates_for_store(
                     {
                         "ts": now,
                         "bead_id": bid,
-                        "before_status": "candidate",
+                        "before_status": bead.get("status"),
+                        "before_promotion_state": bead.get("promotion_state"),
                         "after_status": "archived",
+                        "after_promotion_state": bead.get("promotion_state"),
                         "decision": "archive",
                         "reason": "auto_archive_hold_same_turn",
                         "considerations": ["no_reinforcement", "no_query_overlap", f"age_hours>={int(min_age_hours)}"],
@@ -130,6 +132,8 @@ def decide_promotion_for_store(
 ) -> dict:
     """Apply agent-led promotion decision for a bead."""
     decision_n = str(decision or "").strip().lower()
+    if decision_n == "candidate":
+        decision_n = "keep_candidate"
     if decision_n not in {"promote", "keep_candidate", "archive"}:
         return {"ok": False, "error": "invalid_decision"}
 
@@ -143,6 +147,7 @@ def decide_promotion_for_store(
             return {"ok": False, "error": f"bead_not_found:{bead_id}"}
 
         before = str(bead.get("status") or "")
+        before_promotion_state = str(bead.get("promotion_state") or "")
         now = datetime.now(timezone.utc).isoformat()
 
         # Canonical state normalization / policy enforcement.
@@ -165,7 +170,7 @@ def decide_promotion_for_store(
         bead["promotion_recommendation"] = recommendation
 
         if decision_n == "promote":
-            bead["status"] = "promoted"
+            bead["status"] = "default"
             bead["promotion_state"] = "promoted"
             bead["promotion_locked"] = True
             bead["promoted_at"] = now
@@ -176,7 +181,7 @@ def decide_promotion_for_store(
                 "threshold": round(threshold, 4),
             }
         elif decision_n == "keep_candidate":
-            bead["status"] = "candidate"
+            bead["status"] = "default"
             bead["promotion_state"] = "candidate"
             bead["promotion_locked"] = False
         elif decision_n == "archive":
@@ -196,7 +201,7 @@ def decide_promotion_for_store(
             bead["detail"] = ""
             bead["summary"] = (bead.get("summary") or [])[:2]
             bead["status"] = "archived"
-            bead["promotion_state"] = "null"
+            bead["promotion_state"] = None
             bead["promotion_locked"] = False
             bead["demotion_reason"] = str(reason).strip()
 
@@ -217,7 +222,9 @@ def decide_promotion_for_store(
                 "ts": now,
                 "bead_id": bead_id,
                 "before_status": before,
+                "before_promotion_state": before_promotion_state,
                 "after_status": bead.get("status"),
+                "after_promotion_state": bead.get("promotion_state"),
                 "decision": decision_n,
                 "reason": str(reason or ""),
                 "considerations": [str(c) for c in (considerations or [])][:8],
@@ -230,7 +237,9 @@ def decide_promotion_for_store(
             "ok": True,
             "bead_id": bead_id,
             "before_status": before,
+            "before_promotion_state": before_promotion_state,
             "after_status": bead.get("status"),
+            "after_promotion_state": bead.get("promotion_state"),
             "decision": decision_n,
         }
 
@@ -289,7 +298,7 @@ def decide_session_promotion_states_for_store(
             locked = is_promotion_locked(bead)
 
             if locked:
-                bead["status"] = "promoted"
+                bead["status"] = "default"
                 bead["promotion_state"] = "promoted"
                 bead["promotion_locked"] = True
                 bead["promotion_decision"] = "promoted_locked"
@@ -304,7 +313,7 @@ def decide_session_promotion_states_for_store(
             decision = classify_signal(bead=bead)
 
             if decision == "promoted":
-                bead["status"] = "promoted"
+                bead["status"] = "default"
                 bead["promotion_state"] = "promoted"
                 bead["promotion_locked"] = True
                 bead["promoted_at"] = str(bead.get("promoted_at") or now)
@@ -316,16 +325,16 @@ def decide_session_promotion_states_for_store(
                 }
                 counts["promoted"] += 1
             elif decision == "candidate":
-                bead["status"] = "candidate"
+                bead["status"] = "default"
                 bead["promotion_state"] = "candidate"
                 bead["promotion_locked"] = False
                 bead["promotion_decision"] = "keep_candidate"
                 bead["promotion_decided_at"] = now
                 counts["candidate"] += 1
             else:
-                if str(bead.get("status") or "").strip().lower() not in {"promoted", "archived"}:
-                    bead["status"] = "open"
-                bead["promotion_state"] = "null"
+                if str(bead.get("status") or "").strip().lower() not in {"archived", "superseded"}:
+                    bead["status"] = "default"
+                bead["promotion_state"] = None
                 bead["promotion_locked"] = False
                 bead["promotion_decision"] = "null"
                 bead["promotion_decided_at"] = now
@@ -399,7 +408,7 @@ def rebalance_promotions_for_store(store: Any, apply: bool = False) -> dict:
     """Phase B: score promoted beads and demote weakly-supported promotions."""
     with store_lock(store.root):
         index = store._read_json(store.beads_dir / "index.json")
-        promoted_ids = [bid for bid, b in (index.get("beads") or {}).items() if str(b.get("status") or "") == "promoted"]
+        promoted_ids = [bid for bid, b in (index.get("beads") or {}).items() if current_promotion_state(b) == "promoted"]
         threshold = store._adaptive_promotion_threshold(index)
         demote: list[dict] = []
 

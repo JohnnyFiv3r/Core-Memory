@@ -165,7 +165,11 @@ def uncompact_for_store(store: Any, bead_id: str) -> dict:
         snapshot = found.get("snapshot") if isinstance(found.get("snapshot"), dict) else None
         if snapshot:
             restored = dict(snapshot)
-                restored["status"] = "default" if bead.get("status") == "archived" else bead.get("status")
+            restored_status = str(restored.get("status") or "").strip().lower()
+            if restored_status in {"", "open", "candidate", "promoted", "compacted", "archived"}:
+                restored["status"] = "default"
+            if restored_status in {"candidate", "promoted"} and not restored.get("promotion_state"):
+                restored["promotion_state"] = restored_status
             restored["uncompacted_at"] = datetime.now(timezone.utc).isoformat()
             index["beads"][bead_id] = restored
         else:

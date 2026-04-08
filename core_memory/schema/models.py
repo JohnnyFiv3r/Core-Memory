@@ -47,12 +47,14 @@ class Scope(str, Enum):
 
 class Status(str, Enum):
     """Canonical bead status values (aligned to core_memory.schema)."""
-    OPEN = "open"
-    CANDIDATE = "candidate"
-    PROMOTED = "promoted"
-    COMPACTED = "compacted"
+    DEFAULT = "default"
     SUPERSEDED = "superseded"
     ARCHIVED = "archived"
+
+
+class PromotionState(str, Enum):
+    CANDIDATE = "candidate"
+    PROMOTED = "promoted"
 
 
 class Authority(str, Enum):
@@ -314,7 +316,8 @@ class Bead:
     confidence: float = 0.8
     tags: list = field(default_factory=list)
     links: dict = field(default_factory=dict)
-    status: str = "open"  # Status as string
+    status: str = Status.DEFAULT.value  # storage lifecycle status
+    promotion_state: Optional[str] = None  # promotion lifecycle state
     recall_count: int = 0
     last_recalled: Optional[str] = None
 

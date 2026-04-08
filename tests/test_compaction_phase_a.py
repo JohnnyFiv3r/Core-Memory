@@ -38,7 +38,7 @@ class TestCompactionPhaseA(unittest.TestCase):
             self.assertTrue(u["ok"])
             idx2 = s._read_json(s.beads_dir / "index.json")
             bead2 = idx2["beads"][bead_id]
-            self.assertIn(bead2.get("status"), {"open", "candidate", "archived"})
+            self.assertIn(bead2.get("status"), {"default", "candidate", "archived"})
             self.assertIn("Full detailed rationale", bead2.get("detail", ""))
 
     def test_promote_in_compact_is_candidate_only_not_blanket(self):

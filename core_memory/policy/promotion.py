@@ -29,6 +29,16 @@ MIN_THRESHOLD = 0.68
 MAX_THRESHOLD = 0.92
 
 
+def _promotion_state(bead: dict) -> str:
+    state = str((bead or {}).get("promotion_state") or "").strip().lower()
+    if state:
+        return state
+    status = str((bead or {}).get("status") or "").strip().lower()
+    if status in {"candidate", "promoted"}:
+        return status
+    return ""
+
+
 def _has_evidence(bead: dict) -> bool:
     """Check if bead has evidence references."""
     return bool((bead.get("evidence_refs") or []) or (bead.get("tool_output_ids") or []) or (bead.get("tool_output_id") or "").strip())
@@ -168,7 +178,7 @@ def compute_adaptive_threshold(index: dict) -> float:
     if not beads:
         return DEFAULT_THRESHOLD
     
-    promoted = sum(1 for b in beads if str(b.get("status") or "") == "promoted")
+    promoted = sum(1 for b in beads if _promotion_state(b) == "promoted")
     ratio = promoted / max(1, len(beads))
     
     thr = DEFAULT_THRESHOLD
@@ -219,7 +229,7 @@ def get_recommendation_rows(
 
     rows = []
     for bead in beads:
-        if str(bead.get("status") or "") != "candidate":
+        if _promotion_state(bead) != "candidate":
             continue
         
         score, factors = compute_promotion_score(index, bead)

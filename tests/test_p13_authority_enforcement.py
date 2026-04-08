@@ -51,7 +51,7 @@ class TestP13AuthorityEnforcement(unittest.TestCase):
 
             idx = s._read_json(s.beads_dir / "index.json")
             seed = (idx.get("beads") or {}).get(b) or {}
-            self.assertEqual("open", seed.get("status"))
+            self.assertEqual("default", seed.get("status"))
             self.assertFalse(bool(seed.get("promotion_marked")))
 
 

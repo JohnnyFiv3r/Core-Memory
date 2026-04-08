@@ -74,7 +74,7 @@ def upsert_process_flush_checkpoint_bead(
         tags=["checkpoint", "process_flush", "system_checkpoint"],
         source_turn_ids=[str(latest_done_turn_id or latest_turn_id or "")],
         authority="system",
-        status="open",
+        status="default",
         retrieval_exclude_default=True,
         checkpoint_scope="window",
         flush_tx_id=str(flush_tx_id),
