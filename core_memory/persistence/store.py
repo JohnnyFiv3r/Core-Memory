@@ -13,7 +13,6 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from typing import Optional
 
-from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 
@@ -77,18 +76,14 @@ class MemoryStore:
         )
 
     def close(self) -> None:
-        close_fn = getattr(self._backend, "close", None)
-        if callable(close_fn):
-            try:
-                close_fn()
-            except Exception:
-                pass
+        from ..persistence.store_lifecycle_ops import close_store_for_store
+
+        close_store_for_store(self)
 
     def __del__(self):  # pragma: no cover
-        try:
-            self.close()
-        except Exception:
-            pass
+        from ..persistence.store_lifecycle_ops import safe_del_for_store
+
+        safe_del_for_store(self)
     
     def _init_index(self):
         """Initialize the index + heads files if they don't exist."""
