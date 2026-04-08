@@ -121,7 +121,10 @@ def _accepted_applied(candidate: dict[str, Any]) -> bool:
     if not _accepted(candidate):
         return False
     d = candidate.get("decision") if isinstance(candidate.get("decision"), dict) else {}
-    return bool(str(d.get("applied_association_id") or "").strip())
+    return bool(
+        str(d.get("applied_association_id") or "").strip()
+        or str(d.get("applied_turn_id") or "").strip()
+    )
 
 
 def _downstream_used(beads: dict[str, dict[str, Any]], candidate: dict[str, Any]) -> bool:

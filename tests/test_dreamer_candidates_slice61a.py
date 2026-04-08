@@ -4,6 +4,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.dreamer_candidates import (
@@ -81,10 +82,46 @@ class TestDreamerCandidatesSlice61A(unittest.TestCase):
             self.assertTrue(dec.get("ok"))
             self.assertEqual("accepted", dec.get("status"))
             self.assertTrue((dec.get("applied") or {}).get("ok"))
+            self.assertEqual("process_turn_finalized", (dec.get("applied") or {}).get("canonical_entry"))
+            self.assertTrue(str((dec.get("applied") or {}).get("turn_id") or ""))
 
             idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
             assocs = idx.get("associations") or []
             self.assertGreaterEqual(len(assocs), 1)
+
+    def test_decide_apply_does_not_call_store_link_directly(self):
+        with tempfile.TemporaryDirectory(prefix="cm-dc-") as td:
+            store = MemoryStore(td)
+            b1 = store.add_bead(type="decision", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            b2 = store.add_bead(type="lesson", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+
+            enqueue_dreamer_candidates(
+                root=td,
+                associations=[
+                    {
+                        "source": b1,
+                        "target": b2,
+                        "relationship": "transferable_lesson",
+                        "novelty": 0.7,
+                        "grounding": 0.8,
+                        "confidence": 0.9,
+                    }
+                ],
+                run_metadata={"run_id": "r2", "mode": "reviewed_apply", "session_id": "s1"},
+            )
+            cid = str(((list_dreamer_candidates(root=td, status="pending", limit=10).get("results") or [{}])[0]).get("id") or "")
+            self.assertTrue(cid)
+
+            with patch.object(MemoryStore, "link", side_effect=AssertionError("direct link should not be called")):
+                dec = decide_dreamer_candidate(
+                    root=td,
+                    candidate_id=cid,
+                    decision="accept",
+                    reviewer="tester",
+                    apply=True,
+                )
+            self.assertTrue(dec.get("ok"))
+            self.assertTrue((dec.get("applied") or {}).get("ok"))
 
 
 if __name__ == "__main__":
