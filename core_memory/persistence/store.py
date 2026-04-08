@@ -8,7 +8,6 @@ Session-first live authority with index projection:
 - events provide audit trail and rebuild capability
 """
 
-import json
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -16,7 +15,6 @@ from typing import Optional
 
 from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
-from ..persistence.io_utils import atomic_write_json
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 from ..persistence.promotion_service import (
@@ -110,23 +108,15 @@ class MemoryStore:
     
     def _read_json(self, path: Path) -> dict:
         """Read a JSON file. Raises DiagnosticError with recovery steps on corruption."""
-        try:
-            with open(path, 'r') as f:
-                return json.load(f)
-        except json.JSONDecodeError as exc:
-            raise DiagnosticError(
-                f"Corrupt JSON file: {path} ({exc})",
-                recovery=(
-                    f"1. Back up the corrupt file: cp '{path}' '{path}.bak'\n"
-                    f"  2. Rebuild from session authority: "
-                    f"python -c \"from core_memory import MemoryStore; MemoryStore('{self.root}').rebuild_index_projection_from_sessions()\"\n"
-                    f"  3. If rebuild fails, delete '{path}' and re-initialize."
-                ),
-            ) from exc
+        from ..persistence.store_json_ops import read_json_for_store
+
+        return read_json_for_store(path=path, root=self.root, diagnostic_error_cls=DiagnosticError)
     
     def _write_json(self, path: Path, data: dict):
         """Write JSON atomically."""
-        atomic_write_json(path, data)
+        from ..persistence.store_json_ops import write_json_for_store
+
+        write_json_for_store(path=path, data=data)
 
     def rebuild_index_projection_from_sessions(self) -> dict:
         """Rebuild index projection from session/global JSONL surfaces."""
@@ -607,11 +597,9 @@ class MemoryStore:
 
     def _normalize_enum(self, value, enum_class):
         """Normalize enum or string to string value."""
-        if value is None:
-            return None
-        if isinstance(value, enum_class):
-            return value.value
-        return str(value)
+        from ..persistence.store_json_ops import normalize_enum_for_store
+
+        return normalize_enum_for_store(value, enum_class)
     
     def query(
         self,
