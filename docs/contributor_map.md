@@ -19,6 +19,7 @@ If you're new, this is the shortest map of where behavior lives.
 ## Compatibility / lower-level persistence
 - `core_memory/persistence/store.py` (facade + persistence orchestration)
 - core add-bead write path helper: `core_memory/persistence/store_add_bead_ops.py`
+- bootstrap + dream helper ops: `core_memory/persistence/store_dream_bootstrap_ops.py`
 - add-bead helper heuristics: `core_memory/persistence/store_add_helpers.py`
 - bead validation helpers: `core_memory/persistence/store_validation_helpers.py`
 - constraint retrieval/compliance helpers: `core_memory/persistence/store_constraints.py`
