@@ -65,7 +65,8 @@ class TestSemanticBackendAbstractionSlice58A(unittest.TestCase):
             self.assertEqual("qdrant", manifest.get("backend"))
             self.assertEqual("qdrant", manifest.get("vector_backend"))
 
-            doctor = semantic_doctor(Path(td))
+            with patch("core_memory.retrieval.semantic_index._external_backend_connectivity", return_value=(True, "")):
+                doctor = semantic_doctor(Path(td))
             self.assertEqual("qdrant", doctor.get("backend"))
             self.assertEqual("distributed_safe", doctor.get("deployment_profile"))
             self.assertTrue(bool(doctor.get("usable_backend")))

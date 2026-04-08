@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 from typing import Any
 
-from core_memory import memory_execute, process_turn_finalized
-from core_memory.persistence.store import MemoryStore
+from core_memory import memory_execute, process_flush, process_turn_finalized
 from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
 
 
@@ -23,6 +23,39 @@ def _probe_retrieval(root: str | Path, query: str) -> dict[str, Any]:
         "next_action": str(out.get("next_action") or ""),
         "raw": out,
     }
+
+
+def _find_bead_id_by_turn_and_title(root: Path, *, turn_id: str, title: str = "") -> str:
+    idx = root / ".beads" / "index.json"
+    if not idx.exists():
+        return ""
+    try:
+        payload = json.loads(idx.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    beads = (payload.get("beads") or {}) if isinstance(payload, dict) else {}
+    candidates: list[dict[str, Any]] = []
+    for _bid, bead in beads.items():
+        if not isinstance(bead, dict):
+            continue
+        turns = [str(x) for x in (bead.get("source_turn_ids") or [])]
+        if str(turn_id) not in turns:
+            continue
+        if title and str(bead.get("title") or "") != str(title):
+            continue
+        candidates.append(bead)
+
+    if not candidates:
+        return ""
+
+    preferred = [
+        b
+        for b in candidates
+        if str((b.get("type") or "")).lower() not in {"process_flush", "session_start", "session_end"}
+    ]
+    pool = preferred or candidates
+    pool = sorted(pool, key=lambda b: str((b or {}).get("created_at") or ""), reverse=True)
+    return str((pool[0] or {}).get("id") or "")
 
 
 def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
@@ -78,40 +111,90 @@ def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
     transfer_query = "rv2-dreamer-transfer-token billing migration"
     transfer_before = _probe_retrieval(root_p, transfer_query)
 
-    store = MemoryStore(root=str(root_p))
-    src = store.add_bead(
-        type="lesson",
-        title="Checkout transfer lesson",
-        summary=["checkout incidents improved after canary-first fallback"],
+    process_turn_finalized(
+        root=str(root_p),
         session_id="s-checkout",
-        source_turn_ids=["rv2-src"],
-        tags=["checkout", "canary"],
+        turn_id="rv2-src",
+        user_query="seed source lesson for dreamer transfer quick-value path",
+        assistant_final="Checkout transfer lesson captured via canonical turn path.",
+        metadata={
+            "crawler_updates": {
+                "creations": [
+                    {
+                        "type": "lesson",
+                        "title": "Checkout transfer lesson",
+                        "summary": ["checkout incidents improved after canary-first fallback"],
+                        "source_turn_ids": ["rv2-src"],
+                        "tags": ["checkout", "canary"],
+                    }
+                ]
+            }
+        },
     )
-    tgt = store.add_bead(
-        type="outcome",
-        title="Billing migration risk",
-        summary=["billing migration still exhibits rollout risk"],
+    process_flush(
+        root=str(root_p),
+        session_id="s-checkout",
+        source="reviewer_quick_value_v2",
+        promote=True,
+        token_budget=1200,
+        max_beads=12,
+    )
+    process_turn_finalized(
+        root=str(root_p),
         session_id="s-billing",
-        source_turn_ids=["rv2-tgt"],
-        tags=["billing", "migration"],
+        turn_id="rv2-tgt",
+        user_query="seed target outcome for dreamer transfer quick-value path",
+        assistant_final="Billing migration risk captured via canonical turn path.",
+        metadata={
+            "crawler_updates": {
+                "creations": [
+                    {
+                        "type": "outcome",
+                        "title": "Billing migration risk",
+                        "summary": ["billing migration still exhibits rollout risk"],
+                        "result": "partial",
+                        "linked_bead_id": "rv2-logical-link",
+                        "source_turn_ids": ["rv2-tgt"],
+                        "tags": ["billing", "migration"],
+                    }
+                ]
+            }
+        },
+    )
+    process_flush(
+        root=str(root_p),
+        session_id="s-billing",
+        source="reviewer_quick_value_v2",
+        promote=True,
+        token_budget=1200,
+        max_beads=12,
     )
 
-    queue_out = enqueue_dreamer_candidates(
-        root=root_p,
-        associations=[
-            {
-                "source": src,
-                "target": tgt,
-                "relationship": "transferable_lesson",
-                "novelty": 0.8,
-                "grounding": 0.9,
-                "confidence": 0.8,
-                "rationale": "billing migration shares rollout-risk structure with checkout incidents",
-                "expected_decision_impact": "transfer canary-first fallback policy",
-            }
-        ],
-        run_metadata={"run_id": "reviewer-qv2", "mode": "suggest", "source": "reviewer_quick_value_v2"},
-    )
+    src = _find_bead_id_by_turn_and_title(root_p, turn_id="rv2-src", title="Checkout transfer lesson")
+    if not src:
+        src = _find_bead_id_by_turn_and_title(root_p, turn_id="rv2-src")
+    tgt = _find_bead_id_by_turn_and_title(root_p, turn_id="rv2-tgt", title="Billing migration risk")
+    if not tgt:
+        tgt = _find_bead_id_by_turn_and_title(root_p, turn_id="rv2-tgt")
+
+    queue_out = {"ok": False, "added": 0}
+    if src and tgt:
+        queue_out = enqueue_dreamer_candidates(
+            root=root_p,
+            associations=[
+                {
+                    "source": src,
+                    "target": tgt,
+                    "relationship": "transferable_lesson",
+                    "novelty": 0.8,
+                    "grounding": 0.9,
+                    "confidence": 0.8,
+                    "rationale": "billing migration shares rollout-risk structure with checkout incidents",
+                    "expected_decision_impact": "transfer canary-first fallback policy",
+                }
+            ],
+            run_metadata={"run_id": "reviewer-qv2", "mode": "suggest", "source": "reviewer_quick_value_v2"},
+        )
 
     pending = list_dreamer_candidates(root=root_p, status="pending", limit=20).get("results") or []
     candidate_id = ""
