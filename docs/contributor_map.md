@@ -29,6 +29,7 @@ If you're new, this is the shortest map of where behavior lives.
 - compaction/archive/myelination helpers: `core_memory/persistence/store_compaction_ops.py`
 - index projection rebuild helper: `core_memory/persistence/store_projection_ops.py`
 - autonomy KPI/reinforcement helpers: `core_memory/persistence/store_autonomy_ops.py`
+- heads/index update helpers: `core_memory/persistence/store_index_heads_ops.py`
 - promotion policy service: `core_memory/persistence/promotion_service.py`
 - reporting service: `core_memory/reporting/store_reporting.py`
 - metrics runtime service: `core_memory/reporting/store_metrics_runtime.py`
