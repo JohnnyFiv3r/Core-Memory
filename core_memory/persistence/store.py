@@ -16,16 +16,6 @@ from typing import Optional
 from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
-from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
-from ..persistence.promotion_service import (
-    promotion_slate_for_store,
-    evaluate_candidates_for_store,
-    decide_promotion_for_store,
-    decide_promotion_bulk_for_store,
-    decide_session_promotion_states_for_store,
-    promotion_kpis_for_store,
-    rebalance_promotions_for_store,
-)
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "."
@@ -368,25 +358,30 @@ class MemoryStore:
         return reinforcement_signals_for_store(self, index, bead)
 
     def _promotion_score(self, index: dict, bead: dict) -> tuple[float, dict]:
-        return compute_promotion_score(index, bead)
+        from ..persistence.store_promotion_ops import promotion_score_for_store
+
+        return promotion_score_for_store(self, index, bead)
 
     def _adaptive_promotion_threshold(self, index: dict) -> float:
-        return compute_adaptive_threshold(index)
+        from ..persistence.store_promotion_ops import adaptive_promotion_threshold_for_store
+
+        return adaptive_promotion_threshold_for_store(self, index)
 
     def _candidate_promotable(self, index: dict, bead: dict) -> tuple[bool, dict]:
-        return is_candidate_promotable(index, bead)
+        from ..persistence.store_promotion_ops import candidate_promotable_for_store
+
+        return candidate_promotable_for_store(self, index, bead)
 
     def _candidate_recommendation_rows(self, index: dict, query_text: str = "") -> tuple[list[dict], float]:
-        return get_recommendation_rows(
-            index,
-            query_text=query_text,
-            query_tokenize_fn=self._tokenize,
-            query_expand_fn=self._expand_query_tokens,
-        )
+        from ..persistence.store_promotion_ops import candidate_recommendation_rows_for_store
+
+        return candidate_recommendation_rows_for_store(self, index, query_text=query_text)
 
     def promotion_slate(self, limit: int = 20, query_text: str = "") -> dict:
         """Build bounded candidate promotion slate with advisory recommendations."""
-        return promotion_slate_for_store(self, limit=limit, query_text=query_text)
+        from ..persistence.store_promotion_ops import promotion_slate_entry_for_store
+
+        return promotion_slate_entry_for_store(self, limit=limit, query_text=query_text)
 
     def evaluate_candidates(
         self,
@@ -396,7 +391,9 @@ class MemoryStore:
         min_age_hours: int = 12,
     ) -> dict:
         """Refresh advisory recommendation fields for candidates."""
-        return evaluate_candidates_for_store(
+        from ..persistence.store_promotion_ops import evaluate_candidates_entry_for_store
+
+        return evaluate_candidates_entry_for_store(
             self,
             limit=limit,
             query_text=query_text,
@@ -413,7 +410,9 @@ class MemoryStore:
         considerations: Optional[list[str]] = None,
     ) -> dict:
         """Apply agent-led promotion decision for a bead."""
-        return decide_promotion_for_store(
+        from ..persistence.store_promotion_ops import decide_promotion_entry_for_store
+
+        return decide_promotion_entry_for_store(
             self,
             bead_id=bead_id,
             decision=decision,
@@ -423,11 +422,15 @@ class MemoryStore:
 
     def decide_promotion_bulk(self, decisions: list[dict]) -> dict:
         """Apply a bounded batch of agent promotion decisions."""
-        return decide_promotion_bulk_for_store(self, decisions)
+        from ..persistence.store_promotion_ops import decide_promotion_bulk_entry_for_store
+
+        return decide_promotion_bulk_entry_for_store(self, decisions)
 
     def decide_session_promotion_states(self, *, session_id: str, visible_bead_ids: Optional[list[str]] = None, turn_id: str = "") -> dict:
         """Per-turn session decision pass: promoted|candidate|null for visible beads."""
-        return decide_session_promotion_states_for_store(
+        from ..persistence.store_promotion_ops import decide_session_promotion_states_entry_for_store
+
+        return decide_session_promotion_states_entry_for_store(
             self,
             session_id=session_id,
             visible_bead_ids=visible_bead_ids,
@@ -436,11 +439,15 @@ class MemoryStore:
 
     def promotion_kpis(self, limit: int = 500) -> dict:
         """Report promotion decision volume, reasons, and rec-vs-decision alignment."""
-        return promotion_kpis_for_store(self, limit=limit)
+        from ..persistence.store_promotion_ops import promotion_kpis_entry_for_store
+
+        return promotion_kpis_entry_for_store(self, limit=limit)
 
     def rebalance_promotions(self, apply: bool = False) -> dict:
         """Phase B: score promoted beads and demote weakly-supported promotions."""
-        return rebalance_promotions_for_store(self, apply=apply)
+        from ..persistence.store_promotion_ops import rebalance_promotions_entry_for_store
+
+        return rebalance_promotions_entry_for_store(self, apply=apply)
 
     def _normalize_links(self, links) -> list[dict]:
         from ..persistence.store_validation_helpers import normalize_links
