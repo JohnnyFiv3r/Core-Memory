@@ -6,15 +6,15 @@ from core_memory.schema.models import Association, Bead, Event
 
 
 class TestSchemaModelsNormalizationSlice51B(unittest.TestCase):
-    def test_bead_from_dict_normalizes_vocab_and_shapes(self):
+    def test_bead_from_dict_normalizes_known_values_but_preserves_unknown_enums(self):
         bead = Bead.from_dict(
             {
                 "id": "b1",
                 "type": "PROMOTED_LESSON",
                 "title": "Normalization",
-                "scope": "GLOBAL",
-                "authority": "USER_CONFIRMED",
-                "status": "not_real",
+                "scope": "FUTURE_SCOPE",
+                "authority": "FUTURE_AUTHORITY",
+                "status": "future_status",
                 "impact_level": "MEGA",
                 "summary": "single",
                 "tags": "schema",
@@ -29,10 +29,10 @@ class TestSchemaModelsNormalizationSlice51B(unittest.TestCase):
         )
 
         self.assertEqual("lesson", bead.type)
-        self.assertEqual("global", bead.scope)
-        self.assertEqual("user_confirmed", bead.authority)
-        self.assertEqual("open", bead.status)
-        self.assertIsNone(bead.impact_level)
+        self.assertEqual("FUTURE_SCOPE", bead.scope)
+        self.assertEqual("FUTURE_AUTHORITY", bead.authority)
+        self.assertEqual("future_status", bead.status)
+        self.assertEqual("MEGA", bead.impact_level)
 
         self.assertEqual(["single"], bead.summary)
         self.assertEqual(["schema"], bead.tags)
@@ -45,7 +45,7 @@ class TestSchemaModelsNormalizationSlice51B(unittest.TestCase):
         # Existing invariant: eligibility is dropped when quality is insufficient.
         self.assertFalse(bead.retrieval_eligible)
 
-    def test_association_from_dict_normalizes_relationship_and_numeric_bounds(self):
+    def test_association_from_dict_preserves_noncanonical_relationship_string(self):
         assoc = Association.from_dict(
             {
                 "id": "a1",
@@ -59,22 +59,22 @@ class TestSchemaModelsNormalizationSlice51B(unittest.TestCase):
             }
         )
 
-        self.assertEqual("associated_with", assoc.relationship)
+        self.assertEqual("shared_tag", assoc.relationship)
         self.assertEqual(0.0, assoc.novelty)
         self.assertEqual(1.0, assoc.confidence)
         self.assertEqual(0.0, assoc.decay_score)
         self.assertEqual(0, assoc.reinforced_count)
 
-    def test_event_from_dict_normalizes_payload_shape(self):
+    def test_event_from_dict_preserves_payload_shape(self):
         ev = Event.from_dict(
             {
                 "id": "e1",
                 "event_type": "turn",
                 "session_id": "s1",
-                "payload": "not_dict",
+                "payload": ["not", "dict"],
             }
         )
-        self.assertEqual({}, ev.payload)
+        self.assertEqual(["not", "dict"], ev.payload)
 
 
 if __name__ == "__main__":

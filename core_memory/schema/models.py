@@ -155,14 +155,24 @@ def _dataclass_from_dict(cls: type, data: dict[str, Any]) -> Any:
     return cls(**_known_dataclass_kwargs(cls, data))
 
 
-def _normalize_choice(value: Any, *, allowed: set[str], default: str | None = None, allow_none: bool = False) -> str | None:
+def _normalize_choice(
+    value: Any,
+    *,
+    allowed: set[str],
+    default: str | None = None,
+    allow_none: bool = False,
+    preserve_unknown: bool = False,
+) -> str | None:
     if value is None:
         return None if allow_none else default
-    v = str(value).strip().lower()
+    raw = str(value).strip()
+    v = raw.lower()
     if not v:
         return None if allow_none else default
     if v in allowed:
         return v
+    if preserve_unknown and isinstance(value, str):
+        return raw
     return None if allow_none else default
 
 
@@ -208,28 +218,37 @@ def _coerce_dict(value: Any) -> dict:
 def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data or {})
 
-    bead_type = normalize_bead_type(out.get("type"))
-    out["type"] = bead_type if is_allowed_bead_type(bead_type) else BeadType.CONTEXT.value
+    raw_type = out.get("type")
+    bead_type = normalize_bead_type(raw_type)
+    if is_allowed_bead_type(bead_type):
+        out["type"] = bead_type
+    else:
+        raw = str(raw_type).strip() if raw_type is not None else ""
+        out["type"] = raw if raw else BeadType.CONTEXT.value
 
     out["scope"] = _normalize_choice(
         out.get("scope"),
         allowed={x.value for x in Scope},
         default=Scope.PROJECT.value,
+        preserve_unknown=True,
     )
     out["authority"] = _normalize_choice(
         out.get("authority"),
         allowed={x.value for x in Authority},
         default=Authority.AGENT_INFERRED.value,
+        preserve_unknown=True,
     )
     out["status"] = _normalize_choice(
         out.get("status"),
         allowed={x.value for x in Status},
         default=Status.OPEN.value,
+        preserve_unknown=True,
     )
     out["impact_level"] = _normalize_choice(
         out.get("impact_level"),
         allowed={x.value for x in ImpactLevel},
         allow_none=True,
+        preserve_unknown=True,
     )
 
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
@@ -272,8 +291,13 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_association_payload(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data or {})
-    rel = normalize_relation_type(out.get("relationship"))
-    out["relationship"] = rel if relation_kind(rel) == "canonical" else RelationshipType.ASSOCIATED_WITH.value
+    raw_rel = out.get("relationship")
+    rel = normalize_relation_type(raw_rel)
+    if relation_kind(rel) == "canonical":
+        out["relationship"] = rel
+    else:
+        raw = str(raw_rel).strip() if raw_rel is not None else ""
+        out["relationship"] = raw if raw else RelationshipType.ASSOCIATED_WITH.value
     out["novelty"] = _coerce_float_01(out.get("novelty"), default=0.5)
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.5)
     out["decay_score"] = max(0.0, _coerce_float(out.get("decay_score"), default=1.0))
@@ -283,7 +307,10 @@ def _normalize_association_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_event_payload(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data or {})
-    out["payload"] = _coerce_dict(out.get("payload"))
+    if "payload" not in out:
+        out["payload"] = {}
+    else:
+        out["payload"] = deepcopy(out.get("payload"))
     return out
 
 
