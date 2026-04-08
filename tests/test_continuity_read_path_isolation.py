@@ -2,7 +2,7 @@ import unittest
 from pathlib import Path
 
 
-class TestP8BReadPathPurification(unittest.TestCase):
+class TestContinuityReadPathIsolation(unittest.TestCase):
     def test_continuity_surface_file_reads_are_canonicalized(self):
         root = Path(__file__).resolve().parents[1]
         core = root / "core_memory"
