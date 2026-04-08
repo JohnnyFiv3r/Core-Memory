@@ -81,6 +81,9 @@ class TestLongitudinalBenchmarkV2Slice65A(unittest.TestCase):
 
             out = longitudinal_benchmark_v2(td, since="30d")
             self.assertEqual("core_memory.longitudinal_benchmark_v2.v1", out.get("schema"))
+            methodology = out.get("methodology") or {}
+            self.assertEqual("candidate_quality_proxy", methodology.get("kind"))
+            self.assertFalse(bool(methodology.get("is_strategy_replay")))
 
             cohorts = out.get("cohorts") or {}
             self.assertIn("no_memory_baseline", cohorts)

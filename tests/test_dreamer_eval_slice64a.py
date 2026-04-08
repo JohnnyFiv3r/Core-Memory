@@ -55,6 +55,7 @@ class TestDreamerEvalSlice64A(unittest.TestCase):
 
             dec1 = decide_dreamer_candidate(root=td, candidate_id=str(c_transfer.get("id")), decision="accept", reviewer="qa", apply=True)
             self.assertTrue(dec1.get("ok"))
+            self.assertTrue(str((((dec1.get("applied") or {}) if isinstance(dec1, dict) else {}).get("turn_id") or "")))
             dec2 = decide_dreamer_candidate(root=td, candidate_id=str(c_contra.get("id")), decision="reject", reviewer="qa")
             self.assertTrue(dec2.get("ok"))
 
@@ -71,6 +72,7 @@ class TestDreamerEvalSlice64A(unittest.TestCase):
             self.assertEqual(2, int(counts.get("decided") or 0))
             self.assertEqual(1, int(counts.get("accepted") or 0))
             self.assertEqual(1, int(counts.get("rejected") or 0))
+            self.assertEqual(1, int(counts.get("accepted_applied") or 0))
 
             self.assertAlmostEqual(0.5, float(metrics.get("accepted_candidate_rate") or 0.0), places=3)
             self.assertAlmostEqual(1.0, float(metrics.get("cross_session_transfer_success_rate") or 0.0), places=3)
