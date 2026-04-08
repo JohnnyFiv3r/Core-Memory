@@ -19,7 +19,6 @@ from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
 from ..persistence.io_utils import atomic_write_json
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
-from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
 from ..persistence.promotion_service import (
     promotion_slate_for_store,
@@ -210,10 +209,11 @@ class MemoryStore:
         from ..policy.hygiene import sanitize_bead_content as _sbc
         return _sbc(bead)
 
-    # Delegators to retrieval.failure_patterns
+    # Delegators to failure-pattern helper service
     def compute_failure_signature(self, plan: str) -> str:
-        from ..retrieval.failure_patterns import compute_failure_signature as _cfs
-        return _cfs(plan)
+        from ..persistence.store_failure_ops import compute_failure_signature_for_store
+
+        return compute_failure_signature_for_store(self, plan)
 
     def find_failure_signature_matches(
         self,
@@ -222,45 +222,25 @@ class MemoryStore:
         context_tags: Optional[list[str]] = None,
         tags: Optional[list[str]] = None,
     ) -> list[dict]:
-        """Compatibility wrapper for failure-signature matching.
+        from ..persistence.store_failure_ops import find_failure_signature_matches_for_store
 
-        Legacy callers may pass `tags=[...]` only; map that to a deterministic
-        plan string and/or context_tags for ranking.
-        """
-        from ..retrieval.failure_patterns import find_failure_signature_matches as _fsm
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-
-        tags_n = [str(t).strip().lower() for t in (tags or []) if str(t).strip()]
-        plan_n = str(plan or "").strip()
-
-        # Legacy ranking behavior: when only tags are provided, rank failed_hypothesis
-        # by tag overlap first, then recency.
-        if not plan_n and tags_n:
-            req = set(tags_n)
-            rows = []
-            for b in (index.get("beads") or {}).values():
-                if str(b.get("type") or "").strip().lower() != "failed_hypothesis":
-                    continue
-                bt = set(str(t).strip().lower() for t in (b.get("tags") or []) if str(t).strip())
-                ov = len(req.intersection(bt))
-                if ov <= 0:
-                    continue
-                row = dict(b)
-                row["tag_overlap"] = ov
-                rows.append(row)
-            rows.sort(key=lambda r: (int(r.get("tag_overlap") or 0), str(r.get("created_at") or "")), reverse=True)
-            return rows[: max(1, int(limit))]
-
-        if not plan_n and tags_n:
-            plan_n = " ".join(tags_n)
-        ctx_n = context_tags if context_tags is not None else (tags_n or None)
-
-        return _fsm(index, plan_n, limit=limit, context_tags=ctx_n)
+        return find_failure_signature_matches_for_store(
+            self,
+            plan=plan,
+            limit=limit,
+            context_tags=context_tags,
+            tags=tags,
+        )
 
     def preflight_failure_check(self, plan: str, limit: int = 5, context_tags: Optional[list[str]] = None) -> dict:
-        from ..retrieval.failure_patterns import preflight_failure_check as _pfc
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        return _pfc(index, plan, limit=limit, context_tags=context_tags)
+        from ..persistence.store_failure_ops import preflight_failure_check_for_store
+
+        return preflight_failure_check_for_store(
+            self,
+            plan=plan,
+            limit=limit,
+            context_tags=context_tags,
+        )
 
     # Delegator to hygiene.extract_constraints
     def extract_constraints(self, text: str) -> list[str]:
