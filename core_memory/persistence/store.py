@@ -14,24 +14,20 @@ from pathlib import Path
 from typing import Optional
 
 from ..persistence import events
+from ..persistence.store_contract import (
+    BEADS_DIR,
+    TURNS_DIR,
+    EVENTS_DIR,
+    SESSION_FILE,
+    INDEX_FILE,
+    HEADS_FILE,
+    DiagnosticError,
+)
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "."
 
-
-class DiagnosticError(Exception):
-    """Raised with recovery instructions when a persistence file is corrupt."""
-
-    def __init__(self, message: str, recovery: str):
-        self.recovery = recovery
-        super().__init__(f"{message}\n  Recovery: {recovery}")
-BEADS_DIR = ".beads"
-TURNS_DIR = ".turns"
-EVENTS_DIR = ".beads/events"
-SESSION_FILE = "session-{id}.jsonl"
-INDEX_FILE = "index.json"
-HEADS_FILE = "heads.json"
 
 # NOTE: durability model
 # Archive/event writes happen under a store lock with fsync; index writes are atomic.
