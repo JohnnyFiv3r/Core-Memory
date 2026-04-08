@@ -60,10 +60,14 @@ CANONICAL_RELATION_TYPES = {
     "led_to",
     "blocked_by",
     "unblocks",
+    "blocks_unblocks",
     "supersedes",
     "superseded_by",
     "associated_with",
     "contradicts",
+    "refines",
+    "invalidates",
+    "diagnoses",
     "reinforces",
     "mirrors",
     "applies_pattern_of",
@@ -81,6 +85,7 @@ CANONICAL_RELATION_TYPES = {
     "derived_from",
     "resolves",
     "follows",
+    "precedes",
     "enables",
 }
 
