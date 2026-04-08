@@ -28,6 +28,13 @@ Expected signal:
 - `steps.repeated_incident_improvement.improved: true`
 - `steps.dreamer_transfer_improvement.improved: true`
 
+Optional follow-up telemetry (proxy, not full strategy replay benchmark):
+
+```bash
+PYTHONPATH=. python3 -m eval.dreamer_behavior_eval --root ./memory --since 30d
+PYTHONPATH=. python3 -m eval.longitudinal_benchmark_v2 --root ./memory --since 30d
+```
+
 ## Then inspect contracts and architecture
 
 - `README.md`
