@@ -7,6 +7,7 @@ from pathlib import Path
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
+from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
 
 
 def _parse_iso(ts: str) -> datetime | None:
@@ -51,7 +52,7 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
     # deterministic filters
     incident_id = str(form.get("incident_id") or "")
     topic_keys = set([str(x) for x in (form.get("topic_keys") or [])])
-    bead_types = set([str(x) for x in (form.get("bead_types") or [])])
+    bead_types = set([normalize_bead_type(str(x)) for x in (form.get("bead_types") or [])])
     avoid_terms = [str(x).lower() for x in (form.get("avoid_terms") or [])]
     time_range = dict(form.get("time_range") or {})
     tr_from = _parse_iso(str(time_range.get("from") or ""))
@@ -67,7 +68,7 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
             tags = set([str(t) for t in (b.get("tags") or [])])
             if not tags.intersection(topic_keys):
                 continue
-        if bead_types and str(b.get("type") or "") not in bead_types:
+        if bead_types and normalize_bead_type(str(b.get("type") or "")) not in bead_types:
             continue
         if tr_from or tr_to:
             bts = _parse_iso(str(b.get("created_at") or ""))
@@ -99,14 +100,14 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
         })
 
     chains = []
-    relation_filter = set([str(x) for x in (form.get("relation_types") or [])])
+    relation_filter = set([normalize_relation_type(str(x)) for x in (form.get("relation_types") or [])])
     if form.get("require_structural") and result_rows:
         anchors = [x["bead_id"] for x in result_rows[:5]]
         trav = causal_traverse(root, anchor_ids=anchors, max_depth=2, max_chains=5)
         for c in (trav.get("chains") or []):
             edges = c.get("edges") or []
             if relation_filter:
-                rels = set([str(e.get("rel") or "") for e in edges])
+                rels = set([normalize_relation_type(str(e.get("rel") or "")) for e in edges])
                 if not rels.intersection(relation_filter):
                     continue
             chains.append({"path": c.get("path") or [], "edges": edges, "score": c.get("score")})

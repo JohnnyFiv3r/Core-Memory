@@ -13,6 +13,11 @@ class TestAssociationPolicyContract(unittest.TestCase):
         self.assertTrue(assoc_row_is_valid(n))
         self.assertEqual(("A", "B", "supports"), assoc_dedupe_key(n))
 
+    def test_normalize_legacy_relation_aliases_via_schema_vocabulary(self):
+        row = {"source_bead": "A", "target_bead": "B", "relationship": "Causes"}
+        n = normalize_assoc_row(row)
+        self.assertEqual("caused_by", n.get("relationship"))
+
 
 if __name__ == "__main__":
     unittest.main()
