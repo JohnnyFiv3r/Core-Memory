@@ -75,10 +75,14 @@ class RelationshipType(str, Enum):
     LED_TO = "led_to"
     BLOCKED_BY = "blocked_by"
     UNBLOCKS = "unblocks"
+    BLOCKS_UNBLOCKS = "blocks_unblocks"
     SUPERSEDES = "supersedes"
     SUPERSEDED_BY = "superseded_by"
     ASSOCIATED_WITH = "associated_with"
     CONTRADICTS = "contradicts"
+    REFINES = "refines"
+    INVALIDATES = "invalidates"
+    DIAGNOSES = "diagnoses"
     REINFORCES = "reinforces"
     MIRRORS = "mirrors"
     APPLIES_PATTERN_OF = "applies_pattern_of"
@@ -95,6 +99,7 @@ class RelationshipType(str, Enum):
     DERIVED_FROM = "derived_from"
     RESOLVES = "resolves"
     FOLLOWS = "follows"
+    PRECEDES = "precedes"
 
 
 class ImpactLevel(str, Enum):

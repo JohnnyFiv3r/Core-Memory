@@ -57,6 +57,12 @@ class TestCatalogRelationSource(unittest.TestCase):
                         "target_bead": b2,
                         "relationship": "mystery_rel",
                     },
+                    {
+                        "id": "assoc-derived",
+                        "source_bead": b1,
+                        "target_bead": b2,
+                        "relationship": "shared_tag",
+                    },
                 ]
             )
             s._write_json(s.beads_dir / "index.json", idx)
@@ -65,6 +71,7 @@ class TestCatalogRelationSource(unittest.TestCase):
             rels = set(cat.get("relation_types") or [])
             self.assertIn("caused_by", rels)
             self.assertNotIn("mystery_rel", rels)
+            self.assertNotIn("shared_tag", rels)
 
 
 if __name__ == "__main__":

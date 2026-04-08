@@ -39,7 +39,7 @@ def build_catalog(root: Path) -> dict:
         rt = str(a.get("relationship") or a.get("rel") or "")
         if rt:
             rel = normalize_relation_type(rt)
-            if relation_kind(rel) in {"canonical", "derived"}:
+            if relation_kind(rel) == "canonical":
                 relation_types.add(rel)
 
     # Transitional fallback only if no association records available.
@@ -50,7 +50,7 @@ def build_catalog(root: Path) -> dict:
                     rt = str(l.get("type") or "")
                     if rt:
                         rel = normalize_relation_type(rt)
-                        if relation_kind(rel) in {"canonical", "derived"}:
+                        if relation_kind(rel) == "canonical":
                             relation_types.add(rel)
 
     incidents = [str(r.get("incident_id") or "") for r in load_incidents(root) if str(r.get("incident_id") or "")]
