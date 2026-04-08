@@ -136,7 +136,10 @@ def dreamer_eval_report(root: str | Path, *, since: str = "30d") -> dict[str, An
         c
         for c in accepted
         if isinstance(c.get("decision"), dict)
-        and str((c.get("decision") or {}).get("applied_association_id") or "").strip()
+        and (
+            str((c.get("decision") or {}).get("applied_association_id") or "").strip()
+            or str((c.get("decision") or {}).get("applied_turn_id") or "").strip()
+        )
     ]
 
     repeated_candidates = [c for c in scoped if _is_repeated_mistake_candidate(c)]

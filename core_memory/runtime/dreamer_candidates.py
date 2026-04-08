@@ -6,7 +6,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.persistence.store import MemoryStore
 
 
 def _now() -> str:
@@ -179,23 +178,108 @@ def decide_dreamer_candidate(
 
     applied = None
     if decision_n == "accept" and apply:
+        from core_memory.runtime.engine import process_turn_finalized
+        from core_memory.schema.normalization import normalize_relation_type, relation_kind
+        from core_memory.policy.association_inference_v21 import CANONICAL_INFERENCE_RELATIONSHIPS
+
         src = str(target.get("source_bead_id") or "")
         tgt = str(target.get("target_bead_id") or "")
-        rel = str(target.get("relationship") or "associated_with")
+        rel_raw = str(target.get("relationship") or "associated_with")
+        rel_norm = normalize_relation_type(rel_raw)
+        if rel_norm == "superseded_by":
+            rel_apply = "supersedes"
+        elif rel_norm in CANONICAL_INFERENCE_RELATIONSHIPS:
+            rel_apply = rel_norm
+        elif relation_kind(rel_norm) == "canonical":
+            # Dreamer canonical relations can be richer than strict inference set;
+            # downgrade to strict-safe edge for turn-time association append path.
+            rel_apply = "supports"
+        else:
+            rel_apply = "supports"
         if src and tgt:
-            store = MemoryStore(root=str(root))
-            assoc_id = store.link(
-                source_id=src,
-                target_id=tgt,
-                relationship=rel,
-                explanation=str(target.get("rationale") or "dreamer_candidate_accept"),
-                confidence=float(target.get("confidence") or 0.7),
+            idx_path = Path(root) / ".beads" / "index.json"
+            before_ids: set[str] = set()
+            session_id = str(((target.get("run_metadata") or {}) if isinstance(target.get("run_metadata"), dict) else {}).get("session_id") or "").strip()
+            if idx_path.exists():
+                try:
+                    idx = json.loads(idx_path.read_text(encoding="utf-8"))
+                    before_ids = {
+                        str(a.get("id") or "")
+                        for a in (idx.get("associations") or [])
+                        if isinstance(a, dict) and str(a.get("id") or "")
+                    }
+                    if not session_id:
+                        src_row = (idx.get("beads") or {}).get(src) if isinstance(idx.get("beads"), dict) else None
+                        session_id = str((src_row or {}).get("session_id") or "").strip()
+                except Exception:
+                    before_ids = set()
+
+            session_id = session_id or "dreamer-review"
+            turn_id = f"dreamer-apply-{cid}"
+            rationale = str(target.get("rationale") or "dreamer_candidate_accept")
+            out = process_turn_finalized(
+                root=str(root),
+                session_id=session_id,
+                turn_id=turn_id,
+                user_query=f"Dreamer reviewer accepted candidate {cid}; apply reviewed association.",
+                assistant_final=f"Apply reviewed association: {src} {rel_apply} {tgt}. Rationale: {rationale}",
+                metadata={
+                    "crawler_updates": {
+                        "associations": [
+                            {
+                                "source_bead_id": src,
+                                "target_bead_id": tgt,
+                                "relationship": rel_apply,
+                                "relationship_raw": rel_raw,
+                                "confidence": float(target.get("confidence") or 0.7),
+                                "reason_text": rationale,
+                                "rationale": rationale,
+                                "provenance": "reviewer_decision",
+                            }
+                        ]
+                    }
+                },
             )
+            assoc_id = ""
+            if idx_path.exists():
+                try:
+                    idx_after = json.loads(idx_path.read_text(encoding="utf-8"))
+                    new_rows = [
+                        a
+                        for a in (idx_after.get("associations") or [])
+                        if isinstance(a, dict)
+                        and str(a.get("id") or "")
+                        and str(a.get("id") or "") not in before_ids
+                        and str(a.get("source_bead") or "") == src
+                        and str(a.get("target_bead") or "") == tgt
+                        and str(a.get("relationship") or "") == rel_apply
+                    ]
+                    if new_rows:
+                        new_rows = sorted(new_rows, key=lambda a: str(a.get("created_at") or ""))
+                        assoc_id = str((new_rows[-1] or {}).get("id") or "")
+                except Exception:
+                    assoc_id = ""
+
+            auto_apply = (((out.get("crawler_handoff") or {}).get("auto_apply") or {}) if isinstance(out, dict) else {})
+            turn_merge = (((out.get("crawler_handoff") or {}).get("turn_merge") or {}) if isinstance(out, dict) else {})
+            appended = int(auto_apply.get("associations_appended") or 0) + int(turn_merge.get("associations_appended") or 0)
+            ok_apply = bool(out.get("ok"))
+
             applied = {
-                "ok": True,
-                "association_id": assoc_id,
+                "ok": ok_apply,
+                "association_id": assoc_id or None,
+                "canonical_entry": "process_turn_finalized",
+                "turn_id": turn_id,
+                "session_id": session_id,
+                "relationship": rel_apply,
+                "relationship_raw": rel_raw,
+                "appended_count": appended,
+                "application_mode": "association_append" if (bool(assoc_id) or appended > 0) else "canonical_review_record_only",
+                "engine": out,
             }
-            target["decision"]["applied_association_id"] = assoc_id
+            if assoc_id:
+                target["decision"]["applied_association_id"] = assoc_id
+            target["decision"]["applied_turn_id"] = turn_id
         else:
             applied = {"ok": False, "error": "missing_source_or_target"}
 
