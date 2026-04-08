@@ -31,6 +31,10 @@
 3. `PYTHONPATH=. python3 examples/proof_carry_forward.py`
 4. `PYTHONPATH=. python3 -m eval.reviewer_quick_value_v2 --root ./memory --strict`
 
+Optional follow-up telemetry (proxy-style, not full strategy replay benchmark):
+- `PYTHONPATH=. python3 -m eval.dreamer_behavior_eval --root ./memory --since 30d`
+- `PYTHONPATH=. python3 -m eval.longitudinal_benchmark_v2 --root ./memory --since 30d`
+
 Then use:
 - [docs/reviewers/start-here.md](docs/reviewers/start-here.md)
 - [docs/contributor_map.md](docs/contributor_map.md)

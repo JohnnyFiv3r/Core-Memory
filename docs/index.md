@@ -55,9 +55,9 @@ Use this page as the authoritative map of current docs.
 
 ## Evaluation entrypoints
 - `../eval/memory_execute_eval.py`
-
-## Evaluation entrypoints
-- `../eval/memory_execute_eval.py`
+- `../eval/dreamer_behavior_eval.py`
+- `../eval/longitudinal_benchmark_v2.py` (proxy telemetry)
+- `../eval/reviewer_quick_value_v2.py`
 
 ## Compatibility / historical material
 - [`archive/`](archive/) — superseded migration/process/history docs
