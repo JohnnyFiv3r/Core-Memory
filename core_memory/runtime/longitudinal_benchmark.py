@@ -226,6 +226,15 @@ def longitudinal_benchmark_v2(root: str | Path, *, since: str = "30d") -> dict[s
         "schema": "core_memory.longitudinal_benchmark_v2.v1",
         "root": str(root_p),
         "since": since,
+        "methodology": {
+            "kind": "candidate_quality_proxy",
+            "is_strategy_replay": False,
+            "no_memory_baseline": "synthetic_zero_baseline",
+            "notes": [
+                "This surface summarizes Dreamer candidate/adjudication telemetry.",
+                "It does not run full task traces for true no-memory vs summary-only vs core-memory strategies.",
+            ],
+        },
         "cohorts": {
             "no_memory_baseline": no_memory,
             "summary_only_baseline": summary_metrics,

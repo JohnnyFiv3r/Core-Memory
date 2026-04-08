@@ -4,6 +4,7 @@ import hashlib
 import json
 import logging
 import os
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -135,10 +136,16 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
     provider = str(manifest.get("provider") or os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "")
     rows_count = len(_read_rows(rows_file)) if rows_file.exists() else 0
 
-    ext_backend = _normalize_vector_backend(backend) in _EXTERNAL_VECTOR_BACKENDS
+    normalized_backend = _normalize_vector_backend(backend)
+    ext_backend = normalized_backend in _EXTERNAL_VECTOR_BACKENDS
+    connectivity_ok = True
+    connectivity_error = ""
+    if ext_backend:
+        connectivity_ok, connectivity_error = _external_backend_connectivity(root=root, backend=normalized_backend, manifest=manifest)
+
     usable_backend = bool(
         (backend.startswith("faiss") and faiss_file.exists() and rows_count > 0)
-        or (ext_backend and rows_count > 0)
+        or (ext_backend and rows_count > 0 and connectivity_ok)
     )
     profile = _backend_deployment_profile(backend or "not_built")
 
@@ -159,6 +166,9 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
         "provider": provider or "unknown",
         "rows_count": int(rows_count),
         "faiss_index_exists": faiss_file.exists(),
+        "connectivity_checked": bool(ext_backend),
+        "connectivity_ok": bool(connectivity_ok if ext_backend else True),
+        "connectivity_error": str(connectivity_error or ""),
         "usable_backend": usable_backend,
         "deployment_profile": str(profile.get("deployment_profile") or "unknown"),
         "multi_worker_safe": bool(profile.get("multi_worker_safe")),
@@ -166,6 +176,55 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
         "recommended_production_backends": ["qdrant", "pgvector"],
         "next_step": next_step,
     }
+
+
+def _external_backend_connectivity(*, root: Path, backend: str, manifest: dict[str, Any]) -> tuple[bool, str]:
+    b = _normalize_vector_backend(backend)
+    if b == VECTOR_BACKEND_QDRANT:
+        base = str(os.environ.get("CORE_MEMORY_QDRANT_URL") or "http://localhost:6333").strip().rstrip("/")
+        if not base:
+            return False, "missing_qdrant_url"
+        url = f"{base}/collections"
+        try:
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=3) as resp:  # nosec - configured endpoint
+                code = int(getattr(resp, "status", 200) or 200)
+            return (200 <= code < 500), ""
+        except Exception as exc:
+            return False, f"qdrant_unreachable:{exc}"
+
+    if b == VECTOR_BACKEND_PGVECTOR:
+        dsn = str(os.environ.get("CORE_MEMORY_PG_DSN") or "").strip()
+        if not dsn:
+            return False, "missing_pg_dsn"
+        try:
+            import psycopg  # type: ignore
+        except Exception as exc:
+            return False, f"pgvector_driver_missing:{exc}"
+        try:
+            conn = psycopg.connect(dsn, connect_timeout=3)
+            try:
+                cur = conn.execute("SELECT 1")
+                _ = cur.fetchone()
+            finally:
+                conn.close()
+            return True, ""
+        except Exception as exc:
+            return False, f"pgvector_unreachable:{exc}"
+
+    if b == VECTOR_BACKEND_CHROMADB:
+        try:
+            dim = int(manifest.get("dimension") or 256)
+        except Exception:
+            dim = 256
+        try:
+            backend_obj = _create_external_backend(root=root, backend=b, dimension=max(1, dim))
+            _ = backend_obj.count()
+            return True, ""
+        except Exception as exc:
+            return False, f"chromadb_unavailable:{exc}"
+
+    return True, ""
 
 
 def semantic_unavailable_payload(*, query: str, warnings: list[str] | None = None, provider: str | None = None) -> dict[str, Any]:
