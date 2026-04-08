@@ -71,6 +71,7 @@ class Authority(str, Enum):
 class RelationshipType(str, Enum):
     """Canonical relation values (aligned to core_memory.schema)."""
     CAUSED_BY = "caused_by"
+    ENABLES = "enables"
     LED_TO = "led_to"
     BLOCKED_BY = "blocked_by"
     UNBLOCKS = "unblocks"

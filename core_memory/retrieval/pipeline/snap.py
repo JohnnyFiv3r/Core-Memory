@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from difflib import SequenceMatcher
 
+from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
+
 
 def _sim(a: str, b: str) -> float:
     return SequenceMatcher(a=(a or "").lower(), b=(b or "").lower()).ratio()
@@ -59,7 +61,7 @@ def snap_form(submission: dict, catalog: dict) -> dict:
     out["topic_keys"] = sorted(set(snapped_topics))
     decisions["topic_keys"] = topic_ds
 
-    rels = [str(x) for x in (out.get("relation_types") or [])][:3]
+    rels = [normalize_relation_type(str(x)) for x in (out.get("relation_types") or [])][:3]
     rel_snapped = []
     rel_ds = []
     for r in rels:
@@ -70,7 +72,7 @@ def snap_form(submission: dict, catalog: dict) -> dict:
     out["relation_types"] = sorted(set(rel_snapped))
     decisions["relation_types"] = rel_ds
 
-    bead_typed = [str(x) for x in (out.get("bead_types") or [])][:3]
+    bead_typed = [normalize_bead_type(str(x)) for x in (out.get("bead_types") or [])][:3]
     bt_snapped = []
     bt_ds = []
     for bt in bead_typed:

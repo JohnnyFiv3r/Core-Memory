@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from core_memory.schema.models import BeadType
 from core_memory.policy.incidents import load_incidents
+from core_memory.schema.normalization import (
+    PUBLIC_CATALOG_BEAD_TYPES,
+    normalize_relation_type,
+    relation_kind,
+)
 
 
 def build_catalog(root: Path) -> dict:
@@ -34,7 +38,9 @@ def build_catalog(root: Path) -> dict:
             continue
         rt = str(a.get("relationship") or a.get("rel") or "")
         if rt:
-            relation_types.add(rt)
+            rel = normalize_relation_type(rt)
+            if relation_kind(rel) in {"canonical", "derived"}:
+                relation_types.add(rel)
 
     # Transitional fallback only if no association records available.
     if not relation_types:
@@ -43,12 +49,14 @@ def build_catalog(root: Path) -> dict:
                 if isinstance(l, dict):
                     rt = str(l.get("type") or "")
                     if rt:
-                        relation_types.add(rt)
+                        rel = normalize_relation_type(rt)
+                        if relation_kind(rel) in {"canonical", "derived"}:
+                            relation_types.add(rel)
 
     incidents = [str(r.get("incident_id") or "") for r in load_incidents(root) if str(r.get("incident_id") or "")]
     return {
         "intents": ["remember", "causal", "what_changed", "when", "other"],
-        "bead_types": sorted([e.value for e in BeadType]),
+        "bead_types": sorted(PUBLIC_CATALOG_BEAD_TYPES),
         "relation_types": sorted(relation_types),
         "incident_ids": sorted(set(incidents)),
         "topic_keys": sorted(topics),
