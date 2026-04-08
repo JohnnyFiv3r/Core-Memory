@@ -27,6 +27,7 @@ If you're new, this is the shortest map of where behavior lives.
 - promotion scoring + service entry wrappers: `core_memory/persistence/store_promotion_ops.py`
 - lifecycle/close helpers: `core_memory/persistence/store_lifecycle_ops.py`
 - shared constants + DiagnosticError contract: `core_memory/persistence/store_contract.py`
+- reporting/promotion facade mixin: `core_memory/persistence/store_reporting_promotion_mixin.py`
 - add-bead helper heuristics: `core_memory/persistence/store_add_helpers.py`
 - bead validation helpers: `core_memory/persistence/store_validation_helpers.py`
 - constraint retrieval/compliance helpers: `core_memory/persistence/store_constraints.py`
