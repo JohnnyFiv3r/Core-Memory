@@ -71,13 +71,16 @@ Reference surfaces:
 - CLI: `core-memory metrics dreamer-eval --since 30d [--strict]`
 - eval script: `python -m eval.dreamer_behavior_eval --root <path> --since 30d`
 
-## PV-1 longitudinal benchmark v2 scaffold
+## PV-1 longitudinal benchmark v2 scaffold (proxy telemetry)
 
-Longitudinal benchmark v2 compares cohort-style quality proxies across:
+Longitudinal benchmark v2 currently reports **candidate-quality proxy telemetry** across:
 - no-memory baseline
 - summary-only baseline
 - core memory without dreamer structural replay
 - core memory with dreamer structural replay
+
+Important limitation:
+- this is **not** a full strategy replay benchmark yet; the no-memory baseline is a synthetic zero reference and cohorts are derived from candidate/adjudication artifacts.
 
 Reference surfaces:
 - runtime report: `core_memory.runtime.longitudinal_benchmark.longitudinal_benchmark_v2(...)`
