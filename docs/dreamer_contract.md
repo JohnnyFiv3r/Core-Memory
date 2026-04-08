@@ -70,3 +70,16 @@ Reference surfaces:
 - runtime report: `core_memory.runtime.dreamer_eval.dreamer_eval_report(...)`
 - CLI: `core-memory metrics dreamer-eval --since 30d [--strict]`
 - eval script: `python -m eval.dreamer_behavior_eval --root <path> --since 30d`
+
+## PV-1 longitudinal benchmark v2 scaffold
+
+Longitudinal benchmark v2 compares cohort-style quality proxies across:
+- no-memory baseline
+- summary-only baseline
+- core memory without dreamer structural replay
+- core memory with dreamer structural replay
+
+Reference surfaces:
+- runtime report: `core_memory.runtime.longitudinal_benchmark.longitudinal_benchmark_v2(...)`
+- CLI: `core-memory metrics longitudinal-benchmark-v2 --since 30d [--strict]`
+- eval script: `python -m eval.longitudinal_benchmark_v2 --root <path> --since 30d`

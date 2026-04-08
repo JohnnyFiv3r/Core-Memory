@@ -47,6 +47,18 @@ class TestCliParserExtendedSlice51A(unittest.TestCase):
         self.assertEqual("report", args.metrics_cmd)
         self.assertEqual("48h", args.since)
 
+    def test_add_metrics_parser_dreamer_and_longitudinal(self):
+        parser, sub = self._base()
+        _m = add_metrics_parser(sub, legacy_help="legacy")
+
+        args1 = parser.parse_args(["metrics", "dreamer-eval", "--since", "30d", "--strict"])
+        self.assertEqual("dreamer-eval", args1.metrics_cmd)
+        self.assertTrue(args1.strict)
+
+        args2 = parser.parse_args(["metrics", "longitudinal-benchmark-v2", "--since", "14d"])
+        self.assertEqual("longitudinal-benchmark-v2", args2.metrics_cmd)
+        self.assertEqual("14d", args2.since)
+
 
 if __name__ == "__main__":
     unittest.main()
