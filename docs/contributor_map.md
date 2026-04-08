@@ -21,6 +21,7 @@ If you're new, this is the shortest map of where behavior lives.
 - promotion policy service: `core_memory/persistence/promotion_service.py`
 - reporting service: `core_memory/reporting/store_reporting.py`
 - metrics runtime service: `core_memory/reporting/store_metrics_runtime.py`
+- rationale scoring service: `core_memory/reporting/store_rationale.py`
 
 ## CLI surfaces
 - thin entrypoint + routing: `core_memory/cli.py`
