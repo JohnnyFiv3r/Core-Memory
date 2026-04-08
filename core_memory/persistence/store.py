@@ -193,31 +193,19 @@ class MemoryStore:
         return f"bead-{uuid.uuid4().hex[:12].upper()}"
 
     def _read_heads(self) -> dict:
-        heads_file = self.beads_dir / HEADS_FILE
-        if not heads_file.exists():
-            return {"topics": {}, "goals": {}, "updated_at": datetime.now(timezone.utc).isoformat()}
-        return self._read_json(heads_file)
+        from ..persistence.store_index_heads_ops import read_heads_for_store
+
+        return read_heads_for_store(self)
 
     def _write_heads(self, heads: dict):
-        heads["updated_at"] = datetime.now(timezone.utc).isoformat()
-        self._write_json(self.beads_dir / HEADS_FILE, heads)
+        from ..persistence.store_index_heads_ops import write_heads_for_store
+
+        write_heads_for_store(self, heads)
 
     def _update_heads_for_bead(self, heads: dict, bead: dict) -> dict:
-        topic_id = (bead.get("topic_id") or "").strip() if isinstance(bead.get("topic_id"), str) else ""
-        goal_id = (bead.get("goal_id") or "").strip() if isinstance(bead.get("goal_id"), str) else ""
-        bead_id = bead.get("id")
-        if topic_id and bead_id:
-            heads.setdefault("topics", {})[topic_id] = {
-                "bead_id": bead_id,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        if goal_id and bead_id:
-            heads.setdefault("goals", {})[goal_id] = {
-                "bead_id": bead_id,
-                "goal_status": bead.get("goal_status") or bead.get("status") or "open",
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-        return heads
+        from ..persistence.store_index_heads_ops import update_heads_for_bead_for_store
+
+        return update_heads_for_bead_for_store(self, heads, bead)
 
     # LEGACY COMPATIBILITY - These methods delegate to extracted modules.
     # See retrieval/query_norm, retrieval/failure_patterns, hygiene, policy/promotion.
@@ -792,10 +780,6 @@ class MemoryStore:
     
     def _update_index(self, bead: dict):
         """Update the index with a new/updated bead."""
-        index_file = self.beads_dir / INDEX_FILE
-        index = self._read_json(index_file)
-        
-        index["beads"][bead["id"]] = bead
-        index["stats"]["total_beads"] = len(index["beads"])
-        
-        self._write_json(index_file, index)
+        from ..persistence.store_index_heads_ops import update_index_for_store
+
+        update_index_for_store(self, bead)
