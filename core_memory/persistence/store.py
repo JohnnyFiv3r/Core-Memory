@@ -17,7 +17,7 @@ from typing import Optional
 
 from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
-from ..persistence.io_utils import store_lock, atomic_write_json
+from ..persistence.io_utils import atomic_write_json
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.failure_patterns import compute_failure_signature, find_failure_signature_matches, preflight_failure_check
 from ..policy.promotion import compute_promotion_score, compute_adaptive_threshold, is_candidate_promotable, get_recommendation_rows
@@ -138,29 +138,9 @@ class MemoryStore:
     
     def _init_index(self):
         """Initialize the index + heads files if they don't exist."""
-        index_file = self.beads_dir / INDEX_FILE
-        heads_file = self.beads_dir / HEADS_FILE
-        with store_lock(self.root):
-            if not index_file.exists():
-                self._write_json(index_file, {
-                    "beads": {},
-                    "associations": [],
-                    "stats": {
-                        "total_beads": 0,
-                        "total_associations": 0,
-                        "created_at": datetime.now(timezone.utc).isoformat()
-                    },
-                    "projection": {
-                        "mode": "session_first_projection_cache",
-                        "rebuilt_at": None,
-                    },
-                })
-            if not heads_file.exists():
-                self._write_json(heads_file, {
-                    "topics": {},
-                    "goals": {},
-                    "updated_at": datetime.now(timezone.utc).isoformat(),
-                })
+        from ..persistence.store_dream_bootstrap_ops import init_index_for_store
+
+        init_index_for_store(self)
     
     def _read_json(self, path: Path) -> dict:
         """Read a JSON file. Raises DiagnosticError with recovery steps on corruption."""
@@ -752,17 +732,14 @@ class MemoryStore:
         Returns:
             List of discovered associations
         """
-        try:
-            from .. import dreamer
-            # Pass the store instance for decoupled access
-            return dreamer.run_analysis(
-                store=self,
-                novel_only=novel_only,
-                seen_window_runs=seen_window_runs,
-                max_exposure=max_exposure,
-            )
-        except ImportError:
-            return [{"error": "Dreamer not available"}]
+        from ..persistence.store_dream_bootstrap_ops import dream_for_store
+
+        return dream_for_store(
+            self,
+            novel_only=novel_only,
+            seen_window_runs=seen_window_runs,
+            max_exposure=max_exposure,
+        )
     
     def rebuild_index(self) -> dict:
         """Rebuild the index from all events."""
