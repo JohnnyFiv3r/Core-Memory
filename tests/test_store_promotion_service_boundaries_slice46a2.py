@@ -10,7 +10,7 @@ class TestStorePromotionServiceBoundariesSlice46A2(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             expected = {"ok": True, "candidate_total": 0, "results": []}
-            with patch("core_memory.persistence.store.promotion_slate_for_store", return_value=expected) as spy:
+            with patch("core_memory.persistence.store_promotion_ops.promotion_slate_entry_for_store", return_value=expected) as spy:
                 out = s.promotion_slate(limit=5, query_text="policy")
             self.assertEqual(expected, out)
             spy.assert_called_once_with(s, limit=5, query_text="policy")
@@ -19,7 +19,7 @@ class TestStorePromotionServiceBoundariesSlice46A2(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             expected = {"ok": True, "decision": "promote"}
-            with patch("core_memory.persistence.store.decide_promotion_for_store", return_value=expected) as spy:
+            with patch("core_memory.persistence.store_promotion_ops.decide_promotion_entry_for_store", return_value=expected) as spy:
                 out = s.decide_promotion(bead_id="b1", decision="promote", reason="x")
             self.assertEqual(expected, out)
             spy.assert_called_once()
@@ -28,7 +28,7 @@ class TestStorePromotionServiceBoundariesSlice46A2(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             expected = {"ok": True, "applied": 0}
-            with patch("core_memory.persistence.store.rebalance_promotions_for_store", return_value=expected) as spy:
+            with patch("core_memory.persistence.store_promotion_ops.rebalance_promotions_entry_for_store", return_value=expected) as spy:
                 out = s.rebalance_promotions(apply=True)
             self.assertEqual(expected, out)
             spy.assert_called_once_with(s, apply=True)
