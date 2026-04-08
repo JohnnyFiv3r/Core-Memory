@@ -43,13 +43,14 @@ def compact_for_store(
             if promote and store.auto_promote_on_compact and not is_promoted_state:
                 btype = str(bead.get("type") or "").lower()
                 curr_status = str(bead.get("status") or "").lower()
+                curr_pstate = str(bead.get("promotion_state") or "").lower()
                 because = bead.get("because") or []
                 has_evidence = store._has_evidence(bead)
                 detail_now = (bead.get("detail") or "").strip()
                 has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
                 allow_promote = False
                 score_meta = None
-                if curr_status == "candidate":
+                if curr_pstate == "candidate" or curr_status == "candidate":
                     quality_gate = False
                     if btype == "decision":
                         quality_gate = bool(because and (has_evidence or detail_now or has_link))
