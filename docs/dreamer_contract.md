@@ -56,3 +56,17 @@ Dreamer does not bypass canonical authority. The expected flow is:
 2. reviewer/agent accepts or rejects
 3. accepted candidates may be applied through canonical store/runtime surfaces
 4. rejected candidates remain logged for calibration
+
+## DR-7 behavior eval metrics
+
+Dreamer eval reporting should track behavior-oriented metrics, including:
+- repeated mistake reduction proxy
+- cross-session transfer success rate
+- accepted candidate rate
+- downstream retrieval/use rate of accepted outputs
+- policy reuse lift proxy
+
+Reference surfaces:
+- runtime report: `core_memory.runtime.dreamer_eval.dreamer_eval_report(...)`
+- CLI: `core-memory metrics dreamer-eval --since 30d [--strict]`
+- eval script: `python -m eval.dreamer_behavior_eval --root <path> --since 30d`
