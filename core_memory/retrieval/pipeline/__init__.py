@@ -5,6 +5,7 @@ from typing import Any
 
 from .canonical import search_request as _search_request, execute_request as _execute_request, trace_request as _trace_request
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
+from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
 
 
 def _snap_typed_submission(rp: Path, submission: dict[str, Any]) -> tuple[dict[str, Any], list[dict[str, Any]]]:
@@ -34,9 +35,9 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
     incident_id = str(req.get("incident_id") or incident_from_facets or "").strip() or None
     scope = str(req.get("scope") or facets.get("scope") or "").strip() or None
 
-    topic_keys = list(req.get("topic_keys") or facets.get("topic_keys") or [])
-    bead_types = list(req.get("bead_types") or facets.get("bead_types") or [])
-    relation_types = list(req.get("relation_types") or facets.get("relation_types") or [])
+    topic_keys = [str(x) for x in (req.get("topic_keys") or facets.get("topic_keys") or [])]
+    bead_types = [normalize_bead_type(str(x)) for x in (req.get("bead_types") or facets.get("bead_types") or [])]
+    relation_types = [normalize_relation_type(str(x)) for x in (req.get("relation_types") or facets.get("relation_types") or [])]
     must_terms = list(req.get("must_terms") or facets.get("must_terms") or [])
     avoid_terms = list(req.get("avoid_terms") or facets.get("avoid_terms") or [])
     time_range = dict(req.get("time_range") or facets.get("time_range") or {})
@@ -77,12 +78,12 @@ def _append_structural_chains(out: dict[str, Any], rp: Path, submission: dict[st
     anchor_ids = [str(r.get("bead_id") or "") for r in (out.get("results") or []) if str(r.get("bead_id") or "")][:5]
     trav = causal_traverse(rp, anchor_ids=anchor_ids, max_depth=2, max_chains=5) if anchor_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])
-    relation_filter = {str(x).strip() for x in (submission.get("relation_types") or []) if str(x).strip()}
+    relation_filter = {normalize_relation_type(str(x)).strip() for x in (submission.get("relation_types") or []) if str(x).strip()}
     if relation_filter:
         chains = [
             c
             for c in chains
-            if {str(e.get("rel") or "") for e in (c.get("edges") or [])}.intersection(relation_filter)
+            if {normalize_relation_type(str(e.get("rel") or "")) for e in (c.get("edges") or [])}.intersection(relation_filter)
         ]
     out["chains"] = chains[:3]
     if not out.get("chains"):

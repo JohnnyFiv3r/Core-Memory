@@ -3,17 +3,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-CANONICAL_INFERENCE_RELATIONSHIPS = {
-    "caused_by",
-    "supports",
-    "supersedes",
-    "blocked_by",
-    "unblocks",
-    "enables",
-    "derived_from",
-    "follows",
-    "contradicts",
-}
+from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
+
+CANONICAL_INFERENCE_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
 
 NONCANONICAL_TEMPORAL_RELATIONSHIPS = {"precedes"}
 
