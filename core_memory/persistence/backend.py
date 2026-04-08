@@ -79,7 +79,7 @@ class JsonFileBackend:
         try:
             return json.loads(self._index_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError:
-            from core_memory.persistence.store import DiagnosticError
+            from core_memory.persistence.store_contract import DiagnosticError
             raise DiagnosticError(
                 f"Corrupt JSON file: {self._index_path}",
                 recovery="Rebuild from sessions: MemoryStore(root).rebuild_index_projection_from_sessions()",

@@ -17,10 +17,10 @@ from pathlib import Path
 from typing import Optional, Iterator
 
 from .io_utils import store_lock, append_jsonl, atomic_write_json
+from .store_contract import INDEX_FILE, SESSION_FILE
 
 # Constants
 EVENTS_DIR = ".beads/events"
-SESSION_FILE = "session-{id}.jsonl"
 METRICS_FILE = "metrics.jsonl"
 
 # Event types
@@ -170,8 +170,6 @@ def rebuild_index(root: Path) -> dict:
     Returns:
         Rebuild index dictionary
     """
-    from .store import SESSION_FILE, INDEX_FILE
-    
     beads_dir = root / ".beads"
     index_file = beads_dir / INDEX_FILE
     
