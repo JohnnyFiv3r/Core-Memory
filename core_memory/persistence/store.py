@@ -18,7 +18,6 @@ from typing import Optional
 from ..schema.models import BeadType, Scope, Status, Authority
 from ..persistence import events
 from ..persistence.io_utils import store_lock, atomic_write_json, append_jsonl
-from ..persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from ..runtime.session_surface import read_session_surface
 from ..retrieval.query_norm import _tokenize, _is_memory_intent, _expand_query_tokens
 from ..retrieval.lifecycle import mark_semantic_dirty
@@ -1050,188 +1049,29 @@ class MemoryStore:
         skip_bead_ids: Optional[list[str]] = None,
         force_archive_all: bool = False,
     ) -> dict:
-        """Core-native compact: archive detail text losslessly and optionally promote.
+        """Core-native compact: archive detail text losslessly and optionally promote."""
+        from ..persistence.store_compaction_ops import compact_for_store
 
-        - only_bead_ids: if provided, compact only this explicit set
-        - skip_bead_ids: if provided, skip compacting these IDs
-        """
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            compacted = 0
-            only = set(only_bead_ids or [])
-            skip = set(skip_bead_ids or [])
-
-            for bead_id in sorted(index.get("beads", {}).keys()):
-                bead = index["beads"][bead_id]
-                if session_id and bead.get("session_id") != session_id:
-                    continue
-                if only and bead_id not in only:
-                    continue
-                if bead_id in skip:
-                    continue
-
-                # Optional auto-promote pass (disabled by default; agent-led decisions preferred).
-                if promote and self.auto_promote_on_compact and bead.get("status") != "promoted":
-                    btype = str(bead.get("type") or "").lower()
-                    curr_status = str(bead.get("status") or "").lower()
-                    because = bead.get("because") or []
-                    has_evidence = self._has_evidence(bead)
-                    detail_now = (bead.get("detail") or "").strip()
-                    has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-                    allow_promote = False
-                    score_meta = None
-                    if curr_status == "candidate":
-                        # Keep minimum quality pre-check per type.
-                        quality_gate = False
-                        if btype == "decision":
-                            quality_gate = bool(because and (has_evidence or detail_now or has_link))
-                        elif btype == "lesson":
-                            quality_gate = bool(because and (has_evidence or detail_now or has_link))
-                        elif btype == "outcome":
-                            result = str(bead.get("result") or "").strip().lower()
-                            quality_gate = result in {"resolved", "failed", "partial", "confirmed"} and (has_link or has_evidence or detail_now)
-                        elif btype == "precedent":
-                            quality_gate = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
-                        elif btype in {"evidence", "design_principle", "failed_hypothesis"}:
-                            quality_gate = bool(has_evidence or detail_now or has_link)
-
-                        if quality_gate:
-                            allow_promote, score_meta = self._candidate_promotable(index, bead)
-
-                    if allow_promote:
-                        bead["status"] = "promoted"
-                        bead["promotion_state"] = "promoted"
-                        bead["promotion_locked"] = True
-                        bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
-                        if score_meta:
-                            bead["promotion_score"] = score_meta.get("score")
-                            bead["promotion_threshold"] = score_meta.get("threshold")
-                            bead["promotion_reason"] = str(bead.get("promotion_reason") or f"{score_meta.get('reason')}:{score_meta.get('score')}")
-                        else:
-                            bead["promotion_reason"] = str(bead.get("promotion_reason") or "policy_auto_promote")
-
-                # Invariants:
-                # - promoted beads always keep full detail
-                # - session boundary beads always keep full detail
-                bead_type = str(bead.get("type", "")).lower()
-                bead_status = str(bead.get("status", "")).lower()
-                is_session_boundary = bead_type in {"session_start", "session_end"}
-                is_promoted = bead_status == "promoted"
-
-                # Default behavior keeps candidates active for reinforcement window (Phase B).
-                # On session_flush authority path, callers can force archival of all eligible beads.
-                if (not force_archive_all) and bead_status == "candidate":
-                    index["beads"][bead_id] = bead
-                    continue
-
-                should_archive = force_archive_all or (not is_promoted and not is_session_boundary)
-                if should_archive:
-                    already_archived = str(bead.get("status") or "").lower() == "archived"
-                    has_ptr = isinstance(bead.get("archive_ptr"), dict) and bool((bead.get("archive_ptr") or {}).get("revision_id"))
-                    has_detail = bool((bead.get("detail") or "").strip())
-                    if not (already_archived and has_ptr and not has_detail):
-                        # Archive full pre-compaction snapshot as append-only revision.
-                        revision_id = f"rev-{uuid.uuid4().hex[:12]}"
-                        archive = {
-                            "bead_id": bead_id,
-                            "revision_id": revision_id,
-                            "archived_at": datetime.now(timezone.utc).isoformat(),
-                            "archived_from_status": bead.get("status"),
-                            "snapshot": dict(bead),
-                        }
-                        append_archive_snapshot(self.root, archive)
-                        bead["archive_ptr"] = {"revision_id": revision_id}
-
-                        # Compact into skeleton representation.
-                        bead["detail"] = ""
-                        bead["summary"] = (bead.get("summary") or [])[:2]
-                        bead["status"] = "archived"
-                        compacted += 1
-
-                index["beads"][bead_id] = bead
-
-            self._write_json(self.beads_dir / INDEX_FILE, index)
-            mark_semantic_dirty(self.root, reason="compact")
-            return {
-                "ok": True,
-                "compacted": compacted,
-                "session": session_id,
-                "only_bead_ids": len(only),
-                "skip_bead_ids": len(skip),
-                "force_archive_all": bool(force_archive_all),
-            }
+        return compact_for_store(
+            self,
+            session_id=session_id,
+            promote=promote,
+            only_bead_ids=only_bead_ids,
+            skip_bead_ids=skip_bead_ids,
+            force_archive_all=force_archive_all,
+        )
 
     def uncompact(self, bead_id: str) -> dict:
         """Restore compacted bead detail from append-only archive revisions."""
-        with store_lock(self.root):
-            index = self._read_json(self.beads_dir / INDEX_FILE)
-            if bead_id not in index.get("beads", {}):
-                return {"ok": False, "error": f"Bead not found: {bead_id}"}
+        from ..persistence.store_compaction_ops import uncompact_for_store
 
-            bead = index["beads"][bead_id]
-            wanted_rev = ((bead.get("archive_ptr") or {}).get("revision_id") if isinstance(bead.get("archive_ptr"), dict) else None)
-
-            found = read_snapshot(self.root, str(wanted_rev or "")) if wanted_rev else None
-
-            if not found:
-                # Fallback for legacy rows / missing index: linear scan then optionally rebuild index.
-                archive_file = self.beads_dir / "archive.jsonl"
-                if not archive_file.exists():
-                    return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
-                with open(archive_file, "r", encoding="utf-8") as f:
-                    for line in f:
-                        line = line.strip()
-                        if not line:
-                            continue
-                        row = json.loads(line)
-                        if row.get("bead_id") != bead_id:
-                            continue
-                        if wanted_rev and row.get("revision_id") != wanted_rev:
-                            continue
-                        found = row
-
-                if wanted_rev and not read_snapshot(self.root, str(wanted_rev or "")):
-                    rebuild_archive_index(self.root)
-
-            if not found:
-                return {"ok": False, "error": f"Bead not found in archive: {bead_id}"}
-
-            # New format: full snapshot. Legacy fallback: detail/summary fields.
-            snapshot = found.get("snapshot") if isinstance(found.get("snapshot"), dict) else None
-            if snapshot:
-                restored = dict(snapshot)
-                restored["status"] = "open" if bead.get("status") == "archived" else bead.get("status")
-                restored["uncompacted_at"] = datetime.now(timezone.utc).isoformat()
-                index["beads"][bead_id] = restored
-            else:
-                bead["detail"] = found.get("detail", "")
-                if found.get("summary"):
-                    bead["summary"] = found.get("summary")
-                if bead.get("status") == "archived":
-                    bead["status"] = "open"
-                bead["uncompacted_at"] = datetime.now(timezone.utc).isoformat()
-                index["beads"][bead_id] = bead
-
-            self._write_json(self.beads_dir / INDEX_FILE, index)
-            mark_semantic_dirty(self.root, reason="uncompact")
-            return {"ok": True, "id": bead_id, "revision_id": found.get("revision_id")}
+        return uncompact_for_store(self, bead_id=bead_id)
 
     def myelinate(self, apply: bool = False) -> dict:
         """Core-native myelination scaffold (deterministic)."""
-        index = self._read_json(self.beads_dir / INDEX_FILE)
-        actions = []
-        # Deterministic scan, no destructive behavior until policy finalization.
-        for bead_id in sorted(index.get("beads", {}).keys()):
-            bead = index["beads"][bead_id]
-            if bead.get("recall_count", 0) >= 3:
-                actions.append({"bead_id": bead_id, "action": "retain"})
+        from ..persistence.store_compaction_ops import myelinate_for_store
 
-        return {
-            "dry_run": not apply,
-            "total_derived_edges": 0,
-            "edges_with_actions": len(actions),
-            "actions": actions[:50],
-        }
+        return myelinate_for_store(self, apply=apply)
 
     def _normalize_enum(self, value, enum_class):
         """Normalize enum or string to string value."""
