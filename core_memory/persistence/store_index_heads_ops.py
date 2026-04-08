@@ -28,7 +28,7 @@ def update_heads_for_bead_for_store(store: Any, heads: dict, bead: dict) -> dict
     if goal_id and bead_id:
         heads.setdefault("goals", {})[goal_id] = {
             "bead_id": bead_id,
-            "goal_status": bead.get("goal_status") or bead.get("status") or "open",
+            "goal_status": bead.get("goal_status") or bead.get("status") or "default",
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
     return heads

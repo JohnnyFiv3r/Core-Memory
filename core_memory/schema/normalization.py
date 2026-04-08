@@ -80,11 +80,8 @@ DERIVED_RELATION_TYPES = {
 
 # Operational statuses (system state, not bead type)
 CANONICAL_BEAD_STATUSES = {
-    "open",
-    "candidate",
-    "promoted",
+    "default",
     "archived",
-    "compacted",
     "superseded",
 }
 

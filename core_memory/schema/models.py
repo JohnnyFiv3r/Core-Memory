@@ -47,12 +47,14 @@ class Scope(str, Enum):
 
 class Status(str, Enum):
     """Canonical bead status values (aligned to core_memory.schema)."""
-    OPEN = "open"
-    CANDIDATE = "candidate"
-    PROMOTED = "promoted"
-    COMPACTED = "compacted"
+    DEFAULT = "default"
     SUPERSEDED = "superseded"
     ARCHIVED = "archived"
+
+
+class PromotionState(str, Enum):
+    CANDIDATE = "candidate"
+    PROMOTED = "promoted"
 
 
 class Authority(str, Enum):
@@ -203,10 +205,26 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         default=Authority.AGENT_INFERRED.value,
         preserve_unknown=True,
     )
+    raw_status = str(out.get("status") or "").strip().lower()
+    legacy_status_map = {
+        "open": Status.DEFAULT.value,
+        "candidate": Status.DEFAULT.value,
+        "promoted": Status.DEFAULT.value,
+        "compacted": Status.ARCHIVED.value,
+    }
+    if not out.get("promotion_state") and raw_status in {"candidate", "promoted"}:
+        out["promotion_state"] = raw_status
+    mapped_status = legacy_status_map.get(raw_status, out.get("status"))
     out["status"] = _normalize_choice(
-        out.get("status"),
+        mapped_status,
         allowed={x.value for x in Status},
-        default=Status.OPEN.value,
+        default=Status.DEFAULT.value,
+        preserve_unknown=True,
+    )
+    out["promotion_state"] = _normalize_choice(
+        out.get("promotion_state"),
+        allowed={x.value for x in PromotionState},
+        allow_none=True,
         preserve_unknown=True,
     )
     out["impact_level"] = _normalize_choice(
@@ -298,7 +316,8 @@ class Bead:
     confidence: float = 0.8
     tags: list = field(default_factory=list)
     links: dict = field(default_factory=dict)
-    status: str = "open"  # Status as string
+    status: str = Status.DEFAULT.value  # storage lifecycle status
+    promotion_state: Optional[str] = None  # promotion lifecycle state
     recall_count: int = 0
     last_recalled: Optional[str] = None
 

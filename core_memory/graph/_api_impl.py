@@ -30,6 +30,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _is_candidate_or_promoted(bead: dict[str, Any] | None) -> bool:
+    row = bead or {}
+    pstate = str(row.get("promotion_state") or "").strip().lower()
+    if pstate in {"candidate", "promoted"}:
+        return True
+    status = str(row.get("status") or "").strip().lower()
+    return status in {"candidate", "promoted"}
+
+
 def _edge_identity(src_id: str, dst_id: str, rel: str, klass: str) -> str:
     raw = f"{src_id}|{dst_id}|{rel}|{klass}".encode("utf-8")
     return hashlib.sha1(raw).hexdigest()[:16]
@@ -501,7 +510,7 @@ def backfill_structural_edges(root: Path) -> dict:
             existing_keys.add(key)
             added += 1
 
-    bead_status = {str(bid): str((b or {}).get("status") or "") for bid, b in (index.get("beads") or {}).items()}
+    bead_rows = {str(bid): dict(b or {}) for bid, b in (index.get("beads") or {}).items()}
     for assoc in (index.get("associations") or []):
         rel = str(assoc.get("relationship") or "").strip()
         if rel not in STRUCTURAL_RELS:
@@ -516,9 +525,9 @@ def backfill_structural_edges(root: Path) -> dict:
         if not src or not dst:
             continue
 
-        src_st = bead_status.get(src, "")
-        dst_st = bead_status.get(dst, "")
-        if src_st not in {"candidate", "promoted"} and dst_st not in {"candidate", "promoted"}:
+        src_row = bead_rows.get(src) or {}
+        dst_row = bead_rows.get(dst) or {}
+        if not _is_candidate_or_promoted(src_row) and not _is_candidate_or_promoted(dst_row):
             continue
 
         key = _edge_identity(src, dst, rel, "structural")
@@ -550,7 +559,7 @@ def infer_structural_edges(root: Path, *, min_confidence: float = 0.9, apply: bo
 
     Rules:
     - only rel in {supports, derived_from}
-    - at least one endpoint status in {candidate, promoted}
+    - at least one endpoint in promotion lifecycle {candidate, promoted}
     - require deterministic provenance (shared source_turn_ids)
     - confidence must meet threshold
     """
@@ -579,9 +588,7 @@ def infer_structural_edges(root: Path, *, min_confidence: float = 0.9, apply: bo
                     continue
                 a_type = str(a.get("type") or "")
                 b_type = str(b.get("type") or "")
-                a_st = str(a.get("status") or "")
-                b_st = str(b.get("status") or "")
-                if a_st not in {"candidate", "promoted"} and b_st not in {"candidate", "promoted"}:
+                if not _is_candidate_or_promoted(a) and not _is_candidate_or_promoted(b):
                     continue
 
                 rel = None

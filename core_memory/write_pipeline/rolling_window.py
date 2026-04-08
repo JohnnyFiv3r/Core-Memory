@@ -38,7 +38,7 @@ def render_bead(bead: dict) -> str:
     ts = bead.get("created_at") or bead.get("promoted_at") or ""
     bid = bead.get("id") or ""
     typ = bead.get("type") or "context"
-    status = bead.get("status") or "open"
+    status = bead.get("status") or "default"
     title = bead.get("title") or bead.get("snapshot_title") or ""
     summary = bead.get("summary") or []
     if isinstance(summary, str):

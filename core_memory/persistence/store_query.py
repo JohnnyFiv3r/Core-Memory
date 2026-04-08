@@ -38,10 +38,28 @@ def query_for_store(
         index = store._read_json(store.beads_dir / "index.json")
         iterable = list((index.get("beads") or {}).values())
 
+    def bead_matches_status(bead: dict, filt: str | None) -> bool:
+        if not filt:
+            return True
+        f = str(filt or "").strip().lower()
+        s = str(bead.get("status") or "").strip().lower()
+        p = str(bead.get("promotion_state") or "").strip().lower()
+        # storage-axis canonical
+        if f == "default":
+            return s in {"default", "open", "candidate", "promoted"}
+        # promotion-axis compatibility filters
+        if f in {"candidate", "promoted"}:
+            return p == f or s == f
+        # legacy open maps to default active storage state
+        if f == "open":
+            return s in {"default", "open"} and p not in {"candidate", "promoted"}
+        # archived/superseded and any future exact status
+        return s == f
+
     for bead in iterable:
         if type_filter and bead.get("type") != type_filter:
             continue
-        if status_filter and bead.get("status") != status_filter:
+        if not bead_matches_status(bead, status_filter):
             continue
         if scope_filter and bead.get("scope") != scope_filter:
             continue

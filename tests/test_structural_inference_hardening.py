@@ -45,6 +45,46 @@ class TestStructuralInferenceHardening(unittest.TestCase):
             g = build_graph(Path(td), write_snapshot=False)
             self.assertGreaterEqual(int(g.get("structural_edges", 0)), 1)
 
+    def test_backfill_structural_uses_promotion_state_candidate(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            a = s.add_bead(type="decision", title="A", summary=["a"], session_id="main", source_turn_ids=["t1"], because=["x"], detail="y")
+            b = s.add_bead(type="lesson", title="B", summary=["b"], session_id="main", source_turn_ids=["t1"])
+            c = s.decide_promotion(bead_id=a, decision="candidate", reason="review")
+            self.assertTrue(c.get("ok"))
+
+            idx = s._read_json(s.beads_dir / "index.json")
+            self.assertEqual("default", idx["beads"][a].get("status"))
+            self.assertEqual("candidate", idx["beads"][a].get("promotion_state"))
+
+            idx.setdefault("associations", []).append(
+                {
+                    "id": "assoc-canon-candidate",
+                    "type": "association",
+                    "source_bead": a,
+                    "target_bead": b,
+                    "relationship": "supports",
+                    "edge_class": "structural",
+                    "created_at": "2026-01-01T00:00:00Z",
+                }
+            )
+            s._write_json(s.beads_dir / "index.json", idx)
+
+            out = backfill_structural_edges(Path(td))
+            self.assertGreaterEqual(int(out.get("added") or 0), 1)
+
+    def test_infer_structural_uses_promotion_state_candidate(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            d = s.add_bead(type="decision", title="D", summary=["d"], session_id="main", source_turn_ids=["t1"], because=["x"], detail="y")
+            e = s.add_bead(type="evidence", title="E", summary=["e"], status="open", session_id="main", source_turn_ids=["t1"])
+
+            c = s.decide_promotion(bead_id=d, decision="candidate", reason="review")
+            self.assertTrue(c.get("ok"))
+
+            dry = infer_structural_edges(Path(td), min_confidence=0.9, apply=False)
+            self.assertGreaterEqual(int(dry.get("candidates") or 0), 1)
+
 
 if __name__ == "__main__":
     unittest.main()
