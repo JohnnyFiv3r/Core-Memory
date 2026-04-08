@@ -9,7 +9,6 @@ Session-first live authority with index projection:
 """
 
 import json
-import os
 import uuid
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -78,48 +77,16 @@ class MemoryStore:
             tenant_id: Optional tenant ID for multi-tenant isolation.
                        Each tenant gets its own subtree under .beads/tenants/{tenant_id}/.
         """
-        self.root = Path(root)
-        self.tenant_id = tenant_id
+        from ..persistence.store_init_ops import initialize_store_for_store
 
-        if tenant_id:
-            self.beads_dir = self.root / BEADS_DIR / "tenants" / tenant_id
-            self.turns_dir = self.root / TURNS_DIR / "tenants" / tenant_id
-        else:
-            self.beads_dir = self.root / BEADS_DIR
-            self.turns_dir = self.root / TURNS_DIR
-        self.metrics_state_file = self.beads_dir / "events" / "metrics-state.json"
-
-        # Per-add association controls (fast derived links)
-        self.associate_on_add = os.environ.get("CORE_MEMORY_ASSOCIATE_ON_ADD", "1") != "0"
-        try:
-            self.assoc_lookback = max(1, int(os.environ.get("CORE_MEMORY_ASSOCIATE_LOOKBACK", "40")))
-        except ValueError:
-            self.assoc_lookback = 40
-        try:
-            self.assoc_top_k = max(0, int(os.environ.get("CORE_MEMORY_ASSOCIATE_TOP_K", "3")))
-        except ValueError:
-            self.assoc_top_k = 3
-
-        # Required-field rollout: warn-first by default; strict raises when enabled.
-        self.strict_required_fields = os.environ.get("CORE_MEMORY_STRICT_REQUIRED_FIELDS", "0") == "1"
-        # Bead schema invariant: session_id is required. Resolution modes:
-        # - infer (default): infer from source_turn_ids; else fallback to "unknown"
-        # - strict: require explicit/provable session_id
-        # - unknown: always fallback to "unknown" when missing
-        self.bead_session_id_mode = str(os.environ.get("CORE_MEMORY_BEAD_SESSION_ID_MODE", "infer") or "infer").strip().lower()
-        # Agent-authoritative promotion: auto-promotion on compact is disabled by default.
-        self.auto_promote_on_compact = os.environ.get("CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT", "0") == "1"
-
-        # Ensure directories exist
-        self.beads_dir.mkdir(parents=True, exist_ok=True)
-        self.turns_dir.mkdir(parents=True, exist_ok=True)
-
-        # Storage backend (json default, sqlite opt-in)
-        from ..persistence.backend import create_backend
-        self._backend = create_backend(self.beads_dir, backend=backend)
-
-        # Initialize index if needed
-        self._init_index()
+        initialize_store_for_store(
+            self,
+            root=root,
+            tenant_id=tenant_id,
+            backend=backend,
+            beads_dir_name=BEADS_DIR,
+            turns_dir_name=TURNS_DIR,
+        )
 
     def close(self) -> None:
         close_fn = getattr(self._backend, "close", None)
