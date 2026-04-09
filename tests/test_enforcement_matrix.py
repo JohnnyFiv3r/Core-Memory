@@ -1,5 +1,6 @@
 import json
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -71,7 +72,7 @@ class TestV2P2EnforcementMatrix(unittest.TestCase):
 
             proc = subprocess.run(
                 [
-                    "python3",
+                    sys.executable,
                     "-m",
                     "core_memory.cli",
                     "--root",
