@@ -29,7 +29,11 @@
 1. `core-memory --root ./memory setup init`
 2. `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed PYTHONPATH=. python3 examples/canonical_5min.py`
 3. `PYTHONPATH=. python3 examples/proof_carry_forward.py`
-4. `PYTHONPATH=. python3 eval/reviewer_quick_value_eval.py`
+4. `PYTHONPATH=. python3 -m eval.reviewer_quick_value_v2 --root ./memory --strict`
+
+Optional follow-up telemetry (proxy-style, not full strategy replay benchmark):
+- `PYTHONPATH=. python3 -m eval.dreamer_behavior_eval --root ./memory --since 30d`
+- `PYTHONPATH=. python3 -m eval.longitudinal_benchmark_v2 --root ./memory --since 30d`
 
 Then use:
 - [docs/reviewers/start-here.md](docs/reviewers/start-here.md)
@@ -396,14 +400,19 @@ from core_memory.integrations.api import emit_turn_finalized
 
 ### Good starting points
 
-- [examples/quickstart.py](examples/quickstart.py)
-- [examples/canonical_5min.py](examples/canonical_5min.py)
-- [examples/proof_carry_forward.py](examples/proof_carry_forward.py)
-- [examples/store_compat_quickstart.py](examples/store_compat_quickstart.py)
-- [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
-- [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
-- [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)
-- [docs/integrations/neo4j/quickstart.md](docs/integrations/neo4j/quickstart.md)
+- **Canonical first-touch**
+  - [examples/canonical_5min.py](examples/canonical_5min.py)
+  - [examples/quickstart.py](examples/quickstart.py)
+- **Recommended value proofs**
+  - [examples/proof_carry_forward.py](examples/proof_carry_forward.py)
+  - [eval/reviewer_quick_value_v2.py](eval/reviewer_quick_value_v2.py)
+- **Recommended integration starts**
+  - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
+  - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
+  - [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)
+  - [docs/integrations/neo4j/quickstart.md](docs/integrations/neo4j/quickstart.md)
+- **Compatibility**
+  - [examples/store_compat_quickstart.py](examples/store_compat_quickstart.py)
 
 ---
 
@@ -449,6 +458,7 @@ Semantic backend deployment guidance:
 - `faiss-*` local index is development/single-process oriented (single-writer).
 - `qdrant` and `pgvector` are the recommended distributed-safe production backends.
 - For multi-worker production deployments, avoid relying on local FAISS write paths.
+- backend selection is explicit via `CORE_MEMORY_VECTOR_BACKEND` (`local-faiss|qdrant|pgvector|chromadb`).
 
 See `docs/semantic_backend_modes.md` for backend mode details.
 

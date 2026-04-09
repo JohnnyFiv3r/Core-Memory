@@ -39,7 +39,7 @@ class TestSemanticDoctor(unittest.TestCase):
             sem = Path(td) / ".beads" / "semantic"
             sem.mkdir(parents=True, exist_ok=True)
             (sem / "manifest.json").write_text(json.dumps({"backend": "faiss-openai", "provider": "openai"}), encoding="utf-8")
-            (sem / "rows.jsonl").write_text(json.dumps([{"bead_id": "b1"}]), encoding="utf-8")
+            (sem / "rows.jsonl").write_text(json.dumps({"bead_id": "b1"}) + "\n", encoding="utf-8")
             (sem / "index.faiss").write_text("x", encoding="utf-8")
 
             out = semantic_doctor(Path(td))
@@ -54,11 +54,32 @@ class TestSemanticDoctor(unittest.TestCase):
             sem = Path(td) / ".beads" / "semantic"
             sem.mkdir(parents=True, exist_ok=True)
             (sem / "manifest.json").write_text(json.dumps({"backend": "qdrant", "provider": "openai"}), encoding="utf-8")
+            (sem / "rows.jsonl").write_text(json.dumps({"bead_id": "b1"}) + "\n", encoding="utf-8")
 
-            out = semantic_doctor(Path(td))
+            with patch("core_memory.retrieval.semantic_index._external_backend_connectivity", return_value=(False, "qdrant_unreachable:test")):
+                out = semantic_doctor(Path(td))
             self.assertEqual("qdrant", out.get("backend"))
             self.assertEqual("distributed_safe", out.get("deployment_profile"))
             self.assertTrue(bool(out.get("multi_worker_safe")))
+            self.assertFalse(bool(out.get("usable_backend")))
+            self.assertTrue(bool(out.get("connectivity_checked")))
+            self.assertFalse(bool(out.get("connectivity_ok")))
+
+    def test_external_backend_usable_requires_connectivity(self):
+        with tempfile.TemporaryDirectory() as td:
+            MemoryStore(td)
+            sem = Path(td) / ".beads" / "semantic"
+            sem.mkdir(parents=True, exist_ok=True)
+            (sem / "manifest.json").write_text(json.dumps({"backend": "qdrant", "provider": "openai"}), encoding="utf-8")
+            (sem / "rows.jsonl").write_text(json.dumps({"bead_id": "b1"}) + "\n", encoding="utf-8")
+
+            with patch("core_memory.retrieval.semantic_index._external_backend_connectivity", return_value=(True, "")):
+                out_ok = semantic_doctor(Path(td))
+            self.assertTrue(bool(out_ok.get("usable_backend")))
+
+            with patch("core_memory.retrieval.semantic_index._external_backend_connectivity", return_value=(False, "down")):
+                out_bad = semantic_doctor(Path(td))
+            self.assertFalse(bool(out_bad.get("usable_backend")))
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from core_memory.retrieval.semantic_index import (
 )
 from core_memory.retrieval.visible_corpus import build_visible_corpus
 from core_memory.integrations.api import hydrate_bead_sources
+from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
 
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
@@ -213,7 +214,7 @@ def _apply_typed_filters(
     incident_id = str(s.get("incident_id") or "").strip()
     scope = str(s.get("scope") or "").strip().lower()
     topic_keys = {str(x).strip().lower() for x in (s.get("topic_keys") or []) if str(x).strip()}
-    bead_types = {str(x).strip().lower() for x in (s.get("bead_types") or []) if str(x).strip()}
+    bead_types = {normalize_bead_type(str(x).strip()) for x in (s.get("bead_types") or []) if str(x).strip()}
     must_terms = [str(x).strip().lower() for x in (s.get("must_terms") or []) if str(x).strip()]
     avoid_terms = [str(x).strip().lower() for x in (s.get("avoid_terms") or []) if str(x).strip()]
 
@@ -248,7 +249,7 @@ def _apply_typed_filters(
             if not bead_topics.intersection(topic_keys):
                 continue
 
-        if bead_types and str(bead.get("type") or "").strip().lower() not in bead_types:
+        if bead_types and normalize_bead_type(str(bead.get("type") or "").strip()) not in bead_types:
             continue
 
         if tr_from or tr_to:
@@ -423,12 +424,12 @@ def trace_request(
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
     trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])
-    relation_filter = {str(x).strip().lower() for x in ((submission or {}).get("relation_types") or []) if str(x).strip()}
+    relation_filter = {normalize_relation_type(str(x).strip()) for x in ((submission or {}).get("relation_types") or []) if str(x).strip()}
     if relation_filter:
         chains = [
             c
             for c in chains
-            if {str((e or {}).get("rel") or "").strip().lower() for e in (c.get("edges") or [])}.intersection(relation_filter)
+            if {normalize_relation_type(str((e or {}).get("rel") or "").strip()) for e in (c.get("edges") or [])}.intersection(relation_filter)
         ]
 
     # Grounding levels:

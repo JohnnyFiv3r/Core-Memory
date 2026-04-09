@@ -17,15 +17,23 @@ CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed PYTHONPATH=. python3 exampl
 PYTHONPATH=. python3 examples/proof_carry_forward.py
 ```
 
-3) **Recommended** quick value eval (memory changes a deployment choice)
+3) **Recommended** quick value eval v2 (canonical write + retrieval + repeated-incident + Dreamer transfer)
 
 ```bash
-PYTHONPATH=. python3 eval/reviewer_quick_value_eval.py
+PYTHONPATH=. python3 -m eval.reviewer_quick_value_v2 --root ./memory --strict
 ```
 
 Expected signal:
-- `behavior_changed: true`
-- `after_choice: "canary"`
+- `overall.quick_value_passed: true`
+- `steps.repeated_incident_improvement.improved: true`
+- `steps.dreamer_transfer_improvement.improved: true`
+
+Optional follow-up telemetry (proxy, not full strategy replay benchmark):
+
+```bash
+PYTHONPATH=. python3 -m eval.dreamer_behavior_eval --root ./memory --since 30d
+PYTHONPATH=. python3 -m eval.longitudinal_benchmark_v2 --root ./memory --since 30d
+```
 
 ## Then inspect contracts and architecture
 
@@ -48,6 +56,7 @@ Expected signal:
 - `examples/canonical_5min.py` — **Canonical** (first-touch onboarding)
 - `examples/quickstart.py` — **Canonical** (expanded onboarding)
 - `examples/proof_carry_forward.py` — **Recommended** (behavior proof)
+- `eval/reviewer_quick_value_v2.py` — **Recommended** (5-10 minute quick-value walkthrough)
 - `examples/pydanticai_basic.py` — **Recommended** (adapter quick smoke)
 - `examples/pydanticai_demo_roundtrip.py` — **Recommended** (canonical run_with_memory + execute/search/trace roundtrip)
 - `examples/http_springai_client.py` — **Recommended** (HTTP adapter path)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import unittest
 from dataclasses import fields
 
@@ -52,6 +53,28 @@ class TestSchemaModelSerializationSlice51B(unittest.TestCase):
 
         self.assertEqual([], bead.summary)
         self.assertEqual([], bead.tags)
+
+
+    def test_from_dict_logs_discarded_unknown_keys(self):
+        payload = {
+            "id": "b4",
+            "type": "lesson",
+            "title": "Logging test",
+            "unknown_a": 1,
+            "unknown_b": 2,
+        }
+        with self.assertLogs("core_memory.schema.models", level="DEBUG") as cm:
+            bead = Bead.from_dict(payload)
+        self.assertEqual(bead.id, "b4")
+        log_output = "\n".join(cm.output)
+        self.assertIn("unknown_a", log_output)
+        self.assertIn("unknown_b", log_output)
+        self.assertIn("Bead", log_output)
+
+    def test_from_dict_no_log_when_all_keys_known(self):
+        payload = {"id": "b5", "type": "decision", "title": "Clean"}
+        with self.assertNoLogs("core_memory.schema.models", level="DEBUG"):
+            Bead.from_dict(payload)
 
 
 if __name__ == "__main__":

@@ -162,45 +162,195 @@ def compute_distance(bead1: dict, bead2: dict) -> float:
     return min(score, 1.0)
 
 
+def _norm_set(bead: dict, *keys: str) -> set[str]:
+    out: set[str] = set()
+    for key in keys:
+        v = bead.get(key)
+        if isinstance(v, (list, tuple, set)):
+            for x in v:
+                sx = str(x or "").strip().lower()
+                if sx:
+                    out.add(sx)
+        elif isinstance(v, str):
+            sv = v.strip().lower()
+            if sv:
+                out.add(sv)
+    return out
+
+
+def _summary_text(bead: dict) -> str:
+    title = str(bead.get("title") or "")
+    summary = " ".join(str(x) for x in (bead.get("summary") or []))
+    detail = str(bead.get("detail") or "")
+    return f"{title} {summary} {detail}".strip().lower()
+
+
+def _polarity(text: str) -> int:
+    t = str(text or "").lower()
+    neg = any(w in t for w in [" not ", " never ", " don't ", " cannot ", " can't ", " failed", " avoid ", " wrong "])
+    pos = any(w in t for w in [" yes ", " always ", " should ", " need ", " must ", " works", " success"])
+    if neg and not pos:
+        return -1
+    if pos and not neg:
+        return 1
+    return 0
+
+
+def _add_signal(signals: list[dict[str, Any]], *, name: str, weight: float, detail: str) -> None:
+    signals.append({"name": name, "weight": float(weight), "detail": str(detail)})
+
+
+def _structural_signal_pack(bead1: dict, bead2: dict) -> tuple[float, list[dict[str, Any]], dict[str, float]]:
+    signals: list[dict[str, Any]] = []
+
+    type1 = str(bead1.get("type") or "")
+    type2 = str(bead2.get("type") or "")
+    types = {type1, type2}
+
+    tags1 = _norm_set(bead1, "tags", "topics", "entities")
+    tags2 = _norm_set(bead2, "tags", "topics", "entities")
+    key1 = _norm_set(bead1, "incident_keys", "decision_keys", "goal_keys", "action_keys", "outcome_keys", "time_keys")
+    key2 = _norm_set(bead2, "incident_keys", "decision_keys", "goal_keys", "action_keys", "outcome_keys", "time_keys")
+    shared_tags = tags1.intersection(tags2)
+    shared_keys = key1.intersection(key2)
+
+    session_cross = str(bead1.get("session_id") or "") != str(bead2.get("session_id") or "")
+    scope_cross = str(bead1.get("scope") or "") != str(bead2.get("scope") or "")
+
+    if extract_mechanism(bead1) == extract_mechanism(bead2):
+        _add_signal(signals, name="mechanism_match", weight=0.16, detail="same inferred mechanism class")
+
+    if types in ({"decision", "outcome"}, {"decision", "lesson"}, {"outcome", "lesson"}) and (shared_keys or shared_tags):
+        _add_signal(
+            signals,
+            name="decision_outcome_lesson_shape",
+            weight=0.24,
+            detail="decision/outcome/lesson pair with shared structural keys",
+        )
+
+    if "failed_hypothesis" in types and bool(types.intersection({"lesson", "outcome", "decision"})):
+        _add_signal(
+            signals,
+            name="failure_recovery_pattern",
+            weight=0.20,
+            detail="failed_hypothesis paired with recovery-oriented bead type",
+        )
+
+    if session_cross and (shared_keys or shared_tags):
+        _add_signal(
+            signals,
+            name="cross_session_recurrence",
+            weight=0.20,
+            detail="shared structure across different sessions",
+        )
+
+    if session_cross and bool(_norm_set(bead1, "incident_keys").intersection(_norm_set(bead2, "incident_keys"))):
+        _add_signal(signals, name="repeated_incident", weight=0.16, detail="incident recurrence across sessions")
+
+    if scope_cross and (shared_keys or shared_tags):
+        _add_signal(
+            signals,
+            name="transferability_cross_scope",
+            weight=0.18,
+            detail="shared structure across different scopes",
+        )
+
+    b1id = str(bead1.get("id") or "")
+    b2id = str(bead2.get("id") or "")
+    sup1 = _norm_set(bead1, "supersedes", "superseded_by")
+    sup2 = _norm_set(bead2, "supersedes", "superseded_by")
+    if (b1id and b1id in sup2) or (b2id and b2id in sup1):
+        _add_signal(signals, name="supersession_link", weight=0.20, detail="explicit supersession relation detected")
+
+    total = float(sum(float(s.get("weight") or 0.0) for s in signals))
+    score = min(1.0, total)
+    by_name = {str(s.get("name") or ""): float(s.get("weight") or 0.0) for s in signals}
+    return score, signals, by_name
+
+
+def _expected_decision_impact(relationship: str) -> str:
+    rel = str(relationship or "similar_pattern")
+    if rel == "contradicts":
+        return "Flag this as a contradiction checkpoint before repeating the same policy choice."
+    if rel == "transferable_lesson":
+        return "Reuse this lesson across sessions before committing similar decisions."
+    if rel == "generalizes":
+        return "Treat this as a general rule candidate and validate boundaries explicitly."
+    if rel == "structural_symmetry":
+        return "Replay prior successful structure before selecting a new strategy."
+    if rel == "reinforces":
+        return "Increase confidence in this pattern but still verify current constraints."
+    return "Use as a weak analogy signal and require additional evidence before action."
+
+
 def score_association(bead1: dict, bead2: dict, distance: float) -> dict:
     """Score a potential association."""
-    mechanisms = {
-        "contradicts": 0.8,
-        "transferable_lesson": 0.75,
-        "reinforces": 0.6,
-        "generalizes": 0.7,
-        "structural_symmetry": 0.85,
-        "reveals_bias": 0.8,
-    }
-    
-    # Default novelty based on distance
-    novelty = distance * 0.5 + 0.3
-    
-    # Ground in actual content
-    title1 = bead1.get("title", "")
-    title2 = bead2.get("title", "")
-    summary1 = " ".join(bead1.get("summary", []))
-    summary2 = " ".join(bead2.get("summary", []))
-    
+    summary1 = _summary_text(bead1)
+    summary2 = _summary_text(bead2)
+
     relationship = "similar_pattern"
 
-    s1 = summary1.lower()
-    s2 = summary2.lower()
+    s1 = summary1
+    s2 = summary2
+
+    generalization_cues = {"usually", "generally", "often", "in most cases", "typically"}
+    absolute_cues = {"always", "never", "all", "every", "must"}
+    transfer_cues = {"lesson", "reuse", "apply", "transfer", "pattern"}
+
+    structural_score, structural_signals, structural_map = _structural_signal_pack(bead1, bead2)
+    contradiction_signal = float(structural_map.get("supersession_link", 0.0))
+    transfer_signal = float(structural_map.get("transferability_cross_scope", 0.0)) + float(
+        structural_map.get("decision_outcome_lesson_shape", 0.0)
+    )
 
     # Check for contradiction
     if any(w in s1 for w in ["not", "no", "don't", "never"]):
         if any(w in s2 for w in ["yes", "always", "do", "need"]):
             relationship = "contradicts"
+            contradiction_signal = max(contradiction_signal, 0.18)
+
+    elif (any(w in s1 for w in absolute_cues) and any(w in s2 for w in generalization_cues)) or (
+        any(w in s2 for w in absolute_cues) and any(w in s1 for w in generalization_cues)
+    ):
+        relationship = "generalizes"
+
+    elif transfer_signal >= 0.24 or (any(w in s1 for w in transfer_cues) and any(w in s2 for w in transfer_cues)):
+        relationship = "transferable_lesson"
+
+    elif structural_score >= 0.55:
+        relationship = "structural_symmetry"
 
     # Check for reinforcement
     elif bool(set(s1.split()) & set(s2.split())):
         relationship = "reinforces"
-    
+
+    session_cross = str(bead1.get("session_id") or "") != str(bead2.get("session_id") or "")
+    cross_session_signal = float(structural_map.get("cross_session_recurrence", 0.0))
+    repeated_incident_signal = float(structural_map.get("repeated_incident", 0.0))
+
+    novelty = min(
+        1.0,
+        0.20
+        + float(distance) * 0.42
+        + cross_session_signal * 0.45
+        + repeated_incident_signal * 0.40
+        + contradiction_signal * 0.55,
+    )
+
+    overlap_terms = set(s1.split()).intersection(set(s2.split()))
+    denom = max(1, len(set(s1.split()).union(set(s2.split()))))
+    lexical_overlap = float(len(overlap_terms)) / float(denom)
+    grounding = min(1.0, 0.45 + 0.35 * lexical_overlap + 0.30 * structural_score)
+    confidence = min(0.95, 0.48 + 0.30 * grounding + 0.22 * structural_score + (0.05 if session_cross else 0.0))
+
     return {
         "relationship": relationship,
         "novelty": novelty,
-        "confidence": 0.7,
-        "grounding": 0.8,
+        "confidence": confidence,
+        "grounding": grounding,
+        "structural_score": structural_score,
+        "structural_signals": structural_signals,
+        "expected_decision_impact": _expected_decision_impact(relationship),
     }
 
 
@@ -279,7 +429,15 @@ def run_analysis(
 
             repetition_penalty = 0.35 if pair_key in seen_pairs else 0.0
             coverage_bonus = max(0.0, 0.2 - 0.02 * float(exposure))
-            final_score = max(0.0, float(score["novelty"]) + coverage_bonus - repetition_penalty)
+            structural_score = float(score.get("structural_score") or 0.0)
+            final_score = max(
+                0.0,
+                (0.45 * float(score["novelty"]))
+                + (0.35 * float(score["grounding"]))
+                + (0.20 * structural_score)
+                + coverage_bonus
+                - repetition_penalty,
+            )
 
             # Only surface high-quality associations
             if final_score >= 0.5 and score["grounding"] >= 0.7:
@@ -293,6 +451,9 @@ def run_analysis(
                     "novelty": score["novelty"],
                     "confidence": score["confidence"],
                     "grounding": score["grounding"],
+                    "structural_score": structural_score,
+                    "structural_signals": list(score.get("structural_signals") or []),
+                    "expected_decision_impact": str(score.get("expected_decision_impact") or ""),
                     "final_score": final_score,
                     "seen_before": pair_key in seen_pairs,
                     "exposure": exposure,

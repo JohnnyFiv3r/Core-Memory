@@ -39,16 +39,23 @@ Convenience package-root aliases are also exported:
 
 ## Async job/queue operations (canonical ops surface)
 - `core_memory.runtime.jobs.async_jobs_status(root='...')`
-- `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction', ...)`
-- `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1)`
+- `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute', ...)`
+- `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
+
+Dreamer candidate queue surfaces:
+- `core_memory.runtime.dreamer_candidates.enqueue_dreamer_candidates(...)`
+- `core_memory.runtime.dreamer_candidates.list_dreamer_candidates(...)`
+- `core_memory.runtime.dreamer_candidates.decide_dreamer_candidate(...)`
 
 All async ops payloads include:
 - `schema_version = "core_memory.async_jobs.v1"`
 
 CLI operators map to these runtime ops:
 - `core-memory ops jobs-status`
-- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction`
-- `core-memory ops jobs-run [--max-compaction N] [--no-semantic]`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute`
+- `core-memory ops jobs-run [--max-compaction N] [--max-side-effects N] [--no-semantic]`
+- `core-memory ops dreamer-candidates [--status pending|accepted|rejected] [--limit N]`
+- `core-memory ops dreamer-decide --id <candidate-id> --decision accept|reject [--apply]`
 
 ### Retrieval semantics
 - `search`: anchor retrieval
@@ -95,6 +102,8 @@ HTTP async ops surfaces (operator tooling):
 - `GET /v1/ops/async-jobs/status`
 - `POST /v1/ops/async-jobs/enqueue`
 - `POST /v1/ops/async-jobs/run`
+- `GET /v1/ops/dreamer/candidates`
+- `POST /v1/ops/dreamer/candidates/decide`
 
 ## Compatibility / non-primary
 - Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`

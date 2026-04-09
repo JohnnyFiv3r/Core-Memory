@@ -14,6 +14,7 @@ Use this page as the authoritative map of current docs.
 - [`concepts/why-core-memory.md`](concepts/why-core-memory.md)
 - [`memory_surfaces_spec.md`](memory_surfaces_spec.md)
 - [`semantic_backend_modes.md`](semantic_backend_modes.md)
+- [`dreamer_contract.md`](dreamer_contract.md)
 - [`truth_hierarchy.md`](truth_hierarchy.md)
 - [`truth_hierarchy_policy.md`](truth_hierarchy_policy.md)
 
@@ -54,13 +55,14 @@ Use this page as the authoritative map of current docs.
 
 ## Evaluation entrypoints
 - `../eval/memory_execute_eval.py`
-
-## Evaluation entrypoints
-- `../eval/memory_execute_eval.py`
+- `../eval/dreamer_behavior_eval.py`
+- `../eval/longitudinal_benchmark_v2.py` (proxy telemetry)
+- `../eval/reviewer_quick_value_v2.py`
 
 ## Compatibility / historical material
 - [`archive/`](archive/) — superseded migration/process/history docs
 - [`reports/`](reports/) — dated snapshots and audits
+- [`reports/bd2-change-report-2026-04-08.md`](reports/bd2-change-report-2026-04-08.md) — BD-2 decomposition change summary
 - Legacy typed-search/search-form narratives are treated as historical material, not forward path docs.
 
 ## Notes for reviewers

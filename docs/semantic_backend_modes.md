@@ -18,6 +18,22 @@ Purpose: make production safety explicit for semantic retrieval deployments.
 - If you run a **single local worker** and want fast setup, FAISS/local can be fine.
 - If you run **multi-worker** or shared production traffic, use a distributed-safe backend (`qdrant` or `pgvector`).
 
+## Explicit backend selection (SEM-2)
+
+Set backend mode explicitly:
+
+```bash
+export CORE_MEMORY_VECTOR_BACKEND=local-faiss   # default
+# or
+export CORE_MEMORY_VECTOR_BACKEND=qdrant
+# or
+export CORE_MEMORY_VECTOR_BACKEND=pgvector
+# or
+export CORE_MEMORY_VECTOR_BACKEND=chromadb
+```
+
+The retrieval layer routes through a backend interface and records the selected backend in semantic manifest metadata.
+
 ## Canonical semantic mode interaction
 
 - `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required`
@@ -38,4 +54,12 @@ Look at:
 - `deployment_profile`
 - `multi_worker_safe`
 - `concurrency_warning`
+- `connectivity_checked`
+- `connectivity_ok`
+- `connectivity_error`
 - `recommended_production_backends`
+
+Concurrency hardening notes:
+- semantic index builds use a build lock (`.beads/semantic/build.lock`) to avoid overlapping rebuild writes.
+- if the lock is held, rebuild is treated as retryable and queued.
+- stale locks are reclaimed automatically.

@@ -139,5 +139,9 @@ def apply_grouped_aliases(args: Any, *, openclaw_group_parser: argparse.Argument
             args.command = "async-jobs-enqueue"
         elif args.ops_cmd == "jobs-run":
             args.command = "async-jobs-run"
+        elif args.ops_cmd == "dreamer-candidates":
+            args.command = "dreamer-candidates"
+        elif args.ops_cmd == "dreamer-decide":
+            args.command = "dreamer-decide"
 
     return False

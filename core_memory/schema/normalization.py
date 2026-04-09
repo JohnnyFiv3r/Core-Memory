@@ -37,6 +37,17 @@ CANONICAL_BEAD_TYPES = {
     "correction",
 }
 
+# Boundary bead types are valid canonical records but are not part of the
+# public retrieval facet catalog by default.
+BOUNDARY_BEAD_TYPES = {
+    "session_start",
+    "session_end",
+}
+
+PUBLIC_CATALOG_BEAD_TYPES = {
+    bt for bt in CANONICAL_BEAD_TYPES if bt not in BOUNDARY_BEAD_TYPES
+}
+
 # Legacy bead aliases -> canonical bead type
 LEGACY_BEAD_TYPE_ALIASES = {
     "promoted_lesson": "lesson",
@@ -49,10 +60,14 @@ CANONICAL_RELATION_TYPES = {
     "led_to",
     "blocked_by",
     "unblocks",
+    "blocks_unblocks",
     "supersedes",
     "superseded_by",
     "associated_with",
     "contradicts",
+    "refines",
+    "invalidates",
+    "diagnoses",
     "reinforces",
     "mirrors",
     "applies_pattern_of",
@@ -70,12 +85,34 @@ CANONICAL_RELATION_TYPES = {
     "derived_from",
     "resolves",
     "follows",
+    "precedes",
+    "enables",
 }
 
 # Derived/helper relation tags (not canonical structural edges)
 DERIVED_RELATION_TYPES = {
     "related",
     "shared_tag",
+}
+
+# Legacy relation aliases -> canonical relation vocabulary.
+RELATION_TYPE_ALIASES = {
+    "causes": "caused_by",
+    "blocks→unblocks": "blocks_unblocks",
+    "blocks->unblocks": "blocks_unblocks",
+}
+
+# Inference surface canonical relationship set (v2.1).
+INFERENCE_CANONICAL_RELATION_TYPES = {
+    "caused_by",
+    "supports",
+    "supersedes",
+    "blocked_by",
+    "unblocks",
+    "enables",
+    "derived_from",
+    "follows",
+    "contradicts",
 }
 
 # Operational statuses (system state, not bead type)
@@ -104,7 +141,7 @@ def normalize_relation_type(value: str | None) -> str:
     v = str(value or "").strip().lower()
     if not v:
         return "associated_with"
-    return v
+    return RELATION_TYPE_ALIASES.get(v, v)
 
 
 def relation_kind(value: str | None) -> str:

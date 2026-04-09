@@ -15,6 +15,11 @@ from typing import Any
 from core_memory.persistence.store import DEFAULT_ROOT
 from core_memory.retrieval.lifecycle import enqueue_semantic_rebuild
 from core_memory.runtime.compaction_queue import drain_compaction_queue, enqueue_compaction_event
+from core_memory.runtime.side_effect_queue import (
+    drain_side_effect_queue,
+    enqueue_side_effect_event,
+    side_effect_queue_status,
+)
 from core_memory.retrieval.semantic_index import build_semantic_index
 
 
@@ -126,14 +131,16 @@ def compaction_queue_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | No
 def async_jobs_status(root: str | Path = DEFAULT_ROOT, *, now_ts: int | None = None) -> dict[str, Any]:
     sem = semantic_rebuild_queue_status(root)
     comp = compaction_queue_status(root, now_ts=now_ts)
-    pending_total = int(sem.get("pending") or 0) + int(comp.get("queue_depth") or 0)
-    processable_now = int(comp.get("processable_now") or 0) + int(sem.get("pending") or 0)
+    se = side_effect_queue_status(root, now_ts=now_ts)
+    pending_total = int(sem.get("pending") or 0) + int(comp.get("queue_depth") or 0) + int(se.get("queue_depth") or 0)
+    processable_now = int(comp.get("processable_now") or 0) + int(sem.get("pending") or 0) + int(se.get("processable_now") or 0)
     return _with_schema({
         "ok": True,
         "root": str(root),
         "queues": {
             "semantic_rebuild": sem,
             "compaction": comp,
+            "side_effects": se,
         },
         "pending_total": pending_total,
         "processable_now": processable_now,
@@ -148,6 +155,13 @@ def _normalize_job_kind(kind: str | None) -> str:
         "semantic_rebuild": "semantic-rebuild",
         "compaction": "compaction",
         "compaction-flush": "compaction",
+        "dreamer": "dreamer-run",
+        "dreamer-run": "dreamer-run",
+        "neo4j": "neo4j-sync",
+        "neo4j-sync": "neo4j-sync",
+        "health": "health-recompute",
+        "health-recompute": "health-recompute",
+        "health-report": "health-recompute",
     }
     return aliases.get(k, k)
 
@@ -181,13 +195,25 @@ def enqueue_async_job(
             "status": compaction_queue_status(root_p),
         })
 
+    if k in {"dreamer-run", "neo4j-sync", "health-recompute"}:
+        payload = dict(event or {})
+        payload.update({k: v for k, v in dict(ctx or {}).items() if k not in payload})
+        idem = str(payload.get("idempotency_key") or payload.get("idempotencyKey") or "").strip() or None
+        out = enqueue_side_effect_event(root=root_p, kind=k, payload=payload, idempotency_key=idem)
+        return _with_schema({
+            "ok": bool(out.get("ok")),
+            "kind": k,
+            "queue": out,
+            "status": side_effect_queue_status(root_p),
+        })
+
     return _with_schema({
         "ok": False,
         "error": _error(
             "unknown_kind",
             "Unknown async job kind",
             kind=str(kind),
-            allowed=["semantic-rebuild", "compaction"],
+            allowed=["semantic-rebuild", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
         ),
     })
 
@@ -197,6 +223,7 @@ def run_async_jobs(
     *,
     run_semantic: bool = True,
     max_compaction: int = 1,
+    max_side_effects: int = 2,
 ) -> dict[str, Any]:
     """Drain processable async work in a bounded, operator-invoked pass."""
     root_p = Path(root)
@@ -232,13 +259,26 @@ def run_async_jobs(
             "error": str(exc),
         }
 
+    try:
+        side_effect_run = drain_side_effect_queue(root=str(root_p), max_items=max(0, int(max_side_effects)))
+    except Exception as exc:
+        side_effect_run = {
+            "ok": False,
+            "processed": 0,
+            "failed": 0,
+            "queue_depth": 0,
+            "error": str(exc),
+        }
+
     status_after = async_jobs_status(root_p)
-    ok = bool(sem_run.get("ok")) and bool(comp_run.get("ok")) and bool(status_after.get("ok"))
+    ok = bool(sem_run.get("ok")) and bool(comp_run.get("ok")) and bool(side_effect_run.get("ok")) and bool(status_after.get("ok"))
     errors: list[dict[str, Any]] = []
     if not bool(sem_run.get("ok")):
         errors.append(_error("semantic_run_failed", "Semantic rebuild step failed"))
     if not bool(comp_run.get("ok")):
         errors.append(_error("compaction_run_failed", "Compaction drain step failed"))
+    if not bool(side_effect_run.get("ok")):
+        errors.append(_error("side_effect_run_failed", "Side-effect queue drain step failed"))
     if not bool(status_after.get("ok")):
         errors.append(_error("status_after_failed", "Async status computation failed"))
 
@@ -248,6 +288,7 @@ def run_async_jobs(
         "semantic_before": sem_before,
         "semantic_run": sem_run,
         "compaction_run": comp_run,
+        "side_effect_run": side_effect_run,
         "status_after": status_after,
         "errors": errors,
     })
@@ -259,4 +300,5 @@ __all__ = [
     "run_async_jobs",
     "semantic_rebuild_queue_status",
     "compaction_queue_status",
+    "side_effect_queue_status",
 ]

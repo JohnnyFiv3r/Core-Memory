@@ -12,6 +12,7 @@ from pydantic import BaseModel, Field
 
 from core_memory.integrations.api import IntegrationContext
 from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
+from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, list_dreamer_candidates
 from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
@@ -105,6 +106,16 @@ class AsyncJobsRunRequest(BaseModel):
     root: Optional[str] = None
     run_semantic: bool = True
     max_compaction: int = 1
+    max_side_effects: int = 2
+
+
+class DreamerCandidateDecideRequest(BaseModel):
+    root: Optional[str] = None
+    candidate_id: str
+    decision: str
+    reviewer: str = ""
+    notes: str = ""
+    apply: bool = False
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
@@ -437,9 +448,49 @@ async def ops_async_jobs_run(
         root=_resolve_root(payload.root, x_tenant_id),
         run_semantic=bool(payload.run_semantic),
         max_compaction=max(0, int(payload.max_compaction)),
+        max_side_effects=max(0, int(payload.max_side_effects)),
     )
     # Run responses are always structured status payloads; keep 200 for
     # operator observability even when substeps report ok=false.
+    return out
+
+
+@app.get("/v1/ops/dreamer/candidates")
+async def ops_dreamer_candidates(
+    root: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = list_dreamer_candidates(
+        root=_resolve_root(root, x_tenant_id),
+        status=status,
+        limit=max(1, int(limit)),
+    )
+    return out
+
+
+@app.post("/v1/ops/dreamer/candidates/decide")
+async def ops_dreamer_candidates_decide(
+    payload: DreamerCandidateDecideRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = decide_dreamer_candidate(
+        root=_resolve_root(payload.root, x_tenant_id),
+        candidate_id=str(payload.candidate_id or ""),
+        decision=str(payload.decision or ""),
+        reviewer=str(payload.reviewer or ""),
+        notes=str(payload.notes or ""),
+        apply=bool(payload.apply),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
     return out
 
 

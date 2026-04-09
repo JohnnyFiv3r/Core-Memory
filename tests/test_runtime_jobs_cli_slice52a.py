@@ -44,6 +44,7 @@ class TestRuntimeJobsCliSlice52A(unittest.TestCase):
             self.assertIn("queues", payload)
             self.assertIn("semantic_rebuild", payload.get("queues") or {})
             self.assertIn("compaction", payload.get("queues") or {})
+            self.assertIn("side_effects", payload.get("queues") or {})
 
     def test_hidden_legacy_alias_still_works(self):
         cwd = Path(__file__).resolve().parents[1]
@@ -69,6 +70,7 @@ class TestRuntimeJobsCliSlice52A(unittest.TestCase):
             self.assertEqual("core_memory.async_jobs.v1", payload.get("schema_version"))
             self.assertIn("semantic_run", payload)
             self.assertIn("compaction_run", payload)
+            self.assertIn("side_effect_run", payload)
             self.assertIn("status_after", payload)
 
     def test_hidden_legacy_run_alias_still_works(self):
@@ -138,6 +140,35 @@ class TestRuntimeJobsCliSlice52A(unittest.TestCase):
             self.assertFalse(payload.get("ok"))
             err = payload.get("error") or {}
             self.assertEqual("event_file_invalid_json", err.get("code"))
+
+    def test_jobs_enqueue_dreamer_side_effect_kind(self):
+        cwd = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix="cm-ops-jobs-") as td:
+            root = Path(td) / "memory"
+
+            out = _run_cli(
+                [
+                    "--root",
+                    str(root),
+                    "ops",
+                    "jobs-enqueue",
+                    "--kind",
+                    "dreamer-run",
+                    "--session-id",
+                    "main",
+                ],
+                cwd,
+            )
+            self.assertEqual(0, out.returncode)
+            payload = json.loads(out.stdout)
+            self.assertTrue(payload.get("ok"))
+            self.assertEqual("dreamer-run", payload.get("kind"))
+
+            status = _run_cli(["--root", str(root), "ops", "jobs-status"], cwd)
+            self.assertEqual(0, status.returncode)
+            st = json.loads(status.stdout)
+            side = ((st.get("queues") or {}).get("side_effects") or {})
+            self.assertGreaterEqual(int(side.get("queue_depth") or 0), 1)
 
 
 if __name__ == "__main__":
