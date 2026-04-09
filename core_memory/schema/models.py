@@ -12,6 +12,8 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
+logger = logging.getLogger(__name__)
+
 from .normalization import is_allowed_bead_type, normalize_bead_type, normalize_relation_type, relation_kind
 
 
@@ -130,7 +132,6 @@ def _known_dataclass_kwargs(cls: type, data: dict[str, Any]) -> dict[str, Any]:
             bucket[key] += 1
         _LOG.debug("Dropping unknown %s fields: %s", model_name, sorted(dropped))
 
-    # Defensive copy so mutable payload inputs are not shared by reference.
     return known
 
 
