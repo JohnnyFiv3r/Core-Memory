@@ -134,6 +134,26 @@ def resolved_agent_authored_gate() -> dict[str, object]:
     return {"mode": "observe", "required": False, "fail_open": True}
 
 
+def claim_layer_enabled() -> bool:
+    return _env_bool("CORE_MEMORY_CLAIM_LAYER", False)
+
+
+def claim_extraction_mode() -> str:
+    """Returns: 'off', 'heuristic', or 'llm'"""
+    val = os.environ.get("CORE_MEMORY_CLAIM_EXTRACTION_MODE", "off").strip().lower()
+    if val not in ("off", "heuristic", "llm"):
+        return "off"
+    return val
+
+
+def claim_resolution_enabled() -> bool:
+    return _env_bool("CORE_MEMORY_CLAIM_RESOLUTION", False)
+
+
+def claim_retrieval_boost_enabled() -> bool:
+    return _env_bool("CORE_MEMORY_CLAIM_RETRIEVAL_BOOST", False)
+
+
 def runtime_flags_snapshot() -> dict[str, object]:
     return {
         "core_memory_enabled": core_memory_enabled(),

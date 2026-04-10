@@ -18,7 +18,17 @@ def _semantic_text(bead: dict[str, Any]) -> str:
     detail = str(bead.get("detail") or "")
     status = str(bead.get("status") or "").lower()
     detail_part = (detail[:400] if status != "archived" else "")
-    return " | ".join(x for x in [title, typ, summary, because, facts, tags, incident_id, detail_part] if x).strip()
+    text_parts = [title, typ, summary, because, facts, tags, incident_id, detail_part]
+    # Append claim subjects/values for semantic indexing
+    if bead.get("claims"):
+        for claim in bead["claims"]:
+            subject = claim.get("subject", "")
+            value = claim.get("value", "")
+            if subject:
+                text_parts.append(subject)
+            if value and len(value) < 200:
+                text_parts.append(value)
+    return " | ".join(x for x in text_parts if x).strip()
 
 
 def _lexical_text(bead: dict[str, Any]) -> str:
