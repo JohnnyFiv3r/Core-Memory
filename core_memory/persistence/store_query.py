@@ -38,10 +38,24 @@ def query_for_store(
         index = store._read_json(store.beads_dir / "index.json")
         iterable = list((index.get("beads") or {}).values())
 
+    def _matches_status(bead: dict[str, Any], wanted: str | None) -> bool:
+        if not wanted:
+            return True
+        status_now = str(bead.get("status") or "").strip().lower()
+        pstate_now = str(bead.get("promotion_state") or "").strip().lower()
+        w = str(wanted or "").strip().lower()
+        if w in {"candidate", "promoted"}:
+            return pstate_now == w or status_now == w
+        if w in {"default", "open"}:
+            return status_now in {"open", "default", "candidate", "promoted"}
+        if w == "compacted":
+            return status_now == "compacted" or status_now == "archived"
+        return status_now == w
+
     for bead in iterable:
         if type_filter and bead.get("type") != type_filter:
             continue
-        if status_filter and bead.get("status") != status_filter:
+        if not _matches_status(bead, status_filter):
             continue
         if scope_filter and bead.get("scope") != scope_filter:
             continue

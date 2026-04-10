@@ -72,7 +72,7 @@ def evaluate_candidates_for_store(
                 except ValueError:
                     age_ok = True
 
-            if auto_archive_hold and rec == "hold" and reinf == 0 and q_overlap == 0 and age_ok and str(bead.get("status") or "") == "candidate":
+            if auto_archive_hold and rec == "hold" and reinf == 0 and q_overlap == 0 and age_ok and current_promotion_state(bead) == "candidate":
                 revision_id = f"rev-{uuid.uuid4().hex[:12]}"
                 append_archive_snapshot(
                     store.root,
@@ -176,7 +176,8 @@ def decide_promotion_for_store(
                 "threshold": round(threshold, 4),
             }
         elif decision_n == "keep_candidate":
-            bead["status"] = "candidate"
+            if str(bead.get("status") or "").strip().lower() not in {"archived", "superseded"}:
+                bead["status"] = "open"
             bead["promotion_state"] = "candidate"
             bead["promotion_locked"] = False
         elif decision_n == "archive":
@@ -316,7 +317,8 @@ def decide_session_promotion_states_for_store(
                 }
                 counts["promoted"] += 1
             elif decision == "candidate":
-                bead["status"] = "candidate"
+                if str(bead.get("status") or "").strip().lower() not in {"archived", "superseded"}:
+                    bead["status"] = "open"
                 bead["promotion_state"] = "candidate"
                 bead["promotion_locked"] = False
                 bead["promotion_decision"] = "keep_candidate"

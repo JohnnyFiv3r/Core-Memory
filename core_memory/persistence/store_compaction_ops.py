@@ -35,16 +35,19 @@ def compact_for_store(
             if bead_id in skip:
                 continue
 
-            if promote and store.auto_promote_on_compact and bead.get("status") != "promoted":
+            bead_status = str(bead.get("status") or "").lower()
+            bead_pstate = str(bead.get("promotion_state") or "").lower()
+            is_promoted = bead_pstate == "promoted" or bead_status == "promoted"
+
+            if promote and store.auto_promote_on_compact and not is_promoted:
                 btype = str(bead.get("type") or "").lower()
-                curr_status = str(bead.get("status") or "").lower()
                 because = bead.get("because") or []
                 has_evidence = store._has_evidence(bead)
                 detail_now = (bead.get("detail") or "").strip()
                 has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
                 allow_promote = False
                 score_meta = None
-                if curr_status == "candidate":
+                if bead_pstate == "candidate" or bead_status == "candidate":
                     quality_gate = False
                     if btype == "decision":
                         quality_gate = bool(because and (has_evidence or detail_now or has_link))
@@ -79,10 +82,11 @@ def compact_for_store(
 
             bead_type = str(bead.get("type", "")).lower()
             bead_status = str(bead.get("status", "")).lower()
+            bead_pstate = str(bead.get("promotion_state") or "").lower()
             is_session_boundary = bead_type in {"session_start", "session_end"}
-            is_promoted = bead_status == "promoted"
+            is_promoted = bead_pstate == "promoted" or bead_status == "promoted"
 
-            if (not force_archive_all) and bead_status == "candidate":
+            if (not force_archive_all) and (bead_pstate == "candidate" or bead_status == "candidate"):
                 index["beads"][bead_id] = bead
                 continue
 
