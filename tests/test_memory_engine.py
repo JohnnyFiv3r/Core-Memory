@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.runtime.engine import process_turn_finalized, process_flush
 from core_memory.runtime.worker import SidecarPolicy
@@ -37,6 +38,40 @@ class TestMemoryEngine(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             self.assertEqual("canonical_in_process", out.get("authority_path"))
             self.assertEqual("process_flush", (out.get("engine") or {}).get("entry"))
+
+    def test_claim_layer_persists_memory_outcome_on_turn_bead(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_CLAIM_LAYER": "1",
+                "CORE_MEMORY_CLAIM_EXTRACTION_MODE": "off",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t-mem-outcome",
+                user_query="what did we decide?",
+                assistant_final="you decided to use the memory engine",
+                metadata={"used_memory": True, "retrieved_beads": [{"id": "b-prev"}]},
+                policy=SidecarPolicy(create_threshold=0.6),
+            )
+            self.assertTrue(out.get("ok"))
+            self.assertTrue(out.get("memory_outcome_written"))
+
+            s = MemoryStore(td)
+            idx = s._read_json(s.beads_dir / "index.json")
+            beads = idx.get("beads") or {}
+            hit = None
+            for row in beads.values():
+                src = [str(x) for x in (row.get("source_turn_ids") or [])]
+                if "t-mem-outcome" in src:
+                    hit = row
+                    break
+            self.assertIsNotNone(hit)
+            self.assertEqual("memory_resolution", str((hit or {}).get("interaction_role") or ""))
+            self.assertIsInstance((hit or {}).get("memory_outcome"), dict)
 
 
 if __name__ == "__main__":

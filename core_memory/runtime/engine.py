@@ -18,6 +18,8 @@ from core_memory.integrations.openclaw_flags import (
 )
 from core_memory.claim.turn_integration import extract_and_attach_claims
 from core_memory.claim.outcomes import classify_memory_outcome
+from core_memory.claim.update_policy import emit_claim_updates
+from core_memory.persistence.store_claim_ops import write_memory_outcome_to_bead
 from ..association.crawler_contract import (
     build_crawler_context,
     merge_crawler_updates,
@@ -336,7 +338,9 @@ def process_turn_finalized(
         error_agent_semantic_coverage_missing=ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
         logger=logger,
         extract_and_attach_claims_fn=extract_and_attach_claims if claim_layer_enabled() else None,
+        emit_claim_updates_fn=emit_claim_updates if claim_layer_enabled() else None,
         classify_memory_outcome_fn=classify_memory_outcome if claim_layer_enabled() else None,
+        write_memory_outcome_to_bead_fn=write_memory_outcome_to_bead if claim_layer_enabled() else None,
     )
 
 

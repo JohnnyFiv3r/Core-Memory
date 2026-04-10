@@ -1,15 +1,13 @@
 """
 Turn-level claim extraction orchestrator.
-Called after bead creation to extract and persist claims.
+Called after bead creation to extract and persist claims on the canonical turn bead.
 """
 from __future__ import annotations
-from typing import Any
 
-from core_memory.integrations.openclaw_flags import claim_layer_enabled, claim_extraction_mode
 from core_memory.claim.extraction import extract_claims
-from core_memory.claim.validation import validate_claims_batch, dedup_claims
-from core_memory.persistence.store_claim_ops import write_claims_to_bead, resolve_current_state
-from core_memory.claim.update_policy import emit_claim_updates
+from core_memory.claim.validation import dedup_claims, validate_claims_batch
+from core_memory.integrations.openclaw_flags import claim_extraction_mode, claim_layer_enabled
+from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id, write_claims_to_bead
 
 
 def extract_and_attach_claims(
@@ -20,52 +18,61 @@ def extract_and_attach_claims(
     req: dict,
 ) -> dict:
     """
-    Extract claims from a turn and attach them to created beads.
+    Extract claims from a turn and attach them to the canonical turn bead only.
 
-    Args:
-        root: Store root directory
-        session_id: Current session ID
-        turn_id: Current turn ID
-        created_bead_ids: IDs of beads created this turn
-        req: The original turn request dict (contains user_query, assistant_final, etc.)
-
-    Returns:
-        Telemetry dict: {claims_extracted, claims_written, bead_ids, updates_emitted}
+    Returns telemetry:
+    - claims_extracted
+    - claims_written
+    - bead_ids
+    - canonical_bead_id
+    - claims_batch (internal handoff for decision-pass update policy)
     """
+    canonical_bead_id = find_canonical_turn_bead_id(
+        root,
+        session_id=str(session_id),
+        turn_id=str(turn_id),
+        preferred_bead_ids=list(created_bead_ids or []),
+    )
+
     if not claim_layer_enabled():
-        return {"claims_extracted": 0, "claims_written": 0, "bead_ids": [], "updates_emitted": 0}
+        return {
+            "claims_extracted": 0,
+            "claims_written": 0,
+            "bead_ids": [canonical_bead_id] if canonical_bead_id else [],
+            "canonical_bead_id": canonical_bead_id,
+            "claims_batch": [],
+            "updates_emitted": 0,
+        }
 
     mode = claim_extraction_mode()
     if mode == "off":
-        return {"claims_extracted": 0, "claims_written": 0, "bead_ids": [], "updates_emitted": 0}
+        return {
+            "claims_extracted": 0,
+            "claims_written": 0,
+            "bead_ids": [canonical_bead_id] if canonical_bead_id else [],
+            "canonical_bead_id": canonical_bead_id,
+            "claims_batch": [],
+            "updates_emitted": 0,
+        }
 
     user_query = req.get("user_query", "") or req.get("query", "") or ""
     assistant_final = req.get("assistant_final", "") or req.get("assistant_response", "") or ""
     context_beads = req.get("context_beads", [])
 
-    # Extract claims (heuristic for now, LLM mode reserved)
     raw_claims = extract_claims(user_query, assistant_final, context_beads)
     valid_claims = validate_claims_batch(raw_claims)
     unique_claims = dedup_claims(valid_claims)
 
     claims_written = 0
-
-    # Write claims to each created bead
-    for bead_id in created_bead_ids:
-        if unique_claims:
-            write_claims_to_bead(root, bead_id, unique_claims)
-            claims_written += len(unique_claims)
-
-    # Emit claim updates based on existing state
-    updates_emitted = 0
-    if unique_claims and created_bead_ids:
-        trigger_bead_id = created_bead_ids[-1]
-        updates = emit_claim_updates(root, unique_claims, trigger_bead_id)
-        updates_emitted = len(updates)
+    if canonical_bead_id and unique_claims:
+        write_claims_to_bead(root, canonical_bead_id, unique_claims)
+        claims_written = len(unique_claims)
 
     return {
         "claims_extracted": len(raw_claims),
         "claims_written": claims_written,
-        "bead_ids": created_bead_ids,
-        "updates_emitted": updates_emitted,
+        "bead_ids": [canonical_bead_id] if canonical_bead_id else [],
+        "canonical_bead_id": canonical_bead_id,
+        "claims_batch": unique_claims,
+        "updates_emitted": 0,
     }

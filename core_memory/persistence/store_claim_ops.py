@@ -71,6 +71,60 @@ def _legacy_claim_updates_path(root: str, bead_id: str) -> Path:
     return Path(root) / bead_id / "claim_updates.json"
 
 
+def find_canonical_turn_bead_id(
+    root: str,
+    *,
+    session_id: str,
+    turn_id: str,
+    preferred_bead_ids: list[str] | None = None,
+) -> str:
+    """Find the canonical turn bead id for a session+turn.
+
+    Selection policy:
+    1) Beads in-session with source_turn_ids containing turn_id
+    2) If preferred_bead_ids provided, constrain candidates to that set
+    3) Prefer rows tagged seeded_by_engine + turn_finalized
+    4) Then prefer turn_finalized tag
+    5) Then newest created_at
+    """
+    sid = str(session_id or "")
+    tid = str(turn_id or "")
+    if not sid or not tid:
+        return ""
+
+    idx = _read_index(root)
+    beads = idx.get("beads") or {}
+    preferred = {str(x) for x in (preferred_bead_ids or []) if str(x).strip()}
+
+    candidates: list[tuple[int, int, str, str]] = []
+    for bid, row in beads.items():
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("session_id") or "") != sid:
+            continue
+        src = [str(x) for x in (row.get("source_turn_ids") or []) if str(x).strip()]
+        if tid not in src:
+            continue
+        bid_s = str(bid)
+        if preferred and bid_s not in preferred:
+            continue
+        tags = {str(t).strip().lower() for t in (row.get("tags") or []) if str(t).strip()}
+        seeded = 1 if "seeded_by_engine" in tags else 0
+        finalized = 1 if "turn_finalized" in tags else 0
+        created_at = str(row.get("created_at") or "")
+        candidates.append((seeded, finalized, created_at, bid_s))
+
+    if not candidates and preferred:
+        # fallback without preferred constraint if none matched
+        return find_canonical_turn_bead_id(root, session_id=sid, turn_id=tid, preferred_bead_ids=[])
+
+    if not candidates:
+        return ""
+
+    candidates.sort(key=lambda t: (t[0], t[1], t[2], t[3]), reverse=True)
+    return candidates[0][3]
+
+
 def _normalize_claim_rows(rows: list[dict]) -> list[dict]:
     out: list[dict] = []
     for r in rows or []:
@@ -134,6 +188,25 @@ def write_claim_updates_to_bead(root: str, bead_id: str, claim_updates: list[dic
     normalized = _normalize_claim_update_rows(claim_updates)
     row["claim_updates"].extend(normalized)
 
+    _write_json_atomic(_index_path(root), idx)
+
+
+def write_memory_outcome_to_bead(
+    root: str,
+    bead_id: str,
+    *,
+    interaction_role: str | None,
+    memory_outcome: dict | None,
+) -> None:
+    """Persist memory interaction outcome fields onto canonical bead row."""
+    bead_id = str(bead_id or "").strip()
+    if not bead_id:
+        return
+
+    idx = _read_index(root)
+    row = _ensure_bead(idx, bead_id)
+    row["interaction_role"] = str(interaction_role) if interaction_role is not None else None
+    row["memory_outcome"] = dict(memory_outcome or {}) if memory_outcome is not None else None
     _write_json_atomic(_index_path(root), idx)
 
 

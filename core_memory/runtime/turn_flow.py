@@ -45,7 +45,9 @@ def process_turn_finalized_impl(
     error_agent_semantic_coverage_missing: str,
     logger: Any,
     extract_and_attach_claims_fn: Callable[..., dict[str, Any]] | None = None,
+    emit_claim_updates_fn: Callable[..., list[dict[str, Any]]] | None = None,
     classify_memory_outcome_fn: Callable[..., dict[str, Any] | None] | None = None,
+    write_memory_outcome_to_bead_fn: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     req = normalize_turn_request(
         session_id=session_id,
@@ -292,6 +294,45 @@ def process_turn_finalized_impl(
         turn_id=req["turn_id"],
     )
 
+    claim_updates_emitted = 0
+    claim_updates: list[dict[str, Any]] = []
+    canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
+    claims_batch = list(claim_telemetry.get("claims_batch") or [])
+    if emit_claim_updates_fn is not None and canonical_turn_bead_id and claims_batch:
+        claim_updates = emit_claim_updates_fn(
+            root,
+            claims_batch,
+            canonical_turn_bead_id,
+            session_id=req["session_id"],
+            visible_bead_ids=visible_ids,
+            reviewed_updates=reviewed_updates,
+            decision_pass=decision_pass,
+        ) or []
+        claim_updates_emitted = len(claim_updates)
+        claim_telemetry["updates_emitted"] = claim_updates_emitted
+
+    memory_outcome_written = False
+    memory_outcome_payload: dict[str, Any] | None = None
+    if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
+        md = dict(req.get("metadata") or {})
+        context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or [])
+        turn_context = {
+            "retrieved_beads": context_beads,
+            "query": str(req.get("user_query") or ""),
+            "used_memory": bool(md.get("used_memory")) or bool(context_beads),
+            "correction_triggered": bool(md.get("correction_triggered") or md.get("memory_correction")),
+            "reflection_triggered": bool(md.get("reflection_triggered") or md.get("memory_reflection")),
+        }
+        memory_outcome_payload = classify_memory_outcome_fn(turn_context)
+        if isinstance(memory_outcome_payload, dict) and write_memory_outcome_to_bead_fn is not None:
+            write_memory_outcome_to_bead_fn(
+                root,
+                canonical_turn_bead_id,
+                interaction_role=memory_outcome_payload.get("interaction_role"),
+                memory_outcome=memory_outcome_payload.get("memory_outcome"),
+            )
+            memory_outcome_written = True
+
     emit_agent_turn_quality_metric(
         root=root,
         req=req,
@@ -327,5 +368,11 @@ def process_turn_finalized_impl(
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
     if claim_telemetry:
+        # internal handoff only; avoid expanding response payload with raw claims
+        claim_telemetry.pop("claims_batch", None)
         out["claim_telemetry"] = claim_telemetry
+    if claim_updates_emitted:
+        out["claim_updates_emitted"] = int(claim_updates_emitted)
+    if memory_outcome_written:
+        out["memory_outcome_written"] = True
     return out
