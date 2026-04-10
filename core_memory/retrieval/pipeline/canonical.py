@@ -16,7 +16,15 @@ from core_memory.retrieval.semantic_index import (
 from core_memory.retrieval.visible_corpus import build_visible_corpus
 from core_memory.integrations.api import hydrate_bead_sources
 from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
-from core_memory.claim.retrieval_planner import plan_retrieval_mode
+from core_memory.claim.retrieval_planner import plan_retrieval_mode, boost_claim_results
+from core_memory.claim.resolver import resolve_all_current_state
+from core_memory.claim.answer_policy import score_answer
+from core_memory.integrations.openclaw_flags import (
+    claim_layer_enabled,
+    claim_resolution_enabled,
+    claim_retrieval_boost_enabled,
+)
+from .catalog import build_catalog
 
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
@@ -44,6 +52,24 @@ def _semantic_failure_response(*, query: str, intent: str, k: int, warnings: lis
         }
     )
     return out
+
+
+def _load_claim_state(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
+    """Load claim state for retrieval planning/policy when claim layer is enabled."""
+    warns: list[str] = []
+    if not claim_layer_enabled():
+        return None, warns
+    if not claim_resolution_enabled():
+        warns.append("claim_resolution_disabled")
+        return None, warns
+    try:
+        state = resolve_all_current_state(str(root))
+        if isinstance(state, dict):
+            return state, warns
+        warns.append("claim_state_unavailable")
+    except Exception:
+        warns.append("claim_state_error")
+    return None, warns
 
 
 def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
@@ -292,6 +318,9 @@ def search_request(
 ) -> dict[str, Any]:
     rp = Path(root)
     corpus = build_visible_corpus(rp)
+    catalog = build_catalog(rp)
+    claim_state, claim_warnings = _load_claim_state(rp)
+    retrieval_mode = plan_retrieval_mode(query, catalog, claim_state)
     by_id = {str(r.get("bead_id") or ""): r for r in corpus}
     projection_created_at: dict[str, str] = {}
     try:
@@ -302,13 +331,21 @@ def search_request(
     except Exception:
         projection_created_at = {}
 
-    sem = semantic_lookup(rp, query, k=max(24, int(k) * 2), mode=_canonical_semantic_mode())
+    sem_k = max(24, int(k) * 2)
+    if retrieval_mode == "fact_first":
+        sem_k = max(32, int(k) * 3)
+    elif retrieval_mode == "causal_first":
+        sem_k = max(24, int(k) * 2)
+    elif retrieval_mode == "temporal_first":
+        sem_k = max(20, int(k) * 2)
+
+    sem = semantic_lookup(rp, query, k=sem_k, mode=_canonical_semantic_mode())
     if not sem.get("ok"):
         return _semantic_failure_response(
             query=query,
             intent=intent,
             k=int(k),
-            warnings=list(sem.get("warnings") or []),
+            warnings=list(sem.get("warnings") or []) + list(claim_warnings),
             provider=str(sem.get("provider") or ""),
         )
     sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
@@ -348,6 +385,9 @@ def search_request(
 
     sem_rows, filter_warnings = _apply_typed_filters(sem_rows, by_id, projection_created_at, submission)
 
+    if claim_retrieval_boost_enabled() and claim_state:
+        sem_rows = boost_claim_results(sem_rows, claim_state)
+
     anchors = [_to_anchor(r, by_id) for r in sem_rows[: max(1, int(k))]]
     confidence = "high" if anchors and float(anchors[0].get("semantic_score") or 0.0) >= 0.75 else ("medium" if anchors else "low")
     next_action = "answer" if confidence in {"high", "medium"} else "ask_clarifying"
@@ -376,8 +416,8 @@ def search_request(
         "citations": [],
         "confidence": confidence,
         "next_action": next_action,
-        "warnings": list(sem.get("warnings") or []) + list(filter_warnings),
-        "retrieval_mode": plan_retrieval_mode(query, None, None),
+        "warnings": list(sem.get("warnings") or []) + list(filter_warnings) + list(claim_warnings),
+        "retrieval_mode": retrieval_mode,
         "snapped": {
             "raw_query": query,
             "intent": intent,
@@ -387,6 +427,12 @@ def search_request(
                 for key, value in dict(submission or {}).items()
                 if key in {"incident_id", "scope", "topic_keys", "bead_types", "relation_types", "must_terms", "avoid_terms", "time_range", "require_structural"}
             },
+        },
+        "claim_context": {
+            "enabled": bool(claim_layer_enabled()),
+            "resolved": bool(claim_state),
+            "active_slots": int((claim_state or {}).get("active_slots") or 0),
+            "total_slots": int((claim_state or {}).get("total_slots") or 0),
         },
     }
 
@@ -525,6 +571,7 @@ def trace_request(
 
 
 def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool = True) -> dict[str, Any]:
+    rp = Path(root)
     req = dict(request or {})
     query = str(req.get("raw_query") or req.get("query_text") or req.get("query") or "").strip()
     declared_intent = str(req.get("intent") or "").strip()
@@ -553,7 +600,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "time_range": dict(facets.get("time_range") or {}),
             "require_structural": bool(constraints.get("require_structural", False)),
         }
-        out = search_request(root=root, query=query, k=k, intent=intent, submission=submission)
+        out = search_request(root=rp, query=query, k=k, intent=intent, submission=submission)
         if not out.get("ok"):
             out.setdefault("request", {
                 "raw_query": query,
@@ -587,7 +634,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = trace_request(
-            root=root,
+            root=rp,
             query=query,
             anchor_ids=req.get("anchor_ids") or None,
             k=k,
@@ -655,6 +702,19 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     out.setdefault("source_surface", first_surface or "session_bead")
     out.setdefault("source_scope", "durable")
     out.setdefault("source_priority_applied", ["session_bead", "archive_graph", "rolling_window", "transcript", "memory_md"])
+
+    if claim_layer_enabled():
+        claim_state, claim_warnings = _load_claim_state(rp)
+        policy = score_answer(list(out.get("results") or []), claim_state, query)
+        out["answer_policy"] = policy
+        out["answer_outcome"] = str(policy.get("outcome") or "answer_partial")
+        if out["answer_outcome"] == "abstain":
+            out["next_action"] = "ask_clarifying"
+            out["suggested_next"] = "ask_clarifying"
+        if claim_warnings:
+            warns = list(out.get("warnings") or [])
+            warns.extend([w for w in claim_warnings if w not in warns])
+            out["warnings"] = warns
 
     if explain:
         out["explain"] = {"planner": "canonical_v9", "stages": ["normalize", "anchors", "trace_or_not", "finalize"]}

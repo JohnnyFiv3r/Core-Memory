@@ -8,6 +8,8 @@ from core_memory.claim.registry import (
     MEMORY_INTERACTION_ROLE_DEFINITIONS,
     PROMOTION_STATE_DEFINITIONS,
     RETRIEVAL_MODE_DEFINITIONS,
+    RELATION_LABEL_DEFINITIONS,
+    BEAD_TYPE_DEFINITIONS,
     get_all_definitions,
 )
 from core_memory.schema.normalization import CANONICAL_CLAIM_KINDS, CLAIM_UPDATE_DECISIONS
@@ -63,6 +65,12 @@ class TestClaimRegistry(unittest.TestCase):
             for label, definition in label_defs.items():
                 self.assertIsInstance(definition, str, f"{category}.{label} is not a string")
                 self.assertTrue(definition.strip(), f"{category}.{label} has empty definition")
+
+    def test_registry_avoids_placeholder_bead_and_relation_definitions(self):
+        for _k, definition in BEAD_TYPE_DEFINITIONS.items():
+            self.assertNotIn("Semantic bead type:", definition)
+        for _k, definition in RELATION_LABEL_DEFINITIONS.items():
+            self.assertNotIn("Relation type:", definition)
 
 
 if __name__ == "__main__":
