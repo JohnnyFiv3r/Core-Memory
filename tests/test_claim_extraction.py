@@ -53,6 +53,17 @@ class TestClaimExtraction(unittest.TestCase):
         self.assertTrue(any(c.get("claim_kind") == "location" for c in claims))
         self.assertTrue(any(c.get("slot") == "location" for c in claims))
 
+    def test_user_assistant_boundary_does_not_pollute_timezone_value(self):
+        claims = extract_claims(
+            "I prefer Neovim for coding and my timezone is America/Chicago",
+            "Noted. I will remember this.",
+            [],
+        )
+        tz_claims = [c for c in claims if str(c.get("slot") or "") == "timezone"]
+        self.assertEqual(1, len(tz_claims))
+        self.assertEqual("America/Chicago", str(tz_claims[0].get("value") or ""))
+        self.assertNotIn("Noted", str(tz_claims[0].get("value") or ""))
+
     def test_dedup_removes_duplicates(self):
         claims = [
             {"subject": "user", "slot": "preference", "id": "1", "claim_kind": "preference", "value": "x", "reason_text": "r", "confidence": 0.5},

@@ -78,6 +78,8 @@ def _extract_timezone(clause: str) -> dict | None:
     if not m:
         return None
     value = m.group(1).strip()
+    # Defensive trim for assistant-preface bleed (e.g. "... America/Chicago Noted")
+    value = re.sub(r"\s+(?:noted|okay|ok|thanks|thank\s+you).*$", "", value, flags=re.IGNORECASE).strip()
     if not value:
         return None
     return {
@@ -212,40 +214,60 @@ def extract_claims(user_query: str, assistant_final: str, context_beads: list[di
     """
     _ = context_beads  # reserved for future signal blending
     claims: list[dict] = []
+    seen_value: set[tuple[str, str, str]] = set()
+    seen_slot: set[tuple[str, str]] = set()
 
-    combined = f"{user_query} {assistant_final}".strip()
-    if not combined:
-        return claims
+    # Process sources separately to avoid cross-source clause pollution.
+    # Priority: user_query first, assistant_final second.
+    sources = [
+        ("user_query", str(user_query or "")),
+        ("assistant_final", str(assistant_final or "")),
+    ]
 
-    clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(combined) if c and c.strip()]
-    seen: set[tuple[str, str, str]] = set()
-
-    for clause in clauses:
-        if len(clause) < 6:
+    for source_name, source_text in sources:
+        text = source_text.strip()
+        if not text:
             continue
-        parsed = _extract_claim_from_clause(clause)
-        if not parsed:
-            # fallback only when signal exists
-            kind = infer_claim_kind(clause)
-            if kind == "custom":
+        clauses = [c.strip() for c in _CLAUSE_SPLIT_RE.split(text) if c and c.strip()]
+
+        for clause in clauses:
+            if len(clause) < 6:
                 continue
-            parsed = {
-                "claim_kind": kind,
-                "subject": "user",
-                "slot": kind,
-                "value": clause[:200],
-                "confidence": 0.58,
-            }
+            parsed = _extract_claim_from_clause(clause)
+            if not parsed:
+                # fallback only when signal exists
+                kind = infer_claim_kind(clause)
+                if kind == "custom":
+                    continue
+                parsed = {
+                    "claim_kind": kind,
+                    "subject": "user",
+                    "slot": kind,
+                    "value": clause[:200],
+                    "confidence": 0.58,
+                }
 
-        row = _to_claim_row(clause, parsed)
-        key = (
-            str(row.get("subject") or "").strip().lower(),
-            str(row.get("slot") or "").strip().lower(),
-            str(row.get("value") or "").strip().lower(),
-        )
-        if key in seen:
-            continue
-        seen.add(key)
-        claims.append(row)
+            row = _to_claim_row(clause, parsed)
+            slot_key = (
+                str(row.get("subject") or "").strip().lower(),
+                str(row.get("slot") or "").strip().lower(),
+            )
+            value_key = (
+                slot_key[0],
+                slot_key[1],
+                str(row.get("value") or "").strip().lower(),
+            )
+
+            if value_key in seen_value:
+                continue
+
+            # Keep the first claim per subject+slot by source priority (user before assistant).
+            if slot_key in seen_slot:
+                continue
+
+            seen_slot.add(slot_key)
+            seen_value.add(value_key)
+            row["reason_text"] = f"Extracted from {source_name}: {clause[:120]}"
+            claims.append(row)
 
     return claims
