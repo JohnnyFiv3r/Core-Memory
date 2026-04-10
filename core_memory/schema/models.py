@@ -14,7 +14,16 @@ from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-from .normalization import is_allowed_bead_type, normalize_bead_type, normalize_relation_type, relation_kind
+from .normalization import (
+    CANONICAL_CLAIM_KINDS,
+    CLAIM_UPDATE_DECISIONS,
+    is_allowed_bead_type,
+    normalize_bead_type,
+    normalize_claim_kind,
+    normalize_claim_update_decision,
+    normalize_relation_type,
+    relation_kind,
+)
 
 
 _LOG = logging.getLogger(__name__)
@@ -110,6 +119,26 @@ class ImpactLevel(str, Enum):
     MEDIUM = "medium"
     HIGH = "high"
     EXISTENTIAL = "existential"
+
+
+class ClaimKind(str, Enum):
+    """Canonical claim kinds for the claim layer."""
+    PREFERENCE = "preference"
+    IDENTITY = "identity"
+    POLICY = "policy"
+    COMMITMENT = "commitment"
+    CONDITION = "condition"
+    RELATIONSHIP = "relationship"
+    LOCATION = "location"
+    CUSTOM = "custom"
+
+
+class ClaimUpdateDecision(str, Enum):
+    """Decision types for claim updates."""
+    REAFFIRM = "reaffirm"
+    SUPERSEDE = "supersede"
+    RETRACT = "retract"
+    CONFLICT = "conflict"
 
 
 # === Dataclasses ===
@@ -293,6 +322,14 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     if "state_change" in out and out.get("state_change") is not None:
         out["state_change"] = _coerce_dict(out.get("state_change"))
 
+    # Claim layer fields
+    out["claims"] = _coerce_list(out.get("claims"))
+    out["claim_updates"] = _coerce_list(out.get("claim_updates"))
+    raw_role = out.get("interaction_role")
+    out["interaction_role"] = str(raw_role) if raw_role is not None else None
+    raw_outcome = out.get("memory_outcome")
+    out["memory_outcome"] = _coerce_dict(raw_outcome) if raw_outcome is not None else None
+
     return out
 
 
@@ -319,6 +356,62 @@ def _normalize_event_payload(data: dict[str, Any]) -> dict[str, Any]:
     else:
         out["payload"] = deepcopy(out.get("payload"))
     return out
+
+
+def _normalize_claim_payload(data: dict[str, Any]) -> dict[str, Any]:
+    out = dict(data or {})
+    out["claim_kind"] = normalize_claim_kind(out.get("claim_kind"))
+    out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
+    return out
+
+
+def _normalize_claim_update_payload(data: dict[str, Any]) -> dict[str, Any]:
+    out = dict(data or {})
+    out["decision"] = normalize_claim_update_decision(out.get("decision"))
+    out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
+    return out
+
+
+@dataclass
+class Claim:
+    """A claim captures a discrete user-stated or agent-inferred fact."""
+    id: str = ""
+    claim_kind: str = "custom"
+    subject: str = ""
+    slot: str = ""
+    value: Any = None
+    reason_text: str = ""
+    confidence: float = 0.8
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return _dataclass_to_dict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Claim":
+        """Create from dictionary, ignoring unknown keys."""
+        return _dataclass_from_dict(cls, _normalize_claim_payload(data))
+
+
+@dataclass
+class ClaimUpdate:
+    """A claim update records a decision about an existing claim."""
+    id: str = ""
+    claim_id: str = ""
+    decision: str = "reaffirm"
+    successor_claim_id: str | None = None
+    reason_text: str = ""
+    confidence: float = 0.8
+    trigger_bead_id: str | None = None
+
+    def to_dict(self) -> dict:
+        """Convert to dictionary for JSON serialization."""
+        return _dataclass_to_dict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ClaimUpdate":
+        """Create from dictionary, ignoring unknown keys."""
+        return _dataclass_from_dict(cls, _normalize_claim_update_payload(data))
 
 
 @dataclass
@@ -390,7 +483,13 @@ class Bead:
     what_was_rejected: Optional[str] = None
     what_felt_risky: Optional[str] = None
     assumption: Optional[str] = None
-    
+
+    # Claim layer fields
+    claims: list = field(default_factory=list)
+    claim_updates: list = field(default_factory=list)
+    interaction_role: Optional[str] = None
+    memory_outcome: Optional[dict] = None
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return _dataclass_to_dict(self)

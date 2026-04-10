@@ -153,5 +153,63 @@ def relation_kind(value: str | None) -> str:
     return "unknown"
 
 
+# Agent-facing relation types: canonical minus derived helper tags
+AGENT_FACING_RELATION_TYPES = CANONICAL_RELATION_TYPES - DERIVED_RELATION_TYPES
+
+# Canonical claim kinds
+CANONICAL_CLAIM_KINDS = {
+    "preference",
+    "identity",
+    "policy",
+    "commitment",
+    "condition",
+    "relationship",
+    "location",
+    "custom",
+}
+
+# Claim update decision types
+CLAIM_UPDATE_DECISIONS = {
+    "reaffirm",
+    "supersede",
+    "retract",
+    "conflict",
+}
+
+# Memory interaction roles
+MEMORY_INTERACTION_ROLES = {
+    "memory_resolution",
+    "memory_correction",
+    "memory_reflection",
+}
+
+# Target lifecycle statuses (future target, does not replace current statuses yet)
+TARGET_LIFECYCLE_STATUSES = {
+    "default",
+    "archived",
+    "superseded",
+}
+
+# Promotion states (null represented by absence)
+PROMOTION_STATES = {
+    "candidate",
+    "promoted",
+}
+
+
+def normalize_claim_kind(value: str | None) -> str:
+    v = str(value or "").strip().lower()
+    if not v or v not in CANONICAL_CLAIM_KINDS:
+        return "custom"
+    return v
+
+
+def normalize_claim_update_decision(value: str | None) -> str:
+    v = str(value or "").strip().lower()
+    if not v or v not in CLAIM_UPDATE_DECISIONS:
+        return "reaffirm"
+    return v
+
+
 def association_policy() -> str:
     return ASSOCIATION_TYPE_POLICY

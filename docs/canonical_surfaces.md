@@ -129,6 +129,23 @@ Optional shadow-adapter docs (non-canonical runtime authority):
 - Compatibility/historical material lives under `docs/archive/` and `docs/reports/`.
 - If older modules still exist in code (for migration/history), they are not forward product surfaces unless listed above.
 
+## Claim Surfaces
+
+The claim layer adds the following canonical surfaces:
+
+### Write surfaces
+- `claim.turn_integration.extract_and_attach_claims` — Extract and attach claims after turn finalization
+- `persistence.store_claim_ops.write_claims_to_bead` — Write claim list to a bead
+- `persistence.store_claim_ops.write_claim_updates_to_bead` — Write claim updates to a bead
+
+### Read surfaces
+- `persistence.store_claim_ops.resolve_current_state` — Resolve current claim for subject+slot
+- `claim.resolver.resolve_all_current_state` — Resolve all subject+slot pairs in store
+
+### Policy surfaces
+- `claim.answer_policy.decide_answer_outcome` — Decide answer strategy from claim state
+- `claim.retrieval_planner.plan_retrieval_mode` — Plan retrieval mode for query
+
 ## Experimental notes
 - Experimental helpers/evals may exist under `eval/` and selected adapter experiments.
 - Experimental status does not imply canonical runtime contract.

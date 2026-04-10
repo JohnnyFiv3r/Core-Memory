@@ -16,6 +16,7 @@ from core_memory.retrieval.semantic_index import (
 from core_memory.retrieval.visible_corpus import build_visible_corpus
 from core_memory.integrations.api import hydrate_bead_sources
 from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
+from core_memory.claim.retrieval_planner import plan_retrieval_mode
 
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
@@ -376,6 +377,7 @@ def search_request(
         "confidence": confidence,
         "next_action": next_action,
         "warnings": list(sem.get("warnings") or []) + list(filter_warnings),
+        "retrieval_mode": plan_retrieval_mode(query, None, None),
         "snapped": {
             "raw_query": query,
             "intent": intent,

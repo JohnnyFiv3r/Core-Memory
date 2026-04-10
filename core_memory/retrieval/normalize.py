@@ -54,10 +54,13 @@ def classify_intent(query: str) -> dict:
         intent_class = "when"
     else:
         intent_class = "remember"
+    # Hint for claim-aware retrieval
+    claim_kind = "causal_reasoning" if intent_class == "causal" else "fact_reference"
     return {
         "intent_class": intent_class,
         "causal_intent": intent_class == "causal",
         "query_type_bucket": intent_class,
+        "claim_kind": claim_kind,
         "normalized": qn,
     }
 

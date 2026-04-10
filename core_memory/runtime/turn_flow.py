@@ -44,6 +44,8 @@ def process_turn_finalized_impl(
     error_agent_updates_missing: str,
     error_agent_semantic_coverage_missing: str,
     logger: Any,
+    extract_and_attach_claims_fn: Callable[..., dict[str, Any]] | None = None,
+    classify_memory_outcome_fn: Callable[..., dict[str, Any] | None] | None = None,
 ) -> dict[str, Any]:
     req = normalize_turn_request(
         session_id=session_id,
@@ -267,6 +269,18 @@ def process_turn_finalized_impl(
     session_visible_after = session_visible_bead_ids(root=root, session_id=req["session_id"])
     visible_ids = sorted(set(crawler_visible + session_visible_after))
 
+    # Claim extraction: wire in after association pass if callback provided
+    claim_telemetry: dict[str, Any] = {}
+    if extract_and_attach_claims_fn is not None:
+        created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
+        claim_telemetry = extract_and_attach_claims_fn(
+            root,
+            req["session_id"],
+            req["turn_id"],
+            created_bead_ids,
+            req,
+        ) or {}
+
     preview_queued = queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
 
     turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
@@ -288,7 +302,7 @@ def process_turn_finalized_impl(
         merge_associations_appended=int(turn_merge.get("associations_appended") or 0),
     )
 
-    return {
+    out: dict[str, Any] = {
         "ok": True,
         "mode": "turn",
         "authority_path": "canonical_in_process",
@@ -312,3 +326,6 @@ def process_turn_finalized_impl(
         },
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
+    if claim_telemetry:
+        out["claim_telemetry"] = claim_telemetry
+    return out

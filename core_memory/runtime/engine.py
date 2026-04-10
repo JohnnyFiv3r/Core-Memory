@@ -11,10 +11,13 @@ from typing import Any
 from .live_session import read_live_session_beads
 from core_memory.integrations.openclaw_flags import (
     agent_min_semantic_associations_after_first,
+    claim_layer_enabled,
     preview_association_allow_shared_tag,
     preview_association_promotion_enabled,
     resolved_agent_authored_gate,
 )
+from core_memory.claim.turn_integration import extract_and_attach_claims
+from core_memory.claim.outcomes import classify_memory_outcome
 from ..association.crawler_contract import (
     build_crawler_context,
     merge_crawler_updates,
@@ -332,6 +335,8 @@ def process_turn_finalized(
         error_agent_updates_missing=ERROR_AGENT_UPDATES_MISSING,
         error_agent_semantic_coverage_missing=ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
         logger=logger,
+        extract_and_attach_claims_fn=extract_and_attach_claims if claim_layer_enabled() else None,
+        classify_memory_outcome_fn=classify_memory_outcome if claim_layer_enabled() else None,
     )
 
 
