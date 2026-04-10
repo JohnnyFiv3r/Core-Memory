@@ -1,6 +1,8 @@
-import pytest
+import tempfile
+import unittest
+
 from core_memory.claim.resolver import resolve_all_current_state
-from core_memory.persistence.store_claim_ops import write_claims_to_bead, write_claim_updates_to_bead
+from core_memory.persistence.store_claim_ops import write_claim_updates_to_bead, write_claims_to_bead
 
 
 def make_claim(claim_id, subject="user", slot="preference", value="coffee"):
@@ -15,83 +17,100 @@ def make_claim(claim_id, subject="user", slot="preference", value="coffee"):
     }
 
 
-def test_empty_store(tmp_path):
-    result = resolve_all_current_state(str(tmp_path))
-    assert result["total_slots"] == 0
-    assert result["slots"] == {}
+class TestClaimResolver(unittest.TestCase):
+    def test_empty_store(self):
+        with tempfile.TemporaryDirectory() as td:
+            result = resolve_all_current_state(td)
+            self.assertEqual(0, result["total_slots"])
+            self.assertEqual({}, result["slots"])
+
+    def test_single_active_claim(self):
+        with tempfile.TemporaryDirectory() as td:
+            write_claims_to_bead(td, "bead1", [make_claim("c1")])
+            result = resolve_all_current_state(td)
+            self.assertEqual(1, result["total_slots"])
+            self.assertEqual(1, result["active_slots"])
+            slot = result["slots"]["user:preference"]
+            self.assertEqual("active", slot["status"])
+            self.assertEqual("c1", slot["current_claim"]["id"])
+
+    def test_supersession(self):
+        with tempfile.TemporaryDirectory() as td:
+            write_claims_to_bead(td, "bead1", [make_claim("c1", value="tea")])
+            write_claims_to_bead(td, "bead2", [make_claim("c2", value="coffee")])
+            update = {
+                "id": "u1",
+                "decision": "supersede",
+                "target_claim_id": "c1",
+                "replacement_claim_id": "c2",
+                "subject": "user",
+                "slot": "preference",
+                "reason_text": "changed",
+                "trigger_bead_id": "bead2",
+            }
+            write_claim_updates_to_bead(td, "bead2", [update])
+            result = resolve_all_current_state(td)
+            slot = result["slots"]["user:preference"]
+            self.assertEqual("c2", slot["current_claim"]["id"])
+            self.assertEqual("active", slot["status"])
+
+    def test_retraction(self):
+        with tempfile.TemporaryDirectory() as td:
+            write_claims_to_bead(td, "bead1", [make_claim("c1")])
+            update = {
+                "id": "u1",
+                "decision": "retract",
+                "target_claim_id": "c1",
+                "subject": "user",
+                "slot": "preference",
+                "reason_text": "no longer true",
+                "trigger_bead_id": "bead2",
+            }
+            write_claim_updates_to_bead(td, "bead2", [update])
+            result = resolve_all_current_state(td)
+            slot = result["slots"]["user:preference"]
+            self.assertIsNone(slot["current_claim"])
+            self.assertEqual("retracted", slot["status"])
+
+    def test_conflict_detection(self):
+        with tempfile.TemporaryDirectory() as td:
+            write_claims_to_bead(td, "bead1", [make_claim("c1")])
+            update = {
+                "id": "u1",
+                "decision": "conflict",
+                "target_claim_id": "c1",
+                "subject": "user",
+                "slot": "preference",
+                "reason_text": "contradicts other claim",
+                "trigger_bead_id": "bead2",
+            }
+            write_claim_updates_to_bead(td, "bead2", [update])
+            result = resolve_all_current_state(td)
+            self.assertEqual(1, result["conflict_slots"])
+            slot = result["slots"]["user:preference"]
+            self.assertEqual("conflict", slot["status"])
+            self.assertEqual(1, len(slot["conflicts"]))
+
+    def test_multiple_slots(self):
+        with tempfile.TemporaryDirectory() as td:
+            write_claims_to_bead(
+                td,
+                "bead1",
+                [make_claim("c1", subject="user", slot="preference"), make_claim("c2", subject="user", slot="occupation", value="engineer")],
+            )
+            result = resolve_all_current_state(td)
+            self.assertEqual(2, result["total_slots"])
+            self.assertIn("user:preference", result["slots"])
+            self.assertIn("user:occupation", result["slots"])
+
+    def test_history_preserved(self):
+        with tempfile.TemporaryDirectory() as td:
+            write_claims_to_bead(td, "bead1", [make_claim("c1", value="tea")])
+            write_claims_to_bead(td, "bead2", [make_claim("c2", value="coffee")])
+            result = resolve_all_current_state(td)
+            slot = result["slots"]["user:preference"]
+            self.assertEqual(2, len(slot["history"]))
 
 
-def test_single_active_claim(tmp_path):
-    write_claims_to_bead(str(tmp_path), "bead1", [make_claim("c1")])
-    result = resolve_all_current_state(str(tmp_path))
-    assert result["total_slots"] == 1
-    assert result["active_slots"] == 1
-    slot = result["slots"]["user:preference"]
-    assert slot["status"] == "active"
-    assert slot["current_claim"]["id"] == "c1"
-
-
-def test_supersession(tmp_path):
-    write_claims_to_bead(str(tmp_path), "bead1", [make_claim("c1", value="tea")])
-    write_claims_to_bead(str(tmp_path), "bead2", [make_claim("c2", value="coffee")])
-    update = {
-        "id": "u1", "decision": "supersede",
-        "target_claim_id": "c1", "replacement_claim_id": "c2",
-        "subject": "user", "slot": "preference",
-        "reason_text": "changed", "trigger_bead_id": "bead2",
-    }
-    write_claim_updates_to_bead(str(tmp_path), "bead2", [update])
-    result = resolve_all_current_state(str(tmp_path))
-    slot = result["slots"]["user:preference"]
-    assert slot["current_claim"]["id"] == "c2"
-    assert slot["status"] == "active"
-
-
-def test_retraction(tmp_path):
-    write_claims_to_bead(str(tmp_path), "bead1", [make_claim("c1")])
-    update = {
-        "id": "u1", "decision": "retract",
-        "target_claim_id": "c1",
-        "subject": "user", "slot": "preference",
-        "reason_text": "no longer true", "trigger_bead_id": "bead2",
-    }
-    write_claim_updates_to_bead(str(tmp_path), "bead2", [update])
-    result = resolve_all_current_state(str(tmp_path))
-    slot = result["slots"]["user:preference"]
-    assert slot["current_claim"] is None
-    assert slot["status"] == "retracted"
-
-
-def test_conflict_detection(tmp_path):
-    write_claims_to_bead(str(tmp_path), "bead1", [make_claim("c1")])
-    update = {
-        "id": "u1", "decision": "conflict",
-        "target_claim_id": "c1",
-        "subject": "user", "slot": "preference",
-        "reason_text": "contradicts other claim", "trigger_bead_id": "bead2",
-    }
-    write_claim_updates_to_bead(str(tmp_path), "bead2", [update])
-    result = resolve_all_current_state(str(tmp_path))
-    assert result["conflict_slots"] == 1
-    slot = result["slots"]["user:preference"]
-    assert slot["status"] == "conflict"
-    assert len(slot["conflicts"]) == 1
-
-
-def test_multiple_slots(tmp_path):
-    write_claims_to_bead(str(tmp_path), "bead1", [
-        make_claim("c1", subject="user", slot="preference"),
-        make_claim("c2", subject="user", slot="occupation", value="engineer"),
-    ])
-    result = resolve_all_current_state(str(tmp_path))
-    assert result["total_slots"] == 2
-    assert "user:preference" in result["slots"]
-    assert "user:occupation" in result["slots"]
-
-
-def test_history_preserved(tmp_path):
-    write_claims_to_bead(str(tmp_path), "bead1", [make_claim("c1", value="tea")])
-    write_claims_to_bead(str(tmp_path), "bead2", [make_claim("c2", value="coffee")])
-    result = resolve_all_current_state(str(tmp_path))
-    slot = result["slots"]["user:preference"]
-    assert len(slot["history"]) == 2
+if __name__ == "__main__":
+    unittest.main()

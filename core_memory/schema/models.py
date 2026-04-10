@@ -367,6 +367,17 @@ def _normalize_claim_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_claim_update_payload(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data or {})
+    # Canonical claim-update keys
+    if not out.get("target_claim_id") and out.get("claim_id"):
+        out["target_claim_id"] = out.get("claim_id")
+    if not out.get("replacement_claim_id") and out.get("successor_claim_id"):
+        out["replacement_claim_id"] = out.get("successor_claim_id")
+
+    # Normalize optional string fields
+    for k in ("target_claim_id", "replacement_claim_id", "subject", "slot", "reason_text", "trigger_bead_id"):
+        if out.get(k) is not None:
+            out[k] = str(out.get(k))
+
     out["decision"] = normalize_claim_update_decision(out.get("decision"))
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
     return out
@@ -397,9 +408,11 @@ class Claim:
 class ClaimUpdate:
     """A claim update records a decision about an existing claim."""
     id: str = ""
-    claim_id: str = ""
     decision: str = "reaffirm"
-    successor_claim_id: str | None = None
+    target_claim_id: str = ""
+    replacement_claim_id: str | None = None
+    subject: str = ""
+    slot: str = ""
     reason_text: str = ""
     confidence: float = 0.8
     trigger_bead_id: str | None = None

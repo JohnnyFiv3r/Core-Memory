@@ -3,36 +3,14 @@ Current-state resolver for claims across the full store.
 Groups claims by subject+slot, applies updates, returns current best state.
 """
 from __future__ import annotations
-from pathlib import Path
-import json
 
 from core_memory.claim.resolver_helpers import is_claim_current, find_conflicts, build_claim_timeline
+from core_memory.persistence.store_claim_ops import read_all_claim_rows
 
 
 def _load_all_claims_and_updates(root: str) -> tuple[list[dict], list[dict]]:
-    """Load all claims and updates from all bead directories."""
-    root_path = Path(root)
-    all_claims = []
-    all_updates = []
-
-    if not root_path.exists():
-        return [], []
-
-    for bead_dir in sorted(root_path.iterdir()):
-        if not bead_dir.is_dir():
-            continue
-
-        claims_file = bead_dir / "claims.json"
-        if claims_file.exists():
-            with open(claims_file) as f:
-                all_claims.extend(json.load(f))
-
-        updates_file = bead_dir / "claim_updates.json"
-        if updates_file.exists():
-            with open(updates_file) as f:
-                all_updates.extend(json.load(f))
-
-    return all_claims, all_updates
+    """Load all claims and updates from canonical bead-embedded storage."""
+    return read_all_claim_rows(root)
 
 
 def resolve_all_current_state(root: str, session_id: str | None = None) -> dict:
