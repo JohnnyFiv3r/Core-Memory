@@ -72,6 +72,77 @@ def _load_claim_state(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
     return None, warns
 
 
+def _query_terms(text: str) -> set[str]:
+    return {
+        t.strip(" ?!.,:;()[]{}\"'`").lower()
+        for t in str(text or "").split()
+        if len(t.strip()) >= 3
+    }
+
+
+def _claim_anchors_from_state(
+    *,
+    query: str,
+    claim_state: dict[str, Any] | None,
+    by_id: dict[str, dict[str, Any]],
+    limit: int = 3,
+) -> list[dict[str, Any]]:
+    if not isinstance(claim_state, dict):
+        return []
+    slots = claim_state.get("slots") or {}
+    if not isinstance(slots, dict):
+        return []
+
+    q = _query_terms(query)
+    use_all = bool(q.intersection({"my", "me", "current", "now", "preference", "timezone", "where", "who", "what"}))
+    out: list[dict[str, Any]] = []
+
+    for key, slot_data in slots.items():
+        if not isinstance(slot_data, dict):
+            continue
+        if str(slot_data.get("status") or "") != "active":
+            continue
+        claim = slot_data.get("current_claim") or {}
+        if not isinstance(claim, dict):
+            continue
+
+        key_s = str(key or "")
+        subject, _, slot = key_s.partition(":")
+        value = claim.get("value")
+        value_s = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+        claim_terms = _query_terms(" ".join([subject, slot, str(claim.get("claim_kind") or ""), value_s]))
+        overlap = len(q.intersection(claim_terms))
+        if not use_all and overlap == 0:
+            continue
+
+        conf = float(claim.get("confidence") or 0.6)
+        score = min(0.98, max(0.62, conf + (0.03 * overlap)))
+        bid = f"claim:{subject}:{slot}"
+        by_id[bid] = {
+            "bead": {
+                "id": bid,
+                "title": f"{subject} {slot}".strip(),
+                "type": "context",
+                "summary": [f"Current {slot}: {value_s}"],
+            },
+            "source_surface": "claim_state",
+            "status": "default",
+        }
+        out.append(
+            {
+                "bead_id": bid,
+                "score": score,
+                "anchor_reason": "claim_current_state",
+                "source_surface": "claim_state",
+                "status": "default",
+                "context_bias_score": 0.0,
+            }
+        )
+
+    out.sort(key=lambda r: float(r.get("score") or 0.0), reverse=True)
+    return out[: max(1, int(limit))]
+
+
 def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
     """Normalize public canonical hydration request to supported contract only.
 
@@ -349,6 +420,17 @@ def search_request(
             provider=str(sem.get("provider") or ""),
         )
     sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
+    claim_rows: list[dict[str, Any]] = []
+    if retrieval_mode == "fact_first" and claim_state:
+        claim_rows = _claim_anchors_from_state(
+            query=query,
+            claim_state=claim_state,
+            by_id=by_id,
+            limit=max(1, min(3, int(k))),
+        )
+        if claim_rows:
+            seen_ids = {str(r.get("bead_id") or "") for r in sem_rows}
+            sem_rows = claim_rows + [r for r in sem_rows if str(r.get("bead_id") or "") not in seen_ids]
     continuity_query = _is_continuity_query(query)
     for r in sem_rows:
         r.setdefault("anchor_reason", "retrieved")
@@ -433,6 +515,7 @@ def search_request(
             "resolved": bool(claim_state),
             "active_slots": int((claim_state or {}).get("active_slots") or 0),
             "total_slots": int((claim_state or {}).get("total_slots") or 0),
+            "claim_anchor_count": int(len([r for r in sem_rows[: max(1, int(k))] if str(r.get("anchor_reason") or "") == "claim_current_state"])),
         },
     }
 

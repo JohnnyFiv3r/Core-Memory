@@ -36,13 +36,14 @@ def decide_answer_outcome(
     evidence = signals["evidence_sufficiency"]
     currentness = signals["currentness_fit"]
     conflict = signals["conflict_penalty"]
+    claim_anchor_hit = any(str((r or {}).get("anchor_reason") or "") == "claim_current_state" for r in (results or []))
 
     # High conflict: answer_partial regardless of confidence
     if conflict > 0.5:
         return "answer_partial"
 
     # Strong anchor, good evidence → answer_current
-    if anchor >= 0.7 and evidence >= 0.4:
+    if anchor >= 0.7 and (evidence >= 0.4 or (claim_anchor_hit and evidence >= 0.2)):
         return "answer_current"
 
     # Decent anchor but low evidence, or historical signals → answer_historical

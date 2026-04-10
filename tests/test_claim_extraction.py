@@ -34,7 +34,35 @@ class TestClaimExtraction(unittest.TestCase):
         claims = extract_claims("I love coffee in the mornings", "", [])
         for c in claims:
             obj = Claim.from_dict(c)
-            self.assertIn(obj.claim_kind, {"preference", "identity", "policy", "commitment", "condition", "custom"})
+            self.assertIn(
+                obj.claim_kind,
+                {"preference", "identity", "policy", "commitment", "condition", "location", "relationship", "custom"},
+            )
+
+    def test_extract_compound_preference_and_timezone(self):
+        claims = extract_claims("I prefer Neovim for coding and my timezone is America/Chicago", "", [])
+        kinds = [str(c.get("claim_kind") or "") for c in claims]
+        slots = [str(c.get("slot") or "") for c in claims]
+        self.assertIn("preference", kinds)
+        self.assertIn("condition", kinds)
+        self.assertTrue(any(s.startswith("preference") for s in slots))
+        self.assertIn("timezone", slots)
+
+    def test_extract_location_signal(self):
+        claims = extract_claims("I'm currently in Chicago", "", [])
+        self.assertTrue(any(c.get("claim_kind") == "location" for c in claims))
+        self.assertTrue(any(c.get("slot") == "location" for c in claims))
+
+    def test_user_assistant_boundary_does_not_pollute_timezone_value(self):
+        claims = extract_claims(
+            "I prefer Neovim for coding and my timezone is America/Chicago",
+            "Noted. I will remember this.",
+            [],
+        )
+        tz_claims = [c for c in claims if str(c.get("slot") or "") == "timezone"]
+        self.assertEqual(1, len(tz_claims))
+        self.assertEqual("America/Chicago", str(tz_claims[0].get("value") or ""))
+        self.assertNotIn("Noted", str(tz_claims[0].get("value") or ""))
 
     def test_dedup_removes_duplicates(self):
         claims = [

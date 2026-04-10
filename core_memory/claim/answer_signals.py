@@ -5,6 +5,14 @@ Returns four scores used by answer_policy to decide how to answer.
 from __future__ import annotations
 
 
+def _query_terms(text: str) -> set[str]:
+    return {
+        t.strip(" ?!.,:;()[]{}\"'`").lower()
+        for t in str(text or "").split()
+        if len(t.strip()) >= 2
+    }
+
+
 def compute_answer_signals(
     results: list[dict],
     current_state: dict | None,
@@ -26,16 +34,28 @@ def compute_answer_signals(
     currentness_fit = 0.5  # default neutral
     conflict_penalty = 0.0
 
-    # Anchor confidence: from best active claim
+    q_terms = _query_terms(query)
+    claim_anchor_hits = [r for r in (results or []) if str((r or {}).get("anchor_reason") or "") == "claim_current_state"]
+
+    # Anchor confidence: from query-matched active claims when possible.
     if current_state and current_state.get("slots"):
-        active_claims = [
-            slot["current_claim"]
-            for slot in current_state["slots"].values()
-            if slot.get("status") == "active" and slot.get("current_claim")
-        ]
-        if active_claims:
-            confidences = [c.get("confidence", 0.0) for c in active_claims]
-            anchor_confidence = max(confidences)
+        active_claims = []
+        matched_claims = []
+        for key, slot in (current_state.get("slots") or {}).items():
+            if slot.get("status") != "active" or not slot.get("current_claim"):
+                continue
+            claim = slot["current_claim"]
+            active_claims.append(claim)
+
+            key_terms = _query_terms(str(key or ""))
+            value_terms = _query_terms(str(claim.get("value") or ""))
+            if q_terms.intersection(key_terms.union(value_terms)):
+                matched_claims.append(claim)
+
+        if matched_claims:
+            anchor_confidence = max(float(c.get("confidence", 0.0) or 0.0) for c in matched_claims)
+        elif active_claims:
+            anchor_confidence = max(float(c.get("confidence", 0.0) or 0.0) for c in active_claims)
 
         # Conflict penalty: fraction of slots in conflict
         total = len(current_state["slots"])
@@ -43,15 +63,18 @@ def compute_answer_signals(
         if total > 0:
             conflict_penalty = conflicts / total
 
-    # Evidence sufficiency: based on number of retrieval results
+    # Evidence sufficiency: based on number/quality of retrieval results
     if results:
-        # Normalize: 5+ results = 1.0, 0 = 0.0
         evidence_sufficiency = min(len(results) / 5.0, 1.0)
 
-        # Currentness: if results have scores, use top score as proxy
-        scores = [r.get("score", 0.0) for r in results if "score" in r]
+        scores = [float(r.get("score", 0.0) or 0.0) for r in results if "score" in r]
         if scores:
             currentness_fit = max(scores)
+
+    # Claim-state anchor is considered stronger evidence for fact-first queries.
+    if claim_anchor_hits:
+        evidence_sufficiency = max(evidence_sufficiency, 0.65)
+        currentness_fit = max(currentness_fit, 0.75)
 
     return {
         "anchor_confidence": round(anchor_confidence, 3),

@@ -91,6 +91,53 @@ class TestClaimRetrievalCanonicalIntegration(unittest.TestCase):
             self.assertIn("answer_outcome", out)
             self.assertIn(out.get("answer_outcome"), {"answer_current", "answer_historical", "answer_partial", "abstain"})
 
+    def test_fact_query_prioritizes_claim_state_anchor_and_current_answer(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_CLAIM_LAYER": "1",
+                "CORE_MEMORY_CLAIM_RESOLUTION": "1",
+                "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
+                "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed",
+            },
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            s.add_bead(type="context", title="Profile", summary=["user profile"], session_id="main", source_turn_ids=["t1"])
+            write_claims_to_bead(
+                td,
+                "bead-claim-tz",
+                [
+                    {
+                        "id": "claim-tz-1",
+                        "claim_kind": "condition",
+                        "subject": "user",
+                        "slot": "timezone",
+                        "value": "America/Chicago",
+                        "reason_text": "user explicitly stated timezone",
+                        "confidence": 0.92,
+                    }
+                ],
+            )
+
+            out = memory_tools.execute(
+                {
+                    "raw_query": "what is my timezone",
+                    "intent": "remember",
+                    "constraints": {"require_structural": False},
+                    "k": 5,
+                },
+                root=td,
+                explain=True,
+            )
+
+            self.assertTrue(out.get("ok"))
+            self.assertEqual("fact_first", out.get("retrieval_mode"))
+            first = (out.get("results") or [{}])[0]
+            self.assertEqual("claim_state", first.get("source_surface"))
+            self.assertEqual("claim_current_state", first.get("anchor_reason"))
+            self.assertEqual("answer_current", out.get("answer_outcome"))
+
 
 if __name__ == "__main__":
     unittest.main()
