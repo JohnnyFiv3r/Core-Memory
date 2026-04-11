@@ -262,6 +262,7 @@ def run_case(
     async_profile: str = "drain_before_query",
     semantic_mode: str = "degraded_allowed",
     vector_backend: str = "local-faiss",
+    myelination_enabled: bool = False,
 ) -> dict[str, Any]:
     t0_total = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="cm-bench-") as td:
@@ -289,6 +290,7 @@ def run_case(
             "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
             "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": str(semantic_mode),
             "CORE_MEMORY_VECTOR_BACKEND": str(vector_backend),
+            "CORE_MEMORY_MYELINATION_ENABLED": "1" if bool(myelination_enabled) else "0",
         }
         with _env_overrides(env):
             backend_diag = semantic_doctor(Path(td))
@@ -324,6 +326,7 @@ def run_case(
             "semantic_backend": backend_diag,
             "benchmark_backend_mode": backend_mode,
             "dreamer_correlation": dreamer_corr,
+            "myelination_enabled": bool(myelination_enabled),
         }
 
 
@@ -336,6 +339,7 @@ def run_benchmark(
     async_profile: str = "drain_before_query",
     semantic_mode: str = "degraded_allowed",
     vector_backend: str = "local-faiss",
+    myelination_mode: str = "off",
 ) -> dict[str, Any]:
     pairs = build_cases(fixtures_dir=fixtures_dir, gold_dir=gold_dir)
     pairs = sorted(pairs, key=lambda p: p[0].id)
@@ -345,17 +349,32 @@ def run_benchmark(
     if limit is not None:
         pairs = pairs[: max(1, int(limit))]
 
-    case_results: list[dict[str, Any]] = []
-    for case, gold in pairs:
-        case_results.append(
-            run_case(
-                case=case,
-                gold=gold,
-                async_profile=async_profile,
-                semantic_mode=semantic_mode,
-                vector_backend=vector_backend,
+    mode_n = str(myelination_mode or "off").strip().lower()
+    if mode_n not in {"off", "on", "compare"}:
+        mode_n = "off"
+
+    def _run_results(enabled: bool) -> list[dict[str, Any]]:
+        out_rows: list[dict[str, Any]] = []
+        for case, gold in pairs:
+            out_rows.append(
+                run_case(
+                    case=case,
+                    gold=gold,
+                    async_profile=async_profile,
+                    semantic_mode=semantic_mode,
+                    vector_backend=vector_backend,
+                    myelination_enabled=bool(enabled),
+                )
             )
-        )
+        return out_rows
+
+    if mode_n == "compare":
+        baseline_results = _run_results(False)
+        enabled_results = _run_results(True)
+        case_results = enabled_results
+    else:
+        baseline_results = []
+        case_results = _run_results(mode_n == "on")
 
     backend_modes = sorted(set(str(c.get("benchmark_backend_mode") or "") for c in case_results if str(c.get("benchmark_backend_mode") or "")))
 
@@ -369,10 +388,56 @@ def run_benchmark(
         "benchmark_backend_modes": backend_modes,
         "semantic_mode_requested": str(semantic_mode),
         "async_profile": async_profile,
+        "myelination_mode": mode_n,
+        "myelination_enabled": bool(mode_n == "on"),
         "notes": ["proxy_fixture_pack", "deterministic_local_subset", "queue_visibility_enabled"],
     }
 
-    return build_report(metadata=metadata, case_results=case_results)
+    report = build_report(metadata=metadata, case_results=case_results)
+
+    if mode_n == "compare":
+        base_meta = dict(metadata)
+        base_meta["myelination_mode"] = "off"
+        base_meta["myelination_enabled"] = False
+        baseline_report = build_report(metadata=base_meta, case_results=baseline_results)
+
+        enabled_totals = dict(report.get("totals") or {})
+        baseline_totals = dict(baseline_report.get("totals") or {})
+
+        by_case_base = {str(r.get("case_id") or ""): dict(r) for r in baseline_results}
+        by_case_on = {str(r.get("case_id") or ""): dict(r) for r in case_results}
+        per_case: list[dict[str, Any]] = []
+        for cid in sorted(set(by_case_base.keys()).union(by_case_on.keys())):
+            b = by_case_base.get(cid) or {}
+            e = by_case_on.get(cid) or {}
+            per_case.append(
+                {
+                    "case_id": cid,
+                    "baseline_pass": bool(b.get("pass")),
+                    "enabled_pass": bool(e.get("pass")),
+                    "pass_changed": bool(b.get("pass")) != bool(e.get("pass")),
+                    "baseline_latency_ms": float(b.get("latency_ms") or 0.0),
+                    "enabled_latency_ms": float(e.get("latency_ms") or 0.0),
+                    "latency_delta_ms": round(float(e.get("latency_ms") or 0.0) - float(b.get("latency_ms") or 0.0), 3),
+                }
+            )
+
+        report["myelination_comparison"] = {
+            "baseline": {
+                "accuracy": float(baseline_totals.get("accuracy") or 0.0),
+                "pass": int(baseline_totals.get("pass") or 0),
+                "fail": int(baseline_totals.get("fail") or 0),
+            },
+            "enabled": {
+                "accuracy": float(enabled_totals.get("accuracy") or 0.0),
+                "pass": int(enabled_totals.get("pass") or 0),
+                "fail": int(enabled_totals.get("fail") or 0),
+            },
+            "accuracy_delta": round(float(enabled_totals.get("accuracy") or 0.0) - float(baseline_totals.get("accuracy") or 0.0), 4),
+            "cases": per_case,
+        }
+
+    return report
 
 
 def main() -> int:
@@ -385,6 +450,7 @@ def main() -> int:
     p.add_argument("--async-profile", choices=["drain_before_query", "observe_only"], default="drain_before_query")
     p.add_argument("--semantic-mode", choices=["degraded_allowed", "required"], default="degraded_allowed")
     p.add_argument("--vector-backend", choices=["local-faiss", "qdrant", "pgvector", "chromadb"], default="local-faiss")
+    p.add_argument("--myelination", choices=["off", "on", "compare"], default="off")
     p.add_argument("--out", default="")
     args = p.parse_args()
 
@@ -396,6 +462,7 @@ def main() -> int:
         async_profile=str(args.async_profile),
         semantic_mode=str(args.semantic_mode),
         vector_backend=str(args.vector_backend),
+        myelination_mode=str(args.myelination),
     )
 
     print(render_summary(report))

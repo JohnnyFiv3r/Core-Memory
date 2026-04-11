@@ -155,6 +155,7 @@ def rerank_semantic_rows(
         structural = min(1.0, float(r.get("context_bias_score") or 0.0))
         recency = _recency_score(bead, historical=historical)
         retrieval_value_bonus = float(bead.get("retrieval_value_bonus") or 0.0)
+        myelination_bonus = float(bead.get("myelination_bonus") or 0.0)
 
         supersedes_count = int(bead.get("supersedes_count") or 0)
         superseded_by_count = int(bead.get("superseded_by_count") or 0)
@@ -196,6 +197,7 @@ def rerank_semantic_rows(
             + weights["recency"] * recency
             + current_truth_bonus
             + retrieval_value_bonus
+            + myelination_bonus
             - supersession_penalty
             - conflict_penalty
         )
@@ -212,6 +214,7 @@ def rerank_semantic_rows(
             "structural": round(structural, 4),
             "recency": round(recency, 4),
             "retrieval_value_bonus": round(retrieval_value_bonus, 4),
+            "myelination_bonus": round(myelination_bonus, 4),
             "supersession_penalty": round(supersession_penalty, 4),
             "conflict_penalty": round(conflict_penalty, 4),
             "current_truth_bonus": round(current_truth_bonus, 4),

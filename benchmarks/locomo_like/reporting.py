@@ -175,4 +175,13 @@ def render_summary(report: dict[str, Any]) -> str:
         lines.append(f"  - accepted candidates: {int(dc.get('accepted_candidates_total') or 0)}")
         lines.append(f"  - accepted used in retrieval: {int(dc.get('accepted_used_in_retrieval_total') or 0)}")
         lines.append(f"  - retrieval use rate: {dc.get('retrieval_use_rate')}")
+
+    mc = dict(report.get("myelination_comparison") or {})
+    if mc:
+        b = dict(mc.get("baseline") or {})
+        e = dict(mc.get("enabled") or {})
+        lines.append("- myelination comparison:")
+        lines.append(f"  - baseline accuracy: {b.get('accuracy')}")
+        lines.append(f"  - enabled accuracy: {e.get('accuracy')}")
+        lines.append(f"  - accuracy delta: {mc.get('accuracy_delta')}")
     return "\n".join(lines)

@@ -30,6 +30,8 @@ python -m benchmarks.locomo_like.runner --subset local
 python -m benchmarks.locomo_like.runner --subset full
 python -m benchmarks.locomo_like.runner --subset local --async-profile drain_before_query
 python -m benchmarks.locomo_like.runner --subset local --semantic-mode degraded_allowed --vector-backend local-faiss
+python -m benchmarks.locomo_like.runner --subset local --myelination on
+python -m benchmarks.locomo_like.runner --subset local --myelination compare
 ```
 
 ## Report output
@@ -43,6 +45,7 @@ The runner emits machine-readable JSON containing:
 - queue observability snapshots before/after query phase
 - backend observability (`benchmark_backend_mode`, semantic doctor fields)
 - dreamer correlation summary (accepted proposal use-rate in retrieval)
+- optional myelination comparison summary (`--myelination compare`)
 - warnings
 - run metadata (commit, mode, timestamp)
 

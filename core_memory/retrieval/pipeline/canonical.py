@@ -22,6 +22,7 @@ from core_memory.claim.answer_policy import score_answer
 from core_memory.entity.registry import load_entity_registry
 from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
 from core_memory.retrieval.evidence_scoring import rerank_semantic_rows
+from core_memory.runtime.myelination import compute_myelination_bonus_map
 from .convergence import run_hybrid_rerank_seeds
 from core_memory.integrations.openclaw_flags import (
     claim_layer_enabled,
@@ -541,6 +542,7 @@ def search_request(
     projection_created_at: dict[str, str] = {}
     relation_summary: dict[str, dict[str, int]] = {}
     retrieval_value_bonus: dict[str, float] = {}
+    myelination_bonus: dict[str, float] = {}
     try:
         idx = json.loads((rp / ".beads" / "index.json").read_text(encoding="utf-8"))
         for bid, bead in ((idx.get("beads") or {}) if isinstance(idx, dict) else {}).items():
@@ -552,6 +554,13 @@ def search_request(
         projection_created_at = {}
         relation_summary = {}
         retrieval_value_bonus = {}
+
+    try:
+        myelination_payload = compute_myelination_bonus_map(rp)
+        if bool((myelination_payload or {}).get("enabled")):
+            myelination_bonus = dict((myelination_payload.get("bonus_by_bead_id") or {}))
+    except Exception:
+        myelination_bonus = {}
 
     if relation_summary:
         for bid, rel in relation_summary.items():
@@ -572,6 +581,16 @@ def search_request(
                 continue
             bead = dict((row.get("bead") or {}))
             bead["retrieval_value_bonus"] = float(bonus)
+            row["bead"] = bead
+            by_id[str(bid)] = row
+
+    if myelination_bonus:
+        for bid, bonus in myelination_bonus.items():
+            row = by_id.get(str(bid))
+            if not isinstance(row, dict):
+                continue
+            bead = dict((row.get("bead") or {}))
+            bead["myelination_bonus"] = float(bonus)
             row["bead"] = bead
             by_id[str(bid)] = row
 
