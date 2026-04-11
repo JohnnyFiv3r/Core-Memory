@@ -119,3 +119,36 @@ __all__ = [
     "myelination_enabled",
     "compute_myelination_bonus_map",
 ]
+
+
+def myelination_report(
+    root: str | Path,
+    *,
+    since: str | None = None,
+    limit: int | None = None,
+    top: int = 20,
+) -> dict[str, Any]:
+    payload = compute_myelination_bonus_map(root, since=since, limit=limit)
+    bonus = dict(payload.get("bonus_by_bead_id") or {})
+
+    pos = sorted(
+        [{"bead_id": bid, "bonus": float(v)} for bid, v in bonus.items() if float(v) > 0.0],
+        key=lambda r: float(r.get("bonus") or 0.0),
+        reverse=True,
+    )
+    neg = sorted(
+        [{"bead_id": bid, "bonus": float(v)} for bid, v in bonus.items() if float(v) < 0.0],
+        key=lambda r: float(r.get("bonus") or 0.0),
+    )
+
+    return {
+        "schema": "core_memory.myelination_experiment.v1",
+        "enabled": bool(payload.get("enabled")),
+        "stats": dict(payload.get("stats") or {}),
+        "config": dict(payload.get("config") or {}),
+        "top_strengthened": pos[: max(1, int(top))],
+        "top_weakened": neg[: max(1, int(top))],
+    }
+
+
+__all__.append("myelination_report")
