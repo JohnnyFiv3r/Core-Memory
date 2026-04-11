@@ -77,11 +77,10 @@ def _load_claim_state(root: Path, *, as_of: str | None = None) -> tuple[dict[str
 
 
 def _query_terms(text: str) -> set[str]:
-    return {
-        t.strip(" ?!.,:;()[]{}\"'`").lower()
-        for t in str(text or "").split()
-        if len(t.strip()) >= 3
-    }
+    import re
+
+    s = str(text or "").lower().replace("_", " ").replace("-", " ")
+    return {tok for tok in re.findall(r"[a-z0-9]+", s) if len(tok) >= 3}
 
 
 def _claim_anchors_from_state(
@@ -98,14 +97,16 @@ def _claim_anchors_from_state(
         return []
 
     q = _query_terms(query)
-    use_all = bool(q.intersection({"my", "me", "current", "now", "preference", "timezone", "where", "who", "what"}))
+    generic_personal = bool(q.intersection({"my", "me", "current", "now"}))
     out: list[dict[str, Any]] = []
+    active_slot_count = 0
 
     for key, slot_data in slots.items():
         if not isinstance(slot_data, dict):
             continue
         if str(slot_data.get("status") or "") != "active":
             continue
+        active_slot_count += 1
         claim = slot_data.get("current_claim") or {}
         if not isinstance(claim, dict):
             continue
@@ -116,7 +117,7 @@ def _claim_anchors_from_state(
         value_s = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
         claim_terms = _query_terms(" ".join([subject, slot, str(claim.get("claim_kind") or ""), value_s]))
         overlap = len(q.intersection(claim_terms))
-        if not use_all and overlap == 0:
+        if overlap == 0 and not (generic_personal and active_slot_count == 1):
             continue
 
         conf = float(claim.get("confidence") or 0.6)
@@ -140,11 +141,90 @@ def _claim_anchors_from_state(
                 "source_surface": "claim_state",
                 "status": "default",
                 "context_bias_score": 0.0,
+                "claim_slot_key": key_s,
+                "claim_id": str(claim.get("id") or ""),
+                "claim_value": value,
             }
         )
 
     out.sort(key=lambda r: float(r.get("score") or 0.0), reverse=True)
     return out[: max(1, int(limit))]
+
+
+def _slot_label(slot_key: str) -> str:
+    _, _, slot = str(slot_key or "").partition(":")
+    s = slot or str(slot_key or "")
+    return s.replace("_", " ").strip()
+
+
+def _claim_answer_candidate(
+    *,
+    query: str,
+    claim_state: dict[str, Any] | None,
+    results: list[dict[str, Any]],
+    answer_outcome: str,
+    as_of: str | None,
+) -> dict[str, Any] | None:
+    if not isinstance(claim_state, dict):
+        return None
+    if str(answer_outcome or "") not in {"answer_current", "answer_historical", "answer_partial"}:
+        return None
+
+    slots = claim_state.get("slots") or {}
+    if not isinstance(slots, dict) or not slots:
+        return None
+
+    top = (results or [{}])[0] if (results or []) else {}
+    if str((top or {}).get("source_surface") or "") != "claim_state":
+        return None
+
+    # Prefer explicit slot metadata from claim-state anchor.
+    slot_key = str((top or {}).get("claim_slot_key") or "")
+    if not slot_key:
+        bead_id = str((top or {}).get("bead_id") or "")
+        if bead_id.startswith("claim:"):
+            _, subject, slot = bead_id.split(":", 2)
+            slot_key = f"{subject}:{slot}"
+
+    slot_data = dict((slots.get(slot_key) or {})) if slot_key else {}
+    if not slot_data:
+        # fallback: choose best query-overlap slot
+        q = _query_terms(query)
+        best_key = ""
+        best_score = -1
+        for k, row in slots.items():
+            if str((row or {}).get("status") or "") != "active":
+                continue
+            claim = (row or {}).get("current_claim") or {}
+            terms = _query_terms(" ".join([str(k), str(claim.get("claim_kind") or ""), str(claim.get("value") or "")]))
+            score = len(q.intersection(terms))
+            if score > best_score:
+                best_score = score
+                best_key = str(k)
+        if best_key:
+            slot_key = best_key
+            slot_data = dict((slots.get(best_key) or {}))
+
+    claim = dict((slot_data.get("current_claim") or {}))
+    if not claim:
+        return None
+
+    value = claim.get("value")
+    slot_text = _slot_label(slot_key)
+    if str(answer_outcome) == "answer_historical" and str(as_of or "").strip():
+        text = f"As of {as_of}, {slot_text} was {value}."
+    else:
+        text = f"Current {slot_text} is {value}."
+
+    return {
+        "text": text,
+        "slot_key": slot_key,
+        "slot": slot_text,
+        "value": value,
+        "claim_id": str(claim.get("id") or ""),
+        "source": "claim_state",
+        "as_of": str(as_of or "") or None,
+    }
 
 
 def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
@@ -293,6 +373,8 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
         "context_bias_score": float(res.get("context_bias_score") or 0.0),
         "source_surface": str(res.get("source_surface") or row.get("source_surface") or "projection"),
         "status": str(res.get("status") or row.get("status") or ""),
+        "claim_slot_key": str(res.get("claim_slot_key") or ""),
+        "claim_id": str(res.get("claim_id") or ""),
     }
 
 
@@ -490,12 +572,13 @@ def search_request(
             added += 1
 
     claim_rows: list[dict[str, Any]] = []
-    if retrieval_mode == "fact_first" and claim_state:
+    if claim_state:
+        claim_limit = max(1, min(3, int(k))) if retrieval_mode == "fact_first" else max(1, min(2, int(k)))
         claim_rows = _claim_anchors_from_state(
             query=query,
             claim_state=claim_state,
             by_id=by_id,
-            limit=max(1, min(3, int(k))),
+            limit=claim_limit,
         )
         if claim_rows:
             seen_ids = {str(r.get("bead_id") or "") for r in sem_rows}
@@ -895,6 +978,26 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         policy = score_answer(list(out.get("results") or []), claim_state, query, as_of=as_of)
         out["answer_policy"] = policy
         out["answer_outcome"] = str(policy.get("outcome") or "answer_partial")
+        candidate = _claim_answer_candidate(
+            query=query,
+            claim_state=claim_state,
+            results=list(out.get("results") or []),
+            answer_outcome=out["answer_outcome"],
+            as_of=as_of,
+        )
+        if candidate:
+            out["answer_candidate"] = candidate
+            cites = list(out.get("citations") or [])
+            top = (out.get("results") or [{}])[0] if (out.get("results") or []) else {}
+            bid = str((top or {}).get("bead_id") or "")
+            if bid and not any(str((c or {}).get("bead_id") or "") == bid for c in cites if isinstance(c, dict)):
+                cites.append({
+                    "bead_id": bid,
+                    "reason": "claim_state_current_slot",
+                    "slot_key": str(candidate.get("slot_key") or ""),
+                    "claim_id": str(candidate.get("claim_id") or ""),
+                })
+            out["citations"] = cites
         if out["answer_outcome"] == "abstain":
             out["next_action"] = "ask_clarifying"
             out["suggested_next"] = "ask_clarifying"

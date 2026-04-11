@@ -6,11 +6,10 @@ from __future__ import annotations
 
 
 def _query_terms(text: str) -> set[str]:
-    return {
-        t.strip(" ?!.,:;()[]{}\"'`").lower()
-        for t in str(text or "").split()
-        if len(t.strip()) >= 2
-    }
+    import re
+
+    s = str(text or "").lower().replace("_", " ").replace("-", " ")
+    return {tok for tok in re.findall(r"[a-z0-9]+", s) if len(tok) >= 2}
 
 
 def compute_answer_signals(
