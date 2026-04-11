@@ -59,6 +59,10 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
         self.assertIn("cases", report)
         self.assertIn("latency_breakdown_ms", report)
         self.assertIn("queue_observability", report)
+        self.assertIn("backend_observability", report)
+        self.assertIn("semantic_mode", report.get("metadata") or {})
+        self.assertIn("backend_mode", report.get("metadata") or {})
+        self.assertIn("benchmark_backend_modes", report.get("metadata") or {})
         self.assertEqual(2, int((report.get("totals") or {}).get("cases") or 0))
 
         cases = list(report.get("cases") or [])
@@ -68,6 +72,22 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
             self.assertIn("retrieval_ms", c)
             self.assertIn("queue_before_query", c)
             self.assertIn("queue_after_query", c)
+            self.assertIn("semantic_backend", c)
+            self.assertIn("benchmark_backend_mode", c)
+
+    def test_runner_supports_required_mode_backend_metadata(self):
+        base = Path("benchmarks/locomo_like")
+        report = run_benchmark(
+            fixtures_dir=base / "fixtures",
+            gold_dir=base / "gold",
+            subset="local",
+            limit=1,
+            semantic_mode="required",
+            vector_backend="local-faiss",
+        )
+        modes = set(report.get("metadata", {}).get("benchmark_backend_modes") or [])
+        self.assertTrue(modes)
+        self.assertIn("strict_missing_backend", modes)
 
 
 if __name__ == "__main__":

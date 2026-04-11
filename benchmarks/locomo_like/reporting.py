@@ -35,6 +35,16 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
     retrieval_latencies = [float(r.get("retrieval_ms") or 0.0) for r in ordered]
     pending_before = [int(((r.get("queue_before_query") or {}).get("pending_total") or 0)) for r in ordered]
     pending_after = [int(((r.get("queue_after_query") or {}).get("pending_total") or 0)) for r in ordered]
+    backend_mode_counts: dict[str, int] = {}
+
+    for row in ordered:
+        mode = str(row.get("benchmark_backend_mode") or "")
+        if mode:
+            backend_mode_counts[mode] = int(backend_mode_counts.get(mode, 0)) + 1
+        diag = dict(row.get("semantic_backend") or {})
+        if bool(diag.get("ok")):
+            if str(diag.get("concurrency_warning") or "").strip():
+                warnings.append(str(diag.get("concurrency_warning")))
 
     for row in ordered:
         for w in (row.get("warnings") or []):
@@ -83,6 +93,11 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             "pending_after_query_max": max(pending_after) if pending_after else 0,
             "pending_before_query_mean": round(_mean([float(x) for x in pending_before]), 3) if pending_before else 0.0,
             "pending_after_query_mean": round(_mean([float(x) for x in pending_after]), 3) if pending_after else 0.0,
+        },
+        "backend_observability": {
+            "backend_mode_counts": dict(sorted(backend_mode_counts.items(), key=lambda kv: kv[0])),
+            "semantic_mode": str((metadata or {}).get("semantic_mode") or ""),
+            "backend_mode": str((metadata or {}).get("backend_mode") or ""),
         },
         "token_usage": None,
         "per_bucket": per_bucket,

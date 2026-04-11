@@ -29,6 +29,7 @@ Current fixture pack includes at least one case in each bucket:
 python -m benchmarks.locomo_like.runner --subset local
 python -m benchmarks.locomo_like.runner --subset full
 python -m benchmarks.locomo_like.runner --subset local --async-profile drain_before_query
+python -m benchmarks.locomo_like.runner --subset local --semantic-mode degraded_allowed --vector-backend local-faiss
 ```
 
 ## Report output
@@ -40,7 +41,15 @@ The runner emits machine-readable JSON containing:
 - latency summary
 - latency breakdown (`write_setup_ms` vs `retrieval_ms`)
 - queue observability snapshots before/after query phase
+- backend observability (`benchmark_backend_mode`, semantic doctor fields)
 - warnings
 - run metadata (commit, mode, timestamp)
+
+## Benchmark backend clarity
+
+- `--semantic-mode required` + missing semantic backend will reflect `strict_missing_backend` in case metadata.
+- `--semantic-mode degraded_allowed` with no built semantic backend reports `degraded_lexical`.
+- `--vector-backend local-faiss` reports `local_single_writer` when usable.
+- external backends (`qdrant`, `pgvector`) report `external_distributed` when usable.
 
 Optional plain-text summary is printed to stdout.

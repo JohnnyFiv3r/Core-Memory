@@ -14,6 +14,7 @@ from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.store_claim_ops import write_claim_updates_to_bead, write_claims_to_bead
 from core_memory.retrieval.tools import memory as memory_tools
+from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.jobs import async_jobs_status, run_async_jobs
 
 from .reporting import build_report, render_summary
@@ -122,7 +123,28 @@ def _queue_snapshot(root: str) -> dict[str, Any]:
     }
 
 
-def run_case(*, case: BenchmarkCase, gold: GoldCase, async_profile: str = "drain_before_query") -> dict[str, Any]:
+def _benchmark_backend_mode(diag: dict[str, Any], *, semantic_mode: str) -> str:
+    backend = str(diag.get("backend") or "not_built").strip().lower()
+    usable = bool(diag.get("usable_backend"))
+    if not usable:
+        if str(semantic_mode) == "required":
+            return "strict_missing_backend"
+        return "degraded_lexical"
+    if backend.startswith("faiss") or backend.startswith("chroma"):
+        return "local_single_writer"
+    if backend in {"qdrant", "pgvector"}:
+        return "external_distributed"
+    return "unknown"
+
+
+def run_case(
+    *,
+    case: BenchmarkCase,
+    gold: GoldCase,
+    async_profile: str = "drain_before_query",
+    semantic_mode: str = "degraded_allowed",
+    vector_backend: str = "local-faiss",
+) -> dict[str, Any]:
     t0_total = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="cm-bench-") as td:
         t_setup = time.perf_counter()
@@ -147,9 +169,12 @@ def run_case(*, case: BenchmarkCase, gold: GoldCase, async_profile: str = "drain
             "CORE_MEMORY_CLAIM_LAYER": "1",
             "CORE_MEMORY_CLAIM_RESOLUTION": "1",
             "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
-            "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed",
+            "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": str(semantic_mode),
+            "CORE_MEMORY_VECTOR_BACKEND": str(vector_backend),
         }
         with _env_overrides(env):
+            backend_diag = semantic_doctor(Path(td))
+            backend_mode = _benchmark_backend_mode(backend_diag, semantic_mode=str(semantic_mode))
             t_query = time.perf_counter()
             out = memory_tools.execute(req, root=td, explain=True)
             retrieval_ms = (time.perf_counter() - t_query) * 1000.0
@@ -177,6 +202,8 @@ def run_case(*, case: BenchmarkCase, gold: GoldCase, async_profile: str = "drain
             "queue_before_query": queue_before_query,
             "queue_after_query": queue_after_query,
             "queue_drained": queue_drained,
+            "semantic_backend": backend_diag,
+            "benchmark_backend_mode": backend_mode,
         }
 
 
@@ -187,6 +214,8 @@ def run_benchmark(
     subset: str = "local",
     limit: int | None = None,
     async_profile: str = "drain_before_query",
+    semantic_mode: str = "degraded_allowed",
+    vector_backend: str = "local-faiss",
 ) -> dict[str, Any]:
     pairs = build_cases(fixtures_dir=fixtures_dir, gold_dir=gold_dir)
     pairs = sorted(pairs, key=lambda p: p[0].id)
@@ -198,15 +227,27 @@ def run_benchmark(
 
     case_results: list[dict[str, Any]] = []
     for case, gold in pairs:
-        case_results.append(run_case(case=case, gold=gold, async_profile=async_profile))
+        case_results.append(
+            run_case(
+                case=case,
+                gold=gold,
+                async_profile=async_profile,
+                semantic_mode=semantic_mode,
+                vector_backend=vector_backend,
+            )
+        )
+
+    backend_modes = sorted(set(str(c.get("benchmark_backend_mode") or "") for c in case_results if str(c.get("benchmark_backend_mode") or "")))
 
     metadata = {
         "runner": "locomo_like",
         "subset": subset,
         "case_count": len(case_results),
         "commit": _repo_commit(),
-        "semantic_mode": os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", "degraded_allowed"),
-        "backend_mode": os.environ.get("CORE_MEMORY_VECTOR_BACKEND", "local-faiss"),
+        "semantic_mode": str(semantic_mode),
+        "backend_mode": str(vector_backend),
+        "benchmark_backend_modes": backend_modes,
+        "semantic_mode_requested": str(semantic_mode),
         "async_profile": async_profile,
         "notes": ["proxy_fixture_pack", "deterministic_local_subset", "queue_visibility_enabled"],
     }
@@ -222,6 +263,8 @@ def main() -> int:
     p.add_argument("--subset", choices=["local", "full"], default="local")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument("--async-profile", choices=["drain_before_query", "observe_only"], default="drain_before_query")
+    p.add_argument("--semantic-mode", choices=["degraded_allowed", "required"], default="degraded_allowed")
+    p.add_argument("--vector-backend", choices=["local-faiss", "qdrant", "pgvector", "chromadb"], default="local-faiss")
     p.add_argument("--out", default="")
     args = p.parse_args()
 
@@ -231,6 +274,8 @@ def main() -> int:
         subset=str(args.subset),
         limit=args.limit,
         async_profile=str(args.async_profile),
+        semantic_mode=str(args.semantic_mode),
+        vector_backend=str(args.vector_backend),
     )
 
     print(render_summary(report))
