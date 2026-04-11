@@ -42,6 +42,7 @@ The runner emits machine-readable JSON containing:
 - latency breakdown (`write_setup_ms` vs `retrieval_ms`)
 - queue observability snapshots before/after query phase
 - backend observability (`benchmark_backend_mode`, semantic doctor fields)
+- dreamer correlation summary (accepted proposal use-rate in retrieval)
 - warnings
 - run metadata (commit, mode, timestamp)
 

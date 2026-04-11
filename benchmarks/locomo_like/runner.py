@@ -92,6 +92,48 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
             continue
         write_claim_updates_to_bead(root, bead_id, list(row.get("rows") or []))
 
+    # Optional Dreamer fixture hooks for DV2 benchmark correlation paths.
+    dreamer_associations = list(setup.get("dreamer_associations") or [])
+    if dreamer_associations:
+        from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates, list_dreamer_candidates, decide_dreamer_candidate
+
+        # Resolve bead keys in association rows.
+        materialized_assoc: list[dict[str, Any]] = []
+        for a in dreamer_associations:
+            if not isinstance(a, dict):
+                continue
+            src = str(a.get("source") or bead_keys.get(str(a.get("source_key") or "")) or "").strip()
+            tgt = str(a.get("target") or bead_keys.get(str(a.get("target_key") or "")) or "").strip()
+            if not src or not tgt:
+                continue
+            row = dict(a)
+            row["source"] = src
+            row["target"] = tgt
+            materialized_assoc.append(row)
+
+        if materialized_assoc:
+            enqueue_dreamer_candidates(
+                root=root,
+                associations=materialized_assoc,
+                run_metadata={"run_id": f"bench-{case.id}", "mode": "benchmark_fixture", "source": "benchmark_fixture"},
+            )
+
+            auto_accept = {str(x).strip().lower() for x in (setup.get("dreamer_auto_accept") or []) if str(x).strip()}
+            if auto_accept:
+                pending = (list_dreamer_candidates(root=root, status="pending", limit=200).get("results") or [])
+                for c in pending:
+                    ht = str(c.get("hypothesis_type") or "").strip().lower()
+                    if ht not in auto_accept:
+                        continue
+                    decide_dreamer_candidate(
+                        root=root,
+                        candidate_id=str(c.get("id") or ""),
+                        decision="accept",
+                        reviewer="benchmark-fixture",
+                        notes="fixture_auto_accept",
+                        apply=True,
+                    )
+
 
 def _evaluate_case(*, case: BenchmarkCase, gold: GoldCase, out: dict[str, Any], root: str) -> tuple[bool, dict[str, bool]]:
     checks: dict[str, bool] = {}
@@ -120,6 +162,60 @@ def _queue_snapshot(root: str) -> dict[str, Any]:
         "pending_total": int(st.get("pending_total") or 0),
         "processable_now": int(st.get("processable_now") or 0),
         "queues": dict(st.get("queues") or {}),
+    }
+
+
+def _dreamer_candidates_path(root: str) -> Path:
+    return Path(root) / ".beads" / "events" / "dreamer-candidates.json"
+
+
+def _load_dreamer_candidates(root: str) -> list[dict[str, Any]]:
+    p = _dreamer_candidates_path(root)
+    if not p.exists():
+        return []
+    try:
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        return [dict(r or {}) for r in payload] if isinstance(payload, list) else []
+    except Exception:
+        return []
+
+
+def _correlate_dreamer_case(root: str, out: dict[str, Any]) -> dict[str, Any]:
+    rows = _load_dreamer_candidates(root)
+    accepted = [r for r in rows if str(r.get("status") or "").strip().lower() == "accepted"]
+    accepted_applied = [r for r in accepted if bool(((r.get("applied") or {}).get("ok")))]
+
+    result_ids = {str(r.get("bead_id") or "") for r in (out.get("results") or []) if str(r.get("bead_id") or "")}
+    chain_edges = {
+        (str(e.get("src") or ""), str(e.get("dst") or ""), str(e.get("rel") or ""))
+        for e in _collect_edges(list(out.get("chains") or []))
+    }
+
+    used_ids: list[str] = []
+    used_applied_ids: list[str] = []
+    for r in accepted:
+        cid = str(r.get("id") or "")
+        src = str(r.get("source_bead_id") or "")
+        tgt = str(r.get("target_bead_id") or "")
+        rel = str(r.get("relationship") or "")
+        used = False
+        if src and src in result_ids:
+            used = True
+        if tgt and tgt in result_ids:
+            used = True
+        if (src, tgt, rel) in chain_edges or (tgt, src, rel) in chain_edges:
+            used = True
+        if used:
+            used_ids.append(cid)
+            if bool(((r.get("applied") or {}).get("ok"))):
+                used_applied_ids.append(cid)
+
+    return {
+        "accepted_total": int(len(accepted)),
+        "accepted_applied_total": int(len(accepted_applied)),
+        "accepted_used_total": int(len(used_ids)),
+        "accepted_applied_used_total": int(len(used_applied_ids)),
+        "accepted_used_candidate_ids": sorted(set(used_ids)),
     }
 
 
@@ -183,6 +279,7 @@ def run_case(
 
         ok, checks = _evaluate_case(case=case, gold=gold, out=out, root=td)
         latency_ms = (time.perf_counter() - t0_total) * 1000.0
+        dreamer_corr = _correlate_dreamer_case(td, out)
         return {
             "case_id": case.id,
             "bucket_labels": list(case.bucket_labels),
@@ -204,6 +301,7 @@ def run_case(
             "queue_drained": queue_drained,
             "semantic_backend": backend_diag,
             "benchmark_backend_mode": backend_mode,
+            "dreamer_correlation": dreamer_corr,
         }
 
 

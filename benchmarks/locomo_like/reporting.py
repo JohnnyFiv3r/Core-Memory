@@ -37,6 +37,15 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
     pending_after = [int(((r.get("queue_after_query") or {}).get("pending_total") or 0)) for r in ordered]
     backend_mode_counts: dict[str, int] = {}
 
+    dreamer_accepted_total = 0
+    dreamer_accepted_applied_total = 0
+    dreamer_accepted_used_total = 0
+    dreamer_accepted_applied_used_total = 0
+    used_case_total = 0
+    used_case_pass = 0
+    non_used_case_total = 0
+    non_used_case_pass = 0
+
     for row in ordered:
         mode = str(row.get("benchmark_backend_mode") or "")
         if mode:
@@ -45,6 +54,25 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
         if bool(diag.get("ok")):
             if str(diag.get("concurrency_warning") or "").strip():
                 warnings.append(str(diag.get("concurrency_warning")))
+
+        dc = dict(row.get("dreamer_correlation") or {})
+        accepted = int(dc.get("accepted_total") or 0)
+        used = int(dc.get("accepted_used_total") or 0)
+        applied = int(dc.get("accepted_applied_total") or 0)
+        applied_used = int(dc.get("accepted_applied_used_total") or 0)
+        dreamer_accepted_total += accepted
+        dreamer_accepted_applied_total += applied
+        dreamer_accepted_used_total += used
+        dreamer_accepted_applied_used_total += applied_used
+
+        if accepted > 0 and used > 0:
+            used_case_total += 1
+            if bool(row.get("pass")):
+                used_case_pass += 1
+        else:
+            non_used_case_total += 1
+            if bool(row.get("pass")):
+                non_used_case_pass += 1
 
     for row in ordered:
         for w in (row.get("warnings") or []):
@@ -99,6 +127,19 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             "semantic_mode": str((metadata or {}).get("semantic_mode") or ""),
             "backend_mode": str((metadata or {}).get("backend_mode") or ""),
         },
+        "dreamer_correlation": {
+            "accepted_candidates_total": int(dreamer_accepted_total),
+            "accepted_applied_total": int(dreamer_accepted_applied_total),
+            "accepted_used_in_retrieval_total": int(dreamer_accepted_used_total),
+            "accepted_applied_used_in_retrieval_total": int(dreamer_accepted_applied_used_total),
+            "retrieval_use_rate": round((dreamer_accepted_used_total / dreamer_accepted_total), 4)
+            if dreamer_accepted_total > 0
+            else None,
+            "accuracy_when_used": round((used_case_pass / used_case_total), 4) if used_case_total > 0 else None,
+            "accuracy_when_not_used": round((non_used_case_pass / non_used_case_total), 4) if non_used_case_total > 0 else None,
+            "used_case_count": int(used_case_total),
+            "non_used_case_count": int(non_used_case_total),
+        },
         "token_usage": None,
         "per_bucket": per_bucket,
         "warnings": sorted(set(warnings)),
@@ -127,4 +168,11 @@ def render_summary(report: dict[str, Any]) -> str:
         lines.append("- warnings:")
         for w in warns:
             lines.append(f"  - {w}")
+
+    dc = dict(report.get("dreamer_correlation") or {})
+    if dc:
+        lines.append("- dreamer correlation:")
+        lines.append(f"  - accepted candidates: {int(dc.get('accepted_candidates_total') or 0)}")
+        lines.append(f"  - accepted used in retrieval: {int(dc.get('accepted_used_in_retrieval_total') or 0)}")
+        lines.append(f"  - retrieval use rate: {dc.get('retrieval_use_rate')}")
     return "\n".join(lines)
