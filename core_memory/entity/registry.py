@@ -17,7 +17,7 @@ def normalize_entity_alias(value: str | None) -> str:
         return ""
     s = re.sub(r"[\s\-_/]+", " ", s)
     s = re.sub(r"[^a-z0-9\s]+", "", s)
-    s = re.sub(r"\b(inc|corp|llc|ltd|co|company)\b", "", s)
+    s = re.sub(r"\b(inc|incorporated|corp|corporation|llc|ltd|limited|co|company)\b", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s.replace(" ", "")
 

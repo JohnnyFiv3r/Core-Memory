@@ -8,6 +8,8 @@ from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
+from core_memory.entity.registry import load_entity_registry
+from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
 
 
 def _parse_iso(ts: str) -> datetime | None:
@@ -35,6 +37,9 @@ def _load_beads(root: Path) -> dict:
 def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
     beads = _load_beads(root)
     q = str(form.get("query_text") or "").strip()
+    entity_registry = load_entity_registry(root)
+    entity_context = infer_query_entity_context(q, entity_registry)
+    q = expand_query_with_entities(q, entity_context, entity_registry)
     qx = q
     if form.get("must_terms"):
         qx = (qx + " " + " ".join([str(x) for x in form.get("must_terms") or []])).strip()
@@ -149,6 +154,10 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
         "warnings": warnings,
         "confidence": confidence,
         "suggested_next": suggested_next,
+        "entity_context": {
+            "resolved_entity_ids": list(entity_context.get("resolved_entity_ids") or []),
+            "matched_aliases": list(entity_context.get("matched_aliases") or []),
+        },
     }
     if include_explain:
         out["retrieval_debug"] = {"hybrid": h, "rerank": rr, "filtered_count": len(filtered)}

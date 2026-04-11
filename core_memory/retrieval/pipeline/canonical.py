@@ -19,6 +19,8 @@ from core_memory.schema.normalization import normalize_bead_type, normalize_rela
 from core_memory.claim.retrieval_planner import plan_retrieval_mode, boost_claim_results
 from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.claim.answer_policy import score_answer
+from core_memory.entity.registry import load_entity_registry
+from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
 from core_memory.retrieval.evidence_scoring import rerank_semantic_rows
 from core_memory.integrations.openclaw_flags import (
     claim_layer_enabled,
@@ -393,6 +395,9 @@ def search_request(
     rp = Path(root)
     corpus = build_visible_corpus(rp)
     catalog = build_catalog(rp)
+    entity_registry = load_entity_registry(rp)
+    entity_context = infer_query_entity_context(query, entity_registry)
+    expanded_query = expand_query_with_entities(query, entity_context, entity_registry)
     sub = dict(submission or {})
     as_of_raw = str(sub.get("as_of") or "").strip() or None
     tr = dict(sub.get("time_range") or {})
@@ -419,7 +424,7 @@ def search_request(
     elif retrieval_mode == "temporal_first":
         sem_k = max(20, int(k) * 2)
 
-    sem = semantic_lookup(rp, query, k=sem_k, mode=_canonical_semantic_mode())
+    sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
     if not sem.get("ok"):
         return _semantic_failure_response(
             query=query,
@@ -470,10 +475,11 @@ def search_request(
     sem_rows = rerank_semantic_rows(
         rows=sem_rows,
         by_id=by_id,
-        query=query,
+        query=expanded_query or query,
         retrieval_mode=retrieval_mode,
         claim_state=claim_state,
         as_of=as_of_raw,
+        entity_context=entity_context,
     )
 
     sem_rows.sort(
@@ -535,6 +541,12 @@ def search_request(
             "total_slots": int((claim_state or {}).get("total_slots") or 0),
             "as_of": as_of_raw,
             "claim_anchor_count": int(len([r for r in sem_rows[: max(1, int(k))] if str(r.get("anchor_reason") or "") == "claim_current_state"])),
+        },
+        "entity_context": {
+            "resolved_entity_ids": list(entity_context.get("resolved_entity_ids") or []),
+            "matched_aliases": list(entity_context.get("matched_aliases") or []),
+            "labels": list(entity_context.get("labels") or []),
+            "expanded_query": expanded_query,
         },
     }
 

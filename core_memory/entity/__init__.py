@@ -13,6 +13,11 @@ from .merge_flow import (
     list_entity_merge_proposals,
     decide_entity_merge_proposal,
 )
+from .retrieval import (
+    infer_query_entity_context,
+    expand_query_with_entities,
+    bead_entity_match_score,
+)
 
 __all__ = [
     "normalize_entity_alias",
@@ -24,4 +29,7 @@ __all__ = [
     "suggest_entity_merge_proposals",
     "list_entity_merge_proposals",
     "decide_entity_merge_proposal",
+    "infer_query_entity_context",
+    "expand_query_with_entities",
+    "bead_entity_match_score",
 ]

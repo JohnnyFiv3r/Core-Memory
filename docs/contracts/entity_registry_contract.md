@@ -55,6 +55,10 @@ Merge/reject proposal flow is deferred to ER-2.
 
 - Bead writes with `entities` list should resolve to `entity_ids` during canonical add-bead path.
 - Retrieval/Dreamer may use `entity_ids` as additional identity signal.
+- ER-3 retrieval behavior should:
+  - resolve query aliases to canonical entity ids where possible
+  - expand retrieval query text with canonical entity label/alias hints
+  - score entity identity matches as a feature in candidate reranking
 - Historical bead content is not rewritten destructively.
 
 ## Non-goals for ER-1

@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from core_memory.entity.retrieval import bead_entity_match_score
 from core_memory.temporal import parse_timestamp
 
 
@@ -101,6 +102,7 @@ def rerank_semantic_rows(
     retrieval_mode: str,
     claim_state: dict[str, Any] | None,
     as_of: str | None,
+    entity_context: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
     q_terms = _terms(query)
     claim_terms = _claim_hint_terms(claim_state)
@@ -111,16 +113,17 @@ def rerank_semantic_rows(
         "semantic": 0.34,
         "lexical": 0.16,
         "claim": 0.18,
+        "entity": 0.10,
         "temporal": 0.14,
         "structural": 0.08,
-        "recency": 0.10,
+        "recency": 0.00,
     }
     if retrieval_mode == "fact_first":
-        weights.update({"claim": 0.28, "semantic": 0.30, "lexical": 0.18, "temporal": 0.14, "structural": 0.04, "recency": 0.06})
+        weights.update({"claim": 0.26, "entity": 0.18, "semantic": 0.26, "lexical": 0.16, "temporal": 0.10, "structural": 0.04, "recency": 0.00})
     elif retrieval_mode == "causal_first":
-        weights.update({"semantic": 0.32, "lexical": 0.12, "claim": 0.12, "temporal": 0.10, "structural": 0.24, "recency": 0.10})
+        weights.update({"semantic": 0.30, "lexical": 0.12, "claim": 0.10, "entity": 0.06, "temporal": 0.10, "structural": 0.24, "recency": 0.08})
     elif retrieval_mode == "temporal_first":
-        weights.update({"semantic": 0.26, "lexical": 0.14, "claim": 0.14, "temporal": 0.28, "structural": 0.08, "recency": 0.10})
+        weights.update({"semantic": 0.24, "lexical": 0.12, "claim": 0.10, "entity": 0.06, "temporal": 0.34, "structural": 0.08, "recency": 0.06})
 
     rescored: list[dict[str, Any]] = []
     for row in rows:
@@ -136,6 +139,8 @@ def rerank_semantic_rows(
         claim = 1.0 if str(r.get("anchor_reason") or "") == "claim_current_state" else 0.0
         if claim < 1.0 and claim_terms:
             claim = min(1.0, len(claim_terms.intersection(_terms(blob))) / max(1.0, len(claim_terms)))
+
+        entity, entity_hits = bead_entity_match_score(bead, entity_context)
 
         temporal = _temporal_fit(bead, as_of=as_of, query_is_historical=historical)
         structural = min(1.0, float(r.get("context_bias_score") or 0.0))
@@ -158,6 +163,7 @@ def rerank_semantic_rows(
             weights["semantic"] * semantic
             + weights["lexical"] * lexical
             + weights["claim"] * claim
+            + weights["entity"] * entity
             + weights["temporal"] * temporal
             + weights["structural"] * structural
             + weights["recency"] * recency
@@ -171,6 +177,8 @@ def rerank_semantic_rows(
             "semantic": round(semantic, 4),
             "lexical": round(lexical, 4),
             "claim_match": round(claim, 4),
+            "entity_match": round(entity, 4),
+            "entity_hits": entity_hits,
             "temporal_fit": round(temporal, 4),
             "structural": round(structural, 4),
             "recency": round(recency, 4),
