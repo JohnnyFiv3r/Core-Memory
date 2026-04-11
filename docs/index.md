@@ -49,6 +49,7 @@ Use this page as the authoritative map of current docs.
 - [`contracts/entity_registry_contract.md`](contracts/entity_registry_contract.md)
 - [`contracts/entity_merge_review_contract.md`](contracts/entity_merge_review_contract.md)
 - [`contracts/retrieval_value_override_contract.md`](contracts/retrieval_value_override_contract.md)
+- [`contracts/mcp_typed_read_contract.md`](contracts/mcp_typed_read_contract.md)
 - [`adapter_parity_matrix.md`](adapter_parity_matrix.md)
 
 ## Specs

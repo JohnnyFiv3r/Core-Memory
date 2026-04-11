@@ -180,6 +180,28 @@ def _load_dreamer_candidates(root: str) -> list[dict[str, Any]]:
         return []
 
 
+def _collect_edges(chains: list[dict[str, Any]]) -> list[dict[str, str]]:
+    out: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for c in chains or []:
+        if not isinstance(c, dict):
+            continue
+        for e in (c.get("edges") or []):
+            if not isinstance(e, dict):
+                continue
+            src = str(e.get("src") or e.get("source") or "").strip()
+            dst = str(e.get("dst") or e.get("target") or "").strip()
+            rel = str(e.get("rel") or e.get("relationship") or "").strip()
+            if not src or not dst or not rel:
+                continue
+            key = (src, dst, rel)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"src": src, "dst": dst, "rel": rel})
+    return out
+
+
 def _correlate_dreamer_case(root: str, out: dict[str, Any]) -> dict[str, Any]:
     rows = _load_dreamer_candidates(root)
     accepted = [r for r in rows if str(r.get("status") or "").strip().lower() == "accepted"]

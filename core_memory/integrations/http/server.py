@@ -17,6 +17,12 @@ from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_a
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
+from core_memory.integrations.mcp.typed_read import (
+    query_current_state as mcp_query_current_state,
+    query_temporal_window as mcp_query_temporal_window,
+    query_causal_chain as mcp_query_causal_chain,
+    query_contradictions as mcp_query_contradictions,
+)
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
@@ -93,6 +99,44 @@ class MemoryTraceRequest(BaseModel):
     anchor_ids: list[str] = Field(default_factory=list)
     k: int = 8
     hydration: dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPQueryCurrentStateRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "user"
+    slot: str = ""
+    slot_key: str = ""
+    as_of: str = ""
+    k: int = 8
+    query: str = ""
+    include_history: bool = False
+
+
+class MCPQueryTemporalWindowRequest(BaseModel):
+    root: Optional[str] = None
+    query: str
+    window_start: str = ""
+    window_end: str = ""
+    intent: str = "remember"
+    k: int = 10
+
+
+class MCPQueryCausalChainRequest(BaseModel):
+    root: Optional[str] = None
+    query: str
+    anchor_ids: list[str] = Field(default_factory=list)
+    k: int = 8
+    hydration: dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPQueryContradictionsRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = ""
+    slot: str = ""
+    slot_key: str = ""
+    as_of: str = ""
+    query: str = ""
+    k: int = 10
 
 
 class AsyncJobsEnqueueRequest(BaseModel):
@@ -345,6 +389,84 @@ async def memory_classify_intent(
 ):
     _check_auth(authorization, x_memory_token)
     return classify_intent(str(payload.query or ""))
+
+
+@app.post("/v1/mcp/query-current-state")
+async def mcp_query_current_state_endpoint(
+    payload: MCPQueryCurrentStateRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_current_state(
+        root=_resolve_root(payload.root, x_tenant_id),
+        subject=str(payload.subject or "user"),
+        slot=str(payload.slot or ""),
+        slot_key=str(payload.slot_key or ""),
+        as_of=str(payload.as_of or ""),
+        k=max(1, int(payload.k)),
+        query=str(payload.query or ""),
+        include_history=bool(payload.include_history),
+    )
+    return out
+
+
+@app.post("/v1/mcp/query-temporal-window")
+async def mcp_query_temporal_window_endpoint(
+    payload: MCPQueryTemporalWindowRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_temporal_window(
+        root=_resolve_root(payload.root, x_tenant_id),
+        query=str(payload.query or ""),
+        window_start=str(payload.window_start or ""),
+        window_end=str(payload.window_end or ""),
+        intent=str(payload.intent or "remember"),
+        k=max(1, int(payload.k)),
+    )
+    return out
+
+
+@app.post("/v1/mcp/query-causal-chain")
+async def mcp_query_causal_chain_endpoint(
+    payload: MCPQueryCausalChainRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_causal_chain(
+        root=_resolve_root(payload.root, x_tenant_id),
+        query=str(payload.query or ""),
+        anchor_ids=list(payload.anchor_ids or []),
+        k=max(1, int(payload.k)),
+        hydration=dict(payload.hydration or {}),
+    )
+    return out
+
+
+@app.post("/v1/mcp/query-contradictions")
+async def mcp_query_contradictions_endpoint(
+    payload: MCPQueryContradictionsRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_contradictions(
+        root=_resolve_root(payload.root, x_tenant_id),
+        subject=str(payload.subject or ""),
+        slot=str(payload.slot or ""),
+        slot_key=str(payload.slot_key or ""),
+        as_of=str(payload.as_of or ""),
+        query=str(payload.query or ""),
+        k=max(1, int(payload.k)),
+    )
+    return out
 
 
 @app.get("/v1/memory/continuity")

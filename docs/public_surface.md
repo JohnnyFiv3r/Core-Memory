@@ -96,6 +96,7 @@ Deep recall is separate from canonical hydration.
 - OpenClaw bridge surfaces under `core_memory.integrations.openclaw.*`
 - PydanticAI surfaces under `core_memory.integrations.pydanticai.*`
 - SpringAI/HTTP surfaces under `core_memory.integrations.http.*` and docs contract
+- MCP typed read surfaces under `core_memory.integrations.mcp.typed_read.*`
 - LangChain surfaces under `core_memory.integrations.langchain.*`
 
 HTTP async ops surfaces (operator tooling):
@@ -104,6 +105,12 @@ HTTP async ops surfaces (operator tooling):
 - `POST /v1/ops/async-jobs/run`
 - `GET /v1/ops/dreamer/candidates`
 - `POST /v1/ops/dreamer/candidates/decide`
+
+HTTP MCP typed read surfaces:
+- `POST /v1/mcp/query-current-state`
+- `POST /v1/mcp/query-temporal-window`
+- `POST /v1/mcp/query-causal-chain`
+- `POST /v1/mcp/query-contradictions`
 
 ## Compatibility / non-primary
 - Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`
