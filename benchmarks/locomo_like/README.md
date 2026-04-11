@@ -32,6 +32,7 @@ python -m benchmarks.locomo_like.runner --subset local --async-profile drain_bef
 python -m benchmarks.locomo_like.runner --subset local --semantic-mode degraded_allowed --vector-backend local-faiss
 python -m benchmarks.locomo_like.runner --subset local --myelination on
 python -m benchmarks.locomo_like.runner --subset local --myelination compare
+python -m benchmarks.locomo_like.runner --subset full --preload-turns /path/to/locomo_turns.jsonl
 ```
 
 ## Report output
@@ -57,3 +58,19 @@ The runner emits machine-readable JSON containing:
 - external backends (`qdrant`, `pgvector`) report `external_distributed` when usable.
 
 Optional plain-text summary is printed to stdout.
+
+## Scaling path for larger LOCOMO-style traces
+
+You can preload a large turn stream (e.g., hundreds of turns) per case with:
+
+- `--preload-turns /path/to/turns.jsonl`
+
+JSONL row shape (minimum):
+
+```json
+{"session_id":"main","turn_id":"t123","user_query":"...","assistant_final":"..."}
+```
+
+Optional fields: `transaction_id`, `trace_id`, `metadata`, `tools_trace`, `mesh_trace`, `origin`.
+
+Fixtures can also use `setup.turns` directly (turn-only setups are supported).

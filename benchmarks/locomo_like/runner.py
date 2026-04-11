@@ -16,6 +16,7 @@ from core_memory.persistence.store_claim_ops import write_claim_updates_to_bead,
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.jobs import async_jobs_status, run_async_jobs
+from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.myelination import myelination_report
 
 from .reporting import build_report, render_summary
@@ -50,6 +51,31 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
     bead_keys: dict[str, str] = {}
 
     setup = dict(case.setup or {})
+    # Optional turn-preload path for larger LOCOMO-style traces.
+    turns = list(setup.get("turns") or [])
+    for i, t in enumerate(turns, start=1):
+        if not isinstance(t, dict):
+            continue
+        tid = str(t.get("turn_id") or f"fx-turn-{i}").strip() or f"fx-turn-{i}"
+        sid = str(t.get("session_id") or "main").strip() or "main"
+        uq = str(t.get("user_query") or "").strip()
+        af = str(t.get("assistant_final") or "").strip()
+        if not uq or not af:
+            continue
+        process_turn_finalized(
+            root=root,
+            session_id=sid,
+            turn_id=tid,
+            transaction_id=str(t.get("transaction_id") or f"tx-{tid}").strip() or f"tx-{tid}",
+            trace_id=str(t.get("trace_id") or f"tr-{tid}").strip() or f"tr-{tid}",
+            user_query=uq,
+            assistant_final=af,
+            metadata=dict(t.get("metadata") or {}),
+            tools_trace=list(t.get("tools_trace") or []),
+            mesh_trace=list(t.get("mesh_trace") or []),
+            origin=str(t.get("origin") or "BENCHMARK_TURN").strip() or "BENCHMARK_TURN",
+        )
+
     beads = list(setup.get("beads") or [])
 
     for row in beads:
@@ -134,6 +160,22 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
                         notes="fixture_auto_accept",
                         apply=True,
                     )
+
+
+def _read_turn_rows(path: Path) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(row, dict):
+                out.append(row)
+    return out
 
 
 def _evaluate_case(*, case: BenchmarkCase, gold: GoldCase, out: dict[str, Any], root: str) -> tuple[bool, dict[str, bool]]:
@@ -264,10 +306,23 @@ def run_case(
     semantic_mode: str = "degraded_allowed",
     vector_backend: str = "local-faiss",
     myelination_enabled: bool = False,
+    preload_turns: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     t0_total = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="cm-bench-") as td:
         t_setup = time.perf_counter()
+        if preload_turns:
+            preload_setup = BenchmarkCase(
+                id=f"preload-{case.id}",
+                query=case.query,
+                intent=case.intent,
+                bucket_labels=case.bucket_labels,
+                gold_id=case.gold_id,
+                setup={"turns": list(preload_turns)},
+                constraints=case.constraints,
+                k=case.k,
+            )
+            _materialize_case(td, preload_setup)
         _materialize_case(td, case)
         setup_ms = (time.perf_counter() - t_setup) * 1000.0
 
@@ -330,6 +385,7 @@ def run_case(
             "dreamer_correlation": dreamer_corr,
             "myelination_enabled": bool(myelination_enabled),
             "myelination_stats": dict((myelination_obs or {}).get("stats") or {}),
+            "preload_turn_count": int(len(preload_turns or [])),
         }
 
 
@@ -343,6 +399,7 @@ def run_benchmark(
     semantic_mode: str = "degraded_allowed",
     vector_backend: str = "local-faiss",
     myelination_mode: str = "off",
+    preload_turns_file: Path | None = None,
 ) -> dict[str, Any]:
     pairs = build_cases(fixtures_dir=fixtures_dir, gold_dir=gold_dir)
     pairs = sorted(pairs, key=lambda p: p[0].id)
@@ -356,6 +413,8 @@ def run_benchmark(
     if mode_n not in {"off", "on", "compare"}:
         mode_n = "off"
 
+    preload_turns = _read_turn_rows(preload_turns_file) if preload_turns_file else []
+
     def _run_results(enabled: bool) -> list[dict[str, Any]]:
         out_rows: list[dict[str, Any]] = []
         for case, gold in pairs:
@@ -367,6 +426,7 @@ def run_benchmark(
                     semantic_mode=semantic_mode,
                     vector_backend=vector_backend,
                     myelination_enabled=bool(enabled),
+                    preload_turns=preload_turns,
                 )
             )
         return out_rows
@@ -393,6 +453,8 @@ def run_benchmark(
         "async_profile": async_profile,
         "myelination_mode": mode_n,
         "myelination_enabled": bool(mode_n == "on"),
+        "preload_turns_file": str(preload_turns_file) if preload_turns_file else "",
+        "preload_turn_count": int(len(preload_turns)),
         "notes": ["proxy_fixture_pack", "deterministic_local_subset", "queue_visibility_enabled"],
     }
 
@@ -454,6 +516,7 @@ def main() -> int:
     p.add_argument("--semantic-mode", choices=["degraded_allowed", "required"], default="degraded_allowed")
     p.add_argument("--vector-backend", choices=["local-faiss", "qdrant", "pgvector", "chromadb"], default="local-faiss")
     p.add_argument("--myelination", choices=["off", "on", "compare"], default="off")
+    p.add_argument("--preload-turns", default="", help="Optional JSONL of canonical turn-finalized rows to preload per case")
     p.add_argument("--out", default="")
     args = p.parse_args()
 
@@ -466,6 +529,7 @@ def main() -> int:
         semantic_mode=str(args.semantic_mode),
         vector_backend=str(args.vector_backend),
         myelination_mode=str(args.myelination),
+        preload_turns_file=(Path(args.preload_turns) if str(args.preload_turns or "").strip() else None),
     )
 
     print(render_summary(report))

@@ -73,8 +73,11 @@ def validate_fixture_row(row: dict[str, Any]) -> tuple[bool, list[str]]:
         errs.append("setup_invalid")
     else:
         beads = setup.get("beads")
-        if not isinstance(beads, list) or not beads:
-            errs.append("setup_beads_invalid")
+        turns = setup.get("turns")
+        beads_ok = isinstance(beads, list) and len(beads) > 0
+        turns_ok = isinstance(turns, list) and len(turns) > 0
+        if not beads_ok and not turns_ok:
+            errs.append("setup_materialization_invalid")
 
     return (len(errs) == 0, errs)
 

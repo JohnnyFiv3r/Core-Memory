@@ -1,3 +1,5 @@
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -92,6 +94,66 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
         modes = set(report.get("metadata", {}).get("benchmark_backend_modes") or [])
         self.assertTrue(modes)
         self.assertIn("strict_missing_backend", modes)
+
+    def test_fixture_validation_allows_turns_only_setup(self):
+        row = {
+            "id": "fx-turns-only",
+            "gold_id": "fx-turns-only",
+            "bucket_labels": ["current_state_factual"],
+            "query": "what changed",
+            "intent": "remember",
+            "setup": {
+                "turns": [
+                    {
+                        "session_id": "main",
+                        "turn_id": "t1",
+                        "user_query": "we changed policy",
+                        "assistant_final": "policy changed",
+                    }
+                ]
+            },
+        }
+        ok, errs = validate_fixture_row(row)
+        self.assertTrue(ok, errs)
+
+    def test_runner_preload_turns_file_metadata(self):
+        base = Path("benchmarks/locomo_like")
+        with tempfile.TemporaryDirectory() as td:
+            preload = Path(td) / "preload.jsonl"
+            preload.write_text(
+                "\n".join(
+                    [
+                        json.dumps(
+                            {
+                                "session_id": "main",
+                                "turn_id": "pl-1",
+                                "user_query": "we adopted canary",
+                                "assistant_final": "decision logged: canary",
+                            }
+                        ),
+                        json.dumps(
+                            {
+                                "session_id": "main",
+                                "turn_id": "pl-2",
+                                "user_query": "timezone is utc",
+                                "assistant_final": "timezone confirmed utc",
+                            }
+                        ),
+                    ]
+                )
+                + "\n",
+                encoding="utf-8",
+            )
+            report = run_benchmark(
+                fixtures_dir=base / "fixtures",
+                gold_dir=base / "gold",
+                subset="local",
+                limit=1,
+                preload_turns_file=preload,
+            )
+            self.assertEqual(2, int((report.get("metadata") or {}).get("preload_turn_count") or 0))
+            c0 = (report.get("cases") or [{}])[0]
+            self.assertEqual(2, int(c0.get("preload_turn_count") or 0))
 
 
 if __name__ == "__main__":
