@@ -22,6 +22,7 @@ from core_memory.claim.answer_policy import score_answer
 from core_memory.entity.registry import load_entity_registry
 from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
 from core_memory.retrieval.evidence_scoring import rerank_semantic_rows
+from .convergence import run_hybrid_rerank_seeds
 from core_memory.integrations.openclaw_flags import (
     claim_layer_enabled,
     claim_resolution_enabled,
@@ -285,6 +286,8 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
         "score": float(res.get("score") or 0.0),
         "semantic_score": float(res.get("semantic_score") if res.get("semantic_score") is not None else (res.get("score") or 0.0)),
         "rank_score": float(res.get("rank_score") or res.get("score") or 0.0),
+        "fused_score": float(res.get("fused_score") or 0.0),
+        "rerank_seed_score": float(res.get("rerank_seed_score") or 0.0),
         "feature_scores": dict(res.get("feature_scores") or {}),
         "anchor_reason": str(res.get("anchor_reason") or "retrieved"),
         "context_bias_score": float(res.get("context_bias_score") or 0.0),
@@ -434,6 +437,58 @@ def search_request(
             provider=str(sem.get("provider") or ""),
         )
     sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
+    conv = run_hybrid_rerank_seeds(
+        rp,
+        query=expanded_query or query,
+        intent=intent,
+        k=max(12, int(k) * 2),
+    )
+    conv_by_id = dict(conv.get("by_id") or {}) if bool(conv.get("ok")) else {}
+
+    # Convergence: enrich semantic candidates with hybrid/rerank strength.
+    for r in sem_rows:
+        bid = str(r.get("bead_id") or "")
+        crow = dict(conv_by_id.get(bid) or {})
+        if not crow:
+            continue
+        r["fused_score"] = float(crow.get("fused_score") or 0.0)
+        r["rerank_seed_score"] = float(crow.get("rerank_score") or 0.0)
+        r["sem_score"] = float(crow.get("sem_score") or 0.0)
+        r["lex_score"] = float(crow.get("lex_score") or 0.0)
+        feats = dict(crow.get("features") or {})
+        # Structural lift as soft bias.
+        r["context_bias_score"] = max(float(r.get("context_bias_score") or 0.0), float(feats.get("structural_add") or 0.0))
+
+    # Add strong hybrid/rerank candidates missing from semantic seed set.
+    if conv_by_id:
+        seen_sem = {str(r.get("bead_id") or "") for r in sem_rows}
+        add_cap = max(2, int(k))
+        added = 0
+        for crow in (conv.get("results") or []):
+            bid = str(crow.get("bead_id") or "")
+            if not bid or bid in seen_sem:
+                continue
+            if bid not in by_id:
+                continue
+            if added >= add_cap:
+                break
+            sem_rows.append(
+                {
+                    "bead_id": bid,
+                    "score": float(crow.get("rerank_score") or crow.get("fused_score") or 0.0),
+                    "semantic_score": float(crow.get("sem_score") or 0.0),
+                    "fused_score": float(crow.get("fused_score") or 0.0),
+                    "rerank_seed_score": float(crow.get("rerank_score") or 0.0),
+                    "sem_score": float(crow.get("sem_score") or 0.0),
+                    "lex_score": float(crow.get("lex_score") or 0.0),
+                    "anchor_reason": "hybrid_rerank_seed",
+                    "source_surface": str((by_id.get(bid) or {}).get("source_surface") or "projection"),
+                    "context_bias_score": float((crow.get("features") or {}).get("structural_add") or 0.0),
+                }
+            )
+            seen_sem.add(bid)
+            added += 1
+
     claim_rows: list[dict[str, Any]] = []
     if retrieval_mode == "fact_first" and claim_state:
         claim_rows = _claim_anchors_from_state(
@@ -522,8 +577,17 @@ def search_request(
         "citations": [],
         "confidence": confidence,
         "next_action": next_action,
-        "warnings": list(sem.get("warnings") or []) + list(filter_warnings) + list(claim_warnings),
+        "warnings": list(sem.get("warnings") or [])
+        + list(filter_warnings)
+        + list(claim_warnings)
+        + (["hybrid_seed_unavailable"] if not bool(conv.get("ok")) else []),
         "retrieval_mode": retrieval_mode,
+        "retrieval_stages": {
+            "semantic_seed_count": int(len(sem.get("results") or [])),
+            "hybrid_seed_count": int(((conv.get("stages") or {}).get("hybrid_candidates") or 0)),
+            "hybrid_rerank_count": int(((conv.get("stages") or {}).get("rerank_candidates") or 0)),
+            "post_filter_count": int(len(sem_rows)),
+        },
         "snapped": {
             "raw_query": query,
             "intent": intent,
