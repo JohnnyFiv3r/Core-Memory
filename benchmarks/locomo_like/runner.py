@@ -16,6 +16,7 @@ from core_memory.persistence.store_claim_ops import write_claim_updates_to_bead,
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.jobs import async_jobs_status, run_async_jobs
+from core_memory.runtime.myelination import myelination_report
 
 from .reporting import build_report, render_summary
 from .schema import BenchmarkCase, GoldCase, build_cases
@@ -298,6 +299,7 @@ def run_case(
             t_query = time.perf_counter()
             out = memory_tools.execute(req, root=td, explain=True)
             retrieval_ms = (time.perf_counter() - t_query) * 1000.0
+            myelination_obs = myelination_report(td, since="30d", limit=1000, top=5)
 
         queue_after_query = _queue_snapshot(td)
 
@@ -327,6 +329,7 @@ def run_case(
             "benchmark_backend_mode": backend_mode,
             "dreamer_correlation": dreamer_corr,
             "myelination_enabled": bool(myelination_enabled),
+            "myelination_stats": dict((myelination_obs or {}).get("stats") or {}),
         }
 
 

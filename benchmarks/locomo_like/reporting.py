@@ -37,6 +37,12 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
     pending_after = [int(((r.get("queue_after_query") or {}).get("pending_total") or 0)) for r in ordered]
     backend_mode_counts: dict[str, int] = {}
 
+    myelination_case_count = 0
+    myelination_events_total = 0
+    myelination_beads_total = 0
+    myelination_strengthened_total = 0
+    myelination_weakened_total = 0
+
     dreamer_accepted_total = 0
     dreamer_accepted_applied_total = 0
     dreamer_accepted_used_total = 0
@@ -73,6 +79,14 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             non_used_case_total += 1
             if bool(row.get("pass")):
                 non_used_case_pass += 1
+
+        ms = dict(row.get("myelination_stats") or {})
+        if ms:
+            myelination_case_count += 1
+            myelination_events_total += int(ms.get("events") or 0)
+            myelination_beads_total += int(ms.get("beads") or 0)
+            myelination_strengthened_total += int(ms.get("strengthened") or 0)
+            myelination_weakened_total += int(ms.get("weakened") or 0)
 
     for row in ordered:
         for w in (row.get("warnings") or []):
@@ -140,6 +154,19 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             "used_case_count": int(used_case_total),
             "non_used_case_count": int(non_used_case_total),
         },
+        "myelination_observability": {
+            "case_count": int(myelination_case_count),
+            "events_total": int(myelination_events_total),
+            "beads_total": int(myelination_beads_total),
+            "strengthened_total": int(myelination_strengthened_total),
+            "weakened_total": int(myelination_weakened_total),
+            "strengthened_mean_per_case": round((myelination_strengthened_total / myelination_case_count), 3)
+            if myelination_case_count > 0
+            else 0.0,
+            "weakened_mean_per_case": round((myelination_weakened_total / myelination_case_count), 3)
+            if myelination_case_count > 0
+            else 0.0,
+        },
         "token_usage": None,
         "per_bucket": per_bucket,
         "warnings": sorted(set(warnings)),
@@ -184,4 +211,9 @@ def render_summary(report: dict[str, Any]) -> str:
         lines.append(f"  - baseline accuracy: {b.get('accuracy')}")
         lines.append(f"  - enabled accuracy: {e.get('accuracy')}")
         lines.append(f"  - accuracy delta: {mc.get('accuracy_delta')}")
+
+    mo = dict(report.get("myelination_observability") or {})
+    if mo:
+        lines.append("- myelination observability:")
+        lines.append(f"  - strengthened/weakened: {int(mo.get('strengthened_total') or 0)}/{int(mo.get('weakened_total') or 0)}")
     return "\n".join(lines)

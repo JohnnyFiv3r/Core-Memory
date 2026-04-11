@@ -73,6 +73,9 @@ class TestMyelinationExperiment(unittest.TestCase):
         self.assertIn("baseline", comp)
         self.assertIn("enabled", comp)
         self.assertIn("accuracy_delta", comp)
+        mo = dict(report.get("myelination_observability") or {})
+        self.assertIn("strengthened_total", mo)
+        self.assertIn("weakened_total", mo)
 
 
 if __name__ == "__main__":

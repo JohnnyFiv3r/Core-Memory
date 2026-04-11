@@ -61,6 +61,7 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
         self.assertIn("queue_observability", report)
         self.assertIn("backend_observability", report)
         self.assertIn("dreamer_correlation", report)
+        self.assertIn("myelination_observability", report)
         self.assertIn("semantic_mode", report.get("metadata") or {})
         self.assertIn("backend_mode", report.get("metadata") or {})
         self.assertIn("benchmark_backend_modes", report.get("metadata") or {})
@@ -76,6 +77,7 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
             self.assertIn("semantic_backend", c)
             self.assertIn("benchmark_backend_mode", c)
             self.assertIn("dreamer_correlation", c)
+            self.assertIn("myelination_stats", c)
 
     def test_runner_supports_required_mode_backend_metadata(self):
         base = Path("benchmarks/locomo_like")
