@@ -1,0 +1,58 @@
+{
+  "cases": [
+    {
+      "id": "fx_current_timezone",
+      "expected_answer_class": "answer_current",
+      "expected_slot": "user:timezone",
+      "expected_source_surface": "claim_state",
+      "bucket_labels": [
+        "current_state_factual",
+        "preference_identity_policy_commitment_condition"
+      ]
+    },
+    {
+      "id": "fx_historical_timezone_as_of",
+      "expected_answer_class": "answer_partial",
+      "expected_slot": "user:timezone",
+      "expected_source_surface": "claim_state",
+      "bucket_labels": [
+        "historical_as_of",
+        "contradiction_update"
+      ]
+    },
+    {
+      "id": "fx_contradiction_preference",
+      "expected_answer_class": "answer_partial",
+      "expected_slot": "user:preference_coding",
+      "expected_source_surface": "claim_state",
+      "bucket_labels": [
+        "contradiction_update",
+        "preference_identity_policy_commitment_condition"
+      ]
+    },
+    {
+      "id": "fx_causal_mechanism",
+      "expected_answer_class": "answer_partial",
+      "bucket_labels": [
+        "causal_mechanism"
+      ]
+    },
+    {
+      "id": "fx_entity_coreference",
+      "expected_answer_class": "answer_partial",
+      "bucket_labels": [
+        "entity_coreference"
+      ]
+    },
+    {
+      "id": "fx_policy_commitment",
+      "expected_answer_class": "answer_current",
+      "expected_slot": "user:response_format",
+      "expected_source_surface": "claim_state",
+      "bucket_labels": [
+        "preference_identity_policy_commitment_condition",
+        "current_state_factual"
+      ]
+    }
+  ]
+}
