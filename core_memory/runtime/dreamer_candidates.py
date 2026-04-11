@@ -458,11 +458,29 @@ def decide_dreamer_candidate(
             }
 
         if hypothesis_type == "retrieval_value_candidate":
+            from core_memory.runtime.retrieval_value_overrides import apply_retrieval_value_override
+
+            rp = (target.get("review_payload") or {}) if isinstance(target.get("review_payload"), dict) else {}
+            src = str(rp.get("source_bead_id") or target.get("source_bead_id") or "").strip()
+            tgt = str(rp.get("target_bead_id") or target.get("target_bead_id") or "").strip()
+            rel = str(rp.get("relationship") or target.get("relationship") or "supports").strip() or "supports"
+            delta = float(rp.get("proposed_weight_delta") or target.get("proposed_weight_delta") or 0.0)
+
+            ov = apply_retrieval_value_override(
+                root,
+                source_bead_id=src,
+                target_bead_id=tgt,
+                relationship=rel,
+                proposed_weight_delta=delta,
+                reviewer=str(reviewer or ""),
+                notes=str(notes or ""),
+                source_proposal_id=str(cid),
+            )
             applied = {
-                "ok": True,
-                "canonical_entry": "dreamer_review_record",
-                "application_mode": "review_record_only",
-                "note": "retrieval_value_candidate recorded for calibration; no direct canonical write in DV2-1",
+                "ok": bool(ov.get("ok")),
+                "canonical_entry": "retrieval_value_override_apply",
+                "application_mode": "retrieval_value_override_apply" if bool(ov.get("ok")) else "retrieval_value_override_failed",
+                "result": ov,
             }
             _write_candidates(root, rows)
             return {

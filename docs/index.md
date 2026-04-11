@@ -48,6 +48,7 @@ Use this page as the authoritative map of current docs.
 - [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
 - [`contracts/entity_registry_contract.md`](contracts/entity_registry_contract.md)
 - [`contracts/entity_merge_review_contract.md`](contracts/entity_merge_review_contract.md)
+- [`contracts/retrieval_value_override_contract.md`](contracts/retrieval_value_override_contract.md)
 - [`adapter_parity_matrix.md`](adapter_parity_matrix.md)
 
 ## Specs

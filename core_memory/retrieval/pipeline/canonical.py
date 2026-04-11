@@ -317,6 +317,25 @@ def _relation_summary_from_index(index_payload: dict[str, Any]) -> dict[str, dic
     return out
 
 
+def _retrieval_value_bonus_from_index(index_payload: dict[str, Any]) -> dict[str, float]:
+    bonuses: dict[str, float] = {}
+    rows = (index_payload or {}).get("retrieval_value_overrides") or {}
+    for row in rows.values() if isinstance(rows, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "active").strip().lower() != "active":
+            continue
+        src = str(row.get("source_bead_id") or "").strip()
+        dst = str(row.get("target_bead_id") or "").strip()
+        delta = float(row.get("weight_delta") or 0.0)
+        if not src or not dst or delta == 0.0:
+            continue
+        # split bonus across endpoints to keep candidate-level scoring simple
+        bonuses[src] = float(bonuses.get(src, 0.0)) + (0.5 * delta)
+        bonuses[dst] = float(bonuses.get(dst, 0.0)) + (0.5 * delta)
+    return bonuses
+
+
 CONTINUITY_QUERY_HINTS = (
     "session start",
     "continuity",
@@ -521,15 +540,18 @@ def search_request(
     by_id = {str(r.get("bead_id") or ""): r for r in corpus}
     projection_created_at: dict[str, str] = {}
     relation_summary: dict[str, dict[str, int]] = {}
+    retrieval_value_bonus: dict[str, float] = {}
     try:
         idx = json.loads((rp / ".beads" / "index.json").read_text(encoding="utf-8"))
         for bid, bead in ((idx.get("beads") or {}) if isinstance(idx, dict) else {}).items():
             if isinstance(bead, dict):
                 projection_created_at[str(bid)] = str(bead.get("created_at") or "")
         relation_summary = _relation_summary_from_index(idx if isinstance(idx, dict) else {})
+        retrieval_value_bonus = _retrieval_value_bonus_from_index(idx if isinstance(idx, dict) else {})
     except Exception:
         projection_created_at = {}
         relation_summary = {}
+        retrieval_value_bonus = {}
 
     if relation_summary:
         for bid, rel in relation_summary.items():
@@ -540,6 +562,16 @@ def search_request(
             bead["supersedes_count"] = int(rel.get("supersedes_count") or 0)
             bead["superseded_by_count"] = int(rel.get("superseded_by_count") or 0)
             bead["contradicts_count"] = int(rel.get("contradicts_count") or 0)
+            row["bead"] = bead
+            by_id[str(bid)] = row
+
+    if retrieval_value_bonus:
+        for bid, bonus in retrieval_value_bonus.items():
+            row = by_id.get(str(bid))
+            if not isinstance(row, dict):
+                continue
+            bead = dict((row.get("bead") or {}))
+            bead["retrieval_value_bonus"] = float(bonus)
             row["bead"] = bead
             by_id[str(bid)] = row
 

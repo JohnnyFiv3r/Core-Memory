@@ -72,6 +72,11 @@ Dreamer does not bypass canonical authority. The expected flow is:
 3. accepted candidates may be applied through canonical store/runtime surfaces
 4. rejected candidates remain logged for calibration
 
+Reviewed apply examples:
+- `entity_merge_candidate` -> canonical entity-merge reviewed apply flow
+- `contradiction_candidate` / structural association candidates -> canonical turn-finalized association write path
+- `retrieval_value_candidate` -> canonical retrieval-value override surface (`retrieval_value_overrides`) plus audit event log
+
 ## DR-7 behavior eval metrics
 
 Dreamer eval reporting should track behavior-oriented metrics, including:
