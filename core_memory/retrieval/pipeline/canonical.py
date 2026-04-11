@@ -19,6 +19,7 @@ from core_memory.schema.normalization import normalize_bead_type, normalize_rela
 from core_memory.claim.retrieval_planner import plan_retrieval_mode, boost_claim_results
 from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.claim.answer_policy import score_answer
+from core_memory.retrieval.evidence_scoring import rerank_semantic_rows
 from core_memory.integrations.openclaw_flags import (
     claim_layer_enabled,
     claim_resolution_enabled,
@@ -280,7 +281,9 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
         "type": str(bead.get("type") or ""),
         "snippet": " ".join((bead.get("summary") or [])[:2]),
         "score": float(res.get("score") or 0.0),
-        "semantic_score": float(res.get("score") or 0.0),
+        "semantic_score": float(res.get("semantic_score") if res.get("semantic_score") is not None else (res.get("score") or 0.0)),
+        "rank_score": float(res.get("rank_score") or res.get("score") or 0.0),
+        "feature_scores": dict(res.get("feature_scores") or {}),
         "anchor_reason": str(res.get("anchor_reason") or "retrieved"),
         "context_bias_score": float(res.get("context_bias_score") or 0.0),
         "source_surface": str(res.get("source_surface") or row.get("source_surface") or "projection"),
@@ -459,22 +462,31 @@ def search_request(
             if rr["bead_id"] not in seen:
                 sem_rows.append(rr)
 
+    sem_rows, filter_warnings = _apply_typed_filters(sem_rows, by_id, projection_created_at, submission)
+
+    if claim_retrieval_boost_enabled() and claim_state:
+        sem_rows = boost_claim_results(sem_rows, claim_state)
+
+    sem_rows = rerank_semantic_rows(
+        rows=sem_rows,
+        by_id=by_id,
+        query=query,
+        retrieval_mode=retrieval_mode,
+        claim_state=claim_state,
+        as_of=as_of_raw,
+    )
+
     sem_rows.sort(
         key=lambda r: (
             0 if str(r.get("anchor_reason") or "") == "pinned" else (1 if str(r.get("anchor_reason") or "") == "strict_facet_match" else 2),
+            -float(r.get("rank_score") or r.get("score") or 0.0),
+            -float(r.get("semantic_score") if r.get("semantic_score") is not None else (r.get("score") or 0.0)),
             (int(r.get("_type_priority_rank")) if r.get("_type_priority_rank") is not None else 9),
-            -float(r.get("score") or 0.0),
-            -float(r.get("context_bias_score") or 0.0),
             _status_rank(str(r.get("status") or "")),
             str((by_id.get(str(r.get("bead_id") or ""), {}) or {}).get("created_at") or ""),
             str(r.get("bead_id") or ""),
         )
     )
-
-    sem_rows, filter_warnings = _apply_typed_filters(sem_rows, by_id, projection_created_at, submission)
-
-    if claim_retrieval_boost_enabled() and claim_state:
-        sem_rows = boost_claim_results(sem_rows, claim_state)
 
     anchors = [_to_anchor(r, by_id) for r in sem_rows[: max(1, int(k))]]
     confidence = "high" if anchors and float(anchors[0].get("semantic_score") or 0.0) >= 0.75 else ("medium" if anchors else "low")
@@ -804,7 +816,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             tr = dict(req.get("time_range") or {})
             as_of = str(tr.get("to") or "").strip() or None
         claim_state, claim_warnings = _load_claim_state(rp, as_of=as_of)
-        policy = score_answer(list(out.get("results") or []), claim_state, query)
+        policy = score_answer(list(out.get("results") or []), claim_state, query, as_of=as_of)
         out["answer_policy"] = policy
         out["answer_outcome"] = str(policy.get("outcome") or "answer_partial")
         if out["answer_outcome"] == "abstain":

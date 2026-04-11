@@ -17,6 +17,7 @@ def compute_answer_signals(
     results: list[dict],
     current_state: dict | None,
     query: str,
+    as_of: str | None = None,
 ) -> dict:
     """
     Compute four answer quality signals.
@@ -71,10 +72,24 @@ def compute_answer_signals(
         if scores:
             currentness_fit = max(scores)
 
+    temporal_scores = [
+        float(((r or {}).get("feature_scores") or {}).get("temporal_fit") or 0.0)
+        for r in (results or [])
+        if isinstance((r or {}).get("feature_scores"), dict)
+    ]
+    if temporal_scores:
+        currentness_fit = max(currentness_fit, max(temporal_scores))
+
     # Claim-state anchor is considered stronger evidence for fact-first queries.
     if claim_anchor_hits:
         evidence_sufficiency = max(evidence_sufficiency, 0.65)
         currentness_fit = max(currentness_fit, 0.75)
+
+    if str(as_of or "").strip():
+        # as_of queries should have explicit temporal-fit pressure
+        evidence_sufficiency = max(evidence_sufficiency, 0.35 if results else evidence_sufficiency)
+        if temporal_scores:
+            currentness_fit = max(currentness_fit, max(temporal_scores))
 
     return {
         "anchor_confidence": round(anchor_confidence, 3),
