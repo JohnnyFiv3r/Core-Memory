@@ -454,6 +454,45 @@ class StoreCoreDelegatesMixin:
 
         return stats_for_store(self)
 
+    # === ER-2 Entity merge proposal/review surfaces ===
+
+    def suggest_entity_merge_proposals(self, *, min_score: float = 0.86, max_pairs: int = 40, source: str = "heuristic") -> dict:
+        from ..entity.merge_flow import suggest_entity_merge_proposals
+
+        return suggest_entity_merge_proposals(
+            self.root,
+            min_score=min_score,
+            max_pairs=max_pairs,
+            source=source,
+        )
+
+    def list_entity_merge_proposals(self, *, status: str | None = None, limit: int = 100) -> list[dict]:
+        from ..entity.merge_flow import list_entity_merge_proposals
+
+        return list_entity_merge_proposals(self.root, status=status, limit=limit)
+
+    def decide_entity_merge_proposal(
+        self,
+        proposal_id: str,
+        *,
+        decision: str,
+        reviewer: str = "",
+        notes: str = "",
+        apply: bool = True,
+        keep_entity_id: str | None = None,
+    ) -> dict:
+        from ..entity.merge_flow import decide_entity_merge_proposal
+
+        return decide_entity_merge_proposal(
+            self.root,
+            proposal_id=proposal_id,
+            decision=decision,
+            reviewer=reviewer,
+            notes=notes,
+            apply=apply,
+            keep_entity_id=keep_entity_id,
+        )
+
     # === Internal ===
 
     def _update_index(self, bead: dict):

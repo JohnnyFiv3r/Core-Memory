@@ -8,6 +8,11 @@ from .registry import (
     sync_bead_entities_for_index,
     load_entity_registry,
 )
+from .merge_flow import (
+    suggest_entity_merge_proposals,
+    list_entity_merge_proposals,
+    decide_entity_merge_proposal,
+)
 
 __all__ = [
     "normalize_entity_alias",
@@ -16,4 +21,7 @@ __all__ = [
     "resolve_entity_id",
     "sync_bead_entities_for_index",
     "load_entity_registry",
+    "suggest_entity_merge_proposals",
+    "list_entity_merge_proposals",
+    "decide_entity_merge_proposal",
 ]
