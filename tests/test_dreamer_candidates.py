@@ -34,12 +34,13 @@ class TestDreamerCandidatesSlice61A(unittest.TestCase):
                 run_metadata={"run_id": "r1", "mode": "suggest", "session_id": "s1"},
             )
             self.assertTrue(out.get("ok"))
-            self.assertEqual(1, out.get("added"))
+            self.assertGreaterEqual(int(out.get("added") or 0), 1)
 
             listed = list_dreamer_candidates(root=td, status="pending", limit=10)
             self.assertTrue(listed.get("ok"))
-            self.assertEqual(1, listed.get("count"))
-            row = (listed.get("results") or [])[0]
+            self.assertGreaterEqual(int(listed.get("count") or 0), 1)
+            rows = list(listed.get("results") or [])
+            row = next((r for r in rows if str((r or {}).get("hypothesis_type") or "") == "contradiction_candidate"), rows[0] if rows else {})
             self.assertEqual("pending", row.get("status"))
             self.assertEqual("contradiction_candidate", row.get("hypothesis_type"))
             self.assertIn("run_metadata", row)

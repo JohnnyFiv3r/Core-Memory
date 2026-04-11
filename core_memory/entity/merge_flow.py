@@ -329,3 +329,24 @@ def decide_entity_merge_proposal(
 def list_entity_merge_proposals(root: str | Path, *, status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     idx = _read_index(root)
     return list_entity_merge_proposals_for_index(idx, status=status, limit=limit)
+
+
+def apply_entity_merge_direct(
+    root: str | Path,
+    *,
+    keep_entity_id: str,
+    merge_entity_id: str,
+    reviewer: str = "",
+    notes: str = "",
+) -> dict[str, Any]:
+    with store_lock(Path(root)):
+        idx = _read_index(root)
+        out = apply_entity_merge_for_index(
+            idx,
+            keep_entity_id=keep_entity_id,
+            merge_entity_id=merge_entity_id,
+            reviewer=reviewer,
+            notes=notes,
+        )
+        _write_index(root, idx)
+        return out

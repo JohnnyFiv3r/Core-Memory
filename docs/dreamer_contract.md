@@ -24,10 +24,14 @@ Dreamer candidates are queued with hypothesis types such as:
 - `transferable_lesson_candidate`
 - `abstraction_candidate`
 - `precedent_candidate`
+- `entity_merge_candidate`
+- `retrieval_value_candidate`
 
 Each queued row includes:
 - source/target bead ids
 - hypothesis type
+- proposal family (`association|contradiction|entity_identity|retrieval_value`)
+- benchmark tags (bucket-level relevance hints)
 - novelty / grounding / confidence
 - rationale
 - expected decision impact
