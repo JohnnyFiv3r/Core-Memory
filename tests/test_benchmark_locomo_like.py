@@ -57,10 +57,17 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
         self.assertIn("totals", report)
         self.assertIn("per_bucket", report)
         self.assertIn("cases", report)
+        self.assertIn("latency_breakdown_ms", report)
+        self.assertIn("queue_observability", report)
         self.assertEqual(2, int((report.get("totals") or {}).get("cases") or 0))
 
         cases = list(report.get("cases") or [])
         self.assertEqual(sorted([c.get("case_id") for c in cases]), [c.get("case_id") for c in cases])
+        for c in cases:
+            self.assertIn("write_setup_ms", c)
+            self.assertIn("retrieval_ms", c)
+            self.assertIn("queue_before_query", c)
+            self.assertIn("queue_after_query", c)
 
 
 if __name__ == "__main__":

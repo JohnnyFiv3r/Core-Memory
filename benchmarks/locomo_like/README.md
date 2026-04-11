@@ -28,6 +28,7 @@ Current fixture pack includes at least one case in each bucket:
 ```bash
 python -m benchmarks.locomo_like.runner --subset local
 python -m benchmarks.locomo_like.runner --subset full
+python -m benchmarks.locomo_like.runner --subset local --async-profile drain_before_query
 ```
 
 ## Report output
@@ -37,6 +38,8 @@ The runner emits machine-readable JSON containing:
 - per-case outcomes
 - per-bucket accuracy
 - latency summary
+- latency breakdown (`write_setup_ms` vs `retrieval_ms`)
+- queue observability snapshots before/after query phase
 - warnings
 - run metadata (commit, mode, timestamp)
 

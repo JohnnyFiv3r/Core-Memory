@@ -31,6 +31,10 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
     bucket_totals: dict[str, dict[str, float]] = {}
     warnings: list[str] = []
     latencies = [float(r.get("latency_ms") or 0.0) for r in ordered]
+    setup_latencies = [float(r.get("write_setup_ms") or 0.0) for r in ordered]
+    retrieval_latencies = [float(r.get("retrieval_ms") or 0.0) for r in ordered]
+    pending_before = [int(((r.get("queue_before_query") or {}).get("pending_total") or 0)) for r in ordered]
+    pending_after = [int(((r.get("queue_after_query") or {}).get("pending_total") or 0)) for r in ordered]
 
     for row in ordered:
         for w in (row.get("warnings") or []):
@@ -67,6 +71,18 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             "mean": round(_mean(latencies), 3),
             "p50": round(_percentile(latencies, 0.50), 3),
             "p95": round(_percentile(latencies, 0.95), 3),
+        },
+        "latency_breakdown_ms": {
+            "write_setup_mean": round(_mean(setup_latencies), 3),
+            "write_setup_p95": round(_percentile(setup_latencies, 0.95), 3),
+            "retrieval_mean": round(_mean(retrieval_latencies), 3),
+            "retrieval_p95": round(_percentile(retrieval_latencies, 0.95), 3),
+        },
+        "queue_observability": {
+            "pending_before_query_max": max(pending_before) if pending_before else 0,
+            "pending_after_query_max": max(pending_after) if pending_after else 0,
+            "pending_before_query_mean": round(_mean([float(x) for x in pending_before]), 3) if pending_before else 0.0,
+            "pending_after_query_mean": round(_mean([float(x) for x in pending_after]), 3) if pending_after else 0.0,
         },
         "token_usage": None,
         "per_bucket": per_bucket,

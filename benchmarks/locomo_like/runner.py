@@ -14,6 +14,7 @@ from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.store_claim_ops import write_claim_updates_to_bead, write_claims_to_bead
 from core_memory.retrieval.tools import memory as memory_tools
+from core_memory.runtime.jobs import async_jobs_status, run_async_jobs
 
 from .reporting import build_report, render_summary
 from .schema import BenchmarkCase, GoldCase, build_cases
@@ -109,10 +110,31 @@ def _evaluate_case(*, case: BenchmarkCase, gold: GoldCase, out: dict[str, Any], 
     return overall, checks
 
 
-def run_case(*, case: BenchmarkCase, gold: GoldCase) -> dict[str, Any]:
-    t0 = time.perf_counter()
+def _queue_snapshot(root: str) -> dict[str, Any]:
+    st = async_jobs_status(root)
+    if not isinstance(st, dict):
+        return {"ok": False, "pending_total": 0, "processable_now": 0}
+    return {
+        "ok": bool(st.get("ok")),
+        "pending_total": int(st.get("pending_total") or 0),
+        "processable_now": int(st.get("processable_now") or 0),
+        "queues": dict(st.get("queues") or {}),
+    }
+
+
+def run_case(*, case: BenchmarkCase, gold: GoldCase, async_profile: str = "drain_before_query") -> dict[str, Any]:
+    t0_total = time.perf_counter()
     with tempfile.TemporaryDirectory(prefix="cm-bench-") as td:
+        t_setup = time.perf_counter()
         _materialize_case(td, case)
+        setup_ms = (time.perf_counter() - t_setup) * 1000.0
+
+        queue_after_setup = _queue_snapshot(td)
+        queue_drained = None
+        if async_profile == "drain_before_query":
+            queue_drained = run_async_jobs(root=td, run_semantic=True, max_compaction=25, max_side_effects=25)
+
+        queue_before_query = _queue_snapshot(td)
 
         req = {
             "raw_query": case.query,
@@ -128,10 +150,14 @@ def run_case(*, case: BenchmarkCase, gold: GoldCase) -> dict[str, Any]:
             "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed",
         }
         with _env_overrides(env):
+            t_query = time.perf_counter()
             out = memory_tools.execute(req, root=td, explain=True)
+            retrieval_ms = (time.perf_counter() - t_query) * 1000.0
+
+        queue_after_query = _queue_snapshot(td)
 
         ok, checks = _evaluate_case(case=case, gold=gold, out=out, root=td)
-        latency_ms = (time.perf_counter() - t0) * 1000.0
+        latency_ms = (time.perf_counter() - t0_total) * 1000.0
         return {
             "case_id": case.id,
             "bucket_labels": list(case.bucket_labels),
@@ -142,9 +168,15 @@ def run_case(*, case: BenchmarkCase, gold: GoldCase) -> dict[str, Any]:
             "pass": bool(ok),
             "checks": checks,
             "latency_ms": round(latency_ms, 3),
+            "write_setup_ms": round(setup_ms, 3),
+            "retrieval_ms": round(retrieval_ms, 3),
             "warnings": list(out.get("warnings") or []),
             "top_source_surface": str(((out.get("results") or [{}])[0] or {}).get("source_surface") or ""),
             "top_anchor_reason": str(((out.get("results") or [{}])[0] or {}).get("anchor_reason") or ""),
+            "queue_after_setup": queue_after_setup,
+            "queue_before_query": queue_before_query,
+            "queue_after_query": queue_after_query,
+            "queue_drained": queue_drained,
         }
 
 
@@ -154,6 +186,7 @@ def run_benchmark(
     gold_dir: Path,
     subset: str = "local",
     limit: int | None = None,
+    async_profile: str = "drain_before_query",
 ) -> dict[str, Any]:
     pairs = build_cases(fixtures_dir=fixtures_dir, gold_dir=gold_dir)
     pairs = sorted(pairs, key=lambda p: p[0].id)
@@ -165,7 +198,7 @@ def run_benchmark(
 
     case_results: list[dict[str, Any]] = []
     for case, gold in pairs:
-        case_results.append(run_case(case=case, gold=gold))
+        case_results.append(run_case(case=case, gold=gold, async_profile=async_profile))
 
     metadata = {
         "runner": "locomo_like",
@@ -174,7 +207,8 @@ def run_benchmark(
         "commit": _repo_commit(),
         "semantic_mode": os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", "degraded_allowed"),
         "backend_mode": os.environ.get("CORE_MEMORY_VECTOR_BACKEND", "local-faiss"),
-        "notes": ["proxy_fixture_pack", "deterministic_local_subset"],
+        "async_profile": async_profile,
+        "notes": ["proxy_fixture_pack", "deterministic_local_subset", "queue_visibility_enabled"],
     }
 
     return build_report(metadata=metadata, case_results=case_results)
@@ -187,6 +221,7 @@ def main() -> int:
     p.add_argument("--gold", default=str(here / "gold"))
     p.add_argument("--subset", choices=["local", "full"], default="local")
     p.add_argument("--limit", type=int, default=None)
+    p.add_argument("--async-profile", choices=["drain_before_query", "observe_only"], default="drain_before_query")
     p.add_argument("--out", default="")
     args = p.parse_args()
 
@@ -195,6 +230,7 @@ def main() -> int:
         gold_dir=Path(args.gold),
         subset=str(args.subset),
         limit=args.limit,
+        async_profile=str(args.async_profile),
     )
 
     print(render_summary(report))
