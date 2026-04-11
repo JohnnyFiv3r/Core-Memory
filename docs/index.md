@@ -46,6 +46,7 @@ Use this page as the authoritative map of current docs.
 ## Contracts
 - [`contracts/http_api.v1.json`](contracts/http_api.v1.json)
 - [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
+- [`contracts/entity_registry_contract.md`](contracts/entity_registry_contract.md)
 - [`adapter_parity_matrix.md`](adapter_parity_matrix.md)
 
 ## Specs

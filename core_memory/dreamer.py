@@ -207,8 +207,8 @@ def _structural_signal_pack(bead1: dict, bead2: dict) -> tuple[float, list[dict[
     type2 = str(bead2.get("type") or "")
     types = {type1, type2}
 
-    tags1 = _norm_set(bead1, "tags", "topics", "entities")
-    tags2 = _norm_set(bead2, "tags", "topics", "entities")
+    tags1 = _norm_set(bead1, "tags", "topics", "entities", "entity_ids")
+    tags2 = _norm_set(bead2, "tags", "topics", "entities", "entity_ids")
     key1 = _norm_set(bead1, "incident_keys", "decision_keys", "goal_keys", "action_keys", "outcome_keys", "time_keys")
     key2 = _norm_set(bead2, "incident_keys", "decision_keys", "goal_keys", "action_keys", "outcome_keys", "time_keys")
     shared_tags = tags1.intersection(tags2)

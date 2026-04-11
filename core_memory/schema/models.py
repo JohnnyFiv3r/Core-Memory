@@ -298,6 +298,7 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         "source_turn_ids",
         "retrieval_facts",
         "entities",
+        "entity_ids",
         "topics",
         "incident_keys",
         "decision_keys",
@@ -468,6 +469,7 @@ class Bead:
     retrieval_title: Optional[str] = None
     retrieval_facts: list = field(default_factory=list)
     entities: list = field(default_factory=list)
+    entity_ids: list = field(default_factory=list)
     topics: list = field(default_factory=list)
     incident_keys: list = field(default_factory=list)
     decision_keys: list = field(default_factory=list)

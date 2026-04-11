@@ -17,6 +17,8 @@ def init_index_for_store(store: Any) -> None:
                 {
                     "beads": {},
                     "associations": [],
+                    "entities": {},
+                    "entity_aliases": {},
                     "stats": {
                         "total_beads": 0,
                         "total_associations": 0,
