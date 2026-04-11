@@ -199,6 +199,41 @@ def enqueue_dreamer_candidates(
 
     seen_keys = {_candidate_key(r) for r in rows if isinstance(r, dict)}
 
+    # DV2-2 retrieval feedback loop context (review-only signal input)
+    try:
+        from core_memory.runtime.retrieval_feedback import summarize_retrieval_feedback
+
+        feedback_since = str(run_meta.get("feedback_since") or "30d")
+        feedback_limit = int(run_meta.get("feedback_limit") or 500)
+        fb = summarize_retrieval_feedback(root, since=feedback_since, limit=feedback_limit)
+    except Exception:
+        fb = {"counts": {"successful": 0}, "top_beads": [], "top_edges": [], "top_slots": []}
+
+    bead_hit_map = {str(r.get("bead_id") or ""): int(r.get("hits") or 0) for r in list(fb.get("top_beads") or []) if str(r.get("bead_id") or "")}
+    edge_hit_map = {
+        (str(r.get("src") or ""), str(r.get("dst") or ""), str(r.get("rel") or "")): int(r.get("hits") or 0)
+        for r in list(fb.get("top_edges") or [])
+        if str(r.get("src") or "") and str(r.get("dst") or "") and str(r.get("rel") or "")
+    }
+    total_success = int(((fb.get("counts") or {}).get("successful") or 0))
+
+    def _feedback_for_association(src: str, tgt: str, rel: str) -> dict[str, Any]:
+        src_hits = int(bead_hit_map.get(src) or 0)
+        tgt_hits = int(bead_hit_map.get(tgt) or 0)
+        edge_hits = int(edge_hit_map.get((src, tgt, rel)) or 0)
+        edge_hits += int(edge_hit_map.get((tgt, src, rel)) or 0)
+        confidence = 0.0
+        if total_success > 0:
+            confidence = min(1.0, (0.35 * edge_hits + 0.10 * src_hits + 0.10 * tgt_hits) / float(total_success))
+        return {
+            "since": str(run_meta.get("feedback_since") or "30d"),
+            "total_successful_retrievals": total_success,
+            "source_bead_hits": src_hits,
+            "target_bead_hits": tgt_hits,
+            "edge_hits": edge_hits,
+            "confidence": round(float(confidence), 4),
+        }
+
     added = 0
     for a in list(associations or []):
         if not isinstance(a, dict):
@@ -208,6 +243,7 @@ def enqueue_dreamer_candidates(
         if not src or not tgt:
             continue
         rel = str(a.get("relationship") or "similar_pattern").strip() or "similar_pattern"
+        feedback = _feedback_for_association(src, tgt, rel)
 
         base = _make_candidate_row(
             now=now,
@@ -224,6 +260,7 @@ def enqueue_dreamer_candidates(
                     rel,
                 )
             ),
+            extras={"retrieval_feedback": feedback},
         )
         k = _candidate_key(base)
         if k not in seen_keys:
@@ -245,6 +282,7 @@ def enqueue_dreamer_candidates(
                 expected_decision_impact="Improve retrieval ranking for related mechanism/fact queries via reviewed weight adjustment",
                 extras={
                     "proposed_weight_delta": weight_delta,
+                    "retrieval_feedback": feedback,
                     "review_payload": {
                         "kind": "edge_weight_adjustment",
                         "source_bead_id": src,
@@ -298,6 +336,7 @@ def enqueue_dreamer_candidates(
                     "target_entity_id": right,
                     "entity_merge_score": round(score, 4),
                     "entity_merge_reasons": sorted(set(reasons)),
+                    "retrieval_feedback": feedback,
                     "review_payload": {
                         "kind": "entity_merge",
                         "left_entity_id": left,

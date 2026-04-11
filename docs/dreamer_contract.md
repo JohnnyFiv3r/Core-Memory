@@ -37,6 +37,17 @@ Each queued row includes:
 - expected decision impact
 - run metadata (run id, mode, session/flush context)
 
+## Retrieval feedback loop input (DV2-2)
+
+Dreamer candidate generation may consume retrieval-success telemetry from
+`.beads/events/retrieval-feedback.jsonl` via summarized signals:
+
+- source/target bead retrieval hit counts
+- edge co-occurrence hits in successful retrieval chains
+- claim-slot retrieval hit context
+
+These are **review-support signals only**. They do not grant Dreamer direct write authority.
+
 ## Scoring direction (structural replay oriented)
 
 Dreamer scoring should prioritize structural signals over lexical similarity alone, including:

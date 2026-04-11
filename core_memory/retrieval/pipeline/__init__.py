@@ -146,7 +146,23 @@ def memory_search_typed(root: str, submission: dict, explain: bool = False) -> d
 
 
 def memory_execute(root: str, request: dict, explain: bool = True) -> dict:
-    return _execute_request(root=root, request=request, explain=bool(explain))
+    out = _execute_request(root=root, request=request, explain=bool(explain))
+    try:
+        from core_memory.runtime.retrieval_feedback import record_retrieval_feedback
+
+        fb = record_retrieval_feedback(root, request=dict(request or {}), response=dict(out or {}), source="memory_execute")
+        if isinstance(out, dict):
+            out["retrieval_feedback"] = {
+                "recorded": bool((fb or {}).get("ok")),
+                "event_id": str((fb or {}).get("event_id") or ""),
+            }
+    except Exception:
+        if isinstance(out, dict):
+            warns = list(out.get("warnings") or [])
+            if "retrieval_feedback_write_failed" not in warns:
+                warns.append("retrieval_feedback_write_failed")
+            out["warnings"] = warns
+    return out
 
 
 def memory_trace(root: str, query: str = "", anchor_ids: list[str] | None = None, k: int = 8, hydration: dict | None = None) -> dict:
