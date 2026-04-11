@@ -54,7 +54,7 @@ def _semantic_failure_response(*, query: str, intent: str, k: int, warnings: lis
     return out
 
 
-def _load_claim_state(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
+def _load_claim_state(root: Path, *, as_of: str | None = None) -> tuple[dict[str, Any] | None, list[str]]:
     """Load claim state for retrieval planning/policy when claim layer is enabled."""
     warns: list[str] = []
     if not claim_layer_enabled():
@@ -63,7 +63,7 @@ def _load_claim_state(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
         warns.append("claim_resolution_disabled")
         return None, warns
     try:
-        state = resolve_all_current_state(str(root))
+        state = resolve_all_current_state(str(root), as_of=as_of)
         if isinstance(state, dict):
             return state, warns
         warns.append("claim_state_unavailable")
@@ -390,7 +390,13 @@ def search_request(
     rp = Path(root)
     corpus = build_visible_corpus(rp)
     catalog = build_catalog(rp)
-    claim_state, claim_warnings = _load_claim_state(rp)
+    sub = dict(submission or {})
+    as_of_raw = str(sub.get("as_of") or "").strip() or None
+    tr = dict(sub.get("time_range") or {})
+    if not as_of_raw:
+        as_of_raw = str(tr.get("to") or "").strip() or None
+
+    claim_state, claim_warnings = _load_claim_state(rp, as_of=as_of_raw)
     retrieval_mode = plan_retrieval_mode(query, catalog, claim_state)
     by_id = {str(r.get("bead_id") or ""): r for r in corpus}
     projection_created_at: dict[str, str] = {}
@@ -515,6 +521,7 @@ def search_request(
             "resolved": bool(claim_state),
             "active_slots": int((claim_state or {}).get("active_slots") or 0),
             "total_slots": int((claim_state or {}).get("total_slots") or 0),
+            "as_of": as_of_raw,
             "claim_anchor_count": int(len([r for r in sem_rows[: max(1, int(k))] if str(r.get("anchor_reason") or "") == "claim_current_state"])),
         },
     }
@@ -669,10 +676,12 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     k = int(req.get("k") or 10)
     if grounding_mode == "search_only":
         facets = dict(req.get("facets") or {})
+        as_of = str(req.get("as_of") or facets.get("as_of") or "").strip() or None
         submission = {
             "query_text": query,
             "intent": intent,
             "k": k,
+            "as_of": as_of,
             "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
             "scope": str(facets.get("scope") or "").strip() or None,
             "topic_keys": list(facets.get("topic_keys") or []),
@@ -702,10 +711,12 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         out.setdefault("hydration", {"status": "not_requested", "warnings": []})
     else:
         facets = dict(req.get("facets") or {})
+        as_of = str(req.get("as_of") or facets.get("as_of") or "").strip() or None
         submission = {
             "query_text": query,
             "intent": intent,
             "k": k,
+            "as_of": as_of,
             "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
             "scope": str(facets.get("scope") or "").strip() or None,
             "topic_keys": list(facets.get("topic_keys") or []),
@@ -770,6 +781,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         "raw_query": query,
         "intent": intent,
         "k": k,
+        "as_of": str(req.get("as_of") or "").strip() or None,
         "grounding_mode": grounding_mode,
         "constraints": {"require_structural": bool(constraints.get("require_structural", False))},
         "facets": dict(req.get("facets") or {}),
@@ -787,7 +799,11 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     out.setdefault("source_priority_applied", ["session_bead", "archive_graph", "rolling_window", "transcript", "memory_md"])
 
     if claim_layer_enabled():
-        claim_state, claim_warnings = _load_claim_state(rp)
+        as_of = str(req.get("as_of") or "").strip() or None
+        if not as_of:
+            tr = dict(req.get("time_range") or {})
+            as_of = str(tr.get("to") or "").strip() or None
+        claim_state, claim_warnings = _load_claim_state(rp, as_of=as_of)
         policy = score_answer(list(out.get("results") or []), claim_state, query)
         out["answer_policy"] = policy
         out["answer_outcome"] = str(policy.get("outcome") or "answer_partial")

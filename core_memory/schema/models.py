@@ -360,6 +360,9 @@ def _normalize_event_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 def _normalize_claim_payload(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data or {})
+    for k in ("subject", "slot", "reason_text", "observed_at", "recorded_at", "effective_from", "effective_to"):
+        if out.get(k) is not None:
+            out[k] = str(out.get(k))
     out["claim_kind"] = normalize_claim_kind(out.get("claim_kind"))
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
     return out
@@ -393,6 +396,10 @@ class Claim:
     value: Any = None
     reason_text: str = ""
     confidence: float = 0.8
+    observed_at: str | None = None
+    recorded_at: str | None = None
+    effective_from: str | None = None
+    effective_to: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

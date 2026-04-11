@@ -34,6 +34,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
     incident_from_facets = str(((facets.get("incident_ids") or [None])[0] or "")).strip()
     incident_id = str(req.get("incident_id") or incident_from_facets or "").strip() or None
     scope = str(req.get("scope") or facets.get("scope") or "").strip() or None
+    as_of = str(req.get("as_of") or facets.get("as_of") or "").strip() or None
 
     topic_keys = [str(x) for x in (req.get("topic_keys") or facets.get("topic_keys") or [])]
     bead_types = [normalize_bead_type(str(x)) for x in (req.get("bead_types") or facets.get("bead_types") or [])]
@@ -50,6 +51,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
         "k": k,
         "incident_id": incident_id,
         "scope": scope,
+        "as_of": as_of,
         "topic_keys": topic_keys,
         "bead_types": bead_types,
         "relation_types": relation_types,
