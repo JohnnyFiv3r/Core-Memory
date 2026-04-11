@@ -606,8 +606,79 @@ def decide_dreamer_candidate(
     }
 
 
+def submit_entity_merge_candidate(
+    *,
+    root: str | Path,
+    source_entity_id: str,
+    target_entity_id: str,
+    source_bead_id: str = "",
+    target_bead_id: str = "",
+    confidence: float = 0.9,
+    reviewer: str = "",
+    rationale: str = "",
+    notes: str = "",
+    run_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    left = str(source_entity_id or "").strip()
+    right = str(target_entity_id or "").strip()
+    if not left or not right or left == right:
+        return {"ok": False, "error": {"code": "invalid_entity_pair", "source_entity_id": left, "target_entity_id": right}}
+
+    rows = _read_candidates(root)
+    now = _now()
+    run_meta = dict(run_metadata or {})
+    assoc = {
+        "source": str(source_bead_id or "").strip(),
+        "target": str(target_bead_id or "").strip(),
+        "relationship": "similar_pattern",
+        "novelty": 0.0,
+        "grounding": 0.0,
+        "confidence": float(confidence or 0.0),
+    }
+    payload = {
+        "kind": "entity_merge",
+        "left_entity_id": left,
+        "right_entity_id": right,
+        "keep_suggestion": left,
+        "score": float(confidence or 0.0),
+        "manual_submission": True,
+    }
+    row = _make_candidate_row(
+        now=now,
+        run_meta=run_meta,
+        association=assoc,
+        hypothesis_type="entity_merge_candidate",
+        rationale=str(rationale or "Manual entity merge proposal submitted via typed MCP write surface"),
+        expected_decision_impact="Reduce entity fragmentation for coreference and long-horizon retrieval",
+        extras={
+            "source_entity_id": left,
+            "target_entity_id": right,
+            "entity_merge_score": round(float(confidence or 0.0), 4),
+            "entity_merge_reasons": ["manual_submission"],
+            "review_payload": payload,
+            "submitted_by": str(reviewer or ""),
+            "submission_notes": str(notes or ""),
+        },
+    )
+
+    k = _candidate_key(row)
+    if any(_candidate_key(r) == k and str(r.get("status") or "") in {"pending", "accepted"} for r in rows if isinstance(r, dict)):
+        return {"ok": True, "duplicate": True, "candidate_id": None, "path": str(_candidates_path(root))}
+
+    rows.append(row)
+    _write_candidates(root, rows)
+    return {
+        "ok": True,
+        "duplicate": False,
+        "candidate_id": str(row.get("id") or ""),
+        "status": str(row.get("status") or "pending"),
+        "path": str(_candidates_path(root)),
+    }
+
+
 __all__ = [
     "enqueue_dreamer_candidates",
     "list_dreamer_candidates",
     "decide_dreamer_candidate",
+    "submit_entity_merge_candidate",
 ]
