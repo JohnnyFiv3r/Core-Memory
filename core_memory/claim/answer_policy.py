@@ -64,6 +64,34 @@ def decide_answer_outcome(
     return "abstain"
 
 
+def explain_answer_outcome(
+    *,
+    outcome: str,
+    signals: dict,
+    query: str,
+    as_of: str | None = None,
+) -> str:
+    anchor = float((signals or {}).get("anchor_confidence") or 0.0)
+    evidence = float((signals or {}).get("evidence_sufficiency") or 0.0)
+    conflict = float((signals or {}).get("conflict_penalty") or 0.0)
+    lower_q = str(query or "").lower()
+    historical_intent = bool(str(as_of or "").strip()) or any(x in lower_q for x in ["last ", "used to", "historical", "as of", "previous"])
+
+    if outcome == "answer_partial" and conflict > 0.5:
+        return "conflict_penalty_high"
+    if outcome == "answer_historical" and historical_intent:
+        return "historical_intent_or_as_of"
+    if outcome == "answer_current" and anchor >= 0.7:
+        return "strong_current_anchor"
+    if outcome == "answer_historical" and anchor >= 0.5 and evidence < 0.4:
+        return "anchor_present_but_evidence_limited"
+    if outcome == "answer_partial" and (anchor > 0.0 or evidence > 0.0):
+        return "partial_grounding"
+    if outcome == "abstain":
+        return "no_credible_anchor"
+    return "policy_default"
+
+
 def score_answer(
     results: list[dict],
     current_state: dict | None,
@@ -75,8 +103,10 @@ def score_answer(
     """
     signals = compute_answer_signals(results, current_state, query, as_of=as_of)
     outcome = decide_answer_outcome(results, current_state, query, as_of=as_of)
+    reason = explain_answer_outcome(outcome=outcome, signals=signals, query=query, as_of=as_of)
     return {
         "outcome": outcome,
         "signals": signals,
+        "decision_reason": reason,
         "as_of": str(as_of or "") or None,
     }

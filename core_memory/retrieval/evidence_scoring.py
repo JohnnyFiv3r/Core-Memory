@@ -8,6 +8,7 @@ from core_memory.temporal import parse_timestamp
 
 
 HISTORICAL_HINTS = {"previous", "previously", "history", "historical", "before", "earlier", "used", "last", "ago"}
+CURRENT_HINTS = {"current", "now", "today", "latest", "stance", "active", "present"}
 
 
 def _terms(text: str) -> set[str]:
@@ -23,6 +24,13 @@ def _query_historical(query: str, as_of: str | None = None) -> bool:
         return True
     q = _terms(query)
     return bool(q.intersection(HISTORICAL_HINTS))
+
+
+def _query_current(query: str, as_of: str | None = None) -> bool:
+    if str(as_of or "").strip():
+        return False
+    q = _terms(query)
+    return bool(q.intersection(CURRENT_HINTS))
 
 
 def _bead_text(bead: dict[str, Any], row: dict[str, Any]) -> str:
@@ -107,6 +115,7 @@ def rerank_semantic_rows(
     q_terms = _terms(query)
     claim_terms = _claim_hint_terms(claim_state)
     historical = _query_historical(query, as_of)
+    current_query = _query_current(query, as_of)
 
     # Soft mode hints (not hard walls)
     weights = {
@@ -146,18 +155,35 @@ def rerank_semantic_rows(
         structural = min(1.0, float(r.get("context_bias_score") or 0.0))
         recency = _recency_score(bead, historical=historical)
 
+        supersedes_count = int(bead.get("supersedes_count") or 0)
+        superseded_by_count = int(bead.get("superseded_by_count") or 0)
+        contradicts_count = int(bead.get("contradicts_count") or 0)
+
         supersession_penalty = 0.0
         if bead.get("superseded_by"):
             supersession_penalty += 0.28
+        if superseded_by_count > 0:
+            supersession_penalty += min(0.25, 0.12 * superseded_by_count)
         validity = str(bead.get("validity") or "").lower()
         if validity in {"superseded", "closed"}:
             supersession_penalty += 0.18
+
+        if historical:
+            supersession_penalty *= 0.35
 
         conflict_penalty = 0.0
         if bead.get("decision_conflict_with"):
             conflict_penalty += 0.2
         if bead.get("contradicts"):
             conflict_penalty += 0.15
+        if contradicts_count > 0:
+            conflict_penalty += min(0.22, 0.10 * contradicts_count)
+
+        current_truth_bonus = 0.0
+        if current_query and supersedes_count > 0 and superseded_by_count == 0:
+            current_truth_bonus += min(0.18, 0.08 + 0.04 * supersedes_count)
+        if historical and superseded_by_count > 0:
+            current_truth_bonus += min(0.12, 0.05 + 0.03 * superseded_by_count)
 
         rank_score = (
             weights["semantic"] * semantic
@@ -167,6 +193,7 @@ def rerank_semantic_rows(
             + weights["temporal"] * temporal
             + weights["structural"] * structural
             + weights["recency"] * recency
+            + current_truth_bonus
             - supersession_penalty
             - conflict_penalty
         )
@@ -184,6 +211,10 @@ def rerank_semantic_rows(
             "recency": round(recency, 4),
             "supersession_penalty": round(supersession_penalty, 4),
             "conflict_penalty": round(conflict_penalty, 4),
+            "current_truth_bonus": round(current_truth_bonus, 4),
+            "supersedes_count": int(supersedes_count),
+            "superseded_by_count": int(superseded_by_count),
+            "contradicts_count": int(contradicts_count),
         }
         # Keep score aligned with rank for downstream sorting while preserving semantic_score separately.
         r["score"] = r["rank_score"]

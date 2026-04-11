@@ -290,6 +290,33 @@ def _status_rank(status: str) -> int:
     return order.get(str(status or "").lower(), 9)
 
 
+def _relation_summary_from_index(index_payload: dict[str, Any]) -> dict[str, dict[str, int]]:
+    out: dict[str, dict[str, int]] = {}
+    for row in list((index_payload or {}).get("associations") or []):
+        if not isinstance(row, dict):
+            continue
+        src = str(row.get("source_bead") or row.get("source_bead_id") or "")
+        dst = str(row.get("target_bead") or row.get("target_bead_id") or "")
+        if not src or not dst:
+            continue
+        rel = normalize_relation_type(str(row.get("relationship") or row.get("rel") or ""))
+
+        out.setdefault(src, {"supersedes_count": 0, "superseded_by_count": 0, "contradicts_count": 0})
+        out.setdefault(dst, {"supersedes_count": 0, "superseded_by_count": 0, "contradicts_count": 0})
+
+        if rel == "supersedes":
+            out[src]["supersedes_count"] += 1
+            out[dst]["superseded_by_count"] += 1
+        elif rel == "superseded_by":
+            out[src]["superseded_by_count"] += 1
+            out[dst]["supersedes_count"] += 1
+        elif rel == "contradicts":
+            out[src]["contradicts_count"] += 1
+            out[dst]["contradicts_count"] += 1
+
+    return out
+
+
 CONTINUITY_QUERY_HINTS = (
     "session start",
     "continuity",
@@ -493,13 +520,28 @@ def search_request(
     retrieval_mode = plan_retrieval_mode(query, catalog, claim_state)
     by_id = {str(r.get("bead_id") or ""): r for r in corpus}
     projection_created_at: dict[str, str] = {}
+    relation_summary: dict[str, dict[str, int]] = {}
     try:
         idx = json.loads((rp / ".beads" / "index.json").read_text(encoding="utf-8"))
         for bid, bead in ((idx.get("beads") or {}) if isinstance(idx, dict) else {}).items():
             if isinstance(bead, dict):
                 projection_created_at[str(bid)] = str(bead.get("created_at") or "")
+        relation_summary = _relation_summary_from_index(idx if isinstance(idx, dict) else {})
     except Exception:
         projection_created_at = {}
+        relation_summary = {}
+
+    if relation_summary:
+        for bid, rel in relation_summary.items():
+            row = by_id.get(str(bid))
+            if not isinstance(row, dict):
+                continue
+            bead = dict((row.get("bead") or {}))
+            bead["supersedes_count"] = int(rel.get("supersedes_count") or 0)
+            bead["superseded_by_count"] = int(rel.get("superseded_by_count") or 0)
+            bead["contradicts_count"] = int(rel.get("contradicts_count") or 0)
+            row["bead"] = bead
+            by_id[str(bid)] = row
 
     sem_k = max(24, int(k) * 2)
     if retrieval_mode == "fact_first":

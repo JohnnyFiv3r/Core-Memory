@@ -76,8 +76,15 @@ def compute_answer_signals(
         for r in (results or [])
         if isinstance((r or {}).get("feature_scores"), dict)
     ]
+    result_conflict_penalties = [
+        float(((r or {}).get("feature_scores") or {}).get("conflict_penalty") or 0.0)
+        for r in (results or [])
+        if isinstance((r or {}).get("feature_scores"), dict)
+    ]
     if temporal_scores:
         currentness_fit = max(currentness_fit, max(temporal_scores))
+    if result_conflict_penalties:
+        conflict_penalty = max(conflict_penalty, max(result_conflict_penalties))
 
     # Claim-state anchor is considered stronger evidence for fact-first queries.
     if claim_anchor_hits:
