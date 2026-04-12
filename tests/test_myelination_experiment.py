@@ -26,38 +26,47 @@ class TestMyelinationExperiment(unittest.TestCase):
         ):
             a = "bead-a"
             b = "bead-b"
+            c = "bead-c"
 
-            # A gets successful retrieval support.
+            # Edge (a->b supports) gets successful retrieval support.
             record_retrieval_feedback(
                 td,
                 request={"raw_query": "q1", "intent": "remember", "k": 5},
                 response={
                     "ok": True,
                     "answer_outcome": "answer_current",
-                    "results": [{"bead_id": a, "score": 0.9, "source_surface": "session_bead"}],
-                    "chains": [],
+                    "results": [
+                        {"bead_id": a, "score": 0.9, "source_surface": "session_bead"},
+                        {"bead_id": b, "score": 0.8, "source_surface": "session_bead"},
+                    ],
+                    "chains": [{"edges": [{"src": a, "dst": b, "rel": "supports"}]}],
                 },
                 source="unit_test",
             )
 
-            # B gets failed retrieval exposure.
+            # Edge (b->c contradicts) gets failed retrieval exposure.
             record_retrieval_feedback(
                 td,
                 request={"raw_query": "q2", "intent": "remember", "k": 5},
                 response={
                     "ok": False,
                     "answer_outcome": "abstain",
-                    "results": [{"bead_id": b, "score": 0.4, "source_surface": "session_bead"}],
-                    "chains": [],
+                    "results": [
+                        {"bead_id": b, "score": 0.4, "source_surface": "session_bead"},
+                        {"bead_id": c, "score": 0.3, "source_surface": "session_bead"},
+                    ],
+                    "chains": [{"edges": [{"src": b, "dst": c, "rel": "contradicts"}]}],
                 },
                 source="unit_test",
             )
 
             out = compute_myelination_bonus_map(td)
             self.assertTrue(out.get("enabled"))
+            edge_bonus = dict(out.get("bonus_by_edge_key") or {})
+            self.assertTrue(edge_bonus)
             bonus = dict(out.get("bonus_by_bead_id") or {})
             self.assertGreater(float(bonus.get(a) or 0.0), 0.0)
-            self.assertLess(float(bonus.get(b) or 0.0), 0.0)
+            self.assertLess(float(bonus.get(c) or 0.0), 0.0)
 
     def test_benchmark_compare_mode_outputs_comparison_section(self):
         base = Path("benchmarks/locomo_like")

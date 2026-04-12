@@ -35,7 +35,11 @@ def compute_answer_signals(
     conflict_penalty = 0.0
 
     q_terms = _query_terms(query)
-    claim_anchor_hits = [r for r in (results or []) if str((r or {}).get("anchor_reason") or "") == "claim_current_state"]
+    claim_anchor_hits = [
+        r
+        for r in (results or [])
+        if str((r or {}).get("anchor_reason") or "") in {"claim_current_state", "claim_conflict_state"}
+    ]
 
     # Anchor confidence: from query-matched active claims when possible.
     if current_state and current_state.get("slots"):

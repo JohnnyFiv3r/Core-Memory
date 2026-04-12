@@ -100,15 +100,21 @@ def _claim_anchors_from_state(
     q = _query_terms(query)
     generic_personal = bool(q.intersection({"my", "me", "current", "now"}))
     out: list[dict[str, Any]] = []
-    active_slot_count = 0
+    candidate_slot_count = 0
 
     for key, slot_data in slots.items():
         if not isinstance(slot_data, dict):
             continue
-        if str(slot_data.get("status") or "") != "active":
+        slot_status = str(slot_data.get("status") or "").strip().lower()
+        if slot_status not in {"active", "conflict"}:
             continue
-        active_slot_count += 1
+        candidate_slot_count += 1
+
         claim = slot_data.get("current_claim") or {}
+        if not isinstance(claim, dict) or not claim:
+            # Conflict slots may not have a stable current claim — use one conflict target when present.
+            conflicts = list(slot_data.get("conflicts") or [])
+            claim = dict(conflicts[0] or {}) if conflicts and isinstance(conflicts[0], dict) else {}
         if not isinstance(claim, dict):
             continue
 
@@ -118,33 +124,51 @@ def _claim_anchors_from_state(
         value_s = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
         claim_terms = _query_terms(" ".join([subject, slot, str(claim.get("claim_kind") or ""), value_s]))
         overlap = len(q.intersection(claim_terms))
-        if overlap == 0 and not (generic_personal and active_slot_count == 1):
+        if overlap == 0 and not (generic_personal and candidate_slot_count == 1):
             continue
 
         conf = float(claim.get("confidence") or 0.6)
-        score = min(0.98, max(0.62, conf + (0.03 * overlap)))
+        if slot_status == "conflict":
+            score = min(0.94, max(0.58, conf + (0.03 * overlap)))
+        else:
+            score = min(0.98, max(0.62, conf + (0.03 * overlap)))
         bid = f"claim:{subject}:{slot}"
+
+        summary_line = f"Current {slot}: {value_s}"
+        if slot_status == "conflict":
+            conflict_vals = []
+            for c in (slot_data.get("conflicts") or []):
+                if not isinstance(c, dict):
+                    continue
+                cv = c.get("value")
+                if cv is None:
+                    continue
+                conflict_vals.append(str(cv))
+            if conflict_vals:
+                summary_line = f"Conflicting {slot}: {' vs '.join(conflict_vals[:3])}"
+
         by_id[bid] = {
             "bead": {
                 "id": bid,
                 "title": f"{subject} {slot}".strip(),
                 "type": "context",
-                "summary": [f"Current {slot}: {value_s}"],
+                "summary": [summary_line],
             },
             "source_surface": "claim_state",
-            "status": "default",
+            "status": slot_status or "default",
         }
         out.append(
             {
                 "bead_id": bid,
                 "score": score,
-                "anchor_reason": "claim_current_state",
+                "anchor_reason": "claim_conflict_state" if slot_status == "conflict" else "claim_current_state",
                 "source_surface": "claim_state",
-                "status": "default",
+                "status": slot_status or "default",
                 "context_bias_score": 0.0,
                 "claim_slot_key": key_s,
                 "claim_id": str(claim.get("id") or ""),
                 "claim_value": value,
+                "claim_status": slot_status,
             }
         )
 

@@ -33,15 +33,18 @@ class TestMetricsMyelinationCli(unittest.TestCase):
         cwd = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory(prefix="cm-mye-cli-") as td:
             root = Path(td) / "memory"
-            # Seed one successful retrieval feedback event for bead-x.
+            # Seed one successful retrieval feedback event with an explicit edge.
             record_retrieval_feedback(
                 root,
                 request={"raw_query": "q", "intent": "remember", "k": 5},
                 response={
                     "ok": True,
                     "answer_outcome": "answer_current",
-                    "results": [{"bead_id": "bead-x", "score": 0.9, "source_surface": "session_bead"}],
-                    "chains": [],
+                    "results": [
+                        {"bead_id": "bead-x", "score": 0.9, "source_surface": "session_bead"},
+                        {"bead_id": "bead-y", "score": 0.8, "source_surface": "session_bead"},
+                    ],
+                    "chains": [{"edges": [{"src": "bead-x", "dst": "bead-y", "rel": "supports"}]}],
                 },
                 source="unit_test",
             )

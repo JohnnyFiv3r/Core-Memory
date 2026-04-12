@@ -41,19 +41,29 @@ def decide_answer_outcome(
     lower_q = str(query or "").lower()
     historical_intent = bool(str(as_of or "").strip()) or any(x in lower_q for x in ["last ", "used to", "historical", "as of", "previous"])
 
+    temporal_fit_scores = [
+        float(((r or {}).get("feature_scores") or {}).get("temporal_fit") or 0.0)
+        for r in (results or [])
+        if isinstance((r or {}).get("feature_scores"), dict)
+    ]
+    temporal_fit_max = max(temporal_fit_scores) if temporal_fit_scores else 0.0
+    explicit_as_of = bool(str(as_of or "").strip())
+    # Historical promotion requires explicit alignment, not only lexical cues.
+    historical_alignment_ok = bool(temporal_fit_max >= 0.90 or (explicit_as_of and temporal_fit_max >= 0.60))
+
     # High conflict: answer_partial regardless of confidence
     if conflict > 0.5:
         return "answer_partial"
 
-    if historical_intent and anchor >= 0.45 and evidence >= 0.25:
+    if historical_intent and historical_alignment_ok and anchor >= 0.45 and evidence >= 0.25:
         return "answer_historical"
 
     # Strong anchor, good evidence → answer_current
-    if anchor >= 0.7 and (evidence >= 0.4 or (claim_anchor_hit and evidence >= 0.2)):
+    if (not historical_intent) and anchor >= 0.7 and (evidence >= 0.4 or (claim_anchor_hit and evidence >= 0.2)):
         return "answer_current"
 
-    # Decent anchor but low evidence, or historical signals → answer_historical
-    if anchor >= 0.5 and evidence < 0.4:
+    # Historical outcome may still be valid for explicit aligned evidence under low support.
+    if historical_intent and historical_alignment_ok and anchor >= 0.5 and evidence < 0.4:
         return "answer_historical"
 
     # Some evidence but low anchor → answer_partial
