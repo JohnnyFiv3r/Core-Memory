@@ -37,6 +37,12 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
     pending_after = [int(((r.get("queue_after_query") or {}).get("pending_total") or 0)) for r in ordered]
     backend_mode_counts: dict[str, int] = {}
 
+    token_query_total = 0
+    token_retrieved_total = 0
+    token_answer_total = 0
+    token_total = 0
+    token_case_count = 0
+
     myelination_case_count = 0
     myelination_events_total = 0
     myelination_beads_total = 0
@@ -87,6 +93,14 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             myelination_beads_total += int(ms.get("beads") or 0)
             myelination_strengthened_total += int(ms.get("strengthened") or 0)
             myelination_weakened_total += int(ms.get("weakened") or 0)
+
+        tu = dict(row.get("token_usage") or {})
+        if tu:
+            token_case_count += 1
+            token_query_total += int(tu.get("query_tokens_est") or 0)
+            token_retrieved_total += int(tu.get("retrieved_context_tokens_est") or 0)
+            token_answer_total += int(tu.get("answer_tokens_est") or 0)
+            token_total += int(tu.get("total_tokens_est") or 0)
 
     for row in ordered:
         for w in (row.get("warnings") or []):
@@ -167,7 +181,15 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             if myelination_case_count > 0
             else 0.0,
         },
-        "token_usage": None,
+        "token_usage": {
+            "mode": "estimated_char_4",
+            "cases_with_estimates": int(token_case_count),
+            "query_tokens_total_est": int(token_query_total),
+            "retrieved_context_tokens_total_est": int(token_retrieved_total),
+            "answer_tokens_total_est": int(token_answer_total),
+            "total_tokens_est": int(token_total),
+            "mean_tokens_per_case_est": round((token_total / token_case_count), 3) if token_case_count > 0 else 0.0,
+        },
         "per_bucket": per_bucket,
         "warnings": sorted(set(warnings)),
         "cases": ordered,
@@ -216,4 +238,10 @@ def render_summary(report: dict[str, Any]) -> str:
     if mo:
         lines.append("- myelination observability:")
         lines.append(f"  - strengthened/weakened: {int(mo.get('strengthened_total') or 0)}/{int(mo.get('weakened_total') or 0)}")
+
+    tu = dict(report.get("token_usage") or {})
+    if tu:
+        lines.append("- token usage (estimated):")
+        lines.append(f"  - total: {int(tu.get('total_tokens_est') or 0)}")
+        lines.append(f"  - mean per case: {float(tu.get('mean_tokens_per_case_est') or 0.0):.3f}")
     return "\n".join(lines)

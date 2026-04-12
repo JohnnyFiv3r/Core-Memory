@@ -298,6 +298,48 @@ def _benchmark_backend_mode(diag: dict[str, Any], *, semantic_mode: str) -> str:
     return "unknown"
 
 
+def _estimate_tokens(text: str) -> int:
+    s = str(text or "")
+    if not s:
+        return 0
+    # Lightweight, model-agnostic estimate for benchmark observability.
+    return max(1, int(round(len(s) / 4.0)))
+
+
+def _case_token_usage(*, root: str, query: str, out: dict[str, Any]) -> dict[str, Any]:
+    results = list(out.get("results") or [])
+    result_ids = [str(r.get("bead_id") or "") for r in results if str(r.get("bead_id") or "")]
+
+    retrieved_text_parts: list[str] = []
+    try:
+        idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+        beads = dict((idx.get("beads") or {})) if isinstance(idx, dict) else {}
+        for bid in result_ids[:10]:
+            b = dict(beads.get(bid) or {})
+            if not b:
+                continue
+            retrieved_text_parts.append(str(b.get("title") or ""))
+            retrieved_text_parts.extend([str(x) for x in (b.get("summary") or [])])
+            retrieved_text_parts.append(str(b.get("detail") or ""))
+    except Exception:
+        pass
+
+    answer_text = str(((out.get("answer_candidate") or {}).get("text") or ""))
+
+    q_toks = _estimate_tokens(query)
+    r_toks = _estimate_tokens("\n".join(retrieved_text_parts))
+    a_toks = _estimate_tokens(answer_text)
+
+    return {
+        "mode": "estimated_char_4",
+        "query_tokens_est": int(q_toks),
+        "retrieved_context_tokens_est": int(r_toks),
+        "answer_tokens_est": int(a_toks),
+        "total_tokens_est": int(q_toks + r_toks + a_toks),
+        "result_count": int(len(results)),
+    }
+
+
 def run_case(
     *,
     case: BenchmarkCase,
@@ -365,6 +407,7 @@ def run_case(
         ok, checks = _evaluate_case(case=case, gold=gold, out=out, root=td)
         latency_ms = (time.perf_counter() - t0_total) * 1000.0
         dreamer_corr = _correlate_dreamer_case(td, out)
+        token_usage = _case_token_usage(root=td, query=case.query, out=out)
         return {
             "case_id": case.id,
             "bucket_labels": list(case.bucket_labels),
@@ -390,6 +433,7 @@ def run_case(
             "myelination_enabled": bool(myelination_enabled),
             "myelination_stats": dict((myelination_obs or {}).get("stats") or {}),
             "preload_turn_count": int(len(preload_turns or [])),
+            "token_usage": token_usage,
         }
 
     with tempfile.TemporaryDirectory(prefix="cm-bench-") as td:
@@ -444,6 +488,7 @@ def run_case(
         ok, checks = _evaluate_case(case=case, gold=gold, out=out, root=td)
         latency_ms = (time.perf_counter() - t0_total) * 1000.0
         dreamer_corr = _correlate_dreamer_case(td, out)
+        token_usage = _case_token_usage(root=td, query=case.query, out=out)
         return {
             "case_id": case.id,
             "bucket_labels": list(case.bucket_labels),
@@ -469,6 +514,7 @@ def run_case(
             "myelination_enabled": bool(myelination_enabled),
             "myelination_stats": dict((myelination_obs or {}).get("stats") or {}),
             "preload_turn_count": int(len(preload_turns or [])),
+            "token_usage": token_usage,
         }
 
 

@@ -1,0 +1,64 @@
+name: benchmark-locomo
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main, master, feat/benchmark-temporal-entity-retrieval ]
+    paths:
+      - 'benchmarks/**'
+      - 'core_memory/**'
+      - 'tests/**'
+      - '.github/workflows/benchmark-locomo.yml'
+  pull_request:
+    paths:
+      - 'benchmarks/**'
+      - 'core_memory/**'
+      - 'tests/**'
+      - '.github/workflows/benchmark-locomo.yml'
+
+jobs:
+  locomo-local:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install package
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+
+      - name: Run LOCOMO-like benchmark (local subset)
+        run: |
+          mkdir -p artifacts
+          python -m benchmarks.locomo_like.runner \
+            --subset local \
+            --semantic-mode degraded_allowed \
+            --vector-backend local-faiss \
+            --myelination off \
+            --out artifacts/locomo_local_report.json | tee artifacts/locomo_local_stdout.txt
+
+      - name: Validate report shape
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path('artifacts/locomo_local_report.json')
+          report = json.loads(p.read_text(encoding='utf-8'))
+          assert report.get('schema_version') == 'locomo_like_report.v1'
+          totals = report.get('totals') or {}
+          assert int(totals.get('cases') or 0) > 0
+          assert 'token_usage' in report
+          print('cases=', totals.get('cases'), 'accuracy=', totals.get('accuracy'))
+          PY
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: locomo-benchmark-artifacts
+          path: artifacts/

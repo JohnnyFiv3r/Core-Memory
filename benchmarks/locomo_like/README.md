@@ -47,6 +47,7 @@ The runner emits machine-readable JSON containing:
 - backend observability (`benchmark_backend_mode`, semantic doctor fields)
 - dreamer correlation summary (accepted proposal use-rate in retrieval)
 - optional myelination comparison summary (`--myelination compare`)
+- token usage observability (`token_usage`) with lightweight estimated totals
 - warnings
 - run metadata (commit, mode, timestamp)
 
@@ -58,6 +59,14 @@ The runner emits machine-readable JSON containing:
 - external backends (`qdrant`, `pgvector`) report `external_distributed` when usable.
 
 Optional plain-text summary is printed to stdout.
+
+## CI workflow
+
+GitHub Actions workflow:
+
+- `.github/workflows/benchmark-locomo.yml`
+
+It runs the local subset benchmark on push/PR and uploads JSON + stdout artifacts.
 
 ## Scaling path for larger LOCOMO-style traces
 
