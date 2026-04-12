@@ -31,6 +31,8 @@ Use this page as the authoritative map of current docs.
   - [`integrations/shared/concepts.md`](integrations/shared/concepts.md)
   - [`integrations/shared/contracts.md`](integrations/shared/contracts.md)
 - OpenClaw: [`integrations/openclaw/README.md`](integrations/openclaw/README.md)
+  - Canonical contract: [`integrations/openclaw/canonical_contract.md`](integrations/openclaw/canonical_contract.md)
+  - Skill companion: [`integrations/openclaw/core-memory-skill-instructions.md`](integrations/openclaw/core-memory-skill-instructions.md)
 - PydanticAI: [`integrations/pydanticai/README.md`](integrations/pydanticai/README.md)
 - SpringAI / HTTP: [`integrations/springai/README.md`](integrations/springai/README.md)
 - LangChain: [`integrations/langchain/README.md`](integrations/langchain/README.md)
