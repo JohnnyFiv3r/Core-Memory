@@ -34,6 +34,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
     incident_from_facets = str(((facets.get("incident_ids") or [None])[0] or "")).strip()
     incident_id = str(req.get("incident_id") or incident_from_facets or "").strip() or None
     scope = str(req.get("scope") or facets.get("scope") or "").strip() or None
+    as_of = str(req.get("as_of") or facets.get("as_of") or "").strip() or None
 
     topic_keys = [str(x) for x in (req.get("topic_keys") or facets.get("topic_keys") or [])]
     bead_types = [normalize_bead_type(str(x)) for x in (req.get("bead_types") or facets.get("bead_types") or [])]
@@ -50,6 +51,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
         "k": k,
         "incident_id": incident_id,
         "scope": scope,
+        "as_of": as_of,
         "topic_keys": topic_keys,
         "bead_types": bead_types,
         "relation_types": relation_types,
@@ -144,7 +146,23 @@ def memory_search_typed(root: str, submission: dict, explain: bool = False) -> d
 
 
 def memory_execute(root: str, request: dict, explain: bool = True) -> dict:
-    return _execute_request(root=root, request=request, explain=bool(explain))
+    out = _execute_request(root=root, request=request, explain=bool(explain))
+    try:
+        from core_memory.runtime.retrieval_feedback import record_retrieval_feedback
+
+        fb = record_retrieval_feedback(root, request=dict(request or {}), response=dict(out or {}), source="memory_execute")
+        if isinstance(out, dict):
+            out["retrieval_feedback"] = {
+                "recorded": bool((fb or {}).get("ok")),
+                "event_id": str((fb or {}).get("event_id") or ""),
+            }
+    except Exception:
+        if isinstance(out, dict):
+            warns = list(out.get("warnings") or [])
+            if "retrieval_feedback_write_failed" not in warns:
+                warns.append("retrieval_feedback_write_failed")
+            out["warnings"] = warns
+    return out
 
 
 def memory_trace(root: str, query: str = "", anchor_ids: list[str] | None = None, k: int = 8, hydration: dict | None = None) -> dict:

@@ -19,6 +19,11 @@ from core_memory.schema.normalization import normalize_bead_type, normalize_rela
 from core_memory.claim.retrieval_planner import plan_retrieval_mode, boost_claim_results
 from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.claim.answer_policy import score_answer
+from core_memory.entity.registry import load_entity_registry
+from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
+from core_memory.retrieval.evidence_scoring import rerank_semantic_rows
+from core_memory.runtime.myelination import compute_myelination_bonus_map
+from .convergence import run_hybrid_rerank_seeds
 from core_memory.integrations.openclaw_flags import (
     claim_layer_enabled,
     claim_resolution_enabled,
@@ -54,7 +59,7 @@ def _semantic_failure_response(*, query: str, intent: str, k: int, warnings: lis
     return out
 
 
-def _load_claim_state(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
+def _load_claim_state(root: Path, *, as_of: str | None = None) -> tuple[dict[str, Any] | None, list[str]]:
     """Load claim state for retrieval planning/policy when claim layer is enabled."""
     warns: list[str] = []
     if not claim_layer_enabled():
@@ -63,7 +68,7 @@ def _load_claim_state(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
         warns.append("claim_resolution_disabled")
         return None, warns
     try:
-        state = resolve_all_current_state(str(root))
+        state = resolve_all_current_state(str(root), as_of=as_of)
         if isinstance(state, dict):
             return state, warns
         warns.append("claim_state_unavailable")
@@ -73,11 +78,10 @@ def _load_claim_state(root: Path) -> tuple[dict[str, Any] | None, list[str]]:
 
 
 def _query_terms(text: str) -> set[str]:
-    return {
-        t.strip(" ?!.,:;()[]{}\"'`").lower()
-        for t in str(text or "").split()
-        if len(t.strip()) >= 3
-    }
+    import re
+
+    s = str(text or "").lower().replace("_", " ").replace("-", " ")
+    return {tok for tok in re.findall(r"[a-z0-9]+", s) if len(tok) >= 3}
 
 
 def _claim_anchors_from_state(
@@ -94,15 +98,23 @@ def _claim_anchors_from_state(
         return []
 
     q = _query_terms(query)
-    use_all = bool(q.intersection({"my", "me", "current", "now", "preference", "timezone", "where", "who", "what"}))
+    generic_personal = bool(q.intersection({"my", "me", "current", "now"}))
     out: list[dict[str, Any]] = []
+    candidate_slot_count = 0
 
     for key, slot_data in slots.items():
         if not isinstance(slot_data, dict):
             continue
-        if str(slot_data.get("status") or "") != "active":
+        slot_status = str(slot_data.get("status") or "").strip().lower()
+        if slot_status not in {"active", "conflict"}:
             continue
+        candidate_slot_count += 1
+
         claim = slot_data.get("current_claim") or {}
+        if not isinstance(claim, dict) or not claim:
+            # Conflict slots may not have a stable current claim — use one conflict target when present.
+            conflicts = list(slot_data.get("conflicts") or [])
+            claim = dict(conflicts[0] or {}) if conflicts and isinstance(conflicts[0], dict) else {}
         if not isinstance(claim, dict):
             continue
 
@@ -112,35 +124,132 @@ def _claim_anchors_from_state(
         value_s = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
         claim_terms = _query_terms(" ".join([subject, slot, str(claim.get("claim_kind") or ""), value_s]))
         overlap = len(q.intersection(claim_terms))
-        if not use_all and overlap == 0:
+        if overlap == 0 and not (generic_personal and candidate_slot_count == 1):
             continue
 
         conf = float(claim.get("confidence") or 0.6)
-        score = min(0.98, max(0.62, conf + (0.03 * overlap)))
+        if slot_status == "conflict":
+            score = min(0.94, max(0.58, conf + (0.03 * overlap)))
+        else:
+            score = min(0.98, max(0.62, conf + (0.03 * overlap)))
         bid = f"claim:{subject}:{slot}"
+
+        summary_line = f"Current {slot}: {value_s}"
+        if slot_status == "conflict":
+            conflict_vals = []
+            for c in (slot_data.get("conflicts") or []):
+                if not isinstance(c, dict):
+                    continue
+                cv = c.get("value")
+                if cv is None:
+                    continue
+                conflict_vals.append(str(cv))
+            if conflict_vals:
+                summary_line = f"Conflicting {slot}: {' vs '.join(conflict_vals[:3])}"
+
         by_id[bid] = {
             "bead": {
                 "id": bid,
                 "title": f"{subject} {slot}".strip(),
                 "type": "context",
-                "summary": [f"Current {slot}: {value_s}"],
+                "summary": [summary_line],
             },
             "source_surface": "claim_state",
-            "status": "default",
+            "status": slot_status or "default",
         }
         out.append(
             {
                 "bead_id": bid,
                 "score": score,
-                "anchor_reason": "claim_current_state",
+                "anchor_reason": "claim_conflict_state" if slot_status == "conflict" else "claim_current_state",
                 "source_surface": "claim_state",
-                "status": "default",
+                "status": slot_status or "default",
                 "context_bias_score": 0.0,
+                "claim_slot_key": key_s,
+                "claim_id": str(claim.get("id") or ""),
+                "claim_value": value,
+                "claim_status": slot_status,
             }
         )
 
     out.sort(key=lambda r: float(r.get("score") or 0.0), reverse=True)
     return out[: max(1, int(limit))]
+
+
+def _slot_label(slot_key: str) -> str:
+    _, _, slot = str(slot_key or "").partition(":")
+    s = slot or str(slot_key or "")
+    return s.replace("_", " ").strip()
+
+
+def _claim_answer_candidate(
+    *,
+    query: str,
+    claim_state: dict[str, Any] | None,
+    results: list[dict[str, Any]],
+    answer_outcome: str,
+    as_of: str | None,
+) -> dict[str, Any] | None:
+    if not isinstance(claim_state, dict):
+        return None
+    if str(answer_outcome or "") not in {"answer_current", "answer_historical", "answer_partial"}:
+        return None
+
+    slots = claim_state.get("slots") or {}
+    if not isinstance(slots, dict) or not slots:
+        return None
+
+    top = (results or [{}])[0] if (results or []) else {}
+    if str((top or {}).get("source_surface") or "") != "claim_state":
+        return None
+
+    # Prefer explicit slot metadata from claim-state anchor.
+    slot_key = str((top or {}).get("claim_slot_key") or "")
+    if not slot_key:
+        bead_id = str((top or {}).get("bead_id") or "")
+        if bead_id.startswith("claim:"):
+            _, subject, slot = bead_id.split(":", 2)
+            slot_key = f"{subject}:{slot}"
+
+    slot_data = dict((slots.get(slot_key) or {})) if slot_key else {}
+    if not slot_data:
+        # fallback: choose best query-overlap slot
+        q = _query_terms(query)
+        best_key = ""
+        best_score = -1
+        for k, row in slots.items():
+            if str((row or {}).get("status") or "") != "active":
+                continue
+            claim = (row or {}).get("current_claim") or {}
+            terms = _query_terms(" ".join([str(k), str(claim.get("claim_kind") or ""), str(claim.get("value") or "")]))
+            score = len(q.intersection(terms))
+            if score > best_score:
+                best_score = score
+                best_key = str(k)
+        if best_key:
+            slot_key = best_key
+            slot_data = dict((slots.get(best_key) or {}))
+
+    claim = dict((slot_data.get("current_claim") or {}))
+    if not claim:
+        return None
+
+    value = claim.get("value")
+    slot_text = _slot_label(slot_key)
+    if str(answer_outcome) == "answer_historical" and str(as_of or "").strip():
+        text = f"As of {as_of}, {slot_text} was {value}."
+    else:
+        text = f"Current {slot_text} is {value}."
+
+    return {
+        "text": text,
+        "slot_key": slot_key,
+        "slot": slot_text,
+        "value": value,
+        "claim_id": str(claim.get("id") or ""),
+        "source": "claim_state",
+        "as_of": str(as_of or "") or None,
+    }
 
 
 def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tuple[dict[str, Any], list[str]]:
@@ -204,6 +313,52 @@ def _has_non_temporal_structural_edge(chains: list[dict[str, Any]]) -> bool:
 def _status_rank(status: str) -> int:
     order = {"promoted": 0, "archived": 1, "candidate": 2, "open": 3}
     return order.get(str(status or "").lower(), 9)
+
+
+def _relation_summary_from_index(index_payload: dict[str, Any]) -> dict[str, dict[str, int]]:
+    out: dict[str, dict[str, int]] = {}
+    for row in list((index_payload or {}).get("associations") or []):
+        if not isinstance(row, dict):
+            continue
+        src = str(row.get("source_bead") or row.get("source_bead_id") or "")
+        dst = str(row.get("target_bead") or row.get("target_bead_id") or "")
+        if not src or not dst:
+            continue
+        rel = normalize_relation_type(str(row.get("relationship") or row.get("rel") or ""))
+
+        out.setdefault(src, {"supersedes_count": 0, "superseded_by_count": 0, "contradicts_count": 0})
+        out.setdefault(dst, {"supersedes_count": 0, "superseded_by_count": 0, "contradicts_count": 0})
+
+        if rel == "supersedes":
+            out[src]["supersedes_count"] += 1
+            out[dst]["superseded_by_count"] += 1
+        elif rel == "superseded_by":
+            out[src]["superseded_by_count"] += 1
+            out[dst]["supersedes_count"] += 1
+        elif rel == "contradicts":
+            out[src]["contradicts_count"] += 1
+            out[dst]["contradicts_count"] += 1
+
+    return out
+
+
+def _retrieval_value_bonus_from_index(index_payload: dict[str, Any]) -> dict[str, float]:
+    bonuses: dict[str, float] = {}
+    rows = (index_payload or {}).get("retrieval_value_overrides") or {}
+    for row in rows.values() if isinstance(rows, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        if str(row.get("status") or "active").strip().lower() != "active":
+            continue
+        src = str(row.get("source_bead_id") or "").strip()
+        dst = str(row.get("target_bead_id") or "").strip()
+        delta = float(row.get("weight_delta") or 0.0)
+        if not src or not dst or delta == 0.0:
+            continue
+        # split bonus across endpoints to keep candidate-level scoring simple
+        bonuses[src] = float(bonuses.get(src, 0.0)) + (0.5 * delta)
+        bonuses[dst] = float(bonuses.get(dst, 0.0)) + (0.5 * delta)
+    return bonuses
 
 
 CONTINUITY_QUERY_HINTS = (
@@ -280,11 +435,17 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
         "type": str(bead.get("type") or ""),
         "snippet": " ".join((bead.get("summary") or [])[:2]),
         "score": float(res.get("score") or 0.0),
-        "semantic_score": float(res.get("score") or 0.0),
+        "semantic_score": float(res.get("semantic_score") if res.get("semantic_score") is not None else (res.get("score") or 0.0)),
+        "rank_score": float(res.get("rank_score") or res.get("score") or 0.0),
+        "fused_score": float(res.get("fused_score") or 0.0),
+        "rerank_seed_score": float(res.get("rerank_seed_score") or 0.0),
+        "feature_scores": dict(res.get("feature_scores") or {}),
         "anchor_reason": str(res.get("anchor_reason") or "retrieved"),
         "context_bias_score": float(res.get("context_bias_score") or 0.0),
         "source_surface": str(res.get("source_surface") or row.get("source_surface") or "projection"),
         "status": str(res.get("status") or row.get("status") or ""),
+        "claim_slot_key": str(res.get("claim_slot_key") or ""),
+        "claim_id": str(res.get("claim_id") or ""),
     }
 
 
@@ -390,17 +551,72 @@ def search_request(
     rp = Path(root)
     corpus = build_visible_corpus(rp)
     catalog = build_catalog(rp)
-    claim_state, claim_warnings = _load_claim_state(rp)
+    entity_registry = load_entity_registry(rp)
+    entity_context = infer_query_entity_context(query, entity_registry)
+    expanded_query = expand_query_with_entities(query, entity_context, entity_registry)
+    sub = dict(submission or {})
+    as_of_raw = str(sub.get("as_of") or "").strip() or None
+    tr = dict(sub.get("time_range") or {})
+    if not as_of_raw:
+        as_of_raw = str(tr.get("to") or "").strip() or None
+
+    claim_state, claim_warnings = _load_claim_state(rp, as_of=as_of_raw)
     retrieval_mode = plan_retrieval_mode(query, catalog, claim_state)
     by_id = {str(r.get("bead_id") or ""): r for r in corpus}
     projection_created_at: dict[str, str] = {}
+    relation_summary: dict[str, dict[str, int]] = {}
+    retrieval_value_bonus: dict[str, float] = {}
+    myelination_bonus: dict[str, float] = {}
     try:
         idx = json.loads((rp / ".beads" / "index.json").read_text(encoding="utf-8"))
         for bid, bead in ((idx.get("beads") or {}) if isinstance(idx, dict) else {}).items():
             if isinstance(bead, dict):
                 projection_created_at[str(bid)] = str(bead.get("created_at") or "")
+        relation_summary = _relation_summary_from_index(idx if isinstance(idx, dict) else {})
+        retrieval_value_bonus = _retrieval_value_bonus_from_index(idx if isinstance(idx, dict) else {})
     except Exception:
         projection_created_at = {}
+        relation_summary = {}
+        retrieval_value_bonus = {}
+
+    try:
+        myelination_payload = compute_myelination_bonus_map(rp)
+        if bool((myelination_payload or {}).get("enabled")):
+            myelination_bonus = dict((myelination_payload.get("bonus_by_bead_id") or {}))
+    except Exception:
+        myelination_bonus = {}
+
+    if relation_summary:
+        for bid, rel in relation_summary.items():
+            row = by_id.get(str(bid))
+            if not isinstance(row, dict):
+                continue
+            bead = dict((row.get("bead") or {}))
+            bead["supersedes_count"] = int(rel.get("supersedes_count") or 0)
+            bead["superseded_by_count"] = int(rel.get("superseded_by_count") or 0)
+            bead["contradicts_count"] = int(rel.get("contradicts_count") or 0)
+            row["bead"] = bead
+            by_id[str(bid)] = row
+
+    if retrieval_value_bonus:
+        for bid, bonus in retrieval_value_bonus.items():
+            row = by_id.get(str(bid))
+            if not isinstance(row, dict):
+                continue
+            bead = dict((row.get("bead") or {}))
+            bead["retrieval_value_bonus"] = float(bonus)
+            row["bead"] = bead
+            by_id[str(bid)] = row
+
+    if myelination_bonus:
+        for bid, bonus in myelination_bonus.items():
+            row = by_id.get(str(bid))
+            if not isinstance(row, dict):
+                continue
+            bead = dict((row.get("bead") or {}))
+            bead["myelination_bonus"] = float(bonus)
+            row["bead"] = bead
+            by_id[str(bid)] = row
 
     sem_k = max(24, int(k) * 2)
     if retrieval_mode == "fact_first":
@@ -410,7 +626,7 @@ def search_request(
     elif retrieval_mode == "temporal_first":
         sem_k = max(20, int(k) * 2)
 
-    sem = semantic_lookup(rp, query, k=sem_k, mode=_canonical_semantic_mode())
+    sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
     if not sem.get("ok"):
         return _semantic_failure_response(
             query=query,
@@ -420,13 +636,66 @@ def search_request(
             provider=str(sem.get("provider") or ""),
         )
     sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
+    conv = run_hybrid_rerank_seeds(
+        rp,
+        query=expanded_query or query,
+        intent=intent,
+        k=max(12, int(k) * 2),
+    )
+    conv_by_id = dict(conv.get("by_id") or {}) if bool(conv.get("ok")) else {}
+
+    # Convergence: enrich semantic candidates with hybrid/rerank strength.
+    for r in sem_rows:
+        bid = str(r.get("bead_id") or "")
+        crow = dict(conv_by_id.get(bid) or {})
+        if not crow:
+            continue
+        r["fused_score"] = float(crow.get("fused_score") or 0.0)
+        r["rerank_seed_score"] = float(crow.get("rerank_score") or 0.0)
+        r["sem_score"] = float(crow.get("sem_score") or 0.0)
+        r["lex_score"] = float(crow.get("lex_score") or 0.0)
+        feats = dict(crow.get("features") or {})
+        # Structural lift as soft bias.
+        r["context_bias_score"] = max(float(r.get("context_bias_score") or 0.0), float(feats.get("structural_add") or 0.0))
+
+    # Add strong hybrid/rerank candidates missing from semantic seed set.
+    if conv_by_id:
+        seen_sem = {str(r.get("bead_id") or "") for r in sem_rows}
+        add_cap = max(2, int(k))
+        added = 0
+        for crow in (conv.get("results") or []):
+            bid = str(crow.get("bead_id") or "")
+            if not bid or bid in seen_sem:
+                continue
+            if bid not in by_id:
+                continue
+            if added >= add_cap:
+                break
+            sem_rows.append(
+                {
+                    "bead_id": bid,
+                    "score": float(crow.get("rerank_score") or crow.get("fused_score") or 0.0),
+                    "semantic_score": float(crow.get("sem_score") or 0.0),
+                    "fused_score": float(crow.get("fused_score") or 0.0),
+                    "rerank_seed_score": float(crow.get("rerank_score") or 0.0),
+                    "sem_score": float(crow.get("sem_score") or 0.0),
+                    "lex_score": float(crow.get("lex_score") or 0.0),
+                    "anchor_reason": "hybrid_rerank_seed",
+                    "source_surface": str((by_id.get(bid) or {}).get("source_surface") or "projection"),
+                    "context_bias_score": float((crow.get("features") or {}).get("structural_add") or 0.0),
+                }
+            )
+            seen_sem.add(bid)
+            added += 1
+
     claim_rows: list[dict[str, Any]] = []
-    if retrieval_mode == "fact_first" and claim_state:
+    if claim_state:
+        claim_limit = max(1, min(3, int(k))) if retrieval_mode == "fact_first" else max(1, min(2, int(k)))
         claim_rows = _claim_anchors_from_state(
             query=query,
             claim_state=claim_state,
             by_id=by_id,
-            limit=max(1, min(3, int(k))),
+            limit=claim_limit,
         )
         if claim_rows:
             seen_ids = {str(r.get("bead_id") or "") for r in sem_rows}
@@ -453,22 +722,32 @@ def search_request(
             if rr["bead_id"] not in seen:
                 sem_rows.append(rr)
 
+    sem_rows, filter_warnings = _apply_typed_filters(sem_rows, by_id, projection_created_at, submission)
+
+    if claim_retrieval_boost_enabled() and claim_state:
+        sem_rows = boost_claim_results(sem_rows, claim_state)
+
+    sem_rows = rerank_semantic_rows(
+        rows=sem_rows,
+        by_id=by_id,
+        query=expanded_query or query,
+        retrieval_mode=retrieval_mode,
+        claim_state=claim_state,
+        as_of=as_of_raw,
+        entity_context=entity_context,
+    )
+
     sem_rows.sort(
         key=lambda r: (
             0 if str(r.get("anchor_reason") or "") == "pinned" else (1 if str(r.get("anchor_reason") or "") == "strict_facet_match" else 2),
+            -float(r.get("rank_score") or r.get("score") or 0.0),
+            -float(r.get("semantic_score") if r.get("semantic_score") is not None else (r.get("score") or 0.0)),
             (int(r.get("_type_priority_rank")) if r.get("_type_priority_rank") is not None else 9),
-            -float(r.get("score") or 0.0),
-            -float(r.get("context_bias_score") or 0.0),
             _status_rank(str(r.get("status") or "")),
             str((by_id.get(str(r.get("bead_id") or ""), {}) or {}).get("created_at") or ""),
             str(r.get("bead_id") or ""),
         )
     )
-
-    sem_rows, filter_warnings = _apply_typed_filters(sem_rows, by_id, projection_created_at, submission)
-
-    if claim_retrieval_boost_enabled() and claim_state:
-        sem_rows = boost_claim_results(sem_rows, claim_state)
 
     anchors = [_to_anchor(r, by_id) for r in sem_rows[: max(1, int(k))]]
     confidence = "high" if anchors and float(anchors[0].get("semantic_score") or 0.0) >= 0.75 else ("medium" if anchors else "low")
@@ -498,8 +777,17 @@ def search_request(
         "citations": [],
         "confidence": confidence,
         "next_action": next_action,
-        "warnings": list(sem.get("warnings") or []) + list(filter_warnings) + list(claim_warnings),
+        "warnings": list(sem.get("warnings") or [])
+        + list(filter_warnings)
+        + list(claim_warnings)
+        + (["hybrid_seed_unavailable"] if not bool(conv.get("ok")) else []),
         "retrieval_mode": retrieval_mode,
+        "retrieval_stages": {
+            "semantic_seed_count": int(len(sem.get("results") or [])),
+            "hybrid_seed_count": int(((conv.get("stages") or {}).get("hybrid_candidates") or 0)),
+            "hybrid_rerank_count": int(((conv.get("stages") or {}).get("rerank_candidates") or 0)),
+            "post_filter_count": int(len(sem_rows)),
+        },
         "snapped": {
             "raw_query": query,
             "intent": intent,
@@ -515,7 +803,14 @@ def search_request(
             "resolved": bool(claim_state),
             "active_slots": int((claim_state or {}).get("active_slots") or 0),
             "total_slots": int((claim_state or {}).get("total_slots") or 0),
+            "as_of": as_of_raw,
             "claim_anchor_count": int(len([r for r in sem_rows[: max(1, int(k))] if str(r.get("anchor_reason") or "") == "claim_current_state"])),
+        },
+        "entity_context": {
+            "resolved_entity_ids": list(entity_context.get("resolved_entity_ids") or []),
+            "matched_aliases": list(entity_context.get("matched_aliases") or []),
+            "labels": list(entity_context.get("labels") or []),
+            "expanded_query": expanded_query,
         },
     }
 
@@ -669,10 +964,12 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     k = int(req.get("k") or 10)
     if grounding_mode == "search_only":
         facets = dict(req.get("facets") or {})
+        as_of = str(req.get("as_of") or facets.get("as_of") or "").strip() or None
         submission = {
             "query_text": query,
             "intent": intent,
             "k": k,
+            "as_of": as_of,
             "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
             "scope": str(facets.get("scope") or "").strip() or None,
             "topic_keys": list(facets.get("topic_keys") or []),
@@ -702,10 +999,12 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         out.setdefault("hydration", {"status": "not_requested", "warnings": []})
     else:
         facets = dict(req.get("facets") or {})
+        as_of = str(req.get("as_of") or facets.get("as_of") or "").strip() or None
         submission = {
             "query_text": query,
             "intent": intent,
             "k": k,
+            "as_of": as_of,
             "incident_id": str((facets.get("incident_ids") or [None])[0] or "").strip() or None,
             "scope": str(facets.get("scope") or "").strip() or None,
             "topic_keys": list(facets.get("topic_keys") or []),
@@ -770,6 +1069,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         "raw_query": query,
         "intent": intent,
         "k": k,
+        "as_of": str(req.get("as_of") or "").strip() or None,
         "grounding_mode": grounding_mode,
         "constraints": {"require_structural": bool(constraints.get("require_structural", False))},
         "facets": dict(req.get("facets") or {}),
@@ -787,10 +1087,34 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
     out.setdefault("source_priority_applied", ["session_bead", "archive_graph", "rolling_window", "transcript", "memory_md"])
 
     if claim_layer_enabled():
-        claim_state, claim_warnings = _load_claim_state(rp)
-        policy = score_answer(list(out.get("results") or []), claim_state, query)
+        as_of = str(req.get("as_of") or "").strip() or None
+        if not as_of:
+            tr = dict(req.get("time_range") or {})
+            as_of = str(tr.get("to") or "").strip() or None
+        claim_state, claim_warnings = _load_claim_state(rp, as_of=as_of)
+        policy = score_answer(list(out.get("results") or []), claim_state, query, as_of=as_of)
         out["answer_policy"] = policy
         out["answer_outcome"] = str(policy.get("outcome") or "answer_partial")
+        candidate = _claim_answer_candidate(
+            query=query,
+            claim_state=claim_state,
+            results=list(out.get("results") or []),
+            answer_outcome=out["answer_outcome"],
+            as_of=as_of,
+        )
+        if candidate:
+            out["answer_candidate"] = candidate
+            cites = list(out.get("citations") or [])
+            top = (out.get("results") or [{}])[0] if (out.get("results") or []) else {}
+            bid = str((top or {}).get("bead_id") or "")
+            if bid and not any(str((c or {}).get("bead_id") or "") == bid for c in cites if isinstance(c, dict)):
+                cites.append({
+                    "bead_id": bid,
+                    "reason": "claim_state_current_slot",
+                    "slot_key": str(candidate.get("slot_key") or ""),
+                    "claim_id": str(candidate.get("claim_id") or ""),
+                })
+            out["citations"] = cites
         if out["answer_outcome"] == "abstain":
             out["next_action"] = "ask_clarifying"
             out["suggested_next"] = "ask_clarifying"

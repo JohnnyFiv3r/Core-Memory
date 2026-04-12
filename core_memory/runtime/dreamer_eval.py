@@ -82,6 +82,9 @@ def _signal_names(candidate: dict[str, Any]) -> set[str]:
 
 
 def _is_policy_reuse_candidate(candidate: dict[str, Any]) -> bool:
+    ht = str(candidate.get("hypothesis_type") or "").strip().lower()
+    if ht in {"retrieval_value_candidate", "entity_merge_candidate"}:
+        return False
     rel = str(candidate.get("relationship") or "").strip().lower()
     if rel in {"transferable_lesson", "generalizes", "structural_symmetry"}:
         return True

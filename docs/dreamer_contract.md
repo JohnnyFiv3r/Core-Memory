@@ -24,14 +24,29 @@ Dreamer candidates are queued with hypothesis types such as:
 - `transferable_lesson_candidate`
 - `abstraction_candidate`
 - `precedent_candidate`
+- `entity_merge_candidate`
+- `retrieval_value_candidate`
 
 Each queued row includes:
 - source/target bead ids
 - hypothesis type
+- proposal family (`association|contradiction|entity_identity|retrieval_value`)
+- benchmark tags (bucket-level relevance hints)
 - novelty / grounding / confidence
 - rationale
 - expected decision impact
 - run metadata (run id, mode, session/flush context)
+
+## Retrieval feedback loop input (DV2-2)
+
+Dreamer candidate generation may consume retrieval-success telemetry from
+`.beads/events/retrieval-feedback.jsonl` via summarized signals:
+
+- source/target bead retrieval hit counts
+- edge co-occurrence hits in successful retrieval chains
+- claim-slot retrieval hit context
+
+These are **review-support signals only**. They do not grant Dreamer direct write authority.
 
 ## Scoring direction (structural replay oriented)
 
@@ -56,6 +71,11 @@ Dreamer does not bypass canonical authority. The expected flow is:
 2. reviewer/agent accepts or rejects
 3. accepted candidates may be applied through canonical store/runtime surfaces
 4. rejected candidates remain logged for calibration
+
+Reviewed apply examples:
+- `entity_merge_candidate` -> canonical entity-merge reviewed apply flow
+- `contradiction_candidate` / structural association candidates -> canonical turn-finalized association write path
+- `retrieval_value_candidate` -> canonical retrieval-value override surface (`retrieval_value_overrides`) plus audit event log
 
 ## DR-7 behavior eval metrics
 

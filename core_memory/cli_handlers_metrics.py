@@ -8,6 +8,7 @@ from .persistence.archive_index import rebuild_archive_index
 from .runtime.dreamer_eval import dreamer_eval_report
 from .runtime.longitudinal_benchmark import longitudinal_benchmark_v2
 from .runtime.reviewer_quick_value import reviewer_quick_value_v2
+from .runtime.myelination import myelination_report
 
 
 def handle_metrics_command(*, args: Any, memory: Any, metrics_parser: Any, canonical_health_report: Callable[[str, str | None], dict]) -> bool:
@@ -142,6 +143,15 @@ def handle_metrics_command(*, args: Any, memory: Any, metrics_parser: Any, canon
             Path(args.write).write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
         if args.strict and not bool((out.get("overall") or {}).get("quick_value_passed")):
             raise SystemExit(2)
+    elif args.metrics_cmd == "myelination-experiment":
+        out = myelination_report(memory.root, since=args.since, limit=args.limit, top=args.top)
+        print(json.dumps(out, indent=2))
+        if args.write:
+            Path(args.write).write_text(json.dumps(out, indent=2) + "\n", encoding="utf-8")
+        if args.strict and bool(out.get("enabled")):
+            stats = dict(out.get("stats") or {})
+            if int(stats.get("beads") or 0) <= 0:
+                raise SystemExit(2)
     else:
         metrics_parser.print_help()
 

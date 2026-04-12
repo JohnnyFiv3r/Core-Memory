@@ -63,3 +63,27 @@ Concurrency hardening notes:
 - semantic index builds use a build lock (`.beads/semantic/build.lock`) to avoid overlapping rebuild writes.
 - if the lock is held, rebuild is treated as retryable and queued.
 - stale locks are reclaimed automatically.
+
+## Benchmark run guidance (PH-2)
+
+For benchmark runs, make backend mode explicit in command/config and record it in report metadata.
+
+Recommended benchmark invocations:
+
+```bash
+# Safe default for local benchmark smoke (honest degraded fallback allowed)
+python -m benchmarks.locomo_like.runner --subset local \
+  --semantic-mode degraded_allowed \
+  --vector-backend local-faiss
+
+# Strict semantic backend requirement (fails closed if backend unusable)
+python -m benchmarks.locomo_like.runner --subset local \
+  --semantic-mode required \
+  --vector-backend qdrant
+```
+
+Interpretation:
+- `degraded_lexical`: no usable semantic backend; lexical fallback active.
+- `local_single_writer`: local FAISS/Chroma usable but single-writer profile.
+- `external_distributed`: distributed-safe backend profile (qdrant/pgvector) usable.
+- `strict_missing_backend`: required mode requested without usable semantic backend.

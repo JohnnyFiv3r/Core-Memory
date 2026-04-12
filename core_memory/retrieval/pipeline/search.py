@@ -4,10 +4,11 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from core_memory.retrieval.hybrid import hybrid_lookup
-from core_memory.retrieval.rerank import rerank_candidates
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
+from core_memory.entity.registry import load_entity_registry
+from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
+from .convergence import run_hybrid_rerank_seeds
 
 
 def _parse_iso(ts: str) -> datetime | None:
@@ -35,19 +36,21 @@ def _load_beads(root: Path) -> dict:
 def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
     beads = _load_beads(root)
     q = str(form.get("query_text") or "").strip()
+    entity_registry = load_entity_registry(root)
+    entity_context = infer_query_entity_context(q, entity_registry)
+    q = expand_query_with_entities(q, entity_context, entity_registry)
     qx = q
     if form.get("must_terms"):
         qx = (qx + " " + " ".join([str(x) for x in form.get("must_terms") or []])).strip()
 
     k = int(form.get("k") or 10)
     intent = str(form.get("intent") or "other")
-    intent_bucket = intent if intent in {"causal", "remember", "what_changed", "when"} else "remember"
-
-    h = hybrid_lookup(root, query=qx, k=max(20, k * 4))
-    if not h.get("ok"):
-        return {"ok": False, "error": h.get("error")}
-    rr = rerank_candidates(root, query=qx, candidates=h.get("results") or [], intent_class=intent_bucket)
-    ranked = rr.get("results") or []
+    conv = run_hybrid_rerank_seeds(root, query=qx, intent=intent, k=k)
+    if not conv.get("ok"):
+        return {"ok": False, "error": conv.get("error")}
+    h = conv.get("hybrid") or {}
+    rr = conv.get("rerank") or {}
+    ranked = conv.get("results") or []
 
     # deterministic filters
     incident_id = str(form.get("incident_id") or "")
@@ -149,6 +152,11 @@ def search_typed(root: Path, form: dict, include_explain: bool = False) -> dict:
         "warnings": warnings,
         "confidence": confidence,
         "suggested_next": suggested_next,
+        "retrieval_stages": dict(conv.get("stages") or {}),
+        "entity_context": {
+            "resolved_entity_ids": list(entity_context.get("resolved_entity_ids") or []),
+            "matched_aliases": list(entity_context.get("matched_aliases") or []),
+        },
     }
     if include_explain:
         out["retrieval_debug"] = {"hybrid": h, "rerank": rr, "filtered_count": len(filtered)}

@@ -24,8 +24,20 @@ class TestClaimAnswerPolicy(unittest.TestCase):
     def test_answer_current_high_confidence(self):
         self.assertEqual("answer_current", decide_answer_outcome(make_results(5), make_state(active=2), "what do I prefer?"))
 
-    def test_answer_historical_low_evidence(self):
-        self.assertEqual("answer_historical", decide_answer_outcome([], make_state(active=1), "what did I used to prefer?"))
+    def test_historical_cue_without_temporal_alignment_stays_partial(self):
+        self.assertEqual("answer_partial", decide_answer_outcome([], make_state(active=1), "what did I used to prefer?"))
+
+    def test_answer_historical_with_explicit_alignment(self):
+        results = [
+            {
+                "score": 0.7,
+                "feature_scores": {"temporal_fit": 1.0},
+            }
+        ]
+        self.assertEqual(
+            "answer_historical",
+            decide_answer_outcome(results, make_state(active=1), "what was this as of last week", as_of="2026-01-01T00:00:00Z"),
+        )
 
     def test_answer_partial_some_evidence(self):
         self.assertEqual("answer_partial", decide_answer_outcome(make_results(2, score=0.5), None, "anything about preferences?"))

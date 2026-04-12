@@ -46,7 +46,42 @@
   header h1 { font-size: 16px; font-weight: 600; letter-spacing: -0.02em; }
   header h1 span { color: var(--accent); }
 
-  .header-controls { display: flex; gap: 8px; align-items: center; }
+  .header-controls { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+  .control-label {
+    font-size: 10px;
+    color: var(--text-dim);
+    font-family: var(--font);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-right: 4px;
+  }
+
+  .control-select,
+  .control-input {
+    background: var(--surface2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 11px;
+    min-height: 28px;
+  }
+  .control-select:focus,
+  .control-input:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+
+  .control-inline {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .control-inline input[type="checkbox"] {
+    accent-color: var(--accent);
+  }
 
   .session-badge {
     font-family: var(--font);
@@ -234,6 +269,29 @@
   <h1><span>Core Memory</span> Live Demo</h1>
   <div class="header-controls">
     <span class="session-badge" id="session-badge">session: ---</span>
+    <span class="control-label">subset</span>
+    <select id="bench-subset" class="control-select" title="Benchmark subset">
+      <option value="local" selected>local</option>
+      <option value="full">full</option>
+    </select>
+    <span class="control-label">semantic</span>
+    <select id="bench-semantic" class="control-select" title="Semantic mode">
+      <option value="required" selected>required</option>
+      <option value="degraded_allowed">degraded_allowed</option>
+    </select>
+    <span class="control-label">myelination</span>
+    <select id="bench-myelination" class="control-select" title="Myelination mode">
+      <option value="off" selected>off</option>
+      <option value="on">on</option>
+      <option value="compare">compare</option>
+    </select>
+    <span class="control-label">preload</span>
+    <input id="bench-preload-max" class="control-input" type="number" min="0" step="50" value="200" style="width:74px" title="Max demo turns to preload">
+    <label class="control-inline" title="Preload turns from demo session">
+      <input id="bench-preload-enabled" type="checkbox">
+      <span class="control-label" style="margin-right:0">from demo</span>
+    </label>
+    <button class="btn" id="btn-benchmark" onclick="runBenchmark()">Run LOCOMO Test</button>
     <button class="btn btn-warn" onclick="flushSession()">Flush Session</button>
   </div>
 </header>
@@ -560,12 +618,75 @@ async function flushSession() {
   }
 }
 
+function formatBenchmarkSummary(s) {
+  if (!s) return 'Benchmark completed.';
+  const modes = (s.backend_modes || []).join(', ') || 'unknown';
+  return (
+    'LOCOMO test completed\n' +
+    'mode: visual (writes into demo memory store)\n' +
+    'cases: ' + (s.cases ?? 0) + '\n' +
+    'pass/fail: ' + (s.pass ?? 0) + '/' + (s.fail ?? 0) + '\n' +
+    'accuracy: ' + Number(s.accuracy || 0).toFixed(4) + '\n' +
+    'semantic mode: ' + (s.semantic_mode || 'n/a') + '\n' +
+    'backend modes: ' + modes + '\n' +
+    'preload turns: ' + (s.preload_turn_count ?? 0)
+  );
+}
+
+async function runBenchmark() {
+  const btn = document.getElementById('btn-benchmark');
+  if (!btn) return;
+  const subset = document.getElementById('bench-subset')?.value || 'local';
+  const semanticMode = document.getElementById('bench-semantic')?.value || 'required';
+  const myelination = document.getElementById('bench-myelination')?.value || 'off';
+  const preloadEnabled = !!document.getElementById('bench-preload-enabled')?.checked;
+  const preloadRaw = Number(document.getElementById('bench-preload-max')?.value || 200);
+  const preloadMax = Number.isFinite(preloadRaw) ? Math.max(0, Math.floor(preloadRaw)) : 200;
+
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  addMsg(
+    'system',
+    'Running LOCOMO benchmark (' + subset + ', semantic=' + semanticMode + ', myelination=' + myelination +
+      ', preload=' + (preloadEnabled ? preloadMax : 0) + ')...'
+  );
+  try {
+    const res = await fetch('/api/benchmark-run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        subset,
+        semantic_mode: semanticMode,
+        vector_backend: 'local-faiss',
+        myelination,
+        preload_from_demo: preloadEnabled,
+        preload_turns_max: preloadMax,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || ('HTTP ' + res.status));
+    }
+    addMsg('system', formatBenchmarkSummary(data.summary || {}));
+    document.getElementById('modal-title').textContent = 'LOCOMO Benchmark Report';
+    document.getElementById('modal-body').textContent = JSON.stringify(data.report || {}, null, 2);
+    document.getElementById('modal').classList.add('open');
+  } catch (err) {
+    addMsg('system', 'Benchmark failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+}
+
 function switchTab(name) {
   document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
 }
 
 refreshMemory();
+setInterval(refreshMemory, 2500);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 </script>
 </body>

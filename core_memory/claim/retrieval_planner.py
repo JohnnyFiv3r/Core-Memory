@@ -14,14 +14,30 @@ RETRIEVAL_MODES = {
 }
 
 # Signal words for each mode
-FACT_SIGNALS = ["what is", "what's", "who is", "where is", "when is", "how old", "what are", "tell me about"]
+FACT_SIGNALS = [
+    "what is",
+    "what's",
+    "who is",
+    "where is",
+    "when is",
+    "how old",
+    "what are",
+    "tell me about",
+    "prefer",
+    "preference",
+    "policy",
+    "timezone",
+]
 CAUSAL_SIGNALS = ["why", "how", "reason", "because", "explain", "caused", "result"]
 TEMPORAL_SIGNALS = ["recently", "latest", "last", "current", "now", "today", "this week"]
 HISTORICAL_SIGNALS = ["used to", "previously", "before", "earlier", "history", "historical", "as of"]
 
 
 def _terms(text: str) -> set[str]:
-    return {t.strip(" ?!.,:;()[]{}\"'").lower() for t in str(text or "").split() if len(t.strip()) >= 3}
+    import re
+
+    s = str(text or "").lower().replace("_", " ").replace("-", " ")
+    return {tok for tok in re.findall(r"[a-z0-9]+", s) if len(tok) >= 3}
 
 
 def _active_slot_hints(current_state: dict | None) -> set[str]:

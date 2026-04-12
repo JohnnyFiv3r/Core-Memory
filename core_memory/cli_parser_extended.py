@@ -202,4 +202,11 @@ def add_metrics_parser(subparsers: argparse._SubParsersAction, *, legacy_help: s
     metrics_reviewer_quick.add_argument("--strict", action="store_true", help="Exit code 2 when quick-value path does not pass")
     metrics_reviewer_quick.add_argument("--write", help="Optional JSON output path")
 
+    metrics_mye = metrics_sub.add_parser("myelination-experiment", help="Report experimental myelination telemetry-derived bonuses")
+    metrics_mye.add_argument("--since", default="30d")
+    metrics_mye.add_argument("--limit", type=int, default=1000)
+    metrics_mye.add_argument("--top", type=int, default=20)
+    metrics_mye.add_argument("--strict", action="store_true", help="Exit code 2 when enabled but no bonus rows are present")
+    metrics_mye.add_argument("--write", help="Optional JSON output path")
+
     return metrics_parser

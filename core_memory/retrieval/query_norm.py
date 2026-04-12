@@ -5,6 +5,8 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from core_memory.entity.registry import load_entity_registry
+from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
 from core_memory.policy.incidents import load_incidents, incident_match_strength
 from .normalize import normalize_query as _normalize_query_canonical, classify_intent as _classify_intent_canonical
 
@@ -141,9 +143,18 @@ def resolve_query_anchors(query: str, root: Path) -> dict:
     expanded_query = " ".join([qraw] + expansions).strip()
     expanded_query = re.sub(r"\s+", " ", expanded_query)
 
+    entity_registry = load_entity_registry(root)
+    entity_context = infer_query_entity_context(query, entity_registry)
+    expanded_query = expand_query_with_entities(expanded_query, entity_context, entity_registry)
+
     return {
         "normalized": qn,
         "matched_incidents": sorted(matched_incidents, key=lambda x: (-x["strength"], x["incident_id"])),
         "matched_topics": sorted(matched_topics, key=lambda x: (-x["strength"], x["topic_key"])),
+        "matched_entities": {
+            "resolved_entity_ids": list(entity_context.get("resolved_entity_ids") or []),
+            "matched_aliases": list(entity_context.get("matched_aliases") or []),
+            "labels": list(entity_context.get("labels") or []),
+        },
         "expanded_query": expanded_query,
     }

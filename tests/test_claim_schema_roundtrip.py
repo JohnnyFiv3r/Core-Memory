@@ -13,6 +13,8 @@ class TestClaimSchemaRoundtrip(unittest.TestCase):
             "value": "python",
             "reason_text": "stated in turn",
             "confidence": 0.9,
+            "effective_from": "2026-01-01T00:00:00Z",
+            "effective_to": "2026-01-10T00:00:00Z",
         }
         obj = Claim.from_dict(src)
         out = obj.to_dict()
@@ -20,6 +22,8 @@ class TestClaimSchemaRoundtrip(unittest.TestCase):
         self.assertEqual("preference", out.get("claim_kind"))
         self.assertEqual("user", out.get("subject"))
         self.assertEqual("language", out.get("slot"))
+        self.assertEqual("2026-01-01T00:00:00Z", out.get("effective_from"))
+        self.assertEqual("2026-01-10T00:00:00Z", out.get("effective_to"))
 
     def test_claim_update_roundtrip_operational_shape(self):
         src = {

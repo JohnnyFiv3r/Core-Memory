@@ -91,6 +91,7 @@ def _infer_bead_domain_tags(bead: dict) -> set[str]:
         " ".join(bead.get("retrieval_facts") or []),
         " ".join(bead.get("topics") or []),
         " ".join(bead.get("entities") or []),
+        " ".join(bead.get("entity_ids") or []),
     ])
     return _infer_domain_tags_from_text(text)
 

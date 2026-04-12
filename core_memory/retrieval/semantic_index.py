@@ -541,7 +541,7 @@ def build_semantic_index(root: Path) -> dict:
         texts = [str(r.get("semantic_text") or "") for r in rows]
 
         provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
-        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "text-embedding-004").strip()
+        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "gemini-embedding-001").strip()
         vector_backend = _configured_vector_backend()
 
         backend = "lexical"
@@ -678,7 +678,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
 
     # Provider/model mismatch -> hard rebuild before querying.
     req_provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
-    req_model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "text-embedding-004").strip()
+    req_model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "gemini-embedding-001").strip()
     req_vector_backend = _configured_vector_backend()
     if (
         (manifest.get("provider") and (str(manifest.get("provider")) != req_provider or str(manifest.get("model")) != req_model))

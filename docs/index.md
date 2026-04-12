@@ -31,6 +31,8 @@ Use this page as the authoritative map of current docs.
   - [`integrations/shared/concepts.md`](integrations/shared/concepts.md)
   - [`integrations/shared/contracts.md`](integrations/shared/contracts.md)
 - OpenClaw: [`integrations/openclaw/README.md`](integrations/openclaw/README.md)
+  - Canonical contract: [`integrations/openclaw/canonical_contract.md`](integrations/openclaw/canonical_contract.md)
+  - Skill companion: [`integrations/openclaw/core-memory-skill-instructions.md`](integrations/openclaw/core-memory-skill-instructions.md)
 - PydanticAI: [`integrations/pydanticai/README.md`](integrations/pydanticai/README.md)
 - SpringAI / HTTP: [`integrations/springai/README.md`](integrations/springai/README.md)
 - LangChain: [`integrations/langchain/README.md`](integrations/langchain/README.md)
@@ -46,6 +48,12 @@ Use this page as the authoritative map of current docs.
 ## Contracts
 - [`contracts/http_api.v1.json`](contracts/http_api.v1.json)
 - [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
+- [`contracts/entity_registry_contract.md`](contracts/entity_registry_contract.md)
+- [`contracts/entity_merge_review_contract.md`](contracts/entity_merge_review_contract.md)
+- [`contracts/retrieval_value_override_contract.md`](contracts/retrieval_value_override_contract.md)
+- [`contracts/mcp_typed_read_contract.md`](contracts/mcp_typed_read_contract.md)
+- [`contracts/mcp_typed_write_contract.md`](contracts/mcp_typed_write_contract.md)
+- [`contracts/myelination_experiment_contract.md`](contracts/myelination_experiment_contract.md)
 - [`adapter_parity_matrix.md`](adapter_parity_matrix.md)
 
 ## Specs

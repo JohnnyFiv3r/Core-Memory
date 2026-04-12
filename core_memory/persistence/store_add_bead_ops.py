@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from core_memory.persistence import events
+from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
@@ -110,6 +111,9 @@ def add_bead_for_store(
         if conflict_ids:
             bead["decision_conflict_with"] = conflict_ids
             bead["unjustified_flip"] = bool(unjustified_flips)
+
+        # ER-1 canonical entity registry sync (bead-resident + index registry)
+        sync_bead_entities_for_index(index, bead, source="add_bead")
 
         index["beads"][bead["id"]] = bead
         index["stats"]["total_beads"] = len(index["beads"])

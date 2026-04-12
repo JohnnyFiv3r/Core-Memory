@@ -8,6 +8,8 @@ Status: Canonical landing page
 - Synthetic append smoke gate: `../../../scripts/openclaw_bridge_ci_smoke.sh`
 
 ## Canonical sources
+- `canonical_contract.md`  ← single canonical contract path
+- `core-memory-skill-instructions.md`
 - `plugin-setup.md`
 - `validation.md`
 - `troubleshooting.md`
@@ -15,6 +17,11 @@ Status: Canonical landing page
 - `api-reference.md`
 - `../../canonical_surfaces.md`
 - repository root `README.md`
+
+## Runtime prompt source
+
+- Runtime-injected prompt mirror: `AGENT_INSTRUCTIONS.md`
+- Keep it mirrored from `docs/integrations/openclaw/canonical_contract.md` to avoid drift.
 
 ## Operational notes
 - Forward retrieval story is `search` / `trace` / `execute` (`execute` preferred by default policy).

@@ -17,6 +17,17 @@ from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_a
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
+from core_memory.integrations.mcp.typed_read import (
+    query_current_state as mcp_query_current_state,
+    query_temporal_window as mcp_query_temporal_window,
+    query_causal_chain as mcp_query_causal_chain,
+    query_contradictions as mcp_query_contradictions,
+)
+from core_memory.integrations.mcp.typed_write import (
+    write_turn_finalized as mcp_write_turn_finalized,
+    apply_reviewed_proposal as mcp_apply_reviewed_proposal,
+    submit_entity_merge_proposal as mcp_submit_entity_merge_proposal,
+)
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
@@ -93,6 +104,82 @@ class MemoryTraceRequest(BaseModel):
     anchor_ids: list[str] = Field(default_factory=list)
     k: int = 8
     hydration: dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPQueryCurrentStateRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "user"
+    slot: str = ""
+    slot_key: str = ""
+    as_of: str = ""
+    k: int = 8
+    query: str = ""
+    include_history: bool = False
+
+
+class MCPQueryTemporalWindowRequest(BaseModel):
+    root: Optional[str] = None
+    query: str
+    window_start: str = ""
+    window_end: str = ""
+    intent: str = "remember"
+    k: int = 10
+
+
+class MCPQueryCausalChainRequest(BaseModel):
+    root: Optional[str] = None
+    query: str
+    anchor_ids: list[str] = Field(default_factory=list)
+    k: int = 8
+    hydration: dict[str, Any] = Field(default_factory=dict)
+
+
+class MCPQueryContradictionsRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = ""
+    slot: str = ""
+    slot_key: str = ""
+    as_of: str = ""
+    query: str = ""
+    k: int = 10
+
+
+class MCPWriteTurnFinalizedRequest(BaseModel):
+    root: Optional[str] = None
+    session_id: str
+    turn_id: str
+    user_query: str
+    assistant_final: str
+    transaction_id: str = ""
+    trace_id: str = ""
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    tools_trace: list[dict[str, Any]] = Field(default_factory=list)
+    mesh_trace: list[dict[str, Any]] = Field(default_factory=list)
+    window_turn_ids: list[str] = Field(default_factory=list)
+    window_bead_ids: list[str] = Field(default_factory=list)
+    origin: str = "USER_TURN"
+
+
+class MCPApplyReviewedProposalRequest(BaseModel):
+    root: Optional[str] = None
+    candidate_id: str
+    decision: str
+    reviewer: str = ""
+    notes: str = ""
+    apply: bool = True
+
+
+class MCPSubmitEntityMergeProposalRequest(BaseModel):
+    root: Optional[str] = None
+    source_entity_id: str
+    target_entity_id: str
+    source_bead_id: str = ""
+    target_bead_id: str = ""
+    confidence: float = 0.9
+    reviewer: str = ""
+    rationale: str = ""
+    notes: str = ""
+    run_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class AsyncJobsEnqueueRequest(BaseModel):
@@ -345,6 +432,158 @@ async def memory_classify_intent(
 ):
     _check_auth(authorization, x_memory_token)
     return classify_intent(str(payload.query or ""))
+
+
+@app.post("/v1/mcp/query-current-state")
+async def mcp_query_current_state_endpoint(
+    payload: MCPQueryCurrentStateRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_current_state(
+        root=_resolve_root(payload.root, x_tenant_id),
+        subject=str(payload.subject or "user"),
+        slot=str(payload.slot or ""),
+        slot_key=str(payload.slot_key or ""),
+        as_of=str(payload.as_of or ""),
+        k=max(1, int(payload.k)),
+        query=str(payload.query or ""),
+        include_history=bool(payload.include_history),
+    )
+    return out
+
+
+@app.post("/v1/mcp/query-temporal-window")
+async def mcp_query_temporal_window_endpoint(
+    payload: MCPQueryTemporalWindowRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_temporal_window(
+        root=_resolve_root(payload.root, x_tenant_id),
+        query=str(payload.query or ""),
+        window_start=str(payload.window_start or ""),
+        window_end=str(payload.window_end or ""),
+        intent=str(payload.intent or "remember"),
+        k=max(1, int(payload.k)),
+    )
+    return out
+
+
+@app.post("/v1/mcp/query-causal-chain")
+async def mcp_query_causal_chain_endpoint(
+    payload: MCPQueryCausalChainRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_causal_chain(
+        root=_resolve_root(payload.root, x_tenant_id),
+        query=str(payload.query or ""),
+        anchor_ids=list(payload.anchor_ids or []),
+        k=max(1, int(payload.k)),
+        hydration=dict(payload.hydration or {}),
+    )
+    return out
+
+
+@app.post("/v1/mcp/query-contradictions")
+async def mcp_query_contradictions_endpoint(
+    payload: MCPQueryContradictionsRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_query_contradictions(
+        root=_resolve_root(payload.root, x_tenant_id),
+        subject=str(payload.subject or ""),
+        slot=str(payload.slot or ""),
+        slot_key=str(payload.slot_key or ""),
+        as_of=str(payload.as_of or ""),
+        query=str(payload.query or ""),
+        k=max(1, int(payload.k)),
+    )
+    return out
+
+
+@app.post("/v1/mcp/write-turn-finalized")
+async def mcp_write_turn_finalized_endpoint(
+    payload: MCPWriteTurnFinalizedRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_write_turn_finalized(
+        root=_resolve_root(payload.root, x_tenant_id),
+        session_id=str(payload.session_id or ""),
+        turn_id=str(payload.turn_id or ""),
+        user_query=str(payload.user_query or ""),
+        assistant_final=str(payload.assistant_final or ""),
+        transaction_id=str(payload.transaction_id or ""),
+        trace_id=str(payload.trace_id or ""),
+        metadata=dict(payload.metadata or {}),
+        tools_trace=list(payload.tools_trace or []),
+        mesh_trace=list(payload.mesh_trace or []),
+        window_turn_ids=list(payload.window_turn_ids or []),
+        window_bead_ids=list(payload.window_bead_ids or []),
+        origin=str(payload.origin or "USER_TURN"),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
+@app.post("/v1/mcp/apply-reviewed-proposal")
+async def mcp_apply_reviewed_proposal_endpoint(
+    payload: MCPApplyReviewedProposalRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_apply_reviewed_proposal(
+        root=_resolve_root(payload.root, x_tenant_id),
+        candidate_id=str(payload.candidate_id or ""),
+        decision=str(payload.decision or ""),
+        reviewer=str(payload.reviewer or ""),
+        notes=str(payload.notes or ""),
+        apply=bool(payload.apply),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
+@app.post("/v1/mcp/submit-entity-merge-proposal")
+async def mcp_submit_entity_merge_proposal_endpoint(
+    payload: MCPSubmitEntityMergeProposalRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = mcp_submit_entity_merge_proposal(
+        root=_resolve_root(payload.root, x_tenant_id),
+        source_entity_id=str(payload.source_entity_id or ""),
+        target_entity_id=str(payload.target_entity_id or ""),
+        source_bead_id=str(payload.source_bead_id or ""),
+        target_bead_id=str(payload.target_bead_id or ""),
+        confidence=float(payload.confidence or 0.0),
+        reviewer=str(payload.reviewer or ""),
+        rationale=str(payload.rationale or ""),
+        notes=str(payload.notes or ""),
+        run_metadata=dict(payload.run_metadata or {}),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
 
 
 @app.get("/v1/memory/continuity")

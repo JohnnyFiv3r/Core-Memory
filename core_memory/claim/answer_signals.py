@@ -6,17 +6,17 @@ from __future__ import annotations
 
 
 def _query_terms(text: str) -> set[str]:
-    return {
-        t.strip(" ?!.,:;()[]{}\"'`").lower()
-        for t in str(text or "").split()
-        if len(t.strip()) >= 2
-    }
+    import re
+
+    s = str(text or "").lower().replace("_", " ").replace("-", " ")
+    return {tok for tok in re.findall(r"[a-z0-9]+", s) if len(tok) >= 2}
 
 
 def compute_answer_signals(
     results: list[dict],
     current_state: dict | None,
     query: str,
+    as_of: str | None = None,
 ) -> dict:
     """
     Compute four answer quality signals.
@@ -35,7 +35,11 @@ def compute_answer_signals(
     conflict_penalty = 0.0
 
     q_terms = _query_terms(query)
-    claim_anchor_hits = [r for r in (results or []) if str((r or {}).get("anchor_reason") or "") == "claim_current_state"]
+    claim_anchor_hits = [
+        r
+        for r in (results or [])
+        if str((r or {}).get("anchor_reason") or "") in {"claim_current_state", "claim_conflict_state"}
+    ]
 
     # Anchor confidence: from query-matched active claims when possible.
     if current_state and current_state.get("slots"):
@@ -71,10 +75,31 @@ def compute_answer_signals(
         if scores:
             currentness_fit = max(scores)
 
+    temporal_scores = [
+        float(((r or {}).get("feature_scores") or {}).get("temporal_fit") or 0.0)
+        for r in (results or [])
+        if isinstance((r or {}).get("feature_scores"), dict)
+    ]
+    result_conflict_penalties = [
+        float(((r or {}).get("feature_scores") or {}).get("conflict_penalty") or 0.0)
+        for r in (results or [])
+        if isinstance((r or {}).get("feature_scores"), dict)
+    ]
+    if temporal_scores:
+        currentness_fit = max(currentness_fit, max(temporal_scores))
+    if result_conflict_penalties:
+        conflict_penalty = max(conflict_penalty, max(result_conflict_penalties))
+
     # Claim-state anchor is considered stronger evidence for fact-first queries.
     if claim_anchor_hits:
         evidence_sufficiency = max(evidence_sufficiency, 0.65)
         currentness_fit = max(currentness_fit, 0.75)
+
+    if str(as_of or "").strip():
+        # as_of queries should have explicit temporal-fit pressure
+        evidence_sufficiency = max(evidence_sufficiency, 0.35 if results else evidence_sufficiency)
+        if temporal_scores:
+            currentness_fit = max(currentness_fit, max(temporal_scores))
 
     return {
         "anchor_confidence": round(anchor_confidence, 3),
