@@ -234,6 +234,7 @@
   <h1><span>Core Memory</span> Live Demo</h1>
   <div class="header-controls">
     <span class="session-badge" id="session-badge">session: ---</span>
+    <button class="btn" id="btn-benchmark" onclick="runBenchmark()">Run LOCOMO Test</button>
     <button class="btn btn-warn" onclick="flushSession()">Flush Session</button>
   </div>
 </header>
@@ -557,6 +558,56 @@ async function flushSession() {
     refreshMemory();
   } catch (err) {
     alert('Flush failed: ' + err.message);
+  }
+}
+
+function formatBenchmarkSummary(s) {
+  if (!s) return 'Benchmark completed.';
+  const modes = (s.backend_modes || []).join(', ') || 'unknown';
+  return (
+    'LOCOMO test completed\n' +
+    'cases: ' + (s.cases ?? 0) + '\n' +
+    'pass/fail: ' + (s.pass ?? 0) + '/' + (s.fail ?? 0) + '\n' +
+    'accuracy: ' + Number(s.accuracy || 0).toFixed(4) + '\n' +
+    'semantic mode: ' + (s.semantic_mode || 'n/a') + '\n' +
+    'backend modes: ' + modes + '\n' +
+    'preload turns: ' + (s.preload_turn_count ?? 0)
+  );
+}
+
+async function runBenchmark() {
+  const btn = document.getElementById('btn-benchmark');
+  if (!btn) return;
+  const prev = btn.textContent;
+  btn.disabled = true;
+  btn.textContent = 'Running...';
+  addMsg('system', 'Running LOCOMO benchmark (local subset) with demo-turn preload...');
+  try {
+    const res = await fetch('/api/benchmark-run', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        subset: 'local',
+        semantic_mode: 'required',
+        vector_backend: 'local-faiss',
+        myelination: 'off',
+        preload_from_demo: true,
+        preload_turns_max: 200,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || ('HTTP ' + res.status));
+    }
+    addMsg('system', formatBenchmarkSummary(data.summary || {}));
+    document.getElementById('modal-title').textContent = 'LOCOMO Benchmark Report';
+    document.getElementById('modal-body').textContent = JSON.stringify(data.report || {}, null, 2);
+    document.getElementById('modal').classList.add('open');
+  } catch (err) {
+    addMsg('system', 'Benchmark failed: ' + err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prev;
   }
 }
 

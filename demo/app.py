@@ -23,8 +23,10 @@ import json
 import logging
 import os
 import sys
+import tempfile
 import uuid
 from pathlib import Path
+from typing import Any
 
 # Load .env from repo root before anything else
 from dotenv import load_dotenv
@@ -79,6 +81,7 @@ from core_memory.integrations.pydanticai import (
     memory_trace_tool,
     run_with_memory,
 )
+from benchmarks.locomo_like.runner import run_benchmark
 
 logger = logging.getLogger(__name__)
 
@@ -282,6 +285,52 @@ def get_memory_state() -> dict:
     }
 
 
+def _build_preload_turns_file_from_demo(*, max_turns: int = 200) -> str:
+    """Create a temporary JSONL preload file from demo turn records.
+
+    This bridges live demo activity into benchmark preload context.
+    """
+    turns_dir = Path(MEMORY_ROOT) / ".turns"
+    if not turns_dir.exists():
+        return ""
+
+    rows: list[dict[str, Any]] = []
+    for p in sorted(turns_dir.glob("*.jsonl")):
+        try:
+            for line in p.read_text(encoding="utf-8").splitlines():
+                raw = line.strip()
+                if not raw:
+                    continue
+                rec = json.loads(raw)
+                if not isinstance(rec, dict):
+                    continue
+                uq = str(rec.get("user_query") or "").strip()
+                af = str(rec.get("assistant_final") or "").strip()
+                if not uq or not af:
+                    continue
+                rows.append(
+                    {
+                        "session_id": str(rec.get("session_id") or "demo"),
+                        "turn_id": str(rec.get("turn_id") or f"demo-{len(rows)+1}"),
+                        "user_query": uq[:500],
+                        "assistant_final": af[:900],
+                        "origin": "DEMO_PRELOAD",
+                    }
+                )
+        except Exception:
+            continue
+
+    if not rows:
+        return ""
+
+    rows = rows[-max(1, int(max_turns)) :]
+    fd, path = tempfile.mkstemp(prefix="demo-preload-", suffix=".jsonl")
+    os.close(fd)
+    out = Path(path)
+    out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    return str(out)
+
+
 # ── API Routes ────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -352,7 +401,65 @@ async def flush_endpoint():
         "flushed_session": result["flushed_session"],
         "new_session": result["new_session"],
         "flush_ok": result.get("flush_result", {}).get("ok", False),
+        "rolling_window_beads": int(len((result.get("flush_result", {}).get("rolling_window") or {}).get("records") or [])),
     })
+
+
+@app.post("/api/benchmark-run")
+async def benchmark_run_endpoint(request: Request):
+    """Run LOCOMO-like benchmark from the demo UI.
+
+    Defaults to fast local smoke settings, with optional preload from demo turns.
+    """
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+
+    subset = str((body or {}).get("subset") or "local").strip() or "local"
+    semantic_mode = str((body or {}).get("semantic_mode") or "degraded_allowed").strip() or "degraded_allowed"
+    vector_backend = str((body or {}).get("vector_backend") or "local-faiss").strip() or "local-faiss"
+    myelination_mode = str((body or {}).get("myelination") or "off").strip() or "off"
+    limit_raw = (body or {}).get("limit")
+    limit = int(limit_raw) if isinstance(limit_raw, int) and limit_raw > 0 else None
+
+    preload_from_demo = bool((body or {}).get("preload_from_demo", True))
+    preload_turns_max = int((body or {}).get("preload_turns_max") or 200)
+
+    preload_file = ""
+    try:
+        if preload_from_demo:
+            preload_file = _build_preload_turns_file_from_demo(max_turns=preload_turns_max)
+
+        base = Path(__file__).resolve().parent.parent / "benchmarks" / "locomo_like"
+        report = run_benchmark(
+            fixtures_dir=base / "fixtures",
+            gold_dir=base / "gold",
+            subset=subset,
+            limit=limit,
+            semantic_mode=semantic_mode,
+            vector_backend=vector_backend,
+            myelination_mode=myelination_mode,
+            preload_turns_file=(Path(preload_file) if preload_file else None),
+        )
+
+        totals = dict(report.get("totals") or {})
+        meta = dict(report.get("metadata") or {})
+        summary = {
+            "cases": int(totals.get("cases") or 0),
+            "pass": int(totals.get("pass") or 0),
+            "fail": int(totals.get("fail") or 0),
+            "accuracy": float(totals.get("accuracy") or 0.0),
+            "backend_modes": list(meta.get("benchmark_backend_modes") or []),
+            "preload_turn_count": int(meta.get("preload_turn_count") or 0),
+            "semantic_mode": str(meta.get("semantic_mode") or ""),
+        }
+        return JSONResponse({"ok": True, "summary": summary, "report": report})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        if preload_file:
+            try:
+                Path(preload_file).unlink(missing_ok=True)
+            except Exception:
+                pass
 
 
 @app.get("/api/bead/{bead_id}")
