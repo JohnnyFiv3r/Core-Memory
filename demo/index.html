@@ -559,7 +559,7 @@ function renderBeads(beads) {
 
     const idDiv = document.createElement('div');
     idDiv.className = 'bead-id';
-    idDiv.textContent = b.id + ' \u00B7 ' + (b.source_turn_ids.join(', ') || 'no turn');
+    idDiv.textContent = b.id + ' \u00B7 ' + (b.source_turn_ids.join(', ') || 'no turn') + (b.hydrate_available ? ' \u00B7 hydrate\u2713' : '');
     card.appendChild(idDiv);
 
     el.appendChild(card);
@@ -718,11 +718,15 @@ function renderBenchmark(summary, report) {
 
   const g = document.createElement('div');
   g.className = 'bench-grid';
+  const latencyMean = Number(((report || {}).latency_ms || {}).mean || 0).toFixed(2);
+  const tokenTotal = Number(((report || {}).token_usage || {}).total_tokens_est || 0);
   const cards = [
     ['accuracy', Number(summary.accuracy || 0).toFixed(4)],
     ['cases', String(summary.cases || 0)],
     ['pass/fail', String((summary.pass || 0) + '/' + (summary.fail || 0))],
     ['semantic', String(summary.semantic_mode || 'n/a')],
+    ['latency mean (ms)', latencyMean],
+    ['tokens est', tokenTotal.toLocaleString()],
   ];
   cards.forEach(([k, v]) => {
     const c = document.createElement('div');
@@ -762,6 +766,18 @@ function renderBenchmark(summary, report) {
     });
   }
 
+  if (r && r.myelination_comparison) {
+    const mc = r.myelination_comparison || {};
+    const m = document.createElement('div');
+    m.className = 'runtime-card';
+    m.innerHTML =
+      '<div><strong>Myelination compare</strong></div>' +
+      '<div style="margin-top:4px;color:var(--text-dim)">baseline acc=' + String((mc.baseline || {}).accuracy ?? 'n/a') +
+      ' · enabled acc=' + String((mc.enabled || {}).accuracy ?? 'n/a') +
+      ' · delta=' + String(mc.accuracy_delta ?? 'n/a') + '</div>';
+    el.appendChild(m);
+  }
+
   if (r && Array.isArray(r.cases)) {
     const fails = r.cases.filter(c => !c.pass);
     if (fails.length) {
@@ -777,7 +793,10 @@ function renderBenchmark(summary, report) {
           '<div style="color:var(--text-dim);margin-top:2px">expected=' + String(c.expected_answer_class || 'n/a') +
           ' · actual=' + String(c.actual_answer_class || 'n/a') + '</div>' +
           '<div style="color:var(--text-dim);margin-top:2px">surface=' + String(c.top_source_surface || 'n/a') +
-          ' · anchor=' + String(c.top_anchor_reason || 'n/a') + '</div>';
+          ' · anchor=' + String(c.top_anchor_reason || 'n/a') + '</div>' +
+          '<div style="color:var(--text-dim);margin-top:2px">backend=' + String(c.benchmark_backend_mode || 'n/a') +
+          ' · tokens=' + String(((c.token_usage || {}).total_tokens_est ?? 0)) +
+          ' · warnings=' + String((c.warnings || []).length) + '</div>';
         f.addEventListener('click', () => {
           document.getElementById('modal-title').textContent = 'Benchmark case: ' + String(c.case_id || 'detail');
           document.getElementById('modal-body').textContent = JSON.stringify(c, null, 2);
@@ -843,8 +862,17 @@ async function showBead(id) {
   try {
     const res = await fetch('/api/demo/bead/' + encodeURIComponent(id));
     const data = await res.json();
+    let hydrated = null;
+    try {
+      const rh = await fetch('/api/demo/bead/' + encodeURIComponent(id) + '/hydrate');
+      const jh = await rh.json();
+      if (jh && jh.ok) hydrated = jh;
+    } catch (_) {
+      // optional surface
+    }
     document.getElementById('modal-title').textContent = data.title || 'Bead Detail';
-    document.getElementById('modal-body').textContent = JSON.stringify(data, null, 2);
+    const payload = hydrated ? { bead: data, hydrated_sources: hydrated } : data;
+    document.getElementById('modal-body').textContent = JSON.stringify(payload, null, 2);
     document.getElementById('modal').classList.add('open');
   } catch (err) {
     alert('Failed to load bead: ' + err.message);

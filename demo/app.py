@@ -1,17 +1,17 @@
-"""Core Memory Live Demo — Web UI
+"""Core Memory Demo Studio — Web UI
 
-A single-file FastAPI app that demonstrates the full memory lifecycle:
-  - Chat with an LLM that has memory continuity + tools
-  - Watch beads + associations appear in real time (per-turn pipeline)
-  - Flush session: archive, compress, rebuild rolling window
-  - Auto-flush when context token budget hits 80%
-  - Ask "why" questions and trace answers back to specific bead IDs
+FastAPI demo that exposes canonical memory behavior across five surfaces:
+  - Chat
+  - Memory
+  - Claims
+  - Runtime
+  - Benchmark
+
+Benchmark runs are isolated (clean/snapshot temp roots) and do not mutate the
+live demo store.
 
 Usage:
-    # 1. Put your API key in .env at the repo root
-    # 2. Run:
     python demo/app.py
-
     # Or with a specific model:
     python demo/app.py --model openai:gpt-4o
 """
@@ -31,7 +31,14 @@ from pathlib import Path
 from typing import Any
 
 # Load .env from repo root before anything else
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv  # type: ignore
+    _DOTENV_IMPORT_ERROR: Exception | None = None
+except Exception as _exc:  # pragma: no cover - startup environment specific
+    _DOTENV_IMPORT_ERROR = _exc
+
+    def load_dotenv(*_args: Any, **_kwargs: Any) -> bool:  # type: ignore
+        return False
 
 _DEMO_ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 
@@ -66,9 +73,37 @@ _load_demo_env()
 # Enable auto-promotion on compact so flush promotes qualifying beads
 os.environ.setdefault("CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT", "1")
 
-import uvicorn
-from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+_WEB_IMPORT_ERROR: Exception | None = None
+try:
+    import uvicorn  # type: ignore
+    from fastapi import FastAPI, Request  # type: ignore
+    from fastapi.responses import HTMLResponse, JSONResponse  # type: ignore
+except Exception as _exc:  # pragma: no cover - startup environment specific
+    _WEB_IMPORT_ERROR = _exc
+    uvicorn = None  # type: ignore
+    Request = Any  # type: ignore
+    HTMLResponse = Any  # type: ignore
+
+    class JSONResponse(dict):  # type: ignore
+        def __init__(self, data: dict, status_code: int = 200):
+            super().__init__(data)
+            self.status_code = status_code
+
+    class FastAPI:  # type: ignore
+        def __init__(self, *args: Any, **kwargs: Any):
+            pass
+
+        def get(self, *args: Any, **kwargs: Any):
+            def _decorator(fn):
+                return fn
+
+            return _decorator
+
+        def post(self, *args: Any, **kwargs: Any):
+            def _decorator(fn):
+                return fn
+
+            return _decorator
 
 # Add parent to path so we can import core_memory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -80,6 +115,7 @@ from core_memory.runtime.jobs import async_jobs_status
 from core_memory.runtime.myelination import myelination_report
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.retrieval.tools import memory as memory_tools
+from core_memory.integrations.api import hydrate_bead_sources
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
     memory_execute_tool,
@@ -249,9 +285,42 @@ def get_memory_state() -> dict:
     """
     coordinator = _get_coordinator()
 
-    store = MemoryStore(root=MEMORY_ROOT)
-    index_path = store.beads_dir / "index.json"
-    index = store._read_json(index_path) if index_path.exists() else {}
+    try:
+        store = MemoryStore(root=MEMORY_ROOT)
+        index_path = store.beads_dir / "index.json"
+        index = store._read_json(index_path) if index_path.exists() else {}
+    except Exception as exc:
+        return {
+            "session": {
+                "session_id": coordinator.session_id,
+                "token_usage": coordinator.token_usage,
+                "context_budget": coordinator.context_budget,
+            },
+            "memory": {"beads": [], "associations": [], "rolling_window": []},
+            "claims": {"slots": [], "counts": {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0}},
+            "runtime": {
+                "queue": {},
+                "semantic_backend": {},
+                "last_flush": dict(LAST_FLUSH_EVENT or {}),
+                "myelination": {},
+                "error": str(exc),
+            },
+            "last_turn": dict(LAST_TURN_DIAGNOSTICS or {}),
+            "benchmark": {"last_summary": dict(LAST_BENCHMARK_SUMMARY or {}), "has_last_report": bool(LAST_BENCHMARK_REPORT)},
+            "beads": [],
+            "associations": [],
+            "rolling_window": [],
+            "claim_state": [],
+            "stats": {
+                "total_beads": 0,
+                "total_associations": 0,
+                "rolling_window_size": 0,
+                "claim_slot_count": 0,
+                "session_id": coordinator.session_id,
+                "token_usage": coordinator.token_usage,
+                "context_budget": coordinator.context_budget,
+            },
+        }
     beads_map = dict(index.get("beads") or {})
 
     beads = []
@@ -271,6 +340,7 @@ def get_memory_state() -> dict:
                 "memory_outcome": b.get("memory_outcome", ""),
                 "claims_count": len(list(b.get("claims") or [])),
                 "claim_updates_count": len(list(b.get("claim_updates") or [])),
+                "hydrate_available": bool(list(b.get("source_turn_ids") or [])),
             }
         )
 
@@ -568,6 +638,15 @@ async def demo_bead_endpoint(bead_id: str):
     return await get_bead(bead_id)
 
 
+@app.get("/api/demo/bead/{bead_id}/hydrate")
+async def demo_bead_hydrate_endpoint(bead_id: str):
+    try:
+        out = hydrate_bead_sources(root=MEMORY_ROOT, bead_ids=[str(bead_id)], include_tools=False, before=0, after=0)
+        return JSONResponse({"ok": True, **dict(out or {})})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc), "bead_id": bead_id}, status_code=500)
+
+
 @app.get("/api/demo/claim-slot/{subject}/{slot}")
 async def demo_claim_slot_endpoint(subject: str, slot: str):
     key = f"{str(subject).strip()}:{str(slot).strip()}"
@@ -760,6 +839,17 @@ def _seed_demo_history():
 
 def main():
     global AGENT, COORDINATOR
+
+    if _WEB_IMPORT_ERROR is not None:
+        print("Demo web dependencies are missing.")
+        print(f"Import error: {_WEB_IMPORT_ERROR}")
+        print("Install with: pip install fastapi uvicorn")
+        sys.exit(1)
+
+    if _DOTENV_IMPORT_ERROR is not None:
+        print("Optional dependency python-dotenv is missing.")
+        print("Install with: pip install python-dotenv")
+        print("Continuing without .env auto-load; environment variables must be exported explicitly.")
 
     parser = argparse.ArgumentParser(description="Core Memory Demo App")
     parser.add_argument("--model", default=None, help="Model ID (auto-detects from env if omitted)")
