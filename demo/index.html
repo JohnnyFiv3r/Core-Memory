@@ -206,6 +206,41 @@
     line-height: 1.4;
   }
 
+  .bench-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .bench-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+  }
+  .bench-card .k { font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+  .bench-card .v { font-size: 14px; font-weight: 600; margin-top: 2px; }
+
+  .bench-bucket {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+  }
+
+  .bench-fail {
+    background: rgba(248, 113, 113, 0.08);
+    border: 1px solid rgba(248, 113, 113, 0.25);
+    border-radius: var(--radius);
+    padding: 8px 10px;
+    margin-bottom: 6px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+
   .assoc-card {
     background: var(--bg); border: 1px solid var(--border);
     border-radius: var(--radius); padding: 8px 12px; margin-bottom: 6px; font-size: 12px;
@@ -303,6 +338,11 @@
       <option value="on">on</option>
       <option value="compare">compare</option>
     </select>
+    <span class="control-label">root</span>
+    <select id="bench-root-mode" class="control-select" title="Benchmark isolation mode">
+      <option value="snapshot" selected>snapshot</option>
+      <option value="clean">clean</option>
+    </select>
     <span class="control-label">preload</span>
     <input id="bench-preload-max" class="control-input" type="number" min="0" step="50" value="200" style="width:74px" title="Max demo turns to preload">
     <label class="control-inline" title="Preload turns from demo session">
@@ -339,6 +379,7 @@
       <div class="tab" data-tab="associations" onclick="switchTab('associations')">Associations</div>
       <div class="tab" data-tab="claims" onclick="switchTab('claims')">Claims</div>
       <div class="tab" data-tab="runtime" onclick="switchTab('runtime')">Runtime</div>
+      <div class="tab" data-tab="benchmark" onclick="switchTab('benchmark')">Benchmark</div>
       <div class="tab" data-tab="rolling" onclick="switchTab('rolling')">Rolling Window</div>
     </div>
     <div class="inspector-body">
@@ -346,6 +387,7 @@
       <div class="tab-content" id="tab-associations"></div>
       <div class="tab-content" id="tab-claims"></div>
       <div class="tab-content" id="tab-runtime"></div>
+      <div class="tab-content" id="tab-benchmark"></div>
       <div class="tab-content" id="tab-rolling"></div>
     </div>
     <div class="stats-bar">
@@ -391,6 +433,8 @@ function showEmptyChat() {
 showEmptyChat();
 
 let firstMessage = true;
+let lastBenchmarkReport = null;
+let lastBenchmarkSummary = null;
 
 function addMsg(role, text, turnId) {
   if (firstMessage && role !== 'init') {
@@ -438,6 +482,16 @@ async function sendMessage() {
     const data = await res.json();
     typing.remove();
     addMsg('assistant', data.response, data.turn_id);
+    if (data.last_answer) {
+      const d = data.last_answer;
+      addMsg(
+        'system',
+        'Answer diagnostics: outcome=' + (d.answer_outcome || 'n/a') +
+        ', surface=' + (d.source_surface || 'n/a') +
+        ', anchor=' + (d.anchor_reason || 'n/a') +
+        ', mode=' + (d.retrieval_mode || 'n/a')
+      );
+    }
     if (data.auto_flushed) {
       addMsg('system', 'Auto-flush triggered: context budget reached 80%. Session reset, rolling window rebuilt.');
     }
@@ -598,12 +652,14 @@ function renderClaims(rows) {
   });
 }
 
-function renderRuntime(runtime, probe) {
+function renderRuntime(runtime, lastTurn) {
   const el = document.getElementById('tab-runtime');
   el.textContent = '';
   const q = runtime?.queue || {};
   const s = runtime?.semantic_backend || {};
-  const p = probe || {};
+  const p = (lastTurn || {}).diagnostics || {};
+  const f = runtime?.last_flush || {};
+  const my = runtime?.myelination || {};
 
   const c1 = document.createElement('div');
   c1.className = 'runtime-card';
@@ -625,33 +681,154 @@ function renderRuntime(runtime, probe) {
   const c3 = document.createElement('div');
   c3.className = 'runtime-card';
   c3.innerHTML =
-    '<div><strong>Retrieval Probe</strong></div>' +
+    '<div><strong>Last Answer Diagnostics</strong></div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">ok: ' + String(!!p.ok) +
     ' · outcome: ' + String(p.answer_outcome || 'n/a') + '</div>' +
-    '<div style="margin-top:2px;color:var(--text-dim)">surface: ' + String(p.top_source_surface || 'n/a') +
-    ' · anchor: ' + String(p.top_anchor_reason || 'n/a') + '</div>';
+    '<div style="margin-top:2px;color:var(--text-dim)">surface: ' + String(p.source_surface || 'n/a') +
+    ' · anchor: ' + String(p.anchor_reason || 'n/a') + '</div>';
   el.appendChild(c3);
+
+  const c4 = document.createElement('div');
+  c4.className = 'runtime-card';
+  c4.innerHTML =
+    '<div><strong>Last Flush</strong></div>' +
+    '<div style="margin-top:4px;color:var(--text-dim)">ok: ' + String(!!f.flush_ok) +
+    ' · flushed: ' + String(f.flushed_session || 'n/a') + '</div>';
+  el.appendChild(c4);
+
+  const c5 = document.createElement('div');
+  c5.className = 'runtime-card';
+  c5.innerHTML =
+    '<div><strong>Myelination</strong></div>' +
+    '<div style="margin-top:4px;color:var(--text-dim)">enabled: ' + String(!!my.enabled) +
+    ' · strengthened/weakened: ' + String((my.stats || {}).strengthened || 0) + '/' + String((my.stats || {}).weakened || 0) + '</div>';
+  el.appendChild(c5);
+}
+
+function renderBenchmark(summary, report) {
+  const el = document.getElementById('tab-benchmark');
+  el.textContent = '';
+  if (!summary || !summary.cases) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'No benchmark run yet';
+    el.appendChild(empty);
+    return;
+  }
+
+  const g = document.createElement('div');
+  g.className = 'bench-grid';
+  const cards = [
+    ['accuracy', Number(summary.accuracy || 0).toFixed(4)],
+    ['cases', String(summary.cases || 0)],
+    ['pass/fail', String((summary.pass || 0) + '/' + (summary.fail || 0))],
+    ['semantic', String(summary.semantic_mode || 'n/a')],
+  ];
+  cards.forEach(([k, v]) => {
+    const c = document.createElement('div');
+    c.className = 'bench-card';
+    c.innerHTML = '<div class="k">' + k + '</div><div class="v">' + v + '</div>';
+    g.appendChild(c);
+  });
+  el.appendChild(g);
+
+  const meta = document.createElement('div');
+  meta.className = 'runtime-card';
+  meta.innerHTML =
+    '<div><strong>Run config</strong></div>' +
+    '<div style="margin-top:4px;color:var(--text-dim)">root mode: ' + String(summary.root_mode || 'n/a') +
+    ' · preload turns: ' + String(summary.preload_turn_count || 0) + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">backend modes: ' + String((summary.backend_modes || []).join(', ') || 'unknown') + '</div>' +
+    '<div style="margin-top:6px"><button class="btn" id="btn-bench-raw">Open raw JSON</button></div>';
+  el.appendChild(meta);
+  const rawBtn = meta.querySelector('#btn-bench-raw');
+  if (rawBtn) {
+    rawBtn.addEventListener('click', () => {
+      document.getElementById('modal-title').textContent = 'LOCOMO Benchmark Report (raw JSON)';
+      document.getElementById('modal-body').textContent = JSON.stringify(report || {}, null, 2);
+      document.getElementById('modal').classList.add('open');
+    });
+  }
+
+  const r = report || null;
+  if (r && r.per_bucket) {
+    Object.keys(r.per_bucket).sort().forEach(k => {
+      const row = r.per_bucket[k] || {};
+      const b = document.createElement('div');
+      b.className = 'bench-bucket';
+      b.innerHTML = '<strong>' + k + '</strong> · acc=' + Number(row.accuracy || 0).toFixed(4) +
+        ' · pass/fail=' + String((row.pass || 0) + '/' + (row.fail || 0));
+      el.appendChild(b);
+    });
+  }
+
+  if (r && Array.isArray(r.cases)) {
+    const fails = r.cases.filter(c => !c.pass);
+    if (fails.length) {
+      const h = document.createElement('div');
+      h.className = 'runtime-card';
+      h.innerHTML = '<strong>Failing cases</strong>';
+      el.appendChild(h);
+      fails.forEach(c => {
+        const f = document.createElement('div');
+        f.className = 'bench-fail';
+        f.innerHTML =
+          '<div><strong>' + String(c.case_id || 'case') + '</strong></div>' +
+          '<div style="color:var(--text-dim);margin-top:2px">expected=' + String(c.expected_answer_class || 'n/a') +
+          ' · actual=' + String(c.actual_answer_class || 'n/a') + '</div>' +
+          '<div style="color:var(--text-dim);margin-top:2px">surface=' + String(c.top_source_surface || 'n/a') +
+          ' · anchor=' + String(c.top_anchor_reason || 'n/a') + '</div>';
+        f.addEventListener('click', () => {
+          document.getElementById('modal-title').textContent = 'Benchmark case: ' + String(c.case_id || 'detail');
+          document.getElementById('modal-body').textContent = JSON.stringify(c, null, 2);
+          document.getElementById('modal').classList.add('open');
+        });
+        el.appendChild(f);
+      });
+    }
+  }
 }
 
 async function refreshMemory() {
   try {
-    const res = await fetch('/api/memory');
+    const res = await fetch('/api/demo/state');
     const data = await res.json();
-    renderBeads(data.beads);
-    renderAssociations(data.associations);
-    renderClaims(data.claim_state || []);
-    renderRuntime(data.runtime || {}, data.retrieval_probe || {});
-    renderRolling(data.rolling_window);
-    document.getElementById('stat-beads').textContent = data.stats.total_beads;
-    document.getElementById('stat-assoc').textContent = data.stats.total_associations;
-    document.getElementById('stat-claims').textContent = data.stats.claim_slot_count || 0;
-    document.getElementById('stat-rolling').textContent = data.stats.rolling_window_size;
-    const usage = data.stats.token_usage || 0;
-    const budget = data.stats.context_budget || 10000;
+    const mem = data.memory || {};
+    const sess = data.session || {};
+    const claims = data.claims || {};
+    const statsCompat = data.stats || {};
+
+    renderBeads(mem.beads || data.beads || []);
+    renderAssociations(mem.associations || data.associations || []);
+    renderClaims(claims.slots || data.claim_state || []);
+    renderRuntime(data.runtime || {}, data.last_turn || {});
+    renderRolling(mem.rolling_window || data.rolling_window || []);
+
+    lastBenchmarkSummary = (data.benchmark || {}).last_summary || lastBenchmarkSummary;
+    if ((data.benchmark || {}).has_last_report && !lastBenchmarkReport) {
+      try {
+        const rb = await fetch('/api/demo/benchmark/last');
+        const jb = await rb.json();
+        if (jb && jb.ok && jb.report) {
+          lastBenchmarkReport = jb.report;
+          if (jb.summary) lastBenchmarkSummary = jb.summary;
+        }
+      } catch (_) {
+        // best effort only
+      }
+    }
+    renderBenchmark(lastBenchmarkSummary || {}, lastBenchmarkReport || null);
+
+    document.getElementById('stat-beads').textContent = Number(statsCompat.total_beads || (mem.beads || []).length || 0);
+    document.getElementById('stat-assoc').textContent = Number(statsCompat.total_associations || (mem.associations || []).length || 0);
+    document.getElementById('stat-claims').textContent = Number(statsCompat.claim_slot_count || (claims.slots || []).length || 0);
+    document.getElementById('stat-rolling').textContent = Number(statsCompat.rolling_window_size || (mem.rolling_window || []).length || 0);
+    const usage = Number(sess.token_usage ?? statsCompat.token_usage ?? 0);
+    const budget = Number(sess.context_budget ?? statsCompat.context_budget ?? 10000);
     const pct = Math.min(100, Math.round((usage / budget) * 100));
     document.getElementById('stat-tokens').textContent = usage;
     document.getElementById('stat-budget').textContent = budget;
-    document.getElementById('session-badge').textContent = 'session: ' + data.stats.session_id;
+    document.getElementById('session-badge').textContent = 'session: ' + String(sess.session_id || statsCompat.session_id || '---');
 
     const fill = document.getElementById('budget-fill');
     fill.style.width = pct + '%';
@@ -664,7 +841,7 @@ async function refreshMemory() {
 
 async function showBead(id) {
   try {
-    const res = await fetch('/api/bead/' + encodeURIComponent(id));
+    const res = await fetch('/api/demo/bead/' + encodeURIComponent(id));
     const data = await res.json();
     document.getElementById('modal-title').textContent = data.title || 'Bead Detail';
     document.getElementById('modal-body').textContent = JSON.stringify(data, null, 2);
@@ -710,6 +887,7 @@ function formatBenchmarkSummary(s) {
   return (
     'LOCOMO test completed\n' +
     'mode: isolated benchmark store (demo state not mutated)\n' +
+    'root mode: ' + (s.root_mode || 'n/a') + '\n' +
     'cases: ' + (s.cases ?? 0) + '\n' +
     'pass/fail: ' + (s.pass ?? 0) + '/' + (s.fail ?? 0) + '\n' +
     'accuracy: ' + Number(s.accuracy || 0).toFixed(4) + '\n' +
@@ -725,6 +903,7 @@ async function runBenchmark() {
   const subset = document.getElementById('bench-subset')?.value || 'local';
   const semanticMode = document.getElementById('bench-semantic')?.value || 'required';
   const myelination = document.getElementById('bench-myelination')?.value || 'off';
+  const rootMode = document.getElementById('bench-root-mode')?.value || 'snapshot';
   const preloadEnabled = !!document.getElementById('bench-preload-enabled')?.checked;
   const preloadRaw = Number(document.getElementById('bench-preload-max')?.value || 200);
   const preloadMax = Number.isFinite(preloadRaw) ? Math.max(0, Math.floor(preloadRaw)) : 200;
@@ -734,7 +913,7 @@ async function runBenchmark() {
   btn.textContent = 'Running...';
   addMsg(
     'system',
-    'Running LOCOMO benchmark (' + subset + ', semantic=' + semanticMode + ', myelination=' + myelination +
+    'Running LOCOMO benchmark (' + subset + ', semantic=' + semanticMode + ', myelination=' + myelination + ', root=' + rootMode +
       ', preload=' + (preloadEnabled ? preloadMax : 0) + ')...'
   );
   try {
@@ -746,6 +925,7 @@ async function runBenchmark() {
         semantic_mode: semanticMode,
         vector_backend: 'local-faiss',
         myelination,
+        root_mode: rootMode,
         preload_from_demo: preloadEnabled,
         preload_turns_max: preloadMax,
       }),
@@ -754,10 +934,10 @@ async function runBenchmark() {
     if (!res.ok || !data.ok) {
       throw new Error(data.error || ('HTTP ' + res.status));
     }
+    lastBenchmarkSummary = data.summary || {};
+    lastBenchmarkReport = data.report || null;
+    renderBenchmark(lastBenchmarkSummary, lastBenchmarkReport);
     addMsg('system', formatBenchmarkSummary(data.summary || {}));
-    document.getElementById('modal-title').textContent = 'LOCOMO Benchmark Report';
-    document.getElementById('modal-body').textContent = JSON.stringify(data.report || {}, null, 2);
-    document.getElementById('modal').classList.add('open');
   } catch (err) {
     addMsg('system', 'Benchmark failed: ' + err.message);
   } finally {

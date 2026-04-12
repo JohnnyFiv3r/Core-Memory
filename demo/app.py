@@ -77,7 +77,9 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.runtime.jobs import async_jobs_status
+from core_memory.runtime.myelination import myelination_report
 from core_memory.retrieval.semantic_index import semantic_doctor
+from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
     memory_execute_tool,
@@ -181,6 +183,10 @@ class SessionCoordinator:
 MEMORY_ROOT = str(Path(__file__).resolve().parent / "memory_store")
 AGENT = None
 COORDINATOR: SessionCoordinator | None = None
+LAST_TURN_DIAGNOSTICS: dict[str, Any] = {}
+LAST_BENCHMARK_REPORT: dict[str, Any] = {}
+LAST_BENCHMARK_SUMMARY: dict[str, Any] = {}
+LAST_FLUSH_EVENT: dict[str, Any] = {}
 
 app = FastAPI(title="Core Memory Demo")
 
@@ -227,7 +233,7 @@ def create_agent(model_id: str):
 
     @agent.system_prompt
     def inject_memory():
-        sid = COORDINATOR.session_id if COORDINATOR is not None else None
+        sid = _get_coordinator().session_id
         return continuity_prompt(root=MEMORY_ROOT, session_id=sid)
 
     return agent
@@ -245,54 +251,41 @@ def get_memory_state() -> dict:
 
     store = MemoryStore(root=MEMORY_ROOT)
     index_path = store.beads_dir / "index.json"
-    if not index_path.exists():
-        runtime = {
-            "queue": async_jobs_status(root=MEMORY_ROOT),
-            "semantic_backend": semantic_doctor(Path(MEMORY_ROOT)),
-        }
-        return {
-            "beads": [], "associations": [], "rolling_window": [],
-            "claim_state": [],
-            "runtime": runtime,
-            "stats": {
-                "total_beads": 0, "total_associations": 0, "rolling_window_size": 0,
-                "session_id": coordinator.session_id,
-                "token_usage": coordinator.token_usage,
-                "context_budget": coordinator.context_budget,
-            },
-        }
-
-    index = store._read_json(index_path)
-    beads_map = index.get("beads") or {}
+    index = store._read_json(index_path) if index_path.exists() else {}
+    beads_map = dict(index.get("beads") or {})
 
     beads = []
     for b in sorted(beads_map.values(), key=lambda x: x.get("created_at", ""), reverse=True):
-        beads.append({
-            "id": b.get("id", ""),
-            "type": b.get("type", ""),
-            "title": b.get("title", ""),
-            "summary": b.get("summary", []),
-            "status": b.get("status", "open"),
-            "session_id": b.get("session_id", ""),
-            "source_turn_ids": b.get("source_turn_ids", []),
-            "created_at": b.get("created_at", ""),
-            "detail": b.get("detail", ""),
-            "interaction_role": b.get("interaction_role", ""),
-            "memory_outcome": b.get("memory_outcome", ""),
-            "claims_count": len(list(b.get("claims") or [])),
-            "claim_updates_count": len(list(b.get("claim_updates") or [])),
-        })
+        beads.append(
+            {
+                "id": b.get("id", ""),
+                "type": b.get("type", ""),
+                "title": b.get("title", ""),
+                "summary": b.get("summary", []),
+                "status": b.get("status", "open"),
+                "session_id": b.get("session_id", ""),
+                "source_turn_ids": b.get("source_turn_ids", []),
+                "created_at": b.get("created_at", ""),
+                "detail": b.get("detail", ""),
+                "interaction_role": b.get("interaction_role", ""),
+                "memory_outcome": b.get("memory_outcome", ""),
+                "claims_count": len(list(b.get("claims") or [])),
+                "claim_updates_count": len(list(b.get("claim_updates") or [])),
+            }
+        )
 
     associations = []
     for a in (index.get("associations") or []):
-        associations.append({
-            "id": a.get("id", ""),
-            "source_bead": a.get("source_bead", ""),
-            "target_bead": a.get("target_bead", ""),
-            "relationship": a.get("relationship", ""),
-            "explanation": a.get("explanation", ""),
-            "confidence": a.get("confidence", 0),
-        })
+        associations.append(
+            {
+                "id": a.get("id", ""),
+                "source_bead": a.get("source_bead", ""),
+                "target_bead": a.get("target_bead", ""),
+                "relationship": a.get("relationship", ""),
+                "explanation": a.get("explanation", ""),
+                "confidence": a.get("confidence", 0),
+            }
+        )
 
     try:
         ctx = load_continuity_injection(MEMORY_ROOT)
@@ -301,45 +294,84 @@ def get_memory_state() -> dict:
         rolling = []
 
     claim_state_rows: list[dict[str, Any]] = []
+    claim_counts = {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0}
     try:
         state = resolve_all_current_state(MEMORY_ROOT)
         for slot_key, row in sorted((state.get("slots") or {}).items(), key=lambda kv: str(kv[0])):
             rr = dict(row or {})
             current = dict(rr.get("current_claim") or {})
+            status = str(rr.get("status") or "not_found")
             claim_state_rows.append(
                 {
                     "slot_key": str(slot_key),
-                    "status": str(rr.get("status") or "not_found"),
+                    "status": status,
                     "value": current.get("value"),
                     "confidence": current.get("confidence"),
                     "claim_id": current.get("id"),
                     "conflict_count": len(list(rr.get("conflicts") or [])),
+                    "history_count": len(list(rr.get("history") or [])),
+                    "timeline_count": len(list(rr.get("timeline") or [])),
                 }
             )
+            if status in claim_counts:
+                claim_counts[status] += 1
+            elif status == "not_found":
+                pass
+            else:
+                claim_counts["other"] += 1
     except Exception:
         claim_state_rows = []
 
     runtime = {
         "queue": async_jobs_status(root=MEMORY_ROOT),
         "semantic_backend": semantic_doctor(Path(MEMORY_ROOT)),
+        "last_flush": dict(LAST_FLUSH_EVENT or {}),
+        "myelination": myelination_report(MEMORY_ROOT, since="30d", limit=1000, top=5),
     }
 
-    return {
-        "beads": beads,
-        "associations": associations,
-        "rolling_window": [{"title": r.get("title", ""), "type": r.get("type", "")} for r in rolling],
-        "claim_state": claim_state_rows,
-        "runtime": runtime,
-        "stats": {
-            "total_beads": len(beads),
-            "total_associations": len(associations),
-            "rolling_window_size": len(rolling),
-            "claim_slot_count": len(claim_state_rows),
+    state_payload = {
+        "session": {
             "session_id": coordinator.session_id,
             "token_usage": coordinator.token_usage,
             "context_budget": coordinator.context_budget,
         },
+        "memory": {
+            "beads": beads,
+            "associations": associations,
+            "rolling_window": [{"title": r.get("title", ""), "type": r.get("type", "")} for r in rolling],
+        },
+        "claims": {
+            "slots": claim_state_rows,
+            "counts": claim_counts,
+        },
+        "runtime": runtime,
+        "last_turn": dict(LAST_TURN_DIAGNOSTICS or {}),
+        "benchmark": {
+            "last_summary": dict(LAST_BENCHMARK_SUMMARY or {}),
+            "has_last_report": bool(LAST_BENCHMARK_REPORT),
+        },
     }
+
+    # Backward-compat fields for existing frontend consumers.
+    state_payload.update(
+        {
+            "beads": beads,
+            "associations": associations,
+            "rolling_window": state_payload["memory"]["rolling_window"],
+            "claim_state": claim_state_rows,
+            "stats": {
+                "total_beads": len(beads),
+                "total_associations": len(associations),
+                "rolling_window_size": len(rolling),
+                "claim_slot_count": len(claim_state_rows),
+                "session_id": coordinator.session_id,
+                "token_usage": coordinator.token_usage,
+                "context_budget": coordinator.context_budget,
+            },
+        }
+    )
+
+    return state_payload
 
 
 def _build_preload_turns_file_from_demo(*, max_turns: int = 200) -> str:
@@ -388,6 +420,39 @@ def _build_preload_turns_file_from_demo(*, max_turns: int = 200) -> str:
     return str(out)
 
 
+def _answer_diagnostics_for_query(query: str) -> dict[str, Any]:
+    q = str(query or "").strip()
+    if not q:
+        return {}
+    try:
+        out = memory_tools.execute(
+            {
+                "raw_query": q,
+                "intent": "remember",
+                "k": 5,
+                "constraints": {"require_structural": False},
+            },
+            root=MEMORY_ROOT,
+            explain=True,
+        )
+    except Exception as exc:
+        return {"ok": False, "error": str(exc)}
+
+    rows = list(out.get("results") or [])
+    top_ids = [str(r.get("bead_id") or "") for r in rows[:5] if str(r.get("bead_id") or "")]
+    return {
+        "ok": bool(out.get("ok", True)),
+        "answer_outcome": str(out.get("answer_outcome") or ""),
+        "retrieval_mode": str(out.get("retrieval_mode") or ""),
+        "source_surface": str((rows[0] or {}).get("source_surface") or "") if rows else "",
+        "anchor_reason": str((rows[0] or {}).get("anchor_reason") or "") if rows else "",
+        "result_count": int(len(rows)),
+        "top_bead_ids": top_ids,
+        "chain_count": int(len(list(out.get("chains") or []))),
+        "warnings": list(out.get("warnings") or []),
+    }
+
+
 # ── API Routes ────────────────────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
@@ -398,6 +463,7 @@ async def index():
 
 @app.post("/api/chat")
 async def chat(request: Request):
+    global LAST_TURN_DIAGNOSTICS
     assert AGENT is not None
     coordinator = _get_coordinator()
 
@@ -435,11 +501,19 @@ async def chat(request: Request):
         except Exception as exc:
             logger.warning("auto-flush failed: %s", exc)
 
+    diagnostics = _answer_diagnostics_for_query(user_message) if turn_ok else {"ok": False}
+    LAST_TURN_DIAGNOSTICS = {
+        "turn_id": turn_id,
+        "session_id": coordinator.session_id,
+        "diagnostics": diagnostics,
+    }
+
     return JSONResponse({
         "response": assistant_text,
         "turn_id": turn_id,
         "session_id": coordinator.session_id,
         "auto_flushed": auto_flushed,
+        "last_answer": diagnostics,
     })
 
 
@@ -448,9 +522,67 @@ async def memory_state():
     return JSONResponse(get_memory_state())
 
 
+@app.get("/api/demo/state")
+async def demo_state_endpoint():
+    return JSONResponse(get_memory_state())
+
+
+@app.get("/api/demo/claims")
+async def demo_claims_endpoint():
+    state = get_memory_state()
+    return JSONResponse(
+        {
+            "ok": True,
+            "claims": dict(state.get("claims") or {}),
+            "session": dict(state.get("session") or {}),
+        }
+    )
+
+
+@app.get("/api/demo/runtime")
+async def demo_runtime_endpoint():
+    state = get_memory_state()
+    return JSONResponse(
+        {
+            "ok": True,
+            "runtime": dict(state.get("runtime") or {}),
+            "session": dict(state.get("session") or {}),
+            "last_turn": dict(state.get("last_turn") or {}),
+        }
+    )
+
+
+@app.get("/api/demo/benchmark/last")
+async def demo_benchmark_last_endpoint():
+    return JSONResponse(
+        {
+            "ok": bool(LAST_BENCHMARK_REPORT),
+            "summary": dict(LAST_BENCHMARK_SUMMARY or {}),
+            "report": dict(LAST_BENCHMARK_REPORT or {}),
+        }
+    )
+
+
+@app.get("/api/demo/bead/{bead_id}")
+async def demo_bead_endpoint(bead_id: str):
+    return await get_bead(bead_id)
+
+
+@app.get("/api/demo/claim-slot/{subject}/{slot}")
+async def demo_claim_slot_endpoint(subject: str, slot: str):
+    key = f"{str(subject).strip()}:{str(slot).strip()}"
+    try:
+        state = resolve_all_current_state(MEMORY_ROOT)
+        row = dict((state.get("slots") or {}).get(key) or {})
+        return JSONResponse({"ok": True, "slot_key": key, "row": row})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc), "slot_key": key}, status_code=500)
+
+
 @app.post("/api/flush")
 async def flush_endpoint():
     """Manual session flush: archive, compress, rebuild rolling window."""
+    global LAST_FLUSH_EVENT
     coordinator = _get_coordinator()
 
     try:
@@ -458,12 +590,14 @@ async def flush_endpoint():
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
-    return JSONResponse({
+    payload = {
         "flushed_session": result["flushed_session"],
         "new_session": result["new_session"],
         "flush_ok": result.get("flush_result", {}).get("ok", False),
         "rolling_window_beads": int(len((result.get("flush_result", {}).get("rolling_window") or {}).get("records") or [])),
-    })
+    }
+    LAST_FLUSH_EVENT = dict(payload)
+    return JSONResponse(payload)
 
 
 @app.post("/api/seed")
@@ -488,12 +622,16 @@ async def benchmark_run_endpoint(request: Request):
     semantic_mode = str((body or {}).get("semantic_mode") or "degraded_allowed").strip() or "degraded_allowed"
     vector_backend = str((body or {}).get("vector_backend") or "local-faiss").strip() or "local-faiss"
     myelination_mode = str((body or {}).get("myelination") or "off").strip() or "off"
+    root_mode = str((body or {}).get("root_mode") or "snapshot").strip().lower() or "snapshot"
+    if root_mode not in {"snapshot", "clean"}:
+        root_mode = "snapshot"
     limit_raw = (body or {}).get("limit")
     limit = int(limit_raw) if isinstance(limit_raw, int) and limit_raw > 0 else None
 
     preload_from_demo = bool((body or {}).get("preload_from_demo", False))
     preload_turns_max = int((body or {}).get("preload_turns_max") or 200)
 
+    global LAST_BENCHMARK_REPORT, LAST_BENCHMARK_SUMMARY
     preload_file = ""
     benchmark_temp_root = ""
     try:
@@ -502,6 +640,16 @@ async def benchmark_run_endpoint(request: Request):
 
         # Always isolate benchmark storage from live demo store to avoid contamination.
         benchmark_temp_root = tempfile.mkdtemp(prefix="demo-benchmark-")
+        if root_mode == "snapshot":
+            src = Path(MEMORY_ROOT)
+            dst = Path(benchmark_temp_root)
+            if src.exists():
+                for child in src.iterdir():
+                    target = dst / child.name
+                    if child.is_dir():
+                        shutil.copytree(child, target, dirs_exist_ok=True)
+                    else:
+                        shutil.copy2(child, target)
 
         base = Path(__file__).resolve().parent.parent / "benchmarks" / "locomo_like"
         report = await asyncio.to_thread(
@@ -527,8 +675,12 @@ async def benchmark_run_endpoint(request: Request):
             "backend_modes": list(meta.get("benchmark_backend_modes") or []),
             "preload_turn_count": int(meta.get("preload_turn_count") or 0),
             "semantic_mode": str(meta.get("semantic_mode") or ""),
+            "root_mode": root_mode,
+            "isolated_root": benchmark_temp_root,
             "isolated_run": True,
         }
+        LAST_BENCHMARK_REPORT = dict(report)
+        LAST_BENCHMARK_SUMMARY = dict(summary)
         return JSONResponse({"ok": True, "summary": summary, "report": report})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
