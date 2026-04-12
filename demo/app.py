@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import uuid
@@ -74,6 +75,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
+from core_memory.claim.resolver import resolve_all_current_state
+from core_memory.runtime.jobs import async_jobs_status
+from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
     memory_execute_tool,
@@ -183,6 +187,14 @@ app = FastAPI(title="Core Memory Demo")
 
 # ── Helpers ───────────────────────────────────────────────────────────
 
+
+def _get_coordinator() -> SessionCoordinator:
+    global COORDINATOR
+    if COORDINATOR is None:
+        Path(MEMORY_ROOT).mkdir(parents=True, exist_ok=True)
+        COORDINATOR = SessionCoordinator(root=MEMORY_ROOT)
+    return COORDINATOR
+
 def detect_model() -> str:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic:claude-sonnet-4-20250514"
@@ -215,25 +227,38 @@ def create_agent(model_id: str):
 
     @agent.system_prompt
     def inject_memory():
-        return continuity_prompt(root=MEMORY_ROOT)
+        sid = COORDINATOR.session_id if COORDINATOR is not None else None
+        return continuity_prompt(root=MEMORY_ROOT, session_id=sid)
 
     return agent
 
 
 def get_memory_state() -> dict:
-    """Read current beads, associations, and rolling window for the inspector."""
-    assert COORDINATOR is not None
+    """Inspector state snapshot.
+
+    Includes graph-like beads/associations plus canonical read-model views:
+    - claim current-state projection
+    - continuity injection
+    - runtime queue + semantic backend diagnostics
+    """
+    coordinator = _get_coordinator()
 
     store = MemoryStore(root=MEMORY_ROOT)
     index_path = store.beads_dir / "index.json"
     if not index_path.exists():
+        runtime = {
+            "queue": async_jobs_status(root=MEMORY_ROOT),
+            "semantic_backend": semantic_doctor(Path(MEMORY_ROOT)),
+        }
         return {
             "beads": [], "associations": [], "rolling_window": [],
+            "claim_state": [],
+            "runtime": runtime,
             "stats": {
                 "total_beads": 0, "total_associations": 0, "rolling_window_size": 0,
-                "session_id": COORDINATOR.session_id,
-                "token_usage": COORDINATOR.token_usage,
-                "context_budget": COORDINATOR.context_budget,
+                "session_id": coordinator.session_id,
+                "token_usage": coordinator.token_usage,
+                "context_budget": coordinator.context_budget,
             },
         }
 
@@ -247,11 +272,15 @@ def get_memory_state() -> dict:
             "type": b.get("type", ""),
             "title": b.get("title", ""),
             "summary": b.get("summary", []),
-            "status": b.get("status", "candidate"),
+            "status": b.get("status", "open"),
             "session_id": b.get("session_id", ""),
             "source_turn_ids": b.get("source_turn_ids", []),
             "created_at": b.get("created_at", ""),
             "detail": b.get("detail", ""),
+            "interaction_role": b.get("interaction_role", ""),
+            "memory_outcome": b.get("memory_outcome", ""),
+            "claims_count": len(list(b.get("claims") or [])),
+            "claim_updates_count": len(list(b.get("claim_updates") or [])),
         })
 
     associations = []
@@ -271,17 +300,44 @@ def get_memory_state() -> dict:
     except Exception:
         rolling = []
 
+    claim_state_rows: list[dict[str, Any]] = []
+    try:
+        state = resolve_all_current_state(MEMORY_ROOT)
+        for slot_key, row in sorted((state.get("slots") or {}).items(), key=lambda kv: str(kv[0])):
+            rr = dict(row or {})
+            current = dict(rr.get("current_claim") or {})
+            claim_state_rows.append(
+                {
+                    "slot_key": str(slot_key),
+                    "status": str(rr.get("status") or "not_found"),
+                    "value": current.get("value"),
+                    "confidence": current.get("confidence"),
+                    "claim_id": current.get("id"),
+                    "conflict_count": len(list(rr.get("conflicts") or [])),
+                }
+            )
+    except Exception:
+        claim_state_rows = []
+
+    runtime = {
+        "queue": async_jobs_status(root=MEMORY_ROOT),
+        "semantic_backend": semantic_doctor(Path(MEMORY_ROOT)),
+    }
+
     return {
         "beads": beads,
         "associations": associations,
         "rolling_window": [{"title": r.get("title", ""), "type": r.get("type", "")} for r in rolling],
+        "claim_state": claim_state_rows,
+        "runtime": runtime,
         "stats": {
             "total_beads": len(beads),
             "total_associations": len(associations),
             "rolling_window_size": len(rolling),
-            "session_id": COORDINATOR.session_id,
-            "token_usage": COORDINATOR.token_usage,
-            "context_budget": COORDINATOR.context_budget,
+            "claim_slot_count": len(claim_state_rows),
+            "session_id": coordinator.session_id,
+            "token_usage": coordinator.token_usage,
+            "context_budget": coordinator.context_budget,
         },
     }
 
@@ -342,34 +398,38 @@ async def index():
 
 @app.post("/api/chat")
 async def chat(request: Request):
-    assert AGENT is not None and COORDINATOR is not None
+    assert AGENT is not None
+    coordinator = _get_coordinator()
 
     body = await request.json()
     user_message = body.get("message", "").strip()
     if not user_message:
         return JSONResponse({"error": "Empty message"}, status_code=400)
 
-    turn_id = COORDINATOR.next_turn_id()
+    turn_id = coordinator.next_turn_id()
     auto_flushed = False
+    turn_ok = False
 
     try:
         result = await run_with_memory(
             AGENT,
             user_message,
             root=MEMORY_ROOT,
-            session_id=COORDINATOR.session_id,
+            session_id=coordinator.session_id,
             turn_id=turn_id,
         )
         assistant_text = result.output if hasattr(result, "output") else str(result.data)
+        turn_ok = True
     except Exception as exc:
         assistant_text = f"Error: {exc}"
 
-    COORDINATOR.record_turn_tokens(user_message, assistant_text)
+    if turn_ok:
+        coordinator.record_turn_tokens(user_message, assistant_text)
 
     # Auto-flush if context budget threshold exceeded
-    if COORDINATOR.should_auto_flush():
+    if coordinator.should_auto_flush():
         try:
-            flush_result = COORDINATOR.do_flush()
+            flush_result = coordinator.do_flush()
             auto_flushed = True
             logger.info("auto-flush triggered: %s", flush_result)
         except Exception as exc:
@@ -378,7 +438,7 @@ async def chat(request: Request):
     return JSONResponse({
         "response": assistant_text,
         "turn_id": turn_id,
-        "session_id": COORDINATOR.session_id,
+        "session_id": coordinator.session_id,
         "auto_flushed": auto_flushed,
     })
 
@@ -391,10 +451,10 @@ async def memory_state():
 @app.post("/api/flush")
 async def flush_endpoint():
     """Manual session flush: archive, compress, rebuild rolling window."""
-    assert COORDINATOR is not None
+    coordinator = _get_coordinator()
 
     try:
-        result = COORDINATOR.do_flush()
+        result = coordinator.do_flush()
     except Exception as exc:
         return JSONResponse({"error": str(exc)}, status_code=500)
 
@@ -404,6 +464,16 @@ async def flush_endpoint():
         "flush_ok": result.get("flush_result", {}).get("ok", False),
         "rolling_window_beads": int(len((result.get("flush_result", {}).get("rolling_window") or {}).get("records") or [])),
     })
+
+
+@app.post("/api/seed")
+async def seed_endpoint():
+    try:
+        _seed_demo_history()
+        state = get_memory_state()
+        return JSONResponse({"ok": True, "seeded": 5, "stats": state.get("stats") or {}})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
 
 
 @app.post("/api/benchmark-run")
@@ -425,9 +495,13 @@ async def benchmark_run_endpoint(request: Request):
     preload_turns_max = int((body or {}).get("preload_turns_max") or 200)
 
     preload_file = ""
+    benchmark_temp_root = ""
     try:
         if preload_from_demo:
             preload_file = _build_preload_turns_file_from_demo(max_turns=preload_turns_max)
+
+        # Always isolate benchmark storage from live demo store to avoid contamination.
+        benchmark_temp_root = tempfile.mkdtemp(prefix="demo-benchmark-")
 
         base = Path(__file__).resolve().parent.parent / "benchmarks" / "locomo_like"
         report = await asyncio.to_thread(
@@ -440,7 +514,7 @@ async def benchmark_run_endpoint(request: Request):
             vector_backend=vector_backend,
             myelination_mode=myelination_mode,
             preload_turns_file=(Path(preload_file) if preload_file else None),
-            benchmark_root=MEMORY_ROOT,
+            benchmark_root=benchmark_temp_root,
         )
 
         totals = dict(report.get("totals") or {})
@@ -453,12 +527,17 @@ async def benchmark_run_endpoint(request: Request):
             "backend_modes": list(meta.get("benchmark_backend_modes") or []),
             "preload_turn_count": int(meta.get("preload_turn_count") or 0),
             "semantic_mode": str(meta.get("semantic_mode") or ""),
-            "visual_mode": True,
+            "isolated_run": True,
         }
         return JSONResponse({"ok": True, "summary": summary, "report": report})
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
     finally:
+        if benchmark_temp_root:
+            try:
+                shutil.rmtree(benchmark_temp_root, ignore_errors=True)
+            except Exception:
+                pass
         if preload_file:
             try:
                 Path(preload_file).unlink(missing_ok=True)

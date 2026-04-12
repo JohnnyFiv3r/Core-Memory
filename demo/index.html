@@ -177,6 +177,11 @@
   .bead-type-goal { background: rgba(251, 191, 36, 0.15); color: var(--amber); }
   .bead-type-evidence { background: rgba(34, 211, 238, 0.15); color: var(--cyan); }
   .bead-type-context { background: rgba(139, 143, 163, 0.15); color: var(--text-dim); }
+  .bead-type-outcome { background: rgba(244, 114, 182, 0.15); color: #f472b6; }
+  .bead-type-checkpoint { background: rgba(56, 189, 248, 0.15); color: #38bdf8; }
+  .bead-type-process_flush { background: rgba(167, 139, 250, 0.15); color: #a78bfa; }
+  .bead-type-session_start { background: rgba(74, 222, 128, 0.12); color: var(--green); }
+  .bead-type-session_end { background: rgba(248, 113, 113, 0.12); color: var(--red); }
   .bead-type-default { background: rgba(139, 143, 163, 0.1); color: var(--text-dim); }
 
   .bead-title { font-size: 13px; font-weight: 500; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -184,9 +189,22 @@
   .bead-id { font-family: var(--font); font-size: 10px; color: var(--text-dim); margin-top: 4px; opacity: 0.6; }
 
   .bead-status { font-family: var(--font); font-size: 10px; padding: 1px 5px; border-radius: 3px; margin-left: auto; }
+  .status-open { background: rgba(56, 189, 248, 0.12); color: #38bdf8; }
+  .status-default { background: rgba(139, 143, 163, 0.12); color: var(--text-dim); }
   .status-candidate { background: rgba(251, 191, 36, 0.12); color: var(--amber); }
   .status-promoted { background: rgba(74, 222, 128, 0.12); color: var(--green); }
   .status-archived { background: rgba(139, 143, 163, 0.12); color: var(--text-dim); }
+  .status-conflict { background: rgba(248, 113, 113, 0.12); color: var(--red); }
+
+  .runtime-card {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+    line-height: 1.4;
+  }
 
   .assoc-card {
     background: var(--bg); border: 1px solid var(--border);
@@ -291,6 +309,7 @@
       <input id="bench-preload-enabled" type="checkbox">
       <span class="control-label" style="margin-right:0">from demo</span>
     </label>
+    <button class="btn" onclick="seedMemory()">Seed</button>
     <button class="btn" id="btn-benchmark" onclick="runBenchmark()">Run LOCOMO Test</button>
     <button class="btn btn-warn" onclick="flushSession()">Flush Session</button>
   </div>
@@ -318,16 +337,21 @@
     <div class="inspector-tabs">
       <div class="tab active" data-tab="beads" onclick="switchTab('beads')">Beads</div>
       <div class="tab" data-tab="associations" onclick="switchTab('associations')">Associations</div>
+      <div class="tab" data-tab="claims" onclick="switchTab('claims')">Claims</div>
+      <div class="tab" data-tab="runtime" onclick="switchTab('runtime')">Runtime</div>
       <div class="tab" data-tab="rolling" onclick="switchTab('rolling')">Rolling Window</div>
     </div>
     <div class="inspector-body">
       <div class="tab-content active" id="tab-beads"></div>
       <div class="tab-content" id="tab-associations"></div>
+      <div class="tab-content" id="tab-claims"></div>
+      <div class="tab-content" id="tab-runtime"></div>
       <div class="tab-content" id="tab-rolling"></div>
     </div>
     <div class="stats-bar">
       <span>Beads: <span class="stat-val" id="stat-beads">0</span></span>
       <span>Assoc: <span class="stat-val" id="stat-assoc">0</span></span>
+      <span>Claims: <span class="stat-val" id="stat-claims">0</span></span>
       <span>Window: <span class="stat-val" id="stat-rolling">0</span></span>
       <span style="margin-left:auto">Ctx: <span class="stat-val" id="stat-tokens">0</span>/<span id="stat-budget">10000</span></span>
     </div>
@@ -428,13 +452,13 @@ async function sendMessage() {
 }
 
 function beadTypeClass(type) {
-  const known = ['decision','lesson','goal','evidence','context'];
+  const known = ['decision','lesson','goal','evidence','context','outcome','checkpoint','process_flush','session_start','session_end'];
   return known.includes(type) ? 'bead-type-' + type : 'bead-type-default';
 }
 
 function statusClass(status) {
-  const known = ['candidate','promoted','archived'];
-  return known.includes(status) ? 'status-' + status : 'status-candidate';
+  const known = ['open','default','candidate','promoted','archived','conflict'];
+  return known.includes(status) ? 'status-' + status : 'status-default';
 }
 
 function renderBeads(beads) {
@@ -550,15 +574,77 @@ function renderRolling(items) {
   });
 }
 
+function renderClaims(rows) {
+  const el = document.getElementById('tab-claims');
+  el.textContent = '';
+  if (!rows || !rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'No claim-state slots yet';
+    el.appendChild(empty);
+    return;
+  }
+  rows.forEach(r => {
+    const card = document.createElement('div');
+    card.className = 'runtime-card';
+    const status = r.status || 'not_found';
+    card.innerHTML =
+      '<div><strong>' + (r.slot_key || '-') + '</strong> ' +
+      '<span class="bead-status ' + statusClass(status) + '">' + status + '</span></div>' +
+      '<div style="margin-top:4px;color:var(--text-dim)">value: ' + String(r.value ?? '—') + '</div>' +
+      '<div style="margin-top:2px;color:var(--text-dim)">confidence: ' + String(r.confidence ?? '—') +
+      ' · conflicts: ' + String(r.conflict_count ?? 0) + '</div>';
+    el.appendChild(card);
+  });
+}
+
+function renderRuntime(runtime, probe) {
+  const el = document.getElementById('tab-runtime');
+  el.textContent = '';
+  const q = runtime?.queue || {};
+  const s = runtime?.semantic_backend || {};
+  const p = probe || {};
+
+  const c1 = document.createElement('div');
+  c1.className = 'runtime-card';
+  c1.innerHTML =
+    '<div><strong>Async Queue</strong></div>' +
+    '<div style="margin-top:4px;color:var(--text-dim)">pending: ' + String(q.pending_total ?? 0) +
+    ' · processable: ' + String(q.processable_now ?? 0) + '</div>';
+  el.appendChild(c1);
+
+  const c2 = document.createElement('div');
+  c2.className = 'runtime-card';
+  c2.innerHTML =
+    '<div><strong>Semantic Backend</strong></div>' +
+    '<div style="margin-top:4px;color:var(--text-dim)">backend: ' + String(s.backend || 'unknown') +
+    ' · usable: ' + String(!!s.usable_backend) + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">mode: ' + String(s.deployment_profile || 'n/a') + '</div>';
+  el.appendChild(c2);
+
+  const c3 = document.createElement('div');
+  c3.className = 'runtime-card';
+  c3.innerHTML =
+    '<div><strong>Retrieval Probe</strong></div>' +
+    '<div style="margin-top:4px;color:var(--text-dim)">ok: ' + String(!!p.ok) +
+    ' · outcome: ' + String(p.answer_outcome || 'n/a') + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">surface: ' + String(p.top_source_surface || 'n/a') +
+    ' · anchor: ' + String(p.top_anchor_reason || 'n/a') + '</div>';
+  el.appendChild(c3);
+}
+
 async function refreshMemory() {
   try {
     const res = await fetch('/api/memory');
     const data = await res.json();
     renderBeads(data.beads);
     renderAssociations(data.associations);
+    renderClaims(data.claim_state || []);
+    renderRuntime(data.runtime || {}, data.retrieval_probe || {});
     renderRolling(data.rolling_window);
     document.getElementById('stat-beads').textContent = data.stats.total_beads;
     document.getElementById('stat-assoc').textContent = data.stats.total_associations;
+    document.getElementById('stat-claims').textContent = data.stats.claim_slot_count || 0;
     document.getElementById('stat-rolling').textContent = data.stats.rolling_window_size;
     const usage = data.stats.token_usage || 0;
     const budget = data.stats.context_budget || 10000;
@@ -623,7 +709,7 @@ function formatBenchmarkSummary(s) {
   const modes = (s.backend_modes || []).join(', ') || 'unknown';
   return (
     'LOCOMO test completed\n' +
-    'mode: visual (writes into demo memory store)\n' +
+    'mode: isolated benchmark store (demo state not mutated)\n' +
     'cases: ' + (s.cases ?? 0) + '\n' +
     'pass/fail: ' + (s.pass ?? 0) + '/' + (s.fail ?? 0) + '\n' +
     'accuracy: ' + Number(s.accuracy || 0).toFixed(4) + '\n' +
