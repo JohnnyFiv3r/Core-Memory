@@ -288,7 +288,7 @@
     <span class="control-label">preload</span>
     <input id="bench-preload-max" class="control-input" type="number" min="0" step="50" value="200" style="width:74px" title="Max demo turns to preload">
     <label class="control-inline" title="Preload turns from demo session">
-      <input id="bench-preload-enabled" type="checkbox" checked>
+      <input id="bench-preload-enabled" type="checkbox">
       <span class="control-label" style="margin-right:0">from demo</span>
     </label>
     <button class="btn" id="btn-benchmark" onclick="runBenchmark()">Run LOCOMO Test</button>
@@ -623,6 +623,7 @@ function formatBenchmarkSummary(s) {
   const modes = (s.backend_modes || []).join(', ') || 'unknown';
   return (
     'LOCOMO test completed\n' +
+    'mode: visual (writes into demo memory store)\n' +
     'cases: ' + (s.cases ?? 0) + '\n' +
     'pass/fail: ' + (s.pass ?? 0) + '/' + (s.fail ?? 0) + '\n' +
     'accuracy: ' + Number(s.accuracy || 0).toFixed(4) + '\n' +
@@ -685,6 +686,7 @@ function switchTab(name) {
 }
 
 refreshMemory();
+setInterval(refreshMemory, 2500);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 </script>
 </body>

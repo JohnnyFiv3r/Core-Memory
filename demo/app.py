@@ -19,6 +19,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import logging
 import os
@@ -420,7 +421,7 @@ async def benchmark_run_endpoint(request: Request):
     limit_raw = (body or {}).get("limit")
     limit = int(limit_raw) if isinstance(limit_raw, int) and limit_raw > 0 else None
 
-    preload_from_demo = bool((body or {}).get("preload_from_demo", True))
+    preload_from_demo = bool((body or {}).get("preload_from_demo", False))
     preload_turns_max = int((body or {}).get("preload_turns_max") or 200)
 
     preload_file = ""
@@ -429,7 +430,8 @@ async def benchmark_run_endpoint(request: Request):
             preload_file = _build_preload_turns_file_from_demo(max_turns=preload_turns_max)
 
         base = Path(__file__).resolve().parent.parent / "benchmarks" / "locomo_like"
-        report = run_benchmark(
+        report = await asyncio.to_thread(
+            run_benchmark,
             fixtures_dir=base / "fixtures",
             gold_dir=base / "gold",
             subset=subset,
@@ -438,6 +440,7 @@ async def benchmark_run_endpoint(request: Request):
             vector_backend=vector_backend,
             myelination_mode=myelination_mode,
             preload_turns_file=(Path(preload_file) if preload_file else None),
+            benchmark_root=MEMORY_ROOT,
         )
 
         totals = dict(report.get("totals") or {})
@@ -450,6 +453,7 @@ async def benchmark_run_endpoint(request: Request):
             "backend_modes": list(meta.get("benchmark_backend_modes") or []),
             "preload_turn_count": int(meta.get("preload_turn_count") or 0),
             "semantic_mode": str(meta.get("semantic_mode") or ""),
+            "visual_mode": True,
         }
         return JSONResponse({"ok": True, "summary": summary, "report": report})
     except Exception as exc:

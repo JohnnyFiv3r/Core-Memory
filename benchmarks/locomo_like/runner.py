@@ -307,8 +307,91 @@ def run_case(
     vector_backend: str = "local-faiss",
     myelination_enabled: bool = False,
     preload_turns: list[dict[str, Any]] | None = None,
+    benchmark_root: str | None = None,
 ) -> dict[str, Any]:
     t0_total = time.perf_counter()
+    if benchmark_root:
+        td = str(benchmark_root)
+        Path(td).mkdir(parents=True, exist_ok=True)
+
+        t_setup = time.perf_counter()
+        if preload_turns:
+            preload_setup = BenchmarkCase(
+                id=f"preload-{case.id}",
+                query=case.query,
+                intent=case.intent,
+                bucket_labels=case.bucket_labels,
+                gold_id=case.gold_id,
+                setup={"turns": list(preload_turns)},
+                constraints=case.constraints,
+                k=case.k,
+            )
+            _materialize_case(td, preload_setup)
+        _materialize_case(td, case)
+        setup_ms = (time.perf_counter() - t_setup) * 1000.0
+
+        queue_after_setup = _queue_snapshot(td)
+        queue_drained = None
+        if async_profile == "drain_before_query":
+            queue_drained = run_async_jobs(root=td, run_semantic=True, max_compaction=25, max_side_effects=25)
+
+        queue_before_query = _queue_snapshot(td)
+
+        req = {
+            "raw_query": case.query,
+            "intent": case.intent,
+            "constraints": dict(case.constraints or {}),
+            "k": int(case.k),
+        }
+
+        env = {
+            "CORE_MEMORY_CLAIM_LAYER": "1",
+            "CORE_MEMORY_CLAIM_RESOLUTION": "1",
+            "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
+            "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": str(semantic_mode),
+            "CORE_MEMORY_VECTOR_BACKEND": str(vector_backend),
+            "CORE_MEMORY_MYELINATION_ENABLED": "1" if bool(myelination_enabled) else "0",
+        }
+        with _env_overrides(env):
+            backend_diag = semantic_doctor(Path(td))
+            backend_mode = _benchmark_backend_mode(backend_diag, semantic_mode=str(semantic_mode))
+            t_query = time.perf_counter()
+            out = memory_tools.execute(req, root=td, explain=True)
+            retrieval_ms = (time.perf_counter() - t_query) * 1000.0
+            myelination_obs = myelination_report(td, since="30d", limit=1000, top=5)
+
+        queue_after_query = _queue_snapshot(td)
+
+        ok, checks = _evaluate_case(case=case, gold=gold, out=out, root=td)
+        latency_ms = (time.perf_counter() - t0_total) * 1000.0
+        dreamer_corr = _correlate_dreamer_case(td, out)
+        return {
+            "case_id": case.id,
+            "bucket_labels": list(case.bucket_labels),
+            "query": case.query,
+            "expected_answer_class": gold.expected_answer_class,
+            "actual_answer_class": str(out.get("answer_outcome") or ""),
+            "retrieval_mode": str(out.get("retrieval_mode") or ""),
+            "pass": bool(ok),
+            "checks": checks,
+            "latency_ms": round(latency_ms, 3),
+            "write_setup_ms": round(setup_ms, 3),
+            "retrieval_ms": round(retrieval_ms, 3),
+            "warnings": list(out.get("warnings") or []),
+            "top_source_surface": str(((out.get("results") or [{}])[0] or {}).get("source_surface") or ""),
+            "top_anchor_reason": str(((out.get("results") or [{}])[0] or {}).get("anchor_reason") or ""),
+            "queue_after_setup": queue_after_setup,
+            "queue_before_query": queue_before_query,
+            "queue_after_query": queue_after_query,
+            "queue_drained": queue_drained,
+            "semantic_backend": backend_diag,
+            "benchmark_backend_mode": backend_mode,
+            "dreamer_correlation": dreamer_corr,
+            "myelination_enabled": bool(myelination_enabled),
+            "myelination_stats": dict((myelination_obs or {}).get("stats") or {}),
+            "preload_turn_count": int(len(preload_turns or [])),
+        }
+
     with tempfile.TemporaryDirectory(prefix="cm-bench-") as td:
         t_setup = time.perf_counter()
         if preload_turns:
@@ -400,6 +483,7 @@ def run_benchmark(
     vector_backend: str = "local-faiss",
     myelination_mode: str = "off",
     preload_turns_file: Path | None = None,
+    benchmark_root: str | None = None,
 ) -> dict[str, Any]:
     pairs = build_cases(fixtures_dir=fixtures_dir, gold_dir=gold_dir)
     pairs = sorted(pairs, key=lambda p: p[0].id)
@@ -427,6 +511,7 @@ def run_benchmark(
                     vector_backend=vector_backend,
                     myelination_enabled=bool(enabled),
                     preload_turns=preload_turns,
+                    benchmark_root=benchmark_root,
                 )
             )
         return out_rows
@@ -455,6 +540,7 @@ def run_benchmark(
         "myelination_enabled": bool(mode_n == "on"),
         "preload_turns_file": str(preload_turns_file) if preload_turns_file else "",
         "preload_turn_count": int(len(preload_turns)),
+        "benchmark_root": str(benchmark_root or ""),
         "notes": ["proxy_fixture_pack", "deterministic_local_subset", "queue_visibility_enabled"],
     }
 
