@@ -713,6 +713,8 @@ async def benchmark_run_endpoint(request: Request):
     global LAST_BENCHMARK_REPORT, LAST_BENCHMARK_SUMMARY
     preload_file = ""
     benchmark_temp_root = ""
+    root_mode_effective = root_mode
+    snapshot_copy_warnings: list[str] = []
     try:
         if preload_from_demo:
             preload_file = _build_preload_turns_file_from_demo(max_turns=preload_turns_max)
@@ -722,13 +724,17 @@ async def benchmark_run_endpoint(request: Request):
         if root_mode == "snapshot":
             src = Path(MEMORY_ROOT)
             dst = Path(benchmark_temp_root)
-            if src.exists():
-                for child in src.iterdir():
-                    target = dst / child.name
-                    if child.is_dir():
-                        shutil.copytree(child, target, dirs_exist_ok=True)
-                    else:
-                        shutil.copy2(child, target)
+            try:
+                if src.exists():
+                    for child in src.iterdir():
+                        target = dst / child.name
+                        if child.is_dir():
+                            shutil.copytree(child, target, dirs_exist_ok=True)
+                        else:
+                            shutil.copy2(child, target)
+            except Exception as exc:
+                root_mode_effective = "clean"
+                snapshot_copy_warnings.append(f"snapshot_copy_failed: {exc}")
 
         base = Path(__file__).resolve().parent.parent / "benchmarks" / "locomo_like"
         report = await asyncio.to_thread(
@@ -754,9 +760,10 @@ async def benchmark_run_endpoint(request: Request):
             "backend_modes": list(meta.get("benchmark_backend_modes") or []),
             "preload_turn_count": int(meta.get("preload_turn_count") or 0),
             "semantic_mode": str(meta.get("semantic_mode") or ""),
-            "root_mode": root_mode,
+            "root_mode": root_mode_effective,
             "isolated_root": benchmark_temp_root,
             "isolated_run": True,
+            "warnings": snapshot_copy_warnings,
         }
         LAST_BENCHMARK_REPORT = dict(report)
         LAST_BENCHMARK_SUMMARY = dict(summary)

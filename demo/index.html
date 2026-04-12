@@ -206,6 +206,38 @@
     line-height: 1.4;
   }
 
+  .claims-layout {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
+    gap: 8px;
+  }
+
+  .claims-list {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .claim-row {
+    padding: 8px 10px;
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    font-size: 12px;
+  }
+  .claim-row:last-child { border-bottom: none; }
+  .claim-row:hover { background: rgba(108, 126, 255, 0.08); }
+  .claim-row.active { background: rgba(108, 126, 255, 0.14); }
+
+  .claim-detail {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.45;
+  }
+
   .bench-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -435,6 +467,7 @@ showEmptyChat();
 let firstMessage = true;
 let lastBenchmarkReport = null;
 let lastBenchmarkSummary = null;
+let selectedClaimSlot = null;
 
 function addMsg(role, text, turnId) {
   if (firstMessage && role !== 'init') {
@@ -638,18 +671,87 @@ function renderClaims(rows) {
     el.appendChild(empty);
     return;
   }
+
+  if (!selectedClaimSlot || !rows.some(r => (r.slot_key || '') === selectedClaimSlot)) {
+    selectedClaimSlot = rows[0].slot_key;
+  }
+
+  const wrap = document.createElement('div');
+  wrap.className = 'claims-layout';
+  const list = document.createElement('div');
+  list.className = 'claims-list';
+  const detail = document.createElement('div');
+  detail.className = 'claim-detail';
+  detail.textContent = 'Loading slot detail...';
+
   rows.forEach(r => {
-    const card = document.createElement('div');
-    card.className = 'runtime-card';
     const status = r.status || 'not_found';
-    card.innerHTML =
-      '<div><strong>' + (r.slot_key || '-') + '</strong> ' +
+    const row = document.createElement('div');
+    row.className = 'claim-row' + ((r.slot_key || '') === selectedClaimSlot ? ' active' : '');
+    row.innerHTML =
+      '<div><strong>' + String(r.slot_key || '-') + '</strong> ' +
       '<span class="bead-status ' + statusClass(status) + '">' + status + '</span></div>' +
-      '<div style="margin-top:4px;color:var(--text-dim)">value: ' + String(r.value ?? '—') + '</div>' +
-      '<div style="margin-top:2px;color:var(--text-dim)">confidence: ' + String(r.confidence ?? '—') +
+      '<div style="margin-top:2px;color:var(--text-dim)">value: ' + String(r.value ?? '—') +
       ' · conflicts: ' + String(r.conflict_count ?? 0) + '</div>';
-    el.appendChild(card);
+    row.addEventListener('click', async () => {
+      selectedClaimSlot = r.slot_key || null;
+      renderClaims(rows);
+    });
+    list.appendChild(row);
   });
+
+  wrap.appendChild(list);
+  wrap.appendChild(detail);
+  el.appendChild(wrap);
+
+  loadClaimSlotDetail(selectedClaimSlot, detail);
+}
+
+async function loadClaimSlotDetail(slotKey, detailEl) {
+  if (!slotKey || !detailEl) return;
+  const parts = String(slotKey).split(':');
+  const subject = parts.shift() || '';
+  const slot = parts.join(':');
+  if (!subject || !slot) {
+    detailEl.textContent = 'Invalid slot key: ' + String(slotKey);
+    return;
+  }
+  detailEl.textContent = 'Loading slot detail...';
+  try {
+    const res = await fetch('/api/demo/claim-slot/' + encodeURIComponent(subject) + '/' + encodeURIComponent(slot));
+    const data = await res.json();
+    if (!res.ok || !data.ok) {
+      throw new Error(data.error || ('HTTP ' + res.status));
+    }
+    const row = data.row || {};
+    const current = row.current_claim || {};
+    const conflicts = row.conflicts || [];
+    const history = row.history || [];
+    const timeline = row.timeline || [];
+    const curText = current && Object.keys(current).length
+      ? ('id=' + String(current.id || 'n/a') + '\nvalue=' + String(current.value ?? '—') + '\nconfidence=' + String(current.confidence ?? '—'))
+      : 'none';
+
+    detailEl.innerHTML =
+      '<div><strong>' + String(data.slot_key || slotKey) + '</strong> ' +
+      '<span class="bead-status ' + statusClass(String(row.status || 'not_found')) + '">' + String(row.status || 'not_found') + '</span></div>' +
+      '<div style="margin-top:8px"><strong>Current claim</strong><pre style="margin-top:4px">' + escapeHtml(curText) + '</pre></div>' +
+      '<div style="margin-top:8px"><strong>Conflicts</strong> · ' + String(conflicts.length) + '</div>' +
+      '<div style="margin-top:2px;color:var(--text-dim)">' + escapeHtml(conflicts.slice(0,3).map(c => String(c.value ?? '—')).join(' | ') || 'none') + '</div>' +
+      '<div style="margin-top:8px"><strong>History entries</strong> · ' + String(history.length) + '</div>' +
+      '<div style="margin-top:8px"><strong>Timeline entries</strong> · ' + String(timeline.length) + '</div>';
+  } catch (err) {
+    detailEl.textContent = 'Failed to load slot detail: ' + err.message;
+  }
+}
+
+function escapeHtml(s) {
+  return String(s || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\"/g, '&quot;')
+    .replace(/'/g, '&#039;');
 }
 
 function renderRuntime(runtime, lastTurn) {
@@ -743,6 +845,7 @@ function renderBenchmark(summary, report) {
     '<div style="margin-top:4px;color:var(--text-dim)">root mode: ' + String(summary.root_mode || 'n/a') +
     ' · preload turns: ' + String(summary.preload_turn_count || 0) + '</div>' +
     '<div style="margin-top:2px;color:var(--text-dim)">backend modes: ' + String((summary.backend_modes || []).join(', ') || 'unknown') + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">warnings: ' + String((summary.warnings || []).length) + '</div>' +
     '<div style="margin-top:6px"><button class="btn" id="btn-bench-raw">Open raw JSON</button></div>';
   el.appendChild(meta);
   const rawBtn = meta.querySelector('#btn-bench-raw');
