@@ -71,9 +71,6 @@ def _load_demo_env() -> None:
 
 _load_demo_env()
 
-# Enable auto-promotion on compact so flush promotes qualifying beads
-os.environ.setdefault("CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT", "1")
-
 _WEB_IMPORT_ERROR: Exception | None = None
 try:
     import uvicorn  # type: ignore
@@ -1049,6 +1046,10 @@ def main():
     parser.add_argument("--context-budget", type=int, default=10000, help="Context token budget (default: 10000)")
     parser.add_argument("--seed", action="store_true", help="Pre-populate with sample project history (skips organic bead creation)")
     args = parser.parse_args()
+
+    # Demo-local runtime preference; keep this scoped to direct demo execution
+    # so importing demo.app during tests does not mutate global process behavior.
+    os.environ.setdefault("CORE_MEMORY_AUTO_PROMOTE_ON_COMPACT", "1")
 
     model_id = args.model or detect_model()
     if not model_id:

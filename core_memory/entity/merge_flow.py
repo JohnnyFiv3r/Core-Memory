@@ -274,22 +274,70 @@ def _index_path(root: str | Path) -> Path:
     return Path(root) / ".beads" / "index.json"
 
 
+def _default_index_shell() -> dict[str, Any]:
+    return {
+        "beads": {},
+        "associations": [],
+        "entities": {},
+        "entity_aliases": {},
+        "stats": {
+            "total_beads": 0,
+            "total_associations": 0,
+            "created_at": _now(),
+        },
+        "projection": {
+            "mode": "session_first_projection_cache",
+            "rebuilt_at": None,
+        },
+    }
+
+
+def _normalize_index_shape(index: dict[str, Any]) -> dict[str, Any]:
+    out = dict(index or {})
+    if not isinstance(out.get("beads"), dict):
+        out["beads"] = {}
+    if not isinstance(out.get("associations"), list):
+        out["associations"] = []
+    if not isinstance(out.get("entities"), dict):
+        out["entities"] = {}
+    if not isinstance(out.get("entity_aliases"), dict):
+        out["entity_aliases"] = {}
+
+    stats = out.get("stats")
+    if not isinstance(stats, dict):
+        stats = {}
+    stats.setdefault("total_beads", len(out.get("beads") or {}))
+    stats.setdefault("total_associations", len(out.get("associations") or []))
+    stats.setdefault("created_at", _now())
+    out["stats"] = stats
+
+    projection = out.get("projection")
+    if not isinstance(projection, dict):
+        projection = {}
+    projection.setdefault("mode", "session_first_projection_cache")
+    projection.setdefault("rebuilt_at", None)
+    out["projection"] = projection
+    return out
+
+
 def _read_index(root: str | Path) -> dict[str, Any]:
     p = _index_path(root)
     if not p.exists():
-        return {"beads": {}, "associations": []}
+        return _default_index_shell()
     try:
         idx = json.loads(p.read_text(encoding="utf-8"))
-        return idx if isinstance(idx, dict) else {"beads": {}, "associations": []}
+        if isinstance(idx, dict):
+            return _normalize_index_shape(idx)
+        return _default_index_shell()
     except Exception:
-        return {"beads": {}, "associations": []}
+        return _default_index_shell()
 
 
 def _write_index(root: str | Path, index: dict[str, Any]) -> None:
     p = _index_path(root)
     p.parent.mkdir(parents=True, exist_ok=True)
     tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(index, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(_normalize_index_shape(index), indent=2), encoding="utf-8")
     tmp.replace(p)
 
 
