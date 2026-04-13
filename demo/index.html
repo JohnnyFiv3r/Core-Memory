@@ -206,6 +206,21 @@
     line-height: 1.4;
   }
 
+  .runtime-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    padding: 1px 7px;
+    font-size: 10px;
+    color: var(--text-dim);
+    background: rgba(139, 143, 163, 0.1);
+  }
+  .runtime-badge-good { color: var(--green); border-color: rgba(74, 222, 128, 0.35); }
+  .runtime-badge-warn { color: var(--amber); border-color: rgba(251, 191, 36, 0.35); }
+  .runtime-badge-bad { color: var(--red); border-color: rgba(248, 113, 113, 0.35); }
+
   .claims-layout {
     display: grid;
     grid-template-columns: minmax(0, 1fr) minmax(0, 1.2fr);
@@ -981,32 +996,58 @@ function renderRuntime(runtime, lastTurn) {
   const p = (lastTurn || {}).diagnostics || {};
   const f = runtime?.last_flush || {};
   const my = runtime?.myelination || {};
+  const warnCount = Array.isArray(p.warnings) ? p.warnings.length : 0;
+  const mode = String(s.mode || 'degraded_allowed');
+  const usable = !!s.usable_backend;
+  const strictMode = mode === 'required';
 
   const c1 = document.createElement('div');
   c1.className = 'runtime-card';
   c1.innerHTML =
     '<div><strong>Async Queue</strong></div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">pending: ' + String(q.pending_total ?? 0) +
-    ' · processable: ' + String(q.processable_now ?? 0) + '</div>';
+    ' · processable: ' + String(q.processable_now ?? 0) + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">ok: ' + String(!!q.ok) + '</div>';
   el.appendChild(c1);
 
   const c2 = document.createElement('div');
   c2.className = 'runtime-card';
+  const semanticBadges =
+    '<span class="runtime-badge ' + (strictMode ? 'runtime-badge-bad' : 'runtime-badge-warn') + '">mode=' + escapeHtml(mode) + '</span> ' +
+    '<span class="runtime-badge ' + (usable ? 'runtime-badge-good' : (strictMode ? 'runtime-badge-bad' : 'runtime-badge-warn')) + '">usable=' + String(usable) + '</span> ' +
+    '<span class="runtime-badge ' + (!!s.multi_worker_safe ? 'runtime-badge-good' : 'runtime-badge-warn') + '">multi-worker=' + String(!!s.multi_worker_safe) + '</span>';
   c2.innerHTML =
     '<div><strong>Semantic Backend</strong></div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">backend: ' + String(s.backend || 'unknown') +
-    ' · usable: ' + String(!!s.usable_backend) + '</div>' +
-    '<div style="margin-top:2px;color:var(--text-dim)">mode: ' + String(s.deployment_profile || 'n/a') + '</div>';
+    ' · provider: ' + String(s.provider || 'unknown') + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">profile: ' + String(s.deployment_profile || 'n/a') +
+    ' · rows: ' + String(s.rows_count ?? 0) + '</div>' +
+    '<div style="margin-top:6px">' + semanticBadges + '</div>' +
+    '<div style="margin-top:4px;color:var(--text-dim)">next: ' + escapeHtml(String(s.next_step || 'n/a')) + '</div>' +
+    ((s.concurrency_warning && String(s.concurrency_warning).trim())
+      ? ('<div style="margin-top:2px;color:var(--amber)">warning: ' + escapeHtml(String(s.concurrency_warning)) + '</div>')
+      : '');
   el.appendChild(c2);
 
   const c3 = document.createElement('div');
   c3.className = 'runtime-card';
+  const topIds = Array.isArray(p.top_bead_ids) ? p.top_bead_ids.slice(0, 5) : [];
   c3.innerHTML =
     '<div><strong>Last Answer Diagnostics</strong></div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">ok: ' + String(!!p.ok) +
-    ' · outcome: ' + String(p.answer_outcome || 'n/a') + '</div>' +
+    ' · outcome: ' + String(p.answer_outcome || 'n/a') +
+    ' · mode: ' + String(p.retrieval_mode || 'n/a') + '</div>' +
     '<div style="margin-top:2px;color:var(--text-dim)">surface: ' + String(p.source_surface || 'n/a') +
-    ' · anchor: ' + String(p.anchor_reason || 'n/a') + '</div>';
+    ' · anchor: ' + String(p.anchor_reason || 'n/a') + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">results: ' + String(p.result_count ?? 0) +
+    ' · chains: ' + String(p.chain_count ?? 0) +
+    ' · warnings: ' + String(warnCount) + '</div>' +
+    (topIds.length
+      ? ('<div style="margin-top:2px;color:var(--text-dim)">top beads: ' + escapeHtml(topIds.join(', ')) + '</div>')
+      : '') +
+    (warnCount
+      ? ('<div style="margin-top:2px;color:var(--amber)">warning list: ' + escapeHtml((p.warnings || []).join(' | ')) + '</div>')
+      : '');
   el.appendChild(c3);
 
   const c4 = document.createElement('div');
