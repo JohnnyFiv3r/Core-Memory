@@ -25,7 +25,11 @@ from .schema import BenchmarkCase, GoldCase, build_cases
 
 def _repo_commit() -> str:
     try:
-        out = subprocess.check_output(["git", "rev-parse", "--short", "HEAD"], text=True).strip()
+        out = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
         return out or "unknown"
     except Exception:
         return "unknown"

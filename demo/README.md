@@ -1,0 +1,111 @@
+# Core Memory Demo
+
+This demo is an observability + benchmark studio for Core Memory.
+
+## What it shows
+
+- **Chat** with memory-backed responses
+- **Memory** (beads, associations, rolling-window records)
+- **Graph** (association edges with clickable source/target bead provenance)
+- **Claims** (resolved slot state, conflicts, status)
+  - includes slot detail pane with history + timeline/update events
+  - supports `as_of` temporal drilldown in UI
+  - selected slot + as_of filter are persisted in URL query params for easy sharing
+- **Entities** (entity registry + merge-proposal visibility)
+  - shows active/merged counts, aliases, provenance, and merge proposal rows
+  - includes in-UI merge suggestion + accept/reject adjudication controls
+- **Runtime** (queue health, semantic backend, last flush, myelination snapshot)
+  - includes strict/degraded semantic-mode status badges + last-answer warnings/chains breakdown
+  - includes per-queue side-effect breakdown and recent flush event history
+- **Benchmark** (isolated LOCOMO-like runs with per-bucket + failing-case drilldown)
+  - includes myelination compare deltas (improved/regressed case counts + pass-state changes)
+
+## Read-surface authority
+
+- The demo client reads memory state from canonical inspect HTTP surfaces:
+  - `/v1/memory/inspect/state`
+  - `/v1/memory/inspect/beads/{bead_id}`
+  - `/v1/memory/inspect/beads/{bead_id}/hydrate`
+  - `/v1/memory/inspect/claim-slots/{subject}/{slot}`
+  - `/v1/memory/inspect/turns`
+- Existing `/api/demo/*` read routes are compatibility aliases and are non-authoritative.
+
+## Dependencies
+
+Install from repo root:
+
+```bash
+pip install -e ".[pydanticai]"
+pip install fastapi uvicorn python-dotenv
+```
+
+Optional semantic extras:
+
+```bash
+pip install -e ".[semantic]"
+```
+
+## Environment
+
+Create/update `.env` at repo root with one provider key:
+
+```bash
+OPENAI_API_KEY=...
+# or
+ANTHROPIC_API_KEY=...
+```
+
+For semantic embeddings (Gemini path), also set:
+
+```bash
+GEMINI_API_KEY=...
+CORE_MEMORY_EMBEDDINGS_PROVIDER=gemini
+CORE_MEMORY_EMBEDDINGS_MODEL=gemini-embedding-001
+```
+
+## Run
+
+```bash
+python demo/app.py --host 127.0.0.1 --port 8080
+```
+
+Then open `http://127.0.0.1:8080`.
+
+Presentation script:
+
+- `demo/DEMO_SCRIPT.md`
+
+## Benchmark isolation modes
+
+From the Benchmark controls:
+
+- `root=snapshot` (default): copies current demo store into isolated temp benchmark root
+- `root=clean`: benchmark from fresh isolated temp root
+
+Benchmark runs never mutate `demo/memory_store` directly.
+
+## Troubleshooting
+
+- Missing `pydantic_ai`:
+  - `pip install -e ".[pydanticai]"`
+- Missing FastAPI/Uvicorn:
+  - `pip install fastapi uvicorn`
+- Missing dotenv:
+  - `pip install python-dotenv`
+- Semantic degraded warnings:
+  - install semantic extras (`.[semantic]`) and configure provider key/model
+
+## Scope addendum (deployment): Render + Supabase
+
+Added deployment scope for production demo hosting:
+
+- **Render** as the primary app host for the FastAPI demo runtime
+- **Supabase Postgres** as durable backing store for demo persistence
+
+Target intent for this scope:
+
+- avoid ephemeral/local-only filesystem assumptions for live URLs
+- preserve session/flush/benchmark observability data across restarts
+- support durable benchmark run history and cross-run comparison in hosted environments
+
+This addendum extends the PRD/spec and is treated as end-of-spec scope expansion.

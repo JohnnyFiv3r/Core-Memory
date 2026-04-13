@@ -10,7 +10,14 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from core_memory.integrations.api import IntegrationContext
+from core_memory.integrations.api import (
+    IntegrationContext,
+    inspect_state,
+    inspect_bead,
+    inspect_bead_hydration,
+    inspect_claim_slot,
+    list_turn_summaries,
+)
 from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
 from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, list_dreamer_candidates
 from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
@@ -616,6 +623,109 @@ async def memory_continuity(
             lines.append(f"[{typ}] {title}: {summary}")
         return {"ok": True, "format": "text", "text": "\n".join(lines), "count": len(records)}
     return {"ok": True, "format": "json", **result}
+
+
+@app.get("/v1/memory/inspect/state")
+async def memory_inspect_state(
+    root: Optional[str] = None,
+    session_id: Optional[str] = None,
+    as_of: Optional[str] = None,
+    limit_beads: int = 200,
+    limit_associations: int = 200,
+    limit_flushes: int = 20,
+    limit_merge_proposals: int = 40,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = inspect_state(
+        root=_resolve_root(root, x_tenant_id),
+        session_id=(str(session_id or "").strip() or None),
+        as_of=(str(as_of or "").strip() or None),
+        limit_beads=max(1, int(limit_beads)),
+        limit_associations=max(1, int(limit_associations)),
+        limit_flushes=max(1, int(limit_flushes)),
+        limit_merge_proposals=max(1, int(limit_merge_proposals)),
+    )
+    return out
+
+
+@app.get("/v1/memory/inspect/beads/{bead_id}")
+async def memory_inspect_bead(
+    bead_id: str,
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = inspect_bead(root=_resolve_root(root, x_tenant_id), bead_id=str(bead_id or ""))
+    if out is None:
+        return JSONResponse(status_code=404, content={"ok": False, "error": "bead_not_found", "bead_id": str(bead_id)})
+    return {"ok": True, "bead": out}
+
+
+@app.get("/v1/memory/inspect/beads/{bead_id}/hydrate")
+async def memory_inspect_bead_hydrate(
+    bead_id: str,
+    root: Optional[str] = None,
+    include_tools: bool = False,
+    before: int = 0,
+    after: int = 0,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = inspect_bead_hydration(
+        root=_resolve_root(root, x_tenant_id),
+        bead_id=str(bead_id or ""),
+        include_tools=bool(include_tools),
+        before=max(0, int(before)),
+        after=max(0, int(after)),
+    )
+    return out
+
+
+@app.get("/v1/memory/inspect/claim-slots/{subject}/{slot}")
+async def memory_inspect_claim_slot(
+    subject: str,
+    slot: str,
+    root: Optional[str] = None,
+    as_of: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = inspect_claim_slot(
+        root=_resolve_root(root, x_tenant_id),
+        subject=str(subject or ""),
+        slot=str(slot or ""),
+        as_of=(str(as_of or "").strip() or None),
+    )
+    return out
+
+
+@app.get("/v1/memory/inspect/turns")
+async def memory_inspect_turns(
+    root: Optional[str] = None,
+    session_id: Optional[str] = None,
+    limit: int = 200,
+    cursor: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = list_turn_summaries(
+        root=_resolve_root(root, x_tenant_id),
+        session_id=(str(session_id or "").strip() or None),
+        limit=max(1, int(limit)),
+        cursor=(str(cursor or "").strip() or None),
+    )
+    return out
 
 
 @app.post("/v1/memory/session-start")

@@ -7,9 +7,30 @@ from core_memory.entity.merge_flow import (
     suggest_entity_merge_proposals,
 )
 from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.engine import process_flush
 
 
 class TestEntityMergeFlow(unittest.TestCase):
+    def test_suggest_on_empty_root_preserves_index_stats_for_later_flush(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = suggest_entity_merge_proposals(td, min_score=0.9, max_pairs=10)
+            self.assertTrue(out.get("ok"))
+
+            s = MemoryStore(td)
+            idx = s._read_json(s.beads_dir / "index.json")
+            self.assertTrue(isinstance(idx.get("stats"), dict))
+            self.assertIn("total_beads", idx.get("stats") or {})
+
+            flush = process_flush(
+                root=td,
+                session_id="s-empty",
+                source="test",
+                promote=True,
+                token_budget=1200,
+                max_beads=12,
+            )
+            self.assertTrue(flush.get("ok"))
+
     def test_suggest_proposals_emits_pending_alias_candidate(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)

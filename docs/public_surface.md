@@ -32,6 +32,17 @@ A surface is canonical only if it is both:
 - `core_memory.retrieval.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)` — canonical causal traversal after anchor identification.
 - `core_memory.retrieval.tools.memory.execute(request: dict, root='.', explain=False)` — unified memory request entrypoint.
 
+## Inspect/observability read family (canonical)
+
+Use these public inspect surfaces for dashboards/demos/adapter observability
+instead of direct `.beads` / `.turns` layout reads:
+
+- `core_memory.integrations.api.inspect_state(...)`
+- `core_memory.integrations.api.inspect_bead(...)`
+- `core_memory.integrations.api.inspect_bead_hydration(...)`
+- `core_memory.integrations.api.inspect_claim_slot(...)`
+- `core_memory.integrations.api.list_turn_summaries(...)`
+
 Convenience package-root aliases are also exported:
 - `core_memory.memory_search`
 - `core_memory.memory_trace`
@@ -106,6 +117,13 @@ HTTP async ops surfaces (operator tooling):
 - `POST /v1/ops/async-jobs/run`
 - `GET /v1/ops/dreamer/candidates`
 - `POST /v1/ops/dreamer/candidates/decide`
+
+HTTP inspect read surfaces:
+- `GET /v1/memory/inspect/state`
+- `GET /v1/memory/inspect/beads/{bead_id}`
+- `GET /v1/memory/inspect/beads/{bead_id}/hydrate`
+- `GET /v1/memory/inspect/claim-slots/{subject}/{slot}`
+- `GET /v1/memory/inspect/turns`
 
 HTTP MCP typed read surfaces:
 - `POST /v1/mcp/query-current-state`
