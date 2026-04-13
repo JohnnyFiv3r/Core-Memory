@@ -272,6 +272,22 @@
   }
   .claim-event:last-child { border-bottom: none; }
 
+  .event-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 1px 6px;
+    font-size: 10px;
+    margin-right: 6px;
+    border: 1px solid var(--border);
+    color: var(--text-dim);
+    background: rgba(139, 143, 163, 0.1);
+  }
+  .event-chip-assert { color: var(--cyan); border-color: rgba(34, 211, 238, 0.35); }
+  .event-chip-supersede { color: var(--amber); border-color: rgba(251, 191, 36, 0.35); }
+  .event-chip-retract { color: var(--red); border-color: rgba(248, 113, 113, 0.35); }
+  .event-chip-conflict { color: #f472b6; border-color: rgba(244, 114, 182, 0.35); }
+
   .bench-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -508,6 +524,31 @@ let lastBenchmarkSummary = null;
 let selectedClaimSlot = null;
 let claimsAsOf = '';
 
+function loadClaimsStateFromUrl() {
+  try {
+    const u = new URL(window.location.href);
+    const slot = (u.searchParams.get('cm_slot') || '').trim();
+    const asof = (u.searchParams.get('cm_as_of') || '').trim();
+    if (slot) selectedClaimSlot = slot;
+    if (asof) claimsAsOf = asof;
+  } catch (_) {
+    // best effort only
+  }
+}
+
+function syncClaimsStateToUrl() {
+  try {
+    const u = new URL(window.location.href);
+    if (selectedClaimSlot) u.searchParams.set('cm_slot', selectedClaimSlot);
+    else u.searchParams.delete('cm_slot');
+    if (claimsAsOf) u.searchParams.set('cm_as_of', claimsAsOf);
+    else u.searchParams.delete('cm_as_of');
+    window.history.replaceState({}, '', u.toString());
+  } catch (_) {
+    // best effort only
+  }
+}
+
 function addMsg(role, text, turnId) {
   if (firstMessage && role !== 'init') {
     messagesEl.textContent = '';
@@ -718,6 +759,7 @@ function renderClaims(rows, claimsMeta) {
   applyBtn.textContent = 'Apply as-of';
   applyBtn.addEventListener('click', () => {
     claimsAsOf = datetimeLocalToIso(asOfInput.value);
+    syncClaimsStateToUrl();
     refreshMemory();
   });
 
@@ -726,6 +768,7 @@ function renderClaims(rows, claimsMeta) {
   clearBtn.textContent = 'Now';
   clearBtn.addEventListener('click', () => {
     claimsAsOf = '';
+    syncClaimsStateToUrl();
     refreshMemory();
   });
 
@@ -755,6 +798,7 @@ function renderClaims(rows, claimsMeta) {
 
   if (!selectedClaimSlot || !rows.some(r => (r.slot_key || '') === selectedClaimSlot)) {
     selectedClaimSlot = rows[0].slot_key;
+    syncClaimsStateToUrl();
   }
 
   const wrap = document.createElement('div');
@@ -776,6 +820,7 @@ function renderClaims(rows, claimsMeta) {
       ' · conflicts: ' + String(r.conflict_count ?? 0) + '</div>';
     row.addEventListener('click', async () => {
       selectedClaimSlot = r.slot_key || null;
+      syncClaimsStateToUrl();
       renderClaims(rows);
     });
     list.appendChild(row);
@@ -811,6 +856,8 @@ async function loadClaimSlotDetail(slotKey, detailEl) {
     const conflicts = row.conflicts || [];
     const history = row.history || [];
     const timeline = row.timeline || [];
+    const assertEvents = timeline.filter(t => String((t || {}).event_type || '').toLowerCase() === 'assert');
+    const updateEvents = timeline.filter(t => String((t || {}).event_type || '').toLowerCase() !== 'assert');
     const curText = current && Object.keys(current).length ? formatClaimEntry(current) : 'none';
 
     const historyHtml = history.length
@@ -820,11 +867,29 @@ async function loadClaimSlotDetail(slotKey, detailEl) {
         ).join('') + '</div>'
       : '<div style="margin-top:2px;color:var(--text-dim)">none</div>';
 
+    const updateDecisionCounts = {};
+    updateEvents.forEach(t => {
+      const k = String((t || {}).event_type || 'update').toLowerCase();
+      updateDecisionCounts[k] = Number(updateDecisionCounts[k] || 0) + 1;
+    });
+    const updateCountPills = Object.keys(updateDecisionCounts).sort().map(k =>
+      '<span class="claims-pill">' + escapeHtml(k) + ' ' + String(updateDecisionCounts[k]) + '</span>'
+    ).join(' ');
+
     const timelineHtml = timeline.length
-      ? '<div class="claim-events">' + timeline.slice().reverse().slice(0, 10).map(t =>
-          '<div class="claim-event"><div><strong>' + escapeHtml(String(t.event_type || 'event')) + '</strong></div>' +
-          '<div style="color:var(--text-dim)">' + escapeHtml(formatTimelineEntry(t)) + '</div></div>'
-        ).join('') + '</div>'
+      ? (
+          '<div style="margin-top:4px">' +
+            '<span class="claims-pill">assert ' + String(assertEvents.length) + '</span> ' +
+            '<span class="claims-pill">updates ' + String(updateEvents.length) + '</span> ' +
+            updateCountPills +
+          '</div>' +
+          '<div class="claim-events" style="margin-top:6px">' +
+            timeline.slice().reverse().slice(0, 12).map(t =>
+              '<div class="claim-event"><div>' + eventChipHtml(String(t.event_type || 'event')) + '<strong>' + escapeHtml(String(t.event_type || 'event')) + '</strong></div>' +
+              '<div style="color:var(--text-dim);margin-top:2px">' + escapeHtml(formatTimelineEntry(t)) + '</div></div>'
+            ).join('') +
+          '</div>'
+        )
       : '<div style="margin-top:2px;color:var(--text-dim)">none</div>';
 
     detailEl.innerHTML =
@@ -868,6 +933,16 @@ function formatTimelineEntry(t) {
     bits.push('effective=' + String(update.effective_from || '…') + '→' + String(update.effective_to || '∞'));
   }
   return bits.join(' | ') || 'no additional metadata';
+}
+
+function eventChipHtml(eventType) {
+  const e = String(eventType || '').toLowerCase();
+  let cls = 'event-chip';
+  if (e === 'assert') cls += ' event-chip-assert';
+  else if (e === 'supersede') cls += ' event-chip-supersede';
+  else if (e === 'retract') cls += ' event-chip-retract';
+  else if (e === 'conflict') cls += ' event-chip-conflict';
+  return '<span class="' + cls + '">' + escapeHtml(e || 'event') + '</span>';
 }
 
 function isoToDatetimeLocal(iso) {
@@ -1294,6 +1369,7 @@ function switchTab(name) {
   document.querySelectorAll('.tab-content').forEach(t => t.classList.toggle('active', t.id === 'tab-' + name));
 }
 
+loadClaimsStateFromUrl();
 refreshMemory();
 setInterval(refreshMemory, 2500);
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });

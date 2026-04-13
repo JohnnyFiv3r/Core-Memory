@@ -9,6 +9,7 @@ This demo is an observability + benchmark studio for Core Memory.
 - **Claims** (resolved slot state, conflicts, status)
   - includes slot detail pane with history + timeline/update events
   - supports `as_of` temporal drilldown in UI
+  - selected slot + as_of filter are persisted in URL query params for easy sharing
 - **Runtime** (queue health, semantic backend, last flush, myelination snapshot)
 - **Benchmark** (isolated LOCOMO-like runs with per-bucket + failing-case drilldown)
   - includes myelination compare deltas (improved/regressed case counts + pass-state changes)

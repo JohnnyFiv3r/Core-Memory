@@ -14,6 +14,7 @@ Use this script when presenting Core Memory behavior.
 - Highlight slot status (`active`, `conflict`, etc.), current value, and conflict counts.
 - Click a slot to show **history** and **timeline/update** entries.
 - Use **as_of** control to demonstrate temporal current-state replay.
+- Note: selected slot + as_of are reflected in URL query params for shareable review links.
 - Explain that claim-state is a first-class read model, not inferred only from free text.
 
 ## 3) Explain answer grounding
