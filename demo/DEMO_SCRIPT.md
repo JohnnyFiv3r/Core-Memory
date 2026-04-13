@@ -12,6 +12,8 @@ Use this script when presenting Core Memory behavior.
 
 - Open **Claims** tab.
 - Highlight slot status (`active`, `conflict`, etc.), current value, and conflict counts.
+- Click a slot to show **history** and **timeline/update** entries.
+- Use **as_of** control to demonstrate temporal current-state replay.
 - Explain that claim-state is a first-class read model, not inferred only from free text.
 
 ## 3) Explain answer grounding

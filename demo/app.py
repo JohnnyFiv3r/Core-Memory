@@ -275,7 +275,7 @@ def create_agent(model_id: str):
     return agent
 
 
-def get_memory_state() -> dict:
+def get_memory_state(*, as_of: str | None = None) -> dict:
     """Inspector state snapshot.
 
     Includes graph-like beads/associations plus canonical read-model views:
@@ -297,7 +297,11 @@ def get_memory_state() -> dict:
                 "context_budget": coordinator.context_budget,
             },
             "memory": {"beads": [], "associations": [], "rolling_window": []},
-            "claims": {"slots": [], "counts": {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0}},
+            "claims": {
+                "slots": [],
+                "counts": {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0},
+                "as_of": as_of or None,
+            },
             "runtime": {
                 "queue": {},
                 "semantic_backend": {},
@@ -366,7 +370,7 @@ def get_memory_state() -> dict:
     claim_state_rows: list[dict[str, Any]] = []
     claim_counts = {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0}
     try:
-        state = resolve_all_current_state(MEMORY_ROOT)
+        state = resolve_all_current_state(MEMORY_ROOT, as_of=as_of)
         for slot_key, row in sorted((state.get("slots") or {}).items(), key=lambda kv: str(kv[0])):
             rr = dict(row or {})
             current = dict(rr.get("current_claim") or {})
@@ -413,6 +417,7 @@ def get_memory_state() -> dict:
         "claims": {
             "slots": claim_state_rows,
             "counts": claim_counts,
+            "as_of": as_of or None,
         },
         "runtime": runtime,
         "last_turn": dict(LAST_TURN_DIAGNOSTICS or {}),
@@ -593,13 +598,15 @@ async def memory_state():
 
 
 @app.get("/api/demo/state")
-async def demo_state_endpoint():
-    return JSONResponse(get_memory_state())
+async def demo_state_endpoint(request: Request):
+    as_of = str(request.query_params.get("as_of") or "").strip() or None
+    return JSONResponse(get_memory_state(as_of=as_of))
 
 
 @app.get("/api/demo/claims")
-async def demo_claims_endpoint():
-    state = get_memory_state()
+async def demo_claims_endpoint(request: Request):
+    as_of = str(request.query_params.get("as_of") or "").strip() or None
+    state = get_memory_state(as_of=as_of)
     return JSONResponse(
         {
             "ok": True,
@@ -648,14 +655,15 @@ async def demo_bead_hydrate_endpoint(bead_id: str):
 
 
 @app.get("/api/demo/claim-slot/{subject}/{slot}")
-async def demo_claim_slot_endpoint(subject: str, slot: str):
+async def demo_claim_slot_endpoint(subject: str, slot: str, request: Request):
     key = f"{str(subject).strip()}:{str(slot).strip()}"
     try:
-        state = resolve_all_current_state(MEMORY_ROOT)
+        as_of = str(request.query_params.get("as_of") or "").strip() or None
+        state = resolve_all_current_state(MEMORY_ROOT, as_of=as_of)
         row = dict((state.get("slots") or {}).get(key) or {})
-        return JSONResponse({"ok": True, "slot_key": key, "row": row})
+        return JSONResponse({"ok": True, "slot_key": key, "row": row, "as_of": as_of})
     except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc), "slot_key": key}, status_code=500)
+        return JSONResponse({"ok": False, "error": str(exc), "slot_key": key, "as_of": as_of}, status_code=500)
 
 
 @app.post("/api/flush")

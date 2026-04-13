@@ -40,6 +40,18 @@ class TestDemoObservabilityApi(unittest.TestCase):
             self.assertIn("claims", s)
             self.assertIn("runtime", s)
 
+            as_of = "2026-01-01T00:00:00Z"
+            r1b = c.get(f"/api/demo/state?as_of={as_of}")
+            self.assertEqual(200, r1b.status_code)
+            s2 = r1b.json()
+            self.assertEqual(as_of, ((s2.get("claims") or {}).get("as_of")))
+
+            r1c = c.get(f"/api/demo/claim-slot/demo/topic?as_of={as_of}")
+            self.assertEqual(200, r1c.status_code)
+            slot = r1c.json()
+            self.assertTrue(slot.get("ok"))
+            self.assertEqual(as_of, slot.get("as_of"))
+
             r2 = c.post(
                 "/api/benchmark-run",
                 json={

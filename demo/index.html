@@ -238,6 +238,40 @@
     line-height: 1.45;
   }
 
+  .claims-toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .claims-pill {
+    display: inline-flex;
+    gap: 6px;
+    align-items: center;
+    font-size: 10px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 2px 8px;
+    color: var(--text-dim);
+    background: rgba(139, 143, 163, 0.08);
+  }
+
+  .claim-events {
+    margin-top: 8px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+
+  .claim-event {
+    border-bottom: 1px solid var(--border);
+    padding: 6px 8px;
+    font-size: 11px;
+    line-height: 1.4;
+  }
+  .claim-event:last-child { border-bottom: none; }
+
   .bench-grid {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -468,6 +502,7 @@ let firstMessage = true;
 let lastBenchmarkReport = null;
 let lastBenchmarkSummary = null;
 let selectedClaimSlot = null;
+let claimsAsOf = '';
 
 function addMsg(role, text, turnId) {
   if (firstMessage && role !== 'init') {
@@ -661,9 +696,51 @@ function renderRolling(items) {
   });
 }
 
-function renderClaims(rows) {
+function renderClaims(rows, claimsMeta) {
   const el = document.getElementById('tab-claims');
   el.textContent = '';
+
+  const toolbar = document.createElement('div');
+  toolbar.className = 'claims-toolbar';
+  const asOfInput = document.createElement('input');
+  asOfInput.type = 'datetime-local';
+  asOfInput.className = 'control-input';
+  asOfInput.style.width = '200px';
+  asOfInput.title = 'As-of timestamp (UTC)';
+  asOfInput.value = isoToDatetimeLocal(claimsAsOf || (claimsMeta || {}).as_of || '');
+
+  const applyBtn = document.createElement('button');
+  applyBtn.className = 'btn';
+  applyBtn.textContent = 'Apply as-of';
+  applyBtn.addEventListener('click', () => {
+    claimsAsOf = datetimeLocalToIso(asOfInput.value);
+    refreshMemory();
+  });
+
+  const clearBtn = document.createElement('button');
+  clearBtn.className = 'btn';
+  clearBtn.textContent = 'Now';
+  clearBtn.addEventListener('click', () => {
+    claimsAsOf = '';
+    refreshMemory();
+  });
+
+  toolbar.appendChild(asOfInput);
+  toolbar.appendChild(applyBtn);
+  toolbar.appendChild(clearBtn);
+  el.appendChild(toolbar);
+
+  const counts = (claimsMeta || {}).counts || {};
+  const countsWrap = document.createElement('div');
+  countsWrap.style.marginBottom = '8px';
+  countsWrap.innerHTML =
+    '<span class="claims-pill">active ' + String(counts.active ?? 0) + '</span> ' +
+    '<span class="claims-pill">conflict ' + String(counts.conflict ?? 0) + '</span> ' +
+    '<span class="claims-pill">retracted ' + String(counts.retracted ?? 0) + '</span> ' +
+    '<span class="claims-pill">other ' + String(counts.other ?? 0) + '</span>' +
+    '<span style="margin-left:6px;color:var(--text-dim);font-size:11px">as_of: ' + escapeHtml((claimsMeta || {}).as_of || 'now') + '</span>';
+  el.appendChild(countsWrap);
+
   if (!rows || !rows.length) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -718,7 +795,9 @@ async function loadClaimSlotDetail(slotKey, detailEl) {
   }
   detailEl.textContent = 'Loading slot detail...';
   try {
-    const res = await fetch('/api/demo/claim-slot/' + encodeURIComponent(subject) + '/' + encodeURIComponent(slot));
+    let url = '/api/demo/claim-slot/' + encodeURIComponent(subject) + '/' + encodeURIComponent(slot);
+    if (claimsAsOf) url += '?as_of=' + encodeURIComponent(claimsAsOf);
+    const res = await fetch(url);
     const data = await res.json();
     if (!res.ok || !data.ok) {
       throw new Error(data.error || ('HTTP ' + res.status));
@@ -728,21 +807,82 @@ async function loadClaimSlotDetail(slotKey, detailEl) {
     const conflicts = row.conflicts || [];
     const history = row.history || [];
     const timeline = row.timeline || [];
-    const curText = current && Object.keys(current).length
-      ? ('id=' + String(current.id || 'n/a') + '\nvalue=' + String(current.value ?? '—') + '\nconfidence=' + String(current.confidence ?? '—'))
-      : 'none';
+    const curText = current && Object.keys(current).length ? formatClaimEntry(current) : 'none';
+
+    const historyHtml = history.length
+      ? '<div class="claim-events">' + history.slice().reverse().slice(0, 8).map(c =>
+          '<div class="claim-event"><div><strong>' + escapeHtml(String(c.id || 'claim')) + '</strong></div>' +
+          '<div style="color:var(--text-dim)">' + escapeHtml(formatClaimEntry(c)) + '</div></div>'
+        ).join('') + '</div>'
+      : '<div style="margin-top:2px;color:var(--text-dim)">none</div>';
+
+    const timelineHtml = timeline.length
+      ? '<div class="claim-events">' + timeline.slice().reverse().slice(0, 10).map(t =>
+          '<div class="claim-event"><div><strong>' + escapeHtml(String(t.event_type || 'event')) + '</strong></div>' +
+          '<div style="color:var(--text-dim)">' + escapeHtml(formatTimelineEntry(t)) + '</div></div>'
+        ).join('') + '</div>'
+      : '<div style="margin-top:2px;color:var(--text-dim)">none</div>';
 
     detailEl.innerHTML =
       '<div><strong>' + String(data.slot_key || slotKey) + '</strong> ' +
       '<span class="bead-status ' + statusClass(String(row.status || 'not_found')) + '">' + String(row.status || 'not_found') + '</span></div>' +
+      '<div style="margin-top:2px;color:var(--text-dim)">as_of: ' + escapeHtml(data.as_of || claimsAsOf || 'now') + '</div>' +
       '<div style="margin-top:8px"><strong>Current claim</strong><pre style="margin-top:4px">' + escapeHtml(curText) + '</pre></div>' +
       '<div style="margin-top:8px"><strong>Conflicts</strong> · ' + String(conflicts.length) + '</div>' +
       '<div style="margin-top:2px;color:var(--text-dim)">' + escapeHtml(conflicts.slice(0,3).map(c => String(c.value ?? '—')).join(' | ') || 'none') + '</div>' +
       '<div style="margin-top:8px"><strong>History entries</strong> · ' + String(history.length) + '</div>' +
-      '<div style="margin-top:8px"><strong>Timeline entries</strong> · ' + String(timeline.length) + '</div>';
+      historyHtml +
+      '<div style="margin-top:8px"><strong>Timeline / updates</strong> · ' + String(timeline.length) + '</div>' +
+      timelineHtml;
   } catch (err) {
     detailEl.textContent = 'Failed to load slot detail: ' + err.message;
   }
+}
+
+function formatClaimEntry(c) {
+  const parts = [];
+  parts.push('value=' + String(c.value ?? '—'));
+  parts.push('confidence=' + String(c.confidence ?? '—'));
+  if (c.effective_from || c.effective_to) {
+    parts.push('effective=' + String(c.effective_from || '…') + '→' + String(c.effective_to || '∞'));
+  }
+  if (c.source_turn_ids && c.source_turn_ids.length) {
+    parts.push('turns=' + String(c.source_turn_ids.length));
+  }
+  return parts.join(' | ');
+}
+
+function formatTimelineEntry(t) {
+  const claim = (t || {}).claim || {};
+  const update = (t || {}).update || {};
+  const bits = [];
+  if (claim.id) bits.push('claim=' + String(claim.id));
+  if (claim.value !== undefined) bits.push('value=' + String(claim.value));
+  if (update.target_claim_id) bits.push('target=' + String(update.target_claim_id));
+  if (update.decision) bits.push('decision=' + String(update.decision));
+  if (update.effective_from || update.effective_to) {
+    bits.push('effective=' + String(update.effective_from || '…') + '→' + String(update.effective_to || '∞'));
+  }
+  return bits.join(' | ') || 'no additional metadata';
+}
+
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const y = d.getUTCFullYear();
+  const m = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return y + '-' + m + '-' + day + 'T' + hh + ':' + mm;
+}
+
+function datetimeLocalToIso(v) {
+  if (!v) return '';
+  const d = new Date(v + ':00Z');
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toISOString();
 }
 
 function escapeHtml(s) {
@@ -913,7 +1053,8 @@ function renderBenchmark(summary, report) {
 
 async function refreshMemory() {
   try {
-    const res = await fetch('/api/demo/state');
+    const stateUrl = claimsAsOf ? ('/api/demo/state?as_of=' + encodeURIComponent(claimsAsOf)) : '/api/demo/state';
+    const res = await fetch(stateUrl);
     const data = await res.json();
     const mem = data.memory || {};
     const sess = data.session || {};
@@ -922,7 +1063,7 @@ async function refreshMemory() {
 
     renderBeads(mem.beads || data.beads || []);
     renderAssociations(mem.associations || data.associations || []);
-    renderClaims(claims.slots || data.claim_state || []);
+    renderClaims(claims.slots || data.claim_state || [], claims);
     renderRuntime(data.runtime || {}, data.last_turn || {});
     renderRolling(mem.rolling_window || data.rolling_window || []);
 
