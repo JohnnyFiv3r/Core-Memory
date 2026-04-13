@@ -479,6 +479,7 @@
       <div class="tab active" data-tab="beads" onclick="switchTab('beads')">Beads</div>
       <div class="tab" data-tab="associations" onclick="switchTab('associations')">Associations</div>
       <div class="tab" data-tab="claims" onclick="switchTab('claims')">Claims</div>
+      <div class="tab" data-tab="entities" onclick="switchTab('entities')">Entities</div>
       <div class="tab" data-tab="runtime" onclick="switchTab('runtime')">Runtime</div>
       <div class="tab" data-tab="benchmark" onclick="switchTab('benchmark')">Benchmark</div>
       <div class="tab" data-tab="rolling" onclick="switchTab('rolling')">Rolling Window</div>
@@ -487,6 +488,7 @@
       <div class="tab-content active" id="tab-beads"></div>
       <div class="tab-content" id="tab-associations"></div>
       <div class="tab-content" id="tab-claims"></div>
+      <div class="tab-content" id="tab-entities"></div>
       <div class="tab-content" id="tab-runtime"></div>
       <div class="tab-content" id="tab-benchmark"></div>
       <div class="tab-content" id="tab-rolling"></div>
@@ -495,6 +497,7 @@
       <span>Beads: <span class="stat-val" id="stat-beads">0</span></span>
       <span>Assoc: <span class="stat-val" id="stat-assoc">0</span></span>
       <span>Claims: <span class="stat-val" id="stat-claims">0</span></span>
+      <span>Entities: <span class="stat-val" id="stat-entities">0</span></span>
       <span>Window: <span class="stat-val" id="stat-rolling">0</span></span>
       <span style="margin-left:auto">Ctx: <span class="stat-val" id="stat-tokens">0</span>/<span id="stat-budget">10000</span></span>
     </div>
@@ -846,6 +849,77 @@ function renderClaims(rows, claimsMeta) {
   el.appendChild(wrap);
 
   loadClaimSlotDetail(selectedClaimSlot, detail);
+}
+
+function renderEntities(entityMeta) {
+  const el = document.getElementById('tab-entities');
+  el.textContent = '';
+  const rows = Array.isArray((entityMeta || {}).rows) ? entityMeta.rows : [];
+  const counts = (entityMeta || {}).counts || {};
+  const merges = Array.isArray((entityMeta || {}).merge_proposals) ? entityMeta.merge_proposals : [];
+
+  const head = document.createElement('div');
+  head.style.marginBottom = '8px';
+  head.innerHTML =
+    '<span class="claims-pill">total ' + String(counts.total ?? rows.length) + '</span> ' +
+    '<span class="claims-pill">active ' + String(counts.active ?? 0) + '</span> ' +
+    '<span class="claims-pill">merged ' + String(counts.merged ?? 0) + '</span> ' +
+    '<span class="claims-pill">merge proposals ' + String(merges.length) + '</span>';
+  el.appendChild(head);
+
+  if (!rows.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'No entity registry rows yet';
+    el.appendChild(empty);
+  } else {
+    rows.slice(0, 80).forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'runtime-card';
+      const status = String(r.status || 'active');
+      card.innerHTML =
+        '<div><strong>' + escapeHtml(String(r.label || r.id || 'entity')) + '</strong> ' +
+        '<span class="runtime-badge ' + (status === 'active' ? 'runtime-badge-good' : 'runtime-badge-warn') + '">' + escapeHtml(status) + '</span></div>' +
+        '<div style="margin-top:2px;color:var(--text-dim)">id: ' + escapeHtml(String(r.id || 'n/a')) + '</div>' +
+        '<div style="margin-top:2px;color:var(--text-dim)">aliases: ' + String(r.aliases_count ?? 0) +
+        ' · confidence: ' + String(r.confidence ?? 'n/a') +
+        ' · provenance: ' + String(r.provenance_count ?? 0) + '</div>' +
+        (r.merged_into
+          ? ('<div style="margin-top:2px;color:var(--amber)">merged_into: ' + escapeHtml(String(r.merged_into)) + '</div>')
+          : '') +
+        '<div style="margin-top:2px;color:var(--text-dim)">updated: ' + escapeHtml(formatIsoShort(r.updated_at || '')) + '</div>';
+      if (Array.isArray(r.aliases) && r.aliases.length) {
+        const aliasesLine = document.createElement('div');
+        aliasesLine.style.cssText = 'margin-top:4px;color:var(--text-dim);font-size:11px';
+        aliasesLine.textContent = 'aliases: ' + r.aliases.slice(0, 8).join(', ');
+        card.appendChild(aliasesLine);
+      }
+      el.appendChild(card);
+    });
+  }
+
+  if (merges.length) {
+    const mh = document.createElement('div');
+    mh.className = 'runtime-card';
+    mh.innerHTML = '<strong>Entity merge proposals</strong>';
+    el.appendChild(mh);
+    merges.slice(0, 20).forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'bench-bucket';
+      row.innerHTML =
+        '<div><strong>' + escapeHtml(String(m.id || 'proposal')) + '</strong> ' +
+        '<span class="runtime-badge ' + (String(m.status || '') === 'pending' ? 'runtime-badge-warn' : 'runtime-badge-good') + '">' + escapeHtml(String(m.status || 'n/a')) + '</span></div>' +
+        '<div style="margin-top:2px;color:var(--text-dim)">score=' + String(Number(m.score || 0).toFixed(3)) +
+        ' · left=' + escapeHtml(String(m.left_entity_id || 'n/a')) +
+        ' · right=' + escapeHtml(String(m.right_entity_id || 'n/a')) + '</div>';
+      row.addEventListener('click', () => {
+        document.getElementById('modal-title').textContent = 'Entity merge proposal';
+        document.getElementById('modal-body').textContent = JSON.stringify(m, null, 2);
+        document.getElementById('modal').classList.add('open');
+      });
+      el.appendChild(row);
+    });
+  }
 }
 
 async function loadClaimSlotDetail(slotKey, detailEl) {
@@ -1296,11 +1370,13 @@ async function refreshMemory() {
     const mem = data.memory || {};
     const sess = data.session || {};
     const claims = data.claims || {};
+    const entities = data.entities || {};
     const statsCompat = data.stats || {};
 
     renderBeads(mem.beads || data.beads || []);
     renderAssociations(mem.associations || data.associations || []);
     renderClaims(claims.slots || data.claim_state || [], claims);
+    renderEntities(entities);
     renderRuntime(data.runtime || {}, data.last_turn || {});
     renderRolling(mem.rolling_window || data.rolling_window || []);
 
@@ -1322,6 +1398,7 @@ async function refreshMemory() {
     document.getElementById('stat-beads').textContent = Number(statsCompat.total_beads || (mem.beads || []).length || 0);
     document.getElementById('stat-assoc').textContent = Number(statsCompat.total_associations || (mem.associations || []).length || 0);
     document.getElementById('stat-claims').textContent = Number(statsCompat.claim_slot_count || (claims.slots || []).length || 0);
+    document.getElementById('stat-entities').textContent = Number(statsCompat.entity_count || (entities.rows || []).length || 0);
     document.getElementById('stat-rolling').textContent = Number(statsCompat.rolling_window_size || (mem.rolling_window || []).length || 0);
     const usage = Number(sess.token_usage ?? statsCompat.token_usage ?? 0);
     const budget = Number(sess.context_budget ?? statsCompat.context_budget ?? 10000);

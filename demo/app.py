@@ -112,6 +112,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core_memory.persistence.store import MemoryStore
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.claim.resolver import resolve_all_current_state
+from core_memory.entity.registry import load_entity_registry
+from core_memory.entity.merge_flow import list_entity_merge_proposals
 from core_memory.runtime.jobs import async_jobs_status
 from core_memory.runtime.myelination import myelination_report
 from core_memory.retrieval.semantic_index import semantic_doctor
@@ -317,6 +319,11 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
                 "counts": {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0},
                 "as_of": as_of or None,
             },
+            "entities": {
+                "rows": [],
+                "counts": {"total": 0, "active": 0, "merged": 0, "other": 0},
+                "merge_proposals": [],
+            },
             "runtime": {
                 "queue": {},
                 "queue_breakdown": [],
@@ -337,6 +344,7 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
                 "total_associations": 0,
                 "rolling_window_size": 0,
                 "claim_slot_count": 0,
+                "entity_count": 0,
                 "session_id": coordinator.session_id,
                 "token_usage": coordinator.token_usage,
                 "context_budget": coordinator.context_budget,
@@ -413,6 +421,41 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
     except Exception:
         claim_state_rows = []
 
+    entity_rows: list[dict[str, Any]] = []
+    entity_counts = {"total": 0, "active": 0, "merged": 0, "other": 0}
+    merge_rows: list[dict[str, Any]] = []
+    try:
+        reg = load_entity_registry(MEMORY_ROOT)
+        entities_map = dict(reg.get("entities") or {})
+        for entity_id, row in sorted(entities_map.items(), key=lambda kv: str((kv[1] or {}).get("updated_at") or ""), reverse=True):
+            rr = dict(row or {})
+            status = str(rr.get("status") or "active")
+            entity_rows.append(
+                {
+                    "id": str(entity_id),
+                    "label": str(rr.get("label") or ""),
+                    "status": status,
+                    "merged_into": str(rr.get("merged_into") or ""),
+                    "aliases_count": int(len(list(rr.get("aliases") or []))),
+                    "aliases": list(rr.get("aliases") or []),
+                    "confidence": rr.get("confidence"),
+                    "provenance_count": int(len(list(rr.get("provenance") or []))),
+                    "updated_at": str(rr.get("updated_at") or ""),
+                }
+            )
+            if status == "active":
+                entity_counts["active"] += 1
+            elif status == "merged":
+                entity_counts["merged"] += 1
+            else:
+                entity_counts["other"] += 1
+        entity_counts["total"] = int(len(entity_rows))
+        merge_rows = list_entity_merge_proposals(MEMORY_ROOT, limit=40)
+    except Exception:
+        entity_rows = []
+        merge_rows = []
+        entity_counts = {"total": 0, "active": 0, "merged": 0, "other": 0}
+
     queue_status = async_jobs_status(root=MEMORY_ROOT)
     queue_map = dict((queue_status or {}).get("queues") or {}) if isinstance(queue_status, dict) else {}
 
@@ -457,6 +500,11 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
             "counts": claim_counts,
             "as_of": as_of or None,
         },
+        "entities": {
+            "rows": entity_rows,
+            "counts": entity_counts,
+            "merge_proposals": merge_rows,
+        },
         "runtime": runtime,
         "last_turn": dict(LAST_TURN_DIAGNOSTICS or {}),
         "benchmark": {
@@ -477,6 +525,7 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
                 "total_associations": len(associations),
                 "rolling_window_size": len(rolling),
                 "claim_slot_count": len(claim_state_rows),
+                "entity_count": len(entity_rows),
                 "session_id": coordinator.session_id,
                 "token_usage": coordinator.token_usage,
                 "context_budget": coordinator.context_budget,
@@ -670,6 +719,18 @@ async def demo_runtime_endpoint():
             "runtime": dict(state.get("runtime") or {}),
             "session": dict(state.get("session") or {}),
             "last_turn": dict(state.get("last_turn") or {}),
+        }
+    )
+
+
+@app.get("/api/demo/entities")
+async def demo_entities_endpoint():
+    state = get_memory_state()
+    return JSONResponse(
+        {
+            "ok": True,
+            "entities": dict(state.get("entities") or {}),
+            "session": dict(state.get("session") or {}),
         }
     )
 

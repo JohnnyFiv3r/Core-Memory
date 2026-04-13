@@ -40,6 +40,7 @@ class TestDemoObservabilityApi(unittest.TestCase):
             self.assertIn("session", s)
             self.assertIn("memory", s)
             self.assertIn("claims", s)
+            self.assertIn("entities", s)
             self.assertIn("runtime", s)
             self.assertIn("flush_history", dict((s.get("runtime") or {})))
             self.assertIn("queue_breakdown", dict((s.get("runtime") or {})))
@@ -95,6 +96,12 @@ class TestDemoObservabilityApi(unittest.TestCase):
             last = r3.json()
             self.assertIn("summary", last)
             self.assertIn("report", last)
+
+            r3b = c.get("/api/demo/entities")
+            self.assertEqual(200, r3b.status_code)
+            ent = r3b.json()
+            self.assertTrue(ent.get("ok"))
+            self.assertIn("entities", ent)
 
             r4 = c.post("/api/flush")
             self.assertEqual(200, r4.status_code)

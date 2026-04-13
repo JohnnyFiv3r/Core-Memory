@@ -10,6 +10,8 @@ This demo is an observability + benchmark studio for Core Memory.
   - includes slot detail pane with history + timeline/update events
   - supports `as_of` temporal drilldown in UI
   - selected slot + as_of filter are persisted in URL query params for easy sharing
+- **Entities** (entity registry + merge-proposal visibility)
+  - shows active/merged counts, aliases, provenance, and merge proposal rows
 - **Runtime** (queue health, semantic backend, last flush, myelination snapshot)
   - includes strict/degraded semantic-mode status badges + last-answer warnings/chains breakdown
   - includes per-queue side-effect breakdown and recent flush event history

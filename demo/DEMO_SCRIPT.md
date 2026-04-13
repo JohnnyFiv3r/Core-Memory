@@ -26,6 +26,13 @@ Use this script when presenting Core Memory behavior.
   - `retrieval_mode`
 - Emphasize partial/abstain is preferred over hallucination when grounding is weak.
 
+## 3.5) Show entity registry awareness
+
+- Open **Entities** tab.
+- Highlight active vs merged entity counts.
+- Show alias normalization/provenance fields on a row.
+- Open a merge-proposal row (if present) to demonstrate entity merge observability.
+
 ## 4) Show runtime health
 
 - In **Runtime**, cover:
