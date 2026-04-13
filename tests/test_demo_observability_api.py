@@ -68,6 +68,24 @@ class TestDemoObservabilityApi(unittest.TestCase):
             summary = dict(b.get("summary") or {})
             self.assertEqual("clean", str(summary.get("root_mode") or ""))
 
+            r2b = c.post(
+                "/api/benchmark-run",
+                json={
+                    "subset": "local",
+                    "limit": 1,
+                    "root_mode": "clean",
+                    "preload_from_demo": False,
+                    "semantic_mode": "degraded_allowed",
+                    "myelination": "compare",
+                },
+            )
+            self.assertEqual(200, r2b.status_code)
+            b2 = r2b.json()
+            self.assertTrue(b2.get("ok"))
+            self.assertIn("myelination_comparison", dict(b2.get("report") or {}))
+            s2 = dict(b2.get("summary") or {})
+            self.assertIn("myelination_compare", s2)
+
             r3 = c.get("/api/demo/benchmark/last")
             self.assertEqual(200, r3.status_code)
             last = r3.json()

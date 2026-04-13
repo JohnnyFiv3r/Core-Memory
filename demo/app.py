@@ -773,6 +773,19 @@ async def benchmark_run_endpoint(request: Request):
             "isolated_run": True,
             "warnings": snapshot_copy_warnings,
         }
+
+        mc = dict(report.get("myelination_comparison") or {})
+        if mc:
+            rows = list(mc.get("cases") or [])
+            improved = sum(1 for r in rows if (not bool(r.get("baseline_pass"))) and bool(r.get("enabled_pass")))
+            regressed = sum(1 for r in rows if bool(r.get("baseline_pass")) and (not bool(r.get("enabled_pass"))))
+            summary["myelination_compare"] = {
+                "accuracy_delta": float(mc.get("accuracy_delta") or 0.0),
+                "improved_cases": int(improved),
+                "regressed_cases": int(regressed),
+                "changed_cases": int(sum(1 for r in rows if bool(r.get("pass_changed")))),
+            }
+
         LAST_BENCHMARK_REPORT = dict(report)
         LAST_BENCHMARK_SUMMARY = dict(summary)
         return JSONResponse({"ok": True, "summary": summary, "report": report})

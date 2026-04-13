@@ -297,6 +297,10 @@
     font-size: 12px;
   }
 
+  .bench-delta-good { color: var(--green); }
+  .bench-delta-bad { color: var(--red); }
+  .bench-delta-neutral { color: var(--text-dim); }
+
   .bench-fail {
     background: rgba(248, 113, 113, 0.08);
     border: 1px solid rgba(248, 113, 113, 0.25);
@@ -980,12 +984,18 @@ function renderBenchmark(summary, report) {
 
   const meta = document.createElement('div');
   meta.className = 'runtime-card';
+  const cmp = summary.myelination_compare || null;
+  const cmpLine = cmp
+    ? ('<div style="margin-top:2px;color:var(--text-dim)">compare Δ=' + String(Number(cmp.accuracy_delta || 0).toFixed(4)) +
+       ' · improved/regressed=' + String((cmp.improved_cases || 0) + '/' + (cmp.regressed_cases || 0)) + '</div>')
+    : '';
   meta.innerHTML =
     '<div><strong>Run config</strong></div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">root mode: ' + String(summary.root_mode || 'n/a') +
     ' · preload turns: ' + String(summary.preload_turn_count || 0) + '</div>' +
     '<div style="margin-top:2px;color:var(--text-dim)">backend modes: ' + String((summary.backend_modes || []).join(', ') || 'unknown') + '</div>' +
     '<div style="margin-top:2px;color:var(--text-dim)">warnings: ' + String((summary.warnings || []).length) + '</div>' +
+    cmpLine +
     '<div style="margin-top:6px"><button class="btn" id="btn-bench-raw">Open raw JSON</button></div>';
   el.appendChild(meta);
   const rawBtn = meta.querySelector('#btn-bench-raw');
@@ -1011,14 +1021,73 @@ function renderBenchmark(summary, report) {
 
   if (r && r.myelination_comparison) {
     const mc = r.myelination_comparison || {};
+    const baseline = mc.baseline || {};
+    const enabled = mc.enabled || {};
+    const delta = Number(mc.accuracy_delta || 0);
+    const cases = Array.isArray(mc.cases) ? mc.cases : [];
+    const improved = cases.filter(c => !c.baseline_pass && c.enabled_pass);
+    const regressed = cases.filter(c => c.baseline_pass && !c.enabled_pass);
+    const changed = cases.filter(c => !!c.pass_changed);
+
     const m = document.createElement('div');
     m.className = 'runtime-card';
     m.innerHTML =
       '<div><strong>Myelination compare</strong></div>' +
-      '<div style="margin-top:4px;color:var(--text-dim)">baseline acc=' + String((mc.baseline || {}).accuracy ?? 'n/a') +
-      ' · enabled acc=' + String((mc.enabled || {}).accuracy ?? 'n/a') +
-      ' · delta=' + String(mc.accuracy_delta ?? 'n/a') + '</div>';
+      '<div style="margin-top:4px;color:var(--text-dim)">baseline acc=' + String(baseline.accuracy ?? 'n/a') +
+      ' · enabled acc=' + String(enabled.accuracy ?? 'n/a') +
+      ' · delta=<span class="' + (delta > 0 ? 'bench-delta-good' : delta < 0 ? 'bench-delta-bad' : 'bench-delta-neutral') + '">' + String(delta.toFixed(4)) + '</span></div>' +
+      '<div style="margin-top:2px;color:var(--text-dim)">pass/fail baseline=' + String((baseline.pass ?? 0) + '/' + (baseline.fail ?? 0)) +
+      ' · enabled=' + String((enabled.pass ?? 0) + '/' + (enabled.fail ?? 0)) + '</div>';
     el.appendChild(m);
+
+    const mg = document.createElement('div');
+    mg.className = 'bench-grid';
+    [
+      ['improved', String(improved.length)],
+      ['regressed', String(regressed.length)],
+      ['changed', String(changed.length)],
+      ['unchanged', String(cases.length - changed.length)],
+    ].forEach(([k, v]) => {
+      const c = document.createElement('div');
+      c.className = 'bench-card';
+      c.innerHTML = '<div class="k">' + k + '</div><div class="v">' + v + '</div>';
+      mg.appendChild(c);
+    });
+    el.appendChild(mg);
+
+    if (changed.length) {
+      const h = document.createElement('div');
+      h.className = 'runtime-card';
+      h.innerHTML = '<strong>Pass-state changes</strong>';
+      el.appendChild(h);
+
+      const ordered = changed.slice().sort((a, b) => {
+        const aReg = (!!a.baseline_pass && !a.enabled_pass) ? 1 : 0;
+        const bReg = (!!b.baseline_pass && !b.enabled_pass) ? 1 : 0;
+        if (aReg !== bReg) return bReg - aReg; // regressions first
+        return String(a.case_id || '').localeCompare(String(b.case_id || ''));
+      });
+
+      ordered.slice(0, 20).forEach(c => {
+        const regressedNow = !!c.baseline_pass && !c.enabled_pass;
+        const improvedNow = !c.baseline_pass && !!c.enabled_pass;
+        const row = document.createElement('div');
+        row.className = 'bench-fail';
+        row.style.background = improvedNow ? 'rgba(74, 222, 128, 0.08)' : 'rgba(248, 113, 113, 0.08)';
+        row.style.borderColor = improvedNow ? 'rgba(74, 222, 128, 0.30)' : 'rgba(248, 113, 113, 0.25)';
+        row.innerHTML =
+          '<div><strong>' + String(c.case_id || 'case') + '</strong> · ' + (improvedNow ? '<span class="bench-delta-good">improved</span>' : (regressedNow ? '<span class="bench-delta-bad">regressed</span>' : 'changed')) + '</div>' +
+          '<div style="color:var(--text-dim);margin-top:2px">baseline=' + String(!!c.baseline_pass) +
+          ' · enabled=' + String(!!c.enabled_pass) +
+          ' · latency Δ=' + String(Number(c.latency_delta_ms || 0).toFixed(3)) + 'ms</div>';
+        row.addEventListener('click', () => {
+          document.getElementById('modal-title').textContent = 'Myelination compare case: ' + String(c.case_id || 'detail');
+          document.getElementById('modal-body').textContent = JSON.stringify(c, null, 2);
+          document.getElementById('modal').classList.add('open');
+        });
+        el.appendChild(row);
+      });
+    }
   }
 
   if (r && Array.isArray(r.cases)) {
@@ -1156,6 +1225,7 @@ async function flushSession() {
 function formatBenchmarkSummary(s) {
   if (!s) return 'Benchmark completed.';
   const modes = (s.backend_modes || []).join(', ') || 'unknown';
+  const warns = Number((s.warnings || []).length || 0);
   return (
     'LOCOMO test completed\n' +
     'mode: isolated benchmark store (demo state not mutated)\n' +
@@ -1165,7 +1235,8 @@ function formatBenchmarkSummary(s) {
     'accuracy: ' + Number(s.accuracy || 0).toFixed(4) + '\n' +
     'semantic mode: ' + (s.semantic_mode || 'n/a') + '\n' +
     'backend modes: ' + modes + '\n' +
-    'preload turns: ' + (s.preload_turn_count ?? 0)
+    'preload turns: ' + (s.preload_turn_count ?? 0) + '\n' +
+    'warnings: ' + warns
   );
 }
 
