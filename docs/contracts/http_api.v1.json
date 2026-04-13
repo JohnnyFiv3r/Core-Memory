@@ -91,6 +91,52 @@
     },
     {
       "method": "GET",
+      "path": "/v1/memory/inspect/state",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "notes": ["Canonical inspect read model for dashboards/inspectors"],
+      "response": {"ok": "bool", "memory": "object", "claims": "object", "entities": "object", "runtime": "object", "stats": "object"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/inspect/beads/{bead_id}",
+      "authRequired": "conditional",
+      "requestSchema": "path + query params",
+      "requiredFields": ["bead_id"],
+      "response": {"ok": "bool", "bead": "object"},
+      "errors": ["401 unauthorized", "404 bead_not_found", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/inspect/beads/{bead_id}/hydrate",
+      "authRequired": "conditional",
+      "requestSchema": "path + query params",
+      "requiredFields": ["bead_id"],
+      "response": {"ok": "bool", "hydrated": "array", "requested_turn_ids": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/inspect/claim-slots/{subject}/{slot}",
+      "authRequired": "conditional",
+      "requestSchema": "path + query params",
+      "requiredFields": ["subject", "slot"],
+      "response": {"ok": "bool", "slot_key": "string", "row": "object", "as_of": "string?"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/inspect/turns",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "items": "array", "cursor": "string", "next_cursor": "string?", "total": "int"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
       "path": "/v1/ops/async-jobs/status",
       "authRequired": "conditional",
       "requestSchema": "query params",

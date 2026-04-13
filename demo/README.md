@@ -20,6 +20,16 @@ This demo is an observability + benchmark studio for Core Memory.
 - **Benchmark** (isolated LOCOMO-like runs with per-bucket + failing-case drilldown)
   - includes myelination compare deltas (improved/regressed case counts + pass-state changes)
 
+## Read-surface authority
+
+- The demo client reads memory state from canonical inspect HTTP surfaces:
+  - `/v1/memory/inspect/state`
+  - `/v1/memory/inspect/beads/{bead_id}`
+  - `/v1/memory/inspect/beads/{bead_id}/hydrate`
+  - `/v1/memory/inspect/claim-slots/{subject}/{slot}`
+  - `/v1/memory/inspect/turns`
+- Existing `/api/demo/*` read routes are compatibility aliases and are non-authoritative.
+
 ## Dependencies
 
 Install from repo root:

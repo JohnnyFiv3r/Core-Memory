@@ -43,6 +43,16 @@ Adapter/helper ingress:
 
 Canonical retrieval story is exactly: **search → trace → execute**.
 
+### Canonical inspect family (read-model/observability path)
+- `core_memory.integrations.api.inspect_state`
+- `core_memory.integrations.api.inspect_bead`
+- `core_memory.integrations.api.inspect_bead_hydration`
+- `core_memory.integrations.api.inspect_claim_slot`
+- `core_memory.integrations.api.list_turn_summaries`
+
+These are the preferred public surfaces for inspectors/demos/adapters that need
+memory observability state.
+
 ### Continuity surface
 - `core_memory.write_pipeline.continuity_injection.load_continuity_injection(...)`
 
@@ -82,6 +92,11 @@ Served by `core_memory.integrations.http.server`:
 - `POST /v1/memory/trace`
 - `POST /v1/memory/execute`
 - `GET /v1/memory/continuity`
+- `GET /v1/memory/inspect/state`
+- `GET /v1/memory/inspect/beads/{bead_id}`
+- `GET /v1/memory/inspect/beads/{bead_id}/hydrate`
+- `GET /v1/memory/inspect/claim-slots/{subject}/{slot}`
+- `GET /v1/memory/inspect/turns`
 - `GET /v1/metrics`
 - `GET /v1/ops/async-jobs/status`
 - `POST /v1/ops/async-jobs/enqueue`

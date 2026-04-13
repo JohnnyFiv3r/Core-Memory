@@ -1083,7 +1083,7 @@ async function loadClaimSlotDetail(slotKey, detailEl) {
   }
   detailEl.textContent = 'Loading slot detail...';
   try {
-    let url = '/api/demo/claim-slot/' + encodeURIComponent(subject) + '/' + encodeURIComponent(slot);
+    let url = '/v1/memory/inspect/claim-slots/' + encodeURIComponent(subject) + '/' + encodeURIComponent(slot);
     if (claimsAsOf) url += '?as_of=' + encodeURIComponent(claimsAsOf);
     const res = await fetch(url);
     const data = await res.json();
@@ -1587,21 +1587,35 @@ function renderBenchmark(summary, report, benchmarkMeta) {
 
 async function refreshMemory() {
   try {
-    const stateUrl = claimsAsOf ? ('/api/demo/state?as_of=' + encodeURIComponent(claimsAsOf)) : '/api/demo/state';
+    const stateUrl = claimsAsOf
+      ? ('/v1/memory/inspect/state?as_of=' + encodeURIComponent(claimsAsOf))
+      : '/v1/memory/inspect/state';
     const res = await fetch(stateUrl);
     const data = await res.json();
     const mem = data.memory || {};
-    const sess = data.session || {};
+    let sess = data.session || {};
     const claims = data.claims || {};
     const entities = data.entities || {};
     const statsCompat = data.stats || {};
+    let runtimeLocal = {};
+    let lastTurnLocal = {};
+
+    try {
+      const rr = await fetch('/api/demo/runtime');
+      const jr = await rr.json();
+      runtimeLocal = jr.runtime || {};
+      lastTurnLocal = jr.last_turn || {};
+      if (jr.session) sess = jr.session;
+    } catch (_) {
+      // keep inspect-only fallback
+    }
 
     renderBeads(mem.beads || data.beads || []);
     renderAssociations(mem.associations || data.associations || []);
     renderGraph(mem.beads || data.beads || [], mem.associations || data.associations || []);
     renderClaims(claims.slots || data.claim_state || [], claims);
     renderEntities(entities);
-    renderRuntime(data.runtime || {}, data.last_turn || {});
+    renderRuntime(data.runtime || runtimeLocal || {}, lastTurnLocal || {});
     renderRolling(mem.rolling_window || data.rolling_window || []);
 
     lastBenchmarkSummary = (data.benchmark || {}).last_summary || lastBenchmarkSummary;
@@ -1644,18 +1658,19 @@ async function refreshMemory() {
 
 async function showBead(id) {
   try {
-    const res = await fetch('/api/demo/bead/' + encodeURIComponent(id));
+    const res = await fetch('/v1/memory/inspect/beads/' + encodeURIComponent(id));
     const data = await res.json();
+    const bead = data.bead || data;
     let hydrated = null;
     try {
-      const rh = await fetch('/api/demo/bead/' + encodeURIComponent(id) + '/hydrate');
+      const rh = await fetch('/v1/memory/inspect/beads/' + encodeURIComponent(id) + '/hydrate');
       const jh = await rh.json();
       if (jh && jh.ok) hydrated = jh;
     } catch (_) {
       // optional surface
     }
-    document.getElementById('modal-title').textContent = data.title || 'Bead Detail';
-    const payload = hydrated ? { bead: data, hydrated_sources: hydrated } : data;
+    document.getElementById('modal-title').textContent = bead.title || 'Bead Detail';
+    const payload = hydrated ? { bead, hydrated_sources: hydrated } : bead;
     document.getElementById('modal-body').textContent = JSON.stringify(payload, null, 2);
     document.getElementById('modal').classList.add('open');
   } catch (err) {

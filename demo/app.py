@@ -109,20 +109,20 @@ except Exception as _exc:  # pragma: no cover - startup environment specific
 # Add parent to path so we can import core_memory
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from core_memory.persistence.store import MemoryStore
-from core_memory.write_pipeline.continuity_injection import load_continuity_injection
-from core_memory.claim.resolver import resolve_all_current_state
-from core_memory.entity.registry import load_entity_registry
 from core_memory.entity.merge_flow import (
-    list_entity_merge_proposals,
     suggest_entity_merge_proposals,
     decide_entity_merge_proposal,
 )
-from core_memory.runtime.jobs import async_jobs_status
-from core_memory.runtime.myelination import myelination_report
-from core_memory.retrieval.semantic_index import semantic_doctor
+from core_memory.runtime.engine import process_turn_finalized
 from core_memory.retrieval.tools import memory as memory_tools
-from core_memory.integrations.api import hydrate_bead_sources
+from core_memory.integrations.api import (
+    get_turn,
+    inspect_state,
+    inspect_bead,
+    inspect_bead_hydration,
+    inspect_claim_slot,
+    list_turn_summaries,
+)
 from core_memory.integrations.pydanticai import (
     continuity_prompt,
     memory_execute_tool,
@@ -177,23 +177,13 @@ class SessionCoordinator:
     def record_turn_tokens(self, user_query: str, assistant_response: str) -> None:
         """Estimate tokens consumed by this turn.
 
-        Counts user + assistant text, plus the continuity injection and system
-        prompt overhead.  Uses ~4 chars/token as a rough estimator.
+        Counts user + assistant text plus coarse prompt/tool overhead.
+        Uses ~4 chars/token as a rough estimator.
         """
         turn_text = len(user_query) + len(assistant_response)
-        # Include continuity injection cost (loaded each turn)
-        try:
-            ctx = load_continuity_injection(self.root)
-            records = ctx.get("records") or []
-            continuity_chars = sum(
-                len(str(r.get("title", ""))) + len(str(r.get("summary", ""))) + len(str(r.get("detail", "")))
-                for r in records
-            )
-        except Exception:
-            continuity_chars = 0
         # System prompt is ~300 chars, tool schemas ~200 chars
         overhead = 500
-        self.token_usage += (turn_text + continuity_chars + overhead) // 4
+        self.token_usage += (turn_text + overhead) // 4
 
     def should_auto_flush(self) -> bool:
         return self.token_usage >= int(self.context_budget * self.flush_threshold)
@@ -378,222 +368,46 @@ def create_agent(model_id: str):
 
 
 def get_memory_state(*, as_of: str | None = None) -> dict:
-    """Inspector state snapshot.
-
-    Includes graph-like beads/associations plus canonical read-model views:
-    - claim current-state projection
-    - continuity injection
-    - runtime queue + semantic backend diagnostics
-    """
     coordinator = _get_coordinator()
 
     try:
-        store = MemoryStore(root=MEMORY_ROOT)
-        index_path = store.beads_dir / "index.json"
-        index = store._read_json(index_path) if index_path.exists() else {}
+        base = inspect_state(
+            root=MEMORY_ROOT,
+            session_id=coordinator.session_id,
+            as_of=as_of,
+            limit_beads=300,
+            limit_associations=300,
+            limit_flushes=20,
+            limit_merge_proposals=40,
+        )
     except Exception as exc:
-        return {
-            "session": {
-                "session_id": coordinator.session_id,
-                "token_usage": coordinator.token_usage,
-                "context_budget": coordinator.context_budget,
-            },
+        base = {
+            "ok": False,
+            "error": str(exc),
             "memory": {"beads": [], "associations": [], "rolling_window": []},
-            "claims": {
-                "slots": [],
-                "counts": {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0},
-                "as_of": as_of or None,
-            },
-            "entities": {
-                "rows": [],
-                "counts": {"total": 0, "active": 0, "merged": 0, "other": 0},
-                "merge_proposals": [],
-            },
-            "runtime": {
-                "queue": {},
-                "queue_breakdown": [],
-                "semantic_backend": {},
-                "last_flush": dict(LAST_FLUSH_EVENT or {}),
-                "flush_history": list(LAST_FLUSH_EVENTS or []),
-                "myelination": {},
-                "error": str(exc),
-            },
-            "last_turn": dict(LAST_TURN_DIAGNOSTICS or {}),
-            "benchmark": {
-                "last_summary": dict(LAST_BENCHMARK_SUMMARY or {}),
-                "has_last_report": bool(LAST_BENCHMARK_REPORT),
-                "history": _read_benchmark_history(limit=10),
-            },
-            "beads": [],
-            "associations": [],
-            "rolling_window": [],
-            "claim_state": [],
-            "stats": {
-                "total_beads": 0,
-                "total_associations": 0,
-                "rolling_window_size": 0,
-                "claim_slot_count": 0,
-                "entity_count": 0,
-                "session_id": coordinator.session_id,
-                "token_usage": coordinator.token_usage,
-                "context_budget": coordinator.context_budget,
-            },
-        }
-    beads_map = dict(index.get("beads") or {})
-
-    beads = []
-    for b in sorted(beads_map.values(), key=lambda x: x.get("created_at", ""), reverse=True):
-        beads.append(
-            {
-                "id": b.get("id", ""),
-                "type": b.get("type", ""),
-                "title": b.get("title", ""),
-                "summary": b.get("summary", []),
-                "status": b.get("status", "open"),
-                "session_id": b.get("session_id", ""),
-                "source_turn_ids": b.get("source_turn_ids", []),
-                "created_at": b.get("created_at", ""),
-                "detail": b.get("detail", ""),
-                "interaction_role": b.get("interaction_role", ""),
-                "memory_outcome": b.get("memory_outcome", ""),
-                "claims_count": len(list(b.get("claims") or [])),
-                "claim_updates_count": len(list(b.get("claim_updates") or [])),
-                "hydrate_available": bool(list(b.get("source_turn_ids") or [])),
-            }
-        )
-
-    associations = []
-    for a in (index.get("associations") or []):
-        associations.append(
-            {
-                "id": a.get("id", ""),
-                "source_bead": a.get("source_bead", ""),
-                "target_bead": a.get("target_bead", ""),
-                "relationship": a.get("relationship", ""),
-                "explanation": a.get("explanation", ""),
-                "confidence": a.get("confidence", 0),
-            }
-        )
-
-    try:
-        ctx = load_continuity_injection(MEMORY_ROOT)
-        rolling = ctx.get("records") or []
-    except Exception:
-        rolling = []
-
-    claim_state_rows: list[dict[str, Any]] = []
-    claim_counts = {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0}
-    try:
-        state = resolve_all_current_state(MEMORY_ROOT, as_of=as_of)
-        for slot_key, row in sorted((state.get("slots") or {}).items(), key=lambda kv: str(kv[0])):
-            rr = dict(row or {})
-            current = dict(rr.get("current_claim") or {})
-            status = str(rr.get("status") or "not_found")
-            claim_state_rows.append(
-                {
-                    "slot_key": str(slot_key),
-                    "status": status,
-                    "value": current.get("value"),
-                    "confidence": current.get("confidence"),
-                    "claim_id": current.get("id"),
-                    "conflict_count": len(list(rr.get("conflicts") or [])),
-                    "history_count": len(list(rr.get("history") or [])),
-                    "timeline_count": len(list(rr.get("timeline") or [])),
-                }
-            )
-            if status in claim_counts:
-                claim_counts[status] += 1
-            elif status == "not_found":
-                pass
-            else:
-                claim_counts["other"] += 1
-    except Exception:
-        claim_state_rows = []
-
-    entity_rows: list[dict[str, Any]] = []
-    entity_counts = {"total": 0, "active": 0, "merged": 0, "other": 0}
-    merge_rows: list[dict[str, Any]] = []
-    try:
-        reg = load_entity_registry(MEMORY_ROOT)
-        entities_map = dict(reg.get("entities") or {})
-        for entity_id, row in sorted(entities_map.items(), key=lambda kv: str((kv[1] or {}).get("updated_at") or ""), reverse=True):
-            rr = dict(row or {})
-            status = str(rr.get("status") or "active")
-            entity_rows.append(
-                {
-                    "id": str(entity_id),
-                    "label": str(rr.get("label") or ""),
-                    "status": status,
-                    "merged_into": str(rr.get("merged_into") or ""),
-                    "aliases_count": int(len(list(rr.get("aliases") or []))),
-                    "aliases": list(rr.get("aliases") or []),
-                    "confidence": rr.get("confidence"),
-                    "provenance_count": int(len(list(rr.get("provenance") or []))),
-                    "updated_at": str(rr.get("updated_at") or ""),
-                }
-            )
-            if status == "active":
-                entity_counts["active"] += 1
-            elif status == "merged":
-                entity_counts["merged"] += 1
-            else:
-                entity_counts["other"] += 1
-        entity_counts["total"] = int(len(entity_rows))
-        merge_rows = list_entity_merge_proposals(MEMORY_ROOT, limit=40)
-    except Exception:
-        entity_rows = []
-        merge_rows = []
-        entity_counts = {"total": 0, "active": 0, "merged": 0, "other": 0}
-
-    queue_status = async_jobs_status(root=MEMORY_ROOT)
-    queue_map = dict((queue_status or {}).get("queues") or {}) if isinstance(queue_status, dict) else {}
-
-    def _queue_row(name: str, row: dict[str, Any]) -> dict[str, Any]:
-        rr = dict(row or {})
-        return {
-            "kind": name,
-            "ok": bool(rr.get("ok", True)),
-            "pending": int(rr.get("pending") or rr.get("queue_depth") or 0),
-            "processable_now": int(rr.get("processable_now") or rr.get("ready") or 0),
-            "retry_ready": int(rr.get("retry_ready") or 0),
-            "next_retry_at": rr.get("next_retry_at"),
-            "circuit_open": bool(rr.get("circuit_open", False)),
-            "last_error": str(rr.get("last_error") or ""),
-            "by_kind": dict(rr.get("by_kind") or {}),
+            "claims": {"slots": [], "counts": {"active": 0, "conflict": 0, "retracted": 0, "historical": 0, "other": 0}, "as_of": as_of or None},
+            "entities": {"rows": [], "counts": {"total": 0, "active": 0, "merged": 0, "other": 0}, "merge_proposals": []},
+            "runtime": {"queue": {}, "queue_breakdown": [], "semantic_backend": {}, "recent_flushes": []},
+            "stats": {"total_beads": 0, "total_associations": 0, "rolling_window_size": 0, "claim_slot_count": 0, "entity_count": 0},
         }
 
-    queue_breakdown = [_queue_row(name, dict(row or {})) for name, row in sorted(queue_map.items(), key=lambda kv: str(kv[0]))]
+    runtime = dict(base.get("runtime") or {})
+    recent_flushes = list(runtime.get("recent_flushes") or [])
+    runtime["flush_history"] = recent_flushes
+    runtime["last_flush"] = dict(recent_flushes[0] or {}) if recent_flushes else {}
+    runtime.setdefault("myelination", {})
 
-    runtime = {
-        "queue": queue_status,
-        "queue_breakdown": queue_breakdown,
-        "semantic_backend": semantic_doctor(Path(MEMORY_ROOT)),
-        "last_flush": dict(LAST_FLUSH_EVENT or {}),
-        "flush_history": list(LAST_FLUSH_EVENTS or []),
-        "myelination": myelination_report(MEMORY_ROOT, since="30d", limit=1000, top=5),
+    session_payload = {
+        "session_id": coordinator.session_id,
+        "token_usage": coordinator.token_usage,
+        "context_budget": coordinator.context_budget,
     }
 
     state_payload = {
-        "session": {
-            "session_id": coordinator.session_id,
-            "token_usage": coordinator.token_usage,
-            "context_budget": coordinator.context_budget,
-        },
-        "memory": {
-            "beads": beads,
-            "associations": associations,
-            "rolling_window": [{"title": r.get("title", ""), "type": r.get("type", "")} for r in rolling],
-        },
-        "claims": {
-            "slots": claim_state_rows,
-            "counts": claim_counts,
-            "as_of": as_of or None,
-        },
-        "entities": {
-            "rows": entity_rows,
-            "counts": entity_counts,
-            "merge_proposals": merge_rows,
-        },
+        "session": session_payload,
+        "memory": dict(base.get("memory") or {}),
+        "claims": dict(base.get("claims") or {}),
+        "entities": dict(base.get("entities") or {}),
         "runtime": runtime,
         "last_turn": dict(LAST_TURN_DIAGNOSTICS or {}),
         "benchmark": {
@@ -603,19 +417,23 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
         },
     }
 
-    # Backward-compat fields for existing frontend consumers.
+    memory = dict(state_payload.get("memory") or {})
+    claims = dict(state_payload.get("claims") or {})
+    entities = dict(state_payload.get("entities") or {})
+    stats = dict(base.get("stats") or {})
+
     state_payload.update(
         {
-            "beads": beads,
-            "associations": associations,
-            "rolling_window": state_payload["memory"]["rolling_window"],
-            "claim_state": claim_state_rows,
+            "beads": list(memory.get("beads") or []),
+            "associations": list(memory.get("associations") or []),
+            "rolling_window": list(memory.get("rolling_window") or []),
+            "claim_state": list(claims.get("slots") or []),
             "stats": {
-                "total_beads": len(beads),
-                "total_associations": len(associations),
-                "rolling_window_size": len(rolling),
-                "claim_slot_count": len(claim_state_rows),
-                "entity_count": len(entity_rows),
+                "total_beads": int(stats.get("total_beads") or len(list(memory.get("beads") or []))),
+                "total_associations": int(stats.get("total_associations") or len(list(memory.get("associations") or []))),
+                "rolling_window_size": int(stats.get("rolling_window_size") or len(list(memory.get("rolling_window") or []))),
+                "claim_slot_count": int(stats.get("claim_slot_count") or len(list(claims.get("slots") or []))),
+                "entity_count": int(stats.get("entity_count") or len(list(entities.get("rows") or []))),
                 "session_id": coordinator.session_id,
                 "token_usage": coordinator.token_usage,
                 "context_budget": coordinator.context_budget,
@@ -627,48 +445,53 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
 
 
 def _build_preload_turns_file_from_demo(*, max_turns: int = 200) -> str:
-    """Create a temporary JSONL preload file from demo turn records.
+    """Create a temporary JSONL preload file from public turn surfaces."""
+    out_rows: list[dict[str, Any]] = []
+    cursor: str | None = None
+    target = max(1, int(max_turns))
 
-    This bridges live demo activity into benchmark preload context.
-    """
-    turns_dir = Path(MEMORY_ROOT) / ".turns"
-    if not turns_dir.exists():
+    while len(out_rows) < target:
+        page = list_turn_summaries(root=MEMORY_ROOT, limit=min(200, target * 2), cursor=cursor)
+        items = list(page.get("items") or [])
+        if not items:
+            break
+
+        for rec in items:
+            tid = str(rec.get("turn_id") or "").strip()
+            sid = str(rec.get("session_id") or "").strip() or None
+            if not tid:
+                continue
+            full = get_turn(turn_id=tid, root=MEMORY_ROOT, session_id=sid)
+            if not isinstance(full, dict):
+                full = rec
+            uq = str(full.get("user_query") or "").strip()
+            af = str(full.get("assistant_final") or "").strip()
+            if not uq or not af:
+                continue
+            out_rows.append(
+                {
+                    "session_id": str(full.get("session_id") or sid or "demo"),
+                    "turn_id": str(full.get("turn_id") or tid),
+                    "user_query": uq[:500],
+                    "assistant_final": af[:900],
+                    "origin": "DEMO_PRELOAD",
+                }
+            )
+            if len(out_rows) >= target:
+                break
+
+        cursor = str(page.get("next_cursor") or "").strip() or None
+        if not cursor:
+            break
+
+    if not out_rows:
         return ""
 
-    rows: list[dict[str, Any]] = []
-    for p in sorted(turns_dir.glob("*.jsonl")):
-        try:
-            for line in p.read_text(encoding="utf-8").splitlines():
-                raw = line.strip()
-                if not raw:
-                    continue
-                rec = json.loads(raw)
-                if not isinstance(rec, dict):
-                    continue
-                uq = str(rec.get("user_query") or "").strip()
-                af = str(rec.get("assistant_final") or "").strip()
-                if not uq or not af:
-                    continue
-                rows.append(
-                    {
-                        "session_id": str(rec.get("session_id") or "demo"),
-                        "turn_id": str(rec.get("turn_id") or f"demo-{len(rows)+1}"),
-                        "user_query": uq[:500],
-                        "assistant_final": af[:900],
-                        "origin": "DEMO_PRELOAD",
-                    }
-                )
-        except Exception:
-            continue
-
-    if not rows:
-        return ""
-
-    rows = rows[-max(1, int(max_turns)) :]
+    out_rows = out_rows[:target]
     fd, path = tempfile.mkstemp(prefix="demo-preload-", suffix=".jsonl")
     os.close(fd)
     out = Path(path)
-    out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), encoding="utf-8")
+    out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in out_rows), encoding="utf-8")
     return str(out)
 
 
@@ -779,6 +602,63 @@ async def chat(request: Request):
 @app.get("/api/memory")
 async def memory_state():
     return JSONResponse(get_memory_state())
+
+
+@app.get("/v1/memory/inspect/state")
+async def inspect_state_http(request: Request):
+    as_of = str(request.query_params.get("as_of") or "").strip() or None
+    session_id = str(request.query_params.get("session_id") or "").strip() or _get_coordinator().session_id
+    limit_beads = int(request.query_params.get("limit_beads") or 300)
+    limit_associations = int(request.query_params.get("limit_associations") or 300)
+    limit_flushes = int(request.query_params.get("limit_flushes") or 20)
+    limit_merge_proposals = int(request.query_params.get("limit_merge_proposals") or 40)
+    out = inspect_state(
+        root=MEMORY_ROOT,
+        session_id=session_id,
+        as_of=as_of,
+        limit_beads=max(1, limit_beads),
+        limit_associations=max(1, limit_associations),
+        limit_flushes=max(1, limit_flushes),
+        limit_merge_proposals=max(1, limit_merge_proposals),
+    )
+    return JSONResponse(dict(out or {}))
+
+
+@app.get("/v1/memory/inspect/beads/{bead_id}")
+async def inspect_bead_http(bead_id: str):
+    bead = inspect_bead(root=MEMORY_ROOT, bead_id=str(bead_id))
+    if not isinstance(bead, dict):
+        return JSONResponse({"ok": False, "error": "bead_not_found", "bead_id": str(bead_id)}, status_code=404)
+    return JSONResponse({"ok": True, "bead": bead})
+
+
+@app.get("/v1/memory/inspect/beads/{bead_id}/hydrate")
+async def inspect_bead_hydrate_http(bead_id: str, include_tools: bool = False, before: int = 0, after: int = 0):
+    out = inspect_bead_hydration(
+        root=MEMORY_ROOT,
+        bead_id=str(bead_id),
+        include_tools=bool(include_tools),
+        before=max(0, int(before)),
+        after=max(0, int(after)),
+    )
+    return JSONResponse(dict(out or {}))
+
+
+@app.get("/v1/memory/inspect/claim-slots/{subject}/{slot}")
+async def inspect_claim_slot_http(subject: str, slot: str, as_of: str | None = None):
+    out = inspect_claim_slot(root=MEMORY_ROOT, subject=subject, slot=slot, as_of=(str(as_of or "").strip() or None))
+    return JSONResponse(dict(out or {}))
+
+
+@app.get("/v1/memory/inspect/turns")
+async def inspect_turns_http(session_id: str | None = None, limit: int = 200, cursor: str | None = None):
+    out = list_turn_summaries(
+        root=MEMORY_ROOT,
+        session_id=(str(session_id or "").strip() or None),
+        limit=max(1, int(limit)),
+        cursor=(str(cursor or "").strip() or None),
+    )
+    return JSONResponse(dict(out or {}))
 
 
 @app.get("/api/demo/state")
@@ -912,21 +792,20 @@ async def demo_bead_endpoint(bead_id: str):
 @app.get("/api/demo/bead/{bead_id}/hydrate")
 async def demo_bead_hydrate_endpoint(bead_id: str):
     try:
-        out = hydrate_bead_sources(root=MEMORY_ROOT, bead_ids=[str(bead_id)], include_tools=False, before=0, after=0)
-        return JSONResponse({"ok": True, **dict(out or {})})
+        out = inspect_bead_hydration(root=MEMORY_ROOT, bead_id=str(bead_id), include_tools=False, before=0, after=0)
+        return JSONResponse(dict(out or {}))
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc), "bead_id": bead_id}, status_code=500)
 
 
 @app.get("/api/demo/claim-slot/{subject}/{slot}")
 async def demo_claim_slot_endpoint(subject: str, slot: str, request: Request):
-    key = f"{str(subject).strip()}:{str(slot).strip()}"
     try:
         as_of = str(request.query_params.get("as_of") or "").strip() or None
-        state = resolve_all_current_state(MEMORY_ROOT, as_of=as_of)
-        row = dict((state.get("slots") or {}).get(key) or {})
-        return JSONResponse({"ok": True, "slot_key": key, "row": row, "as_of": as_of})
+        out = inspect_claim_slot(root=MEMORY_ROOT, subject=subject, slot=slot, as_of=as_of)
+        return JSONResponse(dict(out or {}))
     except Exception as exc:
+        key = f"{str(subject).strip()}:{str(slot).strip()}"
         return JSONResponse({"ok": False, "error": str(exc), "slot_key": key, "as_of": as_of}, status_code=500)
 
 
@@ -1095,14 +974,8 @@ async def benchmark_run_endpoint(request: Request):
 @app.get("/api/bead/{bead_id}")
 async def get_bead(bead_id: str):
     """Look up a specific bead by ID — for the "prove it" moment."""
-    store = MemoryStore(root=MEMORY_ROOT)
-    index_path = store.beads_dir / "index.json"
-    if not index_path.exists():
-        return JSONResponse({"error": "No store"}, status_code=404)
-
-    index = store._read_json(index_path)
-    bead = (index.get("beads") or {}).get(bead_id)
-    if not bead:
+    bead = inspect_bead(root=MEMORY_ROOT, bead_id=str(bead_id))
+    if not isinstance(bead, dict):
         return JSONResponse({"error": "Bead not found"}, status_code=404)
     return JSONResponse(bead)
 
@@ -1110,45 +983,47 @@ async def get_bead(bead_id: str):
 # ── Seed (CLI-only, for quick demos) ──────────────────────────────────
 
 def _seed_demo_history():
-    store = MemoryStore(root=MEMORY_ROOT)
-    decision_id = store.add_bead(
-        type="decision", title="Chose PostgreSQL over MySQL",
-        summary=["JSONB support for flexible schema", "2x faster for our JSON workload", "Mature extension ecosystem"],
-        detail="Evaluated MySQL 8, SQLite, and PostgreSQL 16. Ran pgbench and sysbench. PostgreSQL won on JSONB indexing.",
-        session_id="s-history", scope="project",
-    )
-    lesson_id = store.add_bead(
-        type="lesson", title="Always benchmark before choosing infrastructure",
-        summary=["Synthetic benchmarks misled us before", "Representative workload testing caught a 2x gap"],
-        detail="Prior project chose MySQL based on TPC-C. Actual workload was JSON-heavy. This time we benchmarked first.",
-        session_id="s-history", scope="project",
-    )
-    evidence_id = store.add_bead(
-        type="evidence", title="Benchmark data: PostgreSQL 2x faster",
-        summary=["pgbench and sysbench on representative workload", "Median latency and p95 both improved"],
-        detail="Benchmarks showed PostgreSQL ~2x faster than MySQL for JSON-heavy queries.",
-        session_id="s-history", scope="project",
-    )
-    store.add_bead(
-        type="goal", title="Migrate authentication to OAuth2",
-        summary=["Legal flagged session-token storage", "Deadline: end of Q2 2026", "Support Google + GitHub IdPs"],
-        session_id="s-history", scope="project",
-    )
-    store.add_bead(
-        type="decision", title="Adopted FastAPI for HTTP layer",
-        summary=["Async-first for I/O-bound workload", "Auto OpenAPI spec", "Native Pydantic validation"],
-        detail="Considered Flask, Django REST, FastAPI. Flask lacks async. Django too heavy. FastAPI won.",
-        session_id="s-history", scope="project",
-    )
+    seed_turns = [
+        {
+            "turn_id": "seed-001",
+            "user": "Should we use MySQL or PostgreSQL for our JSON-heavy service?",
+            "assistant": "Decision: choose PostgreSQL. Benchmark notes show ~2x better latency for JSONB-heavy workloads and better indexing flexibility.",
+        },
+        {
+            "turn_id": "seed-002",
+            "user": "What lesson did we learn from database selection?",
+            "assistant": "Lesson: benchmark representative workload before infra decisions. Synthetic-only benchmarks previously misled us.",
+        },
+        {
+            "turn_id": "seed-003",
+            "user": "What evidence supports PostgreSQL?",
+            "assistant": "Evidence: pgbench + sysbench on representative JSON workload showed PostgreSQL ~2x better median and p95 latency than MySQL.",
+        },
+        {
+            "turn_id": "seed-004",
+            "user": "What project goal is pending this quarter?",
+            "assistant": "Goal: migrate authentication to OAuth2 by end of Q2, including Google and GitHub providers.",
+        },
+        {
+            "turn_id": "seed-005",
+            "user": "Why did we adopt FastAPI for HTTP?",
+            "assistant": "Decision: adopted FastAPI for async-first I/O, OpenAPI support, and native validation; Flask lacked async and Django was heavier than needed.",
+        },
+    ]
 
-    # Add explicit structural links so causal trace can ground "why" answers.
-    try:
-        store.link(lesson_id, decision_id, "supports", "Benchmarking lesson informed DB decision")
-        store.link(evidence_id, decision_id, "supports", "Benchmark evidence supports selected database")
-    except Exception:
-        # Non-fatal for demo seeding; beads still exist even if links already present.
-        pass
-    print("  Seeded 5 sample beads + structural links from project history")
+    for i, row in enumerate(seed_turns, start=1):
+        process_turn_finalized(
+            root=MEMORY_ROOT,
+            session_id="seed-history",
+            turn_id=str(row["turn_id"]),
+            transaction_id=f"seed-tx-{i:03d}",
+            trace_id=f"seed-tr-{i:03d}",
+            user_query=str(row["user"]),
+            assistant_final=str(row["assistant"]),
+            origin="DEMO_SEED",
+            metadata={"source": "demo_seed", "seed": True},
+        )
+    print("  Seeded 5 sample turns via canonical process_turn_finalized boundary")
 
 
 # ── Main ──────────────────────────────────────────────────────────────

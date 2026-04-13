@@ -2,6 +2,9 @@
 
 Use this script when presenting Core Memory behavior.
 
+Read authority note: memory panels are driven by `/v1/memory/inspect/*`
+surfaces (public inspect family), not direct store/index file inspection.
+
 ## 1) Start from canonical turn writing
 
 - Send a user turn in **Chat**.
