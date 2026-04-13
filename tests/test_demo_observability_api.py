@@ -103,6 +103,18 @@ class TestDemoObservabilityApi(unittest.TestCase):
             self.assertTrue(ent.get("ok"))
             self.assertIn("entities", ent)
 
+            r3c = c.post("/api/demo/entities/merge/suggest", json={"min_score": 0.86, "max_pairs": 10, "source": "test"})
+            self.assertEqual(200, r3c.status_code)
+            sug = r3c.json()
+            self.assertIn("ok", sug)
+
+            r3d = c.post(
+                "/api/demo/entities/merge/decide",
+                json={"proposal_id": "missing", "decision": "accept", "keep_entity_id": "entity-foo", "apply": True},
+            )
+            self.assertIn(r3d.status_code, {200, 400})
+            self.assertFalse(bool((r3d.json() or {}).get("ok")))
+
             r4 = c.post("/api/flush")
             self.assertEqual(200, r4.status_code)
             r5 = c.get("/api/demo/runtime")

@@ -858,6 +858,20 @@ function renderEntities(entityMeta) {
   const counts = (entityMeta || {}).counts || {};
   const merges = Array.isArray((entityMeta || {}).merge_proposals) ? entityMeta.merge_proposals : [];
 
+  const toolbar = document.createElement('div');
+  toolbar.className = 'claims-toolbar';
+  const suggestBtn = document.createElement('button');
+  suggestBtn.className = 'btn';
+  suggestBtn.textContent = 'Suggest merges';
+  suggestBtn.addEventListener('click', entitySuggestMerges);
+  const refreshBtn = document.createElement('button');
+  refreshBtn.className = 'btn';
+  refreshBtn.textContent = 'Refresh';
+  refreshBtn.addEventListener('click', refreshMemory);
+  toolbar.appendChild(suggestBtn);
+  toolbar.appendChild(refreshBtn);
+  el.appendChild(toolbar);
+
   const head = document.createElement('div');
   head.style.marginBottom = '8px';
   head.innerHTML =
@@ -901,17 +915,59 @@ function renderEntities(entityMeta) {
   if (merges.length) {
     const mh = document.createElement('div');
     mh.className = 'runtime-card';
-    mh.innerHTML = '<strong>Entity merge proposals</strong>';
+    mh.innerHTML = '<strong>Entity merge proposals</strong><div style="margin-top:2px;color:var(--text-dim)">Pending proposals can be accepted/rejected directly from this panel.</div>';
     el.appendChild(mh);
     merges.slice(0, 20).forEach(m => {
       const row = document.createElement('div');
       row.className = 'bench-bucket';
+      const status = String(m.status || 'n/a');
       row.innerHTML =
         '<div><strong>' + escapeHtml(String(m.id || 'proposal')) + '</strong> ' +
-        '<span class="runtime-badge ' + (String(m.status || '') === 'pending' ? 'runtime-badge-warn' : 'runtime-badge-good') + '">' + escapeHtml(String(m.status || 'n/a')) + '</span></div>' +
+        '<span class="runtime-badge ' + (status === 'pending' ? 'runtime-badge-warn' : 'runtime-badge-good') + '">' + escapeHtml(status) + '</span></div>' +
         '<div style="margin-top:2px;color:var(--text-dim)">score=' + String(Number(m.score || 0).toFixed(3)) +
         ' · left=' + escapeHtml(String(m.left_entity_id || 'n/a')) +
-        ' · right=' + escapeHtml(String(m.right_entity_id || 'n/a')) + '</div>';
+        ' · right=' + escapeHtml(String(m.right_entity_id || 'n/a')) + '</div>' +
+        '<div style="margin-top:2px;color:var(--text-dim)">reasons: ' + escapeHtml(String((m.reasons || []).join(', ') || 'n/a')) + '</div>';
+
+      if (status === 'pending') {
+        const actions = document.createElement('div');
+        actions.style.cssText = 'margin-top:6px; display:flex; gap:6px; flex-wrap:wrap;';
+
+        const acceptLeft = document.createElement('button');
+        acceptLeft.className = 'btn';
+        acceptLeft.textContent = 'Accept (keep left)';
+        acceptLeft.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          entityDecideMerge(m, 'accept', String(m.left_entity_id || ''));
+        });
+
+        const acceptRight = document.createElement('button');
+        acceptRight.className = 'btn';
+        acceptRight.textContent = 'Accept (keep right)';
+        acceptRight.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          entityDecideMerge(m, 'accept', String(m.right_entity_id || ''));
+        });
+
+        const reject = document.createElement('button');
+        reject.className = 'btn btn-warn';
+        reject.textContent = 'Reject';
+        reject.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          entityDecideMerge(m, 'reject', null);
+        });
+
+        actions.appendChild(acceptLeft);
+        actions.appendChild(acceptRight);
+        actions.appendChild(reject);
+        row.appendChild(actions);
+      } else {
+        const reviewed = document.createElement('div');
+        reviewed.style.cssText = 'margin-top:4px;color:var(--text-dim);font-size:11px';
+        reviewed.textContent = 'reviewer: ' + String(m.reviewer || 'n/a') + ' · reviewed_at: ' + formatIsoShort(String(m.reviewed_at || ''));
+        row.appendChild(reviewed);
+      }
+
       row.addEventListener('click', () => {
         document.getElementById('modal-title').textContent = 'Entity merge proposal';
         document.getElementById('modal-body').textContent = JSON.stringify(m, null, 2);
@@ -919,6 +975,47 @@ function renderEntities(entityMeta) {
       });
       el.appendChild(row);
     });
+  }
+}
+
+async function entitySuggestMerges() {
+  try {
+    const res = await fetch('/api/demo/entities/merge/suggest', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({min_score: 0.86, max_pairs: 40, source: 'demo-ui'}),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    addMsg('system', 'Entity merge suggest completed: created=' + String(data.created ?? 0) + ', pending=' + String(data.pending ?? 0));
+    refreshMemory();
+  } catch (err) {
+    addMsg('system', 'Entity merge suggest failed: ' + err.message);
+  }
+}
+
+async function entityDecideMerge(proposal, decision, keepEntityId) {
+  const pid = String((proposal || {}).id || '');
+  if (!pid) return;
+  try {
+    const res = await fetch('/api/demo/entities/merge/decide', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        proposal_id: pid,
+        decision: String(decision || '').toLowerCase(),
+        keep_entity_id: keepEntityId || undefined,
+        reviewer: 'demo-ui',
+        notes: 'demo adjudication',
+        apply: true,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.ok) throw new Error(data.error || ('HTTP ' + res.status));
+    addMsg('system', 'Entity merge ' + String(decision) + ' for ' + pid + ' (status=' + String(data.status || 'n/a') + ')');
+    refreshMemory();
+  } catch (err) {
+    addMsg('system', 'Entity merge decision failed: ' + err.message);
   }
 }
 

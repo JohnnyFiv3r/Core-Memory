@@ -113,7 +113,11 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.entity.registry import load_entity_registry
-from core_memory.entity.merge_flow import list_entity_merge_proposals
+from core_memory.entity.merge_flow import (
+    list_entity_merge_proposals,
+    suggest_entity_merge_proposals,
+    decide_entity_merge_proposal,
+)
 from core_memory.runtime.jobs import async_jobs_status
 from core_memory.runtime.myelination import myelination_report
 from core_memory.retrieval.semantic_index import semantic_doctor
@@ -733,6 +737,50 @@ async def demo_entities_endpoint():
             "session": dict(state.get("session") or {}),
         }
     )
+
+
+@app.post("/api/demo/entities/merge/suggest")
+async def demo_entities_merge_suggest_endpoint(request: Request):
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    min_score = float((body or {}).get("min_score") or 0.86)
+    max_pairs = int((body or {}).get("max_pairs") or 40)
+    source = str((body or {}).get("source") or "demo").strip() or "demo"
+    try:
+        out = suggest_entity_merge_proposals(MEMORY_ROOT, min_score=min_score, max_pairs=max_pairs, source=source)
+        return JSONResponse({"ok": bool(out.get("ok", True)), **dict(out or {})})
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+
+
+@app.post("/api/demo/entities/merge/decide")
+async def demo_entities_merge_decide_endpoint(request: Request):
+    body = await request.json() if request.headers.get("content-type", "").startswith("application/json") else {}
+    proposal_id = str((body or {}).get("proposal_id") or "").strip()
+    decision = str((body or {}).get("decision") or "").strip().lower()
+    keep_entity_id = str((body or {}).get("keep_entity_id") or "").strip() or None
+    reviewer = str((body or {}).get("reviewer") or "demo").strip() or "demo"
+    notes = str((body or {}).get("notes") or "").strip()
+    apply_merge = bool((body or {}).get("apply", True))
+
+    if not proposal_id:
+        return JSONResponse({"ok": False, "error": "missing_proposal_id"}, status_code=400)
+    if decision not in {"accept", "reject"}:
+        return JSONResponse({"ok": False, "error": "invalid_decision"}, status_code=400)
+
+    try:
+        out = decide_entity_merge_proposal(
+            MEMORY_ROOT,
+            proposal_id=proposal_id,
+            decision=decision,
+            reviewer=reviewer,
+            notes=notes,
+            apply=apply_merge,
+            keep_entity_id=keep_entity_id,
+        )
+        status = 200 if bool(out.get("ok")) else 400
+        return JSONResponse({"ok": bool(out.get("ok")), **dict(out or {})}, status_code=status)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
 
 
 @app.get("/api/demo/benchmark/last")

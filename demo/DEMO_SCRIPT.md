@@ -32,6 +32,7 @@ Use this script when presenting Core Memory behavior.
 - Highlight active vs merged entity counts.
 - Show alias normalization/provenance fields on a row.
 - Open a merge-proposal row (if present) to demonstrate entity merge observability.
+- Use **Suggest merges** then adjudicate one proposal (accept/reject) to show reviewer-driven merge flow.
 
 ## 4) Show runtime health
 
