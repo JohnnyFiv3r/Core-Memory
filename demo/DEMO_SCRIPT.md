@@ -30,9 +30,12 @@ Use this script when presenting Core Memory behavior.
 
 - In **Runtime**, cover:
   - queue state
+  - per-queue side-effect breakdown (semantic_rebuild / compaction / side_effects)
   - semantic backend status
   - strict/degraded mode + multi-worker safety badges
+  - connectivity diagnostics when external backends are configured
   - last flush summary
+  - recent flush history (trigger, session rotation, rolling-window bead count)
   - last-answer diagnostics (warnings, chain count, top bead IDs)
   - myelination snapshot
 - Explain degraded vs semantic-required implications.

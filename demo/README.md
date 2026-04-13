@@ -12,6 +12,7 @@ This demo is an observability + benchmark studio for Core Memory.
   - selected slot + as_of filter are persisted in URL query params for easy sharing
 - **Runtime** (queue health, semantic backend, last flush, myelination snapshot)
   - includes strict/degraded semantic-mode status badges + last-answer warnings/chains breakdown
+  - includes per-queue side-effect breakdown and recent flush event history
 - **Benchmark** (isolated LOCOMO-like runs with per-bucket + failing-case drilldown)
   - includes myelination compare deltas (improved/regressed case counts + pass-state changes)
 

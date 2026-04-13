@@ -979,6 +979,13 @@ function datetimeLocalToIso(v) {
   return d.toISOString();
 }
 
+function formatIsoShort(iso) {
+  if (!iso) return 'n/a';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toISOString().replace('T', ' ').replace('.000Z', 'Z');
+}
+
 function escapeHtml(s) {
   return String(s || '')
     .replace(/&/g, '&amp;')
@@ -992,9 +999,11 @@ function renderRuntime(runtime, lastTurn) {
   const el = document.getElementById('tab-runtime');
   el.textContent = '';
   const q = runtime?.queue || {};
+  const qRows = Array.isArray(runtime?.queue_breakdown) ? runtime.queue_breakdown : [];
   const s = runtime?.semantic_backend || {};
   const p = (lastTurn || {}).diagnostics || {};
   const f = runtime?.last_flush || {};
+  const fHist = Array.isArray(runtime?.flush_history) ? runtime.flush_history : [];
   const my = runtime?.myelination || {};
   const warnCount = Array.isArray(p.warnings) ? p.warnings.length : 0;
   const mode = String(s.mode || 'degraded_allowed');
@@ -1008,6 +1017,25 @@ function renderRuntime(runtime, lastTurn) {
     '<div style="margin-top:4px;color:var(--text-dim)">pending: ' + String(q.pending_total ?? 0) +
     ' · processable: ' + String(q.processable_now ?? 0) + '</div>' +
     '<div style="margin-top:2px;color:var(--text-dim)">ok: ' + String(!!q.ok) + '</div>';
+
+  if (qRows.length) {
+    const list = document.createElement('div');
+    list.className = 'claim-events';
+    qRows.forEach(r => {
+      const row = document.createElement('div');
+      row.className = 'claim-event';
+      const err = String(r.last_error || '').trim();
+      row.innerHTML =
+        '<div><strong>' + escapeHtml(String(r.kind || 'queue')) + '</strong> ' +
+        '<span class="runtime-badge ' + (r.circuit_open ? 'runtime-badge-bad' : 'runtime-badge-good') + '">circuit=' + String(!!r.circuit_open) + '</span></div>' +
+        '<div style="color:var(--text-dim)">pending=' + String(r.pending ?? 0) +
+        ' · processable=' + String(r.processable_now ?? 0) +
+        ' · retry_ready=' + String(r.retry_ready ?? 0) + '</div>' +
+        (err ? ('<div style="color:var(--amber)">last_error: ' + escapeHtml(err) + '</div>') : '');
+      list.appendChild(row);
+    });
+    c1.appendChild(list);
+  }
   el.appendChild(c1);
 
   const c2 = document.createElement('div');
@@ -1015,7 +1043,8 @@ function renderRuntime(runtime, lastTurn) {
   const semanticBadges =
     '<span class="runtime-badge ' + (strictMode ? 'runtime-badge-bad' : 'runtime-badge-warn') + '">mode=' + escapeHtml(mode) + '</span> ' +
     '<span class="runtime-badge ' + (usable ? 'runtime-badge-good' : (strictMode ? 'runtime-badge-bad' : 'runtime-badge-warn')) + '">usable=' + String(usable) + '</span> ' +
-    '<span class="runtime-badge ' + (!!s.multi_worker_safe ? 'runtime-badge-good' : 'runtime-badge-warn') + '">multi-worker=' + String(!!s.multi_worker_safe) + '</span>';
+    '<span class="runtime-badge ' + (!!s.multi_worker_safe ? 'runtime-badge-good' : 'runtime-badge-warn') + '">multi-worker=' + String(!!s.multi_worker_safe) + '</span> ' +
+    '<span class="runtime-badge ' + ((s.connectivity_checked && !s.connectivity_ok) ? 'runtime-badge-bad' : 'runtime-badge-good') + '">connectivity=' + String(s.connectivity_checked ? !!s.connectivity_ok : 'n/a') + '</span>';
   c2.innerHTML =
     '<div><strong>Semantic Backend</strong></div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">backend: ' + String(s.backend || 'unknown') +
@@ -1023,6 +1052,9 @@ function renderRuntime(runtime, lastTurn) {
     '<div style="margin-top:2px;color:var(--text-dim)">profile: ' + String(s.deployment_profile || 'n/a') +
     ' · rows: ' + String(s.rows_count ?? 0) + '</div>' +
     '<div style="margin-top:6px">' + semanticBadges + '</div>' +
+    ((s.connectivity_checked && !s.connectivity_ok)
+      ? ('<div style="margin-top:2px;color:var(--amber)">connectivity_error: ' + escapeHtml(String(s.connectivity_error || 'unknown')) + '</div>')
+      : '') +
     '<div style="margin-top:4px;color:var(--text-dim)">next: ' + escapeHtml(String(s.next_step || 'n/a')) + '</div>' +
     ((s.concurrency_warning && String(s.concurrency_warning).trim())
       ? ('<div style="margin-top:2px;color:var(--amber)">warning: ' + escapeHtml(String(s.concurrency_warning)) + '</div>')
@@ -1055,7 +1087,27 @@ function renderRuntime(runtime, lastTurn) {
   c4.innerHTML =
     '<div><strong>Last Flush</strong></div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">ok: ' + String(!!f.flush_ok) +
-    ' · flushed: ' + String(f.flushed_session || 'n/a') + '</div>';
+    ' · flushed: ' + String(f.flushed_session || 'n/a') + '</div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">trigger: ' + escapeHtml(String(f.trigger || 'n/a')) +
+    ' · at: ' + escapeHtml(formatIsoShort(f.timestamp || '')) + '</div>';
+
+  if (fHist.length) {
+    const hist = document.createElement('div');
+    hist.className = 'claim-events';
+    fHist.slice(0, 8).forEach(ev => {
+      const row = document.createElement('div');
+      row.className = 'claim-event';
+      row.innerHTML =
+        '<div><strong>' + escapeHtml(String(ev.trigger || 'flush')) + '</strong> ' +
+        '<span class="runtime-badge ' + (ev.flush_ok ? 'runtime-badge-good' : 'runtime-badge-bad') + '">ok=' + String(!!ev.flush_ok) + '</span></div>' +
+        '<div style="color:var(--text-dim)">flushed=' + escapeHtml(String(ev.flushed_session || 'n/a')) +
+        ' · new=' + escapeHtml(String(ev.new_session || 'n/a')) +
+        ' · beads=' + String(ev.rolling_window_beads ?? 0) + '</div>' +
+        '<div style="color:var(--text-dim)">at=' + escapeHtml(formatIsoShort(ev.timestamp || '')) + '</div>';
+      hist.appendChild(row);
+    });
+    c4.appendChild(hist);
+  }
   el.appendChild(c4);
 
   const c5 = document.createElement('div');

@@ -27,6 +27,7 @@ import shutil
 import sys
 import tempfile
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -223,6 +224,7 @@ LAST_TURN_DIAGNOSTICS: dict[str, Any] = {}
 LAST_BENCHMARK_REPORT: dict[str, Any] = {}
 LAST_BENCHMARK_SUMMARY: dict[str, Any] = {}
 LAST_FLUSH_EVENT: dict[str, Any] = {}
+LAST_FLUSH_EVENTS: list[dict[str, Any]] = []
 
 app = FastAPI(title="Core Memory Demo")
 
@@ -236,6 +238,19 @@ def _get_coordinator() -> SessionCoordinator:
         Path(MEMORY_ROOT).mkdir(parents=True, exist_ok=True)
         COORDINATOR = SessionCoordinator(root=MEMORY_ROOT)
     return COORDINATOR
+
+
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _record_flush_event(payload: dict[str, Any], *, trigger: str) -> None:
+    global LAST_FLUSH_EVENT, LAST_FLUSH_EVENTS
+    row = dict(payload or {})
+    row["trigger"] = str(trigger or "unknown")
+    row["timestamp"] = _utc_now_iso()
+    LAST_FLUSH_EVENT = dict(row)
+    LAST_FLUSH_EVENTS = ([row] + list(LAST_FLUSH_EVENTS or []))[:20]
 
 def detect_model() -> str:
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -304,8 +319,10 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
             },
             "runtime": {
                 "queue": {},
+                "queue_breakdown": [],
                 "semantic_backend": {},
                 "last_flush": dict(LAST_FLUSH_EVENT or {}),
+                "flush_history": list(LAST_FLUSH_EVENTS or []),
                 "myelination": {},
                 "error": str(exc),
             },
@@ -396,10 +413,31 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
     except Exception:
         claim_state_rows = []
 
+    queue_status = async_jobs_status(root=MEMORY_ROOT)
+    queue_map = dict((queue_status or {}).get("queues") or {}) if isinstance(queue_status, dict) else {}
+
+    def _queue_row(name: str, row: dict[str, Any]) -> dict[str, Any]:
+        rr = dict(row or {})
+        return {
+            "kind": name,
+            "ok": bool(rr.get("ok", True)),
+            "pending": int(rr.get("pending") or rr.get("queue_depth") or 0),
+            "processable_now": int(rr.get("processable_now") or rr.get("ready") or 0),
+            "retry_ready": int(rr.get("retry_ready") or 0),
+            "next_retry_at": rr.get("next_retry_at"),
+            "circuit_open": bool(rr.get("circuit_open", False)),
+            "last_error": str(rr.get("last_error") or ""),
+            "by_kind": dict(rr.get("by_kind") or {}),
+        }
+
+    queue_breakdown = [_queue_row(name, dict(row or {})) for name, row in sorted(queue_map.items(), key=lambda kv: str(kv[0]))]
+
     runtime = {
-        "queue": async_jobs_status(root=MEMORY_ROOT),
+        "queue": queue_status,
+        "queue_breakdown": queue_breakdown,
         "semantic_backend": semantic_doctor(Path(MEMORY_ROOT)),
         "last_flush": dict(LAST_FLUSH_EVENT or {}),
+        "flush_history": list(LAST_FLUSH_EVENTS or []),
         "myelination": myelination_report(MEMORY_ROOT, since="30d", limit=1000, top=5),
     }
 
@@ -572,6 +610,13 @@ async def chat(request: Request):
         try:
             flush_result = coordinator.do_flush()
             auto_flushed = True
+            flush_payload = {
+                "flushed_session": flush_result.get("flushed_session"),
+                "new_session": flush_result.get("new_session"),
+                "flush_ok": bool((flush_result.get("flush_result") or {}).get("ok", False)),
+                "rolling_window_beads": int(len(((flush_result.get("flush_result") or {}).get("rolling_window") or {}).get("records") or [])),
+            }
+            _record_flush_event(flush_payload, trigger="auto_threshold")
             logger.info("auto-flush triggered: %s", flush_result)
         except Exception as exc:
             logger.warning("auto-flush failed: %s", exc)
@@ -669,7 +714,6 @@ async def demo_claim_slot_endpoint(subject: str, slot: str, request: Request):
 @app.post("/api/flush")
 async def flush_endpoint():
     """Manual session flush: archive, compress, rebuild rolling window."""
-    global LAST_FLUSH_EVENT
     coordinator = _get_coordinator()
 
     try:
@@ -683,7 +727,7 @@ async def flush_endpoint():
         "flush_ok": result.get("flush_result", {}).get("ok", False),
         "rolling_window_beads": int(len((result.get("flush_result", {}).get("rolling_window") or {}).get("records") or [])),
     }
-    LAST_FLUSH_EVENT = dict(payload)
+    _record_flush_event(payload, trigger="manual")
     return JSONResponse(payload)
 
 

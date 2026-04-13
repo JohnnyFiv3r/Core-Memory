@@ -21,6 +21,7 @@ class TestDemoObservabilityApi(unittest.TestCase):
         old_last_bench = dict(demo_app.LAST_BENCHMARK_REPORT or {})
         old_last_bench_summary = dict(demo_app.LAST_BENCHMARK_SUMMARY or {})
         old_last_flush = dict(demo_app.LAST_FLUSH_EVENT or {})
+        old_last_flush_events = list(demo_app.LAST_FLUSH_EVENTS or [])
 
         with tempfile.TemporaryDirectory() as td:
             demo_app.MEMORY_ROOT = str(Path(td) / "memory")
@@ -29,6 +30,7 @@ class TestDemoObservabilityApi(unittest.TestCase):
             demo_app.LAST_BENCHMARK_REPORT = {}
             demo_app.LAST_BENCHMARK_SUMMARY = {}
             demo_app.LAST_FLUSH_EVENT = {}
+            demo_app.LAST_FLUSH_EVENTS = []
 
             c = TestClient(demo_app.app)
 
@@ -39,6 +41,8 @@ class TestDemoObservabilityApi(unittest.TestCase):
             self.assertIn("memory", s)
             self.assertIn("claims", s)
             self.assertIn("runtime", s)
+            self.assertIn("flush_history", dict((s.get("runtime") or {})))
+            self.assertIn("queue_breakdown", dict((s.get("runtime") or {})))
 
             as_of = "2026-01-01T00:00:00Z"
             r1b = c.get(f"/api/demo/state?as_of={as_of}")
@@ -92,12 +96,21 @@ class TestDemoObservabilityApi(unittest.TestCase):
             self.assertIn("summary", last)
             self.assertIn("report", last)
 
+            r4 = c.post("/api/flush")
+            self.assertEqual(200, r4.status_code)
+            r5 = c.get("/api/demo/runtime")
+            self.assertEqual(200, r5.status_code)
+            rt = dict((r5.json() or {}).get("runtime") or {})
+            self.assertTrue(isinstance(rt.get("flush_history"), list))
+            self.assertGreaterEqual(len(list(rt.get("flush_history") or [])), 1)
+
         demo_app.MEMORY_ROOT = old_root
         demo_app.COORDINATOR = old_coord
         demo_app.LAST_TURN_DIAGNOSTICS = old_last_turn
         demo_app.LAST_BENCHMARK_REPORT = old_last_bench
         demo_app.LAST_BENCHMARK_SUMMARY = old_last_bench_summary
         demo_app.LAST_FLUSH_EVENT = old_last_flush
+        demo_app.LAST_FLUSH_EVENTS = old_last_flush_events
 
 
 if __name__ == "__main__":
