@@ -17,6 +17,12 @@ Use this script when presenting Core Memory behavior.
 - Note: selected slot + as_of are reflected in URL query params for shareable review links.
 - Explain that claim-state is a first-class read model, not inferred only from free text.
 
+## 2.5) Show graph/provenance view
+
+- Open **Graph** tab.
+- Click source/target on an edge to open bead detail + hydration payload.
+- Explain graph edges are inspectable context, while claims/runtime remain canonical read-model authority.
+
 ## 3) Explain answer grounding
 
 - After a chat answer, show **Runtime → Last Answer Diagnostics**:

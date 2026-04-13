@@ -6,6 +6,7 @@ This demo is an observability + benchmark studio for Core Memory.
 
 - **Chat** with memory-backed responses
 - **Memory** (beads, associations, rolling-window records)
+- **Graph** (association edges with clickable source/target bead provenance)
 - **Claims** (resolved slot state, conflicts, status)
   - includes slot detail pane with history + timeline/update events
   - supports `as_of` temporal drilldown in UI

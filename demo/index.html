@@ -478,6 +478,7 @@
     <div class="inspector-tabs">
       <div class="tab active" data-tab="beads" onclick="switchTab('beads')">Beads</div>
       <div class="tab" data-tab="associations" onclick="switchTab('associations')">Associations</div>
+      <div class="tab" data-tab="graph" onclick="switchTab('graph')">Graph</div>
       <div class="tab" data-tab="claims" onclick="switchTab('claims')">Claims</div>
       <div class="tab" data-tab="entities" onclick="switchTab('entities')">Entities</div>
       <div class="tab" data-tab="runtime" onclick="switchTab('runtime')">Runtime</div>
@@ -487,6 +488,7 @@
     <div class="inspector-body">
       <div class="tab-content active" id="tab-beads"></div>
       <div class="tab-content" id="tab-associations"></div>
+      <div class="tab-content" id="tab-graph"></div>
       <div class="tab-content" id="tab-claims"></div>
       <div class="tab-content" id="tab-entities"></div>
       <div class="tab-content" id="tab-runtime"></div>
@@ -730,6 +732,56 @@ function renderAssociations(assocs) {
     }
 
     el.appendChild(card);
+  });
+}
+
+function renderGraph(beads, assocs) {
+  const el = document.getElementById('tab-graph');
+  el.textContent = '';
+  const beadMap = {};
+  (beads || []).forEach(b => { beadMap[String(b.id || '')] = b; });
+
+  const hdr = document.createElement('div');
+  hdr.className = 'runtime-card';
+  hdr.innerHTML =
+    '<div><strong>Graph snapshot</strong></div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">beads=' + String((beads || []).length) +
+    ' · associations=' + String((assocs || []).length) + '</div>';
+  el.appendChild(hdr);
+
+  if (!assocs || !assocs.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'No graph edges yet';
+    el.appendChild(empty);
+    return;
+  }
+
+  assocs.slice(0, 120).forEach(a => {
+    const src = String(a.source_bead || '');
+    const dst = String(a.target_bead || '');
+    const srcTitle = String((beadMap[src] || {}).title || src || 'n/a');
+    const dstTitle = String((beadMap[dst] || {}).title || dst || 'n/a');
+
+    const row = document.createElement('div');
+    row.className = 'bench-bucket';
+    row.innerHTML =
+      '<div><strong>' + escapeHtml(String(a.relationship || 'related_to')) + '</strong></div>' +
+      '<div style="margin-top:2px;color:var(--text-dim)">source: ' + escapeHtml(srcTitle) + '</div>' +
+      '<div style="margin-top:2px;color:var(--text-dim)">target: ' + escapeHtml(dstTitle) + '</div>' +
+      '<div style="margin-top:2px;color:var(--text-dim)">confidence: ' + String(a.confidence ?? 'n/a') + '</div>' +
+      '<div style="margin-top:6px;display:flex;gap:6px;flex-wrap:wrap">' +
+        (src ? '<button class="btn" data-bead-id="' + escapeHtml(src) + '">Open source</button>' : '') +
+        (dst ? '<button class="btn" data-bead-id="' + escapeHtml(dst) + '">Open target</button>' : '') +
+      '</div>';
+    row.querySelectorAll('button[data-bead-id]').forEach(btn => {
+      btn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const bid = btn.getAttribute('data-bead-id') || '';
+        if (bid) showBead(bid);
+      });
+    });
+    el.appendChild(row);
   });
 }
 
@@ -1546,6 +1598,7 @@ async function refreshMemory() {
 
     renderBeads(mem.beads || data.beads || []);
     renderAssociations(mem.associations || data.associations || []);
+    renderGraph(mem.beads || data.beads || [], mem.associations || data.associations || []);
     renderClaims(claims.slots || data.claim_state || [], claims);
     renderEntities(entities);
     renderRuntime(data.runtime || {}, data.last_turn || {});
