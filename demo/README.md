@@ -83,3 +83,18 @@ Benchmark runs never mutate `demo/memory_store` directly.
   - `pip install python-dotenv`
 - Semantic degraded warnings:
   - install semantic extras (`.[semantic]`) and configure provider key/model
+
+## Scope addendum (deployment): Render + Supabase
+
+Added deployment scope for production demo hosting:
+
+- **Render** as the primary app host for the FastAPI demo runtime
+- **Supabase Postgres** as durable backing store for demo persistence
+
+Target intent for this scope:
+
+- avoid ephemeral/local-only filesystem assumptions for live URLs
+- preserve session/flush/benchmark observability data across restarts
+- support durable benchmark run history and cross-run comparison in hosted environments
+
+This addendum extends the PRD/spec and is treated as end-of-spec scope expansion.

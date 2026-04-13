@@ -229,6 +229,7 @@ COORDINATOR: SessionCoordinator | None = None
 LAST_TURN_DIAGNOSTICS: dict[str, Any] = {}
 LAST_BENCHMARK_REPORT: dict[str, Any] = {}
 LAST_BENCHMARK_SUMMARY: dict[str, Any] = {}
+LAST_BENCHMARK_HISTORY: list[dict[str, Any]] = []
 LAST_FLUSH_EVENT: dict[str, Any] = {}
 LAST_FLUSH_EVENTS: list[dict[str, Any]] = []
 
@@ -257,6 +258,86 @@ def _record_flush_event(payload: dict[str, Any], *, trigger: str) -> None:
     row["timestamp"] = _utc_now_iso()
     LAST_FLUSH_EVENT = dict(row)
     LAST_FLUSH_EVENTS = ([row] + list(LAST_FLUSH_EVENTS or []))[:20]
+
+
+def _benchmark_history_path() -> Path:
+    return Path(MEMORY_ROOT) / ".demo" / "benchmark-history.jsonl"
+
+
+def _append_benchmark_history_row(row: dict[str, Any]) -> tuple[bool, str]:
+    p = _benchmark_history_path()
+    try:
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with p.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(dict(row or {}), ensure_ascii=False) + "\n")
+        return True, ""
+    except Exception as exc:
+        return False, str(exc)
+
+
+def _read_benchmark_history(*, limit: int = 20) -> list[dict[str, Any]]:
+    merged: list[dict[str, Any]] = []
+    merged.extend([dict(r or {}) for r in list(LAST_BENCHMARK_HISTORY or []) if isinstance(r, dict)])
+
+    p = _benchmark_history_path()
+    if p.exists():
+        try:
+            rows: list[dict[str, Any]] = []
+            for line in p.read_text(encoding="utf-8").splitlines():
+                raw = str(line or "").strip()
+                if not raw:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except Exception:
+                    continue
+                if isinstance(obj, dict):
+                    rows.append(dict(obj))
+            rows.reverse()
+            merged.extend(rows)
+        except Exception:
+            pass
+
+    seen: set[str] = set()
+    out: list[dict[str, Any]] = []
+    for r in merged:
+        rid = str(r.get("run_id") or (r.get("summary") or {}).get("run_id") or "")
+        key = rid or json.dumps(r, sort_keys=True)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(r)
+    return out[: max(1, int(limit))]
+
+
+def _record_benchmark_history_row(row: dict[str, Any]) -> tuple[bool, str]:
+    global LAST_BENCHMARK_HISTORY
+    rr = dict(row or {})
+    LAST_BENCHMARK_HISTORY = ([rr] + list(LAST_BENCHMARK_HISTORY or []))[:100]
+    return _append_benchmark_history_row(rr)
+
+
+def _benchmark_compare_rows(left: dict[str, Any], right: dict[str, Any]) -> dict[str, Any]:
+    ls = dict((left or {}).get("summary") or {})
+    rs = dict((right or {}).get("summary") or {})
+    def _f(x: Any) -> float:
+        try:
+            return float(x or 0.0)
+        except Exception:
+            return 0.0
+    return {
+        "left_run_id": str((left or {}).get("run_id") or ls.get("run_id") or ""),
+        "right_run_id": str((right or {}).get("run_id") or rs.get("run_id") or ""),
+        "left": ls,
+        "right": rs,
+        "delta": {
+            "accuracy": round(_f(rs.get("accuracy")) - _f(ls.get("accuracy")), 4),
+            "pass": int(rs.get("pass") or 0) - int(ls.get("pass") or 0),
+            "fail": int(rs.get("fail") or 0) - int(ls.get("fail") or 0),
+            "latency_mean_ms": round(_f(rs.get("latency_mean_ms")) - _f(ls.get("latency_mean_ms")), 3),
+            "tokens_total_est": int(rs.get("tokens_total_est") or 0) - int(ls.get("tokens_total_est") or 0),
+        },
+    }
 
 def detect_model() -> str:
     if os.environ.get("ANTHROPIC_API_KEY"):
@@ -338,7 +419,11 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
                 "error": str(exc),
             },
             "last_turn": dict(LAST_TURN_DIAGNOSTICS or {}),
-            "benchmark": {"last_summary": dict(LAST_BENCHMARK_SUMMARY or {}), "has_last_report": bool(LAST_BENCHMARK_REPORT)},
+            "benchmark": {
+                "last_summary": dict(LAST_BENCHMARK_SUMMARY or {}),
+                "has_last_report": bool(LAST_BENCHMARK_REPORT),
+                "history": _read_benchmark_history(limit=10),
+            },
             "beads": [],
             "associations": [],
             "rolling_window": [],
@@ -514,6 +599,7 @@ def get_memory_state(*, as_of: str | None = None) -> dict:
         "benchmark": {
             "last_summary": dict(LAST_BENCHMARK_SUMMARY or {}),
             "has_last_report": bool(LAST_BENCHMARK_REPORT),
+            "history": _read_benchmark_history(limit=10),
         },
     }
 
@@ -785,13 +871,37 @@ async def demo_entities_merge_decide_endpoint(request: Request):
 
 @app.get("/api/demo/benchmark/last")
 async def demo_benchmark_last_endpoint():
+    history = _read_benchmark_history(limit=10)
+    latest_compare = None
+    if len(history) >= 2:
+        latest_compare = _benchmark_compare_rows(history[1], history[0])
     return JSONResponse(
         {
             "ok": bool(LAST_BENCHMARK_REPORT),
             "summary": dict(LAST_BENCHMARK_SUMMARY or {}),
             "report": dict(LAST_BENCHMARK_REPORT or {}),
+            "history": history,
+            "latest_compare": latest_compare,
         }
     )
+
+
+@app.get("/api/demo/benchmark/history")
+async def demo_benchmark_history_endpoint(request: Request):
+    limit = int(request.query_params.get("limit") or 20)
+    rows = _read_benchmark_history(limit=max(1, min(200, limit)))
+    return JSONResponse({"ok": True, "history": rows})
+
+
+@app.get("/api/demo/benchmark/compare/{left_run_id}/{right_run_id}")
+async def demo_benchmark_compare_endpoint(left_run_id: str, right_run_id: str):
+    rows = _read_benchmark_history(limit=400)
+    by_id = {str(r.get("run_id") or ""): r for r in rows if str(r.get("run_id") or "")}
+    left = dict(by_id.get(str(left_run_id)) or {})
+    right = dict(by_id.get(str(right_run_id)) or {})
+    if not left or not right:
+        return JSONResponse({"ok": False, "error": "run_id_not_found"}, status_code=404)
+    return JSONResponse({"ok": True, "compare": _benchmark_compare_rows(left, right)})
 
 
 @app.get("/api/demo/bead/{bead_id}")
@@ -876,6 +986,8 @@ async def benchmark_run_endpoint(request: Request):
     benchmark_temp_root = ""
     root_mode_effective = root_mode
     snapshot_copy_warnings: list[str] = []
+    run_id = f"bench-{uuid.uuid4().hex[:10]}"
+    started_at = _utc_now_iso()
     try:
         if preload_from_demo:
             preload_file = _build_preload_turns_file_from_demo(max_turns=preload_turns_max)
@@ -914,10 +1026,15 @@ async def benchmark_run_endpoint(request: Request):
         totals = dict(report.get("totals") or {})
         meta = dict(report.get("metadata") or {})
         summary = {
+            "run_id": run_id,
+            "started_at": started_at,
+            "finished_at": _utc_now_iso(),
             "cases": int(totals.get("cases") or 0),
             "pass": int(totals.get("pass") or 0),
             "fail": int(totals.get("fail") or 0),
             "accuracy": float(totals.get("accuracy") or 0.0),
+            "latency_mean_ms": float(((report.get("latency_ms") or {}).get("mean") or 0.0)),
+            "tokens_total_est": int(((report.get("token_usage") or {}).get("total_tokens_est") or 0)),
             "backend_modes": list(meta.get("benchmark_backend_modes") or []),
             "preload_turn_count": int(meta.get("preload_turn_count") or 0),
             "semantic_mode": str(meta.get("semantic_mode") or ""),
@@ -938,6 +1055,24 @@ async def benchmark_run_endpoint(request: Request):
                 "regressed_cases": int(regressed),
                 "changed_cases": int(sum(1 for r in rows if bool(r.get("pass_changed")))),
             }
+
+        history_row = {
+            "run_id": run_id,
+            "created_at": summary.get("finished_at"),
+            "summary": dict(summary),
+            "metadata": {
+                "subset": subset,
+                "semantic_mode": semantic_mode,
+                "vector_backend": vector_backend,
+                "myelination": myelination_mode,
+                "root_mode": root_mode_effective,
+            },
+            "per_bucket": dict(report.get("per_bucket") or {}),
+            "myelination_comparison": dict(report.get("myelination_comparison") or {}),
+        }
+        wrote_hist, hist_err = _record_benchmark_history_row(history_row)
+        if not wrote_hist and hist_err:
+            summary["warnings"] = list(summary.get("warnings") or []) + [f"benchmark_history_write_failed:{hist_err}"]
 
         LAST_BENCHMARK_REPORT = dict(report)
         LAST_BENCHMARK_SUMMARY = dict(summary)

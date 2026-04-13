@@ -20,6 +20,7 @@ class TestDemoObservabilityApi(unittest.TestCase):
         old_last_turn = dict(demo_app.LAST_TURN_DIAGNOSTICS or {})
         old_last_bench = dict(demo_app.LAST_BENCHMARK_REPORT or {})
         old_last_bench_summary = dict(demo_app.LAST_BENCHMARK_SUMMARY or {})
+        old_last_bench_history = list(demo_app.LAST_BENCHMARK_HISTORY or [])
         old_last_flush = dict(demo_app.LAST_FLUSH_EVENT or {})
         old_last_flush_events = list(demo_app.LAST_FLUSH_EVENTS or [])
 
@@ -29,6 +30,7 @@ class TestDemoObservabilityApi(unittest.TestCase):
             demo_app.LAST_TURN_DIAGNOSTICS = {}
             demo_app.LAST_BENCHMARK_REPORT = {}
             demo_app.LAST_BENCHMARK_SUMMARY = {}
+            demo_app.LAST_BENCHMARK_HISTORY = []
             demo_app.LAST_FLUSH_EVENT = {}
             demo_app.LAST_FLUSH_EVENTS = []
 
@@ -72,6 +74,7 @@ class TestDemoObservabilityApi(unittest.TestCase):
             self.assertTrue(b.get("ok"))
             summary = dict(b.get("summary") or {})
             self.assertEqual("clean", str(summary.get("root_mode") or ""))
+            self.assertTrue(bool(summary.get("run_id")))
 
             r2b = c.post(
                 "/api/benchmark-run",
@@ -90,12 +93,29 @@ class TestDemoObservabilityApi(unittest.TestCase):
             self.assertIn("myelination_comparison", dict(b2.get("report") or {}))
             s2 = dict(b2.get("summary") or {})
             self.assertIn("myelination_compare", s2)
+            self.assertTrue(bool(s2.get("run_id")))
 
             r3 = c.get("/api/demo/benchmark/last")
             self.assertEqual(200, r3.status_code)
             last = r3.json()
             self.assertIn("summary", last)
             self.assertIn("report", last)
+            self.assertIn("history", last)
+
+            r3h = c.get("/api/demo/benchmark/history?limit=5")
+            self.assertEqual(200, r3h.status_code)
+            hh = r3h.json()
+            self.assertTrue(hh.get("ok"))
+            self.assertTrue(isinstance(hh.get("history"), list))
+
+            run_a = str((summary or {}).get("run_id") or "")
+            run_b = str((s2 or {}).get("run_id") or "")
+            if run_a and run_b and run_a != run_b:
+                rc = c.get(f"/api/demo/benchmark/compare/{run_a}/{run_b}")
+                self.assertEqual(200, rc.status_code)
+                cmp = rc.json()
+                self.assertTrue(cmp.get("ok"))
+                self.assertIn("compare", cmp)
 
             r3b = c.get("/api/demo/entities")
             self.assertEqual(200, r3b.status_code)
@@ -128,6 +148,7 @@ class TestDemoObservabilityApi(unittest.TestCase):
         demo_app.LAST_TURN_DIAGNOSTICS = old_last_turn
         demo_app.LAST_BENCHMARK_REPORT = old_last_bench
         demo_app.LAST_BENCHMARK_SUMMARY = old_last_bench_summary
+        demo_app.LAST_BENCHMARK_HISTORY = old_last_bench_history
         demo_app.LAST_FLUSH_EVENT = old_last_flush
         demo_app.LAST_FLUSH_EVENTS = old_last_flush_events
 

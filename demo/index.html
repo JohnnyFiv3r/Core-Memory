@@ -539,6 +539,7 @@ showEmptyChat();
 let firstMessage = true;
 let lastBenchmarkReport = null;
 let lastBenchmarkSummary = null;
+let lastBenchmarkHistory = [];
 let selectedClaimSlot = null;
 let claimsAsOf = '';
 
@@ -1290,14 +1291,37 @@ function renderRuntime(runtime, lastTurn) {
   el.appendChild(c5);
 }
 
-function renderBenchmark(summary, report) {
+function renderBenchmark(summary, report, benchmarkMeta) {
   const el = document.getElementById('tab-benchmark');
   el.textContent = '';
+  const history = Array.isArray((benchmarkMeta || {}).history) ? benchmarkMeta.history : [];
   if (!summary || !summary.cases) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
     empty.textContent = 'No benchmark run yet';
     el.appendChild(empty);
+    if (history.length) {
+      const h = document.createElement('div');
+      h.className = 'runtime-card';
+      h.innerHTML = '<strong>Recent runs</strong>';
+      el.appendChild(h);
+      history.slice(0, 8).forEach(r => {
+        const s = r.summary || {};
+        const row = document.createElement('div');
+        row.className = 'bench-bucket';
+        row.innerHTML =
+          '<div><strong>' + escapeHtml(String(s.run_id || r.run_id || 'run')) + '</strong></div>' +
+          '<div style="margin-top:2px;color:var(--text-dim)">acc=' + Number(s.accuracy || 0).toFixed(4) +
+          ' · pass/fail=' + String((s.pass || 0) + '/' + (s.fail || 0)) +
+          ' · at=' + escapeHtml(formatIsoShort(String(s.finished_at || r.created_at || ''))) + '</div>';
+        row.addEventListener('click', () => {
+          document.getElementById('modal-title').textContent = 'Benchmark run summary';
+          document.getElementById('modal-body').textContent = JSON.stringify(r, null, 2);
+          document.getElementById('modal').classList.add('open');
+        });
+        el.appendChild(row);
+      });
+    }
     return;
   }
 
@@ -1330,6 +1354,8 @@ function renderBenchmark(summary, report) {
     : '';
   meta.innerHTML =
     '<div><strong>Run config</strong></div>' +
+    '<div style="margin-top:2px;color:var(--text-dim)">run_id: ' + escapeHtml(String(summary.run_id || 'n/a')) +
+    ' · at: ' + escapeHtml(formatIsoShort(String(summary.finished_at || summary.started_at || ''))) + '</div>' +
     '<div style="margin-top:4px;color:var(--text-dim)">root mode: ' + String(summary.root_mode || 'n/a') +
     ' · preload turns: ' + String(summary.preload_turn_count || 0) + '</div>' +
     '<div style="margin-top:2px;color:var(--text-dim)">backend modes: ' + String((summary.backend_modes || []).join(', ') || 'unknown') + '</div>' +
@@ -1457,6 +1483,54 @@ function renderBenchmark(summary, report) {
       });
     }
   }
+
+  if (history.length) {
+    const h = document.createElement('div');
+    h.className = 'runtime-card';
+    h.innerHTML = '<strong>Recent runs</strong><div style="margin-top:2px;color:var(--text-dim)">Click a row for full payload.</div>';
+    el.appendChild(h);
+
+    history.slice(0, 12).forEach((rowData, idx) => {
+      const s = rowData.summary || {};
+      const row = document.createElement('div');
+      row.className = 'bench-bucket';
+      row.innerHTML =
+        '<div><strong>' + escapeHtml(String(s.run_id || rowData.run_id || ('run-' + idx))) + '</strong></div>' +
+        '<div style="margin-top:2px;color:var(--text-dim)">acc=' + Number(s.accuracy || 0).toFixed(4) +
+        ' · pass/fail=' + String((s.pass || 0) + '/' + (s.fail || 0)) +
+        ' · latency=' + Number(s.latency_mean_ms || 0).toFixed(2) + 'ms' +
+        ' · tokens=' + Number(s.tokens_total_est || 0).toLocaleString() + '</div>' +
+        '<div style="margin-top:2px;color:var(--text-dim)">at=' + escapeHtml(formatIsoShort(String(s.finished_at || rowData.created_at || ''))) + '</div>';
+      row.addEventListener('click', () => {
+        document.getElementById('modal-title').textContent = 'Benchmark run';
+        document.getElementById('modal-body').textContent = JSON.stringify(rowData, null, 2);
+        document.getElementById('modal').classList.add('open');
+      });
+      el.appendChild(row);
+    });
+
+    if (summary.run_id && history.length >= 2) {
+      const current = history.find(hx => String((hx.summary || {}).run_id || hx.run_id || '') === String(summary.run_id));
+      const baseline = history.find(hx => String((hx.summary || {}).run_id || hx.run_id || '') !== String(summary.run_id));
+      if (current && baseline) {
+        const cs = current.summary || {};
+        const bs = baseline.summary || {};
+        const dAcc = Number(cs.accuracy || 0) - Number(bs.accuracy || 0);
+        const dLat = Number(cs.latency_mean_ms || 0) - Number(bs.latency_mean_ms || 0);
+        const dTok = Number(cs.tokens_total_est || 0) - Number(bs.tokens_total_est || 0);
+        const cmp = document.createElement('div');
+        cmp.className = 'runtime-card';
+        cmp.innerHTML =
+          '<div><strong>Latest vs previous run</strong></div>' +
+          '<div style="margin-top:2px;color:var(--text-dim)">baseline=' + escapeHtml(String(bs.run_id || baseline.run_id || 'n/a')) +
+          ' → current=' + escapeHtml(String(cs.run_id || current.run_id || 'n/a')) + '</div>' +
+          '<div style="margin-top:4px;color:var(--text-dim)">accuracy Δ=<span class="' + (dAcc > 0 ? 'bench-delta-good' : dAcc < 0 ? 'bench-delta-bad' : 'bench-delta-neutral') + '">' + dAcc.toFixed(4) + '</span>' +
+          ' · latency Δ=' + dLat.toFixed(3) + 'ms' +
+          ' · tokens Δ=' + dTok.toLocaleString() + '</div>';
+        el.appendChild(cmp);
+      }
+    }
+  }
 }
 
 async function refreshMemory() {
@@ -1478,6 +1552,7 @@ async function refreshMemory() {
     renderRolling(mem.rolling_window || data.rolling_window || []);
 
     lastBenchmarkSummary = (data.benchmark || {}).last_summary || lastBenchmarkSummary;
+    lastBenchmarkHistory = Array.isArray((data.benchmark || {}).history) ? (data.benchmark || {}).history : lastBenchmarkHistory;
     if ((data.benchmark || {}).has_last_report && !lastBenchmarkReport) {
       try {
         const rb = await fetch('/api/demo/benchmark/last');
@@ -1485,12 +1560,13 @@ async function refreshMemory() {
         if (jb && jb.ok && jb.report) {
           lastBenchmarkReport = jb.report;
           if (jb.summary) lastBenchmarkSummary = jb.summary;
+          if (Array.isArray(jb.history)) lastBenchmarkHistory = jb.history;
         }
       } catch (_) {
         // best effort only
       }
     }
-    renderBenchmark(lastBenchmarkSummary || {}, lastBenchmarkReport || null);
+    renderBenchmark(lastBenchmarkSummary || {}, lastBenchmarkReport || null, {history: lastBenchmarkHistory});
 
     document.getElementById('stat-beads').textContent = Number(statsCompat.total_beads || (mem.beads || []).length || 0);
     document.getElementById('stat-assoc').textContent = Number(statsCompat.total_associations || (mem.associations || []).length || 0);
@@ -1621,7 +1697,14 @@ async function runBenchmark() {
     }
     lastBenchmarkSummary = data.summary || {};
     lastBenchmarkReport = data.report || null;
-    renderBenchmark(lastBenchmarkSummary, lastBenchmarkReport);
+    try {
+      const rh = await fetch('/api/demo/benchmark/history?limit=20');
+      const jh = await rh.json();
+      if (jh && jh.ok && Array.isArray(jh.history)) lastBenchmarkHistory = jh.history;
+    } catch (_) {
+      // best effort only
+    }
+    renderBenchmark(lastBenchmarkSummary, lastBenchmarkReport, {history: lastBenchmarkHistory});
     addMsg('system', formatBenchmarkSummary(data.summary || {}));
   } catch (err) {
     addMsg('system', 'Benchmark failed: ' + err.message);
