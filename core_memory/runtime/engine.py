@@ -75,6 +75,7 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     assistant_final = str(req.get("assistant_final") or "").strip()
     title = (user_query or assistant_final or "Turn memory").splitlines()[0][:160]
     summary = (user_query or assistant_final or "turn memory")
+    entities = _default_entities_from_text(user_query, assistant_final)
     # Extract a "because" reason from the user query for promotion quality gate
     because = [user_query[:240]] if user_query else []
     return {
@@ -85,11 +86,65 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
                 "summary": [summary[:240]],
                 "because": because,
                 "source_turn_ids": [str(req.get("turn_id") or "")],
+                "entities": entities,
                 "tags": ["crawler_reviewed", "turn_finalized"],
                 "detail": assistant_final[:1200] if assistant_final else summary[:1200],
             }
         ]
     }
+
+
+def _default_entities_from_text(*texts: str, limit: int = 16) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    stop = {
+        "Before", "After", "Turn", "Act", "Show", "Open", "Record", "Add", "Explain",
+        "What", "When", "Where", "Which", "Why", "How", "Claims", "Graph", "Entities",
+        "Runtime", "Benchmark", "Send", "Point", "Say",
+    }
+    low_stop = {
+        "the", "and", "for", "with", "that", "this", "from", "into", "your", "our", "their",
+        "were", "was", "have", "has", "had", "will", "would", "should", "could", "can", "cant",
+        "about", "after", "before", "then", "than", "because", "there", "here", "when", "where",
+        "what", "which", "who", "whom", "whose", "why", "how", "turn", "main", "session",
+    }
+    for raw in texts:
+        text = str(raw or "")
+        if not text:
+            continue
+        for m in re.finditer(r"\b([A-Z][A-Za-z0-9._-]{2,}|[A-Z]{2,}[A-Za-z0-9._-]*)\b", text):
+            token = str(m.group(1) or "").strip().strip(".,:;!?()[]{}\"'")
+            if len(token) < 3:
+                continue
+            if token in stop:
+                continue
+            key = token.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(token)
+            if len(out) >= max(1, int(limit)):
+                return out
+
+    if out:
+        return out
+
+    for raw in texts:
+        text = str(raw or "")
+        if not text:
+            continue
+        for token in re.finditer(r"\b[a-zA-Z][a-zA-Z0-9_-]{2,}\b", text):
+            value = str(token.group(0) or "").strip().strip(".,:;!?()[]{}\"'")
+            key = value.lower()
+            if key in low_stop:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(value)
+            if len(out) >= max(1, int(limit)):
+                return out
+    return out
 
 
 def _resolve_reviewed_updates(

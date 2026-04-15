@@ -156,10 +156,27 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
                 subset="local",
                 limit=1,
                 preload_turns_file=preload,
+                benchmark_root=str(Path(td) / "bench-root"),
             )
             self.assertEqual(2, int((report.get("metadata") or {}).get("preload_turn_count") or 0))
             c0 = (report.get("cases") or [{}])[0]
             self.assertEqual(2, int(c0.get("preload_turn_count") or 0))
+
+            idx_path = Path(td) / "bench-root" / ".beads" / "index.json"
+            self.assertTrue(idx_path.exists(), "benchmark root index missing")
+            payload = json.loads(idx_path.read_text(encoding="utf-8"))
+
+            associations_total = int(len(list((payload.get("associations") or []))) if isinstance(payload, dict) else 0)
+            entities_total = int(len(dict(payload.get("entities") or {})) if isinstance(payload, dict) else 0)
+            claims_total = 0
+            for _bid, bead in dict((payload.get("beads") or {})).items():
+                if not isinstance(bead, dict):
+                    continue
+                claims_total += int(len(list(bead.get("claims") or [])))
+
+            self.assertGreater(claims_total, 0, "expected preload to emit claims")
+            self.assertGreater(associations_total, 0, "expected preload to append associations")
+            self.assertGreater(entities_total, 0, "expected preload to populate entity registry")
 
 
 if __name__ == "__main__":

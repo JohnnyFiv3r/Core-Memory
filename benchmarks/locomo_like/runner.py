@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import tempfile
 import time
@@ -17,10 +18,117 @@ from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.jobs import async_jobs_status, run_async_jobs
 from core_memory.runtime.engine import process_turn_finalized
+from core_memory.runtime.association_pass import run_association_pass
+from core_memory.association.crawler_contract import merge_crawler_updates
 from core_memory.runtime.myelination import myelination_report
 
 from .reporting import build_report, render_summary
 from .schema import BenchmarkCase, GoldCase, build_cases
+
+
+_ENTITY_CANDIDATE_RE = re.compile(r"\b([A-Z][A-Za-z0-9._-]{2,}|[A-Z]{2,}[A-Za-z0-9._-]*)\b")
+
+
+def _turn_write_env() -> dict[str, str]:
+    return {
+        "CORE_MEMORY_CLAIM_LAYER": "1",
+        "CORE_MEMORY_CLAIM_EXTRACTION_MODE": "heuristic",
+        "CORE_MEMORY_CLAIM_RESOLUTION": "1",
+        "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
+        "CORE_MEMORY_PREVIEW_ASSOC_PROMOTION": "1",
+        "CORE_MEMORY_PREVIEW_ASSOC_ALLOW_SHARED_TAG": "1",
+    }
+
+
+def _heuristic_entities(*texts: str, limit: int = 16) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    stop = {
+        "the", "and", "for", "with", "that", "this", "from", "into", "your", "our", "their",
+        "were", "was", "have", "has", "had", "will", "would", "should", "could", "can", "cant",
+        "about", "after", "before", "then", "than", "because", "there", "here", "when", "where",
+        "what", "which", "who", "whom", "whose", "why", "how", "into", "onto", "over", "under",
+        "adopted", "confirmed", "decision", "logged", "turn", "main", "session",
+    }
+    for raw in texts:
+        text = str(raw or "")
+        if not text:
+            continue
+        for m in _ENTITY_CANDIDATE_RE.finditer(text):
+            token = str(m.group(1) or "").strip().strip(".,:;!?()[]{}\"'")
+            if len(token) < 3:
+                continue
+            key = token.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(token)
+            if len(out) >= max(1, int(limit)):
+                return out
+
+    if out:
+        return out
+
+    for raw in texts:
+        text = str(raw or "")
+        if not text:
+            continue
+        for token in re.findall(r"\b[a-zA-Z][a-zA-Z0-9_-]{2,}\b", text):
+            key = token.lower()
+            if key in stop:
+                continue
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(token)
+            if len(out) >= max(1, int(limit)):
+                return out
+    return out
+
+
+def _seed_crawler_updates(*, user_query: str, assistant_final: str, turn_id: str) -> dict[str, Any]:
+    uq = str(user_query or "").strip()
+    af = str(assistant_final or "").strip()
+    title = (uq or af or "Turn memory").splitlines()[0][:160]
+    entities = _heuristic_entities(uq, af)
+    return {
+        "beads_create": [
+            {
+                "type": "context",
+                "title": title or "Turn memory",
+                "summary": [(uq or af or "turn memory")[:240]],
+                "because": [uq[:240]] if uq else [],
+                "source_turn_ids": [str(turn_id or "")],
+                "entities": entities,
+                "tags": ["benchmark_preload", "crawler_reviewed", "turn_finalized"],
+            }
+        ]
+    }
+
+
+def _latest_turn_bead_id(root: str, *, session_id: str, turn_id: str) -> str:
+    idx_path = Path(root) / ".beads" / "index.json"
+    if not idx_path.exists():
+        return ""
+    try:
+        payload = json.loads(idx_path.read_text(encoding="utf-8"))
+    except Exception:
+        return ""
+    beads = dict((payload.get("beads") or {})) if isinstance(payload, dict) else {}
+    hits: list[dict[str, Any]] = []
+    for bead in beads.values():
+        if not isinstance(bead, dict):
+            continue
+        if str(bead.get("session_id") or "") != str(session_id):
+            continue
+        src = [str(x) for x in (bead.get("source_turn_ids") or [])]
+        if str(turn_id) not in src:
+            continue
+        hits.append(bead)
+    if not hits:
+        return ""
+    hits.sort(key=lambda b: str((b or {}).get("created_at") or ""), reverse=True)
+    return str((hits[0] or {}).get("id") or "")
 
 
 def _repo_commit() -> str:
@@ -57,28 +165,61 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
     setup = dict(case.setup or {})
     # Optional turn-preload path for larger LOCOMO-style traces.
     turns = list(setup.get("turns") or [])
-    for i, t in enumerate(turns, start=1):
-        if not isinstance(t, dict):
-            continue
-        tid = str(t.get("turn_id") or f"fx-turn-{i}").strip() or f"fx-turn-{i}"
-        sid = str(t.get("session_id") or "main").strip() or "main"
-        uq = str(t.get("user_query") or "").strip()
-        af = str(t.get("assistant_final") or "").strip()
-        if not uq or not af:
-            continue
-        process_turn_finalized(
-            root=root,
-            session_id=sid,
-            turn_id=tid,
-            transaction_id=str(t.get("transaction_id") or f"tx-{tid}").strip() or f"tx-{tid}",
-            trace_id=str(t.get("trace_id") or f"tr-{tid}").strip() or f"tr-{tid}",
-            user_query=uq,
-            assistant_final=af,
-            metadata=dict(t.get("metadata") or {}),
-            tools_trace=list(t.get("tools_trace") or []),
-            mesh_trace=list(t.get("mesh_trace") or []),
-            origin=str(t.get("origin") or "BENCHMARK_TURN").strip() or "BENCHMARK_TURN",
-        )
+    last_bead_by_session: dict[str, str] = {}
+    with _env_overrides(_turn_write_env()):
+        for i, t in enumerate(turns, start=1):
+            if not isinstance(t, dict):
+                continue
+            tid = str(t.get("turn_id") or f"fx-turn-{i}").strip() or f"fx-turn-{i}"
+            sid = str(t.get("session_id") or "main").strip() or "main"
+            uq = str(t.get("user_query") or "").strip()
+            af = str(t.get("assistant_final") or "").strip()
+            if not uq or not af:
+                continue
+
+            md = dict(t.get("metadata") or {})
+            if not isinstance(md.get("crawler_updates"), dict):
+                md["crawler_updates"] = _seed_crawler_updates(user_query=uq, assistant_final=af, turn_id=tid)
+
+            process_turn_finalized(
+                root=root,
+                session_id=sid,
+                turn_id=tid,
+                transaction_id=str(t.get("transaction_id") or f"tx-{tid}").strip() or f"tx-{tid}",
+                trace_id=str(t.get("trace_id") or f"tr-{tid}").strip() or f"tr-{tid}",
+                user_query=uq,
+                assistant_final=af,
+                metadata=md,
+                tools_trace=list(t.get("tools_trace") or []),
+                mesh_trace=list(t.get("mesh_trace") or []),
+                origin=str(t.get("origin") or "BENCHMARK_TURN").strip() or "BENCHMARK_TURN",
+            )
+
+            current_bead_id = _latest_turn_bead_id(root, session_id=sid, turn_id=tid)
+            prev_bead_id = str(last_bead_by_session.get(sid) or "").strip()
+
+            if current_bead_id and prev_bead_id and current_bead_id != prev_bead_id:
+                run_association_pass(
+                    root=root,
+                    session_id=sid,
+                    updates={
+                        "associations": [
+                            {
+                                "source_bead_id": current_bead_id,
+                                "target_bead_id": prev_bead_id,
+                                "relationship": "follows",
+                                "confidence": 0.6,
+                                "reason_text": "benchmark preload temporal adjacency",
+                                "provenance": "benchmark_preload",
+                            }
+                        ]
+                    },
+                    visible_bead_ids=[prev_bead_id, current_bead_id],
+                )
+                merge_crawler_updates(root=root, session_id=sid)
+
+            if current_bead_id:
+                last_bead_by_session[sid] = current_bead_id
 
     beads = list(setup.get("beads") or [])
 
@@ -392,8 +533,11 @@ def run_case(
 
         env = {
             "CORE_MEMORY_CLAIM_LAYER": "1",
+            "CORE_MEMORY_CLAIM_EXTRACTION_MODE": "heuristic",
             "CORE_MEMORY_CLAIM_RESOLUTION": "1",
             "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
+            "CORE_MEMORY_PREVIEW_ASSOC_PROMOTION": "1",
+            "CORE_MEMORY_PREVIEW_ASSOC_ALLOW_SHARED_TAG": "1",
             "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": str(semantic_mode),
             "CORE_MEMORY_VECTOR_BACKEND": str(vector_backend),
             "CORE_MEMORY_MYELINATION_ENABLED": "1" if bool(myelination_enabled) else "0",
@@ -473,8 +617,11 @@ def run_case(
 
         env = {
             "CORE_MEMORY_CLAIM_LAYER": "1",
+            "CORE_MEMORY_CLAIM_EXTRACTION_MODE": "heuristic",
             "CORE_MEMORY_CLAIM_RESOLUTION": "1",
             "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
+            "CORE_MEMORY_PREVIEW_ASSOC_PROMOTION": "1",
+            "CORE_MEMORY_PREVIEW_ASSOC_ALLOW_SHARED_TAG": "1",
             "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": str(semantic_mode),
             "CORE_MEMORY_VECTOR_BACKEND": str(vector_backend),
             "CORE_MEMORY_MYELINATION_ENABLED": "1" if bool(myelination_enabled) else "0",
