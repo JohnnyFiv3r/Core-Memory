@@ -102,17 +102,40 @@ RELATION_TYPE_ALIASES = {
     "blocks->unblocks": "blocks_unblocks",
 }
 
-# Inference surface canonical relationship set (v2.1).
+# Inference surface canonical relationship set.
+# Allow the full canonical structural relation vocabulary so agent-authored
+# association judges can express specific semantics directly.
 INFERENCE_CANONICAL_RELATION_TYPES = {
     "caused_by",
-    "supports",
-    "supersedes",
+    "led_to",
     "blocked_by",
     "unblocks",
-    "enables",
-    "derived_from",
-    "follows",
+    "blocks_unblocks",
+    "supersedes",
+    "superseded_by",
+    "associated_with",
     "contradicts",
+    "refines",
+    "invalidates",
+    "diagnoses",
+    "reinforces",
+    "mirrors",
+    "applies_pattern_of",
+    "violates_pattern_of",
+    "constraint_transformed_into",
+    "solves_same_mechanism",
+    "similar_pattern",
+    "transferable_lesson",
+    "generalizes",
+    "specializes",
+    "structural_symmetry",
+    "reveals_bias",
+    "supports",
+    "derived_from",
+    "resolves",
+    "follows",
+    "precedes",
+    "enables",
 }
 
 # Operational statuses (system state, not bead type)

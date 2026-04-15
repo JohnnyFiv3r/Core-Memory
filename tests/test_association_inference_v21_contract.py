@@ -41,13 +41,13 @@ def test_rationale_alias_maps_to_reason_text_with_warning():
     assert WARN_ALIAS_RATIONALE_TO_REASON_TEXT in out.warnings
 
 
-def test_precedes_is_quarantined_in_strict_mode_without_direction_rewrite():
+def test_precedes_is_accepted_in_strict_mode_without_direction_rewrite():
     payload = _base_payload(relationship="precedes")
     out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_STRICT)
 
-    assert out.ok is False
-    assert f"{Q_NONCANONICAL_PREFIX}precedes" in out.quarantine_reasons
-    assert f"{WARN_NONCANONICAL_PREFIX}precedes" in out.warnings
+    assert out.ok is True
+    assert out.quarantine_reasons == []
+    assert out.warnings == []
     # No silent inversion: source/target are preserved exactly.
     assert out.record["source_bead"] == "bead-A"
     assert out.record["target_bead"] == "bead-B"
