@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -64,73 +63,11 @@ USER: {user_query}"""
 
 
 def _heuristic_type(user_query: str, assistant_final: str) -> BeadType:
-    """Keyword-based fallback when no LLM is available."""
-    text = f"{user_query} {assistant_final}".lower()
-    uq = (user_query or "").strip().lower()
+    """Conservative fallback when LLM classification is unavailable.
 
-    # Imperative record/log phrasing should classify by payload semantics, not as generic context.
-    record_like = bool(re.match(r"^(record|log|capture|note)\b", uq))
-
-    decision_terms = ["decide", "decision", "we chose", "chose", "picked", "selected", "adopted", "went with", "won over", "winner", "recommendation"]
-    goal_terms = ["goal", "target", "deadline", "by end of", "objective", "milestone", "need to", "must", "cutover", "launch"]
-    lesson_terms = ["lesson", "learned", "takeaway", "insight", "never again", "always", "rule of thumb", "guidance"]
-    outcome_terms = ["result", "outcome", "shipped", "completed", "launched", "deployed", "achieved", "slipped"]
-    evidence_terms = ["evidence", "data shows", "benchmark", "load test", "metric", "measured", "proves", "numbers", "because"]
-
-    # Check most specific patterns first
-    if any(k in text for k in decision_terms):
-        return "decision"
-    if any(k in text for k in goal_terms):
-        return "goal"
-    if any(k in text for k in lesson_terms):
-        return "lesson"
-    if any(k in text for k in outcome_terms):
-        return "outcome"
-    if any(k in text for k in evidence_terms):
-        return "evidence"
-    if any(k in text for k in ["reversed", "overturned", "changed our mind", "no longer"]):
-        return "reversal"
-    if any(k in text for k in ["corrected", "correction", "was wrong", "mistake", "fixed"]):
-        return "correction"
-    if any(k in text for k in ["principle", "guideline", "design rule", "pattern"]):
-        return "design_principle"
-    if any(k in text for k in ["reflecting", "looking back", "retrospective", "in hindsight"]):
-        return "reflection"
-    # Prefer context only when no semantic signal exists.
-    if record_like:
-        return "evidence"
-    return "context"
-
-
-def _strong_signal_type(user_query: str) -> BeadType | None:
-    """Deterministic high-confidence classifier for common semantic intents.
-
-    This runs before LLM classification to prevent over-defaulting to `context`
-    on prompt-like questions (e.g. "Why did X win over Y?").
+    Intentionally avoids hard-coded semantic routing.
     """
-    q = (user_query or "").strip().lower()
-    if not q:
-        return None
-
-    # Decision-like winner/choice phrasing
-    if re.search(r"\b(chose|choose|picked|selected|went with|winner|won over|win over|recommendation)\b", q):
-        return "decision"
-    if re.search(r"^why did\s+.+\s+win\s+over\s+.+\??$", q):
-        return "decision"
-
-    # Goal-like targets/deadlines
-    if re.search(r"\b(goal|target|deadline|objective|milestone|cutover|launch date)\b", q):
-        return "goal"
-
-    # Evidence-like support/measurement/justification
-    if re.search(r"\b(evidence|benchmark|load test|metric|measured|data shows|proof|because)\b", q):
-        return "evidence"
-
-    # Lesson-like takeaways
-    if re.search(r"\b(lesson|learned|takeaway|guidance|rule of thumb|in hindsight)\b", q):
-        return "lesson"
-
-    return None
+    return "context"
 
 
 def _classify_anthropic(user_query: str, assistant_final: str) -> BeadType | None:
@@ -205,11 +142,6 @@ def classify_bead_type(user_query: str, assistant_final: str) -> BeadType:
     allow_fallback = str(
         os.getenv("CORE_MEMORY_BEAD_TYPE_ALLOW_FALLBACK", "1")
     ).strip().lower() in {"1", "true", "yes", "on"}
-
-    # First pass deterministic strong-signal classification.
-    strong = _strong_signal_type(user_query)
-    if strong:
-        return strong
 
     # Try LLM classification: Anthropic first, then OpenAI.
     result = _classify_anthropic(user_query, assistant_final)
