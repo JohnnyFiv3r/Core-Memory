@@ -102,6 +102,37 @@ def _heuristic_type(user_query: str, assistant_final: str) -> BeadType:
     return "context"
 
 
+def _strong_signal_type(user_query: str) -> BeadType | None:
+    """Deterministic high-confidence classifier for common semantic intents.
+
+    This runs before LLM classification to prevent over-defaulting to `context`
+    on prompt-like questions (e.g. "Why did X win over Y?").
+    """
+    q = (user_query or "").strip().lower()
+    if not q:
+        return None
+
+    # Decision-like winner/choice phrasing
+    if re.search(r"\b(chose|choose|picked|selected|went with|winner|won over|win over|recommendation)\b", q):
+        return "decision"
+    if re.search(r"^why did\s+.+\s+win\s+over\s+.+\??$", q):
+        return "decision"
+
+    # Goal-like targets/deadlines
+    if re.search(r"\b(goal|target|deadline|objective|milestone|cutover|launch date)\b", q):
+        return "goal"
+
+    # Evidence-like support/measurement/justification
+    if re.search(r"\b(evidence|benchmark|load test|metric|measured|data shows|proof|because)\b", q):
+        return "evidence"
+
+    # Lesson-like takeaways
+    if re.search(r"\b(lesson|learned|takeaway|guidance|rule of thumb|in hindsight)\b", q):
+        return "lesson"
+
+    return None
+
+
 def _classify_anthropic(user_query: str, assistant_final: str) -> BeadType | None:
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
@@ -175,7 +206,12 @@ def classify_bead_type(user_query: str, assistant_final: str) -> BeadType:
         os.getenv("CORE_MEMORY_BEAD_TYPE_ALLOW_FALLBACK", "1")
     ).strip().lower() in {"1", "true", "yes", "on"}
 
-    # Try LLM classification: Anthropic first, then OpenAI
+    # First pass deterministic strong-signal classification.
+    strong = _strong_signal_type(user_query)
+    if strong:
+        return strong
+
+    # Try LLM classification: Anthropic first, then OpenAI.
     result = _classify_anthropic(user_query, assistant_final)
     if result:
         return result
