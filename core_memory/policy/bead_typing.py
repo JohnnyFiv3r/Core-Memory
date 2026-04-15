@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -44,9 +45,17 @@ Types:
 - correction: Fixing a prior mistake or misunderstanding
 - reversal: Overturning a previous decision
 
-Classify based ONLY on the user message below. Ignore the assistant response.
-- If the user is asking a question or requesting information, classify as context.
-- Only use decision, goal, lesson, etc. when the user is explicitly stating or declaring something new.
+Classify based on the *semantic content* of the user message, not just speech form.
+- Questions can still be decision/goal/evidence/etc if they are about those topics.
+- Imperatives like "Record that...", "Show...", "Explain...", "As of..." should be typed by what they encode.
+- Do NOT default all questions to context.
+
+Strong hints:
+- decision: winner/choice between alternatives ("why did X win over Y", "which vendor won", "we chose")
+- goal: target, deadline, objective ("deadline", "target", "must", "need to")
+- evidence: benchmark/load-test/measured/proof/justification statements
+- lesson: takeaway/learning or guidance learned from prior incidents
+
 If uncertain, use context.
 
 Return JSON only: {{"type": "..."}}
@@ -57,17 +66,27 @@ USER: {user_query}"""
 def _heuristic_type(user_query: str, assistant_final: str) -> BeadType:
     """Keyword-based fallback when no LLM is available."""
     text = f"{user_query} {assistant_final}".lower()
+    uq = (user_query or "").strip().lower()
+
+    # Imperative record/log phrasing should classify by payload semantics, not as generic context.
+    record_like = bool(re.match(r"^(record|log|capture|note)\b", uq))
+
+    decision_terms = ["decide", "decision", "we chose", "chose", "picked", "selected", "adopted", "went with", "won over", "winner", "recommendation"]
+    goal_terms = ["goal", "target", "deadline", "by end of", "objective", "milestone", "need to", "must", "cutover", "launch"]
+    lesson_terms = ["lesson", "learned", "takeaway", "insight", "never again", "always", "rule of thumb", "guidance"]
+    outcome_terms = ["result", "outcome", "shipped", "completed", "launched", "deployed", "achieved", "slipped"]
+    evidence_terms = ["evidence", "data shows", "benchmark", "load test", "metric", "measured", "proves", "numbers", "because"]
 
     # Check most specific patterns first
-    if any(k in text for k in ["goal", "target", "deadline", "by end of", "objective", "milestone", "need to", "migrate", "must"]):
-        return "goal"
-    if any(k in text for k in ["decide", "decision", "we chose", "chose", "picked", "selected", "adopted", "went with"]):
+    if any(k in text for k in decision_terms):
         return "decision"
-    if any(k in text for k in ["lesson", "learned", "takeaway", "insight", "never again", "always", "rule of thumb"]):
+    if any(k in text for k in goal_terms):
+        return "goal"
+    if any(k in text for k in lesson_terms):
         return "lesson"
-    if any(k in text for k in ["result", "outcome", "shipped", "completed", "launched", "deployed", "achieved"]):
+    if any(k in text for k in outcome_terms):
         return "outcome"
-    if any(k in text for k in ["evidence", "data shows", "benchmark", "metric", "measured", "proves", "numbers"]):
+    if any(k in text for k in evidence_terms):
         return "evidence"
     if any(k in text for k in ["reversed", "overturned", "changed our mind", "no longer"]):
         return "reversal"
@@ -77,6 +96,9 @@ def _heuristic_type(user_query: str, assistant_final: str) -> BeadType:
         return "design_principle"
     if any(k in text for k in ["reflecting", "looking back", "retrospective", "in hindsight"]):
         return "reflection"
+    # Prefer context only when no semantic signal exists.
+    if record_like:
+        return "evidence"
     return "context"
 
 
