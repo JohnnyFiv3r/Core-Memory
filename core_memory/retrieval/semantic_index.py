@@ -148,6 +148,10 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
         or (ext_backend and rows_count > 0 and connectivity_ok)
     )
     profile = _backend_deployment_profile(backend or "not_built")
+    concurrency_warning = str(profile.get("concurrency_warning") or "")
+    if (not usable_backend) and mode == SEMANTIC_MODE_DEGRADED_ALLOWED and str(backend or "not_built") in {"", "not_built", "lexical"}:
+        # In degraded-allowed lexical mode this is expected, not an operational warning.
+        concurrency_warning = ""
 
     if usable_backend:
         next_step = "Semantic backend is ready for canonical query-based anchor lookup."
@@ -172,7 +176,7 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
         "usable_backend": usable_backend,
         "deployment_profile": str(profile.get("deployment_profile") or "unknown"),
         "multi_worker_safe": bool(profile.get("multi_worker_safe")),
-        "concurrency_warning": str(profile.get("concurrency_warning") or ""),
+        "concurrency_warning": concurrency_warning,
         "recommended_production_backends": ["qdrant", "pgvector"],
         "next_step": next_step,
     }
