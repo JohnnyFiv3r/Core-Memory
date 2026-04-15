@@ -228,14 +228,18 @@ def memory_execute_tool(root: Optional[str] = None) -> Callable[..., str]:
     """
     root_final = _resolve_root(root)
 
-    def execute_memory_request(query: str, intent: str = "search") -> str:
-        """Execute a structured memory request (search, causal, or hybrid).
+    def execute_memory_request(query: str, intent: str = "") -> str:
+        """Execute a structured memory request.
 
         Args:
             query: Natural-language query.
-            intent: Request intent — 'search', 'causal', or 'hybrid'.
+            intent: Optional request intent (for example 'remember' or 'causal').
+                Leave blank to let canonical retrieval classify intent from query text.
         """
-        request = {"query": query, "intent": intent}
+        request: dict[str, Any] = {"query": query}
+        intent_n = str(intent or "").strip()
+        if intent_n:
+            request["intent"] = intent_n
         try:
             result = memory_execute(request, root=root_final, explain=False)
         except Exception as exc:
