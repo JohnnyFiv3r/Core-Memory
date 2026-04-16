@@ -17,7 +17,7 @@ def add_async_jobs_command_surfaces(
     ops_jobs_enqueue.add_argument(
         "--kind",
         required=True,
-        choices=["semantic-rebuild", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
+        choices=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
     )
     ops_jobs_enqueue.add_argument("--event-file", help="Optional JSON file for compaction event payload")
     ops_jobs_enqueue.add_argument("--ctx-file", help="Optional JSON file for compaction context payload")
@@ -47,7 +47,7 @@ def add_async_jobs_command_surfaces(
     async_jobs_enqueue_parser.add_argument(
         "--kind",
         required=True,
-        choices=["semantic-rebuild", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
+        choices=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
     )
     async_jobs_enqueue_parser.add_argument("--event-file")
     async_jobs_enqueue_parser.add_argument("--ctx-file")

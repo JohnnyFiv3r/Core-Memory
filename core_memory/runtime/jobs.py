@@ -20,7 +20,7 @@ from core_memory.runtime.side_effect_queue import (
     enqueue_side_effect_event,
     side_effect_queue_status,
 )
-from core_memory.retrieval.semantic_index import build_semantic_index
+from core_memory.retrieval.semantic_index import build_semantic_index, apply_semantic_delta
 
 
 ASYNC_JOBS_SCHEMA_VERSION = "core_memory.async_jobs.v1"
@@ -65,9 +65,9 @@ def _compaction_state_path(root: Path) -> Path:
 def semantic_rebuild_queue_status(root: str | Path = DEFAULT_ROOT) -> dict[str, Any]:
     root_p = Path(root)
     p = _semantic_queue_path(root_p)
-    payload = _read_json(p, {"queued": False, "queued_at": None, "epoch": 0})
+    payload = _read_json(p, {"queued": False, "queued_at": None, "epoch": 0, "mode": "delta"})
     if not isinstance(payload, dict):
-        payload = {"queued": False, "queued_at": None, "epoch": 0}
+        payload = {"queued": False, "queued_at": None, "epoch": 0, "mode": "delta"}
 
     queued = bool(payload.get("queued"))
     return _with_schema({
@@ -77,6 +77,7 @@ def semantic_rebuild_queue_status(root: str | Path = DEFAULT_ROOT) -> dict[str, 
         "queued": queued,
         "queued_at": payload.get("queued_at"),
         "epoch": int(payload.get("epoch") or 0),
+        "mode": str(payload.get("mode") or "delta"),
         "pending": 1 if queued else 0,
     })
 
@@ -153,6 +154,9 @@ def _normalize_job_kind(kind: str | None) -> str:
         "semantic": "semantic-rebuild",
         "semantic-rebuild": "semantic-rebuild",
         "semantic_rebuild": "semantic-rebuild",
+        "semantic-reconcile": "semantic-reconcile",
+        "semantic_reconcile": "semantic-reconcile",
+        "reconcile": "semantic-reconcile",
         "compaction": "compaction",
         "compaction-flush": "compaction",
         "dreamer": "dreamer-run",
@@ -177,11 +181,12 @@ def enqueue_async_job(
     root_p = Path(root)
     k = _normalize_job_kind(kind)
 
-    if k == "semantic-rebuild":
-        out = enqueue_semantic_rebuild(root_p)
+    if k in {"semantic-rebuild", "semantic-reconcile"}:
+        mode = "reconcile" if k == "semantic-reconcile" else "delta"
+        out = enqueue_semantic_rebuild(root_p, mode=mode)
         return _with_schema({
             "ok": bool(out.get("ok")),
-            "kind": "semantic-rebuild",
+            "kind": k,
             "queue": out,
             "status": semantic_rebuild_queue_status(root_p),
         })
@@ -213,7 +218,7 @@ def enqueue_async_job(
             "unknown_kind",
             "Unknown async job kind",
             kind=str(kind),
-            allowed=["semantic-rebuild", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
+            allowed=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
         ),
     })
 
@@ -239,11 +244,31 @@ def run_async_jobs(
 
     if run_semantic and bool(sem_before.get("queued")):
         sem_run["ran"] = True
-        sem_run["reason"] = "queued"
+        queue_mode = str(sem_before.get("mode") or "delta").strip().lower()
+        sem_run["reason"] = f"queued:{queue_mode}"
         try:
-            result = build_semantic_index(root_p)
-            sem_run["result"] = result
-            sem_run["ok"] = bool(result.get("ok"))
+            if queue_mode == "reconcile":
+                result = build_semantic_index(root_p)
+                sem_run["result"] = {"mode": "reconcile", "reconcile": result}
+                sem_run["ok"] = bool(result.get("ok"))
+            else:
+                delta = apply_semantic_delta(root_p)
+                if bool(delta.get("ok")):
+                    sem_run["result"] = {"mode": "delta", "delta": delta}
+                    sem_run["ok"] = True
+                else:
+                    code = str(((delta.get("error") or {}).get("code") or "")).strip()
+                    if code == "delta_backend_not_supported":
+                        rebuilt = build_semantic_index(root_p)
+                        sem_run["result"] = {"mode": "delta", "delta": delta, "fallback_rebuild": rebuilt}
+                        sem_run["ok"] = bool(rebuilt.get("ok"))
+                    elif code == "semantic_delta_requires_reconcile":
+                        rebuilt = build_semantic_index(root_p)
+                        sem_run["result"] = {"mode": "reconcile", "delta": delta, "reconcile": rebuilt}
+                        sem_run["ok"] = bool(rebuilt.get("ok"))
+                    else:
+                        sem_run["result"] = {"mode": "delta", "delta": delta}
+                        sem_run["ok"] = bool(delta.get("ok"))
         except Exception as exc:
             sem_run["result"] = {"ok": False, "error": str(exc)}
             sem_run["ok"] = False

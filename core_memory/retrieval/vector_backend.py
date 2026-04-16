@@ -42,6 +42,10 @@ class VectorBackend(Protocol):
         """Delete a bead's embedding."""
         ...
 
+    def update_metadata(self, bead_id: str, metadata: dict[str, Any]) -> None:
+        """Update metadata for an existing embedding without changing its vector."""
+        ...
+
     def count(self) -> int:
         """Return the number of indexed embeddings."""
         ...
@@ -118,6 +122,13 @@ class QdrantBackend:
         from qdrant_client.models import PointIdsList
         self._client.delete(collection_name=self._collection, points_selector=PointIdsList(points=[bead_id]))
 
+    def update_metadata(self, bead_id: str, metadata: dict[str, Any]) -> None:
+        self._client.set_payload(
+            collection_name=self._collection,
+            payload=dict(metadata or {}),
+            points=[bead_id],
+        )
+
     def count(self) -> int:
         info = self._client.get_collection(self._collection)
         return info.points_count or 0
@@ -186,6 +197,15 @@ class ChromaDBBackend:
 
     def delete(self, bead_id: str) -> None:
         self._collection.delete(ids=[bead_id])
+
+    def update_metadata(self, bead_id: str, metadata: dict[str, Any]) -> None:
+        clean_meta = {}
+        for k, v in (metadata or {}).items():
+            if isinstance(v, (str, int, float, bool)):
+                clean_meta[k] = v
+            elif v is not None:
+                clean_meta[k] = str(v)
+        self._collection.update(ids=[bead_id], metadatas=[clean_meta])
 
     def count(self) -> int:
         return self._collection.count()
@@ -304,6 +324,28 @@ class PgvectorBackend:
 
     def delete(self, bead_id: str) -> None:
         self._conn.execute(f"DELETE FROM {self._table} WHERE bead_id = %s", (bead_id,))
+
+    def update_metadata(self, bead_id: str, metadata: dict[str, Any]) -> None:
+        md = dict(metadata or {})
+        self._conn.execute(
+            f"""
+            UPDATE {self._table}
+            SET type = %s,
+                status = %s,
+                session_id = %s,
+                created_at = %s,
+                metadata = %s::jsonb
+            WHERE bead_id = %s
+            """,
+            (
+                md.get("type"),
+                md.get("status"),
+                md.get("session_id"),
+                md.get("created_at"),
+                json.dumps(md),
+                bead_id,
+            ),
+        )
 
     def count(self) -> int:
         cur = self._conn.execute(f"SELECT COUNT(*) FROM {self._table}")

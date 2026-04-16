@@ -392,13 +392,20 @@ def _paths(root: Path) -> tuple[Path, Path, Path, Path, Path]:
 
 
 def _read_queue(path: Path) -> dict[str, Any]:
+    default = {"queued": False, "queued_at": None, "epoch": 0, "mode": "delta"}
     if not path.exists():
-        return {"queued": False, "queued_at": None, "epoch": 0}
+        return dict(default)
     try:
         q = json.loads(path.read_text(encoding="utf-8"))
-        return q if isinstance(q, dict) else {"queued": False, "queued_at": None, "epoch": 0}
+        if not isinstance(q, dict):
+            return dict(default)
+        out = dict(default)
+        out.update(q)
+        mode = str(out.get("mode") or "delta").strip().lower()
+        out["mode"] = mode if mode in {"delta", "reconcile"} else "delta"
+        return out
     except Exception:
-        return {"queued": False, "queued_at": None, "epoch": 0}
+        return dict(default)
 
 
 def _write_queue(path: Path, q: dict[str, Any]) -> None:
@@ -406,6 +413,23 @@ def _write_queue(path: Path, q: dict[str, Any]) -> None:
     tmp = path.with_suffix(path.suffix + ".tmp")
     tmp.write_text(json.dumps(q, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(path)
+
+
+def _row_metadata(row: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "status": str(row.get("status") or ""),
+        "session_id": str(row.get("session_id") or ""),
+        "source_surface": str(row.get("source_surface") or ""),
+        "created_at": str(row.get("created_at") or ""),
+    }
+
+
+def _row_metadata_changed(prev: dict[str, Any], nxt: dict[str, Any]) -> bool:
+    keys = ("status", "session_id", "source_surface", "created_at")
+    for k in keys:
+        if str(prev.get(k) or "") != str(nxt.get(k) or ""):
+            return True
+    return False
 
 
 def _hash_vectors(texts: list[str], dim: int = 256):
@@ -787,6 +811,7 @@ def build_semantic_index(root: Path) -> dict:
         q = _read_queue(_queue_file)
         q["queued"] = False
         q["queued_at"] = None
+        q["mode"] = "delta"
         _write_queue(_queue_file, q)
 
         return {
@@ -795,6 +820,182 @@ def build_semantic_index(root: Path) -> dict:
             "entries": len(rows),
             "manifest": str(manifest_file),
             "faiss": str(faiss_file),
+            "rows": str(rows_file),
+            "lock": {"path": str(build_lock), **dict(lock_meta or {})},
+        }
+    finally:
+        _release_build_lock(build_lock)
+
+
+def apply_semantic_delta(root: Path) -> dict[str, Any]:
+    """Apply queued semantic index deltas from current visible corpus.
+
+    Contract: write-path mutation updates only, no retrieval-path index mutation.
+    """
+    manifest_file, faiss_file, rows_file, build_lock, queue_file = _paths(root)
+    q = _read_queue(queue_file)
+    if not bool(q.get("queued")):
+        return {"ok": True, "ran": False, "reason": "not_queued", "mode": str(q.get("mode") or "delta")}
+
+    mode = str(q.get("mode") or "delta").strip().lower()
+    if mode == "reconcile":
+        return {
+            "ok": False,
+            "retryable": False,
+            "error": {"code": "semantic_delta_requires_reconcile", "message": "queue mode is reconcile"},
+            "mode": mode,
+        }
+
+    acquired, lock_meta = _acquire_build_lock(build_lock)
+    if not acquired:
+        enqueue_semantic_rebuild(root)
+        return {
+            "ok": False,
+            "retryable": True,
+            "error": {
+                "code": "semantic_build_lock_held",
+                "message": "semantic build lock is already held",
+                "detail": lock_meta,
+            },
+            "queued": True,
+            "lock_path": str(build_lock),
+            "mode": mode,
+        }
+
+    try:
+        vector_backend = _configured_vector_backend()
+        if vector_backend not in _EXTERNAL_VECTOR_BACKENDS:
+            return {
+                "ok": False,
+                "retryable": False,
+                "error": {
+                    "code": "delta_backend_not_supported",
+                    "message": "semantic delta updates require external vector backend",
+                    "detail": {"vector_backend": vector_backend},
+                },
+                "mode": mode,
+            }
+
+        manifest = _read_manifest(manifest_file)
+        provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
+        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "gemini-embedding-001").strip()
+
+        prev_rows = _read_rows(rows_file)
+        prev_by_id = {str(r.get("bead_id") or ""): dict(r) for r in prev_rows if str(r.get("bead_id") or "")}
+
+        visible_rows = _rows_from_corpus(build_visible_corpus(root))
+        next_by_id = {str(r.get("bead_id") or ""): dict(r) for r in visible_rows if str(r.get("bead_id") or "")}
+
+        prev_ids = set(prev_by_id.keys())
+        next_ids = set(next_by_id.keys())
+        delete_ids = sorted(prev_ids - next_ids)
+
+        embed_ids: list[str] = []
+        metadata_only_ids: list[str] = []
+        for bid in sorted(next_ids):
+            nxt = next_by_id[bid]
+            prev = prev_by_id.get(bid)
+            if prev is None:
+                embed_ids.append(bid)
+                continue
+            if str(prev.get("semantic_text_hash") or "") != str(nxt.get("semantic_text_hash") or ""):
+                embed_ids.append(bid)
+                continue
+            if _row_metadata_changed(prev, nxt):
+                metadata_only_ids.append(bid)
+
+        # ensure no overlap after classification
+        embed_id_set = set(embed_ids)
+        metadata_only_ids = [bid for bid in metadata_only_ids if bid not in embed_id_set]
+
+        dim_hint = int(manifest.get("dimension") or 256)
+        dim = max(1, dim_hint)
+        vb = None
+        embedded = 0
+        metadata_updates = 0
+        deleted = 0
+        embed_error: str = ""
+
+        if embed_ids:
+            texts = [str((next_by_id.get(bid) or {}).get("semantic_text") or "") for bid in embed_ids]
+            vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=dim)
+            dim = max(1, _vector_dim(vecs, fallback=dim))
+            vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+            vec_rows = _vector_rows(vecs)
+            if len(vec_rows) != len(embed_ids):
+                raise RuntimeError("semantic_delta_embedding_count_mismatch")
+            for bid, emb in zip(embed_ids, vec_rows):
+                row = next_by_id.get(bid) or {}
+                vb.upsert(bead_id=bid, embedding=emb, metadata=_row_metadata(row))
+                embedded += 1
+
+        if vb is None:
+            vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+
+        for bid in metadata_only_ids:
+            row = next_by_id.get(bid) or {}
+            try:
+                if hasattr(vb, "update_metadata"):
+                    vb.update_metadata(bid, _row_metadata(row))  # type: ignore[attr-defined]
+                    metadata_updates += 1
+                else:
+                    embed_ids.append(bid)
+            except Exception as exc:
+                embed_error = f"metadata_update_failed:{_embedding_error_token(exc)}"
+                raise RuntimeError(embed_error) from exc
+
+        for bid in delete_ids:
+            vb.delete(bid)
+            deleted += 1
+
+        # persist canonical row projection for future delta checks
+        next_rows = list(next_by_id.values())
+        next_rows.sort(key=lambda r: (str(r.get("created_at") or ""), str(r.get("bead_id") or "")), reverse=True)
+        _write_rows(rows_file, next_rows)
+
+        fp = _fingerprint(next_rows)
+        out_manifest = {
+            "provider": provider,
+            "model": model,
+            "dimension": int(dim),
+            "backend": vector_backend,
+            "vector_backend": vector_backend,
+            "backend_version": "v10-delta",
+            "corpus_fingerprint": fp,
+            "built_at": str(manifest.get("built_at") or _now()),
+            "last_delta_at": _now(),
+            "row_count": len(next_rows),
+            "dirty": False,
+            "last_dirty_at": manifest.get("last_dirty_at"),
+            "last_dirty_reason": manifest.get("last_dirty_reason"),
+            "last_turn_id": manifest.get("last_turn_id"),
+            "last_flush_tx_id": manifest.get("last_flush_tx_id"),
+            "visible_statuses": ["open", "candidate", "promoted", "archived"],
+            "last_delta_counts": {
+                "embedded": int(embedded),
+                "metadata_only": int(metadata_updates),
+                "deleted": int(deleted),
+                "total_visible": int(len(next_rows)),
+            },
+        }
+        _write_manifest(manifest_file, out_manifest)
+
+        q2 = _read_queue(queue_file)
+        q2["queued"] = False
+        q2["queued_at"] = None
+        q2["mode"] = "delta"
+        _write_queue(queue_file, q2)
+
+        return {
+            "ok": True,
+            "ran": True,
+            "mode": "delta",
+            "backend": vector_backend,
+            "entries": len(next_rows),
+            "embedded": embedded,
+            "metadata_only": metadata_updates,
+            "deleted": deleted,
+            "manifest": str(manifest_file),
             "rows": str(rows_file),
             "lock": {"path": str(build_lock), **dict(lock_meta or {})},
         }

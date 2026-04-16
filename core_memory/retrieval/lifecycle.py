@@ -39,16 +39,31 @@ def _write_json(path: Path, data: dict[str, Any]) -> None:
     tmp.replace(path)
 
 
-def enqueue_semantic_rebuild(root: str | Path) -> dict[str, Any]:
+def enqueue_semantic_rebuild(root: str | Path, *, mode: str = "delta") -> dict[str, Any]:
     root_p = Path(root)
     q_path = _queue_path(root_p)
-    q = _read_json(q_path, {"queued": False, "queued_at": None, "epoch": 0})
+    q = _read_json(q_path, {"queued": False, "queued_at": None, "epoch": 0, "mode": "delta"})
+    mode_n = str(mode or "delta").strip().lower()
+    if mode_n not in {"delta", "reconcile"}:
+        mode_n = "delta"
     if not bool(q.get("queued")):
         q["queued"] = True
         q["queued_at"] = _now()
         q["epoch"] = int(q.get("epoch") or 0) + 1
-        _write_json(q_path, q)
-    return {"ok": True, "queued": bool(q.get("queued")), "epoch": int(q.get("epoch") or 0)}
+    existing_mode = str(q.get("mode") or "delta").strip().lower()
+    if existing_mode not in {"delta", "reconcile"}:
+        existing_mode = "delta"
+    if mode_n == "reconcile" or existing_mode == "reconcile":
+        q["mode"] = "reconcile"
+    else:
+        q["mode"] = "delta"
+    _write_json(q_path, q)
+    return {
+        "ok": True,
+        "queued": bool(q.get("queued")),
+        "epoch": int(q.get("epoch") or 0),
+        "mode": str(q.get("mode") or "delta"),
+    }
 
 
 def mark_semantic_dirty(root: str | Path, *, reason: str, enqueue: bool = True) -> dict[str, Any]:
@@ -68,7 +83,7 @@ def mark_semantic_dirty(root: str | Path, *, reason: str, enqueue: bool = True) 
     m["last_dirty_at"] = _now()
     m["last_dirty_reason"] = str(reason or "unspecified")
     _write_json(m_path, m)
-    q = enqueue_semantic_rebuild(root_p) if enqueue else {"ok": True, "queued": False}
+    q = enqueue_semantic_rebuild(root_p, mode="delta") if enqueue else {"ok": True, "queued": False, "mode": "delta"}
     return {"ok": True, "manifest": str(m_path), "queue": q}
 
 
@@ -96,4 +111,3 @@ def mark_flush_checkpoint(root: str | Path, *, flush_tx_id: str) -> dict[str, An
     m["last_flush_tx_id"] = str(flush_tx_id or "")
     _write_json(m_path, m)
     return {"ok": True, "last_flush_tx_id": m["last_flush_tx_id"]}
-
