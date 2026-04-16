@@ -4,6 +4,9 @@ import hashlib
 import json
 import logging
 import os
+import random
+import time
+import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -117,6 +120,117 @@ def _normalize_semantic_mode(mode: str | None) -> str:
     if m not in {SEMANTIC_MODE_REQUIRED, SEMANTIC_MODE_DEGRADED_ALLOWED}:
         return SEMANTIC_MODE_DEGRADED_ALLOWED
     return m
+
+
+def _env_int(name: str, default: int, *, min_value: int = 0, max_value: int | None = None) -> int:
+    raw = str(os.environ.get(name) or "").strip()
+    try:
+        out = int(raw) if raw else int(default)
+    except Exception:
+        out = int(default)
+    if out < min_value:
+        out = min_value
+    if max_value is not None and out > max_value:
+        out = max_value
+    return int(out)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    raw = str(os.environ.get(name) or "").strip().lower()
+    if not raw:
+        return bool(default)
+    if raw in {"1", "true", "yes", "on"}:
+        return True
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return bool(default)
+
+
+def _semantic_build_on_read_enabled() -> bool:
+    return _env_bool("CORE_MEMORY_SEMANTIC_BUILD_ON_READ", True)
+
+
+def _embedding_error_status(exc: Exception) -> int | None:
+    try:
+        if isinstance(exc, urllib.error.HTTPError):
+            return int(getattr(exc, "code", 0) or 0) or None
+    except Exception:
+        pass
+    status = getattr(exc, "status_code", None)
+    if isinstance(status, int) and status > 0:
+        return status
+    try:
+        resp = getattr(exc, "response", None)
+        if resp is not None:
+            code = getattr(resp, "status_code", None)
+            if isinstance(code, int) and code > 0:
+                return code
+    except Exception:
+        pass
+    return None
+
+
+def _embedding_error_token(exc: Exception) -> str:
+    status = _embedding_error_status(exc)
+    if status is not None:
+        return f"http_{status}"
+    name = str(exc.__class__.__name__ or "error").strip().lower()
+    return _sanitize_token(name)
+
+
+def _sanitize_token(value: str) -> str:
+    out = []
+    for ch in str(value or ""):
+        if ch.isalnum() or ch in {"_", "-", "."}:
+            out.append(ch.lower())
+        elif ch in {" ", ":", "/", "\\", "|"}:
+            out.append("_")
+    compact = "".join(out).strip("_")
+    return compact or "error"
+
+
+def _embedding_retry_after_seconds(exc: Exception) -> float | None:
+    try:
+        if isinstance(exc, urllib.error.HTTPError):
+            raw = str(exc.headers.get("Retry-After") or "").strip()  # type: ignore[arg-type]
+            if raw:
+                return max(0.0, float(raw))
+    except Exception:
+        pass
+    try:
+        resp = getattr(exc, "response", None)
+        headers = getattr(resp, "headers", None)
+        if headers is not None:
+            raw = str(headers.get("Retry-After") or "").strip()
+            if raw:
+                return max(0.0, float(raw))
+    except Exception:
+        pass
+    return None
+
+
+def _embedding_retryable(exc: Exception) -> bool:
+    status = _embedding_error_status(exc)
+    if status in {408, 409, 425, 429, 500, 502, 503, 504}:
+        return True
+    msg = str(exc or "").lower()
+    if any(x in msg for x in {"rate limit", "too many requests", "timeout", "temporarily unavailable"}):
+        return True
+    return False
+
+
+def _embedding_retry_sleep(attempt: int, retry_after_seconds: float | None = None) -> None:
+    base_ms = _env_int("CORE_MEMORY_EMBEDDINGS_RETRY_BASE_MS", 400, min_value=50, max_value=5000)
+    jitter_ms = _env_int("CORE_MEMORY_EMBEDDINGS_RETRY_JITTER_MS", 250, min_value=0, max_value=2000)
+    if retry_after_seconds is not None and retry_after_seconds >= 0:
+        sleep_s = float(retry_after_seconds)
+    else:
+        exp = min(6, max(0, int(attempt)))
+        sleep_s = float((base_ms * (2**exp)) / 1000.0)
+        if jitter_ms > 0:
+            sleep_s += random.uniform(0.0, float(jitter_ms) / 1000.0)
+    if sleep_s > 0:
+        time.sleep(sleep_s)
 
 
 def semantic_doctor(root: Path) -> dict[str, Any]:
@@ -318,9 +432,25 @@ def _provider_vectors(texts: list[str], provider: str, model: str):
 
         client = OpenAI(api_key=key)
         rows = []
-        for t in texts:
-            emb = client.embeddings.create(model=model, input=t)
-            rows.append(emb.data[0].embedding)
+        batch_size = _env_int("CORE_MEMORY_EMBEDDINGS_BATCH_SIZE", 64, min_value=1, max_value=2048)
+        max_retries = _env_int("CORE_MEMORY_EMBEDDINGS_MAX_RETRIES", 4, min_value=0, max_value=12)
+        for i in range(0, len(texts), batch_size):
+            batch = list(texts[i : i + batch_size])
+            for attempt in range(max_retries + 1):
+                try:
+                    emb = client.embeddings.create(model=model, input=batch)
+                    data = list(getattr(emb, "data", []) or [])
+                    data = sorted(data, key=lambda item: int(getattr(item, "index", 0) or 0))
+                    vec_rows = [list(getattr(item, "embedding", []) or []) for item in data]
+                    if len(vec_rows) != len(batch):
+                        raise RuntimeError("openai_embedding_batch_mismatch")
+                    rows.extend(vec_rows)
+                    break
+                except Exception as exc:
+                    if attempt >= max_retries or (not _embedding_retryable(exc)):
+                        code = _embedding_error_token(exc)
+                        raise RuntimeError(f"openai_embedding_failed:{code}") from exc
+                    _embedding_retry_sleep(attempt, _embedding_retry_after_seconds(exc))
         vecs = np.array(rows, dtype="float32")
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
@@ -335,17 +465,26 @@ def _provider_vectors(texts: list[str], provider: str, model: str):
         import urllib.request as _urlreq
 
         rows = []
+        max_retries = _env_int("CORE_MEMORY_EMBEDDINGS_MAX_RETRIES", 4, min_value=0, max_value=12)
         for t in texts:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent?key={key}"
-            payload = {"content": {"parts": [{"text": t}]}}
-            data = _json.dumps(payload).encode("utf-8")
-            req = _urlreq.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
-            with _urlreq.urlopen(req, timeout=30) as resp:  # nosec - trusted provider endpoint
-                body = _json.loads(resp.read().decode("utf-8"))
-            vals = (((body or {}).get("embedding") or {}).get("values") or [])
-            if not vals:
-                raise RuntimeError("gemini_embedding_empty")
-            rows.append(vals)
+            for attempt in range(max_retries + 1):
+                try:
+                    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:embedContent?key={key}"
+                    payload = {"content": {"parts": [{"text": t}]}}
+                    data = _json.dumps(payload).encode("utf-8")
+                    req = _urlreq.Request(url, data=data, headers={"Content-Type": "application/json"}, method="POST")
+                    with _urlreq.urlopen(req, timeout=30) as resp:  # nosec - trusted provider endpoint
+                        body = _json.loads(resp.read().decode("utf-8"))
+                    vals = (((body or {}).get("embedding") or {}).get("values") or [])
+                    if not vals:
+                        raise RuntimeError("gemini_embedding_empty")
+                    rows.append(vals)
+                    break
+                except Exception as exc:
+                    if attempt >= max_retries or (not _embedding_retryable(exc)):
+                        code = _embedding_error_token(exc)
+                        raise RuntimeError(f"gemini_embedding_failed:{code}") from exc
+                    _embedding_retry_sleep(attempt, _embedding_retry_after_seconds(exc))
 
         vecs = np.array(rows, dtype="float32")
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
@@ -667,15 +806,25 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
     manifest_file, faiss_file, rows_file, _build_lock, queue_file = _paths(root)
     warnings: list[str] = []
     mode_n = _normalize_semantic_mode(mode)
+    build_on_read = _semantic_build_on_read_enabled()
+
+    def warn_once(tag: str) -> None:
+        if tag not in warnings:
+            warnings.append(tag)
 
     if not manifest_file.exists() or not rows_file.exists():
-        built = build_semantic_index(root)
-        if not built.get("ok"):
-            code = str(((built.get("error") or {}).get("code") or "")).strip()
-            if code == "semantic_build_lock_held":
-                warnings.append("semantic_build_lock_held")
-            else:
-                warnings.append("semantic_index_build_failed")
+        warn_once("semantic_index_missing_artifacts")
+        enqueue_semantic_rebuild(root)
+        if build_on_read:
+            built = build_semantic_index(root)
+            if not built.get("ok"):
+                code = str(((built.get("error") or {}).get("code") or "")).strip()
+                if code == "semantic_build_lock_held":
+                    warn_once("semantic_build_lock_held")
+                else:
+                    warn_once("semantic_index_build_failed")
+        else:
+            warn_once("semantic_build_on_read_disabled")
 
     manifest = _read_manifest(manifest_file)
     rows = _read_rows(rows_file)
@@ -688,13 +837,18 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
         (manifest.get("provider") and (str(manifest.get("provider")) != req_provider or str(manifest.get("model")) != req_model))
         or (manifest.get("vector_backend") and _normalize_vector_backend(str(manifest.get("vector_backend"))) != req_vector_backend)
     ):
-        rebuilt = build_semantic_index(root)
-        if rebuilt.get("ok"):
-            manifest = _read_manifest(manifest_file)
-            rows = _read_rows(rows_file)
-            warnings.append("semantic_index_rebuilt_config_mismatch")
+        warn_once("semantic_index_config_mismatch")
+        enqueue_semantic_rebuild(root)
+        if build_on_read:
+            rebuilt = build_semantic_index(root)
+            if rebuilt.get("ok"):
+                manifest = _read_manifest(manifest_file)
+                rows = _read_rows(rows_file)
+                warn_once("semantic_index_rebuilt_config_mismatch")
+            else:
+                warn_once("semantic_index_rebuild_config_mismatch_failed")
         else:
-            warnings.append("semantic_index_rebuild_config_mismatch_failed")
+            warn_once("semantic_build_on_read_disabled")
 
     # Dirty/fingerprint mismatch -> serve stale + enqueue rebuild when possible.
     current_fp = _fingerprint(_rows_from_corpus(build_visible_corpus(root)))
@@ -705,23 +859,25 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
         if dt is not None:
             stale_age_ms = int((datetime.now(timezone.utc) - dt).total_seconds() * 1000)
     if dirty:
-        warnings.append("semantic_index_stale")
+        warn_once("semantic_index_stale")
         enqueue_semantic_rebuild(root)
 
         # background_stale contract: never rebuild synchronously on hot query path
         # when a usable index already exists.
         mode = str(os.getenv("CORE_MEMORY_SEMANTIC_REBUILD_MODE", "background_stale") or "background_stale").strip().lower()
-        if mode in {"eager", "sync"}:
+        if mode in {"eager", "sync"} and build_on_read:
             q = _read_queue(queue_file)
             if bool(q.get("queued")):
                 rebuilt = build_semantic_index(root)
                 if rebuilt.get("ok"):
-                    warnings.append("semantic_index_rebuilt_sync")
+                    warn_once("semantic_index_rebuilt_sync")
                     manifest = _read_manifest(manifest_file)
                     rows = _read_rows(rows_file)
                     dirty = False
                 else:
-                    warnings.append("semantic_rebuild_sync_failed")
+                    warn_once("semantic_rebuild_sync_failed")
+        elif mode in {"eager", "sync"}:
+            warn_once("semantic_build_on_read_disabled")
 
     backend = str(manifest.get("backend") or "lexical")
 
@@ -745,12 +901,17 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
 
     # If no usable rows yet, do sync build then lexical fallback response.
     if not rows:
-        rebuilt = build_semantic_index(root)
-        if rebuilt.get("ok"):
-            manifest = _read_manifest(manifest_file)
-            rows = _read_rows(rows_file)
+        enqueue_semantic_rebuild(root)
+        if build_on_read:
+            rebuilt = build_semantic_index(root)
+            if rebuilt.get("ok"):
+                manifest = _read_manifest(manifest_file)
+                rows = _read_rows(rows_file)
+            else:
+                warn_once("semantic_index_rebuild_no_rows_failed")
         else:
-            warnings.append("semantic_index_rebuild_no_rows_failed")
+            warn_once("semantic_build_on_read_disabled")
+            warn_once("semantic_index_rows_missing")
 
     if _normalize_vector_backend(backend) in _EXTERNAL_VECTOR_BACKENDS and rows:
         try:
@@ -801,7 +962,8 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
             }
         except Exception as exc:
             logger.debug("core-memory: external semantic lookup failed, using lexical fallback: %s", exc)
-            warnings.append("semantic_backend_query_failed_lexical_fallback")
+            warn_once("semantic_backend_query_failed_lexical_fallback")
+            warn_once(f"semantic_backend_query_error:{_embedding_error_token(exc)}")
 
     if backend.startswith("faiss") and faiss_file.exists() and rows:
         try:
@@ -851,10 +1013,12 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
                     "Install with: pip install core-memory[semantic]"
                 )
                 _faiss_warning_emitted = True
-            warnings.append("semantic_backend_query_failed_lexical_fallback")
+            warn_once("semantic_backend_query_failed_lexical_fallback")
+            warn_once("semantic_backend_query_error:faiss_import_error")
         except Exception as exc:
             logger.debug("core-memory: semantic lookup failed, using lexical fallback: %s", exc)
-            warnings.append("semantic_backend_query_failed_lexical_fallback")
+            warn_once("semantic_backend_query_failed_lexical_fallback")
+            warn_once(f"semantic_backend_query_error:{_embedding_error_token(exc)}")
 
     if mode_n == SEMANTIC_MODE_REQUIRED:
         return semantic_unavailable_payload(
