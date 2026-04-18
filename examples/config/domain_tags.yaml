@@ -1,0 +1,32 @@
+# User domain tags for Core Memory retrieval reranking.
+#
+# Domain tags are inferred from query and bead text to compute alignment scores.
+# When a query and bead share a domain tag, the bead gets a +0.08 alignment bonus.
+# When they don't share any tag, the bead receives a -0.12 soft penalty
+# (bridgeable by cross-domain pattern matching).
+#
+# These are merged with shipped defaults (core_memory/config/defaults/domain_tags.yaml).
+# Your tags here win on key conflicts with shipped defaults.
+#
+# Format:
+#   domain_tags:
+#     tag_name:
+#       - "matcher phrase 1"
+#       - "matcher phrase 2"
+#
+# Example — a travel planner agent might define:
+#
+# domain_tags:
+#   travel_planning:
+#     - "itinerary"
+#     - "flight"
+#     - "hotel"
+#     - "booking"
+#     - "destination"
+#   budget_tracking:
+#     - "budget"
+#     - "expense"
+#     - "cost"
+#     - "price"
+
+domain_tags: {}
