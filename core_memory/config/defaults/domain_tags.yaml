@@ -1,0 +1,38 @@
+# Shipped domain tags for Core Memory retrieval reranking.
+#
+# Domain tags are inferred from query/bead text and used for alignment scoring.
+# Each tag has a list of matchers — if any matcher appears in the text, the tag fires.
+#
+# Users can override or extend these via their own domain_tags.yaml.
+# User-supplied tags are merged; user values win on key conflicts.
+
+domain_tags:
+  core_memory_pipeline:
+    - "core-memory"
+    - "bead"
+    - "flush"
+    - "compaction"
+    - "archive"
+    - "rolling window"
+    - "session_flush"
+    - "finalize_and_process_turn"
+    - "memory-pass"
+    - "retrieval"
+
+  retrieval_quality:
+    - "gauntlet"
+    - "confidence"
+    - "grounding"
+    - "rerank"
+    - "structural"
+    - "semantic"
+    - "lexical"
+
+  process_management:
+    - "slice"
+    - "plan"
+    - "blocked"
+    - "unblocked"
+    - "complete"
+    - "milestone"
+    - "next step"
