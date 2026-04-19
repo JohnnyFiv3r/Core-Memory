@@ -172,6 +172,22 @@ class TestTypeDiversity(unittest.TestCase):
         result_types = {str(b.get("type") or "") for b in result}
         self.assertIn("lesson", result_types)
 
+    def test_diversity_graceful_when_type_missing_from_pool(self):
+        """If no lesson or outcome exists at all, diversity pass is a no-op."""
+        included = [
+            {"id": "d1", "type": "decision"},
+            {"id": "d2", "type": "decision"},
+            {"id": "e1", "type": "evidence"},
+        ]
+        # Pool has no lesson or outcome at all
+        scored_remaining = [
+            ({"id": "e2", "type": "evidence"}, 0.5, {}),
+            ({"id": "d3", "type": "decision"}, 0.4, {}),
+        ]
+        result = _ensure_type_diversity(included, scored_remaining)
+        # No swap possible — original list unchanged
+        self.assertEqual([b["id"] for b in result], ["d1", "d2", "e1"])
+
     def test_diversity_noop_when_all_present(self):
         included = [
             {"id": "d1", "type": "decision"},
