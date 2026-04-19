@@ -10,6 +10,7 @@
       "coreMemoryRoot": { "type": "string" },
       "coreMemoryRepo": { "type": "string" },
       "enableAgentEnd": { "type": "boolean" },
+      "enableMemorySearch": { "type": "boolean" },
       "enableCompactionFlush": { "type": "boolean" }
     }
   }

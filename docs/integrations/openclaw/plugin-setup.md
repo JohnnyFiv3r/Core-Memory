@@ -5,9 +5,20 @@ Status: Canonical
 ## Goal
 Activate Core Memory lifecycle listeners in OpenClaw:
 - `agent_end` -> finalized-turn ingestion (`emit_turn_finalized` via bridge)
+- `memory_search` -> canonical read-path dispatch (`memory.execute` via read bridge) **[enabled by default]**
 - `before_compaction` / `after_compaction` -> flush processor (`process_flush`)
 
 This is required if you want Core Memory event/bead pipelines active in a live OpenClaw runtime.
+
+### Memory search priority
+
+`memory_search` hook registration is **on by default**. When registered, the bridge intercepts
+OpenClaw's memory search lifecycle and routes it through `core_memory.integrations.openclaw_read_bridge`
+(`action=execute`), so Core Memory's semantic retrieval takes priority over OpenClaw's built-in
+`memory-core` search.
+
+To opt out (keep OpenClaw's default search while still using Core Memory write/flush paths), set
+`enableMemorySearch: false` in the plugin config.
 
 ## Coexist vs Replace
 You can run in two modes:
