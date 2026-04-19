@@ -19,8 +19,8 @@ class TestRollingSurfaceSeparation(unittest.TestCase):
             s.add_bead(type="context", title="A", summary=["one"], session_id="main", source_turn_ids=["t1"])
             s.add_bead(type="decision", title="B", summary=["two"], session_id="main", source_turn_ids=["t2"])
 
-            filtered, excluded_superseded = _load_filtered_beads(str(root))
-            included, total = _select_beads_for_budget(filtered, token_budget=500, max_beads=20)
+            filtered, excluded_superseded, idx = _load_filtered_beads(str(root))
+            included, total = _select_beads_for_budget(filtered, token_budget=500, max_beads=20, index=idx)
             meta, included_ids, excluded_ids = _build_surface_payload(
                 filtered=filtered,
                 included=included,
