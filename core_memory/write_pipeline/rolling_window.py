@@ -14,8 +14,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.rolling_record_store import write_rolling_records
+from core_memory.persistence.store import MemoryStore
+from core_memory.policy.promotion import (
+    DIVERSITY_REQUIRED_TYPES,
+    compute_selection_score,
+)
 
 
 def estimate_tokens(text: str) -> int:
@@ -47,7 +51,7 @@ def render_bead(bead: dict) -> str:
     return f"[{ts}] ({typ}/{status}) {title} #{bid}\n- {summary_txt}\n"
 
 
-def _load_filtered_beads(root: str) -> tuple[list[dict[str, Any]], set[str]]:
+def _load_filtered_beads(root: str) -> tuple[list[dict[str, Any]], set[str], dict[str, Any]]:
     memory = MemoryStore(root=root)
     idx = memory._read_json(memory.beads_dir / "index.json")
     beads_map = idx.get("beads") or {}
@@ -63,24 +67,104 @@ def _load_filtered_beads(root: str) -> tuple[list[dict[str, Any]], set[str]]:
         and str(b.get("status") or "").lower() not in ("superseded",)
     ]
     filtered.sort(key=lambda b: str((b.get("archive_ptr") or {}).get("revision_id") or b.get("created_at") or ""), reverse=True)
-    return filtered, excluded_superseded
+    return filtered, excluded_superseded, idx
 
 
-def _select_beads_for_budget(filtered: list[dict[str, Any]], *, token_budget: int, max_beads: int) -> tuple[list[dict[str, Any]], int]:
+def _is_lifecycle_bead(bead: dict[str, Any]) -> bool:
+    """Check if a bead is a lifecycle/non-substantive type (for forced-latest filtering)."""
+    btype = str(bead.get("type") or "").lower()
+    if btype in {"session_start", "session_end", "checkpoint"}:
+        return True
+    if btype == "context" and not " ".join(bead.get("summary") or []).strip():
+        return True
+    return False
+
+
+def _forced_latest_substantive(filtered: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Find the latest substantive bead (skip lifecycle beads)."""
+    for bead in filtered:
+        if not _is_lifecycle_bead(bead):
+            return bead
+    return None
+
+
+def _score_beads(filtered: list[dict[str, Any]], index: dict[str, Any]) -> list[tuple[dict[str, Any], float, dict]]:
+    """Score all beads with selection_score and return sorted by score DESC."""
+    scored = []
+    for bead in filtered:
+        sel_score, details = compute_selection_score(index, bead)
+        scored.append((bead, sel_score, details))
+    scored.sort(key=lambda x: (-x[1], str(x[0].get("id") or "")))
+    return scored
+
+
+def _ensure_type_diversity(
+    included: list[dict[str, Any]],
+    scored_remaining: list[tuple[dict[str, Any], float, dict]],
+) -> list[dict[str, Any]]:
+    """Guarantee at least one decision, lesson, and outcome if available."""
+    included_ids = {str(b.get("id") or "") for b in included}
+    included_types = {str(b.get("type") or "").lower() for b in included}
+    missing_types = DIVERSITY_REQUIRED_TYPES - included_types
+    if not missing_types:
+        return included
+
+    swaps: list[dict[str, Any]] = []
+    for needed_type in sorted(missing_types):
+        for bead, _score, _details in scored_remaining:
+            bid = str(bead.get("id") or "")
+            if bid in included_ids:
+                continue
+            if str(bead.get("type") or "").lower() == needed_type:
+                swaps.append(bead)
+                included_ids.add(bid)
+                break
+
+    if not swaps:
+        return included
+
+    # Replace the lowest-scored non-pinned beads from the tail
+    result = list(included)
+    swap_positions = list(range(len(result) - 1, 0, -1))  # tail to 1 (skip pin at 0)
+    for i, swap_bead in enumerate(swaps):
+        if i < len(swap_positions):
+            result[swap_positions[i]] = swap_bead
+        else:
+            result.append(swap_bead)
+    return result
+
+
+def _select_beads_for_budget(
+    filtered: list[dict[str, Any]],
+    *,
+    token_budget: int,
+    max_beads: int,
+    index: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], int]:
     included: list[dict[str, Any]] = []
     total = 0
 
-    # Injection contract: always include the latest archived bead first.
-    # This keeps the freshest turn visible for association opportunities.
-    remaining = list(filtered)
-    if remaining and max_beads > 0:
-        latest = remaining.pop(0)
-        included.append(latest)
-        total += estimate_tokens(render_bead(latest))
+    # Pin the latest substantive bead first (skip lifecycle beads).
+    pinned = _forced_latest_substantive(filtered)
+    if pinned and max_beads > 0:
+        included.append(pinned)
+        total += estimate_tokens(render_bead(pinned))
 
-    for bead in remaining:
+    pinned_id = str(pinned.get("id") or "") if pinned else ""
+
+    # Score remaining beads and fill by selection_score DESC.
+    if index is not None:
+        scored = _score_beads(filtered, index)
+    else:
+        # Fallback: use recency order (filtered is already sorted by recency)
+        scored = [(b, 0.0, {}) for b in filtered]
+
+    for bead, _score, _details in scored:
         if len(included) >= max_beads:
             break
+        bid = str(bead.get("id") or "")
+        if bid == pinned_id:
+            continue
         chunk = render_bead(bead)
         t = estimate_tokens(chunk)
         if included and (total + t > token_budget):
@@ -89,6 +173,12 @@ def _select_beads_for_budget(filtered: list[dict[str, Any]], *, token_budget: in
             break
         included.append(bead)
         total += t
+
+    # Type diversity pass: ensure decision, lesson, outcome are represented.
+    if index is not None and len(included) >= 2:
+        included = _ensure_type_diversity(included, scored)
+        total = sum(estimate_tokens(render_bead(b)) for b in included)
+
     return included, total
 
 
@@ -114,7 +204,7 @@ def _build_surface_payload(
         "max_beads": int(max_beads),
         "excluded_superseded": int(excluded_superseded_count),
         "surface": "rolling_window",
-        "selection_policy": "strict_recency_fifo_with_budget_forced_latest",
+        "selection_policy": "score_weighted_with_budget_forced_latest_substantive",
         "compression_scope": "rolling_only",
         "owner_module": "core_memory.write_pipeline.rolling_window",
         "rolling_record_store": "rolling-window.records.json",
@@ -130,11 +220,12 @@ def render_rolling_text(included: list[dict[str, Any]]) -> str:
 
 
 def build_rolling_surface(root: str, token_budget: int = 3000, max_beads: int = 80):
-    filtered, excluded_superseded = _load_filtered_beads(root)
+    filtered, excluded_superseded, idx = _load_filtered_beads(root)
     included, total = _select_beads_for_budget(
         filtered,
         token_budget=int(token_budget),
         max_beads=int(max_beads),
+        index=idx,
     )
     text = render_rolling_text(included)
     meta, included_ids, excluded_ids = _build_surface_payload(
