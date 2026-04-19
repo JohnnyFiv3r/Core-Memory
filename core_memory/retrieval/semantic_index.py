@@ -12,13 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .vector_backend import create_vector_backend
-from .visible_corpus import build_visible_corpus
 from .lifecycle import enqueue_semantic_rebuild
 from .normalize import tokenize
+from .vector_backend import create_vector_backend
+from .visible_corpus import build_visible_corpus
 
 logger = logging.getLogger(__name__)
 _faiss_warning_emitted = False
+_startup_check_done = False
 
 SEMANTIC_MODE_REQUIRED = "required"
 SEMANTIC_MODE_DEGRADED_ALLOWED = "degraded_allowed"
@@ -116,10 +117,59 @@ def _backend_deployment_profile(backend: str) -> dict[str, Any]:
 
 
 def _normalize_semantic_mode(mode: str | None) -> str:
-    m = str(mode or SEMANTIC_MODE_DEGRADED_ALLOWED).strip().lower()
+    m = str(mode or os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE") or SEMANTIC_MODE_REQUIRED).strip().lower()
     if m not in {SEMANTIC_MODE_REQUIRED, SEMANTIC_MODE_DEGRADED_ALLOWED}:
-        return SEMANTIC_MODE_DEGRADED_ALLOWED
+        return SEMANTIC_MODE_REQUIRED
     return m
+
+
+def _check_semantic_mode_startup() -> None:
+    """Run-once startup check for semantic mode configuration.
+
+    In required mode: raises RuntimeError if no embedding provider is usable.
+    In degraded_allowed mode: logs a single startup warning, then stays silent.
+    """
+    global _startup_check_done
+    if _startup_check_done:
+        return
+    _startup_check_done = True
+
+    mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
+
+    if mode == SEMANTIC_MODE_DEGRADED_ALLOWED:
+        logger.warning(
+            "core-memory: semantic mode is 'degraded_allowed' — lexical-only retrieval; "
+            "deterministic within and across restarts via fixed-seed hashing. "
+            "Install an embedding provider for full semantic recall: pip install core-memory[semantic]"
+        )
+        return
+
+    # required mode: check if an embedding provider is actually available
+    configured_provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
+    has_provider = bool(
+        configured_provider == "hash"
+        or os.environ.get("OPENAI_API_KEY")
+        or os.environ.get("GEMINI_API_KEY")
+        or os.environ.get("GOOGLE_API_KEY")
+    )
+    has_faiss = False
+    try:
+        import faiss  # type: ignore  # noqa: F401
+        has_faiss = True
+    except ImportError:
+        pass
+
+    vector_backend = _configured_vector_backend()
+    has_external = vector_backend in _EXTERNAL_VECTOR_BACKENDS
+
+    if not has_provider and not has_external and not has_faiss:
+        raise RuntimeError(
+            "core-memory: semantic mode is 'required' (default) but no embedding provider is configured. "
+            "Either:\n"
+            "  1. Install semantic extras: pip install core-memory[semantic]  (and set OPENAI_API_KEY or GEMINI_API_KEY)\n"
+            "  2. Configure an external vector backend: CORE_MEMORY_VECTOR_BACKEND=qdrant|pgvector|chromadb\n"
+            "  3. Opt into lexical-only mode: CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed"
+        )
 
 
 def _env_int(name: str, default: int, *, min_value: int = 0, max_value: int | None = None) -> int:
@@ -432,14 +482,23 @@ def _row_metadata_changed(prev: dict[str, Any], nxt: dict[str, Any]) -> bool:
     return False
 
 
+def _deterministic_token_hash(tok: str, dim: int) -> int:
+    """Fixed-seed hash for lexical-only mode. Deterministic across restarts.
+
+    Uses MD5 with a fixed salt — not cryptographic, just consistent.
+    This replaces Python's hash() which is randomized per-process.
+    """
+    h = hashlib.md5(b"core_memory_v1:" + tok.encode("utf-8")).digest()
+    return int.from_bytes(h[:4], "little") % dim
+
+
 def _hash_vectors(texts: list[str], dim: int = 256):
     import numpy as np  # type: ignore
 
     vecs = np.zeros((len(texts), dim), dtype="float32")
     for i, t in enumerate(texts):
         for tok in tokenize(t):
-            h = abs(hash(tok)) % dim
-            vecs[i, h] += 1.0
+            vecs[i, _deterministic_token_hash(tok, dim)] += 1.0
     norms = np.linalg.norm(vecs, axis=1, keepdims=True)
     norms[norms == 0] = 1.0
     return vecs / norms
@@ -685,6 +744,7 @@ def _release_build_lock(path: Path) -> None:
 
 
 def build_semantic_index(root: Path) -> dict:
+    _check_semantic_mode_startup()
     manifest_file, faiss_file, rows_file, build_lock, _queue_file = _paths(root)
 
     acquired, lock_meta = _acquire_build_lock(build_lock)
@@ -1004,6 +1064,7 @@ def apply_semantic_delta(root: Path) -> dict[str, Any]:
 
 
 def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None) -> dict:
+    _check_semantic_mode_startup()
     manifest_file, faiss_file, rows_file, _build_lock, queue_file = _paths(root)
     warnings: list[str] = []
     mode_n = _normalize_semantic_mode(mode)

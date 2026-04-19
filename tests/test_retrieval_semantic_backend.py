@@ -3,9 +3,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+import core_memory.retrieval.semantic_index as sem_mod
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.retrieval.semantic_index import build_semantic_index, semantic_lookup
+
+
+@pytest.fixture(autouse=True)
+def _reset_startup_check():
+    sem_mod._startup_check_done = False
+    yield
+    sem_mod._startup_check_done = False
 
 
 def _idx(root: Path) -> dict:
