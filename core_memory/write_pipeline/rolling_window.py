@@ -14,12 +14,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.rolling_record_store import write_rolling_records
-
-
-def estimate_tokens(text: str) -> int:
-    return max(1, len(text) // 4)
+from core_memory.persistence.store import MemoryStore
+from core_memory.write_pipeline.tokenizer import estimate_tokens
 
 
 def bead_to_record(bead: dict) -> dict:

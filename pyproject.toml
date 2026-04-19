@@ -25,7 +25,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-dependencies = []
+dependencies = ["pyyaml>=6.0"]
 
 [project.urls]
 Homepage = "https://github.com/JohnnyFiv3r/Core-Memory"
@@ -37,7 +37,8 @@ dev = ["pytest", "ruff", "mypy"]
 http = ["fastapi", "uvicorn", "httpx"]
 pydanticai = ["pydantic-ai"]
 semantic = ["numpy", "faiss-cpu"]
-openai = ["openai", "numpy", "faiss-cpu"]
+tokenizer = ["tiktoken"]
+openai = ["openai", "numpy", "faiss-cpu", "tiktoken"]
 qdrant = ["qdrant-client"]
 chromadb = ["chromadb"]
 pgvector = ["psycopg[binary]"]
@@ -59,6 +60,9 @@ core-memory = "core_memory.cli:main"
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["core_memory*"]
+
+[tool.setuptools.package-data]
+"core_memory.config.defaults" = ["*.yaml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
