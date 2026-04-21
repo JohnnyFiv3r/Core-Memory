@@ -3,18 +3,18 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import datetime, timezone
-from typing import Optional, Any
+from typing import Any, Optional
 
-from .io_utils import append_jsonl
-from .archive_index import append_archive_snapshot
-from .io_utils import store_lock
-from ..retrieval.lifecycle import mark_semantic_dirty
+from ..policy.promotion import summary_truncation_limit
 from ..policy.promotion_contract import (
-    validate_transition,
     classify_signal,
-    is_promotion_locked,
     current_promotion_state,
+    is_promotion_locked,
+    validate_transition,
 )
+from ..retrieval.lifecycle import mark_semantic_dirty
+from .archive_index import append_archive_snapshot
+from .io_utils import append_jsonl, store_lock
 
 
 def promotion_slate_for_store(store: Any, limit: int = 20, query_text: str = "") -> dict:
@@ -87,7 +87,7 @@ def evaluate_candidates_for_store(
                 )
                 bead["archive_ptr"] = {"revision_id": revision_id}
                 bead["detail"] = ""
-                bead["summary"] = (bead.get("summary") or [])[:2]
+                bead["summary"] = (bead.get("summary") or [])[:summary_truncation_limit(bead.get("type"))]
                 bead["status"] = "archived"
                 bead["demotion_reason"] = "auto_archive_hold_no_reinforcement_same_turn"
                 bead["promotion_decision"] = "archive"
@@ -195,7 +195,7 @@ def decide_promotion_for_store(
             )
             bead["archive_ptr"] = {"revision_id": revision_id}
             bead["detail"] = ""
-            bead["summary"] = (bead.get("summary") or [])[:2]
+            bead["summary"] = (bead.get("summary") or [])[:summary_truncation_limit(bead.get("type"))]
             bead["status"] = "archived"
             bead["promotion_state"] = "null"
             bead["promotion_locked"] = False
@@ -432,7 +432,7 @@ def rebalance_promotions_for_store(store: Any, apply: bool = False) -> dict:
                 )
                 bead["archive_ptr"] = {"revision_id": revision_id}
                 bead["detail"] = ""
-                bead["summary"] = (bead.get("summary") or [])[:2]
+                bead["summary"] = (bead.get("summary") or [])[:summary_truncation_limit(bead.get("type"))]
                 bead["status"] = "archived"
                 bead["demoted_at"] = datetime.now(timezone.utc).isoformat()
                 bead["demotion_reason"] = "phase_b_rebalance"
