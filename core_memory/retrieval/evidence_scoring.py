@@ -166,8 +166,9 @@ def rerank_semantic_rows(
             supersession_penalty += 0.28
         if superseded_by_count > 0:
             supersession_penalty += min(0.25, 0.12 * superseded_by_count)
-        validity = str(bead.get("validity") or "").lower()
-        if validity in {"superseded", "closed"}:
+        # F-S1: check status instead of validity (validity collapsed into status)
+        status_val = str(bead.get("status") or "").lower()
+        if status_val in {"superseded", "archived"}:
             supersession_penalty += 0.18
 
         if historical:

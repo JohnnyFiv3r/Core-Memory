@@ -63,13 +63,19 @@ class Scope(str, Enum):
 
 
 class Status(str, Enum):
-    """Canonical bead status values (aligned to core_memory.schema)."""
+    """Canonical bead status values (aligned to core_memory.schema).
+
+    F-S1: `validity` field is collapsed into `status`. The `transient` value
+    absorbs validity=transient. validity=closed maps to ARCHIVED.
+    validity=superseded already maps to SUPERSEDED.
+    """
     OPEN = "open"
     CANDIDATE = "candidate"
     PROMOTED = "promoted"
     COMPACTED = "compacted"
     SUPERSEDED = "superseded"
     ARCHIVED = "archived"
+    TRANSIENT = "transient"
 
 
 class Authority(str, Enum):
@@ -274,6 +280,18 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         default=Authority.AGENT_INFERRED.value,
         preserve_unknown=True,
     )
+    # F-S1: migrate validity → status if status is still default and validity is set
+    _validity = str(out.get("validity") or "").strip().lower()
+    _status_raw = str(out.get("status") or "").strip().lower()
+    if _validity and not _status_raw:
+        _validity_to_status = {
+            "closed": Status.ARCHIVED.value,
+            "superseded": Status.SUPERSEDED.value,
+            "transient": Status.TRANSIENT.value,
+        }
+        if _validity in _validity_to_status:
+            out["status"] = _validity_to_status[_validity]
+
     out["status"] = _normalize_choice(
         out.get("status"),
         allowed={x.value for x in Status},
@@ -491,7 +509,7 @@ class Bead:
     recorded_at: Optional[str] = None
     effective_from: Optional[str] = None
     effective_to: Optional[str] = None
-    validity: Optional[str] = None  # open | closed | superseded | transient
+    validity: Optional[str] = None  # DEPRECATED (F-S1): use status instead. Retained for migration.
     supersedes: list = field(default_factory=list)
     superseded_by: list = field(default_factory=list)
 
