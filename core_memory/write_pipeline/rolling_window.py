@@ -10,6 +10,7 @@ This module is kept for backward compatibility and as a renderer.
 from __future__ import annotations
 
 import json
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,8 +19,11 @@ from core_memory.persistence.rolling_record_store import write_rolling_records
 from core_memory.persistence.store import MemoryStore
 from core_memory.policy.promotion import (
     DIVERSITY_REQUIRED_TYPES,
+    compute_promotion_score,
     compute_selection_score,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def estimate_tokens(text: str) -> int:
@@ -134,6 +138,58 @@ def _ensure_type_diversity(
     return result
 
 
+def _dedup_key(bead: dict[str, Any]) -> str:
+    """Dedup key: (title + first summary line). Case-insensitive."""
+    title = str(bead.get("title") or "").strip().lower()
+    summary = bead.get("summary") or []
+    first_line = str(summary[0]).strip().lower() if summary else ""
+    return f"{title}|{first_line}"
+
+
+def _dedup_beads(
+    beads: list[dict[str, Any]],
+    index: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Remove duplicate beads by (title + first_summary_line).
+
+    When a dedup fires, the bead with the highest promotion_score wins.
+    Ties broken by bead_id for determinism. Every dedup hit is logged.
+
+    Returns (deduped_beads, dropped_beads).
+    """
+    seen: dict[str, tuple[dict[str, Any], float]] = {}
+    dropped: list[dict[str, Any]] = []
+
+    for bead in beads:
+        key = _dedup_key(bead)
+        score, _ = compute_promotion_score(index, bead)
+        bid = str(bead.get("id") or "")
+
+        if key not in seen:
+            seen[key] = (bead, score)
+            continue
+
+        existing_bead, existing_score = seen[key]
+        existing_bid = str(existing_bead.get("id") or "")
+
+        # Higher score wins; tie-break by bead_id
+        if (score, bid) > (existing_score, existing_bid):
+            winner_id, loser_id = bid, existing_bid
+            dropped.append(existing_bead)
+            seen[key] = (bead, score)
+        else:
+            winner_id, loser_id = existing_bid, bid
+            dropped.append(bead)
+
+        logger.info(
+            "rolling-window dedup: key=%r winner=%s loser=%s (scores: %.4f vs %.4f)",
+            key, winner_id, loser_id, max(score, existing_score), min(score, existing_score),
+        )
+
+    deduped = [bead for bead, _score in seen.values()]
+    return deduped, dropped
+
+
 def _select_beads_for_budget(
     filtered: list[dict[str, Any]],
     *,
@@ -152,9 +208,15 @@ def _select_beads_for_budget(
 
     pinned_id = str(pinned.get("id") or "") if pinned else ""
 
+    # Dedup pass: collapse beads with identical (title + first_summary_line).
+    if index is not None:
+        deduped, _dropped = _dedup_beads(filtered, index)
+    else:
+        deduped = filtered
+
     # Score remaining beads and fill by selection_score DESC.
     if index is not None:
-        scored = _score_beads(filtered, index)
+        scored = _score_beads(deduped, index)
     else:
         # Fallback: use recency order (filtered is already sorted by recency)
         scored = [(b, 0.0, {}) for b in filtered]

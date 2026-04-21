@@ -5,10 +5,8 @@ Extracted from store.py per Codex Phase 2 refactor.
 """
 from __future__ import annotations
 
-import json
 import math
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
 
 # Type-prior scores for promotion
@@ -349,3 +347,29 @@ def compute_selection_score(
         "decay_factor": round(decay, 4),
         "selection_score": round(score, 4),
     }
+
+
+# ── F-RW5: Per-type summary truncation length ─────────────────────────
+#
+# Decisions deserve more detail than contexts. These values control how many
+# summary lines are retained when a bead is compacted/archived.
+
+SUMMARY_TRUNCATION_LINES: dict[str, int] = {
+    "design_principle": 5,
+    "precedent": 5,
+    "decision": 5,
+    "lesson": 4,
+    "outcome": 4,
+    "evidence": 3,
+    "reflection": 3,
+    "goal": 2,
+    "context": 1,
+    "checkpoint": 1,
+}
+
+DEFAULT_SUMMARY_TRUNCATION = 2
+
+
+def summary_truncation_limit(bead_type: str) -> int:
+    """Return the number of summary lines to retain for a given bead type."""
+    return SUMMARY_TRUNCATION_LINES.get(str(bead_type or "").lower(), DEFAULT_SUMMARY_TRUNCATION)
