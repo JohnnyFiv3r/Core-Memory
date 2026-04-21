@@ -22,12 +22,9 @@ from core_memory.policy.promotion import (
     compute_promotion_score,
     compute_selection_score,
 )
+from core_memory.write_pipeline.tokenizer import estimate_tokens
 
 logger = logging.getLogger(__name__)
-
-
-def estimate_tokens(text: str) -> int:
-    return max(1, len(text) // 4)
 
 
 def bead_to_record(bead: dict) -> dict:
