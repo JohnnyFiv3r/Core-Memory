@@ -167,7 +167,9 @@ def process_turn_finalized_impl(
             "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
         }
 
-    if bool(gate.get("required")) and (not bool(gate.get("fail_open"))) and isinstance(reviewed_updates, dict):
+    # F-W2: gate severity — hard mode blocks, warn mode flags, off mode skips
+    _structural_coverage_missing = False
+    if bool(gate.get("required")) and isinstance(reviewed_updates, dict):
         prior_beads = session_visible_bead_ids(root=root, session_id=req["session_id"])
         min_required = int(agent_min_semantic_associations_after_first())
         semantic_count = int(non_temporal_semantic_association_count(reviewed_updates))
@@ -177,31 +179,42 @@ def process_turn_finalized_impl(
             "semantic_assoc_count": semantic_count,
         }
         if len(prior_beads) >= 1 and semantic_count < min_required:
-            gate["blocked"] = True
-            gate["error_code"] = error_agent_semantic_coverage_missing
-            emit_agent_turn_quality_metric(
-                root=root,
-                req=req,
-                gate=gate,
-                updates=reviewed_updates,
-                result="blocked",
-                error_code=error_agent_semantic_coverage_missing,
-            )
-            return {
-                "ok": False,
-                "mode": "turn",
-                "authority_path": "canonical_in_process",
-                "processed": 0,
-                "failed": 1,
-                "error_code": error_agent_semantic_coverage_missing,
-                "error": "insufficient non-temporal semantic associations for non-initial turn",
-                "emitted": emitted,
-                "crawler_handoff": {
-                    "required": True,
-                    "agent_authored_gate": gate,
-                },
-                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-            }
+            if not bool(gate.get("fail_open")):
+                # hard mode: block the turn
+                gate["blocked"] = True
+                gate["error_code"] = error_agent_semantic_coverage_missing
+                emit_agent_turn_quality_metric(
+                    root=root,
+                    req=req,
+                    gate=gate,
+                    updates=reviewed_updates,
+                    result="blocked",
+                    error_code=error_agent_semantic_coverage_missing,
+                )
+                return {
+                    "ok": False,
+                    "mode": "turn",
+                    "authority_path": "canonical_in_process",
+                    "processed": 0,
+                    "failed": 1,
+                    "error_code": error_agent_semantic_coverage_missing,
+                    "error": "insufficient non-temporal semantic associations for non-initial turn",
+                    "emitted": emitted,
+                    "crawler_handoff": {
+                        "required": True,
+                        "agent_authored_gate": gate,
+                    },
+                    "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+                }
+            else:
+                # warn mode: flag the bead but proceed
+                _structural_coverage_missing = True
+                gate["warned"] = True
+                logger.warning(
+                    "agent-authored gate: structural coverage missing (warn mode), "
+                    "session=%s turn=%s semantic_count=%d min_required=%d",
+                    req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
+                )
 
     claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
     if not claimed:
@@ -252,6 +265,18 @@ def process_turn_finalized_impl(
             "error": str(exc),
             "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
         }
+
+    # F-W2: flag the bead in warn mode if coverage was insufficient
+    if _structural_coverage_missing:
+        bead_id = str((delta or {}).get("bead_id") or "")
+        if bead_id:
+            from core_memory.persistence.store import MemoryStore
+            store = MemoryStore(root)
+            idx = store._read_json(store.beads_dir / "index.json")
+            bead = (idx.get("beads") or {}).get(bead_id)
+            if bead:
+                bead["structural_coverage_missing"] = True
+                store._write_json(store.beads_dir / "index.json", idx)
 
     if not isinstance(reviewed_updates, dict):
         reviewed_updates = default_crawler_updates(req)

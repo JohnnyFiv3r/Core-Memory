@@ -103,35 +103,43 @@ def preview_association_allow_shared_tag() -> bool:
 
 
 def agent_authored_mode() -> str:
-    """Rollout mode for agent-authored turn memory.
+    """Gate severity for agent-authored turn memory (F-W2).
 
-    Explicit values:
-    - observe: no strict blocking, deterministic fallback allowed
-    - warn: validate strictly, fallback allowed (no blocking)
-    - enforce: validate strictly, no fallback (blocking)
+    Values (canonical):
+    - hard: validate strictly, block turn on failure (no fallback)
+    - warn: validate strictly, persist with structural_coverage_missing flag (default)
+    - off: bypass gate entirely
 
-    If unset/invalid, mode is derived from legacy flags.
+    Legacy aliases accepted: enforce→hard, observe→off.
     """
     raw = str(os.environ.get("CORE_MEMORY_AGENT_AUTHORED_MODE") or "").strip().lower()
-    if raw in {"observe", "warn", "enforce"}:
+    # Canonical values
+    if raw in {"hard", "warn", "off"}:
         return raw
+    # Legacy aliases
+    if raw == "enforce":
+        return "hard"
+    if raw == "observe":
+        return "off"
 
+    # Legacy flag derivation
     req = agent_authored_required_enabled()
     fail_open = agent_authored_fail_open_enabled()
     if req and not fail_open:
-        return "enforce"
+        return "hard"
     if req and fail_open:
         return "warn"
-    return "observe"
+    # F-W2: default to warn in OSS (was observe/off)
+    return "warn"
 
 
 def resolved_agent_authored_gate() -> dict[str, object]:
     mode = agent_authored_mode()
-    if mode == "enforce":
+    if mode == "hard":
         return {"mode": mode, "required": True, "fail_open": False}
     if mode == "warn":
         return {"mode": mode, "required": True, "fail_open": True}
-    return {"mode": "observe", "required": False, "fail_open": True}
+    return {"mode": "off", "required": False, "fail_open": True}
 
 
 def claim_layer_enabled() -> bool:
