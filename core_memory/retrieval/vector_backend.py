@@ -281,27 +281,28 @@ class PgvectorBackend:
         filters: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         conditions = []
-        params: list[Any] = [str(query_embedding)]
+        where_params: list[Any] = []
+        query_vec = str(query_embedding)
 
         if filters:
             if "type" in filters:
                 conditions.append("type = %s")
-                params.append(filters["type"])
+                where_params.append(filters["type"])
             if "status" in filters:
                 conditions.append("status = %s")
-                params.append(filters["status"])
+                where_params.append(filters["status"])
             if "session_id" in filters:
                 conditions.append("session_id = %s")
-                params.append(filters["session_id"])
+                where_params.append(filters["session_id"])
             if "created_after" in filters:
                 conditions.append("created_at >= %s")
-                params.append(filters["created_after"])
+                where_params.append(filters["created_after"])
             if "created_before" in filters:
                 conditions.append("created_at <= %s")
-                params.append(filters["created_before"])
+                where_params.append(filters["created_before"])
 
         where = (" WHERE " + " AND ".join(conditions)) if conditions else ""
-        params.append(k)
+        params: list[Any] = [query_vec] + where_params + [query_vec, k]
 
         cur = self._conn.execute(
             f"""
@@ -310,9 +311,9 @@ class PgvectorBackend:
             ORDER BY embedding <=> %s::vector
             LIMIT %s
             """,
-            params[:1] + params + params[:1],
+            params,
         )
-        # Simplify the query params
+
         results = []
         for row in cur.fetchall():
             results.append({
