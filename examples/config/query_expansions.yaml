@@ -1,0 +1,36 @@
+# User query expansions for Core Memory retrieval.
+#
+# Query expansions widen the search net by adding synonym tokens when specific
+# phrases or tokens appear in a query. This improves recall without affecting
+# precision (expansions add candidates; reranking filters them).
+#
+# These are merged with shipped defaults (core_memory/config/defaults/query_expansions.yaml).
+# Your expansions here win on key conflicts with shipped defaults.
+#
+# Two types:
+#   phrase_map  — triggers when an exact phrase appears in the query
+#   token_map   — triggers when a single token appears in the query
+#
+# Example — a team using Jira and Confluence might define:
+#
+# phrase_map:
+#   "jira ticket":
+#     - "issue"
+#     - "bug"
+#     - "story"
+#     - "epic"
+#   "confluence page":
+#     - "wiki"
+#     - "document"
+#     - "knowledge base"
+#
+# token_map:
+#   "jira":
+#     - "ticket"
+#     - "issue"
+#   "confluence":
+#     - "wiki"
+#     - "document"
+
+phrase_map: {}
+token_map: {}

@@ -5,11 +5,9 @@ Extracted from store.py per Codex Phase 2 refactor.
 """
 from __future__ import annotations
 
-import json
+import math
 from datetime import datetime, timezone
-from pathlib import Path
 from typing import Optional
-
 
 # Type-prior scores for promotion
 BEAD_TYPE_PRIORS = {
@@ -259,3 +257,119 @@ def get_recommendation_rows(
 
     rows = sorted(rows, key=lambda r: (r.get("query_overlap", 0), r.get("promotion_score", 0.0), r.get("created_at") or ""), reverse=True)
     return rows, threshold
+
+
+# ── F-RW2: Selection score for rolling window ──────────────────────────
+#
+# selection_score = promotion_score * exp(-days_since_last_touch / effective_half_life)
+# effective_half_life = BASE_HALF_LIFE_DAYS * TYPE_DURABILITY_MULTIPLIERS[type]
+#
+# This is reinforcement-weighted recency, not spaced repetition.
+# "Last touch" means the most recent of: created, recalled, reinforced, or
+# had an association added. A bead recalled yesterday barely decays regardless
+# of when it was created.
+
+BASE_HALF_LIFE_DAYS = 14.0
+
+TYPE_DURABILITY_MULTIPLIERS: dict[str, float] = {
+    "design_principle": 4.0,
+    "precedent": 4.0,
+    "decision": 2.0,
+    "lesson": 2.0,
+    "outcome": 2.0,
+    "evidence": 1.5,
+    "goal": 1.5,
+    "reflection": 1.5,
+    "context": 1.0,
+    "checkpoint": 1.0,
+}
+
+# Types guaranteed in rolling window if available (type diversity pass)
+DIVERSITY_REQUIRED_TYPES = {"decision", "lesson", "outcome"}
+
+
+def _parse_ts(ts: str | None) -> datetime | None:
+    s = str(ts or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _days_since_last_touch(bead: dict, now: datetime | None = None) -> float:
+    """Compute days since the most recent touch event on a bead."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    candidates = [
+        _parse_ts(bead.get("created_at")),
+        _parse_ts(bead.get("last_recalled_at")),
+        _parse_ts(bead.get("last_reinforced_at")),
+        _parse_ts(bead.get("last_association_added_at")),
+    ]
+    latest = max((dt for dt in candidates if dt is not None), default=None)
+    if latest is None:
+        return float(BASE_HALF_LIFE_DAYS)  # no timestamp → assume moderate age
+
+    delta = (now - latest).total_seconds() / 86400.0
+    return max(0.0, delta)
+
+
+def compute_selection_score(
+    index: dict,
+    bead: dict,
+    now: datetime | None = None,
+) -> tuple[float, dict]:
+    """Compute selection score for rolling window ranking.
+
+    selection_score = promotion_score * exp(-days / effective_half_life)
+
+    Returns (score, details_dict).
+    """
+    promotion_score, factors = compute_promotion_score(index, bead)
+    bead_type = str(bead.get("type") or "").lower()
+    multiplier = TYPE_DURABILITY_MULTIPLIERS.get(bead_type, 1.0)
+    effective_half_life = BASE_HALF_LIFE_DAYS * multiplier
+
+    days = _days_since_last_touch(bead, now=now)
+    decay = math.exp(-days / effective_half_life)
+    score = promotion_score * decay
+
+    return max(0.0, min(1.0, score)), {
+        "promotion_score": round(promotion_score, 4),
+        "days_since_last_touch": round(days, 2),
+        "effective_half_life": round(effective_half_life, 1),
+        "type_durability_multiplier": multiplier,
+        "decay_factor": round(decay, 4),
+        "selection_score": round(score, 4),
+    }
+
+
+# ── F-RW5: Per-type summary truncation length ─────────────────────────
+#
+# Decisions deserve more detail than contexts. These values control how many
+# summary lines are retained when a bead is compacted/archived.
+
+SUMMARY_TRUNCATION_LINES: dict[str, int] = {
+    "design_principle": 5,
+    "precedent": 5,
+    "decision": 5,
+    "lesson": 4,
+    "outcome": 4,
+    "evidence": 3,
+    "reflection": 3,
+    "goal": 2,
+    "context": 1,
+    "checkpoint": 1,
+}
+
+DEFAULT_SUMMARY_TRUNCATION = 2
+
+
+def summary_truncation_limit(bead_type: str) -> int:
+    """Return the number of summary lines to retain for a given bead type."""
+    return SUMMARY_TRUNCATION_LINES.get(str(bead_type or "").lower(), DEFAULT_SUMMARY_TRUNCATION)

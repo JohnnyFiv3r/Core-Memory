@@ -8,9 +8,11 @@ Currently manageable at ~200 lines.
 import json
 from pathlib import Path
 
+from core_memory.config import load_domain_tags
 from core_memory.policy.incidents import incident_match_strength
 
 from .config import (
+    INTENT_WEIGHT_OVERRIDES,
     LOW_INFO_ALNUM_RATIO_MIN,
     LOW_INFO_SUMMARY_LEN,
     LOW_INFO_TEMPLATES,
@@ -21,7 +23,6 @@ from .config import (
     W_INCIDENT,
     W_PENALTY,
     W_STRUCTURAL,
-    INTENT_WEIGHT_OVERRIDES,
 )
 
 
@@ -62,29 +63,22 @@ def _weighted_coverage(bead: dict, query_tokens: set[str]) -> float:
     return max(0.0, min(1.0, (0.5 * cov_title) + (0.35 * cov_summ) + (0.15 * cov_tags)))
 
 
-def _infer_domain_tags_from_text(text: str) -> set[str]:
+def _infer_domain_tags_from_text(text: str, domain_tags: dict[str, list[str]]) -> set[str]:
     t = (text or "").lower()
     tags: set[str] = set()
-    if any(k in t for k in ["core-memory", "bead", "flush", "compaction", "archive", "rolling window", "session_flush", "finalize_and_process_turn", "memory-pass", "retrieval"]):
-        tags.add("core_memory_pipeline")
-    if any(k in t for k in ["disney", "magic kingdom", "genie", "itinerary", "ride", "fantasyland", "tiana", "pirates"]):
-        tags.add("disney_planner")
-    if any(k in t for k in ["cloudflare", "tunnel", "dns", "port", "gateway", "websocket", "18888", "8788", "8080"]):
-        tags.add("infra_network")
-    if any(k in t for k in ["gauntlet", "confidence", "grounding", "rerank", "structural", "semantic", "lexical"]):
-        tags.add("retrieval_quality")
-    if any(k in t for k in ["slice", "plan", "blocked", "unblocked", "complete", "milestone", "next step"]):
-        tags.add("process_management")
+    for tag_name, matchers in domain_tags.items():
+        if any(k in t for k in matchers):
+            tags.add(tag_name)
     if not tags:
         tags.add("unknown")
     return tags
 
 
-def _infer_query_domain_tags(query: str) -> set[str]:
-    return _infer_domain_tags_from_text(query)
+def _infer_query_domain_tags(query: str, domain_tags: dict[str, list[str]]) -> set[str]:
+    return _infer_domain_tags_from_text(query, domain_tags)
 
 
-def _infer_bead_domain_tags(bead: dict) -> set[str]:
+def _infer_bead_domain_tags(bead: dict, domain_tags: dict[str, list[str]]) -> set[str]:
     text = " ".join([
         str(bead.get("title") or ""),
         " ".join(bead.get("summary") or []),
@@ -93,7 +87,7 @@ def _infer_bead_domain_tags(bead: dict) -> set[str]:
         " ".join(bead.get("entities") or []),
         " ".join(bead.get("entity_ids") or []),
     ])
-    return _infer_domain_tags_from_text(text)
+    return _infer_domain_tags_from_text(text, domain_tags)
 
 
 def _bridge_pattern_bonus(query: str, bead: dict) -> tuple[float, str]:
@@ -240,7 +234,8 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
     w_cov = float(ow.get("W_COVERAGE", W_COVERAGE))
     w_inc = float(ow.get("W_INCIDENT", W_INCIDENT))
 
-    q_domains = _infer_query_domain_tags(query)
+    domain_tags = load_domain_tags(root)
+    q_domains = _infer_query_domain_tags(query, domain_tags)
 
     out = []
     dbg = []
@@ -254,7 +249,7 @@ def rerank_candidates(root: Path, query: str, candidates: list[dict], intent_cla
         incident_strength = incident_match_strength(query, str(bead.get("incident_id") or ""), root)
 
         # Domain alignment (soft): never hard-filter mismatches.
-        b_domains = _infer_bead_domain_tags(bead)
+        b_domains = _infer_bead_domain_tags(bead, domain_tags)
         overlap_domains = sorted(list(q_domains.intersection(b_domains)))
         domain_alignment_score = 1.0 if overlap_domains else 0.0
         domain_penalty = 0.12 if not overlap_domains else 0.0

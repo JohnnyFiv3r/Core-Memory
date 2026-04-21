@@ -4,7 +4,7 @@ import { appendFileSync } from "node:fs";
 const plugin = {
   id: "core-memory-bridge",
   name: "Core Memory Bridge",
-  description: "Bridge OpenClaw lifecycle hooks to Core Memory canonical write/flush surfaces",
+  description: "Bridge OpenClaw lifecycle hooks to Core Memory canonical write/read/flush surfaces",
 
   register(api) {
     const entryCfg = api?.config?.plugins?.entries?.[api.id];
@@ -14,6 +14,7 @@ const plugin = {
       coreMemoryRoot: cfgIn?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
       coreMemoryRepo: cfgIn?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || process.cwd(),
       enableAgentEnd: cfgIn?.enableAgentEnd !== false,
+      enableMemorySearch: cfgIn?.enableMemorySearch !== false,
       enableCompactionFlush: cfgIn?.enableCompactionFlush === true,
     };
 
@@ -22,7 +23,7 @@ const plugin = {
         appendFileSync('/tmp/core-memory-bridge-hook.log', `${new Date().toISOString()} ${line}\n`);
       } catch {}
     };
-    debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} enableAgentEnd=${cfg.enableAgentEnd} enableCompactionFlush=${cfg.enableCompactionFlush}`);
+    debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} enableAgentEnd=${cfg.enableAgentEnd} enableMemorySearch=${cfg.enableMemorySearch} enableCompactionFlush=${cfg.enableCompactionFlush}`);
 
     const runBridge = (moduleName, payload, opts = {}) =>
       new Promise((resolve) => {
@@ -133,6 +134,33 @@ const plugin = {
           });
         } catch (err) {
           api.logger?.warn?.(`core-memory-bridge: agent_end hook error: ${String(err)}`);
+        }
+      });
+    }
+
+    if (cfg.enableMemorySearch) {
+      api.on("memory_search", async (event) => {
+        try {
+          const query = event?.query || event?.queryText || event?.query_text || "";
+          debug(`memory_search query=${String(query).slice(0, 120)}`);
+          const payload = {
+            action: "execute",
+            query,
+            request: event?.request || null,
+            root: cfg.coreMemoryRoot,
+            explain: false,
+            k: event?.k || 8,
+          };
+          const out = await runBridge("core_memory.integrations.openclaw_read_bridge", payload);
+          debug(`memory_search result ok=${String(out?.parsed?.ok)} code=${String(out?.code)} stderr=${String((out?.stderr || '').slice(0, 180))}`);
+          if (!out?.parsed?.ok) {
+            api.logger?.warn?.(`core-memory-bridge: memory_search failed: ${JSON.stringify(out?.parsed || {})}`);
+            return null;
+          }
+          return out.parsed;
+        } catch (err) {
+          api.logger?.warn?.(`core-memory-bridge: memory_search hook error: ${String(err)}`);
+          return null;
         }
       });
     }

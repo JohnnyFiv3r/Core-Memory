@@ -1,0 +1,76 @@
+# Shipped query expansions for Core Memory retrieval.
+#
+# phrase_map: if a phrase appears in the query, expand with the listed tokens.
+# token_map: if a single token appears, expand with the listed synonyms.
+#
+# These cover shipped integrations (OpenClaw, PydanticAI, SpringAI) and
+# common migration/adapter terminology.
+#
+# Users can override or extend via their own query_expansions.yaml.
+# User-supplied entries are merged; user values win on key conflicts.
+
+phrase_map:
+  "openclaw only":
+    - "single"
+    - "orchestrator"
+    - "openclaw"
+    - "migration"
+    - "adapter"
+  "single orchestrator":
+    - "openclaw"
+    - "migration"
+    - "multi"
+    - "orchestrator"
+  "multi orchestrator":
+    - "adapter"
+    - "pydanticai"
+    - "springai"
+    - "emit_turn_finalized"
+    - "integration"
+    - "port"
+  "multiple orchestrator":
+    - "adapter"
+    - "pydanticai"
+    - "springai"
+    - "emit_turn_finalized"
+    - "integration"
+    - "port"
+  "core adapters":
+    - "adapter"
+    - "integration"
+    - "emit_turn_finalized"
+    - "pydanticai"
+    - "springai"
+  "switch":
+    - "migration"
+    - "transition"
+  "migrate":
+    - "migration"
+    - "transition"
+  "transition":
+    - "migration"
+    - "switch"
+
+token_map:
+  "openclaw":
+    - "orchestrator"
+    - "adapter"
+  "pydanticai":
+    - "adapter"
+    - "integration"
+  "springai":
+    - "adapter"
+    - "integration"
+  "emit_turn_finalized":
+    - "integration"
+    - "port"
+    - "adapter"
+  "orchestrator":
+    - "framework"
+    - "adapter"
+  "adapter":
+    - "integration"
+    - "orchestrator"
+  "migration":
+    - "transition"
+    - "switch"

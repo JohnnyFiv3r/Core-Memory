@@ -5,10 +5,13 @@ import re
 from pathlib import Path
 from typing import Optional
 
+from core_memory.config import load_query_expansions
 from core_memory.entity.registry import load_entity_registry
-from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
-from core_memory.policy.incidents import load_incidents, incident_match_strength
-from .normalize import normalize_query as _normalize_query_canonical, classify_intent as _classify_intent_canonical
+from core_memory.entity.retrieval import expand_query_with_entities, infer_query_entity_context
+from core_memory.policy.incidents import incident_match_strength, load_incidents
+
+from .normalize import classify_intent as _classify_intent_canonical
+from .normalize import normalize_query as _normalize_query_canonical
 
 _STOP = {"the", "and", "for", "with", "that", "this", "what", "when", "why", "did", "was", "are", "about", "into", "from", "where"}
 
@@ -35,31 +38,23 @@ def _is_memory_intent(text: str) -> bool:
     return any(c in q for c in cues)
 
 
-def _expand_query_tokens(text: str, base_tokens: set[str], max_extra: int = 24) -> set[str]:
-    """Bounded synonym/entity expansion for better deterministic recall hits."""
+def _expand_query_tokens(
+    text: str,
+    base_tokens: set[str],
+    max_extra: int = 24,
+    root: Optional[Path] = None,
+) -> set[str]:
+    """Bounded synonym/entity expansion for better deterministic recall hits.
+
+    Expansions are loaded from config (shipped defaults + user overrides).
+    If root is provided, user overrides from the store config dir are included.
+    """
     q = (text or "").lower()
     expanded = set(base_tokens)
 
-    phrase_map = {
-        "openclaw only": {"single", "orchestrator", "openclaw", "migration", "adapter"},
-        "single orchestrator": {"openclaw", "migration", "multi", "orchestrator"},
-        "multi orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
-        "multiple orchestrator": {"adapter", "pydanticai", "springai", "emit_turn_finalized", "integration", "port"},
-        "core adapters": {"adapter", "integration", "emit_turn_finalized", "pydanticai", "springai"},
-        "switch": {"migration", "transition"},
-        "migrate": {"migration", "transition"},
-        "transition": {"migration", "switch"},
-    }
-
-    token_map = {
-        "openclaw": {"orchestrator", "adapter"},
-        "pydanticai": {"adapter", "integration"},
-        "springai": {"adapter", "integration"},
-        "emit_turn_finalized": {"integration", "port", "adapter"},
-        "orchestrator": {"framework", "adapter"},
-        "adapter": {"integration", "orchestrator"},
-        "migration": {"transition", "switch"},
-    }
+    config = load_query_expansions(root)
+    phrase_map = config.get("phrase_map", {})
+    token_map = config.get("token_map", {})
 
     extras: list[str] = []
     for phrase, words in phrase_map.items():
