@@ -1,6 +1,6 @@
 # F-W1: Move Non-Critical Write Stages to Side Effect Queue
 
-**Status:** Design doc — awaiting maintainer review before implementation.
+**Status:** Approved — ready for implementation.
 **Fix ID:** F-W1 (P0)
 **Author:** Christopher Dedow / Claude Code
 **Date:** 2026-04-20
@@ -81,8 +81,25 @@ The critical path should be: **normalize → emit event → persist bead → ret
 
 ### Durability
 
-- **In-memory for v1:** The queue is already file-backed JSON. For the DCMEX scope, this is sufficient.
-- **Post-DCMEX:** Consider SQLite-backed queue for crash recovery across process restarts.
+The repo already ships a `SqliteBackend` (`core_memory/persistence/backend.py`) with WAL mode, indexed tables, and atomic writes via `memory.db`. The enrichment queue should use a table in this existing database rather than the current JSON file queue. This gives crash recovery, atomic enqueue/dequeue, and WAL-mode concurrency out of the box.
+
+Proposed table:
+
+```sql
+CREATE TABLE IF NOT EXISTS enrichment_queue (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    turn_id     TEXT NOT NULL,
+    session_id  TEXT NOT NULL,
+    bead_id     TEXT NOT NULL,
+    enqueued_at TEXT NOT NULL,
+    attempt     INTEGER DEFAULT 0,
+    stages      TEXT NOT NULL,           -- JSON array of stage names
+    completed   TEXT NOT NULL DEFAULT '[]', -- JSON array of completed stage names
+    status      TEXT NOT NULL DEFAULT 'pending'  -- pending | processing | done | failed
+);
+```
+
+If the SQLite backend is not active (user is on `JsonFileBackend`), fall back to the existing JSON file queue in `.beads/events/side-effects-queue.json`.
 
 ### Execution model
 
