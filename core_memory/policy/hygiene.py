@@ -243,6 +243,11 @@ def extract_state_change(text: str) -> Optional[dict]:
 
 
 def extract_validity(text: str) -> Optional[str]:
+    """Extract validity from text. DEPRECATED (F-S1): use status field instead.
+
+    Returns status-compatible values for migration:
+    superseded/closed → mapped to status equivalents by _normalize_bead_payload.
+    """
     t = (text or "").lower()
     if any(k in t for k in ["superseded", "replaced by", "deprecated"]):
         return "superseded"
