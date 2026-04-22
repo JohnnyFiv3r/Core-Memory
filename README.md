@@ -19,7 +19,8 @@
  <a href="#current-status">Current Status</a> ·
  <a href="docs/architecture_overview.md">Architecture</a> ·
  <a href="docs/public_surface.md">Public Surface</a> ·
- <a href="#contributing">Contributing</a>
+ <a href="#contributing">Contributing</a> ·
+ <a href="#maintainers">Maintainers</a>
 </p>
 
 ---
@@ -522,6 +523,17 @@ Useful docs:
 
 Inspired in part by Steve Yegge’s writing on beads and memory systems:
 https://github.com/steveyegge/beads
+
+---
+
+## Maintainers
+
+Core Memory is maintained by:
+
+- John Inniger ([@JohnnyFiv3r](https://github.com/JohnnyFiv3r))
+- Chris Dedow ([@chrisdedow](https://github.com/chrisdedow))
+
+For bugs and feature requests, please open an issue. For anything else related to the project, feel free to reach out to the maintainers directly.
 
 ---
 
