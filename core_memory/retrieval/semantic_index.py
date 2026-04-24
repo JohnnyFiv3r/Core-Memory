@@ -395,10 +395,16 @@ def _external_backend_connectivity(*, root: Path, backend: str, manifest: dict[s
     return True, ""
 
 
-def semantic_unavailable_payload(*, query: str, warnings: list[str] | None = None, provider: str | None = None) -> dict[str, Any]:
+def semantic_unavailable_payload(*, query: str, warnings: list[str] | None = None, provider: str | None = None, detail: dict[str, Any] | None = None) -> dict[str, Any]:
     ws = list(warnings or [])
     if "semantic_backend_unavailable" not in ws:
         ws.append("semantic_backend_unavailable")
+    err = {
+        "code": "semantic_backend_unavailable",
+        "message": "Semantic backend unavailable for anchor lookup",
+    }
+    if isinstance(detail, dict) and detail:
+        err["detail"] = dict(detail)
     return {
         "ok": False,
         "degraded": False,
@@ -406,12 +412,34 @@ def semantic_unavailable_payload(*, query: str, warnings: list[str] | None = Non
         "provider": provider,
         "query": query,
         "warnings": ws,
-        "error": {
-            "code": "semantic_backend_unavailable",
-            "message": "Semantic backend unavailable for anchor lookup",
-        },
+        "error": err,
         "results": [],
     }
+
+
+def _semantic_backend_requires_real_index(*, mode: str, provider: str, vector_backend: str, texts: list[str]) -> bool:
+    if _normalize_semantic_mode(mode) != SEMANTIC_MODE_REQUIRED:
+        return False
+    if not texts:
+        return False
+    if provider == "hash":
+        return False
+    if _normalize_vector_backend(vector_backend) in _EXTERNAL_VECTOR_BACKENDS:
+        return True
+    return True
+
+
+def _invalid_semantic_state_detail(*, provider: str, model: str, backend: str, vector_backend: str, dim: int, cause: str | None = None) -> dict[str, Any]:
+    out = {
+        "provider": str(provider or ""),
+        "model": str(model or ""),
+        "backend": str(backend or ""),
+        "vector_backend": str(vector_backend or ""),
+        "dimension": int(dim or 0),
+    }
+    if cause:
+        out["cause"] = str(cause)
+    return out
 
 
 def _now() -> str:
@@ -773,6 +801,9 @@ def build_semantic_index(root: Path) -> dict:
 
         backend = "lexical"
         dim = 0
+        semantic_ready = False
+        last_build_error_code = ""
+        last_build_error = ""
         if vector_backend in _EXTERNAL_VECTOR_BACKENDS:
             try:
                 vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
@@ -790,6 +821,7 @@ def build_semantic_index(root: Path) -> dict:
                         },
                     )
                 backend = vector_backend
+                semantic_ready = True
                 # no local faiss artifact in external backend mode
                 if faiss_file.exists():
                     try:
@@ -797,6 +829,8 @@ def build_semantic_index(root: Path) -> dict:
                     except Exception:
                         pass
             except Exception as exc:
+                last_build_error_code = _embedding_error_token(exc)
+                last_build_error = str(exc)
                 logger.warning(
                     "core-memory: external vector backend '%s' unavailable (%s). Falling back to lexical.",
                     vector_backend,
@@ -804,6 +838,7 @@ def build_semantic_index(root: Path) -> dict:
                 )
                 backend = "lexical"
                 dim = 0
+                semantic_ready = False
         else:
             try:
                 import faiss  # type: ignore
@@ -820,8 +855,11 @@ def build_semantic_index(root: Path) -> dict:
                     idx.add(vecs)
                 faiss_file.parent.mkdir(parents=True, exist_ok=True)
                 faiss.write_index(idx, str(faiss_file))
+                semantic_ready = True
             except ImportError:
                 global _faiss_warning_emitted
+                last_build_error_code = "faiss_import_error"
+                last_build_error = "faiss-cpu and/or numpy not installed"
                 if not _faiss_warning_emitted:
                     mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
                     mode_hint = (
@@ -837,13 +875,69 @@ def build_semantic_index(root: Path) -> dict:
                     _faiss_warning_emitted = True
                 backend = "lexical"
                 dim = 0
+                semantic_ready = False
             except Exception as exc:
+                last_build_error_code = _embedding_error_token(exc)
+                last_build_error = str(exc)
                 logger.warning(
                     "core-memory: local-faiss semantic build failed (%s). Falling back to lexical.",
                     exc,
                 )
                 backend = "lexical"
                 dim = 0
+                semantic_ready = False
+
+        if _semantic_backend_requires_real_index(
+            mode=os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE") or SEMANTIC_MODE_REQUIRED,
+            provider=provider,
+            vector_backend=vector_backend,
+            texts=texts,
+        ) and (not semantic_ready or int(dim or 0) <= 0 or backend == "lexical"):
+            fp = _fingerprint(rows)
+            prev = _read_manifest(manifest_file)
+            manifest = {
+                "provider": provider,
+                "model": model,
+                "dimension": int(dim),
+                "backend": backend,
+                "vector_backend": vector_backend,
+                "semantic_ready": False,
+                "last_build_error_code": str(last_build_error_code or "semantic_build_invalid_state"),
+                "last_build_error": str(last_build_error or ""),
+                "backend_version": "v9-s2",
+                "corpus_fingerprint": fp,
+                "built_at": _now(),
+                "row_count": len(rows),
+                "dirty": False,
+                "last_dirty_at": prev.get("last_dirty_at"),
+                "last_dirty_reason": prev.get("last_dirty_reason"),
+                "last_turn_id": prev.get("last_turn_id"),
+                "last_flush_tx_id": prev.get("last_flush_tx_id"),
+                "visible_statuses": ["open", "candidate", "promoted", "archived"],
+            }
+            _write_rows(rows_file, rows)
+            _write_manifest(manifest_file, manifest)
+            detail = _invalid_semantic_state_detail(
+                provider=provider,
+                model=model,
+                backend=backend,
+                vector_backend=vector_backend,
+                dim=int(dim or 0),
+                cause=last_build_error_code or "semantic_build_invalid_state",
+            )
+            return {
+                "ok": False,
+                "retryable": True,
+                "error": {
+                    "code": "semantic_build_invalid_state",
+                    "message": "Required semantic build did not produce a usable semantic backend",
+                    "detail": detail,
+                },
+                "manifest": str(manifest_file),
+                "faiss": str(faiss_file),
+                "rows": str(rows_file),
+                "lock": {"path": str(build_lock), **dict(lock_meta or {})},
+            }
 
         _write_rows(rows_file, rows)
         fp = _fingerprint(rows)
@@ -854,6 +948,9 @@ def build_semantic_index(root: Path) -> dict:
             "dimension": int(dim),
             "backend": backend,
             "vector_backend": vector_backend,
+            "semantic_ready": bool(semantic_ready),
+            "last_build_error_code": str(last_build_error_code or ""),
+            "last_build_error": str(last_build_error or ""),
             "backend_version": "v9-s2",
             "corpus_fingerprint": fp,
             "built_at": _now(),
@@ -1142,6 +1239,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
             warn_once("semantic_build_on_read_disabled")
 
     backend = str(manifest.get("backend") or "lexical")
+    semantic_ready = bool(manifest.get("semantic_ready", backend != "lexical"))
 
     def lexical_rank() -> list[dict[str, Any]]:
         q_tokens = set(tokenize(query))
@@ -1283,10 +1381,22 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
             warn_once(f"semantic_backend_query_error:{_embedding_error_token(exc)}")
 
     if mode_n == SEMANTIC_MODE_REQUIRED:
+        detail = None
+        if not semantic_ready or (str(manifest.get("provider") or req_provider) != "hash" and backend == "lexical"):
+            detail = {
+                "reason": "build_failed_or_invalid",
+                "provider": str(manifest.get("provider") or req_provider),
+                "model": str(manifest.get("model") or req_model),
+                "backend": backend,
+                "vector_backend": str(manifest.get("vector_backend") or req_vector_backend),
+                "dimension": int(manifest.get("dimension") or 0),
+                "last_build_error_code": str(manifest.get("last_build_error_code") or ""),
+            }
         return semantic_unavailable_payload(
             query=query,
             warnings=warnings,
             provider=str(manifest.get("provider") or req_provider),
+            detail=detail,
         )
 
     return {
