@@ -174,6 +174,11 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "Summary is optional; do not invent prose when structured fields are stronger.",
             "Initial write requires temporal grounding only (session/turn order/prev bead).",
             "Do not force broad causal or semantic links on initial write unless strongly grounded.",
+            "After the first turn in a session, look actively for non-temporal semantic associations to prior visible beads.",
+            "When multiple relationships are highly plausibly true, append all of them rather than choosing only one.",
+            "High plausibility is enough for append-only associations; certainty is not required, but do not invent links unsupported by the visible record.",
+            "Prefer specific semantic links like supports, refines, caused_by, enables, diagnoses, resolves, supersedes, or contradicts over generic or purely temporal links when the turn meaningfully updates prior memory.",
+            "If no non-temporal semantic link is strongly or highly plausibly supported, omit it rather than fabricating one.",
         ],
         "retrieval_contract": [
             "retrieval_eligible=true requires structured payload (retrieval_title + retrieval_facts + quality signals).",
@@ -190,6 +195,8 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "source must be session-local bead",
             "target must be in visible_bead_ids set",
             "initial-write minimum association is temporal only; richer associations may be appended later",
+            "for non-initial turns, review the candidate relationship list against each plausible target and append every high-plausibility semantic relation that applies",
+            "do not collapse distinct plausible relations into one weak default if multiple stronger relations are justified by the visible evidence",
         ],
     }
 
