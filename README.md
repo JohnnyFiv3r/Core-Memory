@@ -153,6 +153,12 @@ Semantic backend extras (recommended for canonical query path):
 pip install "core-memory[semantic]"
 ```
 
+If you want provider-backed semantic embeddings, install the matching client library in the same Python environment. For example, OpenAI-backed semantic retrieval needs:
+
+```bash
+pip install openai
+```
+
 HTTP companion service:
 
 ```bash
