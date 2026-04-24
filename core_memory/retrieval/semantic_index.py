@@ -224,6 +224,10 @@ def _embedding_error_token(exc: Exception) -> str:
     status = _embedding_error_status(exc)
     if status is not None:
         return f"http_{status}"
+    if isinstance(exc, ModuleNotFoundError):
+        missing = getattr(exc, "name", None)
+        if missing:
+            return f"missing_module:{_sanitize_token(str(missing))}"
     name = str(exc.__class__.__name__ or "error").strip().lower()
     return _sanitize_token(name)
 
