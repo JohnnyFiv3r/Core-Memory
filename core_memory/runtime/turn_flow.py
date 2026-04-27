@@ -282,91 +282,91 @@ def process_turn_finalized_impl(
         reviewed_updates = default_crawler_updates(req)
     reviewed_updates = ensure_turn_creation_update(root, req, reviewed_updates)
 
-    crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
-    session_visible = session_visible_bead_ids(root=root, session_id=req["session_id"])
-    visible_ids = sorted(set(crawler_visible + session_visible))
+    # F-W1: enqueue enrichment stages instead of running them inline.
+    # The bead is already persisted — enrichment is post-commit.
+    from core_memory.runtime.enrichment import enqueue_turn_enrichment, _enrichment_queue_enabled
 
-    auto_apply = run_association_pass(
-        root=root,
-        session_id=req["session_id"],
-        updates=reviewed_updates,
-        visible_bead_ids=visible_ids,
-    )
+    bead_id = str((delta or {}).get("bead_id") or "")
+    enrichment_queued = False
 
-    session_visible_after = session_visible_bead_ids(root=root, session_id=req["session_id"])
-    visible_ids = sorted(set(crawler_visible + session_visible_after))
-
-    # Claim extraction: wire in after association pass if callback provided
-    claim_telemetry: dict[str, Any] = {}
-    if extract_and_attach_claims_fn is not None:
-        created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
-        claim_telemetry = extract_and_attach_claims_fn(
-            root,
-            req["session_id"],
-            req["turn_id"],
-            created_bead_ids,
-            req,
-        ) or {}
-
-    preview_queued = queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
-
-    turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
-
-    decision_pass = run_session_decision_pass(
-        root=root,
-        session_id=req["session_id"],
-        visible_bead_ids=visible_ids,
-        turn_id=req["turn_id"],
-    )
-
-    claim_updates_emitted = 0
-    claim_updates: list[dict[str, Any]] = []
-    canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
-    claims_batch = list(claim_telemetry.get("claims_batch") or [])
-    if emit_claim_updates_fn is not None and canonical_turn_bead_id and claims_batch:
-        claim_updates = emit_claim_updates_fn(
-            root,
-            claims_batch,
-            canonical_turn_bead_id,
+    if _enrichment_queue_enabled():
+        enqueue_result = enqueue_turn_enrichment(
+            root=root,
             session_id=req["session_id"],
-            visible_bead_ids=visible_ids,
+            turn_id=req["turn_id"],
+            bead_id=bead_id,
+            req=req,
             reviewed_updates=reviewed_updates,
-            decision_pass=decision_pass,
-        ) or []
-        claim_updates_emitted = len(claim_updates)
-        claim_telemetry["updates_emitted"] = claim_updates_emitted
+            crawler_ctx=crawler_ctx,
+        )
+        enrichment_queued = bool(enqueue_result and enqueue_result.get("ok"))
 
-    memory_outcome_written = False
-    memory_outcome_payload: dict[str, Any] | None = None
-    if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
-        md = dict(req.get("metadata") or {})
-        context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or [])
-        turn_context = {
-            "retrieved_beads": context_beads,
-            "query": str(req.get("user_query") or ""),
-            "used_memory": bool(md.get("used_memory")) or bool(context_beads),
-            "correction_triggered": bool(md.get("correction_triggered") or md.get("memory_correction")),
-            "reflection_triggered": bool(md.get("reflection_triggered") or md.get("memory_reflection")),
-        }
-        memory_outcome_payload = classify_memory_outcome_fn(turn_context)
-        if isinstance(memory_outcome_payload, dict) and write_memory_outcome_to_bead_fn is not None:
-            write_memory_outcome_to_bead_fn(
-                root,
-                canonical_turn_bead_id,
-                interaction_role=memory_outcome_payload.get("interaction_role"),
-                memory_outcome=memory_outcome_payload.get("memory_outcome"),
-            )
-            memory_outcome_written = True
+    if not enrichment_queued:
+        # Fallback: run enrichment stages inline (pre-F-W1 behavior)
+        crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
+        session_visible = session_visible_bead_ids(root=root, session_id=req["session_id"])
+        visible_ids = sorted(set(crawler_visible + session_visible))
 
-    emit_agent_turn_quality_metric(
-        root=root,
-        req=req,
-        gate=gate,
-        updates=reviewed_updates,
-        result="success",
-        preview_association_queued=int(preview_queued),
-        merge_associations_appended=int(turn_merge.get("associations_appended") or 0),
-    )
+        auto_apply = run_association_pass(
+            root=root,
+            session_id=req["session_id"],
+            updates=reviewed_updates,
+            visible_bead_ids=visible_ids,
+        )
+
+        session_visible_after = session_visible_bead_ids(root=root, session_id=req["session_id"])
+        visible_ids = sorted(set(crawler_visible + session_visible_after))
+
+        claim_telemetry: dict[str, Any] = {}
+        if extract_and_attach_claims_fn is not None:
+            created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
+            claim_telemetry = extract_and_attach_claims_fn(
+                root, req["session_id"], req["turn_id"], created_bead_ids, req,
+            ) or {}
+
+        preview_queued = queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
+        turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
+
+        decision_pass = run_session_decision_pass(
+            root=root, session_id=req["session_id"],
+            visible_bead_ids=visible_ids, turn_id=req["turn_id"],
+        )
+
+        claim_updates_emitted = 0
+        canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
+        claims_batch = list(claim_telemetry.get("claims_batch") or [])
+        if emit_claim_updates_fn is not None and canonical_turn_bead_id and claims_batch:
+            claim_updates = emit_claim_updates_fn(
+                root, claims_batch, canonical_turn_bead_id,
+                session_id=req["session_id"], visible_bead_ids=visible_ids,
+                reviewed_updates=reviewed_updates, decision_pass=decision_pass,
+            ) or []
+            claim_updates_emitted = len(claim_updates)
+
+        memory_outcome_written = False
+        if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
+            md = dict(req.get("metadata") or {})
+            context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or [])
+            turn_context = {
+                "retrieved_beads": context_beads,
+                "query": str(req.get("user_query") or ""),
+                "used_memory": bool(md.get("used_memory")) or bool(context_beads),
+                "correction_triggered": bool(md.get("correction_triggered") or md.get("memory_correction")),
+                "reflection_triggered": bool(md.get("reflection_triggered") or md.get("memory_reflection")),
+            }
+            outcome = classify_memory_outcome_fn(turn_context)
+            if isinstance(outcome, dict) and write_memory_outcome_to_bead_fn is not None:
+                write_memory_outcome_to_bead_fn(
+                    root, canonical_turn_bead_id,
+                    interaction_role=outcome.get("interaction_role"),
+                    memory_outcome=outcome.get("memory_outcome"),
+                )
+                memory_outcome_written = True
+
+        emit_agent_turn_quality_metric(
+            root=root, req=req, gate=gate, updates=reviewed_updates,
+            result="success",
+        )
 
     out: dict[str, Any] = {
         "ok": True,
@@ -376,28 +376,11 @@ def process_turn_finalized_impl(
         "failed": 0,
         "delta": delta,
         "emitted": emitted,
+        "enrichment_queued": enrichment_queued,
         "crawler_handoff": {
             "required": True,
             "agent_authored_gate": gate,
-            "context_visible_count": len(visible_ids),
-            "auto_apply": auto_apply,
-            "preview_association_queued": int(preview_queued),
-            "turn_merge": {
-                "ok": bool(turn_merge.get("ok", True)),
-                "merged": int(turn_merge.get("merged") or 0),
-                "promotions_marked": int(turn_merge.get("promotions_marked") or 0),
-                "associations_appended": int(turn_merge.get("associations_appended") or 0),
-            },
-            "decision_pass": decision_pass,
         },
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
-    if claim_telemetry:
-        # internal handoff only; avoid expanding response payload with raw claims
-        claim_telemetry.pop("claims_batch", None)
-        out["claim_telemetry"] = claim_telemetry
-    if claim_updates_emitted:
-        out["claim_updates_emitted"] = int(claim_updates_emitted)
-    if memory_outcome_written:
-        out["memory_outcome_written"] = True
     return out

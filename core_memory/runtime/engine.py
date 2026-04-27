@@ -354,7 +354,7 @@ def process_turn_finalized(
     policy: SidecarPolicy | None = None,
 ) -> dict[str, Any]:
     """Canonical turn-finalized boundary entrypoint (implementation delegated)."""
-    return process_turn_finalized_impl(
+    result = process_turn_finalized_impl(
         root=root,
         session_id=session_id,
         turn_id=turn_id,
@@ -397,6 +397,16 @@ def process_turn_finalized(
         classify_memory_outcome_fn=classify_memory_outcome if claim_layer_enabled() else None,
         write_memory_outcome_to_bead_fn=write_memory_outcome_to_bead if claim_layer_enabled() else None,
     )
+
+    # F-W1: drain enrichment queue after critical path returns
+    if result.get("ok") and result.get("enrichment_queued"):
+        try:
+            from core_memory.runtime.side_effect_queue import drain_side_effect_queue
+            drain_side_effect_queue(root=root, max_items=1)
+        except Exception as exc:
+            logger.warning("engine: enrichment drain failed (bead already persisted): %s", exc)
+
+    return result
 
 
 def process_flush(
