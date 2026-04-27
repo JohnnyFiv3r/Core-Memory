@@ -16,7 +16,7 @@ from core_memory import dreamer
 from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates
 
 
-_SIDE_EFFECT_KINDS = {"dreamer-run", "neo4j-sync", "health-recompute"}
+_SIDE_EFFECT_KINDS = {"dreamer-run", "neo4j-sync", "health-recompute", "turn-enrichment"}
 _CLAIM_LEASE_SECONDS = 120
 
 
@@ -257,6 +257,15 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         out = semantic_doctor(Path(root))
         return {
             "ok": True,
+            "kind": k,
+            "result": out,
+        }
+
+    if k == "turn-enrichment":
+        from core_memory.runtime.enrichment import run_turn_enrichment
+        out = run_turn_enrichment(root=str(root), payload=p)
+        return {
+            "ok": bool(out.get("ok")),
             "kind": k,
             "result": out,
         }
