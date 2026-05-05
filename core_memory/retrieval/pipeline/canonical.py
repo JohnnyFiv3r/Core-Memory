@@ -461,6 +461,61 @@ def _parse_iso(ts: str) -> datetime | None:
         return None
 
 
+def _flatten_metadata_terms(value: Any, *, prefix: str = "") -> list[str]:
+    terms: list[str] = []
+    if isinstance(value, dict):
+        for k, v in value.items():
+            key = str(k or "").strip()
+            child_prefix = f"{prefix}.{key}" if prefix else key
+            terms.extend(_flatten_metadata_terms(v, prefix=child_prefix))
+        return terms
+    if isinstance(value, (list, tuple, set)):
+        for item in value:
+            terms.extend(_flatten_metadata_terms(item, prefix=prefix))
+        return terms
+    text = str(value or "").strip()
+    if not text:
+        return terms
+    terms.append(text)
+    if prefix:
+        terms.append(f"{prefix}={text}")
+        leaf = prefix.rsplit(".", 1)[-1]
+        if leaf != prefix:
+            terms.append(f"{leaf}={text}")
+    return terms
+
+
+def _metadata_text_blob(row: dict[str, Any], bead: dict[str, Any]) -> str:
+    parts: list[str] = []
+    for key in ("session_id", "incident_id", "created_at"):
+        value = str(row.get(key) or bead.get(key) or "").strip()
+        if value:
+            parts.append(value)
+            parts.append(f"{key}={value}")
+    for key in ("tags", "topics", "source_turn_ids"):
+        parts.extend(_flatten_metadata_terms(row.get(key) or bead.get(key) or [], prefix=key))
+    for key in ("metadata", "trace", "source", "projection"):
+        parts.extend(_flatten_metadata_terms(bead.get(key) or {}, prefix=key))
+    return " ".join(parts).lower()
+
+
+def _metadata_filter_matches(row: dict[str, Any], bead: dict[str, Any], filters: dict[str, Any]) -> bool:
+    if not filters:
+        return True
+    metadata_blob = _metadata_text_blob(row, bead)
+    for key, expected in filters.items():
+        k = str(key or "").strip()
+        if not k or k == "require_structural":
+            continue
+        values = expected if isinstance(expected, (list, tuple, set)) else [expected]
+        wanted = [str(v or "").strip().lower() for v in values if str(v or "").strip()]
+        if not wanted:
+            continue
+        if not any((f"{k.lower()}={v}" in metadata_blob) or (v in metadata_blob) for v in wanted):
+            return False
+    return True
+
+
 def _apply_typed_filters(
     rows: list[dict[str, Any]],
     by_id: dict[str, dict[str, Any]],
@@ -476,6 +531,7 @@ def _apply_typed_filters(
     bead_types = {normalize_bead_type(str(x).strip()) for x in (s.get("bead_types") or []) if str(x).strip()}
     must_terms = [str(x).strip().lower() for x in (s.get("must_terms") or []) if str(x).strip()]
     avoid_terms = [str(x).strip().lower() for x in (s.get("avoid_terms") or []) if str(x).strip()]
+    metadata_filters = dict(s.get("metadata") or s.get("metadata_filters") or {})
 
     tr = dict(s.get("time_range") or {})
     tr_from_raw = str(tr.get("from") or "").strip()
@@ -487,7 +543,7 @@ def _apply_typed_filters(
         tr_from = None
         tr_to = None
 
-    if not any([incident_id, scope, topic_keys, bead_types, must_terms, avoid_terms, tr_from, tr_to]):
+    if not any([incident_id, scope, topic_keys, bead_types, must_terms, avoid_terms, metadata_filters, tr_from, tr_to]):
         return rows, warnings
 
     out: list[dict[str, Any]] = []
@@ -499,13 +555,19 @@ def _apply_typed_filters(
         if incident_id and str(bead.get("incident_id") or "") != incident_id:
             continue
 
-        if scope and str(bead.get("scope") or "").strip().lower() != scope:
-            continue
+        if scope:
+            bead_scope = str(bead.get("scope") or "").strip().lower()
+            # Older/demo beads often do not persist scope.  Treat absent scope as
+            # unknown rather than excluding otherwise metadata-matching rows.
+            if bead_scope and bead_scope != scope:
+                continue
 
         if topic_keys:
             bead_topics = {str(x).strip().lower() for x in (bead.get("tags") or []) if str(x).strip()}
             bead_topics.update({str(x).strip().lower() for x in (bead.get("topics") or []) if str(x).strip()})
-            if not bead_topics.intersection(topic_keys):
+            # Topic hints should constrain rows that have topic metadata, but
+            # should not drop legacy rows that only carry equivalent trace metadata.
+            if bead_topics and not bead_topics.intersection(topic_keys):
                 continue
 
         if bead_types and normalize_bead_type(str(bead.get("type") or "").strip()) not in bead_types:
@@ -520,6 +582,9 @@ def _apply_typed_filters(
             if tr_to and bts > tr_to:
                 continue
 
+        if metadata_filters and not _metadata_filter_matches(row, bead, metadata_filters):
+            continue
+
         text_blob = " ".join(
             [
                 str(bead.get("title") or ""),
@@ -527,6 +592,7 @@ def _apply_typed_filters(
                 str(bead.get("detail") or ""),
                 str(row.get("semantic_text") or ""),
                 str(row.get("lexical_text") or ""),
+                _metadata_text_blob(row, bead),
             ]
         ).lower()
 
@@ -978,6 +1044,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),
+            "metadata": {**dict(facets.get("metadata") or {}), **{k: v for k, v in constraints.items() if k != "require_structural"}},
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = search_request(root=rp, query=query, k=k, intent=intent, submission=submission)
@@ -1013,6 +1080,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),
+            "metadata": {**dict(facets.get("metadata") or {}), **{k: v for k, v in constraints.items() if k != "require_structural"}},
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = trace_request(
