@@ -19,25 +19,47 @@ def _semantic_text(bead: dict[str, Any]) -> str:
     status = str(bead.get("status") or "").lower()
     detail_part = (detail[:400] if status != "archived" else "")
     text_parts = [title, typ, summary, because, facts, tags, incident_id, detail_part]
-    # Append claim subjects/values for semantic indexing
+    # Append claim fields for semantic indexing.  Slot/kind/reason terms are
+    # often the actual query words (e.g. "timezone", "response format", "why"),
+    # while the value alone can be opaque ("America/Chicago", "bullet_lists").
     if bead.get("claims"):
         for claim in bead["claims"]:
             subject = claim.get("subject", "")
+            slot = claim.get("slot", "")
+            claim_kind = claim.get("claim_kind", "")
             value = claim.get("value", "")
+            reason = claim.get("reason_text", "")
             if subject:
                 text_parts.append(subject)
+            if slot:
+                text_parts.append(str(slot).replace("_", " "))
+                text_parts.append(str(slot))
+            if claim_kind:
+                text_parts.append(str(claim_kind).replace("_", " "))
             if value and len(value) < 200:
                 text_parts.append(value)
+            if reason and len(reason) < 240:
+                text_parts.append(reason)
     return " | ".join(x for x in text_parts if x).strip()
 
 
 def _lexical_text(bead: dict[str, Any]) -> str:
+    claim_parts: list[str] = []
+    for claim in bead.get("claims") or []:
+        if not isinstance(claim, dict):
+            continue
+        for key in ("subject", "slot", "claim_kind", "value"):
+            value = str(claim.get(key) or "").strip()
+            if value:
+                claim_parts.append(value)
+                claim_parts.append(value.replace("_", " "))
     return " ".join(
         [
             str(bead.get("title") or ""),
             " ".join(str(x) for x in (bead.get("summary") or [])),
             " ".join(str(x) for x in (bead.get("tags") or [])),
             str(bead.get("incident_id") or ""),
+            " ".join(claim_parts),
         ]
     ).strip()
 
