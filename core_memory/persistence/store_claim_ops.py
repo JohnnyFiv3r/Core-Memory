@@ -251,7 +251,17 @@ def _all_claim_rows(root: str) -> tuple[list[dict], list[dict]]:
 
     for bead_id in sorted(beads.keys()):
         row = beads.get(bead_id) or {}
-        all_claims.extend(_normalize_claim_rows(row.get("claims") or []))
+        source_turn_ids = [str(x).strip() for x in (row.get("source_turn_ids") or []) if str(x).strip()]
+        normalized_claims = _normalize_claim_rows(row.get("claims") or [])
+        # Preserve the bead provenance after schema normalization so retrieval
+        # can ground claim-state anchors back to the original evidence bead.
+        # These fields are read-model annotations, not part of the persisted
+        # canonical Claim schema.
+        for claim in normalized_claims:
+            claim.setdefault("source_bead_id", str(bead_id))
+            if source_turn_ids:
+                claim.setdefault("source_turn_ids", list(source_turn_ids))
+        all_claims.extend(normalized_claims)
         all_updates.extend(_normalize_claim_update_rows(row.get("claim_updates") or []))
 
     # legacy compatibility read (append-only fallback for existing sidecar data)

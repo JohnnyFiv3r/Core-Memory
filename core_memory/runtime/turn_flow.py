@@ -120,102 +120,6 @@ def process_turn_finalized_impl(
                 "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
             }
 
-    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
-    invoked_updates, invocation_diag = invoke_turn_crawler_agent(
-        root=root,
-        req=req,
-        crawler_context=crawler_ctx,
-    )
-
-    req_for_updates = dict(req)
-    md_for_updates = dict(req.get("metadata") or {})
-    source_override = None
-    if isinstance(md_for_updates.get("crawler_updates"), dict) and md_for_updates.get("crawler_updates"):
-        source_override = "metadata.crawler_updates"
-    elif isinstance(invoked_updates, dict) and invoked_updates:
-        md_for_updates["crawler_updates"] = dict(invoked_updates)
-        source_override = "agent_callable"
-    req_for_updates["metadata"] = md_for_updates
-
-    reviewed_updates, gate = resolve_reviewed_updates(
-        req_for_updates,
-        source_override=source_override,
-        invocation_diag=invocation_diag,
-    )
-    if gate.get("blocked"):
-        emit_agent_turn_quality_metric(
-            root=root,
-            req=req,
-            gate=gate,
-            updates=reviewed_updates,
-            result="blocked",
-            error_code=str(gate.get("error_code") or error_agent_updates_missing),
-        )
-        return {
-            "ok": False,
-            "mode": "turn",
-            "authority_path": "canonical_in_process",
-            "processed": 0,
-            "failed": 1,
-            "error_code": str(gate.get("error_code") or error_agent_updates_missing),
-            "error": "agent-authored crawler updates required",
-            "emitted": emitted,
-            "crawler_handoff": {
-                "required": True,
-                "agent_authored_gate": gate,
-            },
-            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-        }
-
-    # F-W2: gate severity — hard mode blocks, warn mode flags, off mode skips
-    _structural_coverage_missing = False
-    if bool(gate.get("required")) and isinstance(reviewed_updates, dict):
-        prior_beads = session_visible_bead_ids(root=root, session_id=req["session_id"])
-        min_required = int(agent_min_semantic_associations_after_first())
-        semantic_count = int(non_temporal_semantic_association_count(reviewed_updates))
-        gate["semantic_policy"] = {
-            "prior_bead_count": len(prior_beads),
-            "min_required_after_first": min_required,
-            "semantic_assoc_count": semantic_count,
-        }
-        if len(prior_beads) >= 1 and semantic_count < min_required:
-            if not bool(gate.get("fail_open")):
-                # hard mode: block the turn
-                gate["blocked"] = True
-                gate["error_code"] = error_agent_semantic_coverage_missing
-                emit_agent_turn_quality_metric(
-                    root=root,
-                    req=req,
-                    gate=gate,
-                    updates=reviewed_updates,
-                    result="blocked",
-                    error_code=error_agent_semantic_coverage_missing,
-                )
-                return {
-                    "ok": False,
-                    "mode": "turn",
-                    "authority_path": "canonical_in_process",
-                    "processed": 0,
-                    "failed": 1,
-                    "error_code": error_agent_semantic_coverage_missing,
-                    "error": "insufficient non-temporal semantic associations for non-initial turn",
-                    "emitted": emitted,
-                    "crawler_handoff": {
-                        "required": True,
-                        "agent_authored_gate": gate,
-                    },
-                    "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-                }
-            else:
-                # warn mode: flag the bead but proceed
-                _structural_coverage_missing = True
-                gate["warned"] = True
-                logger.warning(
-                    "agent-authored gate: structural coverage missing (warn mode), "
-                    "session=%s turn=%s semantic_count=%d min_required=%d",
-                    req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
-                )
-
     claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
     if not claimed:
         emit_agent_turn_quality_metric(
@@ -266,6 +170,108 @@ def process_turn_finalized_impl(
             "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
         }
 
+    # Current architecture target: write the canonical turn bead first, then crawl associations/promotions against post-write session state.
+    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
+    invoked_updates, invocation_diag = invoke_turn_crawler_agent(
+        root=root,
+        req=req,
+        crawler_context=crawler_ctx,
+    )
+
+    req_for_updates = dict(req)
+    md_for_updates = dict(req.get("metadata") or {})
+    source_override = None
+    if isinstance(md_for_updates.get("crawler_updates"), dict) and md_for_updates.get("crawler_updates"):
+        source_override = "metadata.crawler_updates"
+    elif isinstance(invoked_updates, dict) and invoked_updates:
+        md_for_updates["crawler_updates"] = dict(invoked_updates)
+        source_override = "agent_callable"
+    req_for_updates["metadata"] = md_for_updates
+
+    reviewed_updates, gate = resolve_reviewed_updates(
+        req_for_updates,
+        source_override=source_override,
+        invocation_diag=invocation_diag,
+    )
+    if gate.get("blocked"):
+        emit_agent_turn_quality_metric(
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
+            result="blocked",
+            error_code=str(gate.get("error_code") or error_agent_updates_missing),
+        )
+        return {
+            "ok": False,
+            "mode": "turn",
+            "authority_path": "canonical_in_process",
+            "processed": 0,
+            "failed": 1,
+            "error_code": str(gate.get("error_code") or error_agent_updates_missing),
+            "error": "agent-authored crawler updates required",
+            "emitted": emitted,
+            "crawler_handoff": {
+                "required": True,
+                "agent_authored_gate": gate,
+            },
+            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+        }
+
+    _structural_coverage_missing = False
+    if not isinstance(reviewed_updates, dict):
+        reviewed_updates = default_crawler_updates(req)
+    reviewed_updates = ensure_turn_creation_update(root, req, reviewed_updates)
+
+    # Rebuild post-write crawler context so association/promotion decisions operate on the bead-centric session surface.
+    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
+
+    # F-W2: gate severity — hard mode blocks, warn mode flags, off mode skips
+    if bool(gate.get("required")) and isinstance(reviewed_updates, dict):
+        prior_beads = session_visible_bead_ids(root=root, session_id=req["session_id"])
+        min_required = int(agent_min_semantic_associations_after_first())
+        semantic_count = int(non_temporal_semantic_association_count(reviewed_updates))
+        gate["semantic_policy"] = {
+            "prior_bead_count": len(prior_beads),
+            "min_required_after_first": min_required,
+            "semantic_assoc_count": semantic_count,
+        }
+        if len(prior_beads) >= 1 and semantic_count < min_required:
+            if not bool(gate.get("fail_open")):
+                gate["blocked"] = True
+                gate["error_code"] = error_agent_semantic_coverage_missing
+                emit_agent_turn_quality_metric(
+                    root=root,
+                    req=req,
+                    gate=gate,
+                    updates=reviewed_updates,
+                    result="blocked",
+                    error_code=error_agent_semantic_coverage_missing,
+                )
+                return {
+                    "ok": False,
+                    "mode": "turn",
+                    "authority_path": "canonical_in_process",
+                    "processed": 0,
+                    "failed": 1,
+                    "error_code": error_agent_semantic_coverage_missing,
+                    "error": "insufficient non-temporal semantic associations for non-initial turn",
+                    "emitted": emitted,
+                    "crawler_handoff": {
+                        "required": True,
+                        "agent_authored_gate": gate,
+                    },
+                    "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+                }
+            else:
+                _structural_coverage_missing = True
+                gate["warned"] = True
+                logger.warning(
+                    "agent-authored gate: structural coverage missing (warn mode), "
+                    "session=%s turn=%s semantic_count=%d min_required=%d",
+                    req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
+                )
+
     # F-W2: flag the bead in warn mode if coverage was insufficient
     if _structural_coverage_missing:
         bead_id = str((delta or {}).get("bead_id") or "")
@@ -277,10 +283,6 @@ def process_turn_finalized_impl(
             if bead:
                 bead["structural_coverage_missing"] = True
                 store._write_json(store.beads_dir / "index.json", idx)
-
-    if not isinstance(reviewed_updates, dict):
-        reviewed_updates = default_crawler_updates(req)
-    reviewed_updates = ensure_turn_creation_update(root, req, reviewed_updates)
 
     # F-W1: enqueue enrichment stages instead of running them inline.
     # The bead is already persisted — enrichment is post-commit.
