@@ -136,7 +136,54 @@ class TestClaimRetrievalCanonicalIntegration(unittest.TestCase):
             first = (out.get("results") or [{}])[0]
             self.assertEqual("claim_state", first.get("source_surface"))
             self.assertEqual("claim_current_state", first.get("anchor_reason"))
+            self.assertEqual("America/Chicago", first.get("claim_value"))
+            self.assertEqual("claim-tz-1", first.get("claim_id"))
             self.assertEqual("answer_current", out.get("answer_outcome"))
+
+    def test_when_query_does_not_get_swamped_by_claim_anchors(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_CLAIM_LAYER": "1",
+                "CORE_MEMORY_CLAIM_RESOLUTION": "1",
+                "CORE_MEMORY_CLAIM_RETRIEVAL_BOOST": "1",
+                "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed",
+            },
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            s.add_bead(type="context", title="Support group", summary=["Caroline went to the LGBTQ support group on Tuesday"], session_id="main", source_turn_ids=["D1:3"])
+            s.add_bead(type="context", title="Caroline profile", summary=["Caroline is a transgender woman"], session_id="main", source_turn_ids=["D14:19"])
+            write_claims_to_bead(
+                td,
+                "bead-profile",
+                [
+                    {
+                        "id": "claim-identity-1",
+                        "claim_kind": "identity",
+                        "subject": "Caroline",
+                        "slot": "identity",
+                        "value": "transgender woman",
+                        "reason_text": "Caroline said she is a transgender woman",
+                        "confidence": 0.9,
+                    }
+                ],
+            )
+
+            out = memory_tools.execute(
+                {
+                    "raw_query": "When did Caroline go to the LGBTQ support group?",
+                    "intent": "remember",
+                    "constraints": {"require_structural": False},
+                    "k": 5,
+                },
+                root=td,
+                explain=True,
+            )
+
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(0, int((out.get("claim_context") or {}).get("claim_anchor_count") or 0))
+            self.assertNotEqual("claim_state", (out.get("results") or [{}])[0].get("source_surface"))
 
 
 if __name__ == "__main__":

@@ -81,7 +81,39 @@ def _query_terms(text: str) -> set[str]:
     import re
 
     s = str(text or "").lower().replace("_", " ").replace("-", " ")
-    return {tok for tok in re.findall(r"[a-z0-9]+", s) if len(tok) >= 3}
+    stop = {
+        "the", "and", "for", "from", "with", "what", "when", "where", "which", "who", "why", "how",
+        "did", "does", "was", "were", "has", "have", "had", "take", "took", "kind", "kinds",
+        "many", "much", "been", "being", "into", "onto", "about", "that", "this", "these", "those",
+        "jan", "january", "feb", "february", "mar", "march", "apr", "april", "may", "jun", "june",
+        "jul", "july", "aug", "august", "sep", "sept", "september", "oct", "october", "nov", "november", "dec", "december",
+    }
+    out: set[str] = set()
+    for tok in re.findall(r"[a-z0-9]+", s):
+        if len(tok) < 3 or tok in stop or tok.isdigit():
+            continue
+        out.add(tok)
+        if len(tok) > 3 and tok.endswith("s"):
+            out.add(tok[:-1])
+    return out
+
+
+def _claim_query_signal(query: str, retrieval_mode: str) -> bool:
+    q = _query_terms(query)
+    raw = str(query or "").strip().lower()
+    # Claim anchors are most helpful for entity/attribute slots.  Avoid using
+    # them as a blanket prefix for temporal/event questions, where same-person
+    # claim history can swamp better turn-level retrieval.
+    if raw.startswith("when "):
+        return False
+    if retrieval_mode == "fact_first":
+        return True
+    attr_terms = {
+        "car", "vehicle", "drive", "owned", "own", "broken", "hobby", "identity", "relationship",
+        "status", "research", "researched", "topic", "field", "education", "roadtrip", "destination",
+        "prius", "painting", "single",
+    }
+    return bool(q.intersection(attr_terms))
 
 
 def _claim_anchors_from_state(
@@ -110,67 +142,95 @@ def _claim_anchors_from_state(
             continue
         candidate_slot_count += 1
 
-        claim = slot_data.get("current_claim") or {}
-        if not isinstance(claim, dict) or not claim:
-            # Conflict slots may not have a stable current claim — use one conflict target when present.
-            conflicts = list(slot_data.get("conflicts") or [])
-            claim = dict(conflicts[0] or {}) if conflicts and isinstance(conflicts[0], dict) else {}
-        if not isinstance(claim, dict):
-            continue
+        claim_candidates: list[dict[str, Any]] = []
+        current_claim = slot_data.get("current_claim") or {}
+        if isinstance(current_claim, dict) and current_claim:
+            claim_candidates.append(dict(current_claim))
+        # Attribute/count questions often need historical values, not only the
+        # latest resolved state (e.g. "how many cars has Evan owned?").  Include
+        # matching slot history as secondary candidates so claim retrieval can
+        # surface the original evidence beads instead of collapsing everything
+        # to one current value.
+        for hist in list(slot_data.get("history") or []):
+            if isinstance(hist, dict) and hist:
+                hid = str(hist.get("id") or "")
+                if hid and any(str(c.get("id") or "") == hid for c in claim_candidates):
+                    continue
+                claim_candidates.append(dict(hist))
+        if not claim_candidates:
+            # Conflict slots may not have a stable current claim — use conflict targets when present.
+            claim_candidates = [dict(c or {}) for c in list(slot_data.get("conflicts") or []) if isinstance(c, dict)]
 
         key_s = str(key or "")
         subject, _, slot = key_s.partition(":")
-        value = claim.get("value")
-        value_s = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
-        claim_terms = _query_terms(" ".join([subject, slot, str(claim.get("claim_kind") or ""), value_s]))
-        overlap = len(q.intersection(claim_terms))
-        if overlap == 0 and not (generic_personal and candidate_slot_count == 1):
-            continue
+        for claim in claim_candidates:
+            if not isinstance(claim, dict):
+                continue
+            value = claim.get("value")
+            value_s = value if isinstance(value, str) else json.dumps(value, ensure_ascii=False)
+            subject_terms = _query_terms(subject)
+            core_signal_terms = _query_terms(" ".join([slot, str(claim.get("claim_kind") or ""), value_s]))
+            reason_terms = _query_terms(str(claim.get("reason_text") or ""))
+            signal_terms = core_signal_terms | reason_terms
+            claim_terms = subject_terms | signal_terms
+            overlap = len(q.intersection(claim_terms))
+            signal_overlap = len(q.intersection(core_signal_terms))
+            subject_overlap = len(q.intersection(subject_terms))
+            if overlap == 0 and not (generic_personal and candidate_slot_count == 1):
+                continue
+            # A shared person/entity name alone is not enough to pin claim
+            # anchors; otherwise every "Caroline ..." question gets swamped by
+            # unrelated Caroline claims.  Require a slot/value/reason match too.
+            if signal_overlap == 0 and not (generic_personal and candidate_slot_count == 1):
+                continue
 
-        conf = float(claim.get("confidence") or 0.6)
-        if slot_status == "conflict":
-            score = min(0.94, max(0.58, conf + (0.03 * overlap)))
-        else:
-            score = min(0.98, max(0.62, conf + (0.03 * overlap)))
-        bid = f"claim:{subject}:{slot}"
+            conf = float(claim.get("confidence") or 0.6)
+            if slot_status == "conflict":
+                score = min(0.94, max(0.58, conf + (0.03 * overlap) + (0.06 * subject_overlap)))
+            else:
+                score = min(0.98, max(0.62, conf + (0.03 * overlap) + (0.06 * subject_overlap)))
+            source_bid = str(claim.get("source_bead_id") or "").strip()
+            bid = source_bid or f"claim:{subject}:{slot}:{str(claim.get('id') or '')}"
 
-        summary_line = f"Current {slot}: {value_s}"
-        if slot_status == "conflict":
-            conflict_vals = []
-            for c in (slot_data.get("conflicts") or []):
-                if not isinstance(c, dict):
-                    continue
-                cv = c.get("value")
-                if cv is None:
-                    continue
-                conflict_vals.append(str(cv))
-            if conflict_vals:
-                summary_line = f"Conflicting {slot}: {' vs '.join(conflict_vals[:3])}"
+            summary_line = f"Current {slot}: {value_s}"
+            if slot_status == "conflict":
+                conflict_vals = []
+                for c in (slot_data.get("conflicts") or []):
+                    if not isinstance(c, dict):
+                        continue
+                    cv = c.get("value")
+                    if cv is None:
+                        continue
+                    conflict_vals.append(str(cv))
+                if conflict_vals:
+                    summary_line = f"Conflicting {slot}: {' vs '.join(conflict_vals[:3])}"
 
-        by_id[bid] = {
-            "bead": {
-                "id": bid,
-                "title": f"{subject} {slot}".strip(),
-                "type": "context",
-                "summary": [summary_line],
-            },
-            "source_surface": "claim_state",
-            "status": slot_status or "default",
-        }
-        out.append(
-            {
-                "bead_id": bid,
-                "score": score,
-                "anchor_reason": "claim_conflict_state" if slot_status == "conflict" else "claim_current_state",
+            by_id.setdefault(bid, {
+                "bead": {
+                    "id": bid,
+                    "title": f"{subject} {slot}".strip(),
+                    "type": "context",
+                    "summary": [summary_line],
+                    "source_turn_ids": list(claim.get("source_turn_ids") or []),
+                },
                 "source_surface": "claim_state",
                 "status": slot_status or "default",
-                "context_bias_score": 0.0,
-                "claim_slot_key": key_s,
-                "claim_id": str(claim.get("id") or ""),
-                "claim_value": value,
-                "claim_status": slot_status,
-            }
-        )
+            })
+            out.append(
+                {
+                    "bead_id": bid,
+                    "score": score,
+                    "anchor_reason": "claim_conflict_state" if slot_status == "conflict" else "claim_current_state",
+                    "source_surface": "claim_state",
+                    "status": slot_status or "default",
+                    "context_bias_score": 0.0,
+                    "claim_slot_key": key_s,
+                    "claim_id": str(claim.get("id") or ""),
+                    "claim_value": value,
+                    "claim_status": slot_status,
+                    "dia_ids": list(claim.get("source_turn_ids") or []),
+                }
+            )
 
     out.sort(key=lambda r: float(r.get("score") or 0.0), reverse=True)
     return out[: max(1, int(limit))]
@@ -446,6 +506,9 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
         "status": str(res.get("status") or row.get("status") or ""),
         "claim_slot_key": str(res.get("claim_slot_key") or ""),
         "claim_id": str(res.get("claim_id") or ""),
+        "claim_value": res.get("claim_value"),
+        "claim_status": str(res.get("claim_status") or ""),
+        "dia_ids": list(res.get("dia_ids") or []),
     }
 
 
@@ -755,7 +818,7 @@ def search_request(
             added += 1
 
     claim_rows: list[dict[str, Any]] = []
-    if claim_state:
+    if claim_state and _claim_query_signal(query, retrieval_mode):
         claim_limit = max(1, min(3, int(k))) if retrieval_mode == "fact_first" else max(1, min(2, int(k)))
         claim_rows = _claim_anchors_from_state(
             query=query,
