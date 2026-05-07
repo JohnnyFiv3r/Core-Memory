@@ -1024,11 +1024,40 @@ def trace_request(
             if bid and bid not in {x.get("bead_id") for x in citations}:
                 citations.append({"bead_id": bid, "title": str(a.get("title") or ""), "type": str(a.get("type") or "")})
 
+    results = list(anchors)
+    seen_result_ids = {str(a.get("bead_id") or "") for a in results if str(a.get("bead_id") or "")}
+    if chains:
+        corpus = build_visible_corpus(Path(root))
+        by_id = {str(r.get("bead_id") or ""): r for r in corpus}
+        for chain in chains:
+            chain_score = float(chain.get("score") or 0.0)
+            for idx, bid in enumerate([str(x or "").strip() for x in (chain.get("path") or []) if str(x or "").strip()]):
+                if not bid or bid in seen_result_ids:
+                    continue
+                if bid not in by_id:
+                    continue
+                results.append(
+                    _to_anchor(
+                        {
+                            "bead_id": bid,
+                            "score": max(0.0, chain_score - (0.01 * idx)),
+                            "anchor_reason": "trace_chain",
+                            "source_surface": "causal_trace",
+                        },
+                        by_id,
+                    )
+                )
+                seen_result_ids.add(bid)
+                if len(results) >= max(1, int(k)):
+                    break
+            if len(results) >= max(1, int(k)):
+                break
+
     out = {
         "ok": True,
         "degraded": bool(anchors_out.get("degraded", False)),
         "anchors": anchors,
-        "results": anchors,  # compatibility alias
+        "results": results,
         "chains": chains,
         "citations": citations,
         "grounding": {
@@ -1050,6 +1079,7 @@ def trace_request(
         "warnings": list(anchors_out.get("warnings") or []),
         "snapped": anchors_out.get("snapped") or {"raw_query": query, "intent": intent, "k": int(k)},
         "hydration": {"status": "not_requested", "warnings": []},
+        "trace_diagnostics": dict(trav.get("assoc_diag") or {}),
     }
 
     hyd_req = dict(hydration or {})
