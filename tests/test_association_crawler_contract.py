@@ -78,6 +78,47 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             self.assertEqual(0, out.get("associations_appended"))
 
+    def test_current_turn_source_alias_resolves_after_creation(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            prior = s.add_bead(type="context", title="Prior", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+
+            out = apply_crawler_turn_updates(
+                root=td,
+                session_id="s1",
+                visible_bead_ids=[prior],
+                updates={
+                    "beads_create": [
+                        {
+                            "type": "context",
+                            "title": "Current",
+                            "summary": ["y"],
+                            "source_turn_ids": ["t2"],
+                        }
+                    ],
+                    "associations": [
+                        {
+                            "source_bead_id": "__current_turn__",
+                            "target_bead_id": prior,
+                            "relationship": "supports",
+                            "reason_text": "current turn supports prior context",
+                            "confidence": 0.8,
+                        }
+                    ],
+                },
+            )
+
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(1, out.get("associations_appended"))
+            rows = [json.loads(line) for line in Path(out.get("queued_to") or "").read_text(encoding="utf-8").splitlines() if line.strip()]
+            assoc = [r for r in rows if r.get("kind") == "association_append"][0]
+            self.assertNotEqual("__current_turn__", assoc.get("source_bead"))
+            self.assertEqual(prior, assoc.get("target_bead"))
+
+            session_rows = [json.loads(line) for line in (Path(td) / ".beads" / "session-s1.jsonl").read_text(encoding="utf-8").splitlines() if line.strip()]
+            current = [r for r in session_rows if "t2" in (r.get("source_turn_ids") or [])][0]
+            self.assertEqual(current.get("id"), assoc.get("source_bead"))
+
     def test_reviewed_nested_association_preserves_v21_fields(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)

@@ -102,6 +102,14 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
     return promotions_dedup, associations_norm, lifecycle_norm
 
 
+CURRENT_TURN_ASSOC_SOURCE_ALIASES = {
+    "__current_turn__",
+    "current_turn",
+    "$current_turn",
+    "@current_turn",
+}
+
+
 def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
     rows = [x for x in (updates.get("beads_create") or []) if isinstance(x, dict)]
     out: list[dict[str, Any]] = []
@@ -455,10 +463,11 @@ def apply_crawler_updates(
     """
     created = 0
     creation_rows = _normalize_creation_rows(updates or {})
+    current_turn_bead_id = ""
     if creation_rows:
         store = MemoryStore(root)
         for row in creation_rows:
-            store.add_bead(
+            bead_id = store.add_bead(
                 type=str(row.get("type") or "context"),
                 title=str(row.get("title") or "assistant turn"),
                 summary=list(row.get("summary") or []),
@@ -485,6 +494,8 @@ def apply_crawler_updates(
                 turn_index=row.get("turn_index"),
             )
             created += 1
+            if not current_turn_bead_id:
+                current_turn_bead_id = str(bead_id or "")
 
     idx_file = Path(root) / ".beads" / "index.json"
     with store_lock(Path(root)):
@@ -507,6 +518,11 @@ def apply_crawler_updates(
             allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
 
         promotions, assoc_rows, lifecycle_rows = _normalize_review_rows(updates or {})
+        if current_turn_bead_id:
+            for assoc_row in assoc_rows:
+                src = str(assoc_row.get("source_bead") or "").strip()
+                if src.lower() in CURRENT_TURN_ASSOC_SOURCE_ALIASES:
+                    assoc_row["source_bead"] = current_turn_bead_id
         now = datetime.now(timezone.utc).isoformat()
         log_path = _crawler_updates_log_path(root, session_id)
         strict_default = os.environ.get("CORE_MEMORY_ASSOC_STRICT", "1") != "0"
