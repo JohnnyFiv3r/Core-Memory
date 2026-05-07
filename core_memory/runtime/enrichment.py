@@ -75,7 +75,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     )
     from core_memory.runtime.association_pass import run_association_pass
     from core_memory.association.crawler_contract import merge_crawler_updates
-    from core_memory.runtime.session_decision import run_session_decision_pass
+    from core_memory.runtime.decision_pass import run_session_decision_pass
     from core_memory.integrations.openclaw_flags import (
         claim_layer_enabled,
     )
