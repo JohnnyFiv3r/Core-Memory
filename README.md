@@ -187,7 +187,30 @@ pip install "core-memory[dev]"
 
 ## Fastest Paths
 
-### 1) Smallest believable product path (5 minutes)
+### 1) Friendliest Python path
+
+Use `capture` for observed conversation writes and `recall` for single-query reads. `capture` is the quick-start name for the canonical `process_turn_finalized(...)` boundary; `recall` currently delegates to `memory_execute(...)`.
+
+```python
+from core_memory import capture, recall
+
+root = "./memory"
+
+capture(
+    root=root,
+    session_id="quickstart",
+    turn_id="t1",
+    user_query="Why did we choose Postgres?",
+    assistant_final="Decision: choose Postgres because JSONB lowers integration risk.",
+)
+
+out = recall("why did we choose Postgres?", root=root)
+print(out.get("ok"), len(out.get("results") or []))
+```
+
+`remember(...)` is intentionally not part of this surface yet; that future verb is reserved for declarative user-authored memory writes (tracked separately in TODO #21 / future PRD work).
+
+### 2) Smallest believable product path (5 minutes)
 
 No adapters, no direct `MemoryStore` calls, canonical boundaries only.
 
@@ -260,7 +283,7 @@ Source-checkout equivalent example script:
 PYTHONPATH=. python3 examples/canonical_5min.py
 ```
 
-### 2) Canonical Python runtime/retrieval path
+### 3) Canonical Python runtime/retrieval path
 
 ```python
 from core_memory import process_turn_finalized, memory_execute
@@ -284,7 +307,7 @@ out = memory_execute(
 print(out.get("ok"), len(out.get("results") or []))
 ```
 
-### 3) CLI retrieval surface
+### 4) CLI retrieval surface
 
 Once memory exists, canonical retrieval CLI is:
 
@@ -294,7 +317,7 @@ core-memory --root ./memory memory trace --query "why redis pool"
 core-memory --root ./memory memory execute --request '{"raw_query":"why redis","intent":"causal","k":5}'
 ```
 
-### 4) Compatibility store API (advanced / direct persistence)
+### 5) Compatibility store API (advanced / direct persistence)
 
 `MemoryStore` remains available for direct persistence workflows and migrations,
 but it is not the primary canonical runtime path.
