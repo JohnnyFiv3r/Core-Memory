@@ -2,6 +2,7 @@
   "id": "core-memory-bridge",
   "name": "Core Memory Bridge",
   "description": "Routes OpenClaw lifecycle events into Core Memory canonical ingress/flush paths.",
+  "skills": ["skills/core-memory"],
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

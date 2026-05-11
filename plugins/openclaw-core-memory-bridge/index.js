@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 const plugin = {
   id: "core-memory-bridge",
@@ -24,6 +24,27 @@ const plugin = {
       } catch {}
     };
     debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} enableAgentEnd=${cfg.enableAgentEnd} enableMemorySearch=${cfg.enableMemorySearch} enableCompactionFlush=${cfg.enableCompactionFlush}`);
+
+    const loadSkillInstructions = () => {
+      try {
+        const url = new URL("../../docs/integrations/openclaw/core-memory-skill-instructions.md", import.meta.url);
+        return readFileSync(url, "utf8").trim();
+      } catch (err) {
+        api.logger?.warn?.(`core-memory-bridge: failed to load skill instructions: ${String(err)}`);
+        return "";
+      }
+    };
+
+    if (typeof api.registerMemoryPromptSupplement === "function") {
+      const instructions = loadSkillInstructions();
+      if (instructions) {
+        api.registerMemoryPromptSupplement(() => [
+          "## Core Memory Bridge Instructions",
+          instructions,
+          "",
+        ]);
+      }
+    }
 
     const runBridge = (moduleName, payload, opts = {}) =>
       new Promise((resolve) => {
