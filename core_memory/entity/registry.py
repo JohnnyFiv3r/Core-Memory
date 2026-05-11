@@ -7,6 +7,53 @@ from pathlib import Path
 from typing import Any
 
 
+_ENTITY_STOPWORDS = {
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "for",
+    "from",
+    "here",
+    "how",
+    "if",
+    "in",
+    "into",
+    "is",
+    "it",
+    "its",
+    "of",
+    "on",
+    "or",
+    "our",
+    "that",
+    "the",
+    "their",
+    "then",
+    "there",
+    "these",
+    "this",
+    "those",
+    "to",
+    "was",
+    "we",
+    "what",
+    "when",
+    "where",
+    "which",
+    "who",
+    "why",
+    "with",
+    "you",
+    "your",
+}
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -20,6 +67,19 @@ def normalize_entity_alias(value: str | None) -> str:
     s = re.sub(r"\b(inc|incorporated|corp|corporation|llc|ltd|limited|co|company)\b", "", s)
     s = re.sub(r"\s+", " ", s).strip()
     return s.replace(" ", "")
+
+
+def _is_valid_entity_alias(raw_label: str, normalized: str) -> bool:
+    raw = str(raw_label or "").strip()
+    norm = str(normalized or "").strip().lower()
+    if not raw or not norm:
+        return False
+    if norm in _ENTITY_STOPWORDS:
+        return False
+    # A single ordinary word is usually noise unless it has stronger shape.
+    if len(norm) < 4 and not any(ch.isdigit() for ch in norm):
+        return False
+    return True
 
 
 def _new_entity_id(normalized_label: str) -> str:
@@ -67,8 +127,8 @@ def upsert_canonical_entity(
 
     raw_label = str(label or "").strip()
     normalized = normalize_entity_alias(raw_label)
-    if not normalized:
-        return {"ok": False, "error": "empty_label"}
+    if not _is_valid_entity_alias(raw_label, normalized):
+        return {"ok": False, "error": "invalid_label"}
 
     entity_id = _find_entity_id(index, normalized)
     created = False

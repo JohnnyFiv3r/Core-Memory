@@ -462,6 +462,7 @@ def apply_crawler_updates(
     - associations (queued side-log)
     """
     created = 0
+    created_bead_ids: list[str] = []
     creation_rows = _normalize_creation_rows(updates or {})
     current_turn_bead_id = ""
     if creation_rows:
@@ -494,6 +495,8 @@ def apply_crawler_updates(
                 turn_index=row.get("turn_index"),
             )
             created += 1
+            if bead_id:
+                created_bead_ids.append(str(bead_id))
             if not current_turn_bead_id:
                 current_turn_bead_id = str(bead_id or "")
 
@@ -696,6 +699,8 @@ def apply_crawler_updates(
     return {
         "ok": True,
         "beads_created": created,
+        "created_bead_ids": created_bead_ids,
+        "current_turn_bead_id": current_turn_bead_id,
         "promotions_marked": promoted,
         "associations_appended": appended,
         "association_lifecycle_queued": lifecycle_queued,

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import importlib
 import json
+import os
 from pathlib import Path
 from typing import Any, Callable
 
@@ -64,6 +66,69 @@ def process_turn_finalized_impl(
         window_bead_ids=window_bead_ids,
         metadata=metadata,
     )
+
+    # Hard agent-authored failures should be side-effect-free: validate metadata
+    # / missing-callable cases before semantic checkpoints, event writes, or store init.
+    md_preflight = req.get("metadata") if isinstance(req.get("metadata"), dict) else {}
+    reviewed_preflight = (md_preflight or {}).get("crawler_updates") if isinstance(md_preflight, dict) else None
+    invocation_preflight: dict[str, Any] | None = None
+    defer_preflight_to_contextual_agent = False
+    source_preflight: str | None = "metadata.crawler_updates" if isinstance(reviewed_preflight, dict) and reviewed_preflight else None
+    if not source_preflight:
+        callable_path = str(os.environ.get("CORE_MEMORY_AGENT_CRAWLER_CALLABLE") or "").strip()
+        if callable_path:
+            try:
+                if ":" not in callable_path:
+                    raise ValueError("CORE_MEMORY_AGENT_CRAWLER_CALLABLE must be module:function")
+                mod_name, fn_name = callable_path.split(":", 1)
+                fn = getattr(importlib.import_module(mod_name.strip()), fn_name.strip(), None)
+                if not callable(fn):
+                    raise ValueError(f"callable not found: {callable_path}")
+            except Exception as exc:
+                invocation_preflight = {
+                    "attempted": True,
+                    "ok": False,
+                    "source": "agent_callable",
+                    "attempts": 0,
+                    "error_code": "agent_callable_missing",
+                    "reason": "invalid_CORE_MEMORY_AGENT_CRAWLER_CALLABLE",
+                    "error": str(exc),
+                    "callable": callable_path,
+                }
+            else:
+                # A valid callable may require crawler_context; let the normal
+                # post-checkpoint path invoke it with full context rather than
+                # calling it here with an empty one.
+                defer_preflight_to_contextual_agent = True
+        else:
+            invoked_preflight, invocation_preflight = invoke_turn_crawler_agent(root=root, req=req, crawler_context={})
+            if isinstance(invoked_preflight, dict) and invoked_preflight:
+                md_copy = dict(req.get("metadata") or {})
+                md_copy["crawler_updates"] = dict(invoked_preflight)
+                md_copy["_crawler_updates_source"] = "agent_callable"
+                req["metadata"] = md_copy
+                source_preflight = "agent_callable"
+    if not defer_preflight_to_contextual_agent:
+        reviewed_probe, gate_probe = resolve_reviewed_updates(
+            req,
+            source_override=source_preflight,
+            invocation_diag=invocation_preflight,
+        )
+        if gate_probe.get("blocked"):
+            return {
+                "ok": False,
+                "mode": "turn",
+                "authority_path": "canonical_in_process",
+                "processed": 0,
+                "failed": 1,
+                "error_code": str(gate_probe.get("error_code") or error_agent_updates_missing),
+                "error": "agent-authored crawler updates required",
+                "crawler_handoff": {
+                    "required": True,
+                    "agent_authored_gate": gate_probe,
+                },
+                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
+            }
 
     mark_turn_checkpoint(root, turn_id=req["turn_id"])
 
@@ -182,7 +247,7 @@ def process_turn_finalized_impl(
     md_for_updates = dict(req.get("metadata") or {})
     source_override = None
     if isinstance(md_for_updates.get("crawler_updates"), dict) and md_for_updates.get("crawler_updates"):
-        source_override = "metadata.crawler_updates"
+        source_override = str(md_for_updates.get("_crawler_updates_source") or "metadata.crawler_updates")
     elif isinstance(invoked_updates, dict) and invoked_updates:
         md_for_updates["crawler_updates"] = dict(invoked_updates)
         source_override = "agent_callable"
@@ -303,6 +368,14 @@ def process_turn_finalized_impl(
         )
         enrichment_queued = bool(enqueue_result and enqueue_result.get("ok"))
 
+    auto_apply: dict[str, Any] = {}
+    preview_queued = 0
+    turn_merge: dict[str, Any] = {}
+    decision_pass: dict[str, Any] = {}
+    claim_telemetry: dict[str, Any] = {}
+    claim_updates_emitted = 0
+    memory_outcome_written = False
+
     if not enrichment_queued:
         # Fallback: run enrichment stages inline (pre-F-W1 behavior)
         crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
@@ -319,7 +392,6 @@ def process_turn_finalized_impl(
         session_visible_after = session_visible_bead_ids(root=root, session_id=req["session_id"])
         visible_ids = sorted(set(crawler_visible + session_visible_after))
 
-        claim_telemetry: dict[str, Any] = {}
         if extract_and_attach_claims_fn is not None:
             created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
             claim_telemetry = extract_and_attach_claims_fn(
@@ -334,7 +406,6 @@ def process_turn_finalized_impl(
             visible_bead_ids=visible_ids, turn_id=req["turn_id"],
         )
 
-        claim_updates_emitted = 0
         canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
         claims_batch = list(claim_telemetry.get("claims_batch") or [])
         if emit_claim_updates_fn is not None and canonical_turn_bead_id and claims_batch:
@@ -345,7 +416,6 @@ def process_turn_finalized_impl(
             ) or []
             claim_updates_emitted = len(claim_updates)
 
-        memory_outcome_written = False
         if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
             md = dict(req.get("metadata") or {})
             context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or [])
@@ -382,7 +452,14 @@ def process_turn_finalized_impl(
         "crawler_handoff": {
             "required": True,
             "agent_authored_gate": gate,
+            "association_pass": auto_apply,
+            "preview_association_queued": preview_queued,
+            "merge": turn_merge,
+            "decision_pass": decision_pass,
         },
+        "claim_telemetry": claim_telemetry,
+        "claim_updates_emitted": claim_updates_emitted,
+        "memory_outcome_written": memory_outcome_written,
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
     return out

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from typing import Literal
 
 logger = logging.getLogger(__name__)
@@ -45,12 +46,11 @@ Types:
 - reversal: Overturning a previous decision
 
 Classify based on the *semantic content* of the user message, not just speech form.
-- Questions can still be decision/goal/evidence/etc if they are about those topics.
+- Questions are retrieval/context turns, not declarative memory writes. Classify questions as context.
 - Imperatives like "Record that...", "Show...", "Explain...", "As of..." should be typed by what they encode.
-- Do NOT default all questions to context.
 
 Strong hints:
-- decision: winner/choice between alternatives ("why did X win over Y", "which vendor won", "we chose")
+- decision: winner/choice between alternatives when asserted as a fact ("X won over Y", "we chose")
 - goal: target, deadline, objective ("deadline", "target", "must", "need to")
 - evidence: benchmark/load-test/measured/proof/justification statements
 - lesson: takeaway/learning or guidance learned from prior incidents
@@ -60,6 +60,16 @@ If uncertain, use context.
 Return JSON only: {{"type": "..."}}
 
 USER: {user_query}"""
+
+
+_QUESTION_START_RE = re.compile(r"^\s*(?:who|what|when|where|why|how|which|did|do|does|can|could|should|would|is|are|was|were)\b", re.IGNORECASE)
+
+
+def _is_question_turn(text: str) -> bool:
+    s = str(text or "").strip()
+    if not s:
+        return False
+    return s.endswith("?") or bool(_QUESTION_START_RE.search(s))
 
 
 def _heuristic_type(user_query: str, assistant_final: str) -> BeadType:
@@ -142,6 +152,11 @@ def classify_bead_type(user_query: str, assistant_final: str) -> BeadType:
     allow_fallback = str(
         os.getenv("CORE_MEMORY_BEAD_TYPE_ALLOW_FALLBACK", "1")
     ).strip().lower() in {"1", "true", "yes", "on"}
+
+    # A user question is a retrieval act, not a durable decision/lesson/precedent
+    # declaration. Guard before model calls to prevent promotion inflation.
+    if _is_question_turn(user_query):
+        return "context"
 
     # Try LLM classification: Anthropic first, then OpenAI.
     result = _classify_anthropic(user_query, assistant_final)

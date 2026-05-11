@@ -224,9 +224,13 @@ def extract_entities(text: str) -> list[str]:
     txt = (text or "")
     # deterministic lightweight extraction from canonical-ish tokens
     cands = set(re.findall(r"\b[A-Za-z][A-Za-z0-9_.:/-]{2,}\b", txt))
+    stop = {
+        "the", "and", "with", "from", "this", "that", "these", "those", "there", "here",
+        "what", "when", "where", "which", "who", "why", "how",
+    }
     out = []
     for c in sorted(cands):
-        if c.lower() in {"the", "and", "with", "from", "this", "that"}:
+        if c.lower() in stop:
             continue
         if c.startswith("bead-"):
             continue
