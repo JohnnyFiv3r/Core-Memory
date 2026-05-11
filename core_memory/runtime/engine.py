@@ -35,6 +35,7 @@ from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
 from .decision_pass import run_session_decision_pass
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
+from ..policy.rationale import extract_causal_because, sanitize_because_for_turn
 from ..retrieval.lifecycle import mark_turn_checkpoint
 from .agent_crawler_invoke import invoke_turn_crawler_agent
 from .agent_authored_contract import (
@@ -76,8 +77,9 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
     title = (user_query or assistant_final or "Turn memory").splitlines()[0][:160]
     summary = (user_query or assistant_final or "turn memory")
     entities = _default_entities_from_text(user_query, assistant_final)
-    # Extract a "because" reason from the user query for promotion quality gate
-    because = [user_query[:240]] if user_query else []
+    # Extract grounded causal rationale for the promotion quality gate. If the
+    # turn has no stated reason, keep this empty rather than echoing user text.
+    because = extract_causal_because(user_query=user_query, assistant_final=assistant_final)
     return {
         "beads_create": [
             {
@@ -100,13 +102,14 @@ def _default_entities_from_text(*texts: str, limit: int = 16) -> list[str]:
     stop = {
         "Before", "After", "Turn", "Act", "Show", "Open", "Record", "Add", "Explain",
         "What", "When", "Where", "Which", "Why", "How", "Claims", "Graph", "Entities",
-        "Runtime", "Benchmark", "Send", "Point", "Say",
+        "Runtime", "Benchmark", "Send", "Point", "Say", "The", "These", "This", "Those",
     }
     low_stop = {
         "the", "and", "for", "with", "that", "this", "from", "into", "your", "our", "their",
         "were", "was", "have", "has", "had", "will", "would", "should", "could", "can", "cant",
         "about", "after", "before", "then", "than", "because", "there", "here", "when", "where",
         "what", "which", "who", "whom", "whose", "why", "how", "turn", "main", "session",
+        "these", "those",
     }
     for raw in texts:
         text = str(raw or "")
@@ -211,10 +214,16 @@ def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, 
         if turn_id not in src:
             src.append(turn_id)
         out["source_turn_ids"] = src
+    user_query = str(req.get("user_query") or "")
+    assistant_final = str(req.get("assistant_final") or "")
     if not out.get("type"):
-        user_query = str(req.get("user_query") or "")
-        assistant_final = str(req.get("assistant_final") or "")
         out["type"] = _infer_semantic_bead_type(user_query, assistant_final)
+    out["because"] = sanitize_because_for_turn(
+        list(out.get("because") or []),
+        user_query=user_query,
+        assistant_final=assistant_final,
+        bead_type=str(out.get("type") or ""),
+    )
     if not out.get("tags"):
         out["tags"] = ["crawler_reviewed", "turn_finalized"]
     return out
@@ -242,7 +251,7 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
         assistant_final = str(req.get("assistant_final") or "").strip()
         title = (user_query or assistant_final or "Turn memory").splitlines()[0][:160]
         summary = (user_query or assistant_final or "turn memory")
-        because = [user_query[:240]] if user_query else []
+        because = extract_causal_because(user_query=user_query, assistant_final=assistant_final)
         rows.append(
             {
                 "type": _infer_semantic_bead_type(user_query, assistant_final),
@@ -402,7 +411,18 @@ def process_turn_finalized(
     if result.get("ok") and result.get("enrichment_queued"):
         try:
             from core_memory.runtime.side_effect_queue import drain_side_effect_queue
-            drain_side_effect_queue(root=root, max_items=1)
+            drain_out = drain_side_effect_queue(root=root, max_items=1)
+            result["enrichment_drain"] = drain_out
+            if claim_layer_enabled():
+                try:
+                    from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
+                    store = MemoryStore(root)
+                    bid = find_canonical_turn_bead_id(root, session_id=session_id, turn_id=turn_id, preferred_bead_ids=[])
+                    idx = store._read_json(store.beads_dir / "index.json")
+                    bead = (idx.get("beads") or {}).get(str(bid or "")) or {}
+                    result["memory_outcome_written"] = bool(bead.get("memory_outcome"))
+                except Exception:
+                    result["memory_outcome_written"] = False
         except Exception as exc:
             logger.warning("engine: enrichment drain failed (bead already persisted): %s", exc)
 

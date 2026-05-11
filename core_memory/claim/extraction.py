@@ -14,6 +14,7 @@ POLICY_KEYWORDS = ["always", "never", "must", "should", "require", "policy"]
 COMMITMENT_KEYWORDS = ["will", "promise", "commit", "plan to", "going to"]
 CONDITION_KEYWORDS = ["if", "when", "unless", "until", "given", "timezone"]
 LOCATION_KEYWORDS = ["live in", "based in", "from", "located in", "currently in"]
+MEMORY_DIRECTIVE_KEYWORDS = ["remember", "record this", "record that", "note that", "keep track", "don't forget", "do not forget"]
 
 
 _CLAUSE_SPLIT_RE = re.compile(r"[.!?;]+|\s+and\s+(?=(?:i\b|i'm\b|i\sam\b|my\b))", re.IGNORECASE)
@@ -176,6 +177,43 @@ def _extract_condition(clause: str) -> dict | None:
     }
 
 
+def _extract_memory_directive(clause: str) -> dict | None:
+    lower = clause.lower()
+    if not any(k in lower for k in MEMORY_DIRECTIVE_KEYWORDS):
+        return None
+
+    # Demo/story-pack layups: "Record this decision: ..." should create a durable claim
+    # even when it does not look like a preference/identity/policy sentence.
+    m = re.search(
+        r"\b(?:remember|record\s+(?:this|that)?|note\s+that|keep\s+track\s+of|(?:do\s+not|don't)\s+forget)\b\s*[:\-]?\s*(.+)$",
+        clause,
+        re.IGNORECASE,
+    )
+    value = (m.group(1).strip(" ,") if m else clause.strip())
+    if not value:
+        value = clause.strip()
+
+    kind = "custom"
+    slot = "remembered_fact"
+    if "decision" in lower:
+        kind = "policy"
+        slot = "decision"
+    elif any(k in lower for k in ["prefer", "like", "love", "hate", "want", "favorite"]):
+        kind = "preference"
+        slot = "preference"
+    elif any(k in lower for k in ["always", "never", "must", "should", "require"]):
+        kind = "policy"
+        slot = "policy"
+
+    return {
+        "claim_kind": kind,
+        "subject": "user",
+        "slot": slot,
+        "value": value[:200],
+        "confidence": 0.76,
+    }
+
+
 def _extract_claim_from_clause(clause: str) -> dict | None:
     for extractor in (
         _extract_timezone,
@@ -185,6 +223,7 @@ def _extract_claim_from_clause(clause: str) -> dict | None:
         _extract_policy,
         _extract_commitment,
         _extract_condition,
+        _extract_memory_directive,
     ):
         out = extractor(clause)
         if out:

@@ -49,6 +49,8 @@ def enqueue_turn_enrichment(
             "assistant_final": str(req.get("assistant_final") or ""),
             "reviewed_updates": dict(reviewed_updates or {}),
             "crawler_visible_bead_ids": list((crawler_ctx or {}).get("visible_bead_ids") or []),
+            "metadata": dict(req.get("metadata") or {}),
+            "window_bead_ids": list(req.get("window_bead_ids") or []),
         },
         idempotency_key=f"enrich-{session_id}-{turn_id}",
     )
@@ -94,7 +96,12 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             visible_bead_ids=visible_ids,
         )
         results["stages_completed"].append("association")
-        results["association"] = {"ok": True, "created": len(auto_apply.get("created_bead_ids") or [])}
+        results["association"] = {
+            "ok": True,
+            "created": len(auto_apply.get("created_bead_ids") or []),
+            "created_bead_ids": list(auto_apply.get("created_bead_ids") or []),
+            "current_turn_bead_id": str(auto_apply.get("current_turn_bead_id") or ""),
+        }
     except Exception as exc:
         logger.warning("enrichment: association pass failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("association")
@@ -171,12 +178,14 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             from core_memory.runtime.engine import classify_memory_outcome, write_memory_outcome_to_bead
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             if canonical_bead_id:
+                md = dict(payload.get("metadata") or {})
+                context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or payload.get("window_bead_ids") or [])
                 turn_context = {
-                    "retrieved_beads": [],
+                    "retrieved_beads": context_beads,
                     "query": str(payload.get("user_query") or ""),
-                    "used_memory": False,
-                    "correction_triggered": False,
-                    "reflection_triggered": False,
+                    "used_memory": bool(md.get("used_memory")) or bool(context_beads),
+                    "correction_triggered": bool(md.get("correction_triggered") or md.get("memory_correction")),
+                    "reflection_triggered": bool(md.get("reflection_triggered") or md.get("memory_reflection")),
                 }
                 outcome = classify_memory_outcome(turn_context)
                 if isinstance(outcome, dict):

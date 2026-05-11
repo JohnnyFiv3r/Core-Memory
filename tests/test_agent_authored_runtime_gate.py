@@ -294,7 +294,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             )
             self.assertTrue(out.get("ok"))
             gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
-            self.assertEqual("observe", gate.get("mode"))
+            self.assertEqual("off", gate.get("mode"))
             self.assertTrue(gate.get("used_fallback"))
 
     def test_mode_enforce_blocks_even_if_legacy_flags_relaxed(self):
@@ -318,7 +318,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertFalse(out.get("ok"))
             self.assertIn(out.get("error_code"), {"agent_callable_missing", "agent_updates_missing"})
             gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
-            self.assertEqual("enforce", gate.get("mode"))
+            self.assertEqual("hard", gate.get("mode"))
 
     def test_enforce_invalid_callable_returns_deterministic_gate_error(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
