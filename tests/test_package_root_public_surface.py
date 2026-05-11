@@ -8,6 +8,7 @@ from core_memory.retrieval.tools import memory as memory_tools
 class TestPackageRootPublicSurface(unittest.TestCase):
     def test_root_exports_canonical_runtime_functions(self):
         self.assertIs(core_memory.process_turn_finalized, runtime_engine.process_turn_finalized)
+        self.assertIs(core_memory.capture, runtime_engine.process_turn_finalized)
         self.assertIs(core_memory.process_session_start, runtime_engine.process_session_start)
         self.assertIs(core_memory.process_flush, runtime_engine.process_flush)
         self.assertIs(core_memory.emit_turn_finalized, runtime_engine.emit_turn_finalized)
@@ -19,6 +20,8 @@ class TestPackageRootPublicSurface(unittest.TestCase):
 
     def test_all_includes_canonical_surface(self):
         for symbol in [
+            "capture",
+            "recall",
             "process_turn_finalized",
             "process_session_start",
             "process_flush",

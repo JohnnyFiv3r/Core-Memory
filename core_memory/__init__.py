@@ -29,7 +29,70 @@ from .schema.models import (
     Event,
 )
 
+capture = process_turn_finalized
+"""Friendly alias for the canonical finalized-turn write boundary.
+
+`capture(...)` is the public quick-start name for observed conversation writes.
+It is the same callable as `process_turn_finalized(...)`; use the canonical name
+when documenting adapter lifecycle internals.
+"""
+
+_RECALL_BUDGETS = {"cheap", "default", "full"}
+
+
+def recall(
+    query_or_request: str | dict,
+    *,
+    budget: str = "default",
+    intent: str | None = None,
+    k: int | None = None,
+    speaker: str | None = None,
+    root: str = ".",
+    explain: bool = True,
+    **request_overrides,
+) -> dict:
+    """Friendly single-verb read wrapper over `memory_execute(...)`.
+
+    String input is normalized into a `memory_execute` request with
+    `intent="remember"` and `k=8` defaults. Dict input is treated as an
+    already-shaped request and only receives missing defaults.
+
+    `budget` and `speaker` are accepted as public recall parameters and passed
+    through in the request payload; this wrapper does not interpret or enforce
+    them beyond validating budget values.
+    """
+    if budget not in _RECALL_BUDGETS:
+        allowed = ", ".join(sorted(_RECALL_BUDGETS))
+        raise ValueError(f"budget must be one of: {allowed}")
+
+    if isinstance(query_or_request, str):
+        raw_query = query_or_request.strip()
+        if not raw_query:
+            raise ValueError("recall query must be a non-empty string")
+        request = {
+            "raw_query": raw_query,
+            "intent": intent or "remember",
+            "k": 8 if k is None else int(k),
+            "budget": budget,
+        }
+    elif isinstance(query_or_request, dict):
+        request = dict(query_or_request)
+        request.setdefault("intent", intent or "remember")
+        request.setdefault("k", 8 if k is None else int(k))
+        request.setdefault("budget", budget)
+    else:
+        raise TypeError("recall query_or_request must be a string or dict")
+
+    if speaker is not None:
+        request.setdefault("speaker", speaker)
+    request.update(request_overrides)
+    return memory_execute(request=request, root=root, explain=explain)
+
+
 __all__ = [
+    # Friendly quick-start aliases
+    "capture",
+    "recall",
     # Canonical runtime write boundaries
     "process_turn_finalized",
     "process_session_start",
