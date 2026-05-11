@@ -394,7 +394,12 @@ def process_turn_finalized(
     metadata: dict[str, Any] | None = None,
     policy: SidecarPolicy | None = None,
 ) -> dict[str, Any]:
-    """Canonical turn-finalized boundary entrypoint (implementation delegated)."""
+    """Canonical adapter `on_turn_end` boundary.
+
+    This is the public lifecycle hook for a completed host-runtime turn. See
+    `docs/adapters/contract.md` for required/optional adapter fields, timing,
+    idempotency, and adapter/runtime responsibility boundaries.
+    """
     result = process_turn_finalized_impl(
         root=root,
         session_id=session_id,
@@ -471,7 +476,12 @@ def process_flush(
     source: str = "flush_hook",
     flush_tx_id: str | None = None,
 ) -> dict[str, Any]:
-    """Canonical session-flush boundary entrypoint (implementation delegated)."""
+    """Canonical adapter `on_session_end` boundary.
+
+    This hook may fire one or more times per session: actual session end,
+    threshold-triggered compaction, idle maintenance, or scheduled flush. See
+    `docs/adapters/contract.md` for the adapter lifecycle contract.
+    """
     return process_flush_impl(
         root=root,
         session_id=session_id,
@@ -568,7 +578,12 @@ def process_session_start(
     source: str = "runtime",
     max_items: int = 80,
 ) -> dict[str, Any]:
-    """Canonical session-start boundary entrypoint (implementation delegated)."""
+    """Canonical adapter `on_session_start` boundary.
+
+    Adapters should call this once before the first turn for a session; repeated
+    calls are safe continuity refreshes. See `docs/adapters/contract.md` for the
+    adapter lifecycle contract.
+    """
     return process_session_start_impl(root=root, session_id=session_id, source=source, max_items=max_items)
 
 
