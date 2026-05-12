@@ -5,6 +5,7 @@ from typing import Any
 
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, submit_entity_merge_candidate
+from core_memory.schema.turn import reject_legacy_turn_kwargs
 
 
 MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
@@ -15,8 +16,21 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "properties": {
                 "session_id": {"type": "string"},
                 "turn_id": {"type": "string"},
-                "user_query": {"type": "string"},
-                "assistant_final": {"type": "string"},
+                "turns": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "speaker": {"type": "string"},
+                            "content": {"type": "string"},
+                            "role": {"type": "string", "enum": ["user", "assistant", "other"]},
+                            "ts": {"type": ["string", "null"]},
+                            "metadata": {"type": "object"},
+                        },
+                        "required": ["speaker"],
+                        "additionalProperties": False,
+                    },
+                },
                 "transaction_id": {"type": "string"},
                 "trace_id": {"type": "string"},
                 "metadata": {"type": "object"},
@@ -26,7 +40,7 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "window_bead_ids": {"type": "array", "items": {"type": "string"}},
                 "origin": {"type": "string", "default": "USER_TURN"},
             },
-            "required": ["session_id", "turn_id", "user_query", "assistant_final"],
+            "required": ["session_id", "turn_id", "turns"],
             "additionalProperties": False,
         },
     },
@@ -72,8 +86,7 @@ def write_turn_finalized(
     root: str = ".",
     session_id: str,
     turn_id: str,
-    user_query: str,
-    assistant_final: str,
+    turns: list[dict[str, Any]] | None = None,
     transaction_id: str = "",
     trace_id: str = "",
     metadata: dict[str, Any] | None = None,
@@ -82,12 +95,15 @@ def write_turn_finalized(
     window_turn_ids: list[str] | None = None,
     window_bead_ids: list[str] | None = None,
     origin: str = "USER_TURN",
+    **legacy_kwargs: Any,
 ) -> dict[str, Any]:
+    try:
+        reject_legacy_turn_kwargs(legacy_kwargs, surface="write_turn_finalized")
+    except TypeError as exc:
+        return {"ok": False, "error": "legacy_turn_fields_removed", "message": str(exc), "contract": "mcp.write_turn_finalized.v1"}
     sid = str(session_id or "").strip()
     tid = str(turn_id or "").strip()
-    uq = str(user_query or "").strip()
-    af = str(assistant_final or "").strip()
-    if not sid or not tid or not uq or not af:
+    if not sid or not tid or not turns:
         return {"ok": False, "error": "missing_required_fields", "contract": "mcp.write_turn_finalized.v1"}
 
     tx = str(transaction_id or "").strip() or f"tx-{tid}-{uuid.uuid4().hex[:8]}"
@@ -99,8 +115,7 @@ def write_turn_finalized(
         turn_id=tid,
         transaction_id=tx,
         trace_id=tr,
-        user_query=uq,
-        assistant_final=af,
+        turns=list(turns or []),
         metadata=dict(metadata or {}),
         tools_trace=list(tools_trace or []),
         mesh_trace=list(mesh_trace or []),

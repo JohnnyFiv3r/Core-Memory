@@ -88,8 +88,7 @@ class TestBeadFieldJudge(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="Use Redis for cache invalidation.",
-                assistant_final="Recorded.",
+                turns=[{"speaker": "user", "role": "user", "content": "Use Redis for cache invalidation."}, {"speaker": "assistant", "role": "assistant", "content": "Recorded."}],
                 metadata={"crawler_updates": stale_agent_updates},
                 policy=SidecarPolicy(create_threshold=0.6),
             )

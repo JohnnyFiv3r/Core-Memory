@@ -13,6 +13,8 @@ Canonical contributor docs:
 
 from .runtime.engine import process_turn_finalized, process_session_start, process_flush, emit_turn_finalized
 from .retrieval.tools.memory import search as memory_search, trace as memory_trace, execute as memory_execute
+from .memory import Memory, capture
+from .schema.turn import Turn
 from ._version import VERSION, __version__
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
@@ -28,14 +30,6 @@ from .schema.models import (
     Association,
     Event,
 )
-
-capture = process_turn_finalized
-"""Friendly alias for the canonical finalized-turn write boundary.
-
-`capture(...)` is the public quick-start name for observed conversation writes.
-It is the same callable as `process_turn_finalized(...)`; use the canonical name
-when documenting adapter lifecycle internals.
-"""
 
 _RECALL_BUDGETS = {"cheap", "default", "full"}
 
@@ -91,6 +85,8 @@ def recall(
 
 __all__ = [
     # Friendly quick-start aliases
+    "Memory",
+    "Turn",
     "capture",
     "recall",
     # Canonical runtime write boundaries

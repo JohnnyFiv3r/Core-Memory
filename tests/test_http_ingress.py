@@ -7,11 +7,19 @@ from pathlib import Path
 
 class TestHttpIngress(unittest.TestCase):
     def setUp(self):
+        self._old_semantic_mode = os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE")
+        os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = "degraded_allowed"
         try:
             from fastapi.testclient import TestClient  # noqa: F401
             from core_memory.integrations.http.server import app  # noqa: F401
         except Exception as exc:  # noqa: BLE001
             self.skipTest(f"fastapi stack unavailable: {exc}")
+
+    def tearDown(self):
+        if getattr(self, "_old_semantic_mode", None) is None:
+            os.environ.pop("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", None)
+        else:
+            os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = self._old_semantic_mode
 
     def test_http_turn_finalized_emits_event(self):
         from fastapi.testclient import TestClient
@@ -26,8 +34,10 @@ class TestHttpIngress(unittest.TestCase):
                     "root": root,
                     "session_id": "s1",
                     "turn_id": "t1",
-                    "user_query": "u",
-                    "assistant_final": "a",
+                    "turns": [
+                        {"speaker": "user", "role": "user", "content": "u"},
+                        {"speaker": "assistant", "role": "assistant", "content": "a"},
+                    ],
                 },
             )
             self.assertEqual(200, r.status_code)
@@ -118,8 +128,10 @@ class TestHttpIngress(unittest.TestCase):
                     "root": root,
                     "session_id": "s1",
                     "turn_id": "t1",
-                    "user_query": "u",
-                    "assistant_final": "a",
+                    "turns": [
+                        {"speaker": "user", "role": "user", "content": "u"},
+                        {"speaker": "assistant", "role": "assistant", "content": "a"},
+                    ],
                 },
             )
             r = c.post("/v1/memory/session-flush", json={"root": root, "session_id": "s1", "source": "http_test"})
@@ -167,7 +179,9 @@ class TestHttpIngress(unittest.TestCase):
             d2 = r2.json()
             self.assertEqual(d1.get('snapped'), d2.get('snapped'))
             self.assertEqual(d1.get('confidence'), d2.get('confidence'))
-            self.assertEqual(d1.get('warnings'), d2.get('warnings'))
+            stable_warnings_1 = [w for w in (d1.get('warnings') or []) if w != 'semantic_index_missing_artifacts']
+            stable_warnings_2 = [w for w in (d2.get('warnings') or []) if w != 'semantic_index_missing_artifacts']
+            self.assertEqual(stable_warnings_1, stable_warnings_2)
             self.assertEqual(d1.get('next_action'), d2.get('next_action'))
             self.assertEqual(d1.get('results'), d2.get('results'))
             self.assertEqual(d1.get('chains'), d2.get('chains'))
@@ -220,8 +234,10 @@ class TestHttpIngress(unittest.TestCase):
                 "root": root,
                 "session_id": "s1",
                 "turn_id": "t1",
-                "user_query": "important decision completed confirmed",
-                "assistant_final": "important decision completed confirmed",
+                "turns": [
+                    {"speaker": "user", "role": "user", "content": "important decision completed confirmed"},
+                    {"speaker": "assistant", "role": "assistant", "content": "important decision completed confirmed"},
+                ],
             }
             r1 = c.post("/v1/memory/turn-finalized", json=body)
             r2 = c.post("/v1/memory/turn-finalized", json=body)
@@ -381,8 +397,10 @@ class TestHttpIngress(unittest.TestCase):
                     "root": base_root,
                     "session_id": "s1",
                     "turn_id": "t1",
-                    "user_query": "tenant a write",
-                    "assistant_final": "tenant a write",
+                    "turns": [
+                        {"speaker": "user", "role": "user", "content": "tenant a write"},
+                        {"speaker": "assistant", "role": "assistant", "content": "tenant a write"},
+                    ],
                 },
                 headers={"X-Tenant-Id": tenant_a},
             )

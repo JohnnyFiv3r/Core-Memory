@@ -24,8 +24,7 @@ class TestTurnDecisionPass(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="We decided to keep a bridge layer",
-                assistant_final="Decision confirmed with evidence and references.",
+                turns=[{"speaker": "user", "role": "user", "content": "We decided to keep a bridge layer"}, {"speaker": "assistant", "role": "assistant", "content": "Decision confirmed with evidence and references."}],
             )
             self.assertTrue(out1.get("ok"))
             d1 = ((out1.get("crawler_handoff") or {}).get("decision_pass") or {})
@@ -36,8 +35,7 @@ class TestTurnDecisionPass(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t2",
-                user_query="Second turn should see prior beads",
-                assistant_final="Still consistent.",
+                turns=[{"speaker": "user", "role": "user", "content": "Second turn should see prior beads"}, {"speaker": "assistant", "role": "assistant", "content": "Still consistent."}],
             )
             self.assertTrue(out2.get("ok"))
             d2 = ((out2.get("crawler_handoff") or {}).get("decision_pass") or {})
@@ -53,8 +51,7 @@ class TestTurnDecisionPass(unittest.TestCase):
                 root=td,
                 session_id="s2",
                 turn_id="t1",
-                user_query="Link only metadata",
-                assistant_final="No explicit create in metadata",
+                turns=[{"speaker": "user", "role": "user", "content": "Link only metadata"}, {"speaker": "assistant", "role": "assistant", "content": "No explicit create in metadata"}],
                 metadata={
                     "crawler_updates": {
                         "associations": [
@@ -73,8 +70,7 @@ class TestTurnDecisionPass(unittest.TestCase):
                 root=td,
                 session_id="s2",
                 turn_id="t2",
-                user_query="Second turn",
-                assistant_final="Should evaluate both seed and t1 bead",
+                turns=[{"speaker": "user", "role": "user", "content": "Second turn"}, {"speaker": "assistant", "role": "assistant", "content": "Should evaluate both seed and t1 bead"}],
             )
             self.assertTrue(out2.get("ok"))
             d2 = ((out2.get("crawler_handoff") or {}).get("decision_pass") or {})

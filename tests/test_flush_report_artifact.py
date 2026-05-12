@@ -13,8 +13,7 @@ class TestFlushReportArtifact(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="decision + evidence",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "decision + evidence"}],
             )
             first = process_flush(root=td, session_id="s1", promote=True, token_budget=1200, max_beads=12)
             self.assertTrue(first.get("ok"))

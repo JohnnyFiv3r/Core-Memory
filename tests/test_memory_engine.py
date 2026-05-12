@@ -14,8 +14,7 @@ class TestMemoryEngine(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="Decision: use memory engine entrypoint",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: use memory engine entrypoint"}],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out.get("ok"))
@@ -52,8 +51,7 @@ class TestMemoryEngine(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t-mem-outcome",
-                user_query="what did we decide?",
-                assistant_final="you decided to use the memory engine",
+                turns=[{"speaker": "user", "role": "user", "content": "what did we decide?"}, {"speaker": "assistant", "role": "assistant", "content": "you decided to use the memory engine"}],
                 metadata={"used_memory": True, "retrieved_beads": [{"id": "b-prev"}]},
                 policy=SidecarPolicy(create_threshold=0.6),
             )

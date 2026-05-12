@@ -24,8 +24,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={},
             )
             self.assertFalse(out.get("ok"))
@@ -50,8 +49,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={"crawler_updates": {"beads_create": [{"title": "only title"}]}} ,
             )
             self.assertFalse(out.get("ok"))
@@ -70,8 +68,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="decision text",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "decision text"}],
                 metadata={},
             )
             self.assertTrue(out.get("ok"))
@@ -96,8 +93,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
                     "crawler_updates": {
                         "beads_create": [
@@ -138,8 +134,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
                     "crawler_updates": {
                         "beads_create": [
@@ -196,8 +191,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                     root=td,
                     session_id="s1",
                     turn_id="t1",
-                    user_query="q",
-                    assistant_final="a",
+                    turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                     metadata={},
                 )
 
@@ -222,8 +216,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={},
             )
             self.assertFalse(out.get("ok"))
@@ -247,8 +240,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
                     "crawler_updates": {
                         "beads_create": [
@@ -288,8 +280,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={},
             )
             self.assertTrue(out.get("ok"))
@@ -311,8 +302,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={},
             )
             self.assertFalse(out.get("ok"))
@@ -333,8 +323,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={},
             )
             self.assertFalse(out.get("ok"))

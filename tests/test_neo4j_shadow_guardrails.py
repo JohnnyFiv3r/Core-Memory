@@ -32,8 +32,7 @@ class TestNeo4jShadowGuardrails(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="why",
-                assistant_final="because",
+                turns=[{"speaker": "user", "role": "user", "content": "why"}, {"speaker": "assistant", "role": "assistant", "content": "because"}],
             )
             self.assertTrue(out.get("ok"))
 

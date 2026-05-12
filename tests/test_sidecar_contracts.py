@@ -21,8 +21,7 @@ class TestSidecarContracts(unittest.TestCase):
             turn_id="t1",
             transaction_id="x1",
             trace_id="tr1",
-            user_query="why",
-            assistant_final="because",
+            turns=[{"speaker": "user", "role": "user", "content": "why"}, {"speaker": "assistant", "role": "assistant", "content": "because"}],
         )
         event = emit_memory_event(self.tmp, env)
         self.assertTrue(event.event_id.startswith("mev-"))

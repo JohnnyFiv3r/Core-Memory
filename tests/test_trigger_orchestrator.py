@@ -15,8 +15,7 @@ class TestTriggerOrchestrator(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query="remember this decision",
-                assistant_final="Decision: keep canonical trigger path",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this decision"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: keep canonical trigger path"}],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out1.get("ok"))
@@ -28,8 +27,7 @@ class TestTriggerOrchestrator(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query="remember this decision",
-                assistant_final="Decision: keep canonical trigger path",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this decision"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: keep canonical trigger path"}],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out2.get("ok"))

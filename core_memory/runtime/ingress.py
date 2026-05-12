@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .state import TurnEnvelope, emit_memory_event, get_memory_pass, mark_memory_pass, sha256_hex
+from core_memory.schema.turn import normalize_turns, serialize_turns, user_content, assistant_content, turn_speakers
 
 
 def should_emit_memory_event(trace_depth: int, origin: str) -> bool:
@@ -81,8 +82,10 @@ def maybe_emit_finalize_memory_event(
     turn_id: str,
     transaction_id: str,
     trace_id: str,
-    user_query: str,
-    assistant_final: Optional[str],
+    user_query: str | None = None,
+    assistant_final: Optional[str] = None,
+    turns: Optional[list[dict]] = None,
+    speakers: Optional[list[str]] = None,
     trace_depth: int = 0,
     origin: str = "USER_TURN",
     tools_trace: Optional[list[dict]] = None,
@@ -93,6 +96,14 @@ def maybe_emit_finalize_memory_event(
 ) -> dict:
     if not should_emit_memory_event(trace_depth=trace_depth, origin=origin):
         return {"emitted": False, "reason": "guard_skipped"}
+
+    normalized_turns = normalize_turns(turns) if turns else []
+    if user_query is None and normalized_turns:
+        user_query = user_content(normalized_turns)
+    if assistant_final is None and normalized_turns:
+        assistant_final = assistant_content(normalized_turns)
+    serialized_turns = serialize_turns(normalized_turns) if normalized_turns else list(turns or [])
+    speaker_list = list(speakers or (turn_speakers(normalized_turns) if normalized_turns else []))
 
     root_path = Path(root)
     prior = get_memory_pass(root_path, session_id, turn_id)
@@ -121,7 +132,9 @@ def maybe_emit_finalize_memory_event(
         transaction_id=transaction_id,
         trace_id=trace_id,
         origin=origin,
-        user_query=user_query,
+        turns=serialized_turns,
+        speakers=speaker_list,
+        user_query=str(user_query or ""),
         assistant_final=assistant_final_value,
         assistant_final_ref=assistant_final_ref,
         tools_trace=_normalize_tools_trace(tools_trace),

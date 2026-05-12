@@ -12,8 +12,7 @@ class TestProcessFlushCheckpointBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="Decision with causal shape",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision with causal shape"}],
             )
             self.assertTrue(out.get("ok"))
 
@@ -41,8 +40,7 @@ class TestProcessFlushCheckpointBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="Decision with causal shape",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision with causal shape"}],
             )
             self.assertTrue(out.get("ok"))
 

@@ -15,8 +15,7 @@ def test_transcript_archive_flag_disables_turn_archive(monkeypatch, tmp_path: Pa
         turn_id="t1",
         transaction_id="tx1",
         trace_id="tr1",
-        user_query="q",
-        assistant_final="a",
+        turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
     )
     emit_memory_event(tmp_path, env)
     turns_file = tmp_path / ".turns" / "session-s1.jsonl"

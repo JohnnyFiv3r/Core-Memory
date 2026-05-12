@@ -11,8 +11,7 @@ class TestFlushSequenceTrace(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="capture this decision",
-                assistant_final="Decision captured with rationale",
+                turns=[{"speaker": "user", "role": "user", "content": "capture this decision"}, {"speaker": "assistant", "role": "assistant", "content": "Decision captured with rationale"}],
             )
             out = process_flush(root=td, session_id="s1", promote=True, token_budget=1200, max_beads=12)
             self.assertTrue(out.get("ok"))

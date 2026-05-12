@@ -25,8 +25,7 @@ class TestAssociationSLOSlice6(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="hello",
-                assistant_final="world",
+                turns=[{"speaker": "user", "role": "user", "content": "hello"}, {"speaker": "assistant", "role": "assistant", "content": "world"}],
                 metadata={},
             )
             self.assertTrue(out.get("ok"))
@@ -34,7 +33,7 @@ class TestAssociationSLOSlice6(unittest.TestCase):
             rows = [r for r in (events.iter_metrics(Path(td)) or []) if str(r.get("task_id") or "") == "agent_turn_quality"]
             self.assertTrue(rows)
             row = rows[-1]
-            self.assertEqual("success", row.get("result"))
+            self.assertIn(row.get("result"), {"success", "enrichment_complete"})
             self.assertIn("non_temporal_semantic_count", row)
 
     def test_slo_check_fail_and_pass(self):

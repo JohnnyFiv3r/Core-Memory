@@ -16,8 +16,7 @@ class TestTurnAssociationVisibility(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="link prior beads",
-                assistant_final="linked",
+                turns=[{"speaker": "user", "role": "user", "content": "link prior beads"}, {"speaker": "assistant", "role": "assistant", "content": "linked"}],
                 metadata={
                     "crawler_updates": {
                         "associations": [

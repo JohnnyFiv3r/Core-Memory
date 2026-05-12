@@ -13,6 +13,7 @@ from core_memory.integrations.api import IntegrationContext
 from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
 from core_memory.integrations.openclaw_flags import runtime_flags_snapshot, core_memory_enabled
 from core_memory.persistence.store import DEFAULT_ROOT
+from core_memory.schema.turn import Turn
 
 ADAPTER_KIND = "bridge"
 ADAPTER_RUNTIME = "openclaw"
@@ -271,8 +272,7 @@ def process_agent_end_event(
         turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
-        user_query=user_query,
-        assistant_final=assistant_final,
+        turns=[Turn(speaker="user", role="user", content=user_query), Turn(speaker="assistant", role="assistant", content=assistant_final)],
         origin="USER_TURN",
         tools_trace=tools_trace,
         mesh_trace=mesh_trace,

@@ -48,6 +48,7 @@ from .agent_authored_contract import (
     validate_agent_authored_updates,
 )
 from .turn_prep import normalize_turn_request as _normalize_turn_request, infer_semantic_bead_type as _infer_semantic_bead_type
+from ..schema.turn import Turn, reject_legacy_turn_kwargs
 from .session_start_flow import process_session_start_impl
 from .turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
 from .flush_flow import process_flush_impl
@@ -84,6 +85,7 @@ def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
                 "summary": list(judged.get("summary") or ["turn memory"]),
                 "because": list(judged.get("because") or []),
                 "source_turn_ids": [str(req.get("turn_id") or "")],
+                "source_turn_ref": dict(req.get("source_turn_ref") or {}),
                 "entities": list(judged.get("entities") or []),
                 "topics": list(judged.get("topics") or []),
                 "supporting_facts": list(judged.get("supporting_facts") or []),
@@ -221,6 +223,7 @@ def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, 
         if turn_id not in src:
             src.append(turn_id)
         out["source_turn_ids"] = src
+    out["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
     user_query = str(req.get("user_query") or "")
     assistant_final = str(req.get("assistant_final") or "")
     judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
@@ -279,6 +282,7 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
                 "summary": list(judged.get("summary") or ["turn memory"]),
                 "because": list(judged.get("because") or []),
                 "source_turn_ids": [turn_id],
+                "source_turn_ref": dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])}),
                 "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine", "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"],
                 "detail": str(judged.get("detail") or "")[:1200],
                 "entities": list(judged.get("entities") or []),
@@ -383,8 +387,7 @@ def process_turn_finalized(
     turn_id: str,
     transaction_id: str | None = None,
     trace_id: str | None = None,
-    user_query: str,
-    assistant_final: str,
+    turns: list[Turn | dict[str, Any]] | None = None,
     trace_depth: int = 0,
     origin: str = "USER_TURN",
     tools_trace: list[dict] | None = None,
@@ -393,6 +396,7 @@ def process_turn_finalized(
     window_bead_ids: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
     policy: SidecarPolicy | None = None,
+    **legacy_kwargs: Any,
 ) -> dict[str, Any]:
     """Canonical adapter `on_turn_end` boundary.
 
@@ -400,14 +404,14 @@ def process_turn_finalized(
     `docs/adapters/contract.md` for required/optional adapter fields, timing,
     idempotency, and adapter/runtime responsibility boundaries.
     """
+    reject_legacy_turn_kwargs(legacy_kwargs, surface="process_turn_finalized")
     result = process_turn_finalized_impl(
         root=root,
         session_id=session_id,
         turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
-        user_query=user_query,
-        assistant_final=assistant_final,
+        turns=turns,
         trace_depth=trace_depth,
         origin=origin,
         tools_trace=tools_trace,
@@ -504,8 +508,7 @@ def emit_turn_finalized(
     turn_id: str,
     transaction_id: str | None = None,
     trace_id: str | None = None,
-    user_query: str,
-    assistant_final: str,
+    turns: list[Turn | dict[str, Any]] | None = None,
     trace_depth: int = 0,
     origin: str = "USER_TURN",
     tools_trace: list[dict] | None = None,
@@ -513,14 +516,15 @@ def emit_turn_finalized(
     window_turn_ids: list[str] | None = None,
     window_bead_ids: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
+    **legacy_kwargs: Any,
 ) -> dict[str, Any]:
+    reject_legacy_turn_kwargs(legacy_kwargs, surface="emit_turn_finalized")
     req = _normalize_turn_request(
         session_id=session_id,
         turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
-        user_query=user_query,
-        assistant_final=assistant_final,
+        turns=turns,
         trace_depth=trace_depth,
         origin=origin,
         tools_trace=tools_trace,
@@ -537,6 +541,8 @@ def emit_turn_finalized(
         trace_id=req["trace_id"],
         user_query=req["user_query"],
         assistant_final=req["assistant_final"],
+        turns=req["turns"],
+        speakers=req["speakers"],
         trace_depth=req["trace_depth"],
         origin=req["origin"],
         tools_trace=req["tools_trace"],

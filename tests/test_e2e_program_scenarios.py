@@ -26,8 +26,7 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 root=td,
                 session_id="sA",
                 turn_id="t1",
-                user_query="remember candidate-only promotion",
-                assistant_final="Decision: candidate-only promotion prevents inflation.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember candidate-only promotion"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: candidate-only promotion prevents inflation."}],
                 policy=policy,
             )
             self.assertTrue(t1.get("ok"))
@@ -36,8 +35,7 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 root=td,
                 session_id="sA",
                 turn_id="t2",
-                user_query="remember archive-graph retrieval for durable memory",
-                assistant_final="Decision: use archive graph for durable retrieval.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember archive-graph retrieval for durable memory"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: use archive graph for durable retrieval."}],
                 policy=policy,
             )
             self.assertTrue(t2.get("ok"))
@@ -83,16 +81,14 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 root=td,
                 session_id="sB",
                 turn_id="t1",
-                user_query="remember promotion workflow",
-                assistant_final="Decision: narrow promotion usage.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember promotion workflow"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: narrow promotion usage."}],
                 policy=policy,
             )
             process_turn_finalized(
                 root=td,
                 session_id="sB",
                 turn_id="t2",
-                user_query="remember retrieval guardrails",
-                assistant_final="Decision: keep contract-safe retrieval.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember retrieval guardrails"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: keep contract-safe retrieval."}],
                 policy=policy,
             )
 
@@ -168,8 +164,7 @@ class TestE2EProgramScenarios(unittest.TestCase):
                 root=td,
                 session_id="sC",
                 turn_id="t1",
-                user_query="remember continuity item one",
-                assistant_final="Outcome: continuity one captured.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember continuity item one"}, {"speaker": "assistant", "role": "assistant", "content": "Outcome: continuity one captured."}],
                 policy=policy,
             )
             s = MemoryStore(td)

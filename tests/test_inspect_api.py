@@ -23,8 +23,7 @@ class TestInspectApi(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query="remember that postgres won benchmarks",
-                assistant_final="noted: postgres won benchmarks",
+                turns=[{"speaker": "user", "role": "user", "content": "remember that postgres won benchmarks"}, {"speaker": "assistant", "role": "assistant", "content": "noted: postgres won benchmarks"}],
                 origin="TEST",
                 metadata={"source": "test"},
             )

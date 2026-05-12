@@ -17,6 +17,7 @@ from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.integrations.openclaw_flags import transcript_hydration_enabled, default_hydrate_tools_enabled, default_adjacent_turns
 from core_memory.persistence.store import DEFAULT_ROOT
+from core_memory.schema.turn import normalize_turns, serialize_turns, user_content, assistant_content, turn_speakers, reject_legacy_turn_kwargs
 
 
 @dataclass
@@ -45,8 +46,7 @@ def emit_turn_finalized(
     session_id: str,
     turn_id: str,
     transaction_id: str,
-    user_query: str,
-    assistant_final: str,
+    turns: list[Turn | dict[str, Any]] | None = None,
     trace_id: Optional[str] = None,
     trace_depth: int = 0,
     origin: str = "USER_TURN",
@@ -56,6 +56,7 @@ def emit_turn_finalized(
     window_bead_ids: Optional[list[str]] = None,
     metadata: Optional[dict[str, Any]] = None,
     strict: bool = False,
+    **legacy_kwargs: Any,
 ) -> Optional[str]:
     """Stable integration port for external orchestrators.
 
@@ -63,6 +64,8 @@ def emit_turn_finalized(
     - strict=False (default): return None when emission is skipped
     - strict=True: raise ValueError when skipped
     """
+    reject_legacy_turn_kwargs(legacy_kwargs, surface="emit_turn_finalized")
+    normalized_turns = normalize_turns(turns)
     root_final = _resolve_root(root)
     trace_id_final = (trace_id or f"tr-{turn_id}-{uuid.uuid4().hex[:8]}").strip()
     result = maybe_emit_finalize_memory_event(
@@ -71,8 +74,10 @@ def emit_turn_finalized(
         turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id_final,
-        user_query=user_query,
-        assistant_final=assistant_final,
+        user_query=user_content(normalized_turns),
+        assistant_final=assistant_content(normalized_turns),
+        turns=serialize_turns(normalized_turns),
+        speakers=turn_speakers(normalized_turns),
         trace_depth=trace_depth,
         origin=origin,
         tools_trace=tools_trace,
@@ -100,8 +105,7 @@ def emit_turn_finalized_from_envelope(*, root: Optional[str] = None, envelope: d
         turn_id=str(envelope.get("turn_id") or uuid.uuid4().hex[:12]),
         transaction_id=str(envelope.get("transaction_id") or f"tx-{uuid.uuid4().hex[:12]}"),
         trace_id=str(envelope.get("trace_id") or f"tr-{uuid.uuid4().hex[:12]}"),
-        user_query=str(envelope.get("user_query") or ""),
-        assistant_final=str(envelope.get("assistant_final") or ""),
+        turns=envelope.get("turns"),
         trace_depth=int(envelope.get("trace_depth", 0) or 0),
         origin=str(envelope.get("origin") or "USER_TURN"),
         tools_trace=envelope.get("tools_trace") or [],

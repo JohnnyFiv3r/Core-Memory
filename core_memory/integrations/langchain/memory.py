@@ -115,8 +115,7 @@ class CoreMemory(BaseMemory):
             session_id=self.session_id,
             turn_id=turn_id,
             transaction_id=f"tx-{turn_id}",
-            user_query=user_query,
-            assistant_final=assistant_final,
+            turns=[{"speaker": "user", "role": "user", "content": user_query}, {"speaker": "assistant", "role": "assistant", "content": assistant_final}],
             metadata=ictx.to_metadata(),
         )
 

@@ -17,8 +17,7 @@ def canonical_health_report(root: str, write_path: str | None = None) -> dict:
             root=td,
             session_id="health",
             turn_id="t1",
-            user_query="remember canonical decision",
-            assistant_final="Decision: keep canonical path and stable retrieval.",
+            turns=[{"speaker": "user", "role": "user", "content": "remember canonical decision"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: keep canonical path and stable retrieval."}],
         )
         f1 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
         f2 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")

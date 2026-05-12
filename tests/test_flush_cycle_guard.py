@@ -11,8 +11,7 @@ class TestFlushCycleGuard(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="we decided this",
-                assistant_final="Decision recorded with context",
+                turns=[{"speaker": "user", "role": "user", "content": "we decided this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision recorded with context"}],
             )
             self.assertTrue(out.get("ok"))
 
@@ -31,8 +30,7 @@ class TestFlushCycleGuard(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="we decided this",
-                assistant_final="Decision recorded with context",
+                turns=[{"speaker": "user", "role": "user", "content": "we decided this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision recorded with context"}],
             )
             self.assertTrue(done.get("ok"))
 
@@ -41,8 +39,7 @@ class TestFlushCycleGuard(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t2",
-                user_query="new unfinished turn",
-                assistant_final="pending processing",
+                turns=[{"speaker": "user", "role": "user", "content": "new unfinished turn"}, {"speaker": "assistant", "role": "assistant", "content": "pending processing"}],
             )
             self.assertTrue(emitted.get("emitted"))
 

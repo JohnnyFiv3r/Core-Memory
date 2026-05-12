@@ -36,7 +36,7 @@ Fields are documented in three tiers:
 | Required | `root` | `str` | Path to the Core Memory store. |
 | Required | `session_id` | `str` | Must match the session opened through `on_session_start`. |
 | Required | `turn_id` | `str` | Unique within the session. Reuse is undefined behavior. |
-| Required | `turns` | `list[Turn]` | Post-PRD #1 shape. Until that lands, pass legacy `user_query: str` and `assistant_final: str`. |
+| Required | `turns` | `list[Turn]` | Canonical multi-speaker shape: each item has `speaker`, `role`, and `content`. |
 | Optional context | `metadata` | `dict[str, Any]` | Free-form per-turn context. Reserved/high-value keys include `retrieved_beads`, `used_memory`, `correction_triggered`, `reflection_triggered`, and `crawler_updates`. |
 | Optional context | `tools_trace` | `list[dict]` | Tool calls made during the turn. Populate when the host exposes tool events. |
 | Optional context | `reasoning_trace` | `list[dict]` | Post-PRD #10 field for reasoning/thinking blocks. Not yet a runtime parameter. |
@@ -93,7 +93,7 @@ The operational kwargs on `process_flush` are required by the function signature
 |---|:---:|:---:|
 | Detect lifecycle events in the host system | ✓ | |
 | Map host events to canonical hook calls | ✓ | |
-| Construct `Turn` objects or legacy turn pair | ✓ | |
+| Construct `Turn` objects / `{speaker, role, content}` turn dictionaries | ✓ | |
 | Populate `metadata`, `tools_trace`, and reasoning trace when available | ✓ | |
 | Surface adapter-side errors to the host | ✓ | |
 | Persistence: beads, archive records, indexes, side logs | | ✓ |
@@ -105,6 +105,6 @@ The operational kwargs on `process_flush` are required by the function signature
 
 Adapters must not reach past the contract into `MemoryStore` or low-level files for performance or convenience. Doing so creates adapter-specific memory semantics and breaks ecosystem parity.
 
-## Current compatibility note
+## Migration note
 
-PRD #1 locks the multi-speaker `Turn` shape. Until that is shipped through the runtime functions, the canonical `on_turn_end` call uses the legacy `user_query` + `assistant_final` pair. Adapter docs should mention both, but code should not add `on_*` aliases or signature changes in this PRD.
+`user_query` / `assistant_final` are no longer accepted by `process_turn_finalized(...)`. Adapters must pass `turns=[...]`. The runtime derives legacy read-only compatibility fields internally for older downstream policy code.

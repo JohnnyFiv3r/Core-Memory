@@ -8,6 +8,7 @@ from typing import Any, Optional
 from core_memory.integrations.api import IntegrationContext, _resolve_root
 from core_memory.integrations.openclaw_flags import core_memory_enabled, runtime_flags_snapshot
 from core_memory.runtime.engine import process_turn_finalized, process_flush
+from core_memory.schema.turn import Turn
 
 logger = logging.getLogger(__name__)
 
@@ -46,8 +47,7 @@ def _run_turn_pipeline(
     root: str,
     session_id: str,
     turn_id: str,
-    user_query: str,
-    assistant_final: str,
+    turns: list[Turn | dict[str, Any]],
     metadata: dict,
     tools_trace: list[dict],
     mesh_trace: list[dict],
@@ -59,8 +59,7 @@ def _run_turn_pipeline(
         root=root,
         session_id=session_id,
         turn_id=turn_id,
-        user_query=user_query,
-        assistant_final=assistant_final,
+        turns=turns,
         metadata=metadata,
         tools_trace=tools_trace,
         mesh_trace=mesh_trace,
@@ -104,8 +103,7 @@ async def run_with_memory(
                 root=root_final,
                 session_id=session_id,
                 turn_id=turn_id_final,
-                user_query=user_query,
-                assistant_final=assistant_final,
+                turns=[Turn(speaker="user", role="user", content=user_query), Turn(speaker="assistant", role="assistant", content=assistant_final)],
                 metadata=md,
                 tools_trace=tools_trace or [],
                 mesh_trace=mesh_trace or [],
@@ -194,8 +192,7 @@ def run_with_memory_sync(
             root=root_final,
             session_id=session_id,
             turn_id=turn_id_final,
-            user_query=user_query,
-            assistant_final=assistant_final,
+            turns=[{"speaker": "user", "role": "user", "content": user_query}, {"speaker": "assistant", "role": "assistant", "content": assistant_final}],
             metadata=md,
             tools_trace=tools_trace or [],
             mesh_trace=mesh_trace or [],

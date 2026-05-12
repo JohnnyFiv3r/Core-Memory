@@ -52,10 +52,16 @@ def _load_demo_env() -> None:
     `load_dotenv` would not override it by default, and providers see "no key".
     Treat blank values as unset so `.env` can supply the real key.
     """
+    old_core_memory_env = {k: v for k, v in os.environ.items() if k.startswith("CORE_MEMORY_")}
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
         if os.environ.get(key, "").strip() == "":
             os.environ.pop(key, None)
     load_dotenv(_DEMO_ENV_PATH)
+    for key in [k for k in os.environ if k.startswith("CORE_MEMORY_")]:
+        if key not in old_core_memory_env:
+            os.environ.pop(key, None)
+    for key, value in old_core_memory_env.items():
+        os.environ[key] = value
     for key in ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"):
         raw = os.environ.get(key)
         if raw is None:

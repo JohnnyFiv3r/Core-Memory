@@ -12,8 +12,7 @@ class TestRuntimeEngineBoundariesSlice46A(unittest.TestCase):
                 root=".",
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
             )
 
         self.assertEqual(expected, out)

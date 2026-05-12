@@ -25,8 +25,7 @@ class TestHttpInspectEndpoints(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query="remember db choice",
-                assistant_final="postgres was chosen",
+                turns=[{"speaker": "user", "role": "user", "content": "remember db choice"}, {"speaker": "assistant", "role": "assistant", "content": "postgres was chosen"}],
                 origin="TEST",
                 metadata={"source": "test"},
             )

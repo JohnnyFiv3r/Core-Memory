@@ -23,8 +23,7 @@ class TestFlushAsyncSideEffectsSlice59A(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="decision captured",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "decision captured"}],
             )
             self.assertTrue(t.get("ok"))
 
@@ -61,8 +60,7 @@ class TestFlushAsyncSideEffectsSlice59A(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="decision captured",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "decision captured"}],
             )
             self.assertTrue(t.get("ok"))
 
@@ -88,8 +86,7 @@ class TestFlushAsyncSideEffectsSlice59A(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="decision captured",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "decision captured"}],
             )
             self.assertTrue(t.get("ok"))
 
@@ -113,8 +110,7 @@ class TestFlushAsyncSideEffectsSlice59A(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="decision captured",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "decision captured"}],
             )
             self.assertTrue(t.get("ok"))
 

@@ -77,7 +77,7 @@ You can preload a large turn stream (e.g., hundreds of turns) per case with:
 JSONL row shape (minimum):
 
 ```json
-{"session_id":"main","turn_id":"t123","user_query":"...","assistant_final":"..."}
+{"session_id":"main","turn_id":"t123","turns":[{"speaker":"user","role":"user","content":"..."},{"speaker":"assistant","role":"assistant","content":"..."}]}
 ```
 
 Optional fields: `transaction_id`, `trace_id`, `metadata`, `tools_trace`, `mesh_trace`, `origin`.

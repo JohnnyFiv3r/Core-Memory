@@ -21,7 +21,7 @@ Install Core Memory with the PydanticAI extra when applicable, then call one of:
 | PydanticAI action | Canonical hook | Runtime function | Notes |
 |---|---|---|---|
 | App creates/opens a conversation | `on_session_start` | not explicit today | No dedicated wrapper currently calls `process_session_start`. Adapter authors should add one in host apps if they need explicit session-start semantics. |
-| `run_with_memory(...)` completes agent run | `on_turn_end` | `process_turn_finalized` | Extracts assistant output and writes `user_query` + `assistant_final` through the runtime. |
+| `run_with_memory(...)` completes agent run | `on_turn_end` | `process_turn_finalized` | Extracts assistant output and writes attributed `turns=[...]` through the runtime. |
 | `run_with_memory_sync(...)` completes agent run | `on_turn_end` | `process_turn_finalized` | Sync variant of the same contract. |
 | `flush_session(...)` / `flush_session_async(...)` | `on_session_end` | `process_flush` | App-defined boundary; may be called on idle timeout, threshold, shutdown, or explicit session end. |
 

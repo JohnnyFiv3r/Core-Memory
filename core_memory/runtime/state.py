@@ -58,6 +58,8 @@ class TurnEnvelope:
     origin: str = "USER_TURN"
     ts: str = field(default_factory=_iso_now)
     ts_ms: int = field(default_factory=_ts_ms)
+    turns: list[dict] = field(default_factory=list)
+    speakers: list[str] = field(default_factory=list)
     user_query: str = ""
     assistant_final: Optional[str] = None
     assistant_final_ref: Optional[str] = None
@@ -75,6 +77,7 @@ class TurnEnvelope:
         envelope_basis = {
             "session_id": self.session_id,
             "turn_id": self.turn_id,
+            "turns": self.turns,
             "user_query": self.user_query,
             "assistant_final_hash": self.assistant_final_hash,
             "tools_trace": self.tools_trace,
@@ -291,11 +294,13 @@ def emit_memory_event(root: Path, envelope: TurnEnvelope) -> MemoryEvent:
                 ts=envelope.ts,
                 user_query=envelope.user_query,
                 assistant_final=envelope.assistant_final,
+                turns=list(envelope.turns or []),
+                speakers=list(envelope.speakers or []),
                 assistant_final_ref=envelope.assistant_final_ref,
                 assistant_final_hash=envelope.assistant_final_hash,
                 tools_trace=envelope.tools_trace,
                 mesh_trace=envelope.mesh_trace,
-                metadata=envelope.metadata,
+                metadata={**dict(envelope.metadata or {}), "turns": list(envelope.turns or []), "speakers": list(envelope.speakers or [])},
             )
         append_jsonl(_events_file(root), payload)
 

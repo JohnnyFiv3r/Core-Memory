@@ -50,8 +50,10 @@ class MyRuntimeAdapter:
             turn_id=turn_id,
             transaction_id=f"tx-{turn_id}",
             trace_id=f"tr-{turn_id}",
-            user_query=user_text,
-            assistant_final=assistant_text,
+            turns=[
+                {"speaker": "user", "role": "user", "content": user_text},
+                {"speaker": "assistant", "role": "assistant", "content": assistant_text},
+            ],
             origin="USER_TURN",
             tools_trace=tools or [],
             metadata={"framework": "my_runtime", "source": "adapter"},
@@ -98,7 +100,7 @@ Line-by-line responsibilities:
 - [ ] Adapter calls `on_session_start` for every new session.
 - [ ] Every `on_turn_end` is preceded by `on_session_start` for the same `session_id`.
 - [ ] `turn_id` values are unique within the session.
-- [ ] Legacy `user_query` / `assistant_final` are non-empty when the host has both sides.
+- [ ] `turns` includes attributed `{speaker, role, content}` items for all captured utterances.
 - [ ] Post-PRD #1 `Turn.speaker` values are non-empty when using the `Turn` shape.
 - [ ] `metadata.retrieved_beads` is populated when the host retrieved Core Memory context.
 - [ ] `tools_trace` is populated when the host exposes tool events.
