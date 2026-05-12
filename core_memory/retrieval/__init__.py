@@ -10,9 +10,19 @@ from .contracts import (
     validate_recall_effort,
 )
 
+
+def __getattr__(name: str):
+    if name == "recall":
+        from .agent import recall
+
+        return recall
+    raise AttributeError(name)
+
+
 __all__ = [
     "hybrid_lookup",
     "lexical_lookup",
+    "recall",
     "EvidenceItem",
     "SourceItem",
     "RecallPlanning",

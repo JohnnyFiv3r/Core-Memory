@@ -1,4 +1,3 @@
-import os
 import unittest
 from unittest.mock import patch
 
@@ -73,41 +72,68 @@ class TestCaptureAlias(unittest.TestCase):
 
 
 class TestRecallWrapper(unittest.TestCase):
-    def test_recall_string_query_normalizes_to_memory_execute_request(self):
-        expected = {"ok": True, "results": []}
-        with patch.object(core_memory, "memory_execute", return_value=expected) as spy:
+    def test_recall_string_query_returns_recall_result(self):
+        raw = {"ok": True, "results": []}
+        with patch("core_memory.retrieval.agent.memory_execute", return_value=raw) as spy:
             out = core_memory.recall(" redis timeouts ", root="/tmp/memory", explain=False)
 
-        self.assertEqual(expected, out)
-        spy.assert_called_once_with(
-            request={"raw_query": "redis timeouts", "intent": "remember", "k": 8, "budget": "default"},
-            root="/tmp/memory",
-            explain=False,
-        )
-
-    def test_recall_dict_request_preserves_explicit_values(self):
-        expected = {"ok": True}
-        request = {"raw_query": "why redis", "intent": "causal", "k": 3, "budget": "full"}
-        with patch.object(core_memory, "memory_execute", return_value=expected) as spy:
-            out = core_memory.recall(request)
-
-        self.assertEqual(expected, out)
-        self.assertEqual(request, spy.call_args.kwargs["request"])
-
-    def test_recall_valid_budget_and_speaker_pass_through_only(self):
-        expected = {"ok": True}
-        with patch.object(core_memory, "memory_execute", return_value=expected) as spy:
-            out = core_memory.recall("redis", budget="full", speaker="alice", k=5, topic="infra")
-
-        self.assertEqual(expected, out)
+        self.assertIsInstance(out, core_memory.RecallResult)
+        self.assertEqual("empty", out.status)
+        spy.assert_called_once()
+        self.assertEqual("/tmp/memory", spy.call_args.kwargs["root"])
+        self.assertFalse(spy.call_args.kwargs["explain"])
         self.assertEqual(
-            {"raw_query": "redis", "intent": "remember", "k": 5, "budget": "full", "speaker": "alice", "topic": "infra"},
+            {
+                "raw_query": "redis timeouts",
+                "intent": "remember",
+                "k": 10,
+                "effort": "medium",
+                "grounding_mode": "prefer_grounded",
+                "hydration": {"turn_sources": True, "max_beads": 8, "adjacent_before": 1, "adjacent_after": 1},
+            },
             spy.call_args.kwargs["request"],
         )
 
-    def test_recall_rejects_invalid_budget(self):
-        with self.assertRaisesRegex(ValueError, "budget must be one of"):
-            core_memory.recall("redis", budget="giant")
+    def test_recall_dict_request_preserves_explicit_values(self):
+        raw = {"ok": True, "results": []}
+        request = {"raw_query": "why redis", "intent": "causal", "k": 3, "grounding_mode": "search_only"}
+        with patch("core_memory.retrieval.agent.memory_execute", return_value=raw) as spy:
+            out = core_memory.recall(request, effort="high")
+
+        self.assertEqual("high", out.planning.selected_effort)
+        expected_request = request | {
+            "effort": "high",
+            "hydration": {"turn_sources": True, "max_beads": 16, "adjacent_before": 2, "adjacent_after": 2},
+        }
+        self.assertEqual(expected_request, spy.call_args.kwargs["request"])
+
+    def test_recall_valid_effort_and_speaker_pass_through(self):
+        raw = {"ok": True, "results": []}
+        with patch("core_memory.retrieval.agent.memory_execute", return_value=raw) as spy:
+            out = core_memory.recall("redis", effort="low", speaker="alice", k=5, topic="infra")
+
+        self.assertEqual("low", out.planning.selected_effort)
+        self.assertEqual(
+            {
+                "raw_query": "redis",
+                "intent": "remember",
+                "k": 5,
+                "effort": "low",
+                "grounding_mode": "search_only",
+                "speaker": "alice",
+                "facets": {"metadata": {"speaker": "alice"}},
+                "topic": "infra",
+            },
+            spy.call_args.kwargs["request"],
+        )
+
+    def test_recall_rejects_invalid_effort(self):
+        with self.assertRaisesRegex(ValueError, "recall effort must be one of"):
+            core_memory.recall("redis", effort="giant")
+
+    def test_recall_rejects_dynamic_for_now(self):
+        with self.assertRaisesRegex(ValueError, "reserved for a future"):
+            core_memory.recall("redis", effort="dynamic")
 
     def test_recall_rejects_empty_string_query(self):
         with self.assertRaisesRegex(ValueError, "non-empty"):
@@ -116,22 +142,6 @@ class TestRecallWrapper(unittest.TestCase):
     def test_recall_rejects_non_string_non_dict_query(self):
         with self.assertRaisesRegex(TypeError, "string or dict"):
             core_memory.recall(["redis"])
-
-    def test_recall_preserves_memory_execute_disable_flag(self):
-        old = os.environ.get("MEMORY_EXECUTE_ENABLED")
-        os.environ["MEMORY_EXECUTE_ENABLED"] = "0"
-        try:
-            out = core_memory.recall("redis", explain=False)
-        finally:
-            if old is None:
-                os.environ.pop("MEMORY_EXECUTE_ENABLED", None)
-            else:
-                os.environ["MEMORY_EXECUTE_ENABLED"] = old
-
-        self.assertFalse(out.get("ok"))
-        self.assertEqual("memory_execute_disabled", out.get("error"))
-        self.assertEqual("memory_execute_result.v1", out.get("schema_version"))
-        self.assertEqual("memory_execute", out.get("contract"))
 
 
 if __name__ == "__main__":
