@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import re
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Optional
 
@@ -35,6 +36,7 @@ from core_memory.integrations.mcp.typed_write import (
     apply_reviewed_proposal as mcp_apply_reviewed_proposal,
     submit_entity_merge_proposal as mcp_submit_entity_merge_proposal,
 )
+from core_memory.integrations.mcp.protocol_server import MCP_HTTP_PATH, build_mcp_app
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
@@ -214,7 +216,35 @@ class DreamerCandidateDecideRequest(BaseModel):
     apply: bool = False
 
 
-app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1")
+def _build_mcp_subapp() -> FastAPI:
+    try:
+        return build_mcp_app()
+    except RuntimeError as exc:
+        error_message = str(exc)
+        unavailable = FastAPI(title="Core Memory MCP Protocol Server (unavailable)")
+
+        @unavailable.get("/healthz")
+        async def mcp_unavailable_healthz():
+            return {"ok": False, "surface": "mcp", "error": error_message}
+
+        return unavailable
+
+
+_mcp_app = _build_mcp_subapp()
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    session_manager = getattr(getattr(_mcp_app, "state", None), "mcp_session_manager", None)
+    if session_manager is None:
+        yield
+    else:
+        async with session_manager.run():
+            yield
+
+
+app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1", lifespan=_lifespan)
+app.mount(MCP_HTTP_PATH, _mcp_app)
 
 
 def _semantic_http_response(result: dict[str, Any]) -> JSONResponse | None:

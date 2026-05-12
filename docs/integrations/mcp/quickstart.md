@@ -1,0 +1,112 @@
+# Core Memory MCP Quickstart
+
+Status: v1 protocol surface
+
+Core Memory exposes an MCP streamable-HTTP server at `/mcp`. The REST `/v1/*` endpoints remain unchanged; MCP is a peer adapter surface for MCP-capable agent clients.
+
+## Install
+
+```bash
+pip install "core-memory[mcp]"
+core-memory mcp version
+```
+
+The v1 SDK dependency is pinned as `mcp>=1.27.1,<2`. `core-memory mcp version` reports both the Core Memory MCP pin and the installed SDK package version.
+
+## Run the HTTP/MCP server
+
+By default, the MCP server uses this store root:
+
+```text
+~/.core-memory/store
+```
+
+Override it with `CORE_MEMORY_ROOT`:
+
+```bash
+export CORE_MEMORY_ROOT="$HOME/.core-memory/store"
+export CORE_MEMORY_HTTP_PORT=8000
+python -m core_memory.integrations.http.server
+```
+
+Health checks:
+
+```bash
+curl http://localhost:8000/healthz
+curl http://localhost:8000/mcp/healthz
+core-memory mcp status
+```
+
+## Install into a client
+
+```bash
+core-memory mcp install --client cursor --root ~/.core-memory/store --port 8000
+```
+
+Supported client names:
+
+- `claude-code`
+- `cursor`
+- `windsurf`
+- `open-webui`
+
+With no `--client`, Core Memory attempts to detect supported client config files. If none are found, the command prints a manual JSON fallback like:
+
+```json
+{
+  "mcpServers": {
+    "core-memory": {
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
+```
+
+Use `--no-start` if you want Core Memory to write client config but not start or restart the local service. Internal dry-run hooks exist for tests, but dry-run is not a documented user workflow.
+
+## MCP tools
+
+### `capture`
+
+Writes observed conversation turns through the canonical Core Memory write boundary. Provide either `turns` or `{user, assistant, as_user?, as_assistant?}`.
+
+### `recall`
+
+Single public grounded read verb. Use:
+
+- `effort="low"` for quick lookup
+- `effort="medium"` for default grounded recall
+- `effort="high"` for deeper temporal/causal/audit recall
+
+Do not use `budget`; it is not a public MCP API field. `effort="dynamic"` is reserved and currently rejected.
+
+### `ingest`
+
+Imports a local transcript file readable by the server process. Supported v1 parser formats:
+
+- `json`
+- `jsonl`
+- `markdown` / `text`
+- `auto`
+
+Ingest normalizes transcript turns and routes them through `capture`; it does not write `.beads`, `.turns`, indexes, claims, or associations directly.
+
+### `status`
+
+Read-only store/server status: root, counts, adapters, MCP version, and server version.
+
+## Prompt
+
+The server exposes prompt:
+
+```text
+core-memory.agent-guide
+```
+
+The prompt content is packaged with Core Memory from `core_memory/integrations/mcp/core-memory-agent-guide.md`. The docs copy at `docs/agent-guide/core-memory-agent-guide.md` is a pointer, not a separate runtime source of truth.
+
+## Remove client config
+
+```bash
+core-memory mcp uninstall --client cursor
+```

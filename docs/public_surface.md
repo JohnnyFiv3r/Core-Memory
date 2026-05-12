@@ -107,6 +107,10 @@ Deep recall is separate from canonical hydration.
 - OpenClaw bridge surfaces under `core_memory.integrations.openclaw.*`
 - PydanticAI surfaces under `core_memory.integrations.pydanticai.*`
 - SpringAI/HTTP surfaces under `core_memory.integrations.http.*` and docs contract
+- MCP protocol server under `core_memory.integrations.mcp.protocol_server.*` at `/mcp`
+  - tools: `capture`, `recall`, `ingest`, `status`
+  - prompt: `core-memory.agent-guide`
+  - CLI: `core-memory mcp install|status|uninstall|version`
 - MCP typed read surfaces under `core_memory.integrations.mcp.typed_read.*`
 - MCP typed write surfaces under `core_memory.integrations.mcp.typed_write.*`
 - LangChain surfaces under `core_memory.integrations.langchain.*`
