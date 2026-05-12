@@ -35,6 +35,7 @@ Issues = "https://github.com/JohnnyFiv3r/Core-Memory/issues"
 [project.optional-dependencies]
 dev = ["pytest", "ruff", "mypy"]
 http = ["fastapi", "uvicorn", "httpx"]
+mcp = ["fastapi", "uvicorn", "httpx", "mcp>=1.27.1,<2"]
 pydanticai = ["pydantic-ai"]
 semantic = ["numpy", "faiss-cpu"]
 tokenizer = ["tiktoken"]
@@ -47,7 +48,7 @@ crewai = ["crewai"]
 neo4j = ["neo4j"]
 encryption = ["cryptography"]
 all = [
-    "fastapi", "uvicorn", "httpx",
+    "fastapi", "uvicorn", "httpx", "mcp>=1.27.1,<2",
     "pydantic-ai",
     "numpy", "faiss-cpu",
     "openai",
@@ -63,6 +64,7 @@ include = ["core_memory*"]
 
 [tool.setuptools.package-data]
 "core_memory.config.defaults" = ["*.yaml"]
+"core_memory.integrations.mcp" = ["*.md"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

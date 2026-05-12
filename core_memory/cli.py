@@ -51,6 +51,7 @@ from .cli_handlers_metrics import handle_metrics_command
 from .cli_handlers_integrations import handle_integration_commands
 from .cli_handlers_ops import handle_ops_commands
 from .cli_diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
+from .integrations.mcp.cli import install_payload, status_payload as mcp_status_payload, uninstall_payload, version_payload
 
 
 # Compatibility wrappers for tests/legacy imports during CLI boundary split.
@@ -99,7 +100,7 @@ def main():
 
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{setup,store,memory,inspect,integrations,ops,dev}",
+        metavar="{setup,store,memory,inspect,integrations,ops,mcp,dev}",
     )
 
     # Grouped surface (preferred)
@@ -187,6 +188,21 @@ def main():
     ops_sub.add_parser("rebuild", help="Rebuild index from events")
     ops_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index")
     ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
+
+    mcp_parser = subparsers.add_parser("mcp", help="Install and inspect the MCP protocol server")
+    mcp_sub = mcp_parser.add_subparsers(dest="mcp_cmd")
+    mcp_install = mcp_sub.add_parser("install", help="Install Core Memory MCP into supported clients")
+    mcp_install.add_argument("--client", choices=["claude-code", "cursor", "windsurf", "open-webui"])
+    mcp_install.add_argument("--root")
+    mcp_install.add_argument("--port", type=int, default=8000)
+    mcp_install.add_argument("--no-start", action="store_true")
+    mcp_install.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
+    mcp_status = mcp_sub.add_parser("status", help="Check Core Memory MCP server status")
+    mcp_status.add_argument("--port", type=int, default=8000)
+    mcp_uninstall = mcp_sub.add_parser("uninstall", help="Remove Core Memory MCP client config")
+    mcp_uninstall.add_argument("--client", choices=["claude-code", "cursor", "windsurf", "open-webui"])
+    mcp_uninstall.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
+    mcp_sub.add_parser("version", help="Show MCP spec and SDK versions")
 
     dev_parser = subparsers.add_parser("dev", help="Advanced developer-facing command surfaces")
     dev_parser.add_argument(
@@ -325,6 +341,7 @@ def main():
             "inspect": inspect_parser,
             "integrations": integrations_parser,
             "ops": ops_parser,
+            "mcp": mcp_parser,
             "dev": dev_parser,
         },
     ):
@@ -338,6 +355,22 @@ def main():
     if args.command == "setup" and args.setup_cmd in {"init", "paths"}:
         memory = MemoryStore(root=args.root)
         print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
+        return
+
+    if args.command == "mcp":
+        if args.mcp_cmd == "version":
+            print(json.dumps(version_payload(), indent=2))
+            return
+        if args.mcp_cmd == "status":
+            print(json.dumps(mcp_status_payload(port=args.port), indent=2))
+            return
+        if args.mcp_cmd == "install":
+            print(json.dumps(install_payload(client=args.client, root=args.root, port=args.port, no_start=args.no_start, dry_run=args.dry_run), indent=2))
+            return
+        if args.mcp_cmd == "uninstall":
+            print(json.dumps(uninstall_payload(client=args.client, dry_run=args.dry_run), indent=2))
+            return
+        mcp_parser.print_help()
         return
 
     memory = MemoryStore(root=args.root)

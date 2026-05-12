@@ -165,6 +165,17 @@ HTTP companion service:
 pip install "core-memory[http]"
 ```
 
+MCP protocol server for MCP-capable agent clients:
+
+```bash
+pip install "core-memory[mcp]"
+core-memory mcp version
+core-memory mcp install --no-start   # writes client config when a supported client config is detected
+core-memory mcp status
+```
+
+The MCP server mounts at `http://localhost:8000/mcp` and exposes tools `capture`, `recall`, `ingest`, and `status`, plus prompt `core-memory.agent-guide`. See [docs/integrations/mcp/quickstart.md](docs/integrations/mcp/quickstart.md).
+
 PydanticAI adapter:
 
 ```bash
@@ -444,6 +455,7 @@ from core_memory.integrations.api import emit_turn_finalized
 - **Recommended integration starts**
   - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
   - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
+  - [docs/integrations/mcp/quickstart.md](docs/integrations/mcp/quickstart.md)
   - [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)
   - [docs/integrations/neo4j/quickstart.md](docs/integrations/neo4j/quickstart.md)
 - **Compatibility**
