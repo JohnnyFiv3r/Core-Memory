@@ -13,8 +13,8 @@ the demo TODO tracks adoption surfaces, endpoints, packaging, and benchmark repo
   LongMemEval scoring). Honest causal reasoning is part of what makes benchmark recall
   defensible; do not let answer/edge quality depend on echoed user text.
 - **#2 goal lifecycle** supports Demo TODO #5 (`POST /api/recall` and the public
-  `recall(query, budget=...)` verb). Public recall needs resolved goals and outcomes to
-  surface as stable state, not indefinite candidates.
+  `recall(query, effort="low|medium|high")` verb). Public recall needs resolved goals and
+  outcomes to surface as stable state, not indefinite candidates.
 - **#3 canonical association relationship types** supports Demo TODO #3 (generic async
   transcript ingestion) and #6 (benchmark scoring). LoCoMo/entity-overlap or generic
   transcript heuristics should emit canonical relationships such as `associated_with`,
