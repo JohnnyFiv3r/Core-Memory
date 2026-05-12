@@ -12,8 +12,7 @@ def _emit_turn(root: Path, session_id: str, turn_id: str):
         turn_id=turn_id,
         transaction_id=f"tx-{turn_id}",
         trace_id=f"tr-{turn_id}",
-        user_query="u",
-        assistant_final="a",
+        turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
     )
     emit_memory_event(root, env)
 

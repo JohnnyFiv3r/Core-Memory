@@ -492,6 +492,7 @@ def decide_dreamer_candidate(
             }
 
         from core_memory.runtime.engine import process_turn_finalized
+        from core_memory.schema.turn import Turn
         from core_memory.schema.normalization import normalize_relation_type, relation_kind
         from core_memory.policy.association_inference_v21 import CANONICAL_INFERENCE_RELATIONSHIPS
 
@@ -534,8 +535,10 @@ def decide_dreamer_candidate(
                 root=str(root),
                 session_id=session_id,
                 turn_id=turn_id,
-                user_query=f"Dreamer reviewer accepted candidate {cid}; apply reviewed association.",
-                assistant_final=f"Apply reviewed association: {src} {rel_apply} {tgt}. Rationale: {rationale}",
+                turns=[
+                    Turn(speaker="user", role="user", content=f"Dreamer reviewer accepted candidate {cid}; apply reviewed association."),
+                    Turn(speaker="assistant", role="assistant", content=f"Apply reviewed association: {src} {rel_apply} {tgt}. Rationale: {rationale}"),
+                ],
                 metadata={
                     "crawler_updates": {
                         "associations": [

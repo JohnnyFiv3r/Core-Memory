@@ -22,8 +22,7 @@ class TestIdempotencyEffects(unittest.TestCase):
                 turn_id=turn_id,
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query=q,
-                assistant_final=a,
+                turns=[{"speaker": "user", "role": "user", "content": q}, {"speaker": "assistant", "role": "assistant", "content": a}],
                 window_turn_ids=["w1"],
             )
             beads_after_1 = len(store._read_json(store.beads_dir / "index.json").get("beads", {}))
@@ -34,8 +33,7 @@ class TestIdempotencyEffects(unittest.TestCase):
                 turn_id=turn_id,
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query=q,
-                assistant_final=a,
+                turns=[{"speaker": "user", "role": "user", "content": q}, {"speaker": "assistant", "role": "assistant", "content": a}],
                 window_turn_ids=["w1"],
             )
             beads_after_2 = len(store._read_json(store.beads_dir / "index.json").get("beads", {}))

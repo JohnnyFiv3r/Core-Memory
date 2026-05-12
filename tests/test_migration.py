@@ -14,8 +14,7 @@ def _emit(root: Path, sid: str, tid: str):
         turn_id=tid,
         transaction_id=f"tx-{tid}",
         trace_id=f"tr-{tid}",
-        user_query="u",
-        assistant_final="a",
+        turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
     )
     emit_memory_event(root, env)
 

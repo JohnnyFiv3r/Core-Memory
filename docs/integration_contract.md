@@ -15,8 +15,7 @@ Adapters converge on finalized-turn ingress by either:
 Required payload (conceptual minimum):
 - `session_id`
 - `turn_id`
-- `user_query`
-- `assistant_final`
+- `turns` — list of `{speaker, role, content}` objects
 
 Required behavior:
 - emit once per top-level turn

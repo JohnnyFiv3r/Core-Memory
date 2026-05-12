@@ -49,8 +49,7 @@ class TestRationaleExtraction(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="maybe we should use Redis",
-                assistant_final="Noted as a tentative idea.",
+                turns=[{"speaker": "user", "role": "user", "content": "maybe we should use Redis"}, {"speaker": "assistant", "role": "assistant", "content": "Noted as a tentative idea."}],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out.get("ok"))

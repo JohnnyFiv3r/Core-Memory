@@ -18,8 +18,7 @@ class TestTriggerOrchestratorFlushRecovery(unittest.TestCase):
                 turn_id="t_done",
                 transaction_id="tx_done",
                 trace_id="tr_done",
-                user_query="remember this",
-                assistant_final="Decision: processed",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: processed"}],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
 

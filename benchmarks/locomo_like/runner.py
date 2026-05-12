@@ -172,10 +172,21 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
                 continue
             tid = str(t.get("turn_id") or f"fx-turn-{i}").strip() or f"fx-turn-{i}"
             sid = str(t.get("session_id") or "main").strip() or "main"
+            raw_turns = list(t.get("turns") or []) if isinstance(t.get("turns"), list) else []
             uq = str(t.get("user_query") or "").strip()
             af = str(t.get("assistant_final") or "").strip()
-            if not uq or not af:
-                continue
+            if not raw_turns:
+                if not uq or not af:
+                    continue
+                raw_turns = [
+                    {"speaker": "user", "role": "user", "content": uq},
+                    {"speaker": "assistant", "role": "assistant", "content": af},
+                ]
+            else:
+                if not uq:
+                    uq = "\n".join(str(x.get("content") or "") for x in raw_turns if isinstance(x, dict) and str(x.get("role") or "") == "user").strip()
+                if not af:
+                    af = "\n".join(str(x.get("content") or "") for x in raw_turns if isinstance(x, dict) and str(x.get("role") or "") == "assistant").strip()
 
             md = dict(t.get("metadata") or {})
             if not isinstance(md.get("crawler_updates"), dict):
@@ -187,8 +198,7 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
                 turn_id=tid,
                 transaction_id=str(t.get("transaction_id") or f"tx-{tid}").strip() or f"tx-{tid}",
                 trace_id=str(t.get("trace_id") or f"tr-{tid}").strip() or f"tr-{tid}",
-                user_query=uq,
-                assistant_final=af,
+                turns=raw_turns,
                 metadata=md,
                 tools_trace=list(t.get("tools_trace") or []),
                 mesh_trace=list(t.get("mesh_trace") or []),

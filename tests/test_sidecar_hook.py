@@ -28,8 +28,7 @@ class TestSidecarHook(unittest.TestCase):
             turn_id="t1",
             transaction_id="tx1",
             trace_id="tr1",
-            user_query="u",
-            assistant_final="a",
+            turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
             trace_depth=0,
             origin="USER_TURN",
         )
@@ -44,8 +43,7 @@ class TestSidecarHook(unittest.TestCase):
             turn_id="t1",
             transaction_id="tx2",
             trace_id="tr2",
-            user_query="u",
-            assistant_final="a",
+            turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
             trace_depth=0,
             origin="USER_TURN",
         )
@@ -59,8 +57,7 @@ class TestSidecarHook(unittest.TestCase):
             turn_id="t2",
             transaction_id="tx1",
             trace_id="tr1",
-            user_query="u",
-            assistant_final="a",
+            turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
             trace_depth=2,
             origin="SUBAGENT",
         )

@@ -79,6 +79,28 @@ def _clean_list(value: Any, *, limit: int = 6, item_limit: int = 240) -> list[st
     return out
 
 
+def _heuristic_entities(*texts: str, limit: int = 16) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    stop = {
+        "the", "and", "for", "with", "that", "this", "from", "into", "your", "our", "their",
+        "were", "was", "have", "has", "had", "will", "would", "should", "could", "can", "cant",
+        "about", "after", "before", "then", "than", "because", "there", "here", "when", "where",
+        "what", "which", "who", "whom", "whose", "why", "how", "turn", "main", "session",
+        "these", "those", "decision", "confirmed", "logged",
+    }
+    for raw in texts:
+        for token in re.findall(r"\b[A-Za-z][A-Za-z0-9._-]{2,}\b", str(raw or "")):
+            key = token.lower().strip(".,:;!?()[]{}\"'")
+            if key in stop or key in seen:
+                continue
+            seen.add(key)
+            out.append(token.strip(".,:;!?()[]{}\"'"))
+            if len(out) >= max(1, int(limit)):
+                return out
+    return out
+
+
 def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, Any]:
     uq = str(user_query or "").strip()
     af = str(assistant_final or "").strip()
@@ -91,7 +113,7 @@ def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[st
         "because": extract_causal_because(user_query=uq, assistant_final=af),
         "supporting_facts": [],
         "evidence_refs": [],
-        "entities": [],
+        "entities": _heuristic_entities(uq, af),
         "topics": [],
         "state_change": "",
         "validity": "",

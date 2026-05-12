@@ -3,48 +3,49 @@ import unittest
 from unittest.mock import patch
 
 import core_memory
-from core_memory.runtime import engine
 
 
 class TestCaptureAlias(unittest.TestCase):
-    def test_capture_is_process_turn_finalized(self):
-        self.assertIs(core_memory.capture, core_memory.process_turn_finalized)
-        self.assertIs(core_memory.capture, engine.process_turn_finalized)
+    def test_capture_is_public_wrapper(self):
+        self.assertTrue(callable(core_memory.capture))
 
-    def test_capture_returns_same_shape_and_forwards_metadata(self):
+    def test_capture_forwards_shortcut_to_runtime_turns(self):
         expected = {"ok": True, "processed": 1, "turn_id": "t1"}
         metadata = {
             "retrieved_beads": ["b1", "b2"],
             "used_memory": True,
             "crawler_updates": [{"type": "decision", "title": "Keep alias thin"}],
         }
-        with patch.object(engine, "process_turn_finalized_impl", return_value=expected) as spy:
+        with patch("core_memory.runtime.engine.process_turn_finalized", return_value=expected) as spy:
             out = core_memory.capture(
                 root=".",
                 session_id="s1",
                 turn_id="t1",
-                user_query="q",
-                assistant_final="a",
+                user="q",
+                assistant="a",
                 metadata=metadata,
             )
 
         self.assertEqual(expected, out)
-        self.assertEqual(metadata, spy.call_args.kwargs["metadata"])
+        kwargs = spy.call_args.kwargs
+        self.assertEqual(metadata, kwargs["metadata"])
+        self.assertEqual("user", kwargs["turns"][0].speaker)
+        self.assertEqual("assistant", kwargs["turns"][1].speaker)
 
     def test_capture_forwards_all_public_kwargs(self):
         expected = {"ok": True}
         policy = object()
         tools_trace = [{"tool": "search"}]
         mesh_trace = [{"agent": "child"}]
-        with patch.object(engine, "process_turn_finalized_impl", return_value=expected) as spy:
+        with patch("core_memory.runtime.engine.process_turn_finalized", return_value=expected) as spy:
             out = core_memory.capture(
                 root="/tmp/memory",
                 session_id="s1",
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="trace1",
-                user_query="",
-                assistant_final="",
+                user="",
+                assistant="",
                 trace_depth=2,
                 origin="TEST",
                 tools_trace=tools_trace,
@@ -59,8 +60,8 @@ class TestCaptureAlias(unittest.TestCase):
         kwargs = spy.call_args.kwargs
         self.assertEqual("tx1", kwargs["transaction_id"])
         self.assertEqual("trace1", kwargs["trace_id"])
-        self.assertEqual("", kwargs["user_query"])
-        self.assertEqual("", kwargs["assistant_final"])
+        self.assertEqual("", kwargs["turns"][0].content)
+        self.assertEqual("", kwargs["turns"][1].content)
         self.assertEqual(2, kwargs["trace_depth"])
         self.assertEqual("TEST", kwargs["origin"])
         self.assertIs(tools_trace, kwargs["tools_trace"])

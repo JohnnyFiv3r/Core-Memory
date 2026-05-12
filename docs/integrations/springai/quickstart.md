@@ -52,8 +52,7 @@ POST assistant-finalized turns asynchronously to:
 Minimum body:
 - `session_id`
 - `turn_id`
-- `user_query`
-- `assistant_final`
+- `turns` — list of `{speaker, role, content}` objects
 
 ## 4) SpringAI runtime path
 Preferred single-call endpoint:

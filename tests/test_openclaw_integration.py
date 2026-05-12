@@ -24,8 +24,7 @@ class TestOpenClawIntegration(unittest.TestCase):
             turn_id="t1",
             transaction_id="tx1",
             trace_id="tr1",
-            user_query="remember this decision",
-            assistant_final="Decision: use stdlib for safety",
+            turns=[{"speaker": "user", "role": "user", "content": "remember this decision"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: use stdlib for safety"}],
             trace_depth=0,
             origin="USER_TURN",
             window_bead_ids=[],
@@ -38,8 +37,7 @@ class TestOpenClawIntegration(unittest.TestCase):
             turn_id="t2",
             transaction_id="tx2",
             trace_id="tr2",
-            user_query="remember this canonical flow",
-            assistant_final="Decision: canonical in-process path",
+            turns=[{"speaker": "user", "role": "user", "content": "remember this canonical flow"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: canonical in-process path"}],
             policy=SidecarPolicy(create_threshold=0.6),
         )
         self.assertTrue(proc.get("ok"))
@@ -51,8 +49,7 @@ class TestOpenClawIntegration(unittest.TestCase):
             turn_id="t2",
             transaction_id="tx2",
             trace_id="tr2",
-            user_query="remember this canonical flow",
-            assistant_final="Decision: canonical in-process path",
+            turns=[{"speaker": "user", "role": "user", "content": "remember this canonical flow"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: canonical in-process path"}],
             policy=SidecarPolicy(create_threshold=0.6),
         )
         self.assertEqual(0, proc2.get("processed"))

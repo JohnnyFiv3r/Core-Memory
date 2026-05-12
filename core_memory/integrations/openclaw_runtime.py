@@ -11,6 +11,7 @@ from typing import Any
 
 from ..runtime.worker import SidecarPolicy
 from ..runtime.engine import process_turn_finalized, emit_turn_finalized
+from ..schema.turn import Turn
 
 
 def resolve_core_session_id(*, openclaw_session_id: str, core_session_id: str | None, collapse_to_main: bool) -> str:
@@ -33,8 +34,7 @@ def coordinator_finalize_hook(
     turn_id: str,
     transaction_id: str,
     trace_id: str,
-    user_query: str,
-    assistant_final: str,
+    turns: list[Turn | dict[str, Any]],
     trace_depth: int = 0,
     origin: str = "USER_TURN",
     tools_trace: list[dict] | None = None,
@@ -50,8 +50,7 @@ def coordinator_finalize_hook(
         turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
-        user_query=user_query,
-        assistant_final=assistant_final,
+        turns=turns,
         trace_depth=trace_depth,
         origin=origin,
         tools_trace=tools_trace,
@@ -69,8 +68,7 @@ def finalize_and_process_turn(
     turn_id: str,
     transaction_id: str,
     trace_id: str,
-    user_query: str,
-    assistant_final: str,
+    turns: list[Turn | dict[str, Any]],
     trace_depth: int = 0,
     origin: str = "USER_TURN",
     tools_trace: list[dict] | None = None,
@@ -87,8 +85,7 @@ def finalize_and_process_turn(
         turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
-        user_query=user_query,
-        assistant_final=assistant_final,
+        turns=turns,
         trace_depth=trace_depth,
         origin=origin,
         tools_trace=tools_trace,

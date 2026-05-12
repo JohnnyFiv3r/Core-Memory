@@ -14,8 +14,7 @@ class TestIntegrationsApi(unittest.TestCase):
                 session_id="s1",
                 turn_id="t1",
                 transaction_id="tx1",
-                user_query="u",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
             )
             self.assertTrue(event_id.startswith("mev-"))
 
@@ -27,8 +26,7 @@ class TestIntegrationsApi(unittest.TestCase):
                 session_id="s1",
                 turn_id="t1",
                 transaction_id="tx1",
-                user_query="u",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 origin="MEMORY_PASS",
             )
             self.assertIsNone(out)
@@ -42,8 +40,7 @@ class TestIntegrationsApi(unittest.TestCase):
                     session_id="s1",
                     turn_id="t1",
                     transaction_id="tx1",
-                    user_query="u",
-                    assistant_final="a",
+                    turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                     origin="MEMORY_PASS",
                     strict=True,
                 )
@@ -56,8 +53,7 @@ class TestIntegrationsApi(unittest.TestCase):
                 session_id="s1",
                 turn_id="t1",
                 transaction_id="tx1",
-                user_query="u",
-                assistant_final="very sensitive assistant output",
+                turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "very sensitive assistant output"}],
                 metadata={"store_full_text": False},
             )
             events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"

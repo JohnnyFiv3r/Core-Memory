@@ -19,7 +19,7 @@
       "path": "/v1/memory/turn-finalized",
       "authRequired": "conditional",
       "requestSchema": "TurnFinalizedRequest",
-      "requiredFields": ["session_id", "turn_id", "user_query", "assistant_final"],
+      "requiredFields": ["session_id", "turn_id", "turns"],
       "response": {"accepted": "bool", "event_id": "string"},
       "errors": ["400 invalid_payload|invalid_content_length", "401 unauthorized", "413 payload_too_large"]
     },

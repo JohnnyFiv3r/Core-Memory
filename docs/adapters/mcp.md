@@ -27,7 +27,7 @@ Use the typed write/read functions directly or through the HTTP server endpoints
 
 `write_turn_finalized` fields:
 
-- Required: `root`, `session_id`, `turn_id`, `user_query`, `assistant_final`.
+- Required: `root`, `session_id`, `turn_id`, `turns`.
 - Optional: `transaction_id`, `trace_id`, `metadata`, `tools_trace`, `mesh_trace`, `window_turn_ids`, `window_bead_ids`, `origin`.
 
 The typed tool generates transaction/trace ids when omitted and returns a contract-tagged result with `event_id`, `processed`, and runtime result details.
@@ -49,7 +49,7 @@ For HTTP lifecycle endpoints, smoke:
 ## Common pitfalls
 
 1. **Assuming full three-hook MCP lifecycle exists as typed tools.** Today only turn-finalized is exposed in `typed_write.py`; session start/flush exist through HTTP server routes.
-2. **Missing `user_query` or `assistant_final`.** The typed tool rejects missing required text fields.
+2. **Missing `turns`.** The typed tool rejects missing required attributed turn list.
 3. **Treating proposal tools as lifecycle hooks.** Proposal tools are review workflows, not session/turn lifecycle events.
 4. **Skipping session start/flush.** If using only `write_turn_finalized`, you may miss explicit continuity open and compaction boundaries.
 5. **Future `/mcp` server work.** The streamable-HTTP MCP transport and prompt/resource exposure are separate follow-up work.

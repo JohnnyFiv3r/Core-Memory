@@ -132,8 +132,10 @@ class TestAdapterParityMatrixContract(unittest.TestCase):
                     "root": root,
                     "session_id": session_id,
                     "turn_id": "t1",
-                    "user_query": "why",
-                    "assistant_final": "because",
+                    "turns": [
+                        {"speaker": "user", "role": "user", "content": "why"},
+                        {"speaker": "assistant", "role": "assistant", "content": "because"},
+                    ],
                 },
             )
             self.assertEqual(200, r1.status_code)

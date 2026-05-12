@@ -45,7 +45,7 @@ Then use:
 
 ## Current Status
 
-- **Canonical surfaces:** `process_turn_finalized` / `process_session_start` / `process_flush` + `search` / `trace` / `execute`
+- **Canonical surfaces:** `process_turn_finalized(turns=[...])` / `process_session_start` / `process_flush` + `search` / `trace` / `execute`
 - **Adapter helper ingress:** `emit_turn_finalized(...)` remains supported for bridge/integration adapters
 - **Compatibility surfaces:** archived or non-primary docs/modules retained for migration/history only
 - **Experimental areas:** optional adapters and evaluation harnesses that are useful but not yet hard product contract
@@ -56,7 +56,7 @@ Then use:
 If you're new here, this is the shortest trust contract for what is stable now:
 
 - **Required (core product):**
-  - write memory with `process_turn_finalized(...)`
+  - write memory with `process_turn_finalized(turns=[...])`
   - read memory with `memory search|trace|execute` (or Python equivalents)
 - **Recommended for most users:**
   - keep `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` on base installs
@@ -73,7 +73,7 @@ If a feature is not in this contract or `docs/public_surface.md`, treat it as no
 
 - **Required**
   - base install: `pip install core-memory`
-  - canonical write boundary: `process_turn_finalized(...)`
+  - canonical write boundary: `process_turn_finalized(turns=[...])`
   - canonical retrieval: `memory search|trace|execute` (or Python equivalents)
 - **Recommended**
   - semantic extras: `pip install "core-memory[semantic]"`
@@ -189,7 +189,7 @@ pip install "core-memory[dev]"
 
 ### 1) Friendliest Python path
 
-Use `capture` for observed conversation writes and `recall` for single-query reads. `capture` is the quick-start name for the canonical `process_turn_finalized(...)` boundary; `recall` currently delegates to `memory_execute(...)`.
+Use `capture` for observed conversation writes and `recall` for single-query reads. `capture` is the quick-start helper for the canonical `process_turn_finalized(turns=[...])` boundary; `recall` currently delegates to `memory_execute(...)`. See [docs/concepts/turn_schema.md](docs/concepts/turn_schema.md) for the multi-speaker turn schema and migration notes.
 
 ```python
 from core_memory import capture, recall
@@ -200,8 +200,8 @@ capture(
     root=root,
     session_id="quickstart",
     turn_id="t1",
-    user_query="Why did we choose Postgres?",
-    assistant_final="Decision: choose Postgres because JSONB lowers integration risk.",
+    user="Why did we choose Postgres?",
+    assistant="Decision: choose Postgres because JSONB lowers integration risk.",
 )
 
 out = recall("why did we choose Postgres?", root=root)
@@ -227,8 +227,10 @@ process_turn_finalized(
     root=root,
     session_id="five-minute",
     turn_id="t1",
-    user_query="What should we do about Redis timeouts?",
-    assistant_final="Decision: increase pool size to 200.",
+    turns=[
+        {"speaker": "user", "role": "user", "content": "What should we do about Redis timeouts?"},
+        {"speaker": "assistant", "role": "assistant", "content": "Decision: increase pool size to 200."},
+    ],
 )
 out = memory_execute(
     request={"raw_query": "why redis timeouts", "intent": "causal", "k": 5},
@@ -261,8 +263,10 @@ process_turn_finalized(
     root=root,
     session_id="five-minute",
     turn_id="t1",
-    user_query="What should we do about Redis timeouts?",
-    assistant_final="Decision: increase pool size to 200.",
+    turns=[
+        {"speaker": "user", "role": "user", "content": "What should we do about Redis timeouts?"},
+        {"speaker": "assistant", "role": "assistant", "content": "Decision: increase pool size to 200."},
+    ],
 )
 out = memory_execute(
     request={"raw_query": "why redis timeouts", "intent": "causal", "k": 5},
@@ -294,8 +298,10 @@ process_turn_finalized(
  root=root,
  session_id="s1",
  turn_id="t1",
- user_query="Why did Redis fail?",
- assistant_final="Decision: increase Redis pool to 200 to prevent exhaustion.",
+ turns=[
+  {"speaker": "user", "role": "user", "content": "Why did Redis fail?"},
+  {"speaker": "assistant", "role": "assistant", "content": "Decision: increase Redis pool to 200 to prevent exhaustion."},
+ ],
 )
 
 out = memory_execute(
@@ -381,8 +387,7 @@ Minimum useful fields:
 
 - `session_id`
 - `turn_id`
-- `user_query`
-- `assistant_final`
+- `turns` — list of `{speaker, role, content}` objects
 
 Session lifecycle boundaries:
 

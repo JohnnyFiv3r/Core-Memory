@@ -124,8 +124,7 @@ class TestCriticalPathPersistsBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="Why PostgreSQL?",
-                assistant_final="JSONB + transactional consistency",
+                turns=[{"speaker": "user", "role": "user", "content": "Why PostgreSQL?"}, {"speaker": "assistant", "role": "assistant", "content": "JSONB + transactional consistency"}],
             )
             self.assertTrue(result.get("ok"))
             self.assertEqual(result.get("processed"), 1)
@@ -145,8 +144,7 @@ class TestCriticalPathPersistsBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="Why PostgreSQL?",
-                assistant_final="JSONB + transactional consistency",
+                turns=[{"speaker": "user", "role": "user", "content": "Why PostgreSQL?"}, {"speaker": "assistant", "role": "assistant", "content": "JSONB + transactional consistency"}],
             )
             self.assertTrue(result.get("ok"))
             self.assertEqual(result.get("processed"), 1)

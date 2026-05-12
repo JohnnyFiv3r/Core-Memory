@@ -19,8 +19,7 @@ Purpose:
 Minimum request fields:
 - `session_id`
 - `turn_id`
-- `user_query`
-- `assistant_final`
+- `turns` — list of `{speaker, role, content}` objects
 
 Returns:
 ```json

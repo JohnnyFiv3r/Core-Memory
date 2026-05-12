@@ -210,8 +210,7 @@ class TestHydrationTools(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query="u",
-                assistant_final="a",
+                turns=[{"speaker": "user", "role": "user", "content": "u"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 tools_trace=[{"tool_call_id": "1", "category": "search", "result_hash": "h"}],
             )
             emit_memory_event(Path(root), env)
@@ -237,8 +236,7 @@ class TestHydrationTools(unittest.TestCase):
                 turn_id="t2",
                 transaction_id="tx2",
                 trace_id="tr2",
-                user_query="u2",
-                assistant_final="a2",
+                turns=[{"speaker": "user", "role": "user", "content": "u2"}, {"speaker": "assistant", "role": "assistant", "content": "a2"}],
             )
             emit_memory_event(Path(root), env)
 

@@ -61,8 +61,9 @@ class TurnFinalizedRequest(BaseModel):
     turn_id: str
     transaction_id: Optional[str] = None
     trace_id: Optional[str] = None
-    user_query: str
-    assistant_final: str
+    turns: list[dict[str, Any]] = Field(default_factory=list)
+    user_query: Optional[str] = None
+    assistant_final: Optional[str] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     traces: dict[str, list[dict]] = Field(default_factory=dict)
     window_turn_ids: list[str] = Field(default_factory=list)
@@ -155,8 +156,9 @@ class MCPWriteTurnFinalizedRequest(BaseModel):
     root: Optional[str] = None
     session_id: str
     turn_id: str
-    user_query: str
-    assistant_final: str
+    turns: list[dict[str, Any]] = Field(default_factory=list)
+    user_query: Optional[str] = None
+    assistant_final: Optional[str] = None
     transaction_id: str = ""
     trace_id: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -318,6 +320,8 @@ async def turn_finalized(
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=400, detail=f"invalid_payload: {exc}")
 
+    if payload.user_query is not None or payload.assistant_final is not None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "legacy_turn_fields_removed", "message": "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] instead. See docs/concepts/turn_schema.md."})
     transaction_id = payload.transaction_id or f"tx-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
     trace_id = payload.trace_id or f"tr-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
 
@@ -338,8 +342,7 @@ async def turn_finalized(
         turn_id=payload.turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
-        user_query=payload.user_query,
-        assistant_final=payload.assistant_final,
+        turns=list(payload.turns or []),
         origin=payload.origin,
         tools_trace=list((payload.traces or {}).get("tools") or []),
         mesh_trace=list((payload.traces or {}).get("mesh") or []),
@@ -527,12 +530,13 @@ async def mcp_write_turn_finalized_endpoint(
     x_tenant_id: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
+    if payload.user_query is not None or payload.assistant_final is not None:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "legacy_turn_fields_removed", "message": "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] instead. See docs/concepts/turn_schema.md."})
     out = mcp_write_turn_finalized(
         root=_resolve_root(payload.root, x_tenant_id),
         session_id=str(payload.session_id or ""),
         turn_id=str(payload.turn_id or ""),
-        user_query=str(payload.user_query or ""),
-        assistant_final=str(payload.assistant_final or ""),
+        turns=list(payload.turns or []),
         transaction_id=str(payload.transaction_id or ""),
         trace_id=str(payload.trace_id or ""),
         metadata=dict(payload.metadata or {}),

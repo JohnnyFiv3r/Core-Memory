@@ -21,8 +21,7 @@ class TestE2ELifecycleQuery(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query="remember we chose candidate-first promotion",
-                assistant_final="Decision: enforce candidate-only promotion policy to prevent promotion inflation.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember we chose candidate-first promotion"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: enforce candidate-only promotion policy to prevent promotion inflation."}],
                 policy=policy,
             )
             self.assertTrue(t1.get("ok"))
@@ -34,8 +33,7 @@ class TestE2ELifecycleQuery(unittest.TestCase):
                 turn_id="t2",
                 transaction_id="tx2",
                 trace_id="tr2",
-                user_query="also remember retrieval should prefer archive graph for durable queries",
-                assistant_final="Decision: durable queries use archive-graph-oriented retrieval via memory.execute.",
+                turns=[{"speaker": "user", "role": "user", "content": "also remember retrieval should prefer archive graph for durable queries"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: durable queries use archive-graph-oriented retrieval via memory.execute."}],
                 policy=policy,
             )
             self.assertTrue(t2.get("ok"))

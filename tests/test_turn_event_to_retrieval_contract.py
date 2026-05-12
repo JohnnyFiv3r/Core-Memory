@@ -17,8 +17,7 @@ class TestTurnEventToRetrievalContract(unittest.TestCase):
                 root=td,
                 session_id="s19",
                 turn_id="t1",
-                user_query="remember we decided to use crawler-reviewed creation",
-                assistant_final="Decision: use crawler-reviewed semantic bead creation for canonical turn path.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember we decided to use crawler-reviewed creation"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: use crawler-reviewed semantic bead creation for canonical turn path."}],
                 policy=SidecarPolicy(),
             )
             self.assertTrue(out.get("ok"))
@@ -35,8 +34,7 @@ class TestTurnEventToRetrievalContract(unittest.TestCase):
                 root=td,
                 session_id="s19",
                 turn_id="t1",
-                user_query="remember continuity item",
-                assistant_final="Outcome: continuity item captured for rolling context.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember continuity item"}, {"speaker": "assistant", "role": "assistant", "content": "Outcome: continuity item captured for rolling context."}],
                 policy=SidecarPolicy(),
             )
             fl = process_flush(root=td, session_id="s19", promote=False, token_budget=800, max_beads=40, source="flush_hook")
@@ -53,8 +51,7 @@ class TestTurnEventToRetrievalContract(unittest.TestCase):
                 root=td,
                 session_id="s19",
                 turn_id="t1",
-                user_query="remember that we retired sidecar and moved to event modules",
-                assistant_final="Decision: event_* modules are canonical runtime surfaces.",
+                turns=[{"speaker": "user", "role": "user", "content": "remember that we retired sidecar and moved to event modules"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: event_* modules are canonical runtime surfaces."}],
                 policy=SidecarPolicy(),
             )
             result = execute(

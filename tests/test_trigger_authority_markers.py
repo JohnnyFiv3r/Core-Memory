@@ -14,8 +14,7 @@ class TestTriggerAuthorityMarkers(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                user_query="remember this",
-                assistant_final="Decision: use canonical path",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: use canonical path"}],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertEqual("canonical_in_process", out.get("authority_path"))

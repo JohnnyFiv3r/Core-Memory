@@ -24,8 +24,7 @@ class TestMCPTypedWrites(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                user_query="remember this",
-                assistant_final="noted",
+                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "noted"}],
             )
             self.assertTrue(out.get("ok"))
             self.assertEqual("mcp.write_turn_finalized.v1", out.get("contract"))

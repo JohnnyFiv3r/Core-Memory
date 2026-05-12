@@ -113,8 +113,10 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
                     {
                         "session_id": "main",
                         "turn_id": "t1",
-                        "user_query": "we changed policy",
-                        "assistant_final": "policy changed",
+                        "turns": [
+                            {"speaker": "user", "role": "user", "content": "we changed policy"},
+                            {"speaker": "assistant", "role": "assistant", "content": "policy changed"},
+                        ],
                     }
                 ]
             },
@@ -133,16 +135,20 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
                             {
                                 "session_id": "main",
                                 "turn_id": "pl-1",
-                                "user_query": "we adopted canary",
-                                "assistant_final": "decision logged: canary",
+                                "turns": [
+                                    {"speaker": "user", "role": "user", "content": "we adopted canary"},
+                                    {"speaker": "assistant", "role": "assistant", "content": "decision logged: canary"},
+                                ],
                             }
                         ),
                         json.dumps(
                             {
                                 "session_id": "main",
                                 "turn_id": "pl-2",
-                                "user_query": "timezone is utc",
-                                "assistant_final": "timezone confirmed utc",
+                                "turns": [
+                                    {"speaker": "user", "role": "user", "content": "timezone is utc"},
+                                    {"speaker": "assistant", "role": "assistant", "content": "timezone confirmed utc"},
+                                ],
                             }
                         ),
                     ]

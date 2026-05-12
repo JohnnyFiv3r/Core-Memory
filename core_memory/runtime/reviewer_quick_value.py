@@ -69,8 +69,7 @@ def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
         root=str(root_p),
         session_id="reviewer-eval-v2",
         turn_id="rv2-t1",
-        user_query="rv2-canonical-write-token payments deployment policy",
-        assistant_final="Outcome: full rollout increased risk. Lesson: use canary-first rollout for payments.",
+        turns=[{"speaker": "user", "role": "user", "content": "rv2-canonical-write-token payments deployment policy"}, {"speaker": "assistant", "role": "assistant", "content": "Outcome: full rollout increased risk. Lesson: use canary-first rollout for payments."}],
     )
 
     # Step 2: one retrieval (before/after tokenized probe)
@@ -80,8 +79,7 @@ def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
         root=str(root_p),
         session_id="reviewer-eval-v2",
         turn_id="rv2-t2",
-        user_query=retrieval_query,
-        assistant_final="Reinforcement: payments deployment policy remains retrievable after canonical write.",
+        turns=[{"speaker": "user", "role": "user", "content": retrieval_query}, {"speaker": "assistant", "role": "assistant", "content": "Reinforcement: payments deployment policy remains retrievable after canonical write."}],
     )
     retrieval_after = _probe_retrieval(root_p, retrieval_query)
     retrieval_improved = int(retrieval_after.get("result_count") or 0) > int(retrieval_before.get("result_count") or 0)
@@ -93,16 +91,14 @@ def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
         root=str(root_p),
         session_id="reviewer-eval-v2",
         turn_id="rv2-t3",
-        user_query=repeat_query,
-        assistant_final="Incident baseline: checkout outage repeated after full rollout.",
+        turns=[{"speaker": "user", "role": "user", "content": repeat_query}, {"speaker": "assistant", "role": "assistant", "content": "Incident baseline: checkout outage repeated after full rollout."}],
     )
     repeat_mid = _probe_retrieval(root_p, repeat_query)
     process_turn_finalized(
         root=str(root_p),
         session_id="reviewer-eval-v2",
         turn_id="rv2-t4",
-        user_query=repeat_query,
-        assistant_final="Improvement lesson: repeated incident now governed by canary-first fallback.",
+        turns=[{"speaker": "user", "role": "user", "content": repeat_query}, {"speaker": "assistant", "role": "assistant", "content": "Improvement lesson: repeated incident now governed by canary-first fallback."}],
     )
     repeat_after = _probe_retrieval(root_p, repeat_query)
     repeated_incident_improved = int(repeat_after.get("result_count") or 0) > int(repeat_mid.get("result_count") or 0)
@@ -115,8 +111,7 @@ def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
         root=str(root_p),
         session_id="s-checkout",
         turn_id="rv2-src",
-        user_query="seed source lesson for dreamer transfer quick-value path",
-        assistant_final="Checkout transfer lesson captured via canonical turn path.",
+        turns=[{"speaker": "user", "role": "user", "content": "seed source lesson for dreamer transfer quick-value path"}, {"speaker": "assistant", "role": "assistant", "content": "Checkout transfer lesson captured via canonical turn path."}],
         metadata={
             "crawler_updates": {
                 "creations": [
@@ -143,8 +138,7 @@ def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
         root=str(root_p),
         session_id="s-billing",
         turn_id="rv2-tgt",
-        user_query="seed target outcome for dreamer transfer quick-value path",
-        assistant_final="Billing migration risk captured via canonical turn path.",
+        turns=[{"speaker": "user", "role": "user", "content": "seed target outcome for dreamer transfer quick-value path"}, {"speaker": "assistant", "role": "assistant", "content": "Billing migration risk captured via canonical turn path."}],
         metadata={
             "crawler_updates": {
                 "creations": [
@@ -220,8 +214,7 @@ def reviewer_quick_value_v2(root: str | Path) -> dict[str, Any]:
             root=str(root_p),
             session_id="reviewer-eval-v2",
             turn_id="rv2-t5",
-            user_query=transfer_query,
-            assistant_final="Accepted Dreamer transfer candidate: apply canary-first fallback policy to billing migration.",
+            turns=[{"speaker": "user", "role": "user", "content": transfer_query}, {"speaker": "assistant", "role": "assistant", "content": "Accepted Dreamer transfer candidate: apply canary-first fallback policy to billing migration."}],
         )
 
     transfer_after = _probe_retrieval(root_p, transfer_query)

@@ -92,7 +92,12 @@ def association_slo_report(root: str, *, since: str = "7d") -> dict[str, Any]:
     fallback = sum(1 for r in rows if bool(r.get("agent_used_fallback")))
     blocked = sum(1 for r in rows if bool(r.get("agent_blocked")))
 
-    semantic_vals = [int(r.get("non_temporal_semantic_count") or 0) for r in rows if str(r.get("result") or "") == "success"]
+    semantic_success_results = {"success", "enrichment_complete"}
+    semantic_vals = [
+        int(r.get("non_temporal_semantic_count") or 0)
+        for r in rows
+        if str(r.get("result") or "") in semantic_success_results
+    ]
     avg_sem = (sum(semantic_vals) / len(semantic_vals)) if semantic_vals else 0.0
 
     return {
