@@ -36,6 +36,7 @@ class TestRecallResultContract(unittest.TestCase):
             ),
             status="answered",
             warnings=["demo"],
+            metadata={"surface": "test"},
             raw={"ok": True},
         )
 
@@ -44,6 +45,7 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertEqual("recall_result", data["contract"])
         self.assertEqual("b1", data["evidence"][0]["bead_id"])
         self.assertEqual(["decision"], data["planning"]["expected_shape"]["bead_types"])
+        self.assertEqual("test", data["metadata"]["surface"])
 
         hydrated = RecallResult.from_dict(data)
         self.assertEqual(result.to_dict(), hydrated.to_dict())
@@ -65,6 +67,8 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertEqual(["semantic"], result.tier_path)
         self.assertEqual("medium", result.planning.selected_effort)
         self.assertIsNone(result.raw)
+        self.assertEqual("missing", result.metadata["query"])
+        self.assertEqual("memory_execute", result.metadata["source_surface"])
         self.assertEqual("missing", result.steps[0].query)
 
     def test_flat_search_result_normalizes_evidence_and_sources(self):
