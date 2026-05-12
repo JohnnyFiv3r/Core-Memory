@@ -14,6 +14,7 @@ def handle_memory_command(
     memory_search_tool: Callable[..., dict],
     memory_trace_tool: Callable[..., dict],
     memory_execute: Callable[..., dict],
+    recall_tool: Callable[..., Any] | None = None,
 ) -> bool:
     """Handle canonical memory search/trace/execute CLI subcommands."""
     if getattr(args, "command", None) != "memory":
@@ -58,6 +59,24 @@ def handle_memory_command(
         else:
             payload = json.loads(Path(req).read_text(encoding="utf-8"))
         print(json.dumps(memory_execute(request=payload, root=str(memory.root), explain=bool(args.explain)), indent=2))
+        return True
+
+    if args.memory_cmd == "recall":
+        if recall_tool is None:
+            from core_memory.retrieval.agent import recall as recall_tool
+        result = recall_tool(
+            str(getattr(args, "query", "") or ""),
+            root=str(memory.root),
+            effort=str(getattr(args, "effort", "medium") or "medium"),
+            speaker=getattr(args, "speaker", None),
+            k=getattr(args, "k", None),
+            include_raw=False,
+        )
+        if bool(getattr(args, "json", False)):
+            print(json.dumps(result.to_dict(), indent=2))
+        else:
+            payload = result.to_dict()
+            print(payload.get("answer") or payload.get("why") or json.dumps(payload, indent=2))
         return True
 
     mem_parser.print_help()

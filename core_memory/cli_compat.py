@@ -53,6 +53,8 @@ def ensure_group_subcommand_selected(args: Any, group_parsers: dict[str, argpars
     }[args.command]
 
     if not getattr(args, sub_name, None):
+        if args.command == "recall" and getattr(args, "query", None):
+            return False
         group_parsers[args.command].print_help()
         return True
     return False
@@ -86,7 +88,10 @@ def apply_grouped_aliases(args: Any, *, openclaw_group_parser: argparse.Argument
             args.command = "rolling-window"
 
     if args.command == "recall":
-        if args.recall_cmd == "search":
+        if not getattr(args, "recall_cmd", None):
+            args.command = "memory"
+            args.memory_cmd = "recall"
+        elif args.recall_cmd == "search":
             args.command = "memory"
             args.memory_cmd = "search"
         elif args.recall_cmd == "heads":

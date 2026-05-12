@@ -50,6 +50,30 @@ class TestCliCompatModuleSlice46B(unittest.TestCase):
         self.assertEqual("memory", args.command)
         self.assertEqual("search", args.memory_cmd)
 
+    def test_apply_grouped_aliases_maps_direct_recall_to_memory_recall(self):
+        args = SimpleNamespace(command="recall", recall_cmd=None, query="redis")
+        done = apply_grouped_aliases(args, openclaw_group_parser=_DummyParser())
+        self.assertFalse(done)
+        self.assertEqual("memory", args.command)
+        self.assertEqual("recall", args.memory_cmd)
+
+    def test_group_subcommand_missing_allows_direct_recall_query(self):
+        recall = _DummyParser()
+        done = ensure_group_subcommand_selected(
+            SimpleNamespace(command="recall", recall_cmd=None, query="redis"),
+            {
+                "setup": _DummyParser(),
+                "store": _DummyParser(),
+                "recall": recall,
+                "inspect": _DummyParser(),
+                "integrations": _DummyParser(),
+                "ops": _DummyParser(),
+                "dev": _DummyParser(),
+            },
+        )
+        self.assertFalse(done)
+        self.assertFalse(recall.help_called)
+
     def test_apply_grouped_aliases_maps_ops_graph_sync(self):
         args = SimpleNamespace(command="ops", ops_cmd="graph-sync")
         done = apply_grouped_aliases(args, openclaw_group_parser=_DummyParser())

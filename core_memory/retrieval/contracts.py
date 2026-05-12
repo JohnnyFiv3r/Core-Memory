@@ -129,6 +129,7 @@ class RecallResult:
     planning: RecallPlanning = field(default_factory=RecallPlanning)
     status: str = "empty"
     warnings: list[str] = field(default_factory=list)
+    metadata: dict[str, Any] = field(default_factory=dict)
     raw: dict[str, Any] | None = None
     schema_version: str = RECALL_RESULT_SCHEMA_VERSION
     contract: str = "recall_result"
@@ -272,5 +273,10 @@ def recall_result_from_memory_execute(
         planning=RecallPlanning(selected_effort=selected_effort),
         status=status,
         warnings=[_text(w) for w in _clean_list(payload.get("warnings")) if _text(w)],
+        metadata={
+            "query": query,
+            "source_surface": "memory_execute",
+            "legacy_ok": bool(payload.get("ok", True)),
+        },
         raw=payload if include_raw else None,
     )

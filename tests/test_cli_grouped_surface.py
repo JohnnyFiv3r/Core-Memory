@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import subprocess
 import sys
 import tempfile
@@ -103,7 +104,26 @@ class TestCliGroupedSurfaceSlice1(unittest.TestCase):
             self.assertEqual(0, trace_out.returncode)
             self.assertIn('"anchors"', trace_out.stdout)
 
-            # Recall remains compatibility-only alias for legacy automation.
+            recall_json_out = _run_cli(
+                ["--root", str(root), "recall", "--query", "cli test", "--effort", "low", "--json"],
+                cwd,
+            )
+            self.assertEqual(0, recall_json_out.returncode, recall_json_out.stderr)
+            recall_payload = json.loads(recall_json_out.stdout)
+            self.assertEqual("recall_result", recall_payload["contract"])
+            self.assertEqual("recall_result.v1", recall_payload["schema_version"])
+            self.assertEqual("low", recall_payload["planning"]["selected_effort"])
+            self.assertIn("evidence", recall_payload)
+            self.assertIn("sources", recall_payload)
+
+            memory_recall_json_out = _run_cli(
+                ["--root", str(root), "memory", "recall", "--query", "cli test", "--effort", "low", "--json"],
+                cwd,
+            )
+            self.assertEqual(0, memory_recall_json_out.returncode, memory_recall_json_out.stderr)
+            self.assertEqual(recall_payload["contract"], json.loads(memory_recall_json_out.stdout)["contract"])
+
+            # Recall search remains a compatibility alias for legacy automation.
             recall_alias_out = _run_cli(["--root", str(root), "recall", "search", "cli test", "--k", "3"], cwd)
             self.assertEqual(0, recall_alias_out.returncode)
             self.assertIn('"ok"', recall_alias_out.stdout)

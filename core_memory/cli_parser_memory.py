@@ -29,4 +29,11 @@ def add_memory_command_surface(
     mem_exec.add_argument("--request", required=True, help="JSON object string or path to JSON file")
     mem_exec.add_argument("--explain", action="store_true")
 
+    mem_recall = memory_sub.add_parser("recall", help="Run single-verb grounded recall")
+    mem_recall.add_argument("--query", required=True, help="Natural-language recall query")
+    mem_recall.add_argument("--effort", choices=["low", "medium", "high"], default="medium")
+    mem_recall.add_argument("--speaker")
+    mem_recall.add_argument("--k", type=int)
+    mem_recall.add_argument("--json", action="store_true", help="Emit canonical RecallResult JSON")
+
     return memory_parser, memory_sub
