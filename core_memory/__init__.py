@@ -15,6 +15,15 @@ from .runtime.engine import process_turn_finalized, process_session_start, proce
 from .retrieval.tools.memory import search as memory_search, trace as memory_trace, execute as memory_execute
 from .memory import Memory, capture
 from .schema.turn import Turn
+from .retrieval.contracts import (
+    EvidenceItem,
+    RecallPlanning,
+    RecallResult,
+    RecallStep,
+    SourceItem,
+    recall_result_from_memory_execute,
+    validate_recall_effort,
+)
 from ._version import VERSION, __version__
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
@@ -87,8 +96,15 @@ __all__ = [
     # Friendly quick-start aliases
     "Memory",
     "Turn",
+    "EvidenceItem",
+    "SourceItem",
+    "RecallPlanning",
+    "RecallResult",
+    "RecallStep",
     "capture",
     "recall",
+    "recall_result_from_memory_execute",
+    "validate_recall_effort",
     # Canonical runtime write boundaries
     "process_turn_finalized",
     "process_session_start",
