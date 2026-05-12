@@ -2,7 +2,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from core_memory.integrations.mcp.protocol_server import build_mcp_app
+from core_memory.integrations.mcp.protocol_server import build_mcp_app, _transport_security_settings
 
 
 class MCPProtocolServerLiveTests(unittest.TestCase):
@@ -25,6 +25,14 @@ class MCPProtocolServerLiveTests(unittest.TestCase):
         # reach the SDK endpoint instead of failing with an uninitialized task group.
         self.assertIn(res.status_code, {400, 405, 406, 421})
         self.assertNotIn("Task group is not initialized", res.text)
+
+    def test_transport_security_allows_local_and_hosted_demo_hosts(self):
+        settings = _transport_security_settings()
+        self.assertTrue(settings.enable_dns_rebinding_protection)
+        self.assertIn("127.0.0.1:*", settings.allowed_hosts)
+        self.assertIn("core-memory-demo.onrender.com", settings.allowed_hosts)
+        self.assertIn("demo.usecorememory.com", settings.allowed_hosts)
+        self.assertIn("https://demo.usecorememory.com", settings.allowed_origins)
 
 
 if __name__ == "__main__":
