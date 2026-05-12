@@ -16,6 +16,43 @@ def _tool_description(name: str) -> str:
     return tool.description
 
 
+def _csv_env(name: str) -> list[str]:
+    return [part.strip() for part in str(os.getenv(name) or "").split(",") if part.strip()]
+
+
+def _transport_security_settings() -> Any:
+    """Build MCP transport security settings for local and hosted deployments."""
+
+    try:
+        from mcp.server.transport_security import TransportSecuritySettings
+    except Exception as exc:  # pragma: no cover - same optional extra boundary as FastMCP
+        raise RuntimeError("MCP HTTP server requires `core-memory[mcp]`.") from exc
+
+    allowed_hosts = [
+        "127.0.0.1:*",
+        "localhost:*",
+        "[::1]:*",
+        "core-memory-demo.onrender.com",
+        "demo.usecorememory.com",
+        "corememorydemo.vercel.app",
+        *_csv_env("CORE_MEMORY_MCP_ALLOWED_HOSTS"),
+    ]
+    allowed_origins = [
+        "http://127.0.0.1:*",
+        "http://localhost:*",
+        "http://[::1]:*",
+        "https://core-memory-demo.onrender.com",
+        "https://demo.usecorememory.com",
+        "https://corememorydemo.vercel.app",
+        *_csv_env("CORE_MEMORY_MCP_ALLOWED_ORIGINS"),
+    ]
+    return TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=list(dict.fromkeys(allowed_hosts)),
+        allowed_origins=list(dict.fromkeys(allowed_origins)),
+    )
+
+
 def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
     """Build the MCP sub-application mounted under `/mcp`.
 
@@ -36,6 +73,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         streamable_http_path="/",
         stateless_http=True,
         json_response=True,
+        transport_security=kwargs.get("transport_security") or _transport_security_settings(),
     )
     mcp_http_app = mcp.streamable_http_app()
     app = FastAPI(
