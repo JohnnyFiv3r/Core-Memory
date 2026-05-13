@@ -26,6 +26,8 @@ import os
 import shutil
 import sys
 import tempfile
+import threading
+import time
 import uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -118,6 +120,7 @@ from core_memory.entity.merge_flow import (
 )
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.retrieval.tools import memory as memory_tools
+from core_memory.transcript_ingest import ingest_transcript as ingest_transcript_sync, normalize_transcript_payload
 from core_memory.integrations.api import (
     get_turn,
     inspect_state,
@@ -225,6 +228,8 @@ LAST_BENCHMARK_SUMMARY: dict[str, Any] = {}
 LAST_BENCHMARK_HISTORY: list[dict[str, Any]] = []
 LAST_FLUSH_EVENT: dict[str, Any] = {}
 LAST_FLUSH_EVENTS: list[dict[str, Any]] = []
+INGEST_JOB_TTL_SECONDS = 30 * 60
+INGEST_JOBS: dict[str, dict[str, Any]] = {}
 
 app = FastAPI(title="Core Memory Demo")
 
@@ -255,6 +260,57 @@ def _record_flush_event(payload: dict[str, Any], *, trigger: str) -> None:
 
 def _benchmark_history_path() -> Path:
     return Path(MEMORY_ROOT) / ".demo" / "benchmark-history.jsonl"
+
+
+def _now_ms() -> int:
+    return int(time.time() * 1000)
+
+
+def _prune_ingest_jobs() -> None:
+    now = _now_ms()
+    ttl_ms = int(INGEST_JOB_TTL_SECONDS * 1000)
+    for job_id, row in list(INGEST_JOBS.items()):
+        updated = int((row or {}).get("updated_ms") or 0)
+        if now - updated > ttl_ms:
+            INGEST_JOBS.pop(job_id, None)
+
+
+def _safe_ingest_job_payload(row: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {
+        "ok": True,
+        "job_id": str(row.get("job_id") or ""),
+        "kind": "transcript_ingest",
+        "status": str(row.get("status") or "queued"),
+        "done": bool(row.get("done")),
+        "created_ms": int(row.get("created_ms") or 0),
+        "updated_ms": int(row.get("updated_ms") or 0),
+    }
+    if row.get("error"):
+        out["error"] = str(row.get("error") or "")
+    if isinstance(row.get("result"), dict):
+        out["result"] = dict(row.get("result") or {})
+    return out
+
+
+def _run_local_ingest_job(job_id: str, kwargs: dict[str, Any]) -> None:
+    row = INGEST_JOBS.get(job_id)
+    if not isinstance(row, dict):
+        return
+    row["status"] = "running"
+    row["updated_ms"] = _now_ms()
+    try:
+        out = ingest_transcript_sync(root=MEMORY_ROOT, **kwargs)
+        row["status"] = "completed" if bool((out or {}).get("ok")) else "failed"
+        row["done"] = True
+        row["result"] = dict(out or {})
+        if not bool((out or {}).get("ok")):
+            row["error"] = "transcript_ingest_failed"
+    except Exception as exc:
+        row["status"] = "failed"
+        row["done"] = True
+        row["error"] = str(exc or "transcript_ingest_failed")
+    finally:
+        row["updated_ms"] = _now_ms()
 
 
 def _append_benchmark_history_row(row: dict[str, Any]) -> tuple[bool, str]:
@@ -605,6 +661,65 @@ async def chat(request: Request):
 @app.get("/api/memory")
 async def memory_state():
     return JSONResponse(get_memory_state())
+
+
+@app.post("/api/ingest/transcript", status_code=202)
+async def ingest_transcript_endpoint(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "invalid_json"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "payload_must_be_object"}, status_code=422)
+
+    try:
+        normalized = normalize_transcript_payload(body)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=422)
+
+    job_id = f"ingest-{uuid.uuid4().hex[:12]}"
+    kwargs = {
+        "transcript_id": str(normalized.get("transcript_id") or ""),
+        "session_id": str(normalized.get("session_id") or ""),
+        "turns": list(body.get("turns") or body.get("messages") or []),
+        "flush_policy": str(normalized.get("flush_policy") or "none"),
+        "metadata": dict(body.get("metadata") or {}) if isinstance(body.get("metadata"), dict) else {},
+    }
+
+    _prune_ingest_jobs()
+    row = {
+        "job_id": job_id,
+        "status": "queued",
+        "done": False,
+        "error": None,
+        "result": None,
+        "created_ms": _now_ms(),
+        "updated_ms": _now_ms(),
+    }
+    INGEST_JOBS[job_id] = row
+    worker = threading.Thread(target=_run_local_ingest_job, args=(job_id, kwargs), name=f"local-transcript-ingest-{job_id}", daemon=True)
+    row["task"] = worker
+    worker.start()
+    return JSONResponse(
+        {
+            "ok": True,
+            "job_id": job_id,
+            "kind": "transcript_ingest",
+            "status": "queued",
+            "turns_received": int(normalized.get("turns_received") or 0),
+            "turns_paired": int(normalized.get("turns_paired") or 0),
+        },
+        status_code=202,
+    )
+
+
+@app.get("/api/ingest/jobs/{job_id}")
+async def ingest_job_status_endpoint(job_id: str):
+    _prune_ingest_jobs()
+    row = INGEST_JOBS.get(str(job_id or ""))
+    if not isinstance(row, dict):
+        return JSONResponse({"ok": False, "error": "ingest_job_not_found"}, status_code=404)
+    return JSONResponse(_safe_ingest_job_payload(row))
 
 
 @app.get("/v1/memory/inspect/state")
