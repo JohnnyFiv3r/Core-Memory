@@ -167,6 +167,9 @@ fallback, not the policy authority.
 ## 9. Unify session-window enrichment crawler for associations, claims, entities, and promotion
 
 **Status:** Planned. This is the architectural follow-up to #2, #3, #6, and #8.
+Treat this as a contract-and-migration program, not a "new mega-crawler" rewrite:
+Slice A must be behavior-preserving and establish a shared enrichment shape before any
+semantic logic moves.
 
 **Principle:** Enrichment is not a one-off cleanup step. It runs every turn over the
 visible/session-window bead surface so memory can build on itself as natural conversation
@@ -207,6 +210,16 @@ session-window enrichment contract that can emit a compound delta:
 - promotion decisions
 - memory outcome metadata when applicable
 
+The contract should reserve the live-system primitives needed by #5/#6-style grounding,
+idempotency, and sequencing work from day one, without implementing the full validation /
+eval layer in this slice:
+- stable delta/job idempotency key
+- evidence/context fingerprint
+- model, rubric, and prompt version for LLM-judged outputs
+- per-output dedupe keys
+- ordering / sequence fields for claim and lifecycle updates
+- provenance and confidence on every emitted item
+
 The crawler should reason over:
 - the new/current turn bead
 - every bead in the visible session window
@@ -220,7 +233,9 @@ The crawler should reason over:
 - Do not run separate LLM agents for entity extraction, claim extraction, association
   linking, and promotion when one session-window enrichment judgment can emit all deltas.
 - Do not move semantic policy into OpenClaw/plugin bridge code.
-- Do not make benchmark/eval validation part of this live enrichment discussion.
+- Do not implement the full grounding-hash validation or benchmark/eval layer in Slice A;
+  do design `session_enrichment_delta.v1` so those primitives do not require a later
+  contract break.
 
 **Analysis plan before implementation:**
 1. **Trace the current turn lifecycle end-to-end.** Produce a call graph from
@@ -241,13 +256,40 @@ The crawler should reason over:
    bead judge and which move into the unified enrichment delta.
 5. **Design the unified enrichment contract.** Define a versioned payload such as
    `session_enrichment_delta.v1` with bounded arrays, canonical relationship/claim types,
-   explicit provenance, confidence, rationale/evidence fields, and strict normalization.
+   explicit provenance, confidence, evidence/context refs, fingerprint fields,
+   model/rubric/prompt version fields, per-output dedupe keys, lifecycle/claim sequencing
+   keys, rationale/evidence fields, strict normalization, and quarantine for invalid rows.
 6. **Define execution semantics.** Specify per-turn idempotency, partial failure behavior,
-   ordering, dedupe keys, how later turns can update prior visible beads, and how async
-   queue mode must remain equivalent to inline fallback mode.
+   ordering, dedupe keys, how later turns can update prior visible beads, explicit window
+   bounds, and how async queue mode must remain equivalent to inline fallback mode.
 7. **Plan migration slices.** Start by making current stages consume/produce a shared
-   compound delta without changing behavior, then fold claim extraction into the crawler,
-   then entity upserts/aliases, then promotion/lifecycle decisions.
+   compound delta without changing behavior; then fold #3 association types; then fold
+   entity upserts/aliases and retire #8's interim separate judge path where possible; then
+   fold claims and claim updates with monotonic sequencing keys; then fold goal lifecycle;
+   then return to #7 semantic indexing around the stabilized write/enrichment lifecycle.
+
+**Preferred execution order:**
+1. Land TODO/instruction pivot.
+2. Complete #9 analysis pass.
+3. Design `session_enrichment_delta.v1`.
+4. Implement behavior-preserving adapter layer.
+5. Fold #3 association types into the unified delta.
+6. Fold entity upserts/aliases into the unified delta, replacing #8's interim separate
+   judge path where possible.
+7. Fold claims and claim updates, with monotonic sequencing keys included in the contract.
+8. Fold goal lifecycle (#2).
+9. Return to #7 semantic indexing around the stabilized write/enrichment lifecycle.
+
+**Slice A acceptance criteria:**
+- Inline and queued enrichment produce equivalent committed state.
+- Re-running the same turn/enrichment job does not duplicate associations, claims,
+  entities, or promotion marks.
+- Existing behavior/tests remain preserved.
+- New contract has strict normalization and quarantine paths for invalid rows.
+- No OpenClaw/plugin bridge owns semantic policy.
+- Window bounds are explicit and test-covered.
+- Each emitted delta item carries provenance, evidence/context refs, confidence, and a
+  stable dedupe key.
 
 **Files:** `core_memory/runtime/turn_flow.py`, `core_memory/runtime/enrichment.py`,
 `core_memory/association/crawler_contract.py`, `core_memory/claim/turn_integration.py`,
