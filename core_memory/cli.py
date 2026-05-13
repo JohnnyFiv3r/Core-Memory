@@ -100,7 +100,7 @@ def main():
 
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{setup,store,memory,inspect,integrations,ops,mcp,dev}",
+        metavar="{setup,store,memory,inspect,ingest,integrations,ops,mcp,dev}",
     )
 
     # Grouped surface (preferred)
@@ -166,6 +166,16 @@ def main():
     inspect_list.add_argument("--limit", type=int, default=20)
     inspect_sub.add_parser("stats", help="Show statistics")
     inspect_sub.add_parser("health", help="Run local store health checks")
+
+    ingest_parser = subparsers.add_parser("ingest", help="Import observed conversation artifacts")
+    ingest_sub = ingest_parser.add_subparsers(dest="ingest_cmd")
+    ingest_transcript_parser = ingest_sub.add_parser("transcript", help="Synchronously ingest a transcript file")
+    ingest_transcript_parser.add_argument("path", help="Transcript file path (.json, .jsonl, .md, .txt)")
+    ingest_transcript_parser.add_argument("--from", dest="ingest_format", default="auto", choices=["auto", "json", "jsonl", "markdown", "text"], help="Input format")
+    ingest_transcript_parser.add_argument("--transcript-id")
+    ingest_transcript_parser.add_argument("--session-id")
+    ingest_transcript_parser.add_argument("--session-prefix", default="ingest")
+    ingest_transcript_parser.add_argument("--flush-policy", choices=["none", "end_only", "per_session"], default="none")
 
     integrations_parser = subparsers.add_parser("integrations", help="Integration setup and bridge-facing operations")
     integrations_sub = integrations_parser.add_subparsers(dest="integrations_cmd")
@@ -344,6 +354,7 @@ def main():
             "store": store_parser,
             "recall": recall_parser,
             "inspect": inspect_parser,
+            "ingest": ingest_parser,
             "integrations": integrations_parser,
             "ops": ops_parser,
             "mcp": mcp_parser,
@@ -360,6 +371,30 @@ def main():
     if args.command == "setup" and args.setup_cmd in {"init", "paths"}:
         memory = MemoryStore(root=args.root)
         print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
+        return
+
+    if args.command == "ingest":
+        if args.ingest_cmd == "transcript":
+            from core_memory.integrations.mcp.tools.ingest import ingest_handler
+
+            print(
+                json.dumps(
+                    ingest_handler(
+                        {
+                            "root": args.root,
+                            "path": args.path,
+                            "from": args.ingest_format,
+                            "transcript_id": args.transcript_id,
+                            "session_id": args.session_id,
+                            "session_prefix": args.session_prefix,
+                            "flush_policy": args.flush_policy,
+                        }
+                    ),
+                    indent=2,
+                )
+            )
+            return
+        ingest_parser.print_help()
         return
 
     if args.command == "mcp":
