@@ -237,57 +237,64 @@ The crawler should reason over:
   do design `session_enrichment_delta.v1` so those primitives do not require a later
   contract break.
 
-**Analysis plan before implementation:**
-1. **Trace the current turn lifecycle end-to-end.** Produce a call graph from
-   `process_turn_finalized(...)` through bead persistence, crawler context construction,
-   enqueue/inline enrichment, association application, claim extraction/update, decision
-   pass, and merge. Note exact inputs/outputs and idempotency keys.
-2. **Inventory all existing delta schemas.** Enumerate accepted fields for
-   `crawler_updates`, association lifecycle rows, claim rows, claim update rows, entity
+**Analysis artifact before implementation:**
+Do not implement delta code until a committed artifact names the current write paths and
+idempotency boundaries precisely. That artifact should include:
+1. **Current call graph.** Trace from `process_turn_finalized(...)` through bead
+   persistence, crawler context construction, queued/inline enrichment, association
+   application, claim extraction/update, decision pass, merge, and side-effect commits.
+2. **Current schemas and persistence targets.** Enumerate accepted fields and write targets
+   for `crawler_updates`, association lifecycle rows, claim rows, claim update rows, entity
    registry rows, promotion decisions, and memory outcome metadata. Mark which are append
    only, mutable, or derived projection fields.
-3. **Map context surfaces.** Compare `read_session_surface(...)`,
+3. **Current idempotency/dedupe keys.** Name the exact boundaries that prevent duplicate
+   associations, claims, entities, promotion marks, lifecycle updates, queue jobs, and
+   side-effect commits today; call out where no boundary exists.
+4. **Current window/context surfaces.** Compare `read_session_surface(...)`,
    `build_crawler_context(...)`, `visible_bead_ids`, `window_bead_ids`, current-state claim
    reads, and entity registry reads. Identify what the unified crawler must see to make
    correct cross-signal decisions.
-4. **Identify duplicated or conflicting judgments.** Find where bead-field judging,
-   registry entity judging, heuristic claim extraction, decision pass, and association
-   crawler each infer overlapping semantics. Decide which outputs remain in the initial
-   bead judge and which move into the unified enrichment delta.
-5. **Design the unified enrichment contract.** Define a versioned payload such as
-   `session_enrichment_delta.v1` with bounded arrays, canonical relationship/claim types,
-   explicit provenance, confidence, evidence/context refs, fingerprint fields,
-   model/rubric/prompt version fields, per-output dedupe keys, lifecycle/claim sequencing
-   keys, rationale/evidence fields, strict normalization, and quarantine for invalid rows.
-6. **Define execution semantics.** Specify per-turn idempotency, partial failure behavior,
-   ordering, dedupe keys, how later turns can update prior visible beads, explicit window
-   bounds, and how async queue mode must remain equivalent to inline fallback mode.
-7. **Plan migration slices.** Start by making current stages consume/produce a shared
-   compound delta without changing behavior; then fold #3 association types; then fold
-   entity upserts/aliases and retire #8's interim separate judge path where possible; then
-   fold claims and claim updates with monotonic sequencing keys; then fold goal lifecycle;
-   then return to #7 semantic indexing around the stabilized write/enrichment lifecycle.
+5. **Overlapping semantic judgments.** Find where bead-field judging, registry entity
+   judging, heuristic claim extraction, decision pass, and association crawler each infer
+   overlapping semantics. Decide which outputs remain in the initial bead judge and which
+   move into the unified enrichment delta.
+6. **Proposed field inventory for `session_enrichment_delta.v1`.** Include bounded arrays,
+   canonical relationship/claim types, explicit provenance, confidence, evidence/context
+   refs, fingerprint fields, model/rubric/prompt version fields, per-output dedupe keys,
+   lifecycle/claim sequencing keys, rationale/evidence fields, strict normalization, and
+   quarantine for invalid rows. This is a design inventory, not implementation.
+7. **Migration risks and Slice A parity tests.** Define expected equivalence, known fields
+   that may legitimately differ, and test fixtures needed before the adapter layer lands.
 
 **Preferred execution order:**
 1. Land TODO/instruction pivot.
-2. Complete #9 analysis pass.
+2. Complete the committed #9 analysis artifact.
 3. Design `session_enrichment_delta.v1`.
 4. Implement behavior-preserving adapter layer.
-5. Fold #3 association types into the unified delta.
+5. Fold #3 association types into the unified delta with a strict relationship enum,
+   normalization warnings/provenance, and quarantine for unknown labels; if relationship
+   typing depends materially on entity resolution quality, keep this slice minimal or swap
+   it after entity folding.
 6. Fold entity upserts/aliases into the unified delta, replacing #8's interim separate
    judge path where possible.
-7. Fold claims and claim updates, with monotonic sequencing keys included in the contract.
-8. Fold goal lifecycle (#2).
+7. Fold claims and claim updates, with monotonic sequencing keys, evidence refs,
+   grounding/context fingerprints, and judge/rubric versions included in the contract.
+8. Fold goal lifecycle (#2), after claims/current-state evidence is available.
 9. Return to #7 semantic indexing around the stabilized write/enrichment lifecycle.
 
 **Slice A acceptance criteria:**
-- Inline and queued enrichment produce equivalent committed state.
+- Inline and queued enrichment produce equivalent committed state. Equivalent means matching
+  canonical row content, dedupe keys, lifecycle state, visible IDs, and normalized
+  projections; raw JSON byte equality is not required for timestamps, UUIDs, queue metadata,
+  model diagnostics, or other expected nondeterministic fields.
 - Re-running the same turn/enrichment job does not duplicate associations, claims,
   entities, or promotion marks.
 - Existing behavior/tests remain preserved.
 - New contract has strict normalization and quarantine paths for invalid rows.
 - No OpenClaw/plugin bridge owns semantic policy.
-- Window bounds are explicit and test-covered.
+- Window bounds are explicit and test-covered. Captured bounds must include session id,
+  current turn id/bead id, visible bead ids, window source, max window size,
+  excluded/overflow counts when applicable, and context/evidence fingerprint.
 - Each emitted delta item carries provenance, evidence/context refs, confidence, and a
   stable dedupe key.
 
