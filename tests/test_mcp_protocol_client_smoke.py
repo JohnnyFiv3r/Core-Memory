@@ -44,7 +44,19 @@ class MCPProtocolClientSmokeTests(unittest.TestCase):
                 server.should_exit = True
                 thread.join(timeout=5)
 
-        self.assertEqual(["capture", "recall", "ingest", "status"], [tool.name for tool in tools.tools])
+        tool_names = [tool.name for tool in tools.tools]
+        for name in [
+            "capture",
+            "recall",
+            "ingest",
+            "status",
+            "query_current_state",
+            "query_temporal_window",
+            "write_turn_finalized",
+            "apply_reviewed_proposal",
+            "submit_entity_merge_proposal",
+        ]:
+            self.assertIn(name, tool_names)
         self.assertIn("core-memory.agent-guide", [prompt.name for prompt in prompts.prompts])
         self.assertFalse(status.isError)
         self.assertTrue(status.structuredContent["ok"])

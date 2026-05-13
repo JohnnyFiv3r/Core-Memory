@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.entity.registry import (
     ensure_entity_registry_for_index,
@@ -54,6 +55,44 @@ class TestEntityRegistry(unittest.TestCase):
         self.assertTrue(out.get("ok"))
         self.assertEqual(2, int(out.get("linked") or 0))
         self.assertEqual(2, len(bead.get("entity_ids") or []))
+
+    def test_sync_bead_entities_uses_llm_judge_for_aliases(self):
+        idx = {"beads": {}, "associations": []}
+        bead = {
+            "id": "bead-1",
+            "title": "OpenAI Platform migration",
+            "summary": ["Open AI Platform and GPT-4o were selected for extraction."],
+            "entities": ["Open AI Platform", "GPT-4o"],
+        }
+        judged = {
+            "entities": [
+                {
+                    "label": "OpenAI Platform",
+                    "aliases": ["Open AI Platform", "OpenAI Platform"],
+                    "kind": "product",
+                    "evidence": "Open AI Platform",
+                    "confidence": 0.9,
+                },
+                {
+                    "label": "GPT-4o",
+                    "aliases": ["GPT-4o"],
+                    "kind": "system",
+                    "evidence": "GPT-4o",
+                    "confidence": 0.88,
+                },
+            ]
+        }
+        with patch("core_memory.entity.registry._llm_judge_entities_anthropic", return_value=judged), patch(
+            "core_memory.entity.registry._llm_judge_entities_openai", return_value=None
+        ), patch.dict("os.environ", {"CORE_MEMORY_ENTITY_EXTRACTOR_MODE": "auto"}, clear=False):
+            out = sync_bead_entities_for_index(idx, bead, source="unit_test")
+
+        self.assertEqual("llm", out.get("judge"))
+        self.assertEqual(2, int(out.get("linked") or 0))
+        self.assertEqual(["OpenAI Platform", "GPT-4o"], bead.get("entities"))
+        self.assertEqual(resolve_entity_id(idx, "Open AI Platform"), resolve_entity_id(idx, "OpenAI Platform"))
+        first = next(iter((idx.get("entities") or {}).values()))
+        self.assertEqual("llm", (first.get("provenance") or [{}])[-1].get("judge"))
 
     def test_memory_store_add_bead_writes_entity_registry(self):
         with tempfile.TemporaryDirectory() as td:
