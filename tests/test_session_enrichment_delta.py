@@ -158,7 +158,72 @@ class TestCanonicalSessionProjection(unittest.TestCase):
             p2 = canonical_session_projection(td, "s1")
 
             self.assertTrue(projections_equal(p1, p2))
-            self.assertEqual(f"assoc:{b2}:{b1}:supports", p2["associations"][0]["dedupe_key"])
+            self.assertIn(":supports", p2["associations"][0]["dedupe_key"])
+            self.assertNotIn(b1, p2["associations"][0]["dedupe_key"])
+            self.assertNotIn(b2, p2["associations"][0]["dedupe_key"])
+
+    def test_projection_ignores_generated_bead_and_claim_ids(self):
+        def build(root: str, claim_id: str, update_id: str) -> None:
+            store = MemoryStore(root)
+            b1 = store.add_bead(
+                type="decision",
+                title="Use JSONB",
+                summary=["Keep writes transactional"],
+                session_id="s1",
+                source_turn_ids=["t1"],
+            )
+            b2 = store.add_bead(
+                type="context",
+                title="JSONB rationale",
+                summary=["The rationale supports the decision"],
+                session_id="s1",
+                source_turn_ids=["t2"],
+            )
+            idx_path = store.beads_dir / "index.json"
+            idx = store._read_json(idx_path)
+            idx["beads"][b1]["claims"] = [
+                {
+                    "id": claim_id,
+                    "subject": "PostgreSQL",
+                    "slot": "storage_choice",
+                    "value": "JSONB",
+                    "source_bead_id": b1,
+                    "source_turn_ids": ["t1"],
+                }
+            ]
+            idx["beads"][b2]["claim_updates"] = [
+                {
+                    "id": update_id,
+                    "decision": "reaffirm",
+                    "target_claim_id": claim_id,
+                    "subject": "PostgreSQL",
+                    "slot": "storage_choice",
+                    "trigger_bead_id": b2,
+                    "reason_text": "Still supported by the session window.",
+                }
+            ]
+            idx["associations"] = [
+                {
+                    "id": f"assoc-{claim_id}",
+                    "source_bead": b2,
+                    "target_bead": b1,
+                    "relationship": "supports",
+                    "reaffirmed_at": "2020-01-01T00:00:00+00:00",
+                }
+            ]
+            store._write_json(idx_path, idx)
+
+        with tempfile.TemporaryDirectory() as left, tempfile.TemporaryDirectory() as right:
+            build(left, "claim-left", "update-left")
+            build(right, "claim-right", "update-right")
+
+            p1 = canonical_session_projection(left, "s1")
+            p2 = canonical_session_projection(right, "s1")
+
+            self.assertTrue(projections_equal(p1, p2))
+            self.assertNotIn("claim-left", str(p1))
+            self.assertNotIn("update-left", str(p1))
+            self.assertNotIn("reaffirmed_at", str(p1))
 
 
 if __name__ == "__main__":

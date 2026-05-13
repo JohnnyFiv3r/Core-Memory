@@ -22,18 +22,26 @@ _MAX_ROWS = {
 }
 
 _VOLATILE_BEAD_FIELDS = {
+    "id",
     "created_at",
     "updated_at",
     "last_recalled",
     "promotion_decided_at",
     "promoted_at",
     "promotion_marked_at",
+    "association_preview",
+    "entity_ids",
+    "prev_bead_id",
 }
 
 _VOLATILE_ASSOC_FIELDS = {
     "id",
     "created_at",
     "updated_at",
+    "retracted_at",
+    "reaffirmed_at",
+    "superseded_at",
+    "lifecycle_updated_at",
     "warnings",
     "normalization_applied",
 }
@@ -81,6 +89,80 @@ def _normalize_list(value: Any) -> list[Any]:
     if not isinstance(value, list):
         return []
     return sorted(value, key=lambda x: _canonical_json(x))
+
+
+def _stable_bead_key(row: dict[str, Any]) -> str:
+    source_turn_ids = _normalize_list(_str_list(row.get("source_turn_ids")))
+    basis = {
+        "session_id": _as_str(row.get("session_id")),
+        "source_turn_ids": source_turn_ids,
+        "type": _as_str(row.get("type")),
+        "title": _as_str(row.get("title")),
+        "summary": _normalize_list(row.get("summary")),
+        "detail": _as_str(row.get("detail")),
+        "tags": _normalize_list(row.get("tags")),
+    }
+    turn_part = "+".join(str(x) for x in source_turn_ids) or "no-turn"
+    return f"bead:{basis['session_id']}:{turn_part}:{basis['type']}:{stable_hash(basis)[:16]}"
+
+
+def _stable_claim_key(row: dict[str, Any], bead_id_map: dict[str, str]) -> str:
+    source_bead_id = _as_str(row.get("source_bead_id"))
+    source_bead_key = bead_id_map.get(source_bead_id, source_bead_id)
+    basis = {
+        "subject": _as_str(row.get("subject")).lower(),
+        "slot": _as_str(row.get("slot")).lower(),
+        "value": row.get("value"),
+        "source_bead_key": source_bead_key,
+        "source_turn_ids": _normalize_list(_str_list(row.get("source_turn_ids"))),
+    }
+    return f"claim:{basis['subject']}:{basis['slot']}:{stable_hash(basis)[:16]}"
+
+
+def _normalize_claim_row(row: dict[str, Any], bead_id_map: dict[str, str]) -> dict[str, Any]:
+    normalized = _strip_keys(row, {"id", "created_at", "updated_at"})
+    source_bead_id = _as_str(normalized.get("source_bead_id"))
+    if source_bead_id:
+        normalized["source_bead_key"] = bead_id_map.get(source_bead_id, source_bead_id)
+        normalized.pop("source_bead_id", None)
+    if "source_turn_ids" in normalized:
+        normalized["source_turn_ids"] = _normalize_list(_str_list(normalized.get("source_turn_ids")))
+    normalized["dedupe_key"] = _stable_claim_key(row, bead_id_map)
+    return normalized
+
+
+def _normalize_claim_update_row(
+    row: dict[str, Any],
+    *,
+    bead_id_map: dict[str, str],
+    claim_id_map: dict[str, str],
+) -> dict[str, Any]:
+    normalized = _strip_keys(row, {"id", "created_at", "updated_at"})
+    trigger_bead_id = _as_str(normalized.get("trigger_bead_id"))
+    if trigger_bead_id:
+        normalized["trigger_bead_key"] = bead_id_map.get(trigger_bead_id, trigger_bead_id)
+        normalized.pop("trigger_bead_id", None)
+
+    target_claim_id = _as_str(normalized.get("target_claim_id"))
+    replacement_claim_id = _as_str(normalized.get("replacement_claim_id"))
+    if target_claim_id:
+        normalized["target_claim_key"] = claim_id_map.get(target_claim_id, target_claim_id)
+        normalized.pop("target_claim_id", None)
+    if replacement_claim_id:
+        normalized["replacement_claim_key"] = claim_id_map.get(replacement_claim_id, replacement_claim_id)
+        normalized.pop("replacement_claim_id", None)
+
+    basis = {
+        "decision": _as_str(normalized.get("decision")).lower(),
+        "target_claim_key": normalized.get("target_claim_key"),
+        "replacement_claim_key": normalized.get("replacement_claim_key"),
+        "subject": _as_str(normalized.get("subject")).lower(),
+        "slot": _as_str(normalized.get("slot")).lower(),
+        "trigger_bead_key": normalized.get("trigger_bead_key"),
+        "reason_text": _as_str(normalized.get("reason_text")),
+    }
+    normalized["dedupe_key"] = f"claim-update:{stable_hash(basis)[:20]}"
+    return normalized
 
 
 def stable_hash(value: Any) -> str:
@@ -522,23 +604,56 @@ def canonical_session_projection(root: str | Path, session_id: str) -> dict[str,
 
     session_rows = [r for r in read_session_surface(root_path, sid) if isinstance(r, dict)]
     visible_ids = _str_list((r or {}).get("id") for r in session_rows)
-    visible_set = set(visible_ids)
+
+    raw_beads = {
+        _as_str(bid): row
+        for bid, row in (index.get("beads") or {}).items()
+        if isinstance(row, dict) and _as_str(row.get("session_id")) == sid
+    }
+    bead_id_map = {bid: _stable_bead_key(row) for bid, row in raw_beads.items()}
+    visible_keys = [bead_id_map.get(bid, bid) for bid in visible_ids]
+    visible_set = set(visible_ids) | set(visible_keys)
+
+    claim_id_map: dict[str, str] = {}
+    for bid, row in raw_beads.items():
+        for claim in row.get("claims") or []:
+            if not isinstance(claim, dict):
+                continue
+            cid = _as_str(claim.get("id"))
+            if cid:
+                claim_with_source = dict(claim)
+                claim_with_source.setdefault("source_bead_id", bid)
+                claim_id_map[cid] = _stable_claim_key(claim_with_source, bead_id_map)
 
     beads: dict[str, Any] = {}
-    for bid, row in (index.get("beads") or {}).items():
-        if not isinstance(row, dict):
-            continue
-        if _as_str(row.get("session_id")) != sid:
-            continue
+    for bid, row in raw_beads.items():
+        bead_key = bead_id_map[bid]
         normalized = _strip_keys(row, _VOLATILE_BEAD_FIELDS)
+        normalized["stable_bead_key"] = bead_key
         for key in ("summary", "because", "tags", "entities", "topics", "source_turn_ids"):
             if key in normalized:
                 normalized[key] = _normalize_list(normalized.get(key))
         if "claims" in normalized:
-            normalized["claims"] = _normalize_list(normalized.get("claims"))
+            normalized["claims"] = _normalize_list(
+                [
+                    _normalize_claim_row({**claim, "source_bead_id": bid}, bead_id_map)
+                    for claim in normalized.get("claims") or []
+                    if isinstance(claim, dict)
+                ]
+            )
         if "claim_updates" in normalized:
-            normalized["claim_updates"] = _normalize_list(normalized.get("claim_updates"))
-        beads[_as_str(bid)] = normalized
+            normalized["claim_updates"] = _normalize_list(
+                [
+                    _normalize_claim_update_row(
+                        update,
+                        bead_id_map=bead_id_map,
+                        claim_id_map=claim_id_map,
+                    )
+                    for update in normalized.get("claim_updates") or []
+                    if isinstance(update, dict)
+                ]
+            )
+        beads[bead_key] = normalized
 
     associations: list[dict[str, Any]] = []
     for row in index.get("associations") or []:
@@ -549,14 +664,20 @@ def canonical_session_projection(root: str | Path, session_id: str) -> dict[str,
         rel = _as_str(row.get("relationship")).lower()
         if not src or not tgt or not rel:
             continue
-        if src not in visible_set and src not in beads:
+        src_key = bead_id_map.get(src, src)
+        tgt_key = bead_id_map.get(tgt, tgt)
+        if src not in visible_set and src_key not in visible_set and src_key not in beads:
             continue
-        if tgt not in visible_set and tgt not in beads:
+        if tgt not in visible_set and tgt_key not in visible_set and tgt_key not in beads:
             continue
         normalized = _strip_keys(row, _VOLATILE_ASSOC_FIELDS)
-        normalized["dedupe_key"] = f"assoc:{src}:{tgt}:{rel}"
-        normalized["source_bead_id"] = src
-        normalized["target_bead_id"] = tgt
+        normalized["dedupe_key"] = f"assoc:{src_key}:{tgt_key}:{rel}"
+        normalized["source_bead_key"] = src_key
+        normalized["target_bead_key"] = tgt_key
+        normalized.pop("source_bead", None)
+        normalized.pop("source_bead_id", None)
+        normalized.pop("target_bead", None)
+        normalized.pop("target_bead_id", None)
         normalized["relationship"] = rel
         associations.append(normalized)
 
@@ -578,7 +699,7 @@ def canonical_session_projection(root: str | Path, session_id: str) -> dict[str,
     return {
         "schema": "session_enrichment_projection.v1",
         "session_id": sid,
-        "visible_bead_ids": visible_ids,
+        "visible_bead_keys": visible_keys,
         "beads": {k: beads[k] for k in sorted(beads)},
         "associations": _normalize_list(associations),
         "entities": {k: entities[k] for k in sorted(entities)},
