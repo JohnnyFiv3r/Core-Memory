@@ -95,7 +95,22 @@ When the turn supports them, prefer:
 
 Do not add generic filler summary text just to make a bead look richer.
 
-### 4. Claims should be grounded, not ornamental
+### 4. Treat `because` as grounded support, not filler
+
+`because` is free-text support for the applied semantic labels and state of the bead.
+It should explain why the bead's type, durability, state change, retrieval eligibility, or promotion-worthy interpretation is justified by the finalized turn.
+
+Good `because` content may include cause/effect, purpose, constraints, evidence/results, tradeoffs, comparisons, mechanisms, conditional rationale, preferences, or values.
+
+Rules:
+- Use only support grounded in the finalized turn.
+- Short quoted or closely paraphrased user text is valid when that text itself is the support.
+- Do not add guessed filler merely to make the bead look richer.
+- Do not dump a long whole user or assistant message into `because`; extract the supporting span.
+- Leave `because` empty when the turn does not provide real support.
+- Questions and retrieval turns are context/retrieval acts; they should not get `because` unless they also state a durable fact with grounded support.
+
+### 5. Claims should be grounded, not ornamental
 
 Use claims when the turn expresses durable facts, preferences, policies, commitments, conditions, relationships, or locations.
 

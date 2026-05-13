@@ -22,7 +22,7 @@ Return JSON only with this shape:
   "summary": ["1-3 concise factual bullets"],
   "detail": "assistant-side detail or concise turn detail",
   "because": [
-    {"text":"causal rationale", "category":"cause|purpose|constraint|evidence|tradeoff|comparison|mechanism|conditional|preference|value", "source_span":"exact source text", "confidence":0.0, "stated":"direct|inferred"}
+    {"text":"free-text support for the applied semantic label/state", "category":"cause|purpose|constraint|evidence|tradeoff|comparison|mechanism|conditional|preference|value", "source_span":"exact source text", "confidence":0.0, "stated":"direct|inferred"}
   ],
   "supporting_facts": ["facts from the turn supporting the bead"],
   "evidence_refs": ["stable ids only if explicitly present"],
@@ -40,7 +40,9 @@ Return JSON only with this shape:
 
 Rules:
 - Judge every semantic field. Do not copy deterministic defaults unless they are the best judged value.
-- Do not echo the whole user message as `because`.
+- `because` is free-text support for the applied semantic label/state of the bead, grounded in this finalized turn.
+- Do not use guessed filler. Short quoted or closely paraphrased user text is allowed when that text itself is the support.
+- Do not dump a long whole user/assistant message as `because`; extract the supporting span instead.
 - `because` must be exhaustive over English causal forms: cause/effect, purpose, constraint, evidence/result, tradeoff, comparison, mechanism, conditional rationale, preference/value.
 - Include implicit rationale only when grounded in the turn; mark it `inferred` and lower confidence.
 - For questions/retrieval turns, use type `context` and empty `because` unless the turn also states a durable fact with rationale.

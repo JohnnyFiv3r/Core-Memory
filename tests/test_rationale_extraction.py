@@ -44,6 +44,29 @@ class TestRationaleExtraction(unittest.TestCase):
         self.assertFalse(is_retrieval_turn("Record that PostgreSQL won because JSONB was faster"))
         self.assertFalse(is_retrieval_turn("Remember that we learned representative benchmarks catch regressions"))
 
+    def test_llm_judge_keeps_short_grounded_support_that_overlaps_user_text(self):
+        with patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
+                "ANTHROPIC_API_KEY": "test-key",
+                "OPENAI_API_KEY": "",
+            },
+            clear=False,
+        ), patch(
+            "core_memory.policy.bead_judge._llm_judge_anthropic",
+            return_value={
+                "type": "decision",
+                "title": "Use PostgreSQL",
+                "summary": ["Use PostgreSQL"],
+                "because": [{"text": "JSONB support", "source_span": "JSONB support", "stated": "direct"}],
+                "retrieval_eligible": True,
+            },
+        ):
+            out = judge_bead_fields("Record decision: PostgreSQL because JSONB support", "")
+        self.assertEqual("decision", out.get("type"))
+        self.assertEqual(["JSONB support"], out.get("because"))
+
     def test_llm_judge_cannot_promote_retrieval_question_as_precedent(self):
         with patch.dict(
             "os.environ",
@@ -68,7 +91,7 @@ class TestRationaleExtraction(unittest.TestCase):
         self.assertEqual([], out.get("because"))
         self.assertFalse(out.get("retrieval_eligible"))
 
-    def test_sanitize_removes_raw_echo_but_keeps_real_reason(self):
+    def test_sanitize_removes_speculation_but_keeps_real_reason(self):
         self.assertEqual(
             [],
             sanitize_because_for_turn(["maybe we should use Redis"], user_query="maybe we should use Redis"),
@@ -76,6 +99,26 @@ class TestRationaleExtraction(unittest.TestCase):
         self.assertEqual(
             ["lower operational risk"],
             sanitize_because_for_turn(["lower operational risk"], user_query="We chose SQLite because lower operational risk"),
+        )
+
+    def test_sanitize_keeps_short_user_text_when_it_is_support(self):
+        self.assertEqual(
+            ["JSONB support"],
+            sanitize_because_for_turn(["JSONB support"], user_query="Record decision: JSONB support"),
+        )
+        self.assertEqual(
+            ["PostgreSQL because JSONB"],
+            sanitize_because_for_turn(["PostgreSQL because JSONB"], user_query="PostgreSQL because JSONB"),
+        )
+
+    def test_sanitize_drops_obvious_long_whole_turn_dump(self):
+        long_turn = (
+            "We chose PostgreSQL over MySQL because JSONB support and 2x better performance made it the clear winner "
+            "for the benchmark workload, and this should be retained as the database decision for the demo architecture."
+        )
+        self.assertEqual(
+            ["JSONB support and 2x better performance made it the clear winner for the benchmark workload, and this should be retained as the database decision for the demo architecture"],
+            sanitize_because_for_turn([long_turn], user_query=long_turn),
         )
 
     def test_turn_write_for_retrieval_question_creates_context_not_precedent(self):
