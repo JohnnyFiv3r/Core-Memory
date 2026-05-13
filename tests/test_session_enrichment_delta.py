@@ -173,6 +173,105 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("invalid_entity_label", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_claims_are_projected_as_delta_rows_with_stable_keys(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "claims": [
+                    {
+                        "id": "claim-random-1",
+                        "claim_kind": "preference",
+                        "subject": "user",
+                        "slot": "preference_editor",
+                        "value": "Neovim",
+                        "reason_text": "User said they prefer Neovim.",
+                        "confidence": 0.9,
+                        "source_bead_id": "b1",
+                        "source_turn_ids": ["t1"],
+                    },
+                    {
+                        "id": "claim-random-2",
+                        "claim_kind": "preference",
+                        "subject": "user",
+                        "slot": "preference_editor",
+                        "value": "Neovim",
+                        "reason_text": "Duplicate semantic claim.",
+                        "confidence": 0.7,
+                        "source_bead_id": "b1",
+                        "source_turn_ids": ["t1"],
+                    },
+                ]
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(delta["claims"]))
+        self.assertTrue(delta["claims"][0]["dedupe_key"].startswith("claim:user:preference_editor:"))
+        self.assertNotIn("claim-random", delta["claims"][0]["dedupe_key"])
+        self.assertEqual("claim-random-1", projected["claims"][0]["id"])
+
+    def test_invalid_claim_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"claims": [{"subject": "user", "slot": "preference", "value": "coffee"}]},
+        )
+
+        self.assertEqual([], delta["claims"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("invalid_claim", delta["diagnostics"]["quarantine"][0]["reasons"])
+
+    def test_claim_updates_are_projected_with_sequence_keys(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "claims": [
+                    {
+                        "id": "claim-new",
+                        "claim_kind": "preference",
+                        "subject": "user",
+                        "slot": "preference_drink",
+                        "value": "tea",
+                        "reason_text": "User said they now prefer tea.",
+                        "confidence": 0.88,
+                        "source_bead_id": "b2",
+                    }
+                ],
+                "claim_updates": [
+                    {
+                        "decision": "supersede",
+                        "target_claim_id": "claim-old",
+                        "replacement_claim_id": "claim-new",
+                        "subject": "user",
+                        "slot": "preference_drink",
+                        "trigger_bead_id": "b2",
+                        "reason_text": "New preference supersedes old preference.",
+                    }
+                ],
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(delta["claim_updates"]))
+        update = delta["claim_updates"][0]
+        self.assertEqual("claim-update:s1:t1:0", update["sequence_key"])
+        self.assertTrue(update["dedupe_key"].startswith("claim-update:"))
+        self.assertEqual(delta["claims"][0]["dedupe_key"], update["replacement_claim_key"])
+        self.assertEqual("supersede", projected["claim_updates"][0]["decision"])
+
+    def test_invalid_claim_update_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"claim_updates": [{"decision": "supersede", "target_claim_id": "claim-old"}]},
+        )
+
+        self.assertEqual([], delta["claim_updates"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("invalid_claim_update", delta["diagnostics"]["quarantine"][0]["reasons"])
+
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
         delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)

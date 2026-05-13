@@ -6,8 +6,13 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.claim.validation import validate_claim
 from core_memory.entity.registry import _is_valid_entity_alias, normalize_entity_alias
-from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
+from core_memory.schema.normalization import (
+    CLAIM_UPDATE_DECISIONS,
+    INFERENCE_CANONICAL_RELATION_TYPES,
+    normalize_claim_kind,
+)
 
 SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
@@ -166,6 +171,117 @@ def _normalize_claim_update_row(
         "reason_text": _as_str(normalized.get("reason_text")),
     }
     normalized["dedupe_key"] = f"claim-update:{stable_hash(basis)[:20]}"
+    return normalized
+
+
+def _normalize_delta_claim_row(
+    row: dict[str, Any],
+    *,
+    source_bead_key: str | None,
+    turn_id: str,
+    context_fingerprint: str,
+) -> dict[str, Any] | None:
+    source_turn_ids = _str_list(row.get("source_turn_ids") or ([turn_id] if turn_id else []))
+    normalized = {
+        "id": _as_str(row.get("id")),
+        "claim_kind": normalize_claim_kind(row.get("claim_kind")),
+        "subject": _as_str(row.get("subject")),
+        "slot": _as_str(row.get("slot")),
+        "value": row.get("value"),
+        "reason_text": _as_str(row.get("reason_text")) or _as_str(row.get("reason")),
+        "source_bead_id": _as_str(row.get("source_bead_id")) or None,
+        "source_bead_key": source_bead_key or _as_str(row.get("source_bead_key")) or None,
+        "source_turn_ids": source_turn_ids,
+        "observed_at": row.get("observed_at"),
+        "recorded_at": row.get("recorded_at"),
+        "effective_from": row.get("effective_from") or row.get("valid_from"),
+        "effective_to": row.get("effective_to") or row.get("valid_to"),
+    }
+    normalized.update(
+        _base_row(
+            dedupe_key="pending",
+            confidence=row.get("confidence", 0.8),
+            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            source="crawler_updates.claims",
+            turn_id=turn_id,
+            evidence_refs=row.get("evidence_refs") or [],
+            context_fingerprint=context_fingerprint,
+            rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
+        )
+    )
+    valid, _errors = validate_claim(normalized)
+    if not valid:
+        return None
+    basis = {
+        "subject": normalized["subject"].lower(),
+        "slot": normalized["slot"].lower(),
+        "value": normalized.get("value"),
+        "source_bead_key": normalized.get("source_bead_key"),
+        "source_turn_ids": _normalize_list(normalized.get("source_turn_ids")),
+    }
+    normalized["dedupe_key"] = f"claim:{basis['subject']}:{basis['slot']}:{stable_hash(basis)[:16]}"
+    return normalized
+
+
+def _normalize_delta_claim_update_row(
+    row: dict[str, Any],
+    *,
+    turn_id: str,
+    context_fingerprint: str,
+    sequence_key: str,
+    claim_key_by_id: dict[str, str],
+) -> dict[str, Any] | None:
+    decision = _as_str(row.get("decision")).lower()
+    if decision not in CLAIM_UPDATE_DECISIONS:
+        return None
+    target_claim_id = _as_str(row.get("target_claim_id") or row.get("claim_id"))
+    replacement_claim_id = _as_str(row.get("replacement_claim_id") or row.get("successor_claim_id"))
+    trigger_bead_id = _as_str(row.get("trigger_bead_id"))
+    if not target_claim_id:
+        return None
+    if decision in {"supersede", "retract", "conflict"} and not trigger_bead_id:
+        return None
+
+    target_claim_key = _as_str(row.get("target_claim_key")) or claim_key_by_id.get(target_claim_id, target_claim_id)
+    replacement_claim_key = (
+        _as_str(row.get("replacement_claim_key"))
+        or claim_key_by_id.get(replacement_claim_id, replacement_claim_id)
+        or None
+    )
+    reason = _as_str(row.get("reason_text")) or "session decision pass"
+    normalized = {
+        "id": _as_str(row.get("id")) or None,
+        "decision": decision,
+        "target_claim_id": target_claim_id,
+        "target_claim_key": target_claim_key,
+        "replacement_claim_id": replacement_claim_id or None,
+        "replacement_claim_key": replacement_claim_key,
+        "subject": _as_str(row.get("subject")),
+        "slot": _as_str(row.get("slot")),
+        "reason_text": reason,
+        "trigger_bead_id": trigger_bead_id or None,
+    }
+    basis = {
+        "decision": decision,
+        "target_claim_key": target_claim_key,
+        "replacement_claim_key": replacement_claim_key,
+        "trigger_bead_id": trigger_bead_id,
+        "sequence_key": sequence_key,
+    }
+    normalized.update(
+        _base_row(
+            dedupe_key=f"claim-update:{stable_hash(basis)[:20]}",
+            confidence=row.get("confidence", 0.8),
+            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            source="crawler_updates.claim_updates",
+            bead_id=trigger_bead_id or None,
+            turn_id=turn_id,
+            evidence_refs=row.get("evidence_refs") or [],
+            context_fingerprint=context_fingerprint,
+            sequence_key=sequence_key,
+            rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
+        )
+    )
     return normalized
 
 
@@ -619,6 +735,55 @@ def crawler_updates_to_delta(
         )
         delta["association_lifecycle"].append(out)
 
+    claim_rows = [r for r in raw.get("claims") or [] if isinstance(r, dict)]
+    claim_rows, q = _bounded(claim_rows, "claims", session_id=sid, turn_id=tid)
+    quarantine_rows.extend(q)
+    claim_key_by_id: dict[str, str] = {}
+    seen_claim_keys: set[str] = set()
+    for row in claim_rows:
+        source_bead_key = _as_str(row.get("source_bead_key") or row.get("source_bead_id")) or None
+        normalized_claim = _normalize_delta_claim_row(
+            row,
+            source_bead_key=source_bead_key,
+            turn_id=tid,
+            context_fingerprint=ctx_fp,
+        )
+        if not normalized_claim:
+            quarantine_rows.append(_quarantine("claims", row, ["invalid_claim"], session_id=sid, turn_id=tid))
+            continue
+        key = str(normalized_claim.get("dedupe_key") or "")
+        claim_id = _as_str(normalized_claim.get("id"))
+        if claim_id:
+            claim_key_by_id[claim_id] = key
+        if key in seen_claim_keys:
+            continue
+        seen_claim_keys.add(key)
+        delta["claims"].append(normalized_claim)
+
+    claim_update_rows = [r for r in raw.get("claim_updates") or [] if isinstance(r, dict)]
+    claim_update_rows, q = _bounded(claim_update_rows, "claim_updates", session_id=sid, turn_id=tid)
+    quarantine_rows.extend(q)
+    seen_claim_update_keys: set[str] = set()
+    for i, row in enumerate(claim_update_rows):
+        sequence_key = f"claim-update:{sid}:{tid}:{i}"
+        normalized_update = _normalize_delta_claim_update_row(
+            row,
+            turn_id=tid,
+            context_fingerprint=ctx_fp,
+            sequence_key=sequence_key,
+            claim_key_by_id=claim_key_by_id,
+        )
+        if not normalized_update:
+            quarantine_rows.append(
+                _quarantine("claim_updates", row, ["invalid_claim_update"], session_id=sid, turn_id=tid)
+            )
+            continue
+        key = str(normalized_update.get("dedupe_key") or "")
+        if key in seen_claim_update_keys:
+            continue
+        seen_claim_update_keys.add(key)
+        delta["claim_updates"].append(normalized_update)
+
     delta["diagnostics"] = {
         "quarantined": len(quarantine_rows),
         "quarantine": quarantine_rows,
@@ -634,6 +799,8 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
         "promotions": [],
         "associations": [],
         "association_lifecycle": [],
+        "claims": [],
+        "claim_updates": [],
     }
     for row in delta.get("beads_create") or []:
         if isinstance(row, dict):
@@ -679,6 +846,22 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
                     "provenance": _row_provenance_kind(row),
                 }
             )
+    claim_adapter_keys = {
+        "dedupe_key",
+        "provenance",
+        "context_fingerprint",
+        "sequence_key",
+        "rationale",
+        "source_bead_key",
+        "target_claim_key",
+        "replacement_claim_key",
+    }
+    for row in delta.get("claims") or []:
+        if isinstance(row, dict):
+            out["claims"].append({k: v for k, v in row.items() if k not in claim_adapter_keys})
+    for row in delta.get("claim_updates") or []:
+        if isinstance(row, dict):
+            out["claim_updates"].append({k: v for k, v in row.items() if k not in claim_adapter_keys})
     return out
 
 
