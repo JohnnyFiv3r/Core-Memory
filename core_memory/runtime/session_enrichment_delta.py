@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.entity.registry import normalize_entity_alias
+from core_memory.entity.registry import _is_valid_entity_alias, normalize_entity_alias
 from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
 
 SCHEMA = "session_enrichment_delta.v1"
@@ -179,7 +179,7 @@ def _normalize_entity_upsert_row(
 ) -> dict[str, Any] | None:
     label = _as_str(row.get("label") or row.get("name") or row.get("value") or row.get("text"))
     normalized_label = normalize_entity_alias(label)
-    if not label or not normalized_label:
+    if not _is_valid_entity_alias(label, normalized_label):
         return None
     aliases = _str_list(row.get("aliases") or [label], limit=12)
     alias_norms = sorted({normalize_entity_alias(alias) for alias in aliases if normalize_entity_alias(alias)})

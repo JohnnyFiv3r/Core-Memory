@@ -162,6 +162,17 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("invalid_entity_label", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_entity_upsert_uses_live_registry_noise_policy(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"entity_upserts": [{"label": "the"}]},
+        )
+
+        self.assertEqual([], delta["entity_upserts"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("invalid_entity_label", delta["diagnostics"]["quarantine"][0]["reasons"])
+
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
         delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)
