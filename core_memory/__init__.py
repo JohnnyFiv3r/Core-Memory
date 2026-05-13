@@ -15,6 +15,7 @@ from .runtime.engine import process_turn_finalized, process_session_start, proce
 from .retrieval.tools.memory import search as memory_search, trace as memory_trace, execute as memory_execute
 from .retrieval.agent import recall
 from .memory import Memory, capture
+from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .schema.turn import Turn
 from .retrieval.contracts import (
     EvidenceItem,
@@ -51,6 +52,8 @@ __all__ = [
     "RecallResult",
     "RecallStep",
     "capture",
+    "ingest_transcript",
+    "normalize_transcript_payload",
     "recall",
     "recall_result_from_memory_execute",
     "validate_recall_effort",

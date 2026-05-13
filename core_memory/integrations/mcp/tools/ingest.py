@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from core_memory.integrations.mcp.tools.capture import capture_handler
+from core_memory.transcript_ingest import ingest_transcript
 
 _ROLE_MAP = {
     "user": "user",
@@ -196,33 +196,43 @@ def _detect_format(path: Path, text: str, requested: str) -> str:
 def ingest_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     payload = dict(payload or {})
     raw_path = str(payload.get("path") or "").strip()
-    if not raw_path:
-        return _error("cm.path_not_readable", "ingest requires a readable local path", field="path")
-    path = Path(raw_path).expanduser()
-    if not path.exists() or not path.is_file():
-        return _error("cm.path_not_readable", "ingest path is not a readable file", field="path", received=raw_path)
+    inline_turns = payload.get("turns") if isinstance(payload.get("turns"), list) else None
+    inline_messages = payload.get("messages") if isinstance(payload.get("messages"), list) else None
 
-    requested = str(payload.get("from") or payload.get("format") or "auto").strip().lower()
-    if requested not in _SUPPORTED_FORMATS:
-        return _error("cm.parser_format_unsupported", "unsupported ingest format", field="from", received=requested)
-
-    try:
-        text = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError:
-        return _error("cm.parser_aborted", "ingest file is not valid UTF-8", field="path", received=raw_path)
-    except OSError as exc:
-        return _error("cm.path_not_readable", str(exc), field="path", received=raw_path)
-
-    fmt = _detect_format(path, text, requested)
+    path: Path | None = None
+    fmt = "inline"
     malformed: list[Any] = []
-    if fmt == "json":
-        turns = _parse_json(text, malformed)
-    elif fmt == "jsonl":
-        turns = _parse_jsonl(text, malformed)
-    elif fmt in {"markdown", "text"}:
-        turns = _parse_markdown(text, malformed)
+    turns: list[dict[str, Any]] = []
+
+    if inline_turns is not None or inline_messages is not None:
+        turns = list(inline_turns if inline_turns is not None else inline_messages or [])
     else:
-        return _error("cm.parser_format_unsupported", "unsupported ingest format", field="from", received=fmt)
+        if not raw_path:
+            return _error("cm.path_not_readable", "ingest requires a readable local path or inline turns", field="path")
+        path = Path(raw_path).expanduser()
+        if not path.exists() or not path.is_file():
+            return _error("cm.path_not_readable", "ingest path is not a readable file", field="path", received=raw_path)
+
+        requested = str(payload.get("from") or payload.get("format") or "auto").strip().lower()
+        if requested not in _SUPPORTED_FORMATS:
+            return _error("cm.parser_format_unsupported", "unsupported ingest format", field="from", received=requested)
+
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            return _error("cm.parser_aborted", "ingest file is not valid UTF-8", field="path", received=raw_path)
+        except OSError as exc:
+            return _error("cm.path_not_readable", str(exc), field="path", received=raw_path)
+
+        fmt = _detect_format(path, text, requested)
+        if fmt == "json":
+            turns = _parse_json(text, malformed)
+        elif fmt == "jsonl":
+            turns = _parse_jsonl(text, malformed)
+        elif fmt in {"markdown", "text"}:
+            turns = _parse_markdown(text, malformed)
+        else:
+            return _error("cm.parser_format_unsupported", "unsupported ingest format", field="from", received=fmt)
 
     has_user = any(t.get("role") == "user" for t in turns)
     has_assistant = any(t.get("role") == "assistant" for t in turns)
@@ -230,33 +240,42 @@ def ingest_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         return _error(
             "cm.parser_aborted",
             "transcript lacks usable user/assistant turn structure",
-            field="path",
-            received=raw_path,
+            field="turns" if path is None else "path",
+            received=raw_path or type(turns).__name__,
             malformed=malformed,
         )
 
     session_prefix = str(payload.get("session_prefix") or "ingest").strip() or "ingest"
-    session_id = str(payload.get("session_id") or f"{session_prefix}:{path.stem}")
-    turn_id = str(payload.get("turn_id") or f"ingest:{path.stem}")
-    capture = capture_handler(
-        {
-            "root": payload.get("root") or ".",
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "turns": turns,
-        }
-    )
-    if not capture.get("ok"):
-        return capture
+    transcript_id = str(payload.get("transcript_id") or (path.stem if path else "inline"))
+    session_id = str(payload.get("session_id") or f"{session_prefix}:{transcript_id}")
+    try:
+        out = ingest_transcript(
+            root=str(payload.get("root") or "."),
+            transcript_id=transcript_id,
+            session_id=session_id,
+            turns=turns,
+            flush_policy=str(payload.get("flush_policy") or "none"),
+            metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+            max_turns=int(payload.get("max_turns") or 500),
+        )
+    except ValueError as exc:
+        return _error("cm.parser_aborted", str(exc), field="turns", received=raw_path or "inline", malformed=malformed)
+    if not out.get("ok"):
+        return _error("cm.ingest_failed", "transcript ingest failed", received=out.get("errors"))
+    bead_ids: list[str] = []
+    for row in out.get("ingested") or []:
+        if isinstance(row, dict):
+            bead_ids.extend(str(v) for v in row.get("bead_ids") or [] if str(v))
     return {
         "ok": True,
-        "path": str(path),
+        "path": str(path) if path else "",
         "format": fmt,
-        "session_id": capture.get("session_id"),
-        "turn_id": capture.get("turn_id"),
-        "turns_ingested": len(turns),
+        "session_id": out.get("session_id"),
+        "turn_id": str((out.get("ingested") or [{}])[0].get("turn_id") if out.get("ingested") else ""),
+        "turns_ingested": out.get("turns_received"),
+        "turns_paired": out.get("turns_paired"),
         "malformed_count": len(malformed),
         "malformed": malformed[:20],
-        "bead_ids": capture.get("bead_ids", []),
-        "raw": capture.get("raw", {}),
+        "bead_ids": list(dict.fromkeys(bead_ids)),
+        "raw": out,
     }
