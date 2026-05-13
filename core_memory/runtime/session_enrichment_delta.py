@@ -6,8 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
+
 SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
+CANONICAL_DELTA_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
 
 _MAX_ROWS = {
     "beads_create": 4,
@@ -449,6 +452,19 @@ def crawler_updates_to_delta(
                     "associations",
                     row,
                     ["missing_source_target_or_relationship"],
+                    session_id=sid,
+                    turn_id=tid,
+                )
+            )
+            continue
+        if rel not in CANONICAL_DELTA_RELATIONSHIPS:
+            quarantined = dict(row)
+            quarantined["relationship_raw"] = rel
+            quarantine_rows.append(
+                _quarantine(
+                    "associations",
+                    quarantined,
+                    [f"noncanonical_relationship:{rel or 'empty'}"],
                     session_id=sid,
                     turn_id=tid,
                 )

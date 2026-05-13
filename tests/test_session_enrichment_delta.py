@@ -102,6 +102,31 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual("associations", quarantine[0]["row_type"])
         self.assertIn("missing_source_target_or_relationship", quarantine[0]["reasons"])
 
+    def test_noncanonical_association_relationship_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "associations": [
+                    {
+                        "source_bead_id": "b2",
+                        "target_bead_id": "b1",
+                        "relationship": "shared_tag",
+                        "reason_text": "tag overlap",
+                        "confidence": 0.7,
+                    }
+                ]
+            },
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1", "b2"]},
+        )
+        projected = delta_to_crawler_updates(delta)
+        quarantine = delta["diagnostics"]["quarantine"]
+
+        self.assertEqual([], delta["associations"])
+        self.assertEqual([], projected["associations"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("noncanonical_relationship:shared_tag", quarantine[0]["reasons"])
+
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
         delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)
