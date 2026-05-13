@@ -21,6 +21,7 @@ from core_memory.runtime.enrichment import (
 )
 from core_memory.runtime.side_effect_queue import (
     _SIDE_EFFECT_KINDS,
+    _queue_path,
     side_effect_queue_status,
 )
 
@@ -66,6 +67,12 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             )
             self.assertTrue(result["ok"])
             self.assertFalse(result.get("duplicate", False))
+
+            import json
+            queue = json.loads(_queue_path(td).read_text(encoding="utf-8"))
+            payload = queue[0]["payload"]
+            self.assertEqual("session_enrichment_delta.v1", payload["enrichment_delta"]["schema"])
+            self.assertEqual("enrich-s1-t1", payload["enrichment_delta"]["source"]["idempotency_key"])
 
     def test_idempotent_enqueue(self):
         with tempfile.TemporaryDirectory() as td:
@@ -124,7 +131,14 @@ class TestCriticalPathPersistsBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "Why PostgreSQL?"}, {"speaker": "assistant", "role": "assistant", "content": "JSONB + transactional consistency"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "Why PostgreSQL?"},
+                    {
+                        "speaker": "assistant",
+                        "role": "assistant",
+                        "content": "JSONB + transactional consistency",
+                    },
+                ],
             )
             self.assertTrue(result.get("ok"))
             self.assertEqual(result.get("processed"), 1)
@@ -144,7 +158,14 @@ class TestCriticalPathPersistsBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "Why PostgreSQL?"}, {"speaker": "assistant", "role": "assistant", "content": "JSONB + transactional consistency"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "Why PostgreSQL?"},
+                    {
+                        "speaker": "assistant",
+                        "role": "assistant",
+                        "content": "JSONB + transactional consistency",
+                    },
+                ],
             )
             self.assertTrue(result.get("ok"))
             self.assertEqual(result.get("processed"), 1)

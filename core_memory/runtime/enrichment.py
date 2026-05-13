@@ -37,6 +37,20 @@ def enqueue_turn_enrichment(
         return None
 
     from core_memory.runtime.side_effect_queue import enqueue_side_effect_event
+    from core_memory.runtime.session_enrichment_delta import crawler_updates_to_delta
+
+    idempotency_key = f"enrich-{session_id}-{turn_id}"
+    enrichment_delta = crawler_updates_to_delta(
+        session_id=session_id,
+        turn_id=turn_id,
+        updates=reviewed_updates or {},
+        crawler_ctx=crawler_ctx or {},
+        source_kind="queued",
+        authority_path="turn-enrichment",
+        origin=str(req.get("origin") or "USER_TURN"),
+        idempotency_key=idempotency_key,
+        window_turn_ids=list(req.get("window_turn_ids") or []),
+    )
 
     return enqueue_side_effect_event(
         root=root,
@@ -48,11 +62,12 @@ def enqueue_turn_enrichment(
             "user_query": str(req.get("user_query") or ""),
             "assistant_final": str(req.get("assistant_final") or ""),
             "reviewed_updates": dict(reviewed_updates or {}),
+            "enrichment_delta": enrichment_delta,
             "crawler_visible_bead_ids": list((crawler_ctx or {}).get("visible_bead_ids") or []),
             "metadata": dict(req.get("metadata") or {}),
             "window_bead_ids": list(req.get("window_bead_ids") or []),
         },
-        idempotency_key=f"enrich-{session_id}-{turn_id}",
+        idempotency_key=idempotency_key,
     )
 
 
@@ -68,6 +83,9 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     turn_id = str(payload.get("turn_id") or "")
     bead_id = str(payload.get("bead_id") or "")
     reviewed_updates = dict(payload.get("reviewed_updates") or {})
+    if not reviewed_updates and isinstance(payload.get("enrichment_delta"), dict):
+        from core_memory.runtime.session_enrichment_delta import delta_to_crawler_updates
+        reviewed_updates = delta_to_crawler_updates(dict(payload.get("enrichment_delta") or {}))
     crawler_visible = list(payload.get("crawler_visible_bead_ids") or [])
 
     from core_memory.runtime.engine import (
@@ -179,7 +197,12 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             if canonical_bead_id:
                 md = dict(payload.get("metadata") or {})
-                context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or payload.get("window_bead_ids") or [])
+                context_beads = list(
+                    md.get("retrieved_beads")
+                    or md.get("context_beads")
+                    or payload.get("window_bead_ids")
+                    or []
+                )
                 turn_context = {
                     "retrieved_beads": context_beads,
                     "query": str(payload.get("user_query") or ""),
