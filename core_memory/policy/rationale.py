@@ -6,6 +6,8 @@ import os
 import re
 from typing import Any
 
+from .bead_typing import is_retrieval_turn
+
 logger = logging.getLogger(__name__)
 
 _CAUSAL_MARKERS = (
@@ -183,7 +185,7 @@ def extract_causal_because(user_query: str, assistant_final: str = "", bead_type
     writes and offline adoption.
     """
     mode = str(os.getenv("CORE_MEMORY_BECAUSE_EXTRACTOR_MODE") or "heuristic").strip().lower()
-    if mode in {"llm", "auto"} and not is_question_turn(user_query):
+    if mode in {"llm", "auto"} and not is_retrieval_turn(user_query):
         out = _llm_extract_anthropic(user_query, assistant_final, bead_type)
         if out is None:
             out = _llm_extract_openai(user_query, assistant_final, bead_type)

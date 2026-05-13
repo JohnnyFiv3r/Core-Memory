@@ -47,7 +47,8 @@ Types:
 
 Classify based on the *semantic content* of the user message, not just speech form.
 - Questions are retrieval/context turns, not declarative memory writes. Classify questions as context.
-- Imperatives like "Record that...", "Show...", "Explain...", "As of..." should be typed by what they encode.
+- Retrieval imperatives like "show me...", "tell me...", "remind me why...", or "explain why..." are also context.
+- Declarative capture imperatives like "Record that..." or "Remember that..." should be typed by what they encode.
 
 Strong hints:
 - decision: winner/choice between alternatives when asserted as a fact ("X won over Y", "we chose")
@@ -63,6 +64,15 @@ USER: {user_query}"""
 
 
 _QUESTION_START_RE = re.compile(r"^\s*(?:who|what|when|where|why|how|which|did|do|does|can|could|should|would|is|are|was|were)\b", re.IGNORECASE)
+_RETRIEVAL_DIRECTIVE_RE = re.compile(
+    r"^\s*(?:please\s+)?(?:"
+    r"show\s+me|tell\s+me|remind\s+me|explain|summarize|find|look\s+up|search\s+for|"
+    r"can\s+you\s+(?:show|tell|remind|explain|summarize|find|look\s+up|search)|"
+    r"could\s+you\s+(?:show|tell|remind|explain|summarize|find|look\s+up|search)"
+    r")\b",
+    re.IGNORECASE,
+)
+_EMBEDDED_QUESTION_RE = re.compile(r"\b(?:who|what|when|where|why|how|which)\b", re.IGNORECASE)
 
 
 def _is_question_turn(text: str) -> bool:
@@ -70,6 +80,26 @@ def _is_question_turn(text: str) -> bool:
     if not s:
         return False
     return s.endswith("?") or bool(_QUESTION_START_RE.search(s))
+
+
+def is_retrieval_turn(text: str) -> bool:
+    """Return true for turns asking to retrieve/explain existing memory.
+
+    This is intentionally separate from declarative capture directives such as
+    "record that" or "remember that". Retrieval turns should be stored only as
+    context, never promoted as decisions/lessons/precedents.
+    """
+    s = str(text or "").strip()
+    if not s:
+        return False
+    if _is_question_turn(s):
+        return True
+    if _RETRIEVAL_DIRECTIVE_RE.search(s):
+        return True
+    lowered = s.lower()
+    if lowered.startswith(("i'm asking", "i am asking", "my question is")) and _EMBEDDED_QUESTION_RE.search(s):
+        return True
+    return False
 
 
 def _heuristic_type(user_query: str, assistant_final: str) -> BeadType:
@@ -153,9 +183,9 @@ def classify_bead_type(user_query: str, assistant_final: str) -> BeadType:
         os.getenv("CORE_MEMORY_BEAD_TYPE_ALLOW_FALLBACK", "1")
     ).strip().lower() in {"1", "true", "yes", "on"}
 
-    # A user question is a retrieval act, not a durable decision/lesson/precedent
+    # A user question/retrieval request is not a durable decision/lesson/precedent
     # declaration. Guard before model calls to prevent promotion inflation.
-    if _is_question_turn(user_query):
+    if is_retrieval_turn(user_query):
         return "context"
 
     # Try LLM classification: Anthropic first, then OpenAI.
