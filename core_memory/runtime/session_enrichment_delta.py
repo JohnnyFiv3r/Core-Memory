@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.entity.registry import normalize_entity_alias
 from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
 
 SCHEMA = "session_enrichment_delta.v1"
@@ -166,6 +167,46 @@ def _normalize_claim_update_row(
     }
     normalized["dedupe_key"] = f"claim-update:{stable_hash(basis)[:20]}"
     return normalized
+
+
+def _normalize_entity_upsert_row(
+    row: dict[str, Any],
+    *,
+    source: str,
+    source_bead_key: str | None,
+    turn_id: str,
+    context_fingerprint: str,
+) -> dict[str, Any] | None:
+    label = _as_str(row.get("label") or row.get("name") or row.get("value") or row.get("text"))
+    normalized_label = normalize_entity_alias(label)
+    if not label or not normalized_label:
+        return None
+    aliases = _str_list(row.get("aliases") or [label], limit=12)
+    alias_norms = sorted({normalize_entity_alias(alias) for alias in aliases if normalize_entity_alias(alias)})
+    if normalized_label not in alias_norms:
+        alias_norms.insert(0, normalized_label)
+
+    out = {
+        "label": label,
+        "normalized_label": normalized_label,
+        "aliases": alias_norms[:12],
+        "entity_kind": _as_str(row.get("entity_kind") or row.get("kind")) or "other",
+        "source_bead_key": source_bead_key,
+        "evidence": _as_str(row.get("evidence")) or None,
+    }
+    out.update(
+        _base_row(
+            dedupe_key=f"entity:{normalized_label}",
+            confidence=row.get("confidence", 0.72),
+            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            source=source,
+            turn_id=turn_id,
+            evidence_refs=row.get("evidence_refs") or [],
+            context_fingerprint=context_fingerprint,
+            rationale=_as_str(row.get("evidence") or row.get("rationale")) or None,
+        )
+    )
+    return out
 
 
 def stable_hash(value: Any) -> str:
@@ -370,6 +411,7 @@ def crawler_updates_to_delta(
         turn_id=tid,
     )
     quarantine_rows.extend(q)
+    entity_candidates: list[tuple[dict[str, Any], str | None, str]] = []
     for row in bead_rows:
         src_turns = _str_list(row.get("source_turn_ids"))
         basis = {
@@ -393,9 +435,46 @@ def crawler_updates_to_delta(
                 rationale=_as_str(row.get("rationale") or row.get("detail")) or None,
             )
         )
+        bead_dedupe_key = str(out.get("dedupe_key") or "") or None
         if tid and tid not in src_turns:
             out.setdefault("warnings", []).append("current_turn_id_missing_from_source_turn_ids")
         delta["beads_create"].append(out)
+        for entity_label in _str_list(row.get("entities"), limit=40):
+            entity_candidates.append(
+                (
+                    {"label": entity_label, "aliases": [entity_label], "confidence": row.get("confidence", 0.72)},
+                    bead_dedupe_key,
+                    "crawler_updates.beads_create.entities",
+                )
+            )
+
+    explicit_entity_rows = [r for r in raw.get("entity_upserts") or [] if isinstance(r, dict)]
+    for row in explicit_entity_rows:
+        entity_candidates.append(
+            (row, _as_str(row.get("source_bead_key")) or None, "crawler_updates.entity_upserts")
+        )
+
+    entity_candidates, q = _bounded(entity_candidates, "entity_upserts", session_id=sid, turn_id=tid)
+    quarantine_rows.extend(q)
+    seen_entity_keys: set[str] = set()
+    for row, source_bead_key, source in entity_candidates:
+        normalized_entity = _normalize_entity_upsert_row(
+            row,
+            source=source,
+            source_bead_key=source_bead_key,
+            turn_id=tid,
+            context_fingerprint=ctx_fp,
+        )
+        if not normalized_entity:
+            quarantine_rows.append(
+                _quarantine("entity_upserts", row, ["invalid_entity_label"], session_id=sid, turn_id=tid)
+            )
+            continue
+        key = str(normalized_entity.get("dedupe_key") or "")
+        if key in seen_entity_keys:
+            continue
+        seen_entity_keys.add(key)
+        delta["entity_upserts"].append(normalized_entity)
 
     promotions_raw = _str_list(raw.get("promotions"))
     for reviewed in raw.get("reviewed_beads") or []:

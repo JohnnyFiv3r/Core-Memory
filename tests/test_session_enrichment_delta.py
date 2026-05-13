@@ -127,6 +127,41 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("noncanonical_relationship:shared_tag", quarantine[0]["reasons"])
 
+    def test_bead_entities_are_projected_as_delta_entity_upserts(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "beads_create": [
+                    {
+                        "type": "decision",
+                        "title": "OpenAI Platform migration",
+                        "summary": ["Open AI Platform was selected."],
+                        "source_turn_ids": ["t1"],
+                        "entities": ["Open AI Platform", "OpenAI Platform"],
+                    }
+                ]
+            },
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1"]},
+        )
+
+        self.assertEqual(1, len(delta["entity_upserts"]))
+        entity = delta["entity_upserts"][0]
+        self.assertEqual("entity:openaiplatform", entity["dedupe_key"])
+        self.assertEqual("openaiplatform", entity["normalized_label"])
+        self.assertTrue(str(entity["source_bead_key"]).startswith("bead:s1:t1:decision:"))
+
+    def test_explicit_invalid_entity_upsert_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"entity_upserts": [{"label": "!!!"}]},
+        )
+
+        self.assertEqual([], delta["entity_upserts"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("invalid_entity_label", delta["diagnostics"]["quarantine"][0]["reasons"])
+
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
         delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)
