@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
 SCHEMA = "session_enrichment_delta.v1"
@@ -19,6 +20,25 @@ _MAX_ROWS = {
     "goal_lifecycle": 64,
     "memory_outcomes": 8,
 }
+
+_VOLATILE_BEAD_FIELDS = {
+    "created_at",
+    "updated_at",
+    "last_recalled",
+    "promotion_decided_at",
+    "promoted_at",
+    "promotion_marked_at",
+}
+
+_VOLATILE_ASSOC_FIELDS = {
+    "id",
+    "created_at",
+    "updated_at",
+    "warnings",
+    "normalization_applied",
+}
+
+_VOLATILE_ENTITY_FIELDS = {"created_at", "updated_at"}
 
 
 def _now() -> str:
@@ -42,6 +62,25 @@ def _str_list(values: Any, *, limit: int | None = None) -> list[str]:
 
 def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _read_json(path: Path, default: Any) -> Any:
+    try:
+        if path.exists():
+            return json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return default
+    return default
+
+
+def _strip_keys(row: dict[str, Any], keys: set[str]) -> dict[str, Any]:
+    return {str(k): v for k, v in row.items() if str(k) not in keys}
+
+
+def _normalize_list(value: Any) -> list[Any]:
+    if not isinstance(value, list):
+        return []
+    return sorted(value, key=lambda x: _canonical_json(x))
 
 
 def stable_hash(value: Any) -> str:
@@ -466,11 +505,98 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
+def canonical_session_projection(root: str | Path, session_id: str) -> dict[str, Any]:
+    """Build a stable committed-state projection for Slice A equality checks.
+
+    This helper intentionally ignores volatile ids/timestamps and queue metadata.
+    It reads the canonical committed surfaces only; it does not mutate runtime
+    state or make semantic decisions.
+    """
+    from core_memory.runtime.session_surface import read_session_surface
+
+    root_path = Path(root)
+    sid = _as_str(session_id)
+    index = _read_json(root_path / ".beads" / "index.json", {})
+    if not isinstance(index, dict):
+        index = {}
+
+    session_rows = [r for r in read_session_surface(root_path, sid) if isinstance(r, dict)]
+    visible_ids = _str_list((r or {}).get("id") for r in session_rows)
+    visible_set = set(visible_ids)
+
+    beads: dict[str, Any] = {}
+    for bid, row in (index.get("beads") or {}).items():
+        if not isinstance(row, dict):
+            continue
+        if _as_str(row.get("session_id")) != sid:
+            continue
+        normalized = _strip_keys(row, _VOLATILE_BEAD_FIELDS)
+        for key in ("summary", "because", "tags", "entities", "topics", "source_turn_ids"):
+            if key in normalized:
+                normalized[key] = _normalize_list(normalized.get(key))
+        if "claims" in normalized:
+            normalized["claims"] = _normalize_list(normalized.get("claims"))
+        if "claim_updates" in normalized:
+            normalized["claim_updates"] = _normalize_list(normalized.get("claim_updates"))
+        beads[_as_str(bid)] = normalized
+
+    associations: list[dict[str, Any]] = []
+    for row in index.get("associations") or []:
+        if not isinstance(row, dict):
+            continue
+        src = _as_str(row.get("source_bead") or row.get("source_bead_id"))
+        tgt = _as_str(row.get("target_bead") or row.get("target_bead_id"))
+        rel = _as_str(row.get("relationship")).lower()
+        if not src or not tgt or not rel:
+            continue
+        if src not in visible_set and src not in beads:
+            continue
+        if tgt not in visible_set and tgt not in beads:
+            continue
+        normalized = _strip_keys(row, _VOLATILE_ASSOC_FIELDS)
+        normalized["dedupe_key"] = f"assoc:{src}:{tgt}:{rel}"
+        normalized["source_bead_id"] = src
+        normalized["target_bead_id"] = tgt
+        normalized["relationship"] = rel
+        associations.append(normalized)
+
+    entities: dict[str, Any] = {}
+    for eid, row in (index.get("entities") or {}).items():
+        if not isinstance(row, dict):
+            continue
+        normalized = _strip_keys(row, _VOLATILE_ENTITY_FIELDS)
+        if "aliases" in normalized:
+            normalized["aliases"] = _normalize_list(normalized.get("aliases"))
+        if "provenance" in normalized:
+            prov = []
+            for p in normalized.get("provenance") or []:
+                if isinstance(p, dict):
+                    prov.append(_strip_keys(p, {"ts", "created_at", "updated_at"}))
+            normalized["provenance"] = _normalize_list(prov)
+        entities[_as_str(eid)] = normalized
+
+    return {
+        "schema": "session_enrichment_projection.v1",
+        "session_id": sid,
+        "visible_bead_ids": visible_ids,
+        "beads": {k: beads[k] for k in sorted(beads)},
+        "associations": _normalize_list(associations),
+        "entities": {k: entities[k] for k in sorted(entities)},
+    }
+
+
+def projections_equal(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Return true when two canonical projections have equivalent content."""
+    return _canonical_json(left) == _canonical_json(right)
+
+
 __all__ = [
     "SCHEMA",
     "NORMALIZER_VERSION",
     "build_window_context_ref",
+    "canonical_session_projection",
     "crawler_updates_to_delta",
     "delta_to_crawler_updates",
+    "projections_equal",
     "stable_hash",
 ]

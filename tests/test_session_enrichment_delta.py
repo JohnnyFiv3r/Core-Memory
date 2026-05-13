@@ -1,10 +1,14 @@
+import tempfile
 import unittest
 
+from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.session_enrichment_delta import (
     SCHEMA,
     build_window_context_ref,
+    canonical_session_projection,
     crawler_updates_to_delta,
     delta_to_crawler_updates,
+    projections_equal,
 )
 
 
@@ -105,6 +109,56 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(64, len(delta["promotions"]))
         self.assertEqual(6, delta["diagnostics"]["quarantined"])
         self.assertEqual("array_bound_exceeded", delta["diagnostics"]["quarantine"][0]["reasons"][0])
+
+
+class TestCanonicalSessionProjection(unittest.TestCase):
+    def test_projection_ignores_volatile_bead_timestamps(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            bead_id = store.add_bead(
+                type="decision",
+                title="Use JSONB",
+                summary=["Keep writes transactional"],
+                session_id="s1",
+                source_turn_ids=["t1"],
+            )
+            p1 = canonical_session_projection(td, "s1")
+
+            idx_path = store.beads_dir / "index.json"
+            idx = store._read_json(idx_path)
+            idx["beads"][bead_id]["updated_at"] = "2099-01-01T00:00:00+00:00"
+            idx["beads"][bead_id]["promotion_decided_at"] = "2099-01-01T00:00:00+00:00"
+            store._write_json(idx_path, idx)
+
+            p2 = canonical_session_projection(td, "s1")
+            self.assertTrue(projections_equal(p1, p2))
+
+    def test_projection_compares_canonical_association_dedupe_content(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            b1 = store.add_bead(type="decision", title="A", summary=["A"], session_id="s1", source_turn_ids=["t1"])
+            b2 = store.add_bead(type="context", title="B", summary=["B"], session_id="s1", source_turn_ids=["t2"])
+            idx_path = store.beads_dir / "index.json"
+            idx = store._read_json(idx_path)
+            idx["associations"] = [
+                {
+                    "id": "assoc-random-1",
+                    "source_bead": b2,
+                    "target_bead": b1,
+                    "relationship": "supports",
+                    "created_at": "2020-01-01T00:00:00+00:00",
+                }
+            ]
+            store._write_json(idx_path, idx)
+            p1 = canonical_session_projection(td, "s1")
+
+            idx["associations"][0]["id"] = "assoc-random-2"
+            idx["associations"][0]["created_at"] = "2099-01-01T00:00:00+00:00"
+            store._write_json(idx_path, idx)
+            p2 = canonical_session_projection(td, "s1")
+
+            self.assertTrue(projections_equal(p1, p2))
+            self.assertEqual(f"assoc:{b2}:{b1}:supports", p2["associations"][0]["dedupe_key"])
 
 
 if __name__ == "__main__":
