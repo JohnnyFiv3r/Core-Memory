@@ -28,9 +28,12 @@ the demo TODO tracks adoption surfaces, endpoints, packaging, and benchmark repo
   judged evidence, claim mutation, and supersede behavior independent of async job
   completion order.
 - **#7 semantic indexing ergonomics** supports Demo TODO #2 (`capture` / `recall` aliases)
-  and #3 (async transcript ingestion). A successful `capture(...)` or transcript ingest
-  should enqueue durable semantic deltas so users experience indexing as automatic while
-  the queue/manifest remain inspectable.
+  and #3/#8 (async transcript ingestion across hosted demo, local demo, CLI, MCP, and
+  direct-library surfaces). A successful `capture(...)` or transcript ingest should enqueue
+  durable semantic deltas so users experience indexing as automatic while the queue/manifest
+  remain inspectable. As of 2026-05-13, Demo TODO #8 adoption surfaces are closed; any
+  remaining "recallable without manual rebuild" polish belongs here under semantic lifecycle
+  ergonomics, not in the transcript-ingest surface contract.
 
 ---
 
