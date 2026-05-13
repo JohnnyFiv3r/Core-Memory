@@ -19,5 +19,5 @@ Key reminders:
 - Do not mutate `.beads`, `.turns`, archive, flush, or rolling-window files directly.
 - Keep the OpenClaw bridge thin; do not move memory-engine semantics into plugin JS.
 - Questions are retrieval/context turns, not declarative memories to promote.
-- Do not echo raw user text as `because`; use grounded causal rationale only.
+- Treat `because` as grounded free-text support for applied semantic labels/state; short user-text quotes are valid support when grounded, but do not use guessed filler or long whole-turn dumps.
 - Use canonical association relationship types, not helper labels as durable relations.

@@ -150,6 +150,30 @@ Reasoning and evidence:
 - `evidence_refs`
 - `state_change`
 
+#### `because` support field
+
+`because` is the free-text support field for the applied semantic labels and state of the bead.
+It explains why the bead's type, durability, state change, retrieval eligibility, or promotion-worthy interpretation is justified by the finalized turn.
+
+Use `because` for grounded support such as:
+- cause/effect
+- purpose
+- constraints
+- evidence or observed result
+- tradeoffs
+- comparisons
+- mechanisms
+- conditional rationale
+- preferences or values
+
+Rules:
+- Ground every `because` item in the finalized turn.
+- Short quoted or closely paraphrased user text is valid when that text itself is the support.
+- Do not add guessed filler merely to make a bead look richer.
+- Do not dump a long whole user or assistant message into `because`; extract the supporting span.
+- Leave `because` empty when the turn does not provide real support.
+- Questions and retrieval turns are context/retrieval acts; they should not get `because` unless they also state a durable fact with grounded support.
+
 Temporal and supersession:
 - `observed_at`
 - `recorded_at`

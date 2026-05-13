@@ -61,8 +61,29 @@ def _strip_directive(text: str) -> str:
     return _DIRECTIVE_RE.sub("", str(text or "")).strip()
 
 
+def _looks_like_unsupported_speculation(text: str) -> bool:
+    s = re.sub(r"\s+", " ", str(text or "").strip().lower())
+    return bool(
+        re.match(r"^(?:maybe|perhaps)\b", s)
+        or re.match(r"^(?:i\s+think\s+)?we\s+(?:could|might|may)\b", s)
+        or re.match(r"^(?:it\s+)?could\s+be\s+worth\b", s)
+    )
+
+
+def _is_obvious_long_turn_dump(reason_key: str, source_norm: str) -> bool:
+    """Return true only for clear whole-turn dumps, not short grounded support.
+
+    Short human turns often contain the complete rationale in just a few words.
+    A sanitizer that rejects all high-overlap text would erase legitimate support,
+    so only long exact/near-exact full-turn dumps are treated as poison here.
+    """
+    if not reason_key or not source_norm or reason_key != source_norm:
+        return False
+    return len(source_norm) > 120 or len(source_norm.split()) > 18
+
+
 def _dedupe_reasons(rows: list[str], *, source_text: str) -> list[str]:
-    source_norm = re.sub(r"\s+", " ", _strip_directive(source_text).strip().lower())
+    source_norm = _clean_reason(_strip_directive(source_text)).lower()
     out: list[str] = []
     seen: set[str] = set()
     for row in rows:
@@ -70,9 +91,14 @@ def _dedupe_reasons(rows: list[str], *, source_text: str) -> list[str]:
         if not reason:
             continue
         key = reason.lower()
-        # The bug: raw-turn echo is not rationale. Drop exact echoes even if an
-        # agent/model supplied them as a because candidate.
-        if key == source_norm:
+        # Unsupported speculation is not causal support even if an agent/model
+        # supplied it as a because candidate.
+        if _looks_like_unsupported_speculation(key):
+            continue
+        # Do not reject short quoted/paraphrased user text: for terse human
+        # input, the support often is substantially similar to the turn. Only
+        # drop obvious long whole-turn dumps.
+        if _is_obvious_long_turn_dump(key, source_norm):
             continue
         if len(key) < 4 or key in seen:
             continue
@@ -197,11 +223,13 @@ def extract_causal_because(user_query: str, assistant_final: str = "", bead_type
 
 
 def sanitize_because_for_turn(candidates: list[Any] | None, *, user_query: str, assistant_final: str = "", bead_type: str | None = None) -> list[str]:
-    """Keep legitimate rationale, remove raw-turn echoes, and backfill extracted rationale.
+    """Keep legitimate support, remove obvious poison, and backfill when empty.
 
-    Agent-authored payloads may still provide high-quality `because` values. We
-    preserve those unless they are just the raw user message. When nothing
-    remains, we use the same extractor as the default fallback.
+    `because` is free-text support for applied semantic labels/state. It may
+    legitimately quote or closely paraphrase short user text, so this sanitizer
+    acts as a validator/normalizer rather than an aggressive similarity filter.
+    It removes unsupported speculation, duplicates, and obvious long whole-turn
+    dumps; when nothing remains, it uses the fallback extractor.
     """
     rows = [str(x) for x in list(candidates or []) if str(x).strip()]
     cleaned = _dedupe_reasons(rows, source_text=user_query)

@@ -41,15 +41,16 @@ the demo TODO tracks adoption surfaces, endpoints, packaging, and benchmark repo
 
 ## 1. Replace echo-based `because` with LLM extraction
 
-**Current behavior:** The `because` field on every bead is set to the user's raw message text. This passes the promotion quality gate every time, meaning decisions and lessons always promote instantly on the same turn.
+**Status:** Closed. The live bead-field judge authors `because` as grounded free-text support for applied semantic labels/state, and the in-path OpenClaw instructions now define the field clearly for agent/adapter authorship.
 
-**Problem:** A weak statement like "maybe we should use Redis" would promote as a decision immediately. The `because` field should contain extracted causal reasoning, not echoed input.
+**What changed:**
+- `because` is explicitly defined as support for the bead's type, durability, state change, retrieval eligibility, or promotion-worthy interpretation.
+- Short quoted or closely paraphrased user text is allowed when that text itself is the support.
+- Guessed filler and long whole-turn dumps are rejected/normalized; weak unsupported speculation still yields empty `because`.
+- The LLM bead-field judge prompt now frames `because` as support, not an anti-echo string transformation.
+- `AGENT_INSTRUCTIONS.md` and `docs/integrations/openclaw/canonical_contract.md` mirror the in-path definition; the OpenClaw skill instructions and plugin skill reminder match it.
 
-**Fix:** Add a Haiku/cheap-model call (same pattern as bead type classifier) that either extracts structured reasoning from the user message or returns empty when the input doesn't contain real causal reasoning. Empty `because` means the bead stays `open` → `candidate` and earns promotion through reinforcement from later turns.
-
-**Impact:** Decisions and lessons will sometimes stay `open` or `candidate` — that's the intended behavior. Promotion becomes earned, not automatic.
-
-**Files:** `core_memory/runtime/engine.py` (`_default_crawler_updates`, `_ensure_turn_creation_update`)
+**Files:** `core_memory/policy/bead_judge.py`, `core_memory/policy/rationale.py`, `AGENT_INSTRUCTIONS.md`, `docs/integrations/openclaw/canonical_contract.md`, `docs/integrations/openclaw/core-memory-skill-instructions.md`, `plugins/openclaw-core-memory-bridge/skills/core-memory/SKILL.md`, `tests/test_rationale_extraction.py`
 
 ## 2. Goal lifecycle — resolution mechanism
 
