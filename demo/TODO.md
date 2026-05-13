@@ -22,7 +22,9 @@ the demo TODO tracks adoption surfaces, endpoints, packaging, and benchmark repo
   `reason_text`.
 - **#4 question classification guardrail** supports Demo TODO #7 (agent instructions in
   live integrations). Integration prompts should explicitly say questions are retrieval
-  turns/context, not declarative memories to promote.
+  turns/context, not declarative memories to promote. Closed in code on 2026-05-13:
+  question and retrieval-imperative turns are forced to `context` before LLM bead typing,
+  and LLM field-judge output cannot promote those turns as precedent/decision/lesson.
 - **#5 grounding hashes** and **#6 monotonic claim sequencing** support Demo TODO #5 and
   #6. The single public recall endpoint and reproducible benchmark harness need stable
   judged evidence, claim mutation, and supersede behavior independent of async job
@@ -76,13 +78,15 @@ This could be LLM-assisted (ask "does this turn resolve any open goals?") or heu
 
 ## 4. Bead type classifier — questions misclassified as precedent
 
-**Current behavior:** The classifier prompt tells the LLM to classify questions as `context`, but some question phrasings like "Why did we decide to always benchmark..." get classified as `precedent` because the LLM interprets "did we decide" as referencing a past pattern.
+**Status:** Closed. Question and retrieval-imperative turns now force `context` before LLM bead typing, and the LLM bead-field judge cannot override that guardrail with `precedent`, `decision`, or another promotable type.
 
-**Problem:** Questions should always classify as `context` — the user is retrieving, not declaring. The `precedent` type auto-promotes, so misclassified questions get promoted immediately.
+**What changed:**
+- Direct questions (`why/how/what...`, trailing `?`) are retrieval/context turns.
+- Retrieval imperatives (`show me`, `tell me`, `remind me why`, `explain why`, `find`, `search`) are also context.
+- Declarative capture imperatives (`Record that...`, `Remember that...`) are still typed by what they encode.
+- Runtime regression coverage proves a turn like "Why did we decide to always benchmark representative workloads?" creates a `context` bead with empty `because` and not a promotable `precedent`.
 
-**Fix:** Strengthen the classifier prompt or add a pre-check: if the user message ends with `?` or starts with a question word, force `context` before calling the LLM.
-
-**Files:** `core_memory/policy/bead_typing.py`
+**Files:** `core_memory/policy/bead_typing.py`, `core_memory/policy/bead_judge.py`, `core_memory/policy/rationale.py`, `tests/test_rationale_extraction.py`
 
 ## 5. Grounding hashes for judged association/claim validation
 

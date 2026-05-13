@@ -6,7 +6,7 @@ import os
 import re
 from typing import Any
 
-from .bead_typing import CLASSIFIABLE_TYPES, classify_bead_type
+from .bead_typing import CLASSIFIABLE_TYPES, classify_bead_type, is_retrieval_turn
 from .rationale import extract_causal_because, sanitize_because_for_turn, is_question_turn
 
 logger = logging.getLogger(__name__)
@@ -183,8 +183,11 @@ def _llm_judge_openai(user_query: str, assistant_final: str) -> dict[str, Any] |
 
 def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_final: str, mode: str) -> dict[str, Any]:
     fallback = _fallback_bead_fields(user_query, assistant_final)
+    forced_context = is_retrieval_turn(user_query)
     btype = _clean_text(obj.get("type"), limit=80).lower()
-    if btype not in _ALLOWED_TYPES:
+    if forced_context:
+        btype = "context"
+    elif btype not in _ALLOWED_TYPES:
         btype = str(fallback.get("type") or "context")
     title = _clean_text(obj.get("title"), limit=160) or str(fallback.get("title") or "Turn memory")
     summary = _clean_list(obj.get("summary"), limit=3, item_limit=240) or list(fallback.get("summary") or [])
@@ -206,7 +209,7 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
         assistant_final=assistant_final,
         bead_type=btype,
     )
-    if is_question_turn(user_query) and btype == "context":
+    if forced_context or (is_question_turn(user_query) and btype == "context"):
         because = []
     return {
         "type": btype,
@@ -220,7 +223,7 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
         "topics": _clean_list(obj.get("topics"), limit=8, item_limit=80),
         "state_change": _clean_text(obj.get("state_change"), limit=240),
         "validity": _clean_text(obj.get("validity"), limit=80),
-        "retrieval_eligible": bool(obj.get("retrieval_eligible", False)),
+        "retrieval_eligible": False if forced_context else bool(obj.get("retrieval_eligible", False)),
         "retrieval_title": _clean_text(obj.get("retrieval_title"), limit=160),
         "retrieval_facts": _clean_list(obj.get("retrieval_facts"), limit=6),
         "effective_from": _clean_text(obj.get("effective_from"), limit=80),
