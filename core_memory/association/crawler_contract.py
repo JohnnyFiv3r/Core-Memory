@@ -12,6 +12,7 @@ from core_memory.runtime.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 from core_memory.association.quarantine import write_quarantine
 from core_memory.entity.registry import normalize_entity_alias, upsert_canonical_entity
+from core_memory.schema.models import Claim, ClaimUpdate
 from core_memory.policy.association_contract import assoc_dedupe_key
 from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_PERMISSIVE,
@@ -209,6 +210,79 @@ def _normalize_entity_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _claim_dedupe_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    claim_id = str(row.get("id") or "").strip()
+    if claim_id:
+        return ("id", claim_id)
+    return (
+        "semantic",
+        str(row.get("subject") or "").strip().lower(),
+        str(row.get("slot") or "").strip().lower(),
+        _canonical_json(row.get("value")),
+        str(row.get("source_bead_id") or "").strip(),
+        tuple(str(x).strip() for x in (row.get("source_turn_ids") or []) if str(x).strip()),
+    )
+
+
+def _claim_update_dedupe_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(row.get("decision") or "").strip().lower(),
+        str(row.get("target_claim_id") or "").strip(),
+        str(row.get("replacement_claim_id") or "").strip(),
+        str(row.get("trigger_bead_id") or "").strip(),
+    )
+
+
+def _append_deduped(existing: list[dict[str, Any]], incoming: list[dict[str, Any]], key_fn) -> int:
+    seen = {key_fn(row) for row in existing if isinstance(row, dict)}
+    appended = 0
+    for row in incoming:
+        key = key_fn(row)
+        if key in seen:
+            continue
+        existing.append(row)
+        seen.add(key)
+        appended += 1
+    return appended
+
+
+def _normalize_claim_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in [x for x in (updates.get("claims") or []) if isinstance(x, dict)]:
+        try:
+            normalized = Claim.from_dict(row).to_dict()
+        except Exception:
+            continue
+        source_bead_id = str(row.get("source_bead_id") or "").strip()
+        if not source_bead_id:
+            continue
+        normalized["source_bead_id"] = source_bead_id
+        source_turn_ids = [str(x).strip() for x in (row.get("source_turn_ids") or []) if str(x).strip()]
+        if source_turn_ids:
+            normalized["source_turn_ids"] = source_turn_ids
+        out.append(normalized)
+    return out
+
+
+def _normalize_claim_update_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for row in [x for x in (updates.get("claim_updates") or []) if isinstance(x, dict)]:
+        try:
+            normalized = ClaimUpdate.from_dict(row).to_dict()
+        except Exception:
+            continue
+        trigger_bead_id = str(row.get("trigger_bead_id") or "").strip()
+        if not trigger_bead_id:
+            continue
+        normalized["trigger_bead_id"] = trigger_bead_id
+        out.append(normalized)
+    return out
+
+
 def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in_bead_ids: list[str] | None = None) -> dict[str, Any]:
     """Provide bounded session-scoped context for agent-judged crawler decisions."""
     rows = read_session_surface(root, session_id)
@@ -244,6 +318,8 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "reviewed_beads": "list[{bead_id,promotion_state,reason?,associations?}]",
             "associations": "list[{source_bead_id,target_bead_id,relationship,reason_text,confidence,provenance?,reason_code?,evidence_fields?,relationship_raw?,rationale?}]",
             "entity_upserts": "list[{label,aliases?,entity_kind?,source_bead_id?,evidence?,confidence?,provenance?}]",
+            "claims": "list[{id,claim_kind,subject,slot,value,reason_text,confidence,source_bead_id,source_turn_ids?}]",
+            "claim_updates": "list[{id?,decision,target_claim_id,replacement_claim_id?,subject?,slot?,reason_text,confidence?,trigger_bead_id}]",
         },
         "append_only_rules": [
             "promotion_marked can only be set true and means preserve_full_in_rolling semantics",
@@ -300,6 +376,8 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         promoted = 0
         appended = 0
         entity_upserts_applied = 0
+        claims_appended = 0
+        claim_updates_appended = 0
         quarantined = 0
         lifecycle_applied = 0
         lifecycle_rejected = 0
@@ -367,6 +445,36 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                             labels.append(label)
                         bead["entities"] = labels
                         beads[source_bead_id] = bead
+            elif kind == "claim_append":
+                source_bead_id = str(row.get("source_bead_id") or "").strip()
+                bead = beads.get(source_bead_id)
+                if not isinstance(bead, dict) or source_bead_id not in session_bead_ids:
+                    continue
+                try:
+                    claim = Claim.from_dict(row).to_dict()
+                except Exception:
+                    continue
+                claim["source_bead_id"] = source_bead_id
+                if row.get("source_turn_ids"):
+                    claim["source_turn_ids"] = [str(x) for x in (row.get("source_turn_ids") or []) if str(x).strip()]
+                if not isinstance(bead.get("claims"), list):
+                    bead["claims"] = []
+                claims_appended += _append_deduped(bead["claims"], [claim], _claim_dedupe_key)
+                beads[source_bead_id] = bead
+            elif kind == "claim_update_append":
+                trigger_bead_id = str(row.get("trigger_bead_id") or "").strip()
+                bead = beads.get(trigger_bead_id)
+                if not isinstance(bead, dict) or trigger_bead_id not in session_bead_ids:
+                    continue
+                try:
+                    update = ClaimUpdate.from_dict(row).to_dict()
+                except Exception:
+                    continue
+                update["trigger_bead_id"] = trigger_bead_id
+                if not isinstance(bead.get("claim_updates"), list):
+                    bead["claim_updates"] = []
+                claim_updates_appended += _append_deduped(bead["claim_updates"], [update], _claim_update_dedupe_key)
+                beads[trigger_bead_id] = bead
             elif kind == "association_append":
                 src = str(row.get("source_bead") or "")
                 tgt = str(row.get("target_bead") or "")
@@ -510,6 +618,8 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         "promotions_marked": promoted,
         "associations_appended": appended,
         "entity_upserts_applied": entity_upserts_applied,
+        "claims_appended": claims_appended,
+        "claim_updates_appended": claim_updates_appended,
         "association_lifecycle_applied": lifecycle_applied,
         "association_lifecycle_rejected": lifecycle_rejected,
         "associations_quarantined": quarantined,
@@ -542,6 +652,7 @@ def apply_crawler_updates(
     - bead creation (session-local append)
     - promotion marks (queued side-log)
     - entity registry upserts (queued side-log)
+    - claim rows and claim update rows (queued side-log)
     - associations (queued side-log)
     """
     created = 0
@@ -606,6 +717,8 @@ def apply_crawler_updates(
 
         promotions, assoc_rows, lifecycle_rows = _normalize_review_rows(updates or {})
         entity_rows = _normalize_entity_rows(updates or {})
+        claim_rows = _normalize_claim_rows(updates or {})
+        claim_update_rows = _normalize_claim_update_rows(updates or {})
         if current_turn_bead_id:
             for assoc_row in assoc_rows:
                 src = str(assoc_row.get("source_bead") or "").strip()
@@ -635,6 +748,8 @@ def apply_crawler_updates(
         quarantined = 0
         promoted = 0
         entity_upserts_queued = 0
+        claims_queued = 0
+        claim_updates_queued = 0
         for bid in promotions:
             b = beads.get(str(bid))
             if not b or str(b.get("session_id") or "") != str(session_id) or str(bid) not in session_bead_ids:
@@ -674,6 +789,38 @@ def apply_crawler_updates(
                 },
             )
             entity_upserts_queued += 1
+
+        for row in claim_rows:
+            source_bead_id = str(row.get("source_bead_id") or "").strip()
+            if source_bead_id not in session_bead_ids:
+                continue
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "claim_append",
+                    "session_id": str(session_id),
+                    **row,
+                    "created_at": now,
+                },
+            )
+            claims_queued += 1
+
+        for row in claim_update_rows:
+            trigger_bead_id = str(row.get("trigger_bead_id") or "").strip()
+            if trigger_bead_id not in session_bead_ids:
+                continue
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "claim_update_append",
+                    "session_id": str(session_id),
+                    **row,
+                    "created_at": now,
+                },
+            )
+            claim_updates_queued += 1
 
         appended = 0
         lifecycle_queued = 0
@@ -812,6 +959,8 @@ def apply_crawler_updates(
         "current_turn_bead_id": current_turn_bead_id,
         "promotions_marked": promoted,
         "entity_upserts_queued": entity_upserts_queued,
+        "claims_queued": claims_queued,
+        "claim_updates_queued": claim_updates_queued,
         "associations_appended": appended,
         "association_lifecycle_queued": lifecycle_queued,
         "association_lifecycle_rejected": lifecycle_rejected,

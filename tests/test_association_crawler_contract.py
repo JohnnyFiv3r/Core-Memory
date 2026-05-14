@@ -207,6 +207,61 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertEqual(1, len(bead.get("entity_ids") or []))
             self.assertIn("OpenAI Platform", bead.get("entities") or [])
 
+    def test_claim_rows_are_crawler_queued_merged_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="context", title="A", summary=["User prefers JSONB"], session_id="s1", source_turn_ids=["t1"])
+            b2 = s.add_bead(type="context", title="B", summary=["Preference reaffirmed"], session_id="s1", source_turn_ids=["t2"])
+            updates = {
+                "claims": [
+                    {
+                        "id": "claim-jsonb",
+                        "claim_kind": "custom",
+                        "subject": "PostgreSQL",
+                        "slot": "storage_choice",
+                        "value": "JSONB",
+                        "reason_text": "User prefers JSONB.",
+                        "confidence": 0.86,
+                        "source_bead_id": b1,
+                        "source_turn_ids": ["t1"],
+                    }
+                ],
+                "claim_updates": [
+                    {
+                        "id": "update-jsonb",
+                        "decision": "reaffirm",
+                        "target_claim_id": "claim-jsonb",
+                        "subject": "PostgreSQL",
+                        "slot": "storage_choice",
+                        "reason_text": "Still valid.",
+                        "confidence": 0.9,
+                        "trigger_bead_id": b2,
+                    }
+                ],
+            }
+
+            out = apply_crawler_turn_updates(root=td, session_id="s1", visible_bead_ids=[b1, b2], updates=updates)
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(1, int(out.get("claims_queued") or 0))
+            self.assertEqual(1, int(out.get("claim_updates_queued") or 0))
+            merge = merge_crawler_updates(td, "s1")
+            self.assertTrue(merge.get("ok"))
+            self.assertEqual(1, int(merge.get("claims_appended") or 0))
+            self.assertEqual(1, int(merge.get("claim_updates_appended") or 0))
+
+            out2 = apply_crawler_turn_updates(root=td, session_id="s1", visible_bead_ids=[b1, b2], updates=updates)
+            self.assertTrue(out2.get("ok"))
+            merge2 = merge_crawler_updates(td, "s1")
+            self.assertTrue(merge2.get("ok"))
+            self.assertEqual(0, int(merge2.get("claims_appended") or 0))
+            self.assertEqual(0, int(merge2.get("claim_updates_appended") or 0))
+
+            idx = s._read_json(s.beads_dir / "index.json")
+            bead1 = (idx.get("beads") or {}).get(b1) or {}
+            bead2 = (idx.get("beads") or {}).get(b2) or {}
+            self.assertEqual(1, len(bead1.get("claims") or []))
+            self.assertEqual(1, len(bead2.get("claim_updates") or []))
+
     def test_association_lifecycle_overlay_supersede_and_retract(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
