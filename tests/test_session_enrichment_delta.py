@@ -668,6 +668,59 @@ class TestCanonicalSessionProjection(unittest.TestCase):
                 projections_equal(canonical_session_projection(left, "s1"), canonical_session_projection(right, "s1"))
             )
 
+    def test_delta_projection_replay_is_idempotent_for_side_effect_rows(self):
+        from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            b1 = store.add_bead(
+                type="decision",
+                title="Use JSONB",
+                summary=["Keep writes transactional"],
+                session_id="s1",
+                source_turn_ids=["t1"],
+            )
+            b2 = store.add_bead(
+                type="context",
+                title="JSONB rationale",
+                summary=["The rationale supports the decision"],
+                session_id="s1",
+                source_turn_ids=["t2"],
+            )
+            updates = {
+                "promotions": [b1],
+                "associations": [
+                    {
+                        "source_bead_id": b2,
+                        "target_bead_id": b1,
+                        "relationship": "supports",
+                        "reason_text": "The rationale supports the original storage decision.",
+                        "confidence": 0.9,
+                    }
+                ],
+            }
+            projected = delta_to_crawler_updates(
+                crawler_updates_to_delta(
+                    session_id="s1",
+                    turn_id="t3",
+                    updates=updates,
+                    crawler_ctx={"session_id": "s1", "visible_bead_ids": [b1, b2]},
+                    idempotency_key="enrich-s1-t3",
+                )
+            )
+
+            apply_crawler_updates(td, "s1", projected, visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=td, session_id="s1")
+            first = canonical_session_projection(td, "s1")
+
+            apply_crawler_updates(td, "s1", projected, visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=td, session_id="s1")
+            second = canonical_session_projection(td, "s1")
+
+            self.assertTrue(projections_equal(first, second))
+            self.assertEqual(1, len(second["associations"]))
+            self.assertTrue(second["beads"][second["visible_bead_keys"][0]]["promotion_marked"])
+
     def test_projection_ignores_volatile_bead_timestamps(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
