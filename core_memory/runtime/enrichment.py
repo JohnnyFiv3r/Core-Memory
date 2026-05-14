@@ -89,10 +89,11 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     session_id = str(payload.get("session_id") or "")
     turn_id = str(payload.get("turn_id") or "")
     bead_id = str(payload.get("bead_id") or "")
+    enrichment_delta = payload.get("enrichment_delta") if isinstance(payload.get("enrichment_delta"), dict) else None
     reviewed_updates = dict(payload.get("reviewed_updates") or {})
-    if isinstance(payload.get("enrichment_delta"), dict):
+    if isinstance(enrichment_delta, dict):
         from core_memory.runtime.session_enrichment_delta import delta_to_crawler_updates
-        reviewed_updates = delta_to_crawler_updates(dict(payload.get("enrichment_delta") or {}))
+        reviewed_updates = delta_to_crawler_updates(dict(enrichment_delta or {}))
     crawler_visible = list(payload.get("crawler_visible_bead_ids") or [])
 
     from core_memory.runtime.engine import (
@@ -108,6 +109,15 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     )
 
     results: dict[str, Any] = {"stages_completed": [], "stages_failed": []}
+    if isinstance(enrichment_delta, dict):
+        delta_diag = dict(enrichment_delta.get("diagnostics") or {})
+        results["enrichment_delta"] = {
+            "schema": str(enrichment_delta.get("schema") or ""),
+            "idempotency_key": str((enrichment_delta.get("source") or {}).get("idempotency_key") or ""),
+            "accepted_counts": dict(delta_diag.get("accepted_counts") or {}),
+            "quarantined_counts": dict(delta_diag.get("quarantined_counts") or {}),
+            "quarantined": int(delta_diag.get("quarantined") or 0),
+        }
 
     session_visible = _session_visible_bead_ids(root=root, session_id=session_id)
     visible_ids = sorted(set(crawler_visible + session_visible))

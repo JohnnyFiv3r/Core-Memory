@@ -172,6 +172,9 @@ class TestRunTurnEnrichmentDeltaAuthority(unittest.TestCase):
             )
 
         self.assertTrue(out["ok"])
+        self.assertEqual("session_enrichment_delta.v1", out["enrichment_delta"]["schema"])
+        self.assertEqual("enrich-s1-t1", out["enrichment_delta"]["idempotency_key"])
+        self.assertEqual(1, out["enrichment_delta"]["accepted_counts"]["promotions"])
         updates = association_spy.call_args.kwargs["updates"]
         self.assertEqual([visible_bead], updates["promotions"])
         self.assertNotIn("raw-reviewed-update-should-not-win", updates["promotions"])
