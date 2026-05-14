@@ -309,6 +309,41 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, len(delta["claim_updates"]))
         self.assertEqual("claim-update:s1:t1:0", delta["claim_updates"][0]["sequence_key"])
 
+    def test_goal_lifecycle_rows_are_projected_into_delta(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "goal_lifecycle": [
+                    {
+                        "goal_bead_id": "goal-1",
+                        "action": "complete",
+                        "reason_text": "Outcome bead indicates the migration finished.",
+                        "confidence": 0.86,
+                    }
+                ]
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(delta["goal_lifecycle"]))
+        row = delta["goal_lifecycle"][0]
+        self.assertEqual("goal-bead:goal-1", row["goal_key"])
+        self.assertEqual("goal-life:s1:t1:0", row["sequence_key"])
+        self.assertTrue(row["dedupe_key"].startswith("goal-life:goal-bead:goal-1:complete:"))
+        self.assertEqual("complete", projected["goal_lifecycle"][0]["action"])
+
+    def test_invalid_goal_lifecycle_row_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"goal_lifecycle": [{"goal_bead_id": "goal-1", "action": "resolved"}]},
+        )
+
+        self.assertEqual([], delta["goal_lifecycle"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("invalid_goal_lifecycle", delta["diagnostics"]["quarantine"][0]["reasons"])
+
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
         delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)

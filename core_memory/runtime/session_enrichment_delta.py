@@ -17,6 +17,7 @@ from core_memory.schema.normalization import (
 SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
 CANONICAL_DELTA_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
+GOAL_LIFECYCLE_ACTIONS = {"open", "progress", "blocked", "complete", "abandon", "reopen"}
 
 _MAX_ROWS = {
     "beads_create": 4,
@@ -323,6 +324,49 @@ def _normalize_entity_upsert_row(
             evidence_refs=row.get("evidence_refs") or [],
             context_fingerprint=context_fingerprint,
             rationale=_as_str(row.get("evidence") or row.get("rationale")) or None,
+        )
+    )
+    return out
+
+
+def _normalize_goal_lifecycle_row(
+    row: dict[str, Any],
+    *,
+    session_id: str,
+    turn_id: str,
+    context_fingerprint: str,
+    sequence_key: str,
+) -> dict[str, Any] | None:
+    action = _as_str(row.get("action") or row.get("status") or row.get("goal_status")).lower()
+    goal_bead_id = _as_str(row.get("goal_bead_id") or row.get("bead_id")) or None
+    goal_key = _as_str(row.get("goal_key"))
+    if not goal_key and goal_bead_id:
+        goal_key = f"goal-bead:{goal_bead_id}"
+    if not goal_key:
+        title = _as_str(row.get("title") or row.get("goal") or row.get("summary"))
+        if title:
+            goal_key = f"goal:{stable_hash({'session_id': session_id, 'title': title})[:16]}"
+    if action not in GOAL_LIFECYCLE_ACTIONS or not goal_key:
+        return None
+
+    out = {
+        "goal_bead_id": goal_bead_id,
+        "goal_key": goal_key,
+        "action": action,
+        "reason_text": _as_str(row.get("reason_text") or row.get("reason")) or None,
+    }
+    out.update(
+        _base_row(
+            dedupe_key=f"goal-life:{goal_key}:{action}:{sequence_key}",
+            confidence=row.get("confidence", 0.8),
+            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            source="crawler_updates.goal_lifecycle",
+            bead_id=goal_bead_id,
+            turn_id=turn_id,
+            evidence_refs=row.get("evidence_refs") or [],
+            context_fingerprint=context_fingerprint,
+            sequence_key=sequence_key,
+            rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
         )
     )
     return out
@@ -787,6 +831,30 @@ def crawler_updates_to_delta(
         seen_claim_update_keys.add(key)
         delta["claim_updates"].append(normalized_update)
 
+    goal_lifecycle_rows = [r for r in raw.get("goal_lifecycle") or [] if isinstance(r, dict)]
+    goal_lifecycle_rows, q = _bounded(goal_lifecycle_rows, "goal_lifecycle", session_id=sid, turn_id=tid)
+    quarantine_rows.extend(q)
+    seen_goal_lifecycle_keys: set[str] = set()
+    for i, row in enumerate(goal_lifecycle_rows):
+        sequence_key = f"goal-life:{sid}:{tid}:{i}"
+        normalized_goal = _normalize_goal_lifecycle_row(
+            row,
+            session_id=sid,
+            turn_id=tid,
+            context_fingerprint=ctx_fp,
+            sequence_key=sequence_key,
+        )
+        if not normalized_goal:
+            quarantine_rows.append(
+                _quarantine("goal_lifecycle", row, ["invalid_goal_lifecycle"], session_id=sid, turn_id=tid)
+            )
+            continue
+        key = str(normalized_goal.get("dedupe_key") or "")
+        if key in seen_goal_lifecycle_keys:
+            continue
+        seen_goal_lifecycle_keys.add(key)
+        delta["goal_lifecycle"].append(normalized_goal)
+
     delta["diagnostics"] = {
         "quarantined": len(quarantine_rows),
         "quarantine": quarantine_rows,
@@ -804,6 +872,7 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
         "association_lifecycle": [],
         "claims": [],
         "claim_updates": [],
+        "goal_lifecycle": [],
     }
     for row in delta.get("beads_create") or []:
         if isinstance(row, dict):
@@ -865,6 +934,19 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
     for row in delta.get("claim_updates") or []:
         if isinstance(row, dict):
             out["claim_updates"].append({k: v for k, v in row.items() if k not in claim_adapter_keys})
+    goal_lifecycle_adapter_keys = {
+        "dedupe_key",
+        "confidence",
+        "provenance",
+        "context_fingerprint",
+        "sequence_key",
+        "rationale",
+    }
+    for row in delta.get("goal_lifecycle") or []:
+        if isinstance(row, dict):
+            out["goal_lifecycle"].append(
+                {k: v for k, v in row.items() if k not in goal_lifecycle_adapter_keys}
+            )
     return out
 
 
