@@ -8,6 +8,7 @@ from typing import Any
 
 from core_memory.claim.outcomes import INTERACTION_ROLES
 from core_memory.claim.validation import validate_claim
+from core_memory.persistence.io_utils import store_lock
 from core_memory.entity.registry import _is_valid_entity_alias, normalize_entity_alias
 from core_memory.schema.normalization import (
     CLAIM_UPDATE_DECISIONS,
@@ -555,46 +556,47 @@ def write_delta_quarantine(root: str | Path, delta_or_rows: dict[str, Any] | lis
     if not rows:
         return {"ok": True, "path": str(path), "quarantine_count": 0, "written": 0, "deduped": 0}
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    existing_rows: list[dict[str, Any]] = []
-    if path.exists():
-        for line in path.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
+    with store_lock(Path(root)):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        existing_rows: list[dict[str, Any]] = []
+        if path.exists():
+            for line in path.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    parsed = json.loads(line)
+                except Exception:
+                    continue
+                if isinstance(parsed, dict):
+                    existing_rows.append(parsed)
+
+        by_key = {str(row.get("quarantine_dedupe_key") or ""): row for row in existing_rows}
+        now = _now()
+        written = 0
+        deduped = 0
+        for row in rows:
+            quarantine_key = _delta_quarantine_key(row)
+            existing = by_key.get(quarantine_key)
+            if existing is not None:
+                existing["seen_count"] = int(existing.get("seen_count") or 1) + 1
+                existing["last_seen_at"] = now
+                existing["reasons"] = _merge_unique_strs(existing.get("reasons"), row.get("reasons"))
+                existing["warnings"] = _merge_unique_strs(existing.get("warnings"), row.get("warnings"))
+                deduped += 1
                 continue
-            try:
-                parsed = json.loads(line)
-            except Exception:
-                continue
-            if isinstance(parsed, dict):
-                existing_rows.append(parsed)
 
-    by_key = {str(row.get("quarantine_dedupe_key") or ""): row for row in existing_rows}
-    now = _now()
-    written = 0
-    deduped = 0
-    for row in rows:
-        quarantine_key = _delta_quarantine_key(row)
-        existing = by_key.get(quarantine_key)
-        if existing is not None:
-            existing["seen_count"] = int(existing.get("seen_count") or 1) + 1
-            existing["last_seen_at"] = now
-            existing["reasons"] = _merge_unique_strs(existing.get("reasons"), row.get("reasons"))
-            existing["warnings"] = _merge_unique_strs(existing.get("warnings"), row.get("warnings"))
-            deduped += 1
-            continue
+            stored = dict(row)
+            stored.setdefault("schema", "session_enrichment_delta.quarantine.v1")
+            stored.setdefault("delta_schema", SCHEMA)
+            stored["quarantine_dedupe_key"] = quarantine_key
+            stored.setdefault("created_at", now)
+            stored["last_seen_at"] = now
+            stored["seen_count"] = 1
+            existing_rows.append(stored)
+            by_key[quarantine_key] = stored
+            written += 1
 
-        stored = dict(row)
-        stored.setdefault("schema", "session_enrichment_delta.quarantine.v1")
-        stored.setdefault("delta_schema", SCHEMA)
-        stored["quarantine_dedupe_key"] = quarantine_key
-        stored.setdefault("created_at", now)
-        stored["last_seen_at"] = now
-        stored["seen_count"] = 1
-        existing_rows.append(stored)
-        by_key[quarantine_key] = stored
-        written += 1
-
-    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in existing_rows) + "\n", encoding="utf-8")
+        path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in existing_rows) + "\n", encoding="utf-8")
     return {
         "ok": True,
         "path": str(path),

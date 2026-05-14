@@ -1,6 +1,7 @@
 import json
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
@@ -430,6 +431,24 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual("entity_upserts", rows[0]["row_type"])
         self.assertIn("invalid_entity_label", rows[0]["reasons"])
         self.assertEqual(str(tempfile_path), first["path"])
+
+    def test_write_delta_quarantine_serializes_concurrent_replays(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"entity_upserts": [{"label": "!!!"}]},
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            with ThreadPoolExecutor(max_workers=12) as pool:
+                results = list(pool.map(lambda _i: write_delta_quarantine(td, delta), range(50)))
+            tempfile_path = Path(td) / DELTA_QUARANTINE_PATH
+            rows = [json.loads(line) for line in tempfile_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+        self.assertEqual(1, sum(int(r["written"]) for r in results))
+        self.assertEqual(49, sum(int(r["deduped"]) for r in results))
+        self.assertEqual(1, len(rows))
+        self.assertEqual(50, rows[0]["seen_count"])
 
 
 class TestCanonicalSessionProjection(unittest.TestCase):
