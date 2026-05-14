@@ -344,6 +344,58 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("invalid_goal_lifecycle", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_memory_outcome_rows_are_projected_into_delta(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "memory_outcomes": [
+                    {
+                        "bead_id": "b-turn",
+                        "interaction_role": "memory_resolution",
+                        "memory_outcome": {
+                            "role": "memory_resolution",
+                            "description": "Memory directly answered a question.",
+                            "bead_count": 2,
+                        },
+                    }
+                ]
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(delta["memory_outcomes"]))
+        row = delta["memory_outcomes"][0]
+        self.assertEqual("memory-outcome:b-turn:t1", row["dedupe_key"])
+        self.assertEqual("memory_resolution", row["interaction_role"])
+        self.assertEqual("memory_resolution", projected["memory_outcomes"][0]["interaction_role"])
+
+    def test_invalid_memory_outcome_row_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"memory_outcomes": [{"interaction_role": "memory_resolution", "memory_outcome": {}}]},
+        )
+
+        self.assertEqual([], delta["memory_outcomes"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("invalid_memory_outcome", delta["diagnostics"]["quarantine"][0]["reasons"])
+
+    def test_duplicate_memory_outcomes_dedupe_by_bead_and_turn(self):
+        row = {
+            "bead_id": "b-turn",
+            "interaction_role": "memory_reflection",
+            "memory_outcome": {"role": "memory_reflection", "description": "Memory was surfaced.", "bead_count": 1},
+        }
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"memory_outcomes": [dict(row), dict(row)]},
+        )
+
+        self.assertEqual(1, len(delta["memory_outcomes"]))
+        self.assertEqual("memory-outcome:b-turn:t1", delta["memory_outcomes"][0]["dedupe_key"])
+
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
         delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)

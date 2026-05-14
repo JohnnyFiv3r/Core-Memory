@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.claim.outcomes import INTERACTION_ROLES
 from core_memory.claim.validation import validate_claim
 from core_memory.entity.registry import _is_valid_entity_alias, normalize_entity_alias
 from core_memory.schema.normalization import (
@@ -18,6 +19,7 @@ SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
 CANONICAL_DELTA_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
 GOAL_LIFECYCLE_ACTIONS = {"open", "progress", "blocked", "complete", "abandon", "reopen"}
+MEMORY_OUTCOME_ROLES = set(INTERACTION_ROLES)
 
 _MAX_ROWS = {
     "beads_create": 4,
@@ -367,6 +369,44 @@ def _normalize_goal_lifecycle_row(
             context_fingerprint=context_fingerprint,
             sequence_key=sequence_key,
             rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
+        )
+    )
+    return out
+
+
+def _normalize_memory_outcome_row(
+    row: dict[str, Any],
+    *,
+    turn_id: str,
+    context_fingerprint: str,
+) -> dict[str, Any] | None:
+    bead_id = _as_str(row.get("bead_id") or row.get("source_bead_id") or row.get("turn_bead_id"))
+    outcome = row.get("memory_outcome")
+    if not isinstance(outcome, dict):
+        outcome = row.get("outcome")
+    if not bead_id or not isinstance(outcome, dict):
+        return None
+
+    role = _as_str(row.get("interaction_role") or outcome.get("role")) or None
+    if role is not None and role not in MEMORY_OUTCOME_ROLES:
+        return None
+
+    out = {
+        "bead_id": bead_id,
+        "interaction_role": role,
+        "memory_outcome": dict(outcome),
+    }
+    out.update(
+        _base_row(
+            dedupe_key=f"memory-outcome:{bead_id}:{turn_id}",
+            confidence=row.get("confidence", 0.8),
+            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            source="crawler_updates.memory_outcomes",
+            bead_id=bead_id,
+            turn_id=turn_id,
+            evidence_refs=row.get("evidence_refs") or [],
+            context_fingerprint=context_fingerprint,
+            rationale=_as_str(row.get("rationale") or outcome.get("description")) or None,
         )
     )
     return out
@@ -855,6 +895,27 @@ def crawler_updates_to_delta(
         seen_goal_lifecycle_keys.add(key)
         delta["goal_lifecycle"].append(normalized_goal)
 
+    memory_outcome_rows = [r for r in raw.get("memory_outcomes") or [] if isinstance(r, dict)]
+    memory_outcome_rows, q = _bounded(memory_outcome_rows, "memory_outcomes", session_id=sid, turn_id=tid)
+    quarantine_rows.extend(q)
+    seen_memory_outcome_keys: set[str] = set()
+    for row in memory_outcome_rows:
+        normalized_outcome = _normalize_memory_outcome_row(
+            row,
+            turn_id=tid,
+            context_fingerprint=ctx_fp,
+        )
+        if not normalized_outcome:
+            quarantine_rows.append(
+                _quarantine("memory_outcomes", row, ["invalid_memory_outcome"], session_id=sid, turn_id=tid)
+            )
+            continue
+        key = str(normalized_outcome.get("dedupe_key") or "")
+        if key in seen_memory_outcome_keys:
+            continue
+        seen_memory_outcome_keys.add(key)
+        delta["memory_outcomes"].append(normalized_outcome)
+
     delta["diagnostics"] = {
         "quarantined": len(quarantine_rows),
         "quarantine": quarantine_rows,
@@ -873,6 +934,7 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
         "claims": [],
         "claim_updates": [],
         "goal_lifecycle": [],
+        "memory_outcomes": [],
     }
     for row in delta.get("beads_create") or []:
         if isinstance(row, dict):
@@ -946,6 +1008,19 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
         if isinstance(row, dict):
             out["goal_lifecycle"].append(
                 {k: v for k, v in row.items() if k not in goal_lifecycle_adapter_keys}
+            )
+    memory_outcome_adapter_keys = {
+        "dedupe_key",
+        "confidence",
+        "provenance",
+        "context_fingerprint",
+        "sequence_key",
+        "rationale",
+    }
+    for row in delta.get("memory_outcomes") or []:
+        if isinstance(row, dict):
+            out["memory_outcomes"].append(
+                {k: v for k, v in row.items() if k not in memory_outcome_adapter_keys}
             )
     return out
 
