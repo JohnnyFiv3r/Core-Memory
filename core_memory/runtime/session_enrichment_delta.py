@@ -185,6 +185,7 @@ def _normalize_delta_claim_row(
     source_bead_key: str | None,
     turn_id: str,
     context_fingerprint: str,
+    default_provenance_kind: str = "model_inferred",
 ) -> dict[str, Any] | None:
     raw_for_validation = dict(row)
     if raw_for_validation.get("reason_text") is None and raw_for_validation.get("reason") is not None:
@@ -213,7 +214,7 @@ def _normalize_delta_claim_row(
         _base_row(
             dedupe_key="pending",
             confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
             source="crawler_updates.claims",
             turn_id=turn_id,
             evidence_refs=row.get("evidence_refs") or [],
@@ -239,6 +240,7 @@ def _normalize_delta_claim_update_row(
     context_fingerprint: str,
     sequence_key: str,
     claim_key_by_id: dict[str, str],
+    default_provenance_kind: str = "model_inferred",
 ) -> dict[str, Any] | None:
     decision = _as_str(row.get("decision")).lower()
     if decision not in CLAIM_UPDATE_DECISIONS:
@@ -280,7 +282,7 @@ def _normalize_delta_claim_update_row(
         _base_row(
             dedupe_key=f"claim-update:{stable_hash(basis)[:20]}",
             confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
             source="crawler_updates.claim_updates",
             bead_id=trigger_bead_id or None,
             turn_id=turn_id,
@@ -300,6 +302,7 @@ def _normalize_entity_upsert_row(
     source_bead_key: str | None,
     turn_id: str,
     context_fingerprint: str,
+    default_provenance_kind: str = "model_inferred",
 ) -> dict[str, Any] | None:
     label = _as_str(row.get("label") or row.get("name") or row.get("value") or row.get("text"))
     normalized_label = normalize_entity_alias(label)
@@ -322,7 +325,7 @@ def _normalize_entity_upsert_row(
         _base_row(
             dedupe_key=f"entity:{normalized_label}",
             confidence=row.get("confidence", 0.72),
-            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
             source=source,
             turn_id=turn_id,
             evidence_refs=row.get("evidence_refs") or [],
@@ -340,6 +343,7 @@ def _normalize_goal_lifecycle_row(
     turn_id: str,
     context_fingerprint: str,
     sequence_key: str,
+    default_provenance_kind: str = "model_inferred",
 ) -> dict[str, Any] | None:
     action = _as_str(row.get("action") or row.get("status") or row.get("goal_status")).lower()
     goal_bead_id = _as_str(row.get("goal_bead_id") or row.get("bead_id")) or None
@@ -363,7 +367,7 @@ def _normalize_goal_lifecycle_row(
         _base_row(
             dedupe_key=f"goal-life:{goal_key}:{action}:{sequence_key}",
             confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
             source="crawler_updates.goal_lifecycle",
             bead_id=goal_bead_id,
             turn_id=turn_id,
@@ -381,6 +385,7 @@ def _normalize_memory_outcome_row(
     *,
     turn_id: str,
     context_fingerprint: str,
+    default_provenance_kind: str = "model_inferred",
 ) -> dict[str, Any] | None:
     bead_id = _as_str(row.get("bead_id") or row.get("source_bead_id") or row.get("turn_bead_id"))
     outcome = row.get("memory_outcome")
@@ -402,7 +407,7 @@ def _normalize_memory_outcome_row(
         _base_row(
             dedupe_key=f"memory-outcome:{bead_id}:{turn_id}",
             confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
             source="crawler_updates.memory_outcomes",
             bead_id=bead_id,
             turn_id=turn_id,
@@ -681,6 +686,8 @@ def crawler_updates_to_delta(
         selection_reason="queued_enrichment" if source_kind == "queued" else "turn_finalization",
     )
     ctx_fp = _as_str(window_ref.get("context_fingerprint"))
+    source_kind_norm = _as_str(source_kind) or "inline"
+    default_provenance_kind = source_kind_norm if source_kind_norm in {"fallback", "test"} else "model_inferred"
     quarantine_rows: list[dict[str, Any]] = []
 
     delta: dict[str, Any] = {
@@ -688,7 +695,7 @@ def crawler_updates_to_delta(
         "session_id": sid,
         "turn_id": tid,
         "source": {
-            "kind": _as_str(source_kind) or "inline",
+            "kind": source_kind_norm,
             "authority_path": _as_str(authority_path) or "canonical_in_process",
             "origin": _as_str(origin) or "USER_TURN",
             "queue_id": None,
@@ -744,7 +751,7 @@ def crawler_updates_to_delta(
             _base_row(
                 dedupe_key=f"bead:{sid}:{tid}:{basis['type']}:{stable_hash(basis)[:16]}",
                 confidence=row.get("confidence", 0.8),
-                provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+                provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
                 source="crawler_updates.beads_create",
                 turn_id=tid,
                 evidence_refs=row.get("evidence_refs") or [],
@@ -781,6 +788,7 @@ def crawler_updates_to_delta(
             source_bead_key=source_bead_key,
             turn_id=tid,
             context_fingerprint=ctx_fp,
+            default_provenance_kind=default_provenance_kind,
         )
         if not normalized_entity:
             quarantine_rows.append(
@@ -819,6 +827,7 @@ def crawler_updates_to_delta(
             _base_row(
                 dedupe_key=key,
                 context_fingerprint=ctx_fp,
+                provenance_kind=default_provenance_kind,
                 source="crawler_updates.promotions",
                 bead_id=bid,
                 turn_id=tid,
@@ -880,7 +889,7 @@ def crawler_updates_to_delta(
             _base_row(
                 dedupe_key=f"assoc:{src}:{tgt}:{rel}",
                 confidence=row.get("confidence", 0.8),
-                provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+                provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
                 source="crawler_updates.associations",
                 bead_id=src,
                 turn_id=tid,
@@ -926,7 +935,7 @@ def crawler_updates_to_delta(
             _base_row(
                 dedupe_key=f"assoc-life:{aid}:{action}:{replacement or 'null'}:{sequence_key}",
                 confidence=row.get("confidence", 0.8),
-                provenance_kind=_as_str(row.get("provenance")) or "model_inferred",
+                provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
                 source="crawler_updates.association_lifecycle",
                 turn_id=tid,
                 context_fingerprint=ctx_fp,
@@ -948,6 +957,7 @@ def crawler_updates_to_delta(
             source_bead_key=source_bead_key,
             turn_id=tid,
             context_fingerprint=ctx_fp,
+            default_provenance_kind=default_provenance_kind,
         )
         if not normalized_claim:
             quarantine_rows.append(_quarantine("claims", row, ["invalid_claim"], session_id=sid, turn_id=tid))
@@ -973,6 +983,7 @@ def crawler_updates_to_delta(
             context_fingerprint=ctx_fp,
             sequence_key=sequence_key,
             claim_key_by_id=claim_key_by_id,
+            default_provenance_kind=default_provenance_kind,
         )
         if not normalized_update:
             quarantine_rows.append(
@@ -997,6 +1008,7 @@ def crawler_updates_to_delta(
             turn_id=tid,
             context_fingerprint=ctx_fp,
             sequence_key=sequence_key,
+            default_provenance_kind=default_provenance_kind,
         )
         if not normalized_goal:
             quarantine_rows.append(
@@ -1018,6 +1030,7 @@ def crawler_updates_to_delta(
             row,
             turn_id=tid,
             context_fingerprint=ctx_fp,
+            default_provenance_kind=default_provenance_kind,
         )
         if not normalized_outcome:
             quarantine_rows.append(
@@ -1088,20 +1101,21 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
             out["promotions"].append(_as_str(row.get("bead_id")))
     for row in delta.get("associations") or []:
         if isinstance(row, dict):
-            out["associations"].append(
-                {
-                    "source_bead_id": _as_str(row.get("source_bead_id")),
-                    "target_bead_id": _as_str(row.get("target_bead_id")),
-                    "relationship": _as_str(row.get("relationship")),
-                    "reason_text": _as_str(row.get("reason_text")),
-                    "confidence": row.get("confidence"),
-                    "provenance": _row_provenance_kind(row),
-                    "reason_code": row.get("reason_code"),
-                    "evidence_fields": list(row.get("evidence_fields") or []),
-                    "relationship_raw": row.get("relationship_raw"),
-                    "rationale": row.get("rationale"),
-                }
-            )
+            projected_assoc = {
+                "source_bead_id": _as_str(row.get("source_bead_id")),
+                "target_bead_id": _as_str(row.get("target_bead_id")),
+                "relationship": _as_str(row.get("relationship")),
+                "reason_text": _as_str(row.get("reason_text")),
+                "confidence": row.get("confidence"),
+                "provenance": _row_provenance_kind(row),
+                "reason_code": row.get("reason_code"),
+                "evidence_fields": list(row.get("evidence_fields") or []),
+                "relationship_raw": row.get("relationship_raw"),
+                "rationale": row.get("rationale"),
+            }
+            if row.get("evidence_refs") and not _has_only_default_context_ref(row):
+                projected_assoc["evidence_refs"] = list(row.get("evidence_refs") or [])
+            out["associations"].append(projected_assoc)
     for row in delta.get("association_lifecycle") or []:
         if isinstance(row, dict):
             out["association_lifecycle"].append(

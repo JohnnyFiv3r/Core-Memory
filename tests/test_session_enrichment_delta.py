@@ -450,6 +450,30 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
 
         self.assertEqual([], fallback_delta["associations"][0]["evidence_refs"])
 
+    def test_top_level_fallback_source_can_omit_grounding_refs(self):
+        fallback_delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"promotions": ["b1"]},
+            source_kind="fallback",
+        )
+
+        self.assertEqual("fallback", fallback_delta["source"]["kind"])
+        self.assertEqual("fallback", fallback_delta["promotions"][0]["provenance"]["kind"])
+        self.assertEqual([], fallback_delta["promotions"][0]["evidence_refs"])
+
+    def test_top_level_test_source_can_omit_grounding_refs(self):
+        test_delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"promotions": ["b1"]},
+            source_kind="test",
+        )
+
+        self.assertEqual("test", test_delta["source"]["kind"])
+        self.assertEqual("test", test_delta["promotions"][0]["provenance"]["kind"])
+        self.assertEqual([], test_delta["promotions"][0]["evidence_refs"])
+
     def test_default_grounding_refs_do_not_leak_back_to_crawler_shape(self):
         updates = {
             "beads_create": [
@@ -501,6 +525,42 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
 
         self.assertEqual([ref], delta["beads_create"][0]["evidence_refs"])
         self.assertEqual([ref], projected["beads_create"][0]["evidence_refs"])
+
+    def test_association_explicit_evidence_refs_survive_projection(self):
+        ref = {"kind": "turn", "id": "t1", "field": "assistant_final", "quote": "because", "hash": None}
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "associations": [
+                    {
+                        "source_bead_id": "b2",
+                        "target_bead_id": "b1",
+                        "relationship": "supports",
+                        "evidence_refs": [ref],
+                    }
+                ]
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual([ref], delta["associations"][0]["evidence_refs"])
+        self.assertEqual([ref], projected["associations"][0]["evidence_refs"])
+
+    def test_association_default_grounding_refs_do_not_leak_back_to_crawler_shape(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "associations": [
+                    {"source_bead_id": "b2", "target_bead_id": "b1", "relationship": "supports"}
+                ]
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual("context_fingerprint", delta["associations"][0]["evidence_refs"][0]["kind"])
+        self.assertNotIn("evidence_refs", projected["associations"][0])
 
     def test_write_delta_quarantine_persists_and_dedupes_rows(self):
         delta = crawler_updates_to_delta(
