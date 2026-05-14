@@ -409,6 +409,99 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(6, delta["diagnostics"]["quarantined"])
         self.assertEqual("array_bound_exceeded", delta["diagnostics"]["quarantine"][0]["reasons"][0])
 
+    def test_common_rows_get_context_fingerprint_grounding_ref_by_default(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"promotions": ["b1"]},
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1"]},
+        )
+
+        row = delta["promotions"][0]
+        self.assertEqual(delta["window_context_ref"]["context_fingerprint"], row["context_fingerprint"])
+        self.assertEqual(
+            [
+                {
+                    "kind": "context_fingerprint",
+                    "id": row["context_fingerprint"],
+                    "field": None,
+                    "quote": None,
+                    "hash": row["context_fingerprint"],
+                }
+            ],
+            row["evidence_refs"],
+        )
+
+    def test_fallback_rows_can_omit_grounding_refs(self):
+        fallback_delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "associations": [
+                    {
+                        "source_bead_id": "b2",
+                        "target_bead_id": "b1",
+                        "relationship": "supports",
+                        "provenance": "fallback",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual([], fallback_delta["associations"][0]["evidence_refs"])
+
+    def test_default_grounding_refs_do_not_leak_back_to_crawler_shape(self):
+        updates = {
+            "beads_create": [
+                {
+                    "type": "decision",
+                    "title": "Use JSONB",
+                    "summary": ["PostgreSQL JSONB keeps writes transactional"],
+                    "source_turn_ids": ["t1"],
+                }
+            ],
+            "claims": [
+                {
+                    "id": "claim-1",
+                    "claim_kind": "preference",
+                    "subject": "user",
+                    "slot": "preference_editor",
+                    "value": "Neovim",
+                    "reason_text": "User said they prefer Neovim.",
+                    "confidence": 0.9,
+                    "source_bead_id": "b1",
+                    "source_turn_ids": ["t1"],
+                }
+            ],
+        }
+        delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertNotIn("evidence_refs", projected["beads_create"][0])
+        self.assertNotIn("evidence_refs", projected["claims"][0])
+
+    def test_explicit_grounding_refs_survive_projection(self):
+        ref = {"kind": "turn", "id": "t1", "field": "user_query", "quote": "hello", "hash": None}
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "beads_create": [
+                    {
+                        "type": "decision",
+                        "title": "Use JSONB",
+                        "summary": ["PostgreSQL JSONB keeps writes transactional"],
+                        "source_turn_ids": ["t1"],
+                        "evidence_refs": [ref],
+                    }
+                ]
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual([ref], delta["beads_create"][0]["evidence_refs"])
+        self.assertEqual([ref], projected["beads_create"][0]["evidence_refs"])
+
     def test_write_delta_quarantine_persists_and_dedupes_rows(self):
         delta = crawler_updates_to_delta(
             session_id="s1",

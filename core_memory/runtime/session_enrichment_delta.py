@@ -468,6 +468,26 @@ def build_window_context_ref(
     return ref
 
 
+def _normalize_evidence_refs(
+    evidence_refs: Any,
+    *,
+    context_fingerprint: str,
+    provenance_kind: str,
+) -> list[dict[str, Any]]:
+    refs = [r for r in (evidence_refs or []) if isinstance(r, dict)]
+    if refs or _as_str(provenance_kind) in {"fallback", "test"}:
+        return refs
+    return [
+        {
+            "kind": "context_fingerprint",
+            "id": context_fingerprint,
+            "field": None,
+            "quote": None,
+            "hash": context_fingerprint,
+        }
+    ]
+
+
 def _base_row(
     *,
     dedupe_key: str,
@@ -486,12 +506,17 @@ def _base_row(
     except Exception:
         conf = 0.8
     conf = max(0.0, min(1.0, conf))
-    refs = [r for r in (evidence_refs or []) if isinstance(r, dict)]
+    prov_kind = _as_str(provenance_kind) or "model_inferred"
+    refs = _normalize_evidence_refs(
+        evidence_refs,
+        context_fingerprint=context_fingerprint,
+        provenance_kind=prov_kind,
+    )
     return {
         "dedupe_key": dedupe_key,
         "confidence": conf,
         "provenance": {
-            "kind": _as_str(provenance_kind) or "model_inferred",
+            "kind": prov_kind,
             "source": _as_str(source) or "crawler_updates",
             "bead_id": bead_id or None,
             "turn_id": turn_id or None,
@@ -1013,6 +1038,28 @@ def crawler_updates_to_delta(
     return delta
 
 
+def _has_only_default_context_ref(row: dict[str, Any]) -> bool:
+    refs = row.get("evidence_refs")
+    if not isinstance(refs, list) or len(refs) != 1 or not isinstance(refs[0], dict):
+        return False
+    ref = refs[0]
+    ctx = _as_str(row.get("context_fingerprint"))
+    return (
+        _as_str(ref.get("kind")) == "context_fingerprint"
+        and _as_str(ref.get("id")) == ctx
+        and _as_str(ref.get("hash")) == ctx
+        and ref.get("field") is None
+        and ref.get("quote") is None
+    )
+
+
+def _strip_adapter_keys_for_projection(row: dict[str, Any], adapter_keys: set[str]) -> dict[str, Any]:
+    keys = set(adapter_keys)
+    if _has_only_default_context_ref(row):
+        keys.add("evidence_refs")
+    return {k: v for k, v in row.items() if k not in keys}
+
+
 def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
     """Project accepted Slice A rows back to the current crawler update shape."""
     out: dict[str, Any] = {
@@ -1035,9 +1082,7 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
                 "sequence_key",
                 "rationale",
             }
-            out["beads_create"].append(
-                {k: v for k, v in row.items() if k not in adapter_keys}
-            )
+            out["beads_create"].append(_strip_adapter_keys_for_projection(row, adapter_keys))
     for row in delta.get("promotions") or []:
         if isinstance(row, dict) and row.get("bead_id"):
             out["promotions"].append(_as_str(row.get("bead_id")))
@@ -1081,10 +1126,10 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
     }
     for row in delta.get("claims") or []:
         if isinstance(row, dict):
-            out["claims"].append({k: v for k, v in row.items() if k not in claim_adapter_keys})
+            out["claims"].append(_strip_adapter_keys_for_projection(row, claim_adapter_keys))
     for row in delta.get("claim_updates") or []:
         if isinstance(row, dict):
-            out["claim_updates"].append({k: v for k, v in row.items() if k not in claim_adapter_keys})
+            out["claim_updates"].append(_strip_adapter_keys_for_projection(row, claim_adapter_keys))
     goal_lifecycle_adapter_keys = {
         "dedupe_key",
         "confidence",
@@ -1095,9 +1140,7 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
     }
     for row in delta.get("goal_lifecycle") or []:
         if isinstance(row, dict):
-            out["goal_lifecycle"].append(
-                {k: v for k, v in row.items() if k not in goal_lifecycle_adapter_keys}
-            )
+            out["goal_lifecycle"].append(_strip_adapter_keys_for_projection(row, goal_lifecycle_adapter_keys))
     memory_outcome_adapter_keys = {
         "dedupe_key",
         "confidence",
@@ -1108,9 +1151,7 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
     }
     for row in delta.get("memory_outcomes") or []:
         if isinstance(row, dict):
-            out["memory_outcomes"].append(
-                {k: v for k, v in row.items() if k not in memory_outcome_adapter_keys}
-            )
+            out["memory_outcomes"].append(_strip_adapter_keys_for_projection(row, memory_outcome_adapter_keys))
     return out
 
 
