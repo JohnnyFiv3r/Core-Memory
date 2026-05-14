@@ -20,6 +20,7 @@ NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
 CANONICAL_DELTA_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
 GOAL_LIFECYCLE_ACTIONS = {"open", "progress", "blocked", "complete", "abandon", "reopen"}
 MEMORY_OUTCOME_ROLES = set(INTERACTION_ROLES)
+DELTA_QUARANTINE_PATH = ".beads/events/session-enrichment-delta-quarantine.jsonl"
 
 _MAX_ROWS = {
     "beads_create": 4,
@@ -514,6 +515,92 @@ def _quarantine(row_type: str, row: Any, reasons: list[str], *, session_id: str,
         "normalized_record": row if isinstance(row, dict) else {},
         "original_record": row,
         "created_at": _now(),
+    }
+
+
+def _delta_quarantine_key(row: dict[str, Any]) -> str:
+    basis = {
+        "session_id": _as_str(row.get("session_id")),
+        "turn_id": _as_str(row.get("turn_id")),
+        "row_type": _as_str(row.get("row_type")),
+        "row_dedupe_key": _as_str(row.get("dedupe_key")),
+        "reasons": _normalize_list(row.get("reasons") or []),
+        "original_record": row.get("original_record"),
+    }
+    return stable_hash(basis)
+
+
+def _merge_unique_strs(existing: Any, incoming: Any) -> list[str]:
+    out: list[str] = []
+    for value in list(existing or []) + list(incoming or []):
+        text = _as_str(value)
+        if text and text not in out:
+            out.append(text)
+    return out
+
+
+def write_delta_quarantine(root: str | Path, delta_or_rows: dict[str, Any] | list[Any]) -> dict[str, Any]:
+    """Persist delta quarantine diagnostics to the Slice A quarantine JSONL surface.
+
+    Rows are deduped by stable semantic quarantine content so replaying the same
+    enrichment job increments `seen_count` instead of appending duplicates.
+    """
+    if isinstance(delta_or_rows, dict):
+        diagnostics = delta_or_rows.get("diagnostics") or {}
+        raw_rows = diagnostics.get("quarantine") or []
+    else:
+        raw_rows = delta_or_rows
+    rows = [r for r in (raw_rows or []) if isinstance(r, dict)]
+    path = Path(root) / DELTA_QUARANTINE_PATH
+    if not rows:
+        return {"ok": True, "path": str(path), "quarantine_count": 0, "written": 0, "deduped": 0}
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    existing_rows: list[dict[str, Any]] = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                parsed = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(parsed, dict):
+                existing_rows.append(parsed)
+
+    by_key = {str(row.get("quarantine_dedupe_key") or ""): row for row in existing_rows}
+    now = _now()
+    written = 0
+    deduped = 0
+    for row in rows:
+        quarantine_key = _delta_quarantine_key(row)
+        existing = by_key.get(quarantine_key)
+        if existing is not None:
+            existing["seen_count"] = int(existing.get("seen_count") or 1) + 1
+            existing["last_seen_at"] = now
+            existing["reasons"] = _merge_unique_strs(existing.get("reasons"), row.get("reasons"))
+            existing["warnings"] = _merge_unique_strs(existing.get("warnings"), row.get("warnings"))
+            deduped += 1
+            continue
+
+        stored = dict(row)
+        stored.setdefault("schema", "session_enrichment_delta.quarantine.v1")
+        stored.setdefault("delta_schema", SCHEMA)
+        stored["quarantine_dedupe_key"] = quarantine_key
+        stored.setdefault("created_at", now)
+        stored["last_seen_at"] = now
+        stored["seen_count"] = 1
+        existing_rows.append(stored)
+        by_key[quarantine_key] = stored
+        written += 1
+
+    path.write_text("\n".join(json.dumps(r, ensure_ascii=False) for r in existing_rows) + "\n", encoding="utf-8")
+    return {
+        "ok": True,
+        "path": str(path),
+        "quarantine_count": len(rows),
+        "written": written,
+        "deduped": deduped,
     }
 
 
@@ -1152,10 +1239,12 @@ def projections_equal(left: dict[str, Any], right: dict[str, Any]) -> bool:
 __all__ = [
     "SCHEMA",
     "NORMALIZER_VERSION",
+    "DELTA_QUARANTINE_PATH",
     "build_window_context_ref",
     "canonical_session_projection",
     "crawler_updates_to_delta",
     "delta_to_crawler_updates",
     "projections_equal",
     "stable_hash",
+    "write_delta_quarantine",
 ]

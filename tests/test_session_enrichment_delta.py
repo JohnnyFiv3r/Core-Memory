@@ -1,14 +1,18 @@
+import json
 import tempfile
 import unittest
+from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.session_enrichment_delta import (
+    DELTA_QUARANTINE_PATH,
     SCHEMA,
     build_window_context_ref,
     canonical_session_projection,
     crawler_updates_to_delta,
     delta_to_crawler_updates,
     projections_equal,
+    write_delta_quarantine,
 )
 
 
@@ -403,6 +407,29 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(64, len(delta["promotions"]))
         self.assertEqual(6, delta["diagnostics"]["quarantined"])
         self.assertEqual("array_bound_exceeded", delta["diagnostics"]["quarantine"][0]["reasons"][0])
+
+    def test_write_delta_quarantine_persists_and_dedupes_rows(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"entity_upserts": [{"label": "!!!"}]},
+        )
+
+        with tempfile.TemporaryDirectory() as td:
+            first = write_delta_quarantine(td, delta)
+            second = write_delta_quarantine(td, delta)
+            tempfile_path = Path(td) / DELTA_QUARANTINE_PATH
+            rows = [json.loads(line) for line in tempfile_path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+        self.assertEqual(1, first["written"])
+        self.assertEqual(0, first["deduped"])
+        self.assertEqual(0, second["written"])
+        self.assertEqual(1, second["deduped"])
+        self.assertEqual(1, len(rows))
+        self.assertEqual(2, rows[0]["seen_count"])
+        self.assertEqual("entity_upserts", rows[0]["row_type"])
+        self.assertIn("invalid_entity_label", rows[0]["reasons"])
+        self.assertEqual(str(tempfile_path), first["path"])
 
 
 class TestCanonicalSessionProjection(unittest.TestCase):
