@@ -1,4 +1,5 @@
 import json
+import shutil
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -605,6 +606,68 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
 
 
 class TestCanonicalSessionProjection(unittest.TestCase):
+    def test_delta_projection_matches_direct_crawler_committed_state(self):
+        from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
+
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(base)
+            b1 = store.add_bead(
+                type="decision",
+                title="Use JSONB",
+                summary=["Keep writes transactional"],
+                session_id="s1",
+                source_turn_ids=["t1"],
+            )
+            b2 = store.add_bead(
+                type="context",
+                title="JSONB rationale",
+                summary=["The rationale supports the decision"],
+                session_id="s1",
+                source_turn_ids=["t2"],
+            )
+            left = str(Path(td) / "direct")
+            right = str(Path(td) / "delta")
+            shutil.copytree(base, left)
+            shutil.copytree(base, right)
+
+            updates = {
+                "beads_create": [
+                    {
+                        "type": "insight",
+                        "title": "JSONB write durability",
+                        "summary": ["Atomic JSONB updates preserve the committed decision."],
+                        "source_turn_ids": ["t3"],
+                        "tags": ["storage"],
+                    }
+                ],
+                "promotions": [b1],
+                "associations": [
+                    {
+                        "source_bead_id": b2,
+                        "target_bead_id": b1,
+                        "relationship": "supports",
+                        "reason_text": "The rationale supports the original storage decision.",
+                        "confidence": 0.9,
+                    }
+                ],
+            }
+
+            apply_crawler_updates(left, "s1", updates, visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=left, session_id="s1")
+
+            delta = crawler_updates_to_delta(
+                session_id="s1",
+                turn_id="t3",
+                updates=updates,
+                crawler_ctx={"session_id": "s1", "visible_bead_ids": [b1, b2]},
+            )
+            apply_crawler_updates(right, "s1", delta_to_crawler_updates(delta), visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=right, session_id="s1")
+
+            self.assertTrue(
+                projections_equal(canonical_session_projection(left, "s1"), canonical_session_projection(right, "s1"))
+            )
+
     def test_projection_ignores_volatile_bead_timestamps(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
