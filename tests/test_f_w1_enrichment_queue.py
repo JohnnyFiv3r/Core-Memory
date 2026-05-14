@@ -87,6 +87,34 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             self.assertTrue(r2["ok"])
             self.assertTrue(r2.get("duplicate", False))
 
+    def test_enqueue_persists_projected_reviewed_updates(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            visible_bead = s.add_bead(type="decision", title="test", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            reviewed_updates = {
+                "promotions": [visible_bead],
+                "associations": [{"source_bead_id": visible_bead, "target_bead_id": "outside-window", "relationship": "supports"}],
+            }
+
+            result = enqueue_turn_enrichment(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                bead_id=visible_bead,
+                req={"session_id": "s1", "turn_id": "t1", "user_query": "q", "assistant_final": "a"},
+                reviewed_updates=reviewed_updates,
+                crawler_ctx={"session_id": "s1", "visible_bead_ids": [visible_bead]},
+            )
+            self.assertTrue(result["ok"])
+
+            import json
+            queue = json.loads(_queue_path(td).read_text(encoding="utf-8"))
+            payload = queue[0]["payload"]
+            self.assertEqual([visible_bead], payload["reviewed_updates"]["promotions"])
+            self.assertEqual([], payload["reviewed_updates"]["associations"])
+            self.assertEqual(1, payload["enrichment_delta"]["diagnostics"]["quarantined_counts"]["associations"])
+            self.assertEqual(1, payload["delta_quarantine"]["written"])
+
     @patch.dict(os.environ, {"CORE_MEMORY_ENRICHMENT_QUEUE": "off"}, clear=False)
     def test_returns_none_when_disabled(self):
         result = enqueue_turn_enrichment(

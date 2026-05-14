@@ -37,7 +37,11 @@ def enqueue_turn_enrichment(
         return None
 
     from core_memory.runtime.side_effect_queue import enqueue_side_effect_event
-    from core_memory.runtime.session_enrichment_delta import crawler_updates_to_delta, write_delta_quarantine
+    from core_memory.runtime.session_enrichment_delta import (
+        crawler_updates_to_delta,
+        delta_to_crawler_updates,
+        write_delta_quarantine,
+    )
 
     idempotency_key = f"enrich-{session_id}-{turn_id}"
     enrichment_delta = crawler_updates_to_delta(
@@ -52,6 +56,7 @@ def enqueue_turn_enrichment(
         window_turn_ids=list(req.get("window_turn_ids") or []),
     )
     quarantine_result = write_delta_quarantine(root, enrichment_delta)
+    projected_reviewed_updates = delta_to_crawler_updates(enrichment_delta)
 
     return enqueue_side_effect_event(
         root=root,
@@ -62,7 +67,7 @@ def enqueue_turn_enrichment(
             "bead_id": bead_id,
             "user_query": str(req.get("user_query") or ""),
             "assistant_final": str(req.get("assistant_final") or ""),
-            "reviewed_updates": dict(reviewed_updates or {}),
+            "reviewed_updates": projected_reviewed_updates,
             "enrichment_delta": enrichment_delta,
             "delta_quarantine": quarantine_result,
             "crawler_visible_bead_ids": list((crawler_ctx or {}).get("visible_bead_ids") or []),
