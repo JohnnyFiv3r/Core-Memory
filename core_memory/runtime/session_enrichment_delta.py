@@ -34,6 +34,7 @@ DELTA_ROW_LIMITS = {
     "goal_lifecycle": 64,
     "memory_outcomes": 8,
 }
+DELTA_ROW_TYPES = tuple(DELTA_ROW_LIMITS.keys())
 
 _VOLATILE_BEAD_FIELDS = {
     "id",
@@ -1059,11 +1060,19 @@ def crawler_updates_to_delta(
         seen_memory_outcome_keys.add(key)
         delta["memory_outcomes"].append(normalized_outcome)
 
+    accepted_counts = {row_type: len(delta.get(row_type) or []) for row_type in DELTA_ROW_TYPES}
+    quarantined_counts = {row_type: 0 for row_type in DELTA_ROW_TYPES}
+    for qrow in quarantine_rows:
+        row_type = _as_str((qrow or {}).get("row_type"))
+        if row_type in quarantined_counts:
+            quarantined_counts[row_type] += 1
     delta["diagnostics"] = {
         "quarantined": len(quarantine_rows),
         "quarantine": quarantine_rows,
         "input_keys": sorted(str(k) for k in raw.keys()),
         "row_limits": dict(DELTA_ROW_LIMITS),
+        "accepted_counts": accepted_counts,
+        "quarantined_counts": quarantined_counts,
     }
     return delta
 
@@ -1317,6 +1326,7 @@ __all__ = [
     "NORMALIZER_VERSION",
     "DELTA_QUARANTINE_PATH",
     "DELTA_ROW_LIMITS",
+    "DELTA_ROW_TYPES",
     "build_window_context_ref",
     "canonical_session_projection",
     "crawler_updates_to_delta",

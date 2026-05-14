@@ -9,6 +9,7 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.session_enrichment_delta import (
     DELTA_QUARANTINE_PATH,
     DELTA_ROW_LIMITS,
+    DELTA_ROW_TYPES,
     SCHEMA,
     build_window_context_ref,
     canonical_session_projection,
@@ -471,32 +472,34 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(6, delta["diagnostics"]["quarantined"])
         self.assertEqual("array_bound_exceeded", delta["diagnostics"]["quarantine"][0]["reasons"][0])
 
-    def test_all_array_bounds_are_explicit_and_quarantine_overflow(self):
+    def _valid_row_for_type(self, row_type, i=0):
         row_for = {
-            "beads_create": lambda i: {"type": "context", "title": f"B{i}", "summary": [f"S{i}"], "source_turn_ids": [f"t{i}"]},
-            "promotions": lambda i: f"b{i}",
-            "associations": lambda i: {"source_bead_id": f"b{i}-src", "target_bead_id": f"b{i}-tgt", "relationship": "supports"},
-            "association_lifecycle": lambda i: {"association_id": f"assoc-{i}", "action": "reaffirm"},
-            "entity_upserts": lambda i: {"label": f"Entity {i}"},
-            "claims": lambda i: {
-                "id": f"claim-{i}",
+            "beads_create": lambda n: {"type": "context", "title": f"B{n}", "summary": [f"S{n}"], "source_turn_ids": [f"t{n}"]},
+            "promotions": lambda n: f"b{n}",
+            "associations": lambda n: {"source_bead_id": f"b{n}-src", "target_bead_id": f"b{n}-tgt", "relationship": "supports"},
+            "association_lifecycle": lambda n: {"association_id": f"assoc-{n}", "action": "reaffirm"},
+            "entity_upserts": lambda n: {"label": f"Entity {n}"},
+            "claims": lambda n: {
+                "id": f"claim-{n}",
                 "claim_kind": "fact",
-                "subject": f"subject-{i}",
+                "subject": f"subject-{n}",
                 "slot": "status",
-                "value": f"value-{i}",
+                "value": f"value-{n}",
                 "reason_text": "explicit bounded-row test",
                 "confidence": 0.8,
                 "source_turn_ids": ["t1"],
             },
-            "claim_updates": lambda i: {"decision": "reaffirm", "target_claim_id": f"claim-{i}", "reason_text": "still valid"},
-            "goal_lifecycle": lambda i: {"title": f"Ship phase {i}", "action": "progress"},
-            "memory_outcomes": lambda i: {
-                "bead_id": f"b{i}",
+            "claim_updates": lambda n: {"decision": "reaffirm", "target_claim_id": f"claim-{n}", "reason_text": "still valid"},
+            "goal_lifecycle": lambda n: {"title": f"Ship phase {n}", "action": "progress"},
+            "memory_outcomes": lambda n: {
+                "bead_id": f"b{n}",
                 "interaction_role": "memory_reflection",
-                "memory_outcome": {"role": "memory_reflection", "description": f"Outcome {i}", "bead_count": 1},
+                "memory_outcome": {"role": "memory_reflection", "description": f"Outcome {n}", "bead_count": 1},
             },
         }
+        return row_for[row_type](i)
 
+    def test_all_array_bounds_are_explicit_and_quarantine_overflow(self):
         for row_type, limit in DELTA_ROW_LIMITS.items():
             with self.subTest(row_type=row_type):
                 crawler_ctx = None
@@ -505,7 +508,7 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
                 delta = crawler_updates_to_delta(
                     session_id="s1",
                     turn_id="t1",
-                    updates={row_type: [row_for[row_type](i) for i in range(limit + 1)]},
+                    updates={row_type: [self._valid_row_for_type(row_type, i) for i in range(limit + 1)]},
                     crawler_ctx=crawler_ctx,
                 )
 
@@ -515,6 +518,46 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
                 overflow = delta["diagnostics"]["quarantine"][0]
                 self.assertEqual(row_type, overflow["row_type"])
                 self.assertEqual(["array_bound_exceeded"], overflow["reasons"])
+
+    def test_diagnostics_report_counts_for_all_row_types(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "promotions": ["b1"],
+                "entity_upserts": [{"label": "!!!"}],
+            },
+        )
+
+        self.assertEqual(list(DELTA_ROW_TYPES), list(delta["diagnostics"]["accepted_counts"].keys()))
+        self.assertEqual(list(DELTA_ROW_TYPES), list(delta["diagnostics"]["quarantined_counts"].keys()))
+        self.assertEqual(1, delta["diagnostics"]["accepted_counts"]["promotions"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined_counts"]["entity_upserts"])
+
+    def test_all_accepted_row_types_emit_common_contract_fields(self):
+        for row_type in DELTA_ROW_TYPES:
+            with self.subTest(row_type=row_type):
+                crawler_ctx = None
+                if row_type == "associations":
+                    crawler_ctx = {"session_id": "s1", "visible_bead_ids": ["b0-tgt"]}
+                delta = crawler_updates_to_delta(
+                    session_id="s1",
+                    turn_id="t1",
+                    updates={row_type: [self._valid_row_for_type(row_type)]},
+                    crawler_ctx=crawler_ctx,
+                )
+
+                self.assertEqual(1, delta["diagnostics"]["accepted_counts"][row_type])
+                self.assertEqual(0, delta["diagnostics"]["quarantined_counts"][row_type])
+                row = delta[row_type][0]
+                self.assertTrue(row.get("dedupe_key"))
+                self.assertIsInstance(row.get("confidence"), float)
+                self.assertGreaterEqual(row["confidence"], 0.0)
+                self.assertLessEqual(row["confidence"], 1.0)
+                self.assertTrue(row.get("context_fingerprint", "").startswith("sha256:"))
+                self.assertIsInstance(row.get("provenance"), dict)
+                self.assertTrue(row["provenance"].get("kind"))
+                self.assertIsInstance(row.get("evidence_refs"), list)
 
     def test_common_rows_get_context_fingerprint_grounding_ref_by_default(self):
         delta = crawler_updates_to_delta(
