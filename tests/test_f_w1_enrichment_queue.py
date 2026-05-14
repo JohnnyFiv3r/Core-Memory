@@ -18,6 +18,7 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.enrichment import (
     _enrichment_queue_enabled,
     enqueue_turn_enrichment,
+    run_turn_enrichment,
 )
 from core_memory.runtime.side_effect_queue import (
     _SIDE_EFFECT_KINDS,
@@ -96,6 +97,56 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             req={},
         )
         self.assertIsNone(result)
+
+
+class TestRunTurnEnrichmentDeltaAuthority(unittest.TestCase):
+    """Queued enrichment consumes normalized delta projection when available."""
+
+    @patch("core_memory.integrations.openclaw_flags.claim_layer_enabled", return_value=False)
+    @patch("core_memory.runtime.engine._emit_agent_turn_quality_metric", return_value=None)
+    @patch("core_memory.runtime.engine.run_session_decision_pass", return_value={})
+    @patch("core_memory.runtime.engine._queue_preview_associations", return_value=0)
+    @patch("core_memory.association.crawler_contract.merge_crawler_updates", return_value={"associations_appended": 0})
+    @patch("core_memory.runtime.association_pass.run_association_pass", return_value={"created_bead_ids": []})
+    def test_enrichment_delta_overrides_parallel_reviewed_updates(
+        self,
+        association_spy,
+        _merge_spy,
+        _preview_spy,
+        _decision_spy,
+        _quality_spy,
+        _claim_enabled_spy,
+    ):
+        from core_memory.runtime.session_enrichment_delta import crawler_updates_to_delta
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            visible_bead = store.add_bead(type="decision", title="visible", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            delta = crawler_updates_to_delta(
+                session_id="s1",
+                turn_id="t1",
+                updates={"promotions": [visible_bead]},
+                crawler_ctx={"session_id": "s1", "visible_bead_ids": [visible_bead]},
+                source_kind="queued",
+                idempotency_key="enrich-s1-t1",
+            )
+
+            out = run_turn_enrichment(
+                root=td,
+                payload={
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "bead_id": visible_bead,
+                    "reviewed_updates": {"promotions": ["raw-reviewed-update-should-not-win"]},
+                    "enrichment_delta": delta,
+                    "crawler_visible_bead_ids": [visible_bead],
+                },
+            )
+
+        self.assertTrue(out["ok"])
+        updates = association_spy.call_args.kwargs["updates"]
+        self.assertEqual([visible_bead], updates["promotions"])
+        self.assertNotIn("raw-reviewed-update-should-not-win", updates["promotions"])
 
 
 class TestQueueStatusReflectsEnrichment(unittest.TestCase):

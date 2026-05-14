@@ -85,7 +85,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     turn_id = str(payload.get("turn_id") or "")
     bead_id = str(payload.get("bead_id") or "")
     reviewed_updates = dict(payload.get("reviewed_updates") or {})
-    if not reviewed_updates and isinstance(payload.get("enrichment_delta"), dict):
+    if isinstance(payload.get("enrichment_delta"), dict):
         from core_memory.runtime.session_enrichment_delta import delta_to_crawler_updates
         reviewed_updates = delta_to_crawler_updates(dict(payload.get("enrichment_delta") or {}))
     crawler_visible = list(payload.get("crawler_visible_bead_ids") or [])
