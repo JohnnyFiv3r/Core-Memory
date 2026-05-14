@@ -181,6 +181,13 @@ def _normalize_delta_claim_row(
     turn_id: str,
     context_fingerprint: str,
 ) -> dict[str, Any] | None:
+    raw_for_validation = dict(row)
+    if raw_for_validation.get("reason_text") is None and raw_for_validation.get("reason") is not None:
+        raw_for_validation["reason_text"] = raw_for_validation.get("reason")
+    valid, _errors = validate_claim(raw_for_validation)
+    if not valid:
+        return None
+
     source_turn_ids = _str_list(row.get("source_turn_ids") or ([turn_id] if turn_id else []))
     normalized = {
         "id": _as_str(row.get("id")),
@@ -209,9 +216,6 @@ def _normalize_delta_claim_row(
             rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
         )
     )
-    valid, _errors = validate_claim(normalized)
-    if not valid:
-        return None
     basis = {
         "subject": normalized["subject"].lower(),
         "slot": normalized["slot"].lower(),
@@ -266,7 +270,6 @@ def _normalize_delta_claim_update_row(
         "target_claim_key": target_claim_key,
         "replacement_claim_key": replacement_claim_key,
         "trigger_bead_id": trigger_bead_id,
-        "sequence_key": sequence_key,
     }
     normalized.update(
         _base_row(

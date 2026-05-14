@@ -222,6 +222,26 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("invalid_claim", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_claim_missing_live_required_fields_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "claims": [
+                    {
+                        "subject": "user",
+                        "slot": "preference",
+                        "value": "coffee",
+                        "reason_text": "User said coffee.",
+                    }
+                ]
+            },
+        )
+
+        self.assertEqual([], delta["claims"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("invalid_claim", delta["diagnostics"]["quarantine"][0]["reasons"])
+
     def test_claim_updates_are_projected_with_sequence_keys(self):
         delta = crawler_updates_to_delta(
             session_id="s1",
@@ -271,6 +291,23 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual([], delta["claim_updates"])
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("invalid_claim_update", delta["diagnostics"]["quarantine"][0]["reasons"])
+
+    def test_duplicate_claim_updates_dedupe_like_live_explicit_updates(self):
+        row = {
+            "decision": "supersede",
+            "target_claim_id": "claim-old",
+            "replacement_claim_id": "claim-new",
+            "trigger_bead_id": "b2",
+            "reason_text": "New claim supersedes old claim.",
+        }
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"claim_updates": [dict(row), dict(row)]},
+        )
+
+        self.assertEqual(1, len(delta["claim_updates"]))
+        self.assertEqual("claim-update:s1:t1:0", delta["claim_updates"][0]["sequence_key"])
 
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
