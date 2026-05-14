@@ -8,6 +8,7 @@ from pathlib import Path
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.session_enrichment_delta import (
     DELTA_QUARANTINE_PATH,
+    DELTA_ROW_LIMITS,
     SCHEMA,
     build_window_context_ref,
     canonical_session_projection,
@@ -409,6 +410,47 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(64, len(delta["promotions"]))
         self.assertEqual(6, delta["diagnostics"]["quarantined"])
         self.assertEqual("array_bound_exceeded", delta["diagnostics"]["quarantine"][0]["reasons"][0])
+
+    def test_all_array_bounds_are_explicit_and_quarantine_overflow(self):
+        row_for = {
+            "beads_create": lambda i: {"type": "context", "title": f"B{i}", "summary": [f"S{i}"], "source_turn_ids": [f"t{i}"]},
+            "promotions": lambda i: f"b{i}",
+            "associations": lambda i: {"source_bead_id": f"b{i}-src", "target_bead_id": f"b{i}-tgt", "relationship": "supports"},
+            "association_lifecycle": lambda i: {"association_id": f"assoc-{i}", "action": "reaffirm"},
+            "entity_upserts": lambda i: {"label": f"Entity {i}"},
+            "claims": lambda i: {
+                "id": f"claim-{i}",
+                "claim_kind": "fact",
+                "subject": f"subject-{i}",
+                "slot": "status",
+                "value": f"value-{i}",
+                "reason_text": "explicit bounded-row test",
+                "confidence": 0.8,
+                "source_turn_ids": ["t1"],
+            },
+            "claim_updates": lambda i: {"decision": "reaffirm", "target_claim_id": f"claim-{i}", "reason_text": "still valid"},
+            "goal_lifecycle": lambda i: {"title": f"Ship phase {i}", "action": "progress"},
+            "memory_outcomes": lambda i: {
+                "bead_id": f"b{i}",
+                "interaction_role": "memory_reflection",
+                "memory_outcome": {"role": "memory_reflection", "description": f"Outcome {i}", "bead_count": 1},
+            },
+        }
+
+        for row_type, limit in DELTA_ROW_LIMITS.items():
+            with self.subTest(row_type=row_type):
+                delta = crawler_updates_to_delta(
+                    session_id="s1",
+                    turn_id="t1",
+                    updates={row_type: [row_for[row_type](i) for i in range(limit + 1)]},
+                )
+
+                self.assertEqual(limit, len(delta[row_type]))
+                self.assertEqual(DELTA_ROW_LIMITS, delta["diagnostics"]["row_limits"])
+                self.assertEqual(1, delta["diagnostics"]["quarantined"])
+                overflow = delta["diagnostics"]["quarantine"][0]
+                self.assertEqual(row_type, overflow["row_type"])
+                self.assertEqual(["array_bound_exceeded"], overflow["reasons"])
 
     def test_common_rows_get_context_fingerprint_grounding_ref_by_default(self):
         delta = crawler_updates_to_delta(

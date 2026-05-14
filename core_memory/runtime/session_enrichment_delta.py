@@ -23,7 +23,7 @@ GOAL_LIFECYCLE_ACTIONS = {"open", "progress", "blocked", "complete", "abandon", 
 MEMORY_OUTCOME_ROLES = set(INTERACTION_ROLES)
 DELTA_QUARANTINE_PATH = ".beads/events/session-enrichment-delta-quarantine.jsonl"
 
-_MAX_ROWS = {
+DELTA_ROW_LIMITS = {
     "beads_create": 4,
     "promotions": 64,
     "associations": 256,
@@ -643,7 +643,7 @@ def _bounded(
     session_id: str,
     turn_id: str,
 ) -> tuple[list[Any], list[dict[str, Any]]]:
-    max_rows = int(_MAX_ROWS[row_type])
+    max_rows = int(DELTA_ROW_LIMITS[row_type])
     accepted = rows[:max_rows]
     quarantined = [
         _quarantine(row_type, row, ["array_bound_exceeded"], session_id=session_id, turn_id=turn_id)
@@ -1047,6 +1047,7 @@ def crawler_updates_to_delta(
         "quarantined": len(quarantine_rows),
         "quarantine": quarantine_rows,
         "input_keys": sorted(str(k) for k in raw.keys()),
+        "row_limits": dict(DELTA_ROW_LIMITS),
     }
     return delta
 
@@ -1297,6 +1298,7 @@ __all__ = [
     "SCHEMA",
     "NORMALIZER_VERSION",
     "DELTA_QUARANTINE_PATH",
+    "DELTA_ROW_LIMITS",
     "build_window_context_ref",
     "canonical_session_projection",
     "crawler_updates_to_delta",
