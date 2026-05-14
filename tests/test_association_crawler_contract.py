@@ -165,6 +165,48 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertEqual("supporting_evidence", row.get("reason_code"))
             self.assertEqual(["summary"], row.get("evidence_fields"))
 
+    def test_entity_upserts_are_crawler_queued_and_merged(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="context", title="A", summary=["Open AI Platform selected"], session_id="s1", source_turn_ids=["t1"])
+
+            out = apply_crawler_turn_updates(
+                root=td,
+                session_id="s1",
+                visible_bead_ids=[b1],
+                updates={
+                    "entity_upserts": [
+                        {
+                            "label": "OpenAI Platform",
+                            "aliases": ["Open AI Platform"],
+                            "entity_kind": "product",
+                            "source_bead_id": b1,
+                            "evidence": "Open AI Platform selected",
+                            "confidence": 0.91,
+                        }
+                    ]
+                },
+            )
+
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(1, int(out.get("entity_upserts_queued") or 0))
+            idx_before = s._read_json(s.beads_dir / "index.json")
+            self.assertFalse(idx_before.get("entities"))
+
+            merge = merge_crawler_updates(td, "s1")
+            self.assertTrue(merge.get("ok"))
+            self.assertEqual(1, int(merge.get("entity_upserts_applied") or 0))
+
+            idx = s._read_json(s.beads_dir / "index.json")
+            registry = idx.get("entities") or {}
+            alias_map = idx.get("entity_aliases") or {}
+            self.assertEqual(1, len(registry))
+            self.assertEqual(next(iter(registry)), alias_map.get("openaiplatform"))
+            self.assertEqual(next(iter(registry)), alias_map.get("openaiplatform"))
+            bead = (idx.get("beads") or {}).get(b1) or {}
+            self.assertEqual(1, len(bead.get("entity_ids") or []))
+            self.assertIn("OpenAI Platform", bead.get("entities") or [])
+
     def test_association_lifecycle_overlay_supersede_and_retract(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)

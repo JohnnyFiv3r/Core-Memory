@@ -230,6 +230,32 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("invalid_entity_label", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_entity_upserts_project_to_crawler_updates(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "entity_upserts": [
+                    {
+                        "label": "OpenAI Platform",
+                        "aliases": ["Open AI Platform"],
+                        "entity_kind": "product",
+                        "source_bead_id": "b1",
+                        "evidence": "Open AI Platform selected",
+                        "confidence": 0.91,
+                    }
+                ]
+            },
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(projected["entity_upserts"]))
+        row = projected["entity_upserts"][0]
+        self.assertEqual("OpenAI Platform", row["label"])
+        self.assertEqual("b1", row["source_bead_id"])
+        self.assertEqual("model_inferred", row["provenance"])
+        self.assertNotIn("context_fingerprint", row)
+
     def test_entity_upsert_uses_live_registry_noise_policy(self):
         delta = crawler_updates_to_delta(
             session_id="s1",

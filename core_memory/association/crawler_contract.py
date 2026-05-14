@@ -11,6 +11,7 @@ from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.runtime.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 from core_memory.association.quarantine import write_quarantine
+from core_memory.entity.registry import normalize_entity_alias, upsert_canonical_entity
 from core_memory.policy.association_contract import assoc_dedupe_key
 from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_PERMISSIVE,
@@ -165,6 +166,49 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _normalize_entity_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
+    """Normalize crawler-authored entity registry upserts.
+
+    These rows are intentionally handled by the crawler side-effect path rather
+    than by write-time bead persistence. Programmatic bead-provided entity
+    labels can still be indexed at write time, but LLM-led extraction should
+    arrive here as explicit, auditable upsert rows.
+    """
+    rows = [x for x in (updates.get("entity_upserts") or []) if isinstance(x, dict)]
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        label = str(row.get("label") or row.get("name") or row.get("value") or row.get("text") or "").strip()
+        normalized = normalize_entity_alias(label)
+        if not label or not normalized or len(normalized) < 3 or normalized in seen:
+            continue
+        aliases: list[str] = []
+        for alias in row.get("aliases") or [label]:
+            s = str(alias or "").strip()
+            if s and normalize_entity_alias(s):
+                aliases.append(s)
+            if len(aliases) >= 12:
+                break
+        try:
+            confidence = float(row.get("confidence", 0.72))
+        except Exception:
+            confidence = 0.72
+        out.append(
+            {
+                "label": label[:160],
+                "aliases": aliases or [label[:160]],
+                "confidence": max(0.0, min(1.0, confidence)),
+                "entity_kind": str(row.get("entity_kind") or row.get("kind") or "other").strip()[:40] or "other",
+                "source_bead_id": str(row.get("source_bead_id") or row.get("bead_id") or "").strip() or None,
+                "source_bead_key": str(row.get("source_bead_key") or "").strip() or None,
+                "evidence": str(row.get("evidence") or row.get("reason_text") or "").strip()[:240],
+                "provenance": str(row.get("provenance") or "model_inferred").strip().lower() or "model_inferred",
+            }
+        )
+        seen.add(normalized)
+    return out
+
+
 def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in_bead_ids: list[str] | None = None) -> dict[str, Any]:
     """Provide bounded session-scoped context for agent-judged crawler decisions."""
     rows = read_session_surface(root, session_id)
@@ -199,6 +243,7 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,retrieval_eligible?,retrieval_title?,retrieval_facts?,entities?,topics?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
             "reviewed_beads": "list[{bead_id,promotion_state,reason?,associations?}]",
             "associations": "list[{source_bead_id,target_bead_id,relationship,reason_text,confidence,provenance?,reason_code?,evidence_fields?,relationship_raw?,rationale?}]",
+            "entity_upserts": "list[{label,aliases?,entity_kind?,source_bead_id?,evidence?,confidence?,provenance?}]",
         },
         "append_only_rules": [
             "promotion_marked can only be set true and means preserve_full_in_rolling semantics",
@@ -254,6 +299,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
 
         promoted = 0
         appended = 0
+        entity_upserts_applied = 0
         quarantined = 0
         lifecycle_applied = 0
         lifecycle_rejected = 0
@@ -287,6 +333,40 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                     b["promotion_scope"] = str(row.get("promotion_scope") or "rolling_continuity")
                     beads[bid] = b
                     promoted += 1
+            elif kind == "entity_upsert":
+                source_bead_id = str(row.get("source_bead_id") or "").strip()
+                if source_bead_id and source_bead_id not in session_bead_ids:
+                    continue
+                res = upsert_canonical_entity(
+                    index,
+                    label=str(row.get("label") or ""),
+                    aliases=[str(x) for x in (row.get("aliases") or []) if str(x).strip()],
+                    confidence=row.get("confidence", 0.72),
+                    provenance={
+                        "kind": str(row.get("provenance") or "model_inferred"),
+                        "bead_id": source_bead_id,
+                        "source": "crawler_entity_upsert",
+                        "entity_kind": str(row.get("entity_kind") or "other"),
+                        "evidence": str(row.get("evidence") or "")[:240],
+                    },
+                )
+                if not res.get("ok"):
+                    continue
+                entity_upserts_applied += 1
+                if source_bead_id:
+                    bead = beads.get(source_bead_id)
+                    eid = str(res.get("entity_id") or "")
+                    if isinstance(bead, dict) and eid:
+                        entity_ids = [str(x) for x in (bead.get("entity_ids") or []) if str(x)]
+                        if eid not in entity_ids:
+                            entity_ids.append(eid)
+                        bead["entity_ids"] = entity_ids
+                        labels = [str(x) for x in (bead.get("entities") or []) if str(x)]
+                        label = str(row.get("label") or "").strip()
+                        if label and label not in labels:
+                            labels.append(label)
+                        bead["entities"] = labels
+                        beads[source_bead_id] = bead
             elif kind == "association_append":
                 src = str(row.get("source_bead") or "")
                 tgt = str(row.get("target_bead") or "")
@@ -429,6 +509,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         "merged": len(rows),
         "promotions_marked": promoted,
         "associations_appended": appended,
+        "entity_upserts_applied": entity_upserts_applied,
         "association_lifecycle_applied": lifecycle_applied,
         "association_lifecycle_rejected": lifecycle_rejected,
         "associations_quarantined": quarantined,
@@ -460,6 +541,7 @@ def apply_crawler_updates(
     Canonical semantic authority:
     - bead creation (session-local append)
     - promotion marks (queued side-log)
+    - entity registry upserts (queued side-log)
     - associations (queued side-log)
     """
     created = 0
@@ -523,6 +605,7 @@ def apply_crawler_updates(
             allowed_targets = set(str(x) for x in (visible_bead_ids or [])) or set(session_bead_ids)
 
         promotions, assoc_rows, lifecycle_rows = _normalize_review_rows(updates or {})
+        entity_rows = _normalize_entity_rows(updates or {})
         if current_turn_bead_id:
             for assoc_row in assoc_rows:
                 src = str(assoc_row.get("source_bead") or "").strip()
@@ -551,6 +634,7 @@ def apply_crawler_updates(
         queued_assoc_keys: set[tuple[str, str, str]] = set()
         quarantined = 0
         promoted = 0
+        entity_upserts_queued = 0
         for bid in promotions:
             b = beads.get(str(bid))
             if not b or str(b.get("session_id") or "") != str(session_id) or str(bid) not in session_bead_ids:
@@ -567,6 +651,29 @@ def apply_crawler_updates(
                 },
             )
             promoted += 1
+
+        for row in entity_rows:
+            source_bead_id = str(row.get("source_bead_id") or "").strip()
+            if source_bead_id and source_bead_id not in session_bead_ids:
+                continue
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "entity_upsert",
+                    "session_id": str(session_id),
+                    "label": str(row.get("label") or ""),
+                    "aliases": list(row.get("aliases") or []),
+                    "confidence": row.get("confidence"),
+                    "entity_kind": str(row.get("entity_kind") or "other"),
+                    "source_bead_id": source_bead_id or None,
+                    "source_bead_key": row.get("source_bead_key"),
+                    "evidence": str(row.get("evidence") or "") or None,
+                    "provenance": str(row.get("provenance") or "model_inferred"),
+                    "created_at": now,
+                },
+            )
+            entity_upserts_queued += 1
 
         appended = 0
         lifecycle_queued = 0
@@ -704,6 +811,7 @@ def apply_crawler_updates(
         "created_bead_ids": created_bead_ids,
         "current_turn_bead_id": current_turn_bead_id,
         "promotions_marked": promoted,
+        "entity_upserts_queued": entity_upserts_queued,
         "associations_appended": appended,
         "association_lifecycle_queued": lifecycle_queued,
         "association_lifecycle_rejected": lifecycle_rejected,

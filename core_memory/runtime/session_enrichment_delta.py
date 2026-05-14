@@ -319,6 +319,7 @@ def _normalize_entity_upsert_row(
         "normalized_label": normalized_label,
         "aliases": alias_norms[:12],
         "entity_kind": _as_str(row.get("entity_kind") or row.get("kind")) or "other",
+        "source_bead_id": _as_str(row.get("source_bead_id") or row.get("bead_id")) or None,
         "source_bead_key": source_bead_key,
         "evidence": _as_str(row.get("evidence")) or None,
     }
@@ -1106,6 +1107,7 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
         "promotions": [],
         "associations": [],
         "association_lifecycle": [],
+        "entity_upserts": [],
         "claims": [],
         "claim_updates": [],
         "goal_lifecycle": [],
@@ -1156,6 +1158,25 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
                     "provenance": _row_provenance_kind(row),
                 }
             )
+    entity_adapter_keys = {
+        "dedupe_key",
+        "provenance",
+        "context_fingerprint",
+        "sequence_key",
+        "rationale",
+        "normalized_label",
+    }
+    for row in delta.get("entity_upserts") or []:
+        if isinstance(row, dict):
+            source = _as_str((row.get("provenance") or {}).get("source") if isinstance(row.get("provenance"), dict) else "")
+            if source == "crawler_updates.beads_create.entities":
+                # These are audit rows for bead_create.entities. Projecting them
+                # would duplicate write-time programmatic indexing for the same
+                # newly-created bead. Explicit crawler entity_upserts still roundtrip.
+                continue
+            projected = _strip_adapter_keys_for_projection(row, entity_adapter_keys)
+            projected["provenance"] = _row_provenance_kind(row)
+            out["entity_upserts"].append(projected)
     claim_adapter_keys = {
         "dedupe_key",
         "provenance",
