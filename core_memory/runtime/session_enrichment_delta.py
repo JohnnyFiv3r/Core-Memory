@@ -880,7 +880,7 @@ def crawler_updates_to_delta(
                 )
             )
             continue
-        if visible_bead_ids and tgt not in visible_bead_ids and not historical_association_scope:
+        if tgt not in visible_bead_ids and not historical_association_scope:
             quarantine_rows.append(
                 _quarantine(
                     "associations",
