@@ -134,6 +134,38 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("noncanonical_relationship:shared_tag", quarantine[0]["reasons"])
 
+    def test_association_target_outside_visible_window_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"associations": [{"source_bead_id": "b2", "target_bead_id": "b9", "relationship": "supports"}]},
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1", "b2"]},
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual([], delta["associations"])
+        self.assertEqual([], projected["associations"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("target_outside_visible_window", delta["diagnostics"]["quarantine"][0]["reasons"])
+
+    def test_historical_session_association_scope_allows_nonvisible_targets(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "association_scope": "historical_session",
+                "associations": [{"source_bead_id": "b2", "target_bead_id": "b9", "relationship": "supports"}],
+            },
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1", "b2"]},
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual("historical_session", delta["association_scope"])
+        self.assertEqual(1, len(delta["associations"]))
+        self.assertEqual("b9", delta["associations"][0]["target_bead_id"])
+        self.assertEqual("historical_session", projected["association_scope"])
+        self.assertEqual("b9", projected["associations"][0]["target_bead_id"])
+
     def test_bead_entities_are_projected_as_delta_entity_upserts(self):
         delta = crawler_updates_to_delta(
             session_id="s1",

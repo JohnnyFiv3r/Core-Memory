@@ -686,6 +686,9 @@ def crawler_updates_to_delta(
         selection_reason="queued_enrichment" if source_kind == "queued" else "turn_finalization",
     )
     ctx_fp = _as_str(window_ref.get("context_fingerprint"))
+    visible_bead_ids = set(_str_list(window_ref.get("visible_bead_ids")))
+    association_scope = _as_str(raw.get("association_scope")).lower()
+    historical_association_scope = association_scope == "historical_session"
     source_kind_norm = _as_str(source_kind) or "inline"
     default_provenance_kind = source_kind_norm if source_kind_norm in {"fallback", "test"} else "model_inferred"
     quarantine_rows: list[dict[str, Any]] = []
@@ -727,6 +730,8 @@ def crawler_updates_to_delta(
         "memory_outcomes": [],
         "diagnostics": {},
     }
+    if historical_association_scope:
+        delta["association_scope"] = "historical_session"
 
     bead_rows, q = _bounded(
         [r for r in raw.get("beads_create") or [] if isinstance(r, dict)],
@@ -870,6 +875,17 @@ def crawler_updates_to_delta(
                     "associations",
                     quarantined,
                     [f"noncanonical_relationship:{rel or 'empty'}"],
+                    session_id=sid,
+                    turn_id=tid,
+                )
+            )
+            continue
+        if visible_bead_ids and tgt not in visible_bead_ids and not historical_association_scope:
+            quarantine_rows.append(
+                _quarantine(
+                    "associations",
+                    row,
+                    ["target_outside_visible_window"],
                     session_id=sid,
                     turn_id=tid,
                 )
@@ -1086,6 +1102,8 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
         "goal_lifecycle": [],
         "memory_outcomes": [],
     }
+    if _as_str(delta.get("association_scope")).lower() == "historical_session":
+        out["association_scope"] = "historical_session"
     for row in delta.get("beads_create") or []:
         if isinstance(row, dict):
             adapter_keys = {
