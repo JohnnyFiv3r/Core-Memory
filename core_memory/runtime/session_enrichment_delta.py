@@ -1302,7 +1302,12 @@ def canonical_session_projection(root: str | Path, session_id: str) -> dict[str,
             prov = []
             for p in normalized.get("provenance") or []:
                 if isinstance(p, dict):
-                    prov.append(_strip_keys(p, {"ts", "created_at", "updated_at"}))
+                    p_norm = _strip_keys(p, {"ts", "created_at", "updated_at"})
+                    bead_id = _as_str(p_norm.get("bead_id"))
+                    if bead_id:
+                        p_norm["bead_key"] = bead_id_map.get(bead_id, bead_id)
+                        p_norm.pop("bead_id", None)
+                    prov.append(p_norm)
             normalized["provenance"] = _normalize_list(prov)
         entities[_as_str(eid)] = normalized
 

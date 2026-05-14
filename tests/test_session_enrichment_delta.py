@@ -481,7 +481,7 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
             "entity_upserts": lambda n: {"label": f"Entity {n}"},
             "claims": lambda n: {
                 "id": f"claim-{n}",
-                "claim_kind": "fact",
+                "claim_kind": "custom",
                 "subject": f"subject-{n}",
                 "slot": "status",
                 "value": f"value-{n}",
@@ -758,6 +758,24 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
 
 
 class TestCanonicalSessionProjection(unittest.TestCase):
+    def _seed_two_bead_store(self, root: str) -> tuple[str, str]:
+        store = MemoryStore(root)
+        b1 = store.add_bead(
+            type="decision",
+            title="Use JSONB",
+            summary=["Keep writes transactional"],
+            session_id="s1",
+            source_turn_ids=["t1"],
+        )
+        b2 = store.add_bead(
+            type="context",
+            title="JSONB rationale",
+            summary=["The rationale supports the decision"],
+            session_id="s1",
+            source_turn_ids=["t2"],
+        )
+        return str(b1), str(b2)
+
     def test_delta_projection_matches_direct_crawler_committed_state(self):
         from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
 
@@ -819,6 +837,251 @@ class TestCanonicalSessionProjection(unittest.TestCase):
             self.assertTrue(
                 projections_equal(canonical_session_projection(left, "s1"), canonical_session_projection(right, "s1"))
             )
+
+    def test_delta_projection_matches_direct_entity_registry_projection(self):
+        from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
+
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as td:
+            self._seed_two_bead_store(base)
+            left = str(Path(td) / "direct")
+            right = str(Path(td) / "delta")
+            shutil.copytree(base, left)
+            shutil.copytree(base, right)
+
+            updates = {
+                "beads_create": [
+                    {
+                        "type": "decision",
+                        "title": "OpenAI Platform migration",
+                        "summary": ["OpenAI Platform was selected for the migration."],
+                        "source_turn_ids": ["t3"],
+                        "entities": ["OpenAI Platform", "Open AI Platform"],
+                    }
+                ]
+            }
+
+            apply_crawler_updates(left, "s1", updates)
+            merge_crawler_updates(root=left, session_id="s1")
+
+            delta = crawler_updates_to_delta(session_id="s1", turn_id="t3", updates=updates)
+            apply_crawler_updates(right, "s1", delta_to_crawler_updates(delta))
+            merge_crawler_updates(root=right, session_id="s1")
+
+            left_projection = canonical_session_projection(left, "s1")
+            right_projection = canonical_session_projection(right, "s1")
+            self.assertTrue(projections_equal(left_projection, right_projection))
+            self.assertIn("entities", left_projection)
+
+    def test_delta_projection_matches_direct_claim_rows_and_updates(self):
+        from core_memory.persistence.store_claim_ops import write_claims_to_bead, write_claim_updates_to_bead
+
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as td:
+            b1, b2 = self._seed_two_bead_store(base)
+            left = str(Path(td) / "direct")
+            right = str(Path(td) / "delta")
+            shutil.copytree(base, left)
+            shutil.copytree(base, right)
+
+            updates = {
+                "claims": [
+                    {
+                        "id": "claim-jsonb",
+                        "claim_kind": "custom",
+                        "subject": "PostgreSQL",
+                        "slot": "storage_choice",
+                        "value": "JSONB",
+                        "reason_text": "The session selected JSONB.",
+                        "confidence": 0.8,
+                        "source_bead_id": b1,
+                        "source_turn_ids": ["t1"],
+                    }
+                ],
+                "claim_updates": [
+                    {
+                        "id": "update-jsonb",
+                        "decision": "reaffirm",
+                        "target_claim_id": "claim-jsonb",
+                        "subject": "PostgreSQL",
+                        "slot": "storage_choice",
+                        "trigger_bead_id": b2,
+                        "reason_text": "The rationale still supports JSONB.",
+                    }
+                ],
+            }
+
+            write_claims_to_bead(left, b1, updates["claims"])
+            write_claim_updates_to_bead(left, b2, updates["claim_updates"])
+
+            projected = delta_to_crawler_updates(
+                crawler_updates_to_delta(session_id="s1", turn_id="t3", updates=updates)
+            )
+            write_claims_to_bead(right, b1, projected["claims"])
+            write_claim_updates_to_bead(right, b2, projected["claim_updates"])
+
+            self.assertTrue(
+                projections_equal(canonical_session_projection(left, "s1"), canonical_session_projection(right, "s1"))
+            )
+
+    def test_delta_projected_claim_rows_and_updates_are_rerun_idempotent(self):
+        from core_memory.persistence.store_claim_ops import write_claims_to_bead, write_claim_updates_to_bead
+
+        with tempfile.TemporaryDirectory() as td:
+            b1, b2 = self._seed_two_bead_store(td)
+            updates = {
+                "claims": [
+                    {
+                        "id": "claim-jsonb",
+                        "claim_kind": "custom",
+                        "subject": "PostgreSQL",
+                        "slot": "storage_choice",
+                        "value": "JSONB",
+                        "reason_text": "The session selected JSONB.",
+                        "confidence": 0.8,
+                        "source_bead_id": b1,
+                        "source_turn_ids": ["t1"],
+                    }
+                ],
+                "claim_updates": [
+                    {
+                        "id": "update-jsonb",
+                        "decision": "reaffirm",
+                        "target_claim_id": "claim-jsonb",
+                        "subject": "PostgreSQL",
+                        "slot": "storage_choice",
+                        "trigger_bead_id": b2,
+                        "reason_text": "The rationale still supports JSONB.",
+                    }
+                ],
+            }
+            projected = delta_to_crawler_updates(
+                crawler_updates_to_delta(session_id="s1", turn_id="t3", updates=updates)
+            )
+
+            write_claims_to_bead(td, b1, projected["claims"])
+            write_claim_updates_to_bead(td, b2, projected["claim_updates"])
+            first = canonical_session_projection(td, "s1")
+
+            write_claims_to_bead(td, b1, projected["claims"])
+            write_claim_updates_to_bead(td, b2, projected["claim_updates"])
+            second = canonical_session_projection(td, "s1")
+
+            self.assertTrue(projections_equal(first, second))
+            bead_rows = second["beads"]
+            claims = [claim for bead in bead_rows.values() for claim in bead.get("claims", [])]
+            updates_rows = [update for bead in bead_rows.values() for update in bead.get("claim_updates", [])]
+            self.assertEqual(1, len(claims))
+            self.assertEqual(1, len(updates_rows))
+
+    def test_delta_projection_matches_direct_promotion_and_association_lifecycle_state(self):
+        from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
+
+        def seed_assoc(root: str, source: str, target: str) -> None:
+            idx_path = Path(root) / ".beads" / "index.json"
+            idx = json.loads(idx_path.read_text(encoding="utf-8"))
+            idx["associations"] = [
+                {
+                    "id": "assoc-jsonb",
+                    "type": "association",
+                    "source_bead": source,
+                    "target_bead": target,
+                    "relationship": "supports",
+                    "status": "active",
+                    "confidence": 0.5,
+                    "created_at": "2020-01-01T00:00:00+00:00",
+                }
+            ]
+            idx_path.write_text(json.dumps(idx, indent=2), encoding="utf-8")
+
+        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as td:
+            b1, b2 = self._seed_two_bead_store(base)
+            seed_assoc(base, b2, b1)
+            left = str(Path(td) / "direct")
+            right = str(Path(td) / "delta")
+            shutil.copytree(base, left)
+            shutil.copytree(base, right)
+
+            updates = {
+                "promotions": [b1],
+                "association_lifecycle": [
+                    {
+                        "association_id": "assoc-jsonb",
+                        "action": "reaffirm",
+                        "reason_text": "Still supported.",
+                        "confidence": 0.8,
+                    }
+                ],
+            }
+
+            apply_crawler_updates(left, "s1", updates, visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=left, session_id="s1")
+
+            projected = delta_to_crawler_updates(
+                crawler_updates_to_delta(
+                    session_id="s1",
+                    turn_id="t3",
+                    updates=updates,
+                    crawler_ctx={"session_id": "s1", "visible_bead_ids": [b1, b2]},
+                )
+            )
+            apply_crawler_updates(right, "s1", projected, visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=right, session_id="s1")
+
+            self.assertTrue(
+                projections_equal(canonical_session_projection(left, "s1"), canonical_session_projection(right, "s1"))
+            )
+
+    def test_delta_projected_promotion_and_lifecycle_are_rerun_idempotent(self):
+        from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
+
+        with tempfile.TemporaryDirectory() as td:
+            b1, b2 = self._seed_two_bead_store(td)
+            idx_path = Path(td) / ".beads" / "index.json"
+            idx = json.loads(idx_path.read_text(encoding="utf-8"))
+            idx["associations"] = [
+                {
+                    "id": "assoc-jsonb",
+                    "type": "association",
+                    "source_bead": b2,
+                    "target_bead": b1,
+                    "relationship": "supports",
+                    "status": "active",
+                    "confidence": 0.5,
+                    "created_at": "2020-01-01T00:00:00+00:00",
+                }
+            ]
+            idx_path.write_text(json.dumps(idx, indent=2), encoding="utf-8")
+            updates = {
+                "promotions": [b1],
+                "association_lifecycle": [
+                    {
+                        "association_id": "assoc-jsonb",
+                        "action": "reaffirm",
+                        "reason_text": "Still supported.",
+                        "confidence": 0.8,
+                    }
+                ],
+            }
+            projected = delta_to_crawler_updates(
+                crawler_updates_to_delta(
+                    session_id="s1",
+                    turn_id="t3",
+                    updates=updates,
+                    crawler_ctx={"session_id": "s1", "visible_bead_ids": [b1, b2]},
+                )
+            )
+
+            apply_crawler_updates(td, "s1", projected, visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=td, session_id="s1")
+            first = canonical_session_projection(td, "s1")
+
+            apply_crawler_updates(td, "s1", projected, visible_bead_ids=[b1, b2])
+            merge_crawler_updates(root=td, session_id="s1")
+            second = canonical_session_projection(td, "s1")
+
+            self.assertTrue(projections_equal(first, second))
+            self.assertEqual(1, len(second["associations"]))
+            self.assertEqual("active", second["associations"][0]["status"])
+            self.assertEqual(0.8, second["associations"][0]["confidence"])
 
     def test_delta_projection_replay_is_idempotent_for_side_effect_rows(self):
         from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates

@@ -149,6 +149,46 @@ def _normalize_claim_update_rows(rows: list[dict]) -> list[dict]:
     return out
 
 
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _claim_dedupe_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    claim_id = str(row.get("id") or "").strip()
+    if claim_id:
+        return ("id", claim_id)
+    return (
+        "semantic",
+        str(row.get("subject") or "").strip().lower(),
+        str(row.get("slot") or "").strip().lower(),
+        _canonical_json(row.get("value")),
+        str(row.get("source_bead_id") or "").strip(),
+        tuple(str(x).strip() for x in (row.get("source_turn_ids") or []) if str(x).strip()),
+    )
+
+
+def _claim_update_dedupe_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    return (
+        str(row.get("decision") or "").strip().lower(),
+        str(row.get("target_claim_id") or "").strip(),
+        str(row.get("replacement_claim_id") or "").strip(),
+        str(row.get("trigger_bead_id") or "").strip(),
+    )
+
+
+def _append_deduped_rows(existing: list[dict], incoming: list[dict], key_fn) -> int:
+    seen = {key_fn(row) for row in existing if isinstance(row, dict)}
+    appended = 0
+    for row in incoming:
+        key = key_fn(row)
+        if key in seen:
+            continue
+        existing.append(row)
+        seen.add(key)
+        appended += 1
+    return appended
+
+
 def _legacy_read_claims_for_bead(root: str, bead_id: str) -> list[dict]:
     path = _legacy_claims_path(root, bead_id)
     raw = _read_json(path, default=[])
@@ -171,7 +211,8 @@ def write_claims_to_bead(root: str, bead_id: str, claims: list[dict]) -> None:
     row = _ensure_bead(idx, bead_id)
 
     normalized = _normalize_claim_rows(claims)
-    row["claims"].extend(normalized)
+    if normalized:
+        _append_deduped_rows(row["claims"], normalized, _claim_dedupe_key)
 
     _write_json_atomic(_index_path(root), idx)
 
@@ -186,7 +227,8 @@ def write_claim_updates_to_bead(root: str, bead_id: str, claim_updates: list[dic
     row = _ensure_bead(idx, bead_id)
 
     normalized = _normalize_claim_update_rows(claim_updates)
-    row["claim_updates"].extend(normalized)
+    if normalized:
+        _append_deduped_rows(row["claim_updates"], normalized, _claim_update_dedupe_key)
 
     _write_json_atomic(_index_path(root), idx)
 
