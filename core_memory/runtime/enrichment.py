@@ -152,7 +152,20 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             from core_memory.runtime.engine import extract_and_attach_claims
             created_bead_ids = list((results.get("association") or {}).get("created_bead_ids") or [])
             req_stub = {"session_id": session_id, "turn_id": turn_id, "user_query": payload.get("user_query", "")}
-            claim_telemetry = extract_and_attach_claims(root, session_id, turn_id, created_bead_ids, req_stub) or {}
+            claim_telemetry = extract_and_attach_claims(root, session_id, turn_id, created_bead_ids, req_stub, persist=False) or {}
+            canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
+            claims_batch = list(claim_telemetry.get("claims_batch") or [])
+            if canonical_bead_id and claims_batch:
+                for claim in claims_batch:
+                    if isinstance(claim, dict):
+                        claim.setdefault("source_bead_id", canonical_bead_id)
+                claim_queue = run_association_pass(
+                    root=root,
+                    session_id=session_id,
+                    updates={"claims": claims_batch},
+                    visible_bead_ids=visible_ids,
+                )
+                claim_telemetry["claims_queued"] = int(claim_queue.get("claims_queued") or 0)
             results["stages_completed"].append("claims")
         except Exception as exc:
             logger.warning("enrichment: claim extraction failed for turn %s: %s", turn_id, exc)
@@ -197,11 +210,20 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             claims_batch = list(claim_telemetry.get("claims_batch") or [])
             if canonical_bead_id and claims_batch:
-                emit_claim_updates(
+                claim_updates = emit_claim_updates(
                     root, claims_batch, canonical_bead_id,
                     session_id=session_id, visible_bead_ids=visible_ids,
                     reviewed_updates=reviewed_updates, decision_pass=decision_pass,
-                )
+                    persist=False,
+                ) or []
+                if claim_updates:
+                    run_association_pass(
+                        root=root,
+                        session_id=session_id,
+                        updates={"claim_updates": claim_updates},
+                        visible_bead_ids=visible_ids,
+                    )
+                    merge_crawler_updates(root=root, session_id=session_id)
             results["stages_completed"].append("claim_updates")
         except Exception as exc:
             logger.warning("enrichment: claim updates failed for turn %s: %s", turn_id, exc)

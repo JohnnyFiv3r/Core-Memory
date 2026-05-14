@@ -87,6 +87,7 @@ def emit_claim_updates(
     visible_bead_ids: list[str] | None = None,
     reviewed_updates: dict[str, Any] | None = None,
     decision_pass: dict[str, Any] | None = None,
+    persist: bool = True,
 ) -> list[dict]:
     """
     Emit ClaimUpdates in decision phase.
@@ -179,7 +180,7 @@ def emit_claim_updates(
         dedupe.add(key)
         emitted.append(update)
 
-    if emitted:
+    if emitted and persist:
         write_claim_updates_to_bead(root, trig, emitted)
 
     return emitted

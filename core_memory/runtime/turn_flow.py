@@ -396,7 +396,21 @@ def process_turn_finalized_impl(
             created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
             claim_telemetry = extract_and_attach_claims_fn(
                 root, req["session_id"], req["turn_id"], created_bead_ids, req,
+                persist=False,
             ) or {}
+            canonical_claim_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
+            claims_batch_for_queue = list(claim_telemetry.get("claims_batch") or [])
+            if canonical_claim_bead_id and claims_batch_for_queue:
+                for claim in claims_batch_for_queue:
+                    if isinstance(claim, dict):
+                        claim.setdefault("source_bead_id", canonical_claim_bead_id)
+                claim_queue = run_association_pass(
+                    root=root,
+                    session_id=req["session_id"],
+                    updates={"claims": claims_batch_for_queue},
+                    visible_bead_ids=visible_ids,
+                )
+                claim_telemetry["claims_queued"] = int(claim_queue.get("claims_queued") or 0)
 
         preview_queued = queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
         turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
@@ -413,8 +427,17 @@ def process_turn_finalized_impl(
                 root, claims_batch, canonical_turn_bead_id,
                 session_id=req["session_id"], visible_bead_ids=visible_ids,
                 reviewed_updates=reviewed_updates, decision_pass=decision_pass,
+                persist=False,
             ) or []
             claim_updates_emitted = len(claim_updates)
+            if claim_updates:
+                run_association_pass(
+                    root=root,
+                    session_id=req["session_id"],
+                    updates={"claim_updates": claim_updates},
+                    visible_bead_ids=visible_ids,
+                )
+                turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
 
         if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
             md = dict(req.get("metadata") or {})
