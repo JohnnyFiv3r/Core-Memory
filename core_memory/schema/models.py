@@ -396,9 +396,27 @@ def _normalize_claim_update_payload(data: dict[str, Any]) -> dict[str, Any]:
         out["replacement_claim_id"] = out.get("successor_claim_id")
 
     # Normalize optional string fields
-    for k in ("target_claim_id", "replacement_claim_id", "subject", "slot", "reason_text", "trigger_bead_id"):
+    for k in (
+        "target_claim_id",
+        "replacement_claim_id",
+        "subject",
+        "slot",
+        "reason_text",
+        "trigger_bead_id",
+        "grounding_hash",
+        "judge_model",
+        "prompt_version",
+        "rubric_version",
+    ):
         if out.get(k) is not None:
             out[k] = str(out.get(k))
+    if out.get("chain_seq") is not None:
+        try:
+            out["chain_seq"] = int(out.get("chain_seq"))
+        except Exception:
+            out.pop("chain_seq", None)
+    if out.get("evidence_bead_ids") is not None:
+        out["evidence_bead_ids"] = [str(x) for x in (out.get("evidence_bead_ids") or []) if str(x).strip()]
 
     out["decision"] = normalize_claim_update_decision(out.get("decision"))
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
@@ -442,6 +460,12 @@ class ClaimUpdate:
     reason_text: str = ""
     confidence: float = 0.8
     trigger_bead_id: str | None = None
+    grounding_hash: str = ""
+    evidence_bead_ids: list = field(default_factory=list)
+    judge_model: str = "current-runtime"
+    prompt_version: str = "current-runtime"
+    rubric_version: str = "current-runtime"
+    chain_seq: int | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
