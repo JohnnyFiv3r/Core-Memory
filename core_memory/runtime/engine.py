@@ -341,8 +341,12 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
                 continue
             if (bid, target_id) in existing_keys or (target_id, bid) in existing_keys:
                 continue
-            rel = str(preview.get("relationship") or "related_to")
-            if rel == "shared_tag" and not allow_shared_tag:
+            rel = str(preview.get("relationship") or "associated_with")
+            reason_code = str(preview.get("reason_code") or "")
+            # shared_tag is no longer a canonical preview relationship. Preserve
+            # the old promotion guard by filtering canonical associated_with rows
+            # that were produced only by the shared-tag heuristic.
+            if (rel == "shared_tag" or (rel == "associated_with" and reason_code == "shared_tag_overlap")) and not allow_shared_tag:
                 continue
             if rel == "precedes":
                 continue
@@ -358,6 +362,8 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
                     "relationship": rel,
                     "edge_class": "preview_promoted",
                     "confidence": preview.get("score", 0),
+                    "reason_code": preview.get("reason_code"),
+                    "reason_text": preview.get("reason_text"),
                     "created_at": now,
                 },
             )
@@ -369,6 +375,9 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
 
 def _non_temporal_semantic_association_count(updates: dict[str, Any]) -> int:
     associations = list((updates or {}).get("associations") or [])
+    # Keep generic/temporal/noise preview labels out of semantic-count gating.
+    # Rich canonical relations emitted by association.preview (for example
+    # caused_by/led_to/supports) intentionally remain counted.
     excluded = {"follows", "precedes", "shared_tag", "associated_with"}
     count = 0
     for row in associations:

@@ -375,6 +375,7 @@ def process_turn_finalized_impl(
     claim_telemetry: dict[str, Any] = {}
     claim_updates_emitted = 0
     memory_outcome_written = False
+    goal_lifecycle: dict[str, Any] = {}
 
     if not enrichment_queued:
         # Fallback: run enrichment stages inline (pre-F-W1 behavior)
@@ -409,9 +410,12 @@ def process_turn_finalized_impl(
         canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
         claims_batch = list(claim_telemetry.get("claims_batch") or [])
         if emit_claim_updates_fn is not None and canonical_turn_bead_id and claims_batch:
+            claim_visible_ids = sorted(
+                set(visible_ids + [str(x) for x in (req.get("window_bead_ids") or []) if str(x).strip()])
+            )
             claim_updates = emit_claim_updates_fn(
                 root, claims_batch, canonical_turn_bead_id,
-                session_id=req["session_id"], visible_bead_ids=visible_ids,
+                session_id=req["session_id"], visible_bead_ids=claim_visible_ids,
                 reviewed_updates=reviewed_updates, decision_pass=decision_pass,
             ) or []
             claim_updates_emitted = len(claim_updates)
@@ -434,6 +438,21 @@ def process_turn_finalized_impl(
                     memory_outcome=outcome.get("memory_outcome"),
                 )
                 memory_outcome_written = True
+
+        try:
+            from core_memory.runtime.goal_lifecycle import resolve_goals_for_turn
+            goal_visible_ids = sorted(
+                set(visible_ids + [str(x) for x in (req.get("window_bead_ids") or []) if str(x).strip()])
+            )
+            goal_lifecycle = resolve_goals_for_turn(
+                root=root,
+                session_id=req["session_id"],
+                turn_id=req["turn_id"],
+                outcome_bead_id=canonical_turn_bead_id or bead_id,
+                visible_bead_ids=goal_visible_ids,
+            )
+        except Exception:
+            goal_lifecycle = {"ok": False, "error": "goal_lifecycle_failed"}
 
         emit_agent_turn_quality_metric(
             root=root, req=req, gate=gate, updates=reviewed_updates,
@@ -460,6 +479,7 @@ def process_turn_finalized_impl(
         "claim_telemetry": claim_telemetry,
         "claim_updates_emitted": claim_updates_emitted,
         "memory_outcome_written": memory_outcome_written,
+        "goal_lifecycle": goal_lifecycle,
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
     return out

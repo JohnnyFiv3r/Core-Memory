@@ -37,6 +37,26 @@ def enqueue_turn_enrichment(
         return None
 
     from core_memory.runtime.side_effect_queue import enqueue_side_effect_event
+    from core_memory.runtime.session_enrichment_delta import (
+        crawler_updates_to_delta,
+        delta_to_crawler_updates,
+        write_delta_quarantine,
+    )
+
+    idempotency_key = f"enrich-{session_id}-{turn_id}"
+    enrichment_delta = crawler_updates_to_delta(
+        session_id=session_id,
+        turn_id=turn_id,
+        updates=reviewed_updates or {},
+        crawler_ctx=crawler_ctx or {},
+        source_kind="queued",
+        authority_path="turn-enrichment",
+        origin=str(req.get("origin") or "USER_TURN"),
+        idempotency_key=idempotency_key,
+        window_turn_ids=list(req.get("window_turn_ids") or []),
+    )
+    quarantine_result = write_delta_quarantine(root, enrichment_delta)
+    projected_reviewed_updates = delta_to_crawler_updates(enrichment_delta)
 
     return enqueue_side_effect_event(
         root=root,
@@ -47,12 +67,14 @@ def enqueue_turn_enrichment(
             "bead_id": bead_id,
             "user_query": str(req.get("user_query") or ""),
             "assistant_final": str(req.get("assistant_final") or ""),
-            "reviewed_updates": dict(reviewed_updates or {}),
+            "reviewed_updates": projected_reviewed_updates,
+            "enrichment_delta": enrichment_delta,
+            "delta_quarantine": quarantine_result,
             "crawler_visible_bead_ids": list((crawler_ctx or {}).get("visible_bead_ids") or []),
             "metadata": dict(req.get("metadata") or {}),
             "window_bead_ids": list(req.get("window_bead_ids") or []),
         },
-        idempotency_key=f"enrich-{session_id}-{turn_id}",
+        idempotency_key=idempotency_key,
     )
 
 
@@ -67,7 +89,11 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     session_id = str(payload.get("session_id") or "")
     turn_id = str(payload.get("turn_id") or "")
     bead_id = str(payload.get("bead_id") or "")
+    enrichment_delta = payload.get("enrichment_delta") if isinstance(payload.get("enrichment_delta"), dict) else None
     reviewed_updates = dict(payload.get("reviewed_updates") or {})
+    if isinstance(enrichment_delta, dict):
+        from core_memory.runtime.session_enrichment_delta import delta_to_crawler_updates
+        reviewed_updates = delta_to_crawler_updates(dict(enrichment_delta or {}))
     crawler_visible = list(payload.get("crawler_visible_bead_ids") or [])
 
     from core_memory.runtime.engine import (
@@ -83,6 +109,15 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     )
 
     results: dict[str, Any] = {"stages_completed": [], "stages_failed": []}
+    if isinstance(enrichment_delta, dict):
+        delta_diag = dict(enrichment_delta.get("diagnostics") or {})
+        results["enrichment_delta"] = {
+            "schema": str(enrichment_delta.get("schema") or ""),
+            "idempotency_key": str((enrichment_delta.get("source") or {}).get("idempotency_key") or ""),
+            "accepted_counts": dict(delta_diag.get("accepted_counts") or {}),
+            "quarantined_counts": dict(delta_diag.get("quarantined_counts") or {}),
+            "quarantined": int(delta_diag.get("quarantined") or 0),
+        }
 
     session_visible = _session_visible_bead_ids(root=root, session_id=session_id)
     visible_ids = sorted(set(crawler_visible + session_visible))
@@ -162,9 +197,12 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             claims_batch = list(claim_telemetry.get("claims_batch") or [])
             if canonical_bead_id and claims_batch:
+                claim_visible_ids = sorted(
+                    set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])
+                )
                 emit_claim_updates(
                     root, claims_batch, canonical_bead_id,
-                    session_id=session_id, visible_bead_ids=visible_ids,
+                    session_id=session_id, visible_bead_ids=claim_visible_ids,
                     reviewed_updates=reviewed_updates, decision_pass=decision_pass,
                 )
             results["stages_completed"].append("claim_updates")
@@ -179,7 +217,12 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             if canonical_bead_id:
                 md = dict(payload.get("metadata") or {})
-                context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or payload.get("window_bead_ids") or [])
+                context_beads = list(
+                    md.get("retrieved_beads")
+                    or md.get("context_beads")
+                    or payload.get("window_bead_ids")
+                    or []
+                )
                 turn_context = {
                     "retrieved_beads": context_beads,
                     "query": str(payload.get("user_query") or ""),
@@ -199,7 +242,27 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             logger.warning("enrichment: memory outcome failed for turn %s: %s", turn_id, exc)
             results["stages_failed"].append("memory_outcome")
 
-    # Stage 8: quality metric
+    # Stage 8: goal lifecycle resolution
+    try:
+        from core_memory.runtime.goal_lifecycle import resolve_goals_for_turn
+        canonical_bead_id = str((claim_telemetry or {}).get("canonical_bead_id") or bead_id)
+        goal_visible_ids = sorted(
+            set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])
+        )
+        goal_lifecycle = resolve_goals_for_turn(
+            root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            outcome_bead_id=canonical_bead_id,
+            visible_bead_ids=goal_visible_ids,
+        )
+        results["goal_lifecycle"] = goal_lifecycle
+        results["stages_completed"].append("goal_lifecycle")
+    except Exception as exc:
+        logger.warning("enrichment: goal lifecycle failed for turn %s: %s", turn_id, exc)
+        results["stages_failed"].append("goal_lifecycle")
+
+    # Stage 9: quality metric
     try:
         _emit_agent_turn_quality_metric(
             root=root,

@@ -16,14 +16,84 @@ def _causal_hint_score(text: str) -> int:
     cues = [
         "because",
         "caused",
+        "caused by",
         "led to",
         "blocked",
         "unblocked",
         "therefore",
         "so that",
         "due to",
+        "resulted in",
+        "as a result",
     ]
     return sum(1 for c in cues if c in t)
+
+
+def _created_order(left: dict, right: dict) -> int:
+    """Return -1 when left appears older than right, 1 when newer, else 0.
+
+    Stored timestamps are ISO-8601 strings in normal operation; lexical ordering is
+    deterministic for the canonical format and gracefully degrades to unknown for
+    missing/equal values.
+    """
+    lval = str(left.get("created_at") or "")
+    rval = str(right.get("created_at") or "")
+    if not lval or not rval or lval == rval:
+        return 0
+    return -1 if lval < rval else 1
+
+
+def _relationship_for_candidate(
+    *,
+    bead: dict,
+    other: dict,
+    shared_tags: list[str],
+    token_overlap: int,
+    same_session: bool,
+    new_causal: int,
+    other_causal: int,
+) -> tuple[str, str, str]:
+    """Assign a canonical relationship plus auditable heuristic metadata."""
+    order = _created_order(bead, other)
+    causal_overlap = bool(new_causal and other_causal)
+
+    if causal_overlap and same_session:
+        return (
+            "supports",
+            "causal_overlap_same_session",
+            "Both same-session beads contain causal language and overlapping context.",
+        )
+
+    if (new_causal or other_causal) and not same_session and (token_overlap or shared_tags):
+        if order < 0:
+            return (
+                "led_to",
+                "causal_cross_session_source_precedes_target",
+                "Cross-session causal language with source bead preceding the target bead.",
+            )
+        return (
+            "caused_by",
+            "causal_cross_session_source_follows_target",
+            "Cross-session causal language with source bead following the target bead.",
+        )
+
+    if shared_tags:
+        return (
+            "associated_with",
+            "shared_tag_overlap",
+            "Beads share one or more tags; no stronger canonical relationship was inferred.",
+        )
+
+    if same_session:
+        if order < 0:
+            return ("precedes", "temporal_precedes", "Source bead appears earlier in the same session.")
+        return ("follows", "temporal_follows", "Source bead appears later in the same session.")
+
+    return (
+        "associated_with",
+        "lexical_overlap",
+        "Beads share lexical context; no stronger canonical relationship was inferred.",
+    )
 
 
 def run_association_pass(index: dict, bead: dict, *, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
@@ -65,13 +135,15 @@ def run_association_pass(index: dict, bead: dict, *, max_lookback: int = 40, top
         if score <= 0:
             continue
 
-        relationship = "related"
-        if new_causal and other_causal and same_session:
-            relationship = "supports"
-        elif shared_tags:
-            relationship = "shared_tag"
-        elif same_session:
-            relationship = "follows"
+        relationship, reason_code, reason_text = _relationship_for_candidate(
+            bead=bead,
+            other=other,
+            shared_tags=shared_tags,
+            token_overlap=overlap,
+            same_session=same_session,
+            new_causal=new_causal,
+            other_causal=other_causal,
+        )
 
         candidates.append(
             {
@@ -81,6 +153,8 @@ def run_association_pass(index: dict, bead: dict, *, max_lookback: int = 40, top
                 "shared_tags": shared_tags,
                 "same_session": same_session,
                 "causal_overlap": bool(new_causal and other_causal),
+                "reason_code": reason_code,
+                "reason_text": reason_text,
             }
         )
 

@@ -18,9 +18,11 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.enrichment import (
     _enrichment_queue_enabled,
     enqueue_turn_enrichment,
+    run_turn_enrichment,
 )
 from core_memory.runtime.side_effect_queue import (
     _SIDE_EFFECT_KINDS,
+    _queue_path,
     side_effect_queue_status,
 )
 
@@ -67,6 +69,12 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertFalse(result.get("duplicate", False))
 
+            import json
+            queue = json.loads(_queue_path(td).read_text(encoding="utf-8"))
+            payload = queue[0]["payload"]
+            self.assertEqual("session_enrichment_delta.v1", payload["enrichment_delta"]["schema"])
+            self.assertEqual("enrich-s1-t1", payload["enrichment_delta"]["source"]["idempotency_key"])
+
     def test_idempotent_enqueue(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
@@ -79,6 +87,34 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             self.assertTrue(r2["ok"])
             self.assertTrue(r2.get("duplicate", False))
 
+    def test_enqueue_persists_projected_reviewed_updates(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            visible_bead = s.add_bead(type="decision", title="test", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            reviewed_updates = {
+                "promotions": [visible_bead],
+                "associations": [{"source_bead_id": visible_bead, "target_bead_id": "outside-window", "relationship": "supports"}],
+            }
+
+            result = enqueue_turn_enrichment(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                bead_id=visible_bead,
+                req={"session_id": "s1", "turn_id": "t1", "user_query": "q", "assistant_final": "a"},
+                reviewed_updates=reviewed_updates,
+                crawler_ctx={"session_id": "s1", "visible_bead_ids": [visible_bead]},
+            )
+            self.assertTrue(result["ok"])
+
+            import json
+            queue = json.loads(_queue_path(td).read_text(encoding="utf-8"))
+            payload = queue[0]["payload"]
+            self.assertEqual([visible_bead], payload["reviewed_updates"]["promotions"])
+            self.assertEqual([], payload["reviewed_updates"]["associations"])
+            self.assertEqual(1, payload["enrichment_delta"]["diagnostics"]["quarantined_counts"]["associations"])
+            self.assertEqual(1, payload["delta_quarantine"]["written"])
+
     @patch.dict(os.environ, {"CORE_MEMORY_ENRICHMENT_QUEUE": "off"}, clear=False)
     def test_returns_none_when_disabled(self):
         result = enqueue_turn_enrichment(
@@ -89,6 +125,59 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             req={},
         )
         self.assertIsNone(result)
+
+
+class TestRunTurnEnrichmentDeltaAuthority(unittest.TestCase):
+    """Queued enrichment consumes normalized delta projection when available."""
+
+    @patch("core_memory.integrations.openclaw_flags.claim_layer_enabled", return_value=False)
+    @patch("core_memory.runtime.engine._emit_agent_turn_quality_metric", return_value=None)
+    @patch("core_memory.runtime.engine.run_session_decision_pass", return_value={})
+    @patch("core_memory.runtime.engine._queue_preview_associations", return_value=0)
+    @patch("core_memory.association.crawler_contract.merge_crawler_updates", return_value={"associations_appended": 0})
+    @patch("core_memory.runtime.association_pass.run_association_pass", return_value={"created_bead_ids": []})
+    def test_enrichment_delta_overrides_parallel_reviewed_updates(
+        self,
+        association_spy,
+        _merge_spy,
+        _preview_spy,
+        _decision_spy,
+        _quality_spy,
+        _claim_enabled_spy,
+    ):
+        from core_memory.runtime.session_enrichment_delta import crawler_updates_to_delta
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            visible_bead = store.add_bead(type="decision", title="visible", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+            delta = crawler_updates_to_delta(
+                session_id="s1",
+                turn_id="t1",
+                updates={"promotions": [visible_bead]},
+                crawler_ctx={"session_id": "s1", "visible_bead_ids": [visible_bead]},
+                source_kind="queued",
+                idempotency_key="enrich-s1-t1",
+            )
+
+            out = run_turn_enrichment(
+                root=td,
+                payload={
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "bead_id": visible_bead,
+                    "reviewed_updates": {"promotions": ["raw-reviewed-update-should-not-win"]},
+                    "enrichment_delta": delta,
+                    "crawler_visible_bead_ids": [visible_bead],
+                },
+            )
+
+        self.assertTrue(out["ok"])
+        self.assertEqual("session_enrichment_delta.v1", out["enrichment_delta"]["schema"])
+        self.assertEqual("enrich-s1-t1", out["enrichment_delta"]["idempotency_key"])
+        self.assertEqual(1, out["enrichment_delta"]["accepted_counts"]["promotions"])
+        updates = association_spy.call_args.kwargs["updates"]
+        self.assertEqual([visible_bead], updates["promotions"])
+        self.assertNotIn("raw-reviewed-update-should-not-win", updates["promotions"])
 
 
 class TestQueueStatusReflectsEnrichment(unittest.TestCase):
@@ -124,7 +213,14 @@ class TestCriticalPathPersistsBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "Why PostgreSQL?"}, {"speaker": "assistant", "role": "assistant", "content": "JSONB + transactional consistency"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "Why PostgreSQL?"},
+                    {
+                        "speaker": "assistant",
+                        "role": "assistant",
+                        "content": "JSONB + transactional consistency",
+                    },
+                ],
             )
             self.assertTrue(result.get("ok"))
             self.assertEqual(result.get("processed"), 1)
@@ -144,11 +240,129 @@ class TestCriticalPathPersistsBead(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "Why PostgreSQL?"}, {"speaker": "assistant", "role": "assistant", "content": "JSONB + transactional consistency"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "Why PostgreSQL?"},
+                    {
+                        "speaker": "assistant",
+                        "role": "assistant",
+                        "content": "JSONB + transactional consistency",
+                    },
+                ],
             )
             self.assertTrue(result.get("ok"))
             self.assertEqual(result.get("processed"), 1)
 
+
+class TestClaimDecisionVisibleWindowExpansion(unittest.TestCase):
+    """Claim decision pass includes recalled window beads, not just current-session beads."""
+
+    @patch.dict(os.environ, {
+        "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
+        "CORE_MEMORY_AGENT_AUTHORED_MODE": "off",
+    }, clear=False)
+    @patch("core_memory.runtime.engine.claim_layer_enabled", return_value=True)
+    @patch("core_memory.runtime.engine.emit_claim_updates", return_value=[])
+    @patch("core_memory.runtime.engine.extract_and_attach_claims")
+    def test_inline_claim_updates_include_window_bead_ids(
+        self,
+        extract_spy,
+        emit_spy,
+        _claim_enabled_spy,
+    ):
+        from core_memory import process_turn_finalized
+
+        extract_spy.return_value = {
+            "canonical_bead_id": "turn-bead",
+            "claims_batch": [
+                {"id": "claim-new", "subject": "user", "slot": "preference", "value": "tea"}
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            session_bead = store.add_bead(
+                type="context",
+                title="session bead",
+                summary=["current session"],
+                session_id="s1",
+                source_turn_ids=["t0"],
+            )
+            recalled_bead = store.add_bead(
+                type="context",
+                title="recalled bead",
+                summary=["prior session"],
+                session_id="s0",
+                source_turn_ids=["old-turn"],
+            )
+
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "I prefer tea now"},
+                    {"speaker": "assistant", "role": "assistant", "content": "Got it"},
+                ],
+                window_bead_ids=[recalled_bead],
+            )
+
+        self.assertTrue(out.get("ok"))
+        visible = set(emit_spy.call_args.kwargs["visible_bead_ids"])
+        self.assertIn(str(session_bead), visible)
+        self.assertIn(str(recalled_bead), visible)
+
+    @patch("core_memory.integrations.openclaw_flags.claim_layer_enabled", return_value=True)
+    @patch("core_memory.runtime.engine.emit_claim_updates", return_value=[])
+    @patch("core_memory.runtime.engine.extract_and_attach_claims")
+    @patch("core_memory.runtime.engine._emit_agent_turn_quality_metric", return_value=None)
+    def test_queued_claim_updates_include_window_bead_ids(
+        self,
+        _quality_spy,
+        extract_spy,
+        emit_spy,
+        _claim_enabled_spy,
+    ):
+        extract_spy.return_value = {
+            "canonical_bead_id": "turn-bead",
+            "claims_batch": [
+                {"id": "claim-new", "subject": "user", "slot": "preference", "value": "tea"}
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            session_bead = store.add_bead(
+                type="context",
+                title="session bead",
+                summary=["current session"],
+                session_id="s1",
+                source_turn_ids=["t0"],
+            )
+            recalled_bead = store.add_bead(
+                type="context",
+                title="recalled bead",
+                summary=["prior session"],
+                session_id="s0",
+                source_turn_ids=["old-turn"],
+            )
+
+            out = run_turn_enrichment(
+                root=td,
+                payload={
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "bead_id": "turn-bead",
+                    "user_query": "I prefer tea now",
+                    "reviewed_updates": {},
+                    "crawler_visible_bead_ids": [session_bead],
+                    "window_bead_ids": [recalled_bead],
+                },
+            )
+
+        self.assertTrue(out.get("ok"))
+        visible = set(emit_spy.call_args.kwargs["visible_bead_ids"])
+        self.assertIn(str(session_bead), visible)
+        self.assertIn(str(recalled_bead), visible)
 
 if __name__ == "__main__":
     unittest.main()

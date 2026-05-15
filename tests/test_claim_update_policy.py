@@ -115,6 +115,7 @@ class TestClaimUpdatePolicy(unittest.TestCase):
                             "subject": "user",
                             "slot": "preference",
                             "reason_text": "explicit retract",
+                            "evidence_bead_ids": ["retract-evidence"],
                         },
                         {
                             "decision": "conflict",
@@ -122,6 +123,7 @@ class TestClaimUpdatePolicy(unittest.TestCase):
                             "subject": "user",
                             "slot": "preference",
                             "reason_text": "explicit conflict",
+                            "evidence_bead_ids": ["conflict-evidence"],
                         },
                     ]
                 },
@@ -171,6 +173,51 @@ class TestClaimUpdatePolicy(unittest.TestCase):
                 "bead1",
             )
             self.assertTrue(any(u.get("decision") == "reaffirm" for u in updates))
+
+    def test_emit_updates_includes_grounding_hash_and_dedupes_same_grounding(self):
+        from core_memory.claim.update_policy import emit_claim_updates
+        from core_memory.persistence.store_claim_ops import read_claim_updates_for_bead
+
+        with tempfile.TemporaryDirectory() as td:
+            updates = emit_claim_updates(
+                td,
+                [],
+                "bead1",
+                reviewed_updates={
+                    "claim_updates": [
+                        {
+                            "id": "u1",
+                            "decision": "reaffirm",
+                            "target_claim_id": "old1",
+                            "subject": "user",
+                            "slot": "preference",
+                            "reason_text": "judged",
+                            "evidence_bead_ids": ["ctx2", "ctx1"],
+                            "judge_model": "judge-v1",
+                            "prompt_version": "prompt-v1",
+                            "rubric_version": "rubric-v1",
+                        },
+                        {
+                            "id": "u2",
+                            "decision": "reaffirm",
+                            "target_claim_id": "old1",
+                            "subject": "user",
+                            "slot": "preference",
+                            "reason_text": "same judged evidence",
+                            "evidence_bead_ids": ["ctx1", "ctx2"],
+                            "judge_model": "judge-v1",
+                            "prompt_version": "prompt-v1",
+                            "rubric_version": "rubric-v1",
+                        },
+                    ]
+                },
+            )
+            stored = read_claim_updates_for_bead(td, "bead1")
+
+        self.assertEqual(1, len(updates))
+        self.assertEqual(1, len(stored))
+        self.assertTrue(updates[0]["grounding_hash"].startswith("sha256:"))
+        self.assertEqual(updates[0]["grounding_hash"], stored[0]["grounding_hash"])
 
 
 if __name__ == "__main__":

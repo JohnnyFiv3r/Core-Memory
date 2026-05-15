@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.integrations.mcp.agent_guide import PROMPT_NAME, load_agent_guide
-from core_memory.integrations.mcp.constants import MCP_HEALTH_PATH, MCP_HTTP_PATH, MCP_SPEC_VERSION
+from core_memory.integrations.mcp.constants import MCP_HEALTH_PATH, MCP_SPEC_VERSION
 from core_memory.integrations.mcp.registry import TOOLS, call_tool
 
 
@@ -135,19 +135,33 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
 
     @mcp.tool(name="ingest", description=_tool_description("ingest"), structured_output=True)
     def ingest_tool(
-        path: str,
+        path: str | None = None,
+        turns: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
         from_format: str | None = None,
         session_prefix: str | None = None,
+        session_id: str | None = None,
+        transcript_id: str | None = None,
         self_id: str | None = None,
+        metadata: dict[str, Any] | None = None,
+        flush_policy: str | None = None,
+        max_turns: int | None = None,
         root: str | None = None,
     ) -> dict[str, Any]:
         return call_tool(
             "ingest",
             {
                 "path": path,
+                "turns": turns,
+                "messages": messages,
                 "from": from_format,
                 "session_prefix": session_prefix,
+                "session_id": session_id,
+                "transcript_id": transcript_id,
                 "self_id": self_id,
+                "metadata": metadata,
+                "flush_policy": flush_policy,
+                "max_turns": max_turns,
                 "root": root or kwargs.get("root") or default_root,
             },
         )
@@ -155,6 +169,197 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
     @mcp.tool(name="status", description=_tool_description("status"), structured_output=True)
     def status_tool(root: str | None = None) -> dict[str, Any]:
         return call_tool("status", {"root": root or kwargs.get("root") or default_root})
+
+    @mcp.tool(name="query_current_state", description=_tool_description("query_current_state"), structured_output=True)
+    def query_current_state_tool(
+        subject: str = "user",
+        slot: str = "",
+        slot_key: str = "",
+        as_of: str = "",
+        k: int = 8,
+        query: str = "",
+        include_history: bool = False,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "query_current_state",
+            {
+                "root": root or kwargs.get("root") or default_root,
+                "subject": subject,
+                "slot": slot,
+                "slot_key": slot_key,
+                "as_of": as_of,
+                "k": k,
+                "query": query,
+                "include_history": include_history,
+            },
+        )
+
+    @mcp.tool(
+        name="query_temporal_window",
+        description=_tool_description("query_temporal_window"),
+        structured_output=True,
+    )
+    def query_temporal_window_tool(
+        query: str,
+        window_start: str = "",
+        window_end: str = "",
+        intent: str = "remember",
+        k: int = 10,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "query_temporal_window",
+            {
+                "root": root or kwargs.get("root") or default_root,
+                "query": query,
+                "window_start": window_start,
+                "window_end": window_end,
+                "intent": intent,
+                "k": k,
+            },
+        )
+
+    @mcp.tool(name="query_causal_chain", description=_tool_description("query_causal_chain"), structured_output=True)
+    def query_causal_chain_tool(
+        query: str,
+        anchor_ids: list[str] | None = None,
+        k: int = 8,
+        hydration: dict[str, Any] | None = None,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "query_causal_chain",
+            {
+                "root": root or kwargs.get("root") or default_root,
+                "query": query,
+                "anchor_ids": anchor_ids or [],
+                "k": k,
+                "hydration": hydration or {},
+            },
+        )
+
+    @mcp.tool(
+        name="query_contradictions",
+        description=_tool_description("query_contradictions"),
+        structured_output=True,
+    )
+    def query_contradictions_tool(
+        subject: str = "",
+        slot: str = "",
+        slot_key: str = "",
+        as_of: str = "",
+        query: str = "",
+        k: int = 10,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "query_contradictions",
+            {
+                "root": root or kwargs.get("root") or default_root,
+                "subject": subject,
+                "slot": slot,
+                "slot_key": slot_key,
+                "as_of": as_of,
+                "query": query,
+                "k": k,
+            },
+        )
+
+    @mcp.tool(
+        name="write_turn_finalized",
+        description=_tool_description("write_turn_finalized"),
+        structured_output=True,
+    )
+    def write_turn_finalized_tool(
+        session_id: str,
+        turn_id: str,
+        turns: list[dict[str, Any]],
+        transaction_id: str = "",
+        trace_id: str = "",
+        metadata: dict[str, Any] | None = None,
+        tools_trace: list[dict[str, Any]] | None = None,
+        mesh_trace: list[dict[str, Any]] | None = None,
+        window_turn_ids: list[str] | None = None,
+        window_bead_ids: list[str] | None = None,
+        origin: str = "USER_TURN",
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "write_turn_finalized",
+            {
+                "root": root or kwargs.get("root") or default_root,
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "turns": turns,
+                "transaction_id": transaction_id,
+                "trace_id": trace_id,
+                "metadata": metadata or {},
+                "tools_trace": tools_trace or [],
+                "mesh_trace": mesh_trace or [],
+                "window_turn_ids": window_turn_ids or [],
+                "window_bead_ids": window_bead_ids or [],
+                "origin": origin,
+            },
+        )
+
+    @mcp.tool(
+        name="apply_reviewed_proposal",
+        description=_tool_description("apply_reviewed_proposal"),
+        structured_output=True,
+    )
+    def apply_reviewed_proposal_tool(
+        candidate_id: str,
+        decision: str,
+        reviewer: str = "",
+        notes: str = "",
+        apply: bool = True,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "apply_reviewed_proposal",
+            {
+                "root": root or kwargs.get("root") or default_root,
+                "candidate_id": candidate_id,
+                "decision": decision,
+                "reviewer": reviewer,
+                "notes": notes,
+                "apply": apply,
+            },
+        )
+
+    @mcp.tool(
+        name="submit_entity_merge_proposal",
+        description=_tool_description("submit_entity_merge_proposal"),
+        structured_output=True,
+    )
+    def submit_entity_merge_proposal_tool(
+        source_entity_id: str,
+        target_entity_id: str,
+        source_bead_id: str = "",
+        target_bead_id: str = "",
+        confidence: float = 0.9,
+        reviewer: str = "",
+        rationale: str = "",
+        notes: str = "",
+        run_metadata: dict[str, Any] | None = None,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "submit_entity_merge_proposal",
+            {
+                "root": root or kwargs.get("root") or default_root,
+                "source_entity_id": source_entity_id,
+                "target_entity_id": target_entity_id,
+                "source_bead_id": source_bead_id,
+                "target_bead_id": target_bead_id,
+                "confidence": confidence,
+                "reviewer": reviewer,
+                "rationale": rationale,
+                "notes": notes,
+                "run_metadata": run_metadata or {},
+            },
+        )
 
     @mcp.prompt(name=PROMPT_NAME, description="Canonical Core Memory agent guide for MCP clients.")
     def core_memory_agent_guide() -> str:

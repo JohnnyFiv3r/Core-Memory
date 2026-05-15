@@ -11,11 +11,18 @@ Legacy compatibility:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 from typing import Any
 
+from core_memory.persistence.io_utils import store_lock
 from core_memory.schema.models import Claim, ClaimUpdate
+
+
+DEFAULT_CLAIM_JUDGE_MODEL = "current-runtime"
+DEFAULT_CLAIM_PROMPT_VERSION = "current-runtime"
+DEFAULT_CLAIM_RUBRIC_VERSION = "current-runtime"
 
 
 def _index_path(root: str) -> Path:
@@ -143,10 +150,105 @@ def _normalize_claim_update_rows(rows: list[dict]) -> list[dict]:
         if not isinstance(r, dict):
             continue
         try:
-            out.append(ClaimUpdate.from_dict(r).to_dict())
+            row = ClaimUpdate.from_dict(r).to_dict()
+            # Preserve canonical judgment provenance fields through schema normalization.
+            row["evidence_bead_ids"] = _claim_update_evidence_bead_ids(row)
+            row["judge_model"] = str(row.get("judge_model") or DEFAULT_CLAIM_JUDGE_MODEL).strip()
+            row["prompt_version"] = str(row.get("prompt_version") or DEFAULT_CLAIM_PROMPT_VERSION).strip()
+            row["rubric_version"] = str(row.get("rubric_version") or DEFAULT_CLAIM_RUBRIC_VERSION).strip()
+            if not str(row.get("grounding_hash") or "").strip():
+                row["grounding_hash"] = compute_claim_grounding_hash(row)
+            if row.get("chain_seq") is not None:
+                try:
+                    row["chain_seq"] = int(row.get("chain_seq"))
+                except Exception:
+                    row.pop("chain_seq", None)
+            out.append(row)
         except Exception:
             continue
     return out
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def _claim_update_evidence_bead_ids(row: dict[str, Any]) -> list[str]:
+    ids: set[str] = set()
+    for key in ("evidence_bead_ids", "evidence_beads"):
+        for value in row.get(key) or []:
+            text = str(value or "").strip()
+            if text:
+                ids.add(text)
+    for ref in row.get("evidence_refs") or []:
+        if isinstance(ref, dict):
+            text = str(ref.get("bead_id") or ref.get("id") or ref.get("ref") or "").strip()
+            if text:
+                ids.add(text)
+        else:
+            text = str(ref or "").strip()
+            if text:
+                ids.add(text)
+    trigger = str(row.get("trigger_bead_id") or "").strip()
+    if trigger:
+        ids.add(trigger)
+    return sorted(ids)
+
+
+def compute_claim_grounding_hash(row: dict[str, Any]) -> str:
+    """Stable idempotency hash for a judged claim update.
+
+    The hash intentionally includes only evidence bead ids and judge contract
+    identifiers, not generated row ids or timestamps.
+    """
+    basis = {
+        "evidence_bead_ids": _claim_update_evidence_bead_ids(row),
+        "judge_model": str(row.get("judge_model") or DEFAULT_CLAIM_JUDGE_MODEL).strip(),
+        "prompt_version": str(row.get("prompt_version") or DEFAULT_CLAIM_PROMPT_VERSION).strip(),
+        "rubric_version": str(row.get("rubric_version") or DEFAULT_CLAIM_RUBRIC_VERSION).strip(),
+    }
+    return "sha256:" + hashlib.sha256(_canonical_json(basis).encode("utf-8")).hexdigest()
+
+
+def _claim_dedupe_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    claim_id = str(row.get("id") or "").strip()
+    if claim_id:
+        return ("id", claim_id)
+    return (
+        "semantic",
+        str(row.get("subject") or "").strip().lower(),
+        str(row.get("slot") or "").strip().lower(),
+        _canonical_json(row.get("value")),
+        str(row.get("source_bead_id") or "").strip(),
+        tuple(str(x).strip() for x in (row.get("source_turn_ids") or []) if str(x).strip()),
+    )
+
+
+def _claim_update_dedupe_key(row: dict[str, Any]) -> tuple[Any, ...]:
+    target = str(row.get("target_claim_id") or "").strip()
+    grounding_hash = str(row.get("grounding_hash") or "").strip()
+    if target and grounding_hash:
+        return ("grounding", target, grounding_hash)
+    return (
+        "decision",
+        str(row.get("decision") or "").strip().lower(),
+        target,
+        str(row.get("replacement_claim_id") or "").strip(),
+        str(row.get("trigger_bead_id") or "").strip(),
+    )
+
+
+def _append_deduped_rows(existing: list[dict], incoming: list[dict], key_fn) -> int:
+    seen = {key_fn(row) for row in existing if isinstance(row, dict)}
+    appended = 0
+    for row in incoming:
+        key = key_fn(row)
+        if key in seen:
+            continue
+        existing.append(row)
+        seen.add(key)
+        appended += 1
+    return appended
 
 
 def _legacy_read_claims_for_bead(root: str, bead_id: str) -> list[dict]:
@@ -167,13 +269,59 @@ def write_claims_to_bead(root: str, bead_id: str, claims: list[dict]) -> None:
     if not bead_id:
         return
 
-    idx = _read_index(root)
-    row = _ensure_bead(idx, bead_id)
+    with store_lock(Path(root)):
+        idx = _read_index(root)
+        row = _ensure_bead(idx, bead_id)
 
-    normalized = _normalize_claim_rows(claims)
-    row["claims"].extend(normalized)
+        normalized = _normalize_claim_rows(claims)
+        if normalized:
+            _append_deduped_rows(row["claims"], normalized, _claim_dedupe_key)
 
-    _write_json_atomic(_index_path(root), idx)
+        _write_json_atomic(_index_path(root), idx)
+
+
+def _slot_highwater(index: dict, subject: str, slot: str) -> int:
+    high = 0
+    for row in (index.get("beads") or {}).values():
+        if not isinstance(row, dict):
+            continue
+        for update in row.get("claim_updates") or []:
+            if not isinstance(update, dict):
+                continue
+            if str(update.get("subject") or "") != subject or str(update.get("slot") or "") != slot:
+                continue
+            try:
+                high = max(high, int(update.get("chain_seq") or 0))
+            except Exception:
+                continue
+    return high
+
+
+def _append_claim_update_rows(index: dict, existing: list[dict], incoming: list[dict]) -> int:
+    seen = {
+        _claim_update_dedupe_key(update)
+        for bead in (index.get("beads") or {}).values()
+        if isinstance(bead, dict)
+        for update in (bead.get("claim_updates") or [])
+        if isinstance(update, dict)
+    }
+    appended = 0
+    highwater: dict[tuple[str, str], int] = {}
+    for row in incoming:
+        key = _claim_update_dedupe_key(row)
+        if key in seen:
+            continue
+        subject = str(row.get("subject") or "")
+        slot = str(row.get("slot") or "")
+        slot_key = (subject, slot)
+        if slot_key not in highwater:
+            highwater[slot_key] = _slot_highwater(index, subject, slot)
+        highwater[slot_key] += 1
+        row["chain_seq"] = highwater[slot_key]
+        existing.append(row)
+        seen.add(key)
+        appended += 1
+    return appended
 
 
 def write_claim_updates_to_bead(root: str, bead_id: str, claim_updates: list[dict]) -> None:
@@ -182,13 +330,15 @@ def write_claim_updates_to_bead(root: str, bead_id: str, claim_updates: list[dic
     if not bead_id:
         return
 
-    idx = _read_index(root)
-    row = _ensure_bead(idx, bead_id)
+    with store_lock(Path(root)):
+        idx = _read_index(root)
+        row = _ensure_bead(idx, bead_id)
 
-    normalized = _normalize_claim_update_rows(claim_updates)
-    row["claim_updates"].extend(normalized)
+        normalized = _normalize_claim_update_rows(claim_updates)
+        if normalized:
+            _append_claim_update_rows(idx, row["claim_updates"], normalized)
 
-    _write_json_atomic(_index_path(root), idx)
+        _write_json_atomic(_index_path(root), idx)
 
 
 def write_memory_outcome_to_bead(
@@ -299,6 +449,14 @@ def resolve_current_state(root: str, subject: str, slot: str) -> dict:
         u for u in all_updates
         if str(u.get("subject") or "") == subject_s and str(u.get("slot") or "") == slot_s
     ]
+    slot_updates = sorted(
+        enumerate(slot_updates),
+        key=lambda item: (
+            int(item[1]["chain_seq"]) if str(item[1].get("chain_seq") or "").isdigit() else item[0],
+            item[0],
+        ),
+    )
+    slot_updates = [u for _, u in slot_updates]
 
     if not slot_claims:
         return {"current_claim": None, "history": [], "conflicts": [], "status": "not_found"}
@@ -306,6 +464,7 @@ def resolve_current_state(root: str, subject: str, slot: str) -> dict:
     retracted_ids = set()
     superseded_ids = set()
     conflict_ids = set()
+    latest_replacement_id = ""
 
     for update in slot_updates:
         decision = str(update.get("decision") or "")
@@ -316,6 +475,9 @@ def resolve_current_state(root: str, subject: str, slot: str) -> dict:
             retracted_ids.add(target_id)
         elif decision == "supersede":
             superseded_ids.add(target_id)
+            replacement_id = str(update.get("replacement_claim_id") or "")
+            if replacement_id:
+                latest_replacement_id = replacement_id
         elif decision == "conflict":
             conflict_ids.add(target_id)
 
@@ -326,7 +488,10 @@ def resolve_current_state(root: str, subject: str, slot: str) -> dict:
     ]
     conflicts = [c for c in slot_claims if str(c.get("id") or "") in conflict_ids]
 
-    current = active_claims[-1] if active_claims else None
+    active_by_id = {str(c.get("id") or ""): c for c in active_claims}
+    current = active_by_id.get(latest_replacement_id) if latest_replacement_id else None
+    if current is None:
+        current = active_claims[-1] if active_claims else None
     status = "active" if current else "retracted"
     if conflicts:
         status = "conflict"

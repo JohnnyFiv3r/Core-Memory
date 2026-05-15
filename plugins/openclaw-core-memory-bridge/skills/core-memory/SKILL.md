@@ -20,4 +20,5 @@ Key reminders:
 - Keep the OpenClaw bridge thin; do not move memory-engine semantics into plugin JS.
 - Questions are retrieval/context turns, not declarative memories to promote.
 - Treat `because` as grounded free-text support for applied semantic labels/state; short user-text quotes are valid support when grounded, but do not use guessed filler or long whole-turn dumps.
+- Treat entity extraction/canonicalization as a Core Memory live-path judge responsibility, not bridge-side regex/NER; pass candidates only and let the runtime decide canonical labels/aliases.
 - Use canonical association relationship types, not helper labels as durable relations.

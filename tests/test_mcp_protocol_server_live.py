@@ -2,7 +2,7 @@ import unittest
 
 from fastapi.testclient import TestClient
 
-from core_memory.integrations.mcp.protocol_server import build_mcp_app, _transport_security_settings
+from core_memory.integrations.mcp.protocol_server import _transport_security_settings, build_mcp_app
 
 
 class MCPProtocolServerLiveTests(unittest.TestCase):
@@ -14,7 +14,18 @@ class MCPProtocolServerLiveTests(unittest.TestCase):
         data = res.json()
         self.assertTrue(data["ok"])
         self.assertEqual("/tmp/core-memory-test", data["root"])
-        self.assertEqual(["capture", "ingest", "recall", "status"], data["tools"])
+        for name in [
+            "capture",
+            "ingest",
+            "recall",
+            "status",
+            "query_current_state",
+            "query_temporal_window",
+            "write_turn_finalized",
+            "apply_reviewed_proposal",
+            "submit_entity_merge_proposal",
+        ]:
+            self.assertIn(name, data["tools"])
         self.assertEqual("core-memory.agent-guide", data["prompt"])
 
     def test_streamable_http_endpoint_lifespan_is_initialized(self):

@@ -22,6 +22,10 @@ def _queue_path(root: Path) -> Path:
     return _semantic_dir(root) / "rebuild-queue.json"
 
 
+def _event_log_path(root: Path) -> Path:
+    return _semantic_dir(root) / "events.jsonl"
+
+
 def _read_json(path: Path, default: dict[str, Any]) -> dict[str, Any]:
     if not path.exists():
         return dict(default)
@@ -85,6 +89,82 @@ def mark_semantic_dirty(root: str | Path, *, reason: str, enqueue: bool = True) 
     _write_json(m_path, m)
     q = enqueue_semantic_rebuild(root_p, mode="delta") if enqueue else {"ok": True, "queued": False, "mode": "delta"}
     return {"ok": True, "manifest": str(m_path), "queue": q}
+
+
+def semantic_status(root: str | Path) -> dict[str, Any]:
+    """Read semantic lifecycle status without creating or mutating files."""
+    root_p = Path(root)
+    m_path = _manifest_path(root_p)
+    q_path = _queue_path(root_p)
+    manifest = _read_json(
+        m_path,
+        {
+            "dirty": False,
+            "last_dirty_at": None,
+            "last_dirty_reason": None,
+            "last_turn_id": None,
+            "last_flush_tx_id": None,
+        },
+    )
+    queue = _read_json(q_path, {"queued": False, "queued_at": None, "epoch": 0, "mode": "delta"})
+    if not isinstance(manifest, dict):
+        manifest = {}
+    if not isinstance(queue, dict):
+        queue = {}
+    mode = str(queue.get("mode") or manifest.get("mode") or "delta").strip().lower()
+    if mode not in {"delta", "reconcile"}:
+        mode = "delta"
+    return {
+        "ok": True,
+        "root": str(root_p),
+        "manifest_path": str(m_path),
+        "queue_path": str(q_path),
+        "dirty": bool(manifest.get("dirty")),
+        "last_dirty_at": manifest.get("last_dirty_at"),
+        "last_dirty_reason": manifest.get("last_dirty_reason"),
+        "queue": {
+            "queued": bool(queue.get("queued")),
+            "queued_at": queue.get("queued_at"),
+            "epoch": int(queue.get("epoch") or 0),
+        },
+        "queue_epoch": int(queue.get("epoch") or 0),
+        "mode": mode,
+        "last_checkpoint": {
+            "turn_id": manifest.get("last_turn_id"),
+            "flush_tx_id": manifest.get("last_flush_tx_id"),
+        },
+        "manifest": manifest,
+    }
+
+
+def semantic_tail(root: str | Path, *, limit: int = 20) -> dict[str, Any]:
+    """Read recent semantic lifecycle events, or summarize state when no log exists."""
+    root_p = Path(root)
+    log_path = _event_log_path(root_p)
+    n = max(0, int(limit))
+    if not log_path.exists():
+        return {
+            "ok": True,
+            "root": str(root_p),
+            "path": str(log_path),
+            "entries": [],
+            "summary": semantic_status(root_p),
+        }
+    lines = log_path.read_text(encoding="utf-8").splitlines()
+    tail_lines = lines[-n:] if n else []
+    entries: list[Any] = []
+    for line in tail_lines:
+        try:
+            entries.append(json.loads(line))
+        except Exception:
+            entries.append({"raw": line})
+    return {
+        "ok": True,
+        "root": str(root_p),
+        "path": str(log_path),
+        "limit": n,
+        "entries": entries,
+    }
 
 
 def mark_trace_dirty(root: str | Path, *, reason: str) -> dict[str, Any]:
