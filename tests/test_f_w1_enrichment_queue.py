@@ -253,5 +253,116 @@ class TestCriticalPathPersistsBead(unittest.TestCase):
             self.assertEqual(result.get("processed"), 1)
 
 
+class TestClaimDecisionVisibleWindowExpansion(unittest.TestCase):
+    """Claim decision pass includes recalled window beads, not just current-session beads."""
+
+    @patch.dict(os.environ, {
+        "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
+        "CORE_MEMORY_AGENT_AUTHORED_MODE": "off",
+    }, clear=False)
+    @patch("core_memory.runtime.engine.claim_layer_enabled", return_value=True)
+    @patch("core_memory.runtime.engine.emit_claim_updates", return_value=[])
+    @patch("core_memory.runtime.engine.extract_and_attach_claims")
+    def test_inline_claim_updates_include_window_bead_ids(
+        self,
+        extract_spy,
+        emit_spy,
+        _claim_enabled_spy,
+    ):
+        from core_memory import process_turn_finalized
+
+        extract_spy.return_value = {
+            "canonical_bead_id": "turn-bead",
+            "claims_batch": [
+                {"id": "claim-new", "subject": "user", "slot": "preference", "value": "tea"}
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            session_bead = store.add_bead(
+                type="context",
+                title="session bead",
+                summary=["current session"],
+                session_id="s1",
+                source_turn_ids=["t0"],
+            )
+            recalled_bead = store.add_bead(
+                type="context",
+                title="recalled bead",
+                summary=["prior session"],
+                session_id="s0",
+                source_turn_ids=["old-turn"],
+            )
+
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "I prefer tea now"},
+                    {"speaker": "assistant", "role": "assistant", "content": "Got it"},
+                ],
+                window_bead_ids=[recalled_bead],
+            )
+
+        self.assertTrue(out.get("ok"))
+        visible = set(emit_spy.call_args.kwargs["visible_bead_ids"])
+        self.assertIn(str(session_bead), visible)
+        self.assertIn(str(recalled_bead), visible)
+
+    @patch("core_memory.integrations.openclaw_flags.claim_layer_enabled", return_value=True)
+    @patch("core_memory.runtime.engine.emit_claim_updates", return_value=[])
+    @patch("core_memory.runtime.engine.extract_and_attach_claims")
+    @patch("core_memory.runtime.engine._emit_agent_turn_quality_metric", return_value=None)
+    def test_queued_claim_updates_include_window_bead_ids(
+        self,
+        _quality_spy,
+        extract_spy,
+        emit_spy,
+        _claim_enabled_spy,
+    ):
+        extract_spy.return_value = {
+            "canonical_bead_id": "turn-bead",
+            "claims_batch": [
+                {"id": "claim-new", "subject": "user", "slot": "preference", "value": "tea"}
+            ],
+        }
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            session_bead = store.add_bead(
+                type="context",
+                title="session bead",
+                summary=["current session"],
+                session_id="s1",
+                source_turn_ids=["t0"],
+            )
+            recalled_bead = store.add_bead(
+                type="context",
+                title="recalled bead",
+                summary=["prior session"],
+                session_id="s0",
+                source_turn_ids=["old-turn"],
+            )
+
+            out = run_turn_enrichment(
+                root=td,
+                payload={
+                    "session_id": "s1",
+                    "turn_id": "t1",
+                    "bead_id": "turn-bead",
+                    "user_query": "I prefer tea now",
+                    "reviewed_updates": {},
+                    "crawler_visible_bead_ids": [session_bead],
+                    "window_bead_ids": [recalled_bead],
+                },
+            )
+
+        self.assertTrue(out.get("ok"))
+        visible = set(emit_spy.call_args.kwargs["visible_bead_ids"])
+        self.assertIn(str(session_bead), visible)
+        self.assertIn(str(recalled_bead), visible)
+
 if __name__ == "__main__":
     unittest.main()

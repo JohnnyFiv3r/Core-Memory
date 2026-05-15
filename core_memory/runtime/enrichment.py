@@ -197,9 +197,12 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             claims_batch = list(claim_telemetry.get("claims_batch") or [])
             if canonical_bead_id and claims_batch:
+                claim_visible_ids = sorted(
+                    set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])
+                )
                 emit_claim_updates(
                     root, claims_batch, canonical_bead_id,
-                    session_id=session_id, visible_bead_ids=visible_ids,
+                    session_id=session_id, visible_bead_ids=claim_visible_ids,
                     reviewed_updates=reviewed_updates, decision_pass=decision_pass,
                 )
             results["stages_completed"].append("claim_updates")

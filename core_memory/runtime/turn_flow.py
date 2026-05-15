@@ -409,9 +409,12 @@ def process_turn_finalized_impl(
         canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
         claims_batch = list(claim_telemetry.get("claims_batch") or [])
         if emit_claim_updates_fn is not None and canonical_turn_bead_id and claims_batch:
+            claim_visible_ids = sorted(
+                set(visible_ids + [str(x) for x in (req.get("window_bead_ids") or []) if str(x).strip()])
+            )
             claim_updates = emit_claim_updates_fn(
                 root, claims_batch, canonical_turn_bead_id,
-                session_id=req["session_id"], visible_bead_ids=visible_ids,
+                session_id=req["session_id"], visible_bead_ids=claim_visible_ids,
                 reviewed_updates=reviewed_updates, decision_pass=decision_pass,
             ) or []
             claim_updates_emitted = len(claim_updates)
