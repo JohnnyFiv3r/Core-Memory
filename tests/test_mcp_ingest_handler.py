@@ -52,6 +52,20 @@ class MCPIngestHandlerTests(unittest.TestCase):
         self.assertNotEqual("mcp_tool_not_implemented", out.get("error"))
         self.assertEqual("cm.path_not_readable", out["error"]["code"])
 
+    def test_registry_accepts_inline_turns(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = call_tool("ingest", {
+                "root": str(Path(td) / "store"),
+                "transcript_id": "inline-demo",
+                "turns": [
+                    {"role": "user", "content": "MCP protocol ingest accepts inline turns."},
+                    {"role": "assistant", "content": "Inline transcript ingest is routed canonically."},
+                ],
+            })
+        self.assertTrue(out["ok"])
+        self.assertEqual("inline", out["format"])
+        self.assertEqual(2, out["turns_ingested"])
+
 
 if __name__ == "__main__":
     unittest.main()

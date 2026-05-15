@@ -244,6 +244,15 @@ Do not assume that older means historically correct unless time alignment is act
 
 Use canonical entities and aliases when available.
 
+Treat entity extraction as semantic judging, not generic NER. The live Core Memory write
+path owns final entity extraction/canonicalization; bridge code and agents may pass
+candidate entities, but should not write registry rows directly from regex/NER output.
+
+Prefer retrieval-useful canonical entities: people, organizations, projects, products,
+places, systems, datasets, and stable domain concepts. Do not turn generic nouns,
+instruction words, broad topics, or retrieval-only question terms into entities just
+because they look named or frequent.
+
 If the same thing is referred to in multiple ways, prefer consistent entity naming in:
 - claims
 - retrieval titles/facts

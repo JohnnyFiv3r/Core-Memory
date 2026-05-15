@@ -236,6 +236,74 @@ def decide_promotion_for_store(
         }
 
 
+def resolve_goal_candidate_for_store(
+    store: Any,
+    *,
+    goal_bead_id: str,
+    outcome_bead_id: str,
+    turn_id: str = "",
+    reason: str = "goal_resolution_match",
+    visible_bead_ids: Optional[list[str]] = None,
+) -> dict:
+    """Apply a goal candidate -> resolved transition through promotion state fields."""
+    gid = str(goal_bead_id or "").strip()
+    oid = str(outcome_bead_id or "").strip()
+    if not gid or not oid:
+        return {"ok": False, "error": "missing_goal_or_outcome"}
+
+    with store_lock(store.root):
+        index = store._read_json(store.beads_dir / "index.json")
+        bead = (index.get("beads") or {}).get(gid)
+        if not isinstance(bead, dict):
+            return {"ok": False, "error": f"bead_not_found:{gid}"}
+        if str(bead.get("type") or "").strip().lower() != "goal":
+            return {"ok": False, "error": "not_goal", "bead_id": gid}
+        if current_promotion_state(bead) != "candidate":
+            return {"ok": False, "error": "goal_not_candidate", "bead_id": gid}
+
+        before = str(bead.get("status") or "")
+        now = datetime.now(timezone.utc).isoformat()
+        visible = [str(x) for x in (visible_bead_ids or []) if str(x).strip()]
+        bead["status"] = "resolved"
+        bead["goal_status"] = "resolved"
+        bead["promotion_state"] = "resolved"
+        bead["promotion_locked"] = True
+        bead["promotion_decision"] = "resolve_goal"
+        bead["promotion_reason"] = str(reason or "goal_resolution_match")
+        bead["promotion_decided_at"] = now
+        bead["resolved_at"] = now
+        bead["resolved_by_bead_id"] = oid
+        if turn_id:
+            bead["promotion_decision_turn_id"] = str(turn_id)
+            bead["resolved_by_turn_id"] = str(turn_id)
+        bead["promotion_evidence"] = {
+            "reason": str(reason or "goal_resolution_match"),
+            "outcome_bead_id": oid,
+            "turn_id": str(turn_id or ""),
+            "visible_bead_ids": visible,
+        }
+        index["beads"][gid] = bead
+        store._write_json(store.beads_dir / "index.json", index)
+
+        decision_log = store.beads_dir / "events" / "promotion-decisions.jsonl"
+        append_jsonl(
+            decision_log,
+            {
+                "ts": now,
+                "bead_id": gid,
+                "before_status": before,
+                "after_status": "resolved",
+                "decision": "resolve_goal",
+                "reason": str(reason or "goal_resolution_match"),
+                "outcome_bead_id": oid,
+                "turn_id": str(turn_id or ""),
+                "visible_bead_ids": visible,
+            },
+        )
+        mark_semantic_dirty(store.root, reason="goal_lifecycle_resolved")
+        return {"ok": True, "bead_id": gid, "before_status": before, "after_status": "resolved", "decision": "resolve_goal"}
+
+
 def decide_promotion_bulk_for_store(store: Any, decisions: list[dict]) -> dict:
     """Apply a bounded batch of agent promotion decisions."""
     rows = decisions or []

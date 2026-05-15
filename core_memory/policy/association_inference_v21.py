@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from typing import Any
 
@@ -15,6 +17,10 @@ INFERENCE_MODE_PERMISSIVE = "permissive"
 WARN_NONCANONICAL_PREFIX = "noncanonical_relationship:"
 WARN_NORMALIZED_UNKNOWN = "unknown_relationship_normalized"
 WARN_ALIAS_RATIONALE_TO_REASON_TEXT = "field_alias_applied:rationale->reason_text"
+
+DEFAULT_ASSOCIATION_JUDGE_MODEL = "current-runtime"
+DEFAULT_ASSOCIATION_PROMPT_VERSION = "current-runtime"
+DEFAULT_ASSOCIATION_RUBRIC_VERSION = "current-runtime"
 
 Q_MISSING_SOURCE_OR_TARGET = "missing_source_or_target"
 Q_SELF_LINK = "self_link"
@@ -68,6 +74,42 @@ def _coerce_confidence(payload: dict[str, Any]) -> float | None:
     return None
 
 
+def _association_evidence_bead_ids(payload: dict[str, Any]) -> list[str]:
+    ids: set[str] = set()
+    for key in ("evidence_bead_ids", "evidence_beads"):
+        for value in payload.get(key) or []:
+            text = str(value or "").strip()
+            if text:
+                ids.add(text)
+    for ref in payload.get("evidence_refs") or []:
+        if isinstance(ref, dict):
+            text = str(ref.get("bead_id") or ref.get("id") or ref.get("ref") or "").strip()
+        else:
+            text = str(ref or "").strip()
+        if text:
+            ids.add(text)
+    for key in ("source_bead", "source_bead_id", "target_bead", "target_bead_id"):
+        text = str(payload.get(key) or "").strip()
+        if text:
+            ids.add(text)
+    return sorted(ids)
+
+
+def _canonical_json(value: Any) -> str:
+    return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
+
+
+def compute_association_grounding_hash(payload: dict[str, Any]) -> str:
+    """Stable idempotency/provenance hash for judged association edges."""
+    basis = {
+        "evidence_bead_ids": _association_evidence_bead_ids(payload),
+        "judge_model": str(payload.get("judge_model") or DEFAULT_ASSOCIATION_JUDGE_MODEL).strip(),
+        "prompt_version": str(payload.get("prompt_version") or DEFAULT_ASSOCIATION_PROMPT_VERSION).strip(),
+        "rubric_version": str(payload.get("rubric_version") or DEFAULT_ASSOCIATION_RUBRIC_VERSION).strip(),
+    }
+    return "sha256:" + hashlib.sha256(_canonical_json(basis).encode("utf-8")).hexdigest()
+
+
 def _noncanonical_reason(rel: str) -> str:
     return f"{Q_NONCANONICAL_PREFIX}{rel or 'empty'}"
 
@@ -88,6 +130,10 @@ def validate_and_normalize_inference_payload(payload: dict[str, Any], *, mode: s
     provenance = str(payload.get("provenance") or "model_inferred").strip().lower() or "model_inferred"
     reason_text = _coerce_reason_text(payload, warnings)
     confidence = _coerce_confidence(payload)
+    evidence_bead_ids = _association_evidence_bead_ids(payload)
+    judge_model = str(payload.get("judge_model") or DEFAULT_ASSOCIATION_JUDGE_MODEL).strip()
+    prompt_version = str(payload.get("prompt_version") or DEFAULT_ASSOCIATION_PROMPT_VERSION).strip()
+    rubric_version = str(payload.get("rubric_version") or DEFAULT_ASSOCIATION_RUBRIC_VERSION).strip()
 
     if not source_bead or not target_bead:
         _append_unique(quarantine_reasons, Q_MISSING_SOURCE_OR_TARGET)
@@ -123,6 +169,13 @@ def validate_and_normalize_inference_payload(payload: dict[str, Any], *, mode: s
         "provenance": provenance,
         "reason_code": payload.get("reason_code"),
         "evidence_fields": list(payload.get("evidence_fields") or []),
+        "evidence_bead_ids": evidence_bead_ids,
+        "judge_model": judge_model,
+        "prompt_version": prompt_version,
+        "rubric_version": rubric_version,
+        "grounding_hash": str(payload.get("grounding_hash") or compute_association_grounding_hash(payload)).strip(),
+        "turn_id": str(payload.get("turn_id") or "").strip(),
+        "visible_bead_ids": [str(x).strip() for x in (payload.get("visible_bead_ids") or []) if str(x).strip()],
         "normalization_applied": normalization_applied,
         "warnings": list(warnings),
     }

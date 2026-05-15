@@ -10,7 +10,7 @@ from unittest.mock import patch
 from core_memory.association.crawler_contract import _crawler_updates_log_path, merge_crawler_updates
 from core_memory.persistence.io_utils import append_jsonl
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.engine import _queue_preview_associations
+from core_memory.runtime.engine import _non_temporal_semantic_association_count, _queue_preview_associations
 
 
 class TestAssociationQualityPolicySlice4(unittest.TestCase):
@@ -36,6 +36,42 @@ class TestAssociationQualityPolicySlice4(unittest.TestCase):
             b2 = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"], tags=["tag-a"])
             queued = _queue_preview_associations(td, "s1", [b1, b2])
             self.assertEqual(0, queued)
+
+    def test_preview_promotion_preserves_canonical_reason_metadata(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_PREVIEW_ASSOC_PROMOTION": "1",
+                "CORE_MEMORY_PREVIEW_ASSOC_ALLOW_SHARED_TAG": "1",
+            },
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="context", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"], tags=["tag-a"])
+            b2 = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"], tags=["tag-a"])
+
+            queued = _queue_preview_associations(td, "s1", [b1, b2])
+            self.assertEqual(1, queued)
+            rows = [json.loads(line) for line in _crawler_updates_log_path(td, "s1").read_text(encoding="utf-8").splitlines() if line.strip()]
+            assoc = [r for r in rows if r.get("kind") == "association_append"][0]
+            self.assertEqual("associated_with", assoc.get("relationship"))
+            self.assertEqual("shared_tag_overlap", assoc.get("reason_code"))
+            self.assertNotEqual("shared_tag", assoc.get("relationship"))
+
+    def test_non_temporal_semantic_count_excludes_generic_but_counts_causal(self):
+        out = _non_temporal_semantic_association_count(
+            {
+                "associations": [
+                    {"relationship": "associated_with"},
+                    {"relationship": "follows"},
+                    {"relationship": "precedes"},
+                    {"relationship": "caused_by"},
+                    {"relationship": "led_to"},
+                    {"relationship": "supports"},
+                ]
+            }
+        )
+        self.assertEqual(3, out)
 
     def test_merge_quarantines_noncanonical_preview_append(self):
         with tempfile.TemporaryDirectory() as td:

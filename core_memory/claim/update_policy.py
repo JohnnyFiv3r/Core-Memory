@@ -11,7 +11,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
-from core_memory.persistence.store_claim_ops import resolve_current_state, write_claim_updates_to_bead
+from core_memory.persistence.store_claim_ops import compute_claim_grounding_hash, resolve_current_state, write_claim_updates_to_bead
 
 
 _INVALIDATING_DECISIONS = {"supersede", "retract", "conflict"}
@@ -35,6 +35,34 @@ def _coerce_confidence(x: Any, default: float = 0.8) -> float:
     if f > 1.0:
         return 1.0
     return f
+
+
+def _with_grounding(row: dict[str, Any]) -> dict[str, Any]:
+    out = dict(row)
+    evidence = [str(x).strip() for x in (out.get("evidence_bead_ids") or []) if str(x).strip()]
+    trig = _as_text(out.get("trigger_bead_id"))
+    if trig and trig not in evidence:
+        evidence.append(trig)
+    out["evidence_bead_ids"] = sorted(set(evidence))
+    out["judge_model"] = _as_text(out.get("judge_model")) or "current-runtime"
+    out["prompt_version"] = _as_text(out.get("prompt_version")) or "current-runtime"
+    out["rubric_version"] = _as_text(out.get("rubric_version")) or "current-runtime"
+    if not _as_text(out.get("grounding_hash")):
+        out["grounding_hash"] = compute_claim_grounding_hash(out)
+    return out
+
+
+def _update_dedupe_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+    target = _as_text(row.get("target_claim_id"))
+    grounding_hash = _as_text(row.get("grounding_hash"))
+    if target and grounding_hash:
+        return ("grounding", target, grounding_hash, "")
+    return (
+        _decision(row.get("decision")),
+        target,
+        _as_text(row.get("replacement_claim_id")),
+        _as_text(row.get("trigger_bead_id")),
+    )
 
 
 def _normalize_explicit_updates(
@@ -63,17 +91,24 @@ def _normalize_explicit_updates(
             continue
 
         out.append(
-            {
-                "id": _as_text(row.get("id")) or str(uuid.uuid4()),
-                "decision": d,
-                "target_claim_id": target,
-                "replacement_claim_id": replacement,
-                "subject": subject,
-                "slot": slot,
-                "reason_text": reason,
-                "trigger_bead_id": trig or None,
-                "confidence": _coerce_confidence(row.get("confidence"), default=0.8),
-            }
+            _with_grounding(
+                {
+                    "id": _as_text(row.get("id")) or str(uuid.uuid4()),
+                    "decision": d,
+                    "target_claim_id": target,
+                    "replacement_claim_id": replacement,
+                    "subject": subject,
+                    "slot": slot,
+                    "reason_text": reason,
+                    "trigger_bead_id": trig or None,
+                    "confidence": _coerce_confidence(row.get("confidence"), default=0.8),
+                    "evidence_bead_ids": list(row.get("evidence_bead_ids") or []),
+                    "judge_model": _as_text(row.get("judge_model")) or "current-runtime",
+                    "prompt_version": _as_text(row.get("prompt_version")) or "current-runtime",
+                    "rubric_version": _as_text(row.get("rubric_version")) or "current-runtime",
+                    "grounding_hash": _as_text(row.get("grounding_hash")),
+                }
+            )
         )
     return out
 
@@ -111,12 +146,7 @@ def emit_claim_updates(
         explicit_rows.extend(list(decision_pass.get("claim_updates") or []))
 
     for update in _normalize_explicit_updates(explicit_rows, trigger_bead_id=trig):
-        key = (
-            _decision(update.get("decision")),
-            _as_text(update.get("target_claim_id")),
-            _as_text(update.get("replacement_claim_id")),
-            _as_text(update.get("trigger_bead_id")),
-        )
+        key = _update_dedupe_key(update)
         if key in dedupe:
             continue
         dedupe.add(key)
@@ -168,12 +198,13 @@ def emit_claim_updates(
                 "confidence": _coerce_confidence(claim.get("confidence"), default=0.8),
             }
 
-        key = (
-            _decision(update.get("decision")),
-            _as_text(update.get("target_claim_id")),
-            _as_text(update.get("replacement_claim_id")),
-            _as_text(update.get("trigger_bead_id")),
-        )
+        evidence_bead_ids = [trig]
+        old_source = _as_text(existing.get("source_bead_id"))
+        if old_source:
+            evidence_bead_ids.append(old_source)
+        update["evidence_bead_ids"] = evidence_bead_ids
+        update = _with_grounding(update)
+        key = _update_dedupe_key(update)
         if key in dedupe:
             continue
         dedupe.add(key)

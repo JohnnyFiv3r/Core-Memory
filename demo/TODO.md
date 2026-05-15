@@ -139,3 +139,168 @@ Revalidation with the same grounding hash should return the same verdict or expl
 **Impact:** Core Memory keeps its OSS-friendly portability across pgvector/qdrant/chromadb/provider choices, while giving users the managed-DB-style experience that semantic indexing “just happens on write.”
 
 **Files:** `core_memory/retrieval/lifecycle.py`, `core_memory/retrieval/semantic_index.py`, `core_memory/runtime/jobs.py`, CLI semantic command modules
+
+## 8. LLM-judged entity extraction and canonicalization in the live write path
+
+**Status:** Closed in code on 2026-05-13. The bead-field judge already authors
+`entities`; the entity registry now also runs a dedicated LLM-judged extraction /
+canonicalization pass so aliases, canonical labels, and entity usefulness are decided by
+the same semantic standard as the rest of the bead write path.
+
+**Problem:** Generic NER is good at spotting names, but Core Memory needs more than NER:
+it needs retrieval-useful entities, project/product/system concepts, canonical aliases,
+and a refusal path for generic nouns or retrieval-only questions. Regex/NER can be a
+fallback, not the policy authority.
+
+**Fix:** Add an LLM-first entity judge that:
+- extracts only durable named entities / project terms / systems / datasets / stable concepts
+- reuses existing registry labels and aliases when a bead clearly refers to them
+- records grounded aliases, entity kind, confidence, and evidence in provenance
+- falls back narrowly to bead-provided entity labels when no LLM is configured
+- keeps OpenClaw/plugin instructions tight: adapters may pass candidate entities, but the
+  Core Memory write path owns final canonicalization
+
+**Files:** `core_memory/entity/registry.py`, `core_memory/policy/bead_judge.py`,
+`AGENT_INSTRUCTIONS.md`, `docs/integrations/openclaw/canonical_contract.md`,
+`plugins/openclaw-core-memory-bridge/skills/core-memory/SKILL.md`, `tests/test_entity_registry.py`
+
+## 9. Unify session-window enrichment crawler for associations, claims, entities, and promotion
+
+**Status:** Planned. This is the architectural follow-up to #2, #3, #6, and #8.
+Treat this as a contract-and-migration program, not a "new mega-crawler" rewrite:
+Slice A must be behavior-preserving and establish a shared enrichment shape before any
+semantic logic moves.
+
+**Principle:** Enrichment is not a one-off cleanup step. It runs every turn over the
+visible/session-window bead surface so memory can build on itself as natural conversation
+progresses. Associations, claims, entity aliases, and promotion/lifecycle decisions should
+therefore be facets of one session-window enrichment judgment, not independent semantic
+passes competing to interpret the same text.
+
+**Current observed shape:**
+- `process_turn_finalized(...)` writes/persists the canonical turn bead first.
+- Runtime builds a bounded crawler context with `build_crawler_context(..., limit=200)`
+  over the session surface / visible bead IDs.
+- `turn-enrichment` is enqueued by default via `CORE_MEMORY_ENRICHMENT_QUEUE=on`; if the
+  queue is disabled, the same stages run inline as fallback.
+- `run_turn_enrichment(...)` currently executes separate stages: association pass,
+  heuristic claim extraction, preview associations, crawler merge, decision pass, claim
+  updates, memory outcome, and quality metric.
+- Claim extraction is currently mostly heuristic/turn-local (`claim/extraction.py`) and is
+  attached after association application, while claim updates reconcile later against
+  current state.
+- Promotion decisions are split between crawler-authored promotion marks and the session
+  decision pass.
+- Entity canonicalization currently happens from bead `entities` during bead sync, with an
+  LLM-first registry judge added in #8, but it is still not part of a single compound
+  enrichment delta.
+
+**Problem:** The code has the right cadence — every turn, session-window visible context —
+but the semantic outputs are fragmented by subsystem. That can stack cost/latency, create
+duplicate or conflicting judgments, and miss cross-signal opportunities where an
+association clarifies a claim, a claim clarifies promotion, or an entity alias clarifies
+both.
+
+**Target shape:** Replace the separated semantic passes with one runtime-owned
+session-window enrichment contract that can emit a compound delta:
+- bead updates / lifecycle state changes
+- associations and association lifecycle actions
+- claim creations and claim updates
+- entity upserts / alias links
+- promotion decisions
+- memory outcome metadata when applicable
+
+The contract should reserve the live-system primitives needed by #5/#6-style grounding,
+idempotency, and sequencing work from day one, without implementing the full validation /
+eval layer in this slice:
+- stable delta/job idempotency key
+- evidence/context fingerprint
+- model, rubric, and prompt version for LLM-judged outputs
+- per-output dedupe keys
+- ordering / sequence fields for claim and lifecycle updates
+- provenance and confidence on every emitted item
+
+The crawler should reason over:
+- the new/current turn bead
+- every bead in the visible session window
+- existing associations among visible beads
+- existing claims/current-state slots relevant to visible beads
+- existing entity registry labels/aliases relevant to visible beads
+- prior promotion/lifecycle states
+
+**Non-goals:**
+- Do not reprocess the whole archive every turn.
+- Do not run separate LLM agents for entity extraction, claim extraction, association
+  linking, and promotion when one session-window enrichment judgment can emit all deltas.
+- Do not move semantic policy into OpenClaw/plugin bridge code.
+- Do not implement the full grounding-hash validation or benchmark/eval layer in Slice A;
+  do design `session_enrichment_delta.v1` so those primitives do not require a later
+  contract break.
+
+**Analysis artifact before implementation:**
+Do not implement delta code until a committed artifact names the current write paths and
+idempotency boundaries precisely. That artifact should include:
+1. **Current call graph.** Trace from `process_turn_finalized(...)` through bead
+   persistence, crawler context construction, queued/inline enrichment, association
+   application, claim extraction/update, decision pass, merge, and side-effect commits.
+2. **Current schemas and persistence targets.** Enumerate accepted fields and write targets
+   for `crawler_updates`, association lifecycle rows, claim rows, claim update rows, entity
+   registry rows, promotion decisions, and memory outcome metadata. Mark which are append
+   only, mutable, or derived projection fields.
+3. **Current idempotency/dedupe keys.** Name the exact boundaries that prevent duplicate
+   associations, claims, entities, promotion marks, lifecycle updates, queue jobs, and
+   side-effect commits today; call out where no boundary exists.
+4. **Current window/context surfaces.** Compare `read_session_surface(...)`,
+   `build_crawler_context(...)`, `visible_bead_ids`, `window_bead_ids`, current-state claim
+   reads, and entity registry reads. Identify what the unified crawler must see to make
+   correct cross-signal decisions.
+5. **Overlapping semantic judgments.** Find where bead-field judging, registry entity
+   judging, heuristic claim extraction, decision pass, and association crawler each infer
+   overlapping semantics. Decide which outputs remain in the initial bead judge and which
+   move into the unified enrichment delta.
+6. **Proposed field inventory for `session_enrichment_delta.v1`.** Include bounded arrays,
+   canonical relationship/claim types, explicit provenance, confidence, evidence/context
+   refs, fingerprint fields, model/rubric/prompt version fields, per-output dedupe keys,
+   lifecycle/claim sequencing keys, rationale/evidence fields, strict normalization, and
+   quarantine for invalid rows. This is a design inventory, not implementation.
+7. **Migration risks and Slice A parity tests.** Define expected equivalence, known fields
+   that may legitimately differ, and test fixtures needed before the adapter layer lands.
+
+**Preferred execution order:**
+1. Land TODO/instruction pivot.
+2. Complete the committed #9 analysis artifact.
+3. Design `session_enrichment_delta.v1`.
+4. Implement behavior-preserving adapter layer.
+5. Fold #3 association types into the unified delta with a strict relationship enum,
+   normalization warnings/provenance, and quarantine for unknown labels; if relationship
+   typing depends materially on entity resolution quality, keep this slice minimal or swap
+   it after entity folding.
+6. Fold entity upserts/aliases into the unified delta, replacing #8's interim separate
+   judge path where possible.
+7. Fold claims and claim updates, with monotonic sequencing keys, evidence refs,
+   grounding/context fingerprints, and judge/rubric versions included in the contract.
+8. Fold goal lifecycle (#2), after claims/current-state evidence is available.
+9. Return to #7 semantic indexing around the stabilized write/enrichment lifecycle.
+
+**Slice A acceptance criteria:**
+- Inline and queued enrichment produce equivalent committed state. Equivalent means matching
+  canonical row content, dedupe keys, lifecycle state, visible IDs, and normalized
+  projections; raw JSON byte equality is not required for timestamps, UUIDs, queue metadata,
+  model diagnostics, or other expected nondeterministic fields.
+- Re-running the same turn/enrichment job does not duplicate associations, claims,
+  entities, or promotion marks.
+- Existing behavior/tests remain preserved.
+- New contract has strict normalization and quarantine paths for invalid rows.
+- No OpenClaw/plugin bridge owns semantic policy.
+- Window bounds are explicit and test-covered. Captured bounds must include session id,
+  current turn id/bead id, visible bead ids, window source, max window size,
+  excluded/overflow counts when applicable, and context/evidence fingerprint.
+- Each emitted delta item carries provenance, evidence/context refs, confidence, and a
+  stable dedupe key.
+
+**Files:** `core_memory/runtime/turn_flow.py`, `core_memory/runtime/enrichment.py`,
+`core_memory/association/crawler_contract.py`, `core_memory/claim/turn_integration.py`,
+`core_memory/claim/update_policy.py`, `core_memory/entity/registry.py`,
+`core_memory/runtime/decision_pass.py`, `core_memory/runtime/session_surface.py`,
+`core_memory/persistence/store_claim_ops.py`, promotion persistence modules, tests covering
+queued and inline enrichment parity.

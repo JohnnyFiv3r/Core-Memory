@@ -430,6 +430,23 @@ If memory is fuzzy:
 If memory lacks a credible anchor:
 - abstain rather than hallucinate
 
+### Entity quality rule
+
+Treat entity extraction as semantic judging, not generic NER. Good open-source NER can
+spot surface names, but Core Memory cares about retrieval-useful canonical entities:
+people, organizations, projects, products, places, systems, datasets, and stable domain
+concepts that should help future recall.
+
+Adapters and agents may pass candidate `entities`, but the Core Memory live write path is
+authoritative for final canonicalization. Do not bypass the runtime entity judge by
+writing registry rows directly from regex/NER output.
+
+Use canonical entities and aliases when available. If the same thing is referred to in
+multiple ways, prefer consistent naming in claims, retrieval titles/facts, and
+associations. Do not promote generic nouns, instruction words, broad topics, or
+retrieval-only question terms into entities just because they appear capitalized or
+frequent.
+
 ## F) Operator checks
 
 Preserve awareness of the primary operational checks:
