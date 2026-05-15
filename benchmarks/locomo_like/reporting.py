@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import statistics
 from datetime import datetime, timezone
 from typing import Any
@@ -36,6 +37,11 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
     pending_before = [int(((r.get("queue_before_query") or {}).get("pending_total") or 0)) for r in ordered]
     pending_after = [int(((r.get("queue_after_query") or {}).get("pending_total") or 0)) for r in ordered]
     backend_mode_counts: dict[str, int] = {}
+    grounding_prior_cases = 0
+    grounding_stable_cases = 0
+    slot_cases = 0
+    slot_correct = 0
+    engine_state_slots: list[str] = []
 
     token_query_total = 0
     token_retrieved_total = 0
@@ -59,6 +65,19 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
     non_used_case_pass = 0
 
     for row in ordered:
+        if bool(row.get("grounding_prior_found")):
+            grounding_prior_cases += 1
+            if bool(row.get("grounding_stable")):
+                grounding_stable_cases += 1
+
+        sv = row.get("slot_validation") if isinstance(row.get("slot_validation"), dict) else {}
+        if str((sv or {}).get("status") or "") != "not_applicable":
+            slot_cases += 1
+            if bool((sv or {}).get("match")):
+                slot_correct += 1
+
+        engine_state_slots.extend([str(x) for x in list(row.get("engine_state_slots") or []) if str(x).strip()])
+
         mode = str(row.get("benchmark_backend_mode") or "")
         if mode:
             backend_mode_counts[mode] = int(backend_mode_counts.get(mode, 0)) + 1
@@ -132,7 +151,12 @@ def build_report(*, metadata: dict[str, Any], case_results: list[dict[str, Any]]
             "pass": passed,
             "fail": failed,
             "accuracy": round((passed / total) if total else 0.0, 4),
+            "grounding_stable_rate": round((grounding_stable_cases / grounding_prior_cases), 4) if grounding_prior_cases else None,
+            "grounding_stability_cases": int(grounding_prior_cases),
+            "slot_accuracy": round((slot_correct / slot_cases), 4) if slot_cases else None,
+            "slot_validation_cases": int(slot_cases),
         },
+        "engine_state_hash": hashlib.sha256("\n".join(sorted(set(engine_state_slots))).encode("utf-8")).hexdigest(),
         "latency_ms": {
             "mean": round(_mean(latencies), 3),
             "p50": round(_percentile(latencies, 0.50), 3),

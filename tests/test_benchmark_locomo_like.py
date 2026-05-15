@@ -65,6 +65,7 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
         self.assertIn("dreamer_correlation", report)
         self.assertIn("myelination_observability", report)
         self.assertIn("token_usage", report)
+        self.assertIn("engine_state_hash", report)
         self.assertIn("semantic_mode", report.get("metadata") or {})
         self.assertIn("backend_mode", report.get("metadata") or {})
         self.assertIn("benchmark_backend_modes", report.get("metadata") or {})
@@ -82,10 +83,37 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
             self.assertIn("dreamer_correlation", c)
             self.assertIn("myelination_stats", c)
             self.assertIn("token_usage", c)
+            self.assertIn("evidence_grounding_hashes", c)
+            self.assertIn("grounding_stable", c)
+            self.assertIn("slot_validation", c)
+            self.assertIn("engine_state_hash", c)
+
+        totals = dict(report.get("totals") or {})
+        self.assertIn("grounding_stable_rate", totals)
+        self.assertIn("slot_accuracy", totals)
 
         tu = dict(report.get("token_usage") or {})
         self.assertIn("total_tokens_est", tu)
         self.assertGreaterEqual(int(tu.get("cases_with_estimates") or 0), 1)
+
+    def test_runner_compares_prior_grounding_hashes(self):
+        base = Path("benchmarks/locomo_like")
+        prior = {
+            "cases": [
+                {"case_id": "fx_causal_mechanism", "evidence_grounding_hashes": ["prior-different"]},
+            ]
+        }
+        report = run_benchmark(
+            fixtures_dir=base / "fixtures",
+            gold_dir=base / "gold",
+            subset="local",
+            limit=1,
+            prior_report=prior,
+        )
+        c0 = (report.get("cases") or [{}])[0]
+        self.assertTrue(c0.get("grounding_prior_found"))
+        self.assertFalse(c0.get("grounding_stable"))
+        self.assertEqual(0.0, (report.get("totals") or {}).get("grounding_stable_rate"))
 
     def test_runner_supports_required_mode_backend_metadata(self):
         base = Path("benchmarks/locomo_like")

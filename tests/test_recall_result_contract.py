@@ -2,10 +2,12 @@ import unittest
 
 import core_memory
 from core_memory.retrieval.contracts import (
+    ClaimSlotItem,
     EvidenceItem,
     RecallPlanning,
     RecallResult,
     RecallStep,
+    ResolvedGoalItem,
     SourceItem,
     recall_result_from_memory_execute,
     validate_recall_effort,
@@ -15,7 +17,9 @@ from core_memory.retrieval.contracts import (
 class TestRecallResultContract(unittest.TestCase):
     def test_public_exports(self):
         self.assertIs(core_memory.RecallResult, RecallResult)
+        self.assertIs(core_memory.ClaimSlotItem, ClaimSlotItem)
         self.assertIs(core_memory.EvidenceItem, EvidenceItem)
+        self.assertIs(core_memory.ResolvedGoalItem, ResolvedGoalItem)
         self.assertIs(core_memory.SourceItem, SourceItem)
         self.assertIs(core_memory.RecallStep, RecallStep)
         self.assertIs(core_memory.RecallPlanning, RecallPlanning)
@@ -25,7 +29,20 @@ class TestRecallResultContract(unittest.TestCase):
         result = RecallResult(
             answer="Use pgvector.",
             why="It is the selected backend.",
-            evidence=[EvidenceItem(bead_id="b1", type="decision", title="Pick pgvector", score=0.91)],
+            evidence=[EvidenceItem(bead_id="b1", type="decision", title="Pick pgvector", score=0.91, grounding_hash="sha256:e")],
+            resolved_goals=[ResolvedGoalItem(bead_id="g1", title="Ship migration", resolved_by_bead_id="b1", resolved_at="2026-05-15T00:00:00Z", reason="matched outcome")],
+            claim_slots={
+                "Postgres:backend": ClaimSlotItem(
+                    key="Postgres:backend",
+                    subject="Postgres",
+                    slot="backend",
+                    current_value="pgvector",
+                    status="active",
+                    current_claim_id="c1",
+                    chain_seq=3,
+                    grounding_hash="sha256:c",
+                )
+            },
             sources=[SourceItem(turn_id="t1", session_id="s1", speaker="assistant", bead_id="b1")],
             tier_path=["semantic", "source"],
             steps=[RecallStep(tier="semantic", query="vector backend", status="ok", result_count=1)],
@@ -44,6 +61,9 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertEqual("recall_result.v1", data["schema_version"])
         self.assertEqual("recall_result", data["contract"])
         self.assertEqual("b1", data["evidence"][0]["bead_id"])
+        self.assertEqual("sha256:e", data["evidence"][0]["grounding_hash"])
+        self.assertEqual("g1", data["resolved_goals"][0]["bead_id"])
+        self.assertEqual("pgvector", data["claim_slots"]["Postgres:backend"]["current_value"])
         self.assertEqual(["decision"], data["planning"]["expected_shape"]["bead_types"])
         self.assertEqual("test", data["metadata"]["surface"])
 

@@ -46,6 +46,7 @@ class EvidenceItem:
     content_excerpt: str = ""
     score: float | None = None
     reason: str = ""
+    grounding_hash: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -53,6 +54,47 @@ class EvidenceItem:
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "EvidenceItem":
+        return cls(**_known_dataclass_kwargs(cls, data))
+
+
+@dataclass
+class ResolvedGoalItem:
+    """Resolved goal state surfaced by recall without triggering new writes."""
+
+    bead_id: str
+    title: str = ""
+    resolved_by_bead_id: str = ""
+    resolved_at: str = ""
+    reason: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ResolvedGoalItem":
+        return cls(**_known_dataclass_kwargs(cls, data))
+
+
+@dataclass
+class ClaimSlotItem:
+    """Current resolved state for a subject+slot claim chain."""
+
+    key: str
+    subject: str = ""
+    slot: str = ""
+    current_value: Any = None
+    status: str = ""
+    current_claim_id: str = ""
+    chain_seq: int | None = None
+    grounding_hash: str | None = None
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ClaimSlotItem":
         return cls(**_known_dataclass_kwargs(cls, data))
 
 
@@ -123,6 +165,8 @@ class RecallResult:
     answer: str | None = None
     why: str | None = None
     evidence: list[EvidenceItem] = field(default_factory=list)
+    resolved_goals: list[ResolvedGoalItem] = field(default_factory=list)
+    claim_slots: dict[str, ClaimSlotItem] = field(default_factory=dict)
     sources: list[SourceItem] = field(default_factory=list)
     tier_path: list[str] = field(default_factory=list)
     steps: list[RecallStep] = field(default_factory=list)
@@ -138,6 +182,8 @@ class RecallResult:
         return {
             **asdict(self),
             "evidence": [e.to_dict() for e in self.evidence],
+            "resolved_goals": [g.to_dict() for g in self.resolved_goals],
+            "claim_slots": {str(k): v.to_dict() for k, v in (self.claim_slots or {}).items()},
             "sources": [s.to_dict() for s in self.sources],
             "steps": [s.to_dict() for s in self.steps],
             "planning": self.planning.to_dict(),
@@ -147,6 +193,13 @@ class RecallResult:
     def from_dict(cls, data: dict[str, Any]) -> "RecallResult":
         payload = dict(data or {})
         payload["evidence"] = [EvidenceItem.from_dict(x) for x in _clean_list(payload.get("evidence")) if isinstance(x, dict)]
+        payload["resolved_goals"] = [ResolvedGoalItem.from_dict(x) for x in _clean_list(payload.get("resolved_goals")) if isinstance(x, dict)]
+        raw_slots = payload.get("claim_slots") if isinstance(payload.get("claim_slots"), dict) else {}
+        payload["claim_slots"] = {
+            str(k): ClaimSlotItem.from_dict(v)
+            for k, v in dict(raw_slots or {}).items()
+            if isinstance(v, dict)
+        }
         payload["sources"] = [SourceItem.from_dict(x) for x in _clean_list(payload.get("sources")) if isinstance(x, dict)]
         payload["steps"] = [RecallStep.from_dict(x) for x in _clean_list(payload.get("steps")) if isinstance(x, dict)]
         planning = payload.get("planning")
@@ -181,6 +234,7 @@ def evidence_from_result_row(row: dict[str, Any]) -> EvidenceItem:
         content_excerpt=excerpt[:600],
         score=score,
         reason=_text(r.get("reason") or r.get("anchor_reason") or r.get("recommendation")),
+        grounding_hash=_text(r.get("grounding_hash")) or None,
         metadata={k: v for k, v in r.items() if k not in {"detail", "text", "summary", "retrieval_facts", "supporting_facts"}},
     )
 

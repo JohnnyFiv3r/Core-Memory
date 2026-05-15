@@ -18,10 +18,12 @@ from .memory import Memory, capture
 from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .schema.turn import Turn
 from .retrieval.contracts import (
+    ClaimSlotItem,
     EvidenceItem,
     RecallPlanning,
     RecallResult,
     RecallStep,
+    ResolvedGoalItem,
     SourceItem,
     recall_result_from_memory_execute,
     validate_recall_effort,
@@ -46,7 +48,9 @@ __all__ = [
     # Friendly quick-start aliases
     "Memory",
     "Turn",
+    "ClaimSlotItem",
     "EvidenceItem",
+    "ResolvedGoalItem",
     "SourceItem",
     "RecallPlanning",
     "RecallResult",
