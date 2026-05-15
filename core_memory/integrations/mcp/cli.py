@@ -16,11 +16,17 @@ from importlib import metadata
 from pathlib import Path
 from typing import Any
 
+from core_memory.retrieval.semantic_index import semantic_doctor
+
 from core_memory.integrations.mcp.constants import MCP_HTTP_PATH, MCP_SPEC_VERSION
 
 DEFAULT_MCP_PORT = 8000
 DEFAULT_MCP_ROOT = "~/.core-memory/store"
 SERVER_NAME = "core-memory"
+SEMANTIC_INSTALL_WARNING = (
+    "Warning: no embedding provider detected. Set OPENAI_API_KEY for full semantic recall,\n"
+    "or export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed to suppress this warning."
+)
 SUPPORTED_CLIENTS = {"claude-code", "cursor", "windsurf", "open-webui"}
 
 
@@ -262,6 +268,10 @@ def install_payload(
         }
     results = [install_client_config(c, port=port, dry_run=dry_run) for c in clients]
     service = install_service(root=chosen_root, port=port, no_start=no_start, dry_run=dry_run)
+    semantic = semantic_doctor(Path(chosen_root))
+    provider_missing = str(semantic.get("provider") or "unknown") in {"", "unknown"}
+    if bool(semantic.get("degraded_mode_enabled")) or provider_missing:
+        print(SEMANTIC_INSTALL_WARNING, file=sys.stderr)
     ok = all(r.get("ok") for r in results) and bool(service.get("ok"))
     verify = (
         status_payload(port=port, timeout=1.0)
@@ -272,6 +282,7 @@ def install_payload(
         "ok": ok,
         "clients": results,
         "service": service,
+        "semantic": semantic,
         "verify": verify,
         "root": chosen_root,
         "url": mcp_url(port),

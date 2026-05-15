@@ -9,7 +9,7 @@ import json
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
-    SEMANTIC_MODE_REQUIRED,
+    _normalize_semantic_mode,
     semantic_lookup,
     semantic_unavailable_payload,
 )
@@ -37,8 +37,7 @@ PUBLIC_HYDRATION_TURN_SOURCES = {"cited_turns", "cited_turns_plus_adjacent"}
 
 
 def _canonical_semantic_mode() -> str:
-    m = str(os.getenv("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", SEMANTIC_MODE_REQUIRED) or SEMANTIC_MODE_REQUIRED).strip().lower()
-    return m if m in {"required", "degraded_allowed"} else SEMANTIC_MODE_REQUIRED
+    return _normalize_semantic_mode(os.getenv("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
 
 
 def _semantic_failure_response(*, query: str, intent: str, k: int, warnings: list[str], provider: str | None = None) -> dict[str, Any]:

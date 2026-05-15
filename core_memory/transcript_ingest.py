@@ -109,10 +109,19 @@ def normalize_transcript_payload(payload: dict[str, Any], *, max_turns: int = 50
         pairs.append({"user": None, "assistant": cur})
         i += 1
 
+    warnings: list[dict[str, Any]] = []
     envelopes: list[dict[str, Any]] = []
     for pair_index, pair in enumerate(pairs):
         user = pair.get("user")
         assistant = pair.get("assistant")
+        if isinstance(user, dict) and assistant is None:
+            warnings.append(
+                {
+                    "code": "unpaired_final_user_turn",
+                    "message": "Final user turn has no assistant response; ingesting it as a user-only turn.",
+                    "source_index": int(user.get("index") or 0),
+                }
+            )
         first = user or assistant or {}
         last = assistant or user or {}
         first_meta = first.get("metadata") if isinstance(first.get("metadata"), dict) else {}
@@ -177,6 +186,7 @@ def normalize_transcript_payload(payload: dict[str, Any], *, max_turns: int = 50
         "flush_policy": flush_policy,
         "turns_received": len(utterances),
         "turns_paired": len(envelopes),
+        "warnings": warnings,
         "envelopes": envelopes,
     }
 
@@ -325,6 +335,7 @@ def ingest_transcript(
         "session_id": str(normalized.get("session_id") or ""),
         "turns_received": int(normalized.get("turns_received") or 0),
         "turns_paired": int(normalized.get("turns_paired") or 0),
+        "warnings": list(normalized.get("warnings") or []) + list(out.get("warnings") or []),
         "associations_created": _associations_created_summary(root, new_bead_ids),
         **out,
     }
