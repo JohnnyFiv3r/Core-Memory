@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.runtime.engine import process_flush, process_turn_finalized
+from core_memory.runtime.engine import _session_visible_bead_ids, process_flush, process_turn_finalized
 
 _SAFE_ID_RE = re.compile(r"[^A-Za-z0-9_.:-]+")
 _ROLE_ALIASES = {
@@ -192,6 +192,11 @@ def ingest_turn_envelopes(*, root: str, envelopes: list[dict[str, Any]], flush_p
         if session_id and session_id not in session_ids:
             session_ids.append(session_id)
         try:
+            if session_id:
+                prior_visible = _session_visible_bead_ids(root=root, session_id=session_id)
+                env["window_bead_ids"] = sorted(
+                    set([str(x) for x in (env.get("window_bead_ids") or []) if str(x).strip()] + prior_visible)
+                )
             out = process_turn_finalized(root=root, **env)
             emitted_flag = bool(out.get("ok", True))
             row = {
@@ -238,6 +243,45 @@ def ingest_turn_envelopes(*, root: str, envelopes: list[dict[str, Any]], flush_p
     }
 
 
+def _associations_created_summary(root: str, bead_ids: list[str]) -> dict[str, Any]:
+    created = {str(x) for x in (bead_ids or []) if str(x).strip()}
+    if not created:
+        return {"count": 0, "by_type": {}, "items": []}
+    try:
+        import json
+
+        idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+    except Exception:
+        return {"count": 0, "by_type": {}, "items": []}
+    rows: list[dict[str, Any]] = []
+    for assoc in (idx.get("associations") or []) if isinstance(idx, dict) else []:
+        if not isinstance(assoc, dict):
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "").strip()
+        tgt = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "").strip()
+        if src not in created:
+            continue
+        rows.append(
+            {
+                "source": src,
+                "target": tgt,
+                "source_bead_id": src,
+                "target_bead_id": tgt,
+                "relationship": str(assoc.get("relationship") or ""),
+                "confidence": assoc.get("confidence"),
+                "reason_code": assoc.get("reason_code"),
+                "reason_text": assoc.get("reason_text") or assoc.get("rationale"),
+                "provenance": assoc.get("provenance"),
+            }
+        )
+    rows.sort(key=lambda r: (r.get("source_bead_id") or "", r.get("target_bead_id") or "", r.get("relationship") or ""))
+    by_type: dict[str, int] = {}
+    for row in rows:
+        rel = str(row.get("relationship") or "").strip() or "unknown"
+        by_type[rel] = by_type.get(rel, 0) + 1
+    return {"count": len(rows), "by_type": dict(sorted(by_type.items())), "items": rows}
+
+
 def ingest_transcript(
     *,
     root: str = ".",
@@ -265,6 +309,15 @@ def ingest_transcript(
         envelopes=list(normalized.get("envelopes") or []),
         flush_policy=str(normalized.get("flush_policy") or flush_policy),
     )
+    new_bead_ids = sorted(
+        {
+            str(bid)
+            for row in (out.get("ingested") or [])
+            if isinstance(row, dict)
+            for bid in (row.get("bead_ids") or [])
+            if str(bid).strip()
+        }
+    )
     return {
         "ok": bool(out.get("ok")),
         "kind": "transcript_ingest",
@@ -272,5 +325,6 @@ def ingest_transcript(
         "session_id": str(normalized.get("session_id") or ""),
         "turns_received": int(normalized.get("turns_received") or 0),
         "turns_paired": int(normalized.get("turns_paired") or 0),
+        "associations_created": _associations_created_summary(root, new_bead_ids),
         **out,
     }

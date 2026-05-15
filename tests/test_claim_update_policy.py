@@ -219,6 +219,51 @@ class TestClaimUpdatePolicy(unittest.TestCase):
         self.assertTrue(updates[0]["grounding_hash"].startswith("sha256:"))
         self.assertEqual(updates[0]["grounding_hash"], stored[0]["grounding_hash"])
 
+    def test_emit_updates_keeps_distinct_decisions_with_same_grounding(self):
+        from core_memory.claim.update_policy import emit_claim_updates
+        from core_memory.persistence.store_claim_ops import read_claim_updates_for_bead
+
+        with tempfile.TemporaryDirectory() as td:
+            updates = emit_claim_updates(
+                td,
+                [],
+                "bead1",
+                reviewed_updates={
+                    "claim_updates": [
+                        {
+                            "id": "u1",
+                            "decision": "reaffirm",
+                            "target_claim_id": "old1",
+                            "subject": "user",
+                            "slot": "preference",
+                            "reason_text": "same evidence reaffirms current state",
+                            "evidence_bead_ids": ["ctx1"],
+                            "judge_model": "judge-v1",
+                            "prompt_version": "prompt-v1",
+                            "rubric_version": "rubric-v1",
+                        },
+                        {
+                            "id": "u2",
+                            "decision": "conflict",
+                            "target_claim_id": "old1",
+                            "subject": "user",
+                            "slot": "preference",
+                            "reason_text": "same evidence also marks conflict",
+                            "evidence_bead_ids": ["ctx1"],
+                            "judge_model": "judge-v1",
+                            "prompt_version": "prompt-v1",
+                            "rubric_version": "rubric-v1",
+                        },
+                    ]
+                },
+            )
+            stored = read_claim_updates_for_bead(td, "bead1")
+
+        self.assertEqual(2, len(updates))
+        self.assertEqual(2, len(stored))
+        self.assertEqual({"reaffirm", "conflict"}, {u.get("decision") for u in updates})
+        self.assertEqual(1, len({u.get("grounding_hash") for u in updates}))
+
 
 if __name__ == "__main__":
     unittest.main()

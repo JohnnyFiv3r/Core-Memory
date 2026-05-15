@@ -124,11 +124,12 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             s = MemoryStore(td)
             b1 = s.add_bead(type="context", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
             b2 = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+            b3 = s.add_bead(type="context", title="Evidence", summary=["z"], session_id="s1", source_turn_ids=["t3"])
 
             out = apply_crawler_turn_updates(
                 root=td,
                 session_id="s1",
-                visible_bead_ids=[b1, b2],
+                visible_bead_ids=[b1, b2, b3],
                 updates={
                     "reviewed_beads": [
                         {
@@ -142,7 +143,7 @@ class TestAssociationCrawlerContract(unittest.TestCase):
                                     "provenance": "model_inferred",
                                     "reason_code": "supporting_evidence",
                                     "evidence_fields": ["summary"],
-                                    "evidence_bead_ids": [b2, b1],
+                                    "evidence_refs": [{"bead_id": b3, "field": "summary"}],
                                     "judge_model": "assoc-judge-v1",
                                     "prompt_version": "assoc-prompt-v1",
                                     "rubric_version": "assoc-rubric-v1",
@@ -170,7 +171,8 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertEqual("model_inferred", row.get("provenance"))
             self.assertEqual("supporting_evidence", row.get("reason_code"))
             self.assertEqual(["summary"], row.get("evidence_fields"))
-            self.assertEqual(sorted([b1, b2]), row.get("evidence_bead_ids"))
+            self.assertEqual([{"bead_id": b3, "field": "summary"}], row.get("evidence_refs"))
+            self.assertEqual(sorted([b1, b2, b3]), row.get("evidence_bead_ids"))
             self.assertEqual("assoc-judge-v1", row.get("judge_model"))
             self.assertEqual("assoc-prompt-v1", row.get("prompt_version"))
             self.assertEqual("assoc-rubric-v1", row.get("rubric_version"))
@@ -182,7 +184,8 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertTrue(merge.get("ok"))
             idx = s._read_json(s.beads_dir / "index.json")
             assoc = (idx.get("associations") or [])[0]
-            self.assertEqual(sorted([b1, b2]), assoc.get("evidence_bead_ids"))
+            self.assertEqual([{"bead_id": b3, "field": "summary"}], assoc.get("evidence_refs"))
+            self.assertEqual(sorted([b1, b2, b3]), assoc.get("evidence_bead_ids"))
             self.assertEqual("t2", assoc.get("turn_id"))
             self.assertTrue(str(assoc.get("grounding_hash") or "").startswith("sha256:"))
 

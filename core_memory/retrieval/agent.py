@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+import json
+import re
+from pathlib import Path
 from typing import Any
 
 from core_memory.retrieval.contracts import (
+    ClaimSlotItem,
     RecallPlanning,
     RecallResult,
     RecallStep,
+    ResolvedGoalItem,
     recall_result_from_memory_execute,
     validate_recall_effort,
 )
+from core_memory.persistence.store_claim_ops import read_all_claim_rows, resolve_current_state
 from core_memory.retrieval.tools.memory import execute as memory_execute
 
 _CAUSAL_HINTS = {
@@ -69,6 +75,158 @@ def _query_text(request: dict[str, Any]) -> str:
 def _looks_causal_or_temporal(query: str) -> bool:
     q = f" {query.lower()} "
     return any(hint in q for hint in _CAUSAL_HINTS)
+
+
+def _read_index(root: str) -> dict[str, Any]:
+    try:
+        payload = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _latest_update_by_bead(index: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    out: dict[str, dict[str, Any]] = {}
+    for bead_id, bead in (index.get("beads") or {}).items():
+        if not isinstance(bead, dict):
+            continue
+        updates = [u for u in (bead.get("claim_updates") or []) if isinstance(u, dict)]
+        if not updates:
+            continue
+        updates.sort(
+            key=lambda u: (
+                int(u.get("chain_seq") or 0) if str(u.get("chain_seq") or "").isdigit() else 0,
+                str(u.get("id") or ""),
+            )
+        )
+        out[str(bead_id)] = updates[-1]
+    return out
+
+
+def _add_evidence_grounding(result: RecallResult, index: dict[str, Any]) -> None:
+    latest = _latest_update_by_bead(index)
+    for item in result.evidence:
+        if item.grounding_hash:
+            continue
+        update = latest.get(str(item.bead_id)) or {}
+        grounding_hash = _text(update.get("grounding_hash"))
+        if grounding_hash:
+            item.grounding_hash = grounding_hash
+
+
+def _tokens(value: str) -> set[str]:
+    return {t for t in re.findall(r"[a-z0-9]{3,}", str(value or "").lower()) if t}
+
+
+def _resolved_goals_for_result(result: RecallResult, index: dict[str, Any], query: str) -> list[ResolvedGoalItem]:
+    beads = index.get("beads") or {}
+    evidence_ids = {str(e.bead_id) for e in result.evidence if str(e.bead_id)}
+    associated_ids: set[str] = set(evidence_ids)
+    for assoc in index.get("associations") or []:
+        if not isinstance(assoc, dict):
+            continue
+        src = _text(assoc.get("source_bead") or assoc.get("source_bead_id"))
+        tgt = _text(assoc.get("target_bead") or assoc.get("target_bead_id"))
+        if src in evidence_ids and tgt:
+            associated_ids.add(tgt)
+        if tgt in evidence_ids and src:
+            associated_ids.add(src)
+    q_tokens = _tokens(query)
+    evidence_tokens: set[str] = set()
+    for bid in evidence_ids:
+        row = beads.get(bid) if isinstance(beads, dict) else None
+        if isinstance(row, dict):
+            evidence_tokens |= _tokens(" ".join([str(row.get("title") or ""), " ".join(str(x) for x in (row.get("summary") or []))]))
+
+    items: list[ResolvedGoalItem] = []
+    for bid, row in beads.items() if isinstance(beads, dict) else []:
+        if not isinstance(row, dict):
+            continue
+        if _text(row.get("type")).lower() != "goal":
+            continue
+        state = _text(row.get("promotion_state") or row.get("goal_status") or row.get("status")).lower()
+        if state != "resolved":
+            continue
+        resolved_by = _text(row.get("resolved_by_bead_id"))
+        text_tokens = _tokens(" ".join([str(row.get("title") or ""), " ".join(str(x) for x in (row.get("summary") or []))]))
+        related = (
+            str(bid) in associated_ids
+            or resolved_by in evidence_ids
+            or bool(text_tokens & q_tokens)
+            or bool(text_tokens & evidence_tokens)
+        )
+        if not related:
+            continue
+        items.append(
+            ResolvedGoalItem(
+                bead_id=str(bid),
+                title=_text(row.get("title")),
+                resolved_by_bead_id=resolved_by,
+                resolved_at=_text(row.get("resolved_at")),
+                reason=_text(row.get("promotion_reason")),
+                metadata={"status": state},
+            )
+        )
+    items.sort(key=lambda g: (g.resolved_at, g.bead_id), reverse=True)
+    return items
+
+
+def _latest_slot_update(updates: list[dict[str, Any]], subject: str, slot: str) -> dict[str, Any]:
+    matching = [u for u in updates if _text(u.get("subject")) == subject and _text(u.get("slot")) == slot]
+    if not matching:
+        return {}
+    matching.sort(
+        key=lambda u: (
+            int(u.get("chain_seq") or 0) if str(u.get("chain_seq") or "").isdigit() else 0,
+            _text(u.get("id")),
+        )
+    )
+    return matching[-1]
+
+
+def _claim_slots_for_result(result: RecallResult, root: str, index: dict[str, Any]) -> dict[str, ClaimSlotItem]:
+    evidence_ids = {str(e.bead_id) for e in result.evidence if str(e.bead_id)}
+    beads = index.get("beads") or {}
+    pairs: set[tuple[str, str]] = set()
+    for bid in evidence_ids:
+        row = beads.get(bid) if isinstance(beads, dict) else None
+        if not isinstance(row, dict):
+            continue
+        for claim in row.get("claims") or []:
+            if isinstance(claim, dict) and _text(claim.get("subject")) and _text(claim.get("slot")):
+                pairs.add((_text(claim.get("subject")), _text(claim.get("slot"))))
+        for update in row.get("claim_updates") or []:
+            if isinstance(update, dict) and _text(update.get("subject")) and _text(update.get("slot")):
+                pairs.add((_text(update.get("subject")), _text(update.get("slot"))))
+    if not pairs:
+        return {}
+    _, all_updates = read_all_claim_rows(root)
+    slots: dict[str, ClaimSlotItem] = {}
+    for subject, slot in sorted(pairs):
+        state = resolve_current_state(root, subject, slot)
+        current = state.get("current_claim") if isinstance(state.get("current_claim"), dict) else {}
+        latest_update = _latest_slot_update(all_updates, subject, slot)
+        key = f"{subject}:{slot}"
+        slots[key] = ClaimSlotItem(
+            key=key,
+            subject=subject,
+            slot=slot,
+            current_value=current.get("value") if isinstance(current, dict) else None,
+            status=_text(state.get("status")),
+            current_claim_id=_text(current.get("id") if isinstance(current, dict) else ""),
+            chain_seq=int(latest_update.get("chain_seq")) if str(latest_update.get("chain_seq") or "").isdigit() else None,
+            grounding_hash=_text(latest_update.get("grounding_hash")) or None,
+        )
+    return slots
+
+
+def _enrich_recall_state(result: RecallResult, *, root: str, query: str) -> None:
+    index = _read_index(root)
+    if not index:
+        return
+    _add_evidence_grounding(result, index)
+    result.resolved_goals = _resolved_goals_for_result(result, index, query)
+    result.claim_slots = _claim_slots_for_result(result, root, index)
 
 
 def _expected_shape(query: str) -> dict[str, Any]:
@@ -171,6 +329,7 @@ def recall(
     )
     raw = memory_execute(request=request, root=root, explain=explain)
     result = recall_result_from_memory_execute(raw, query=query, effort=selected_effort, include_raw=include_raw)
+    _enrich_recall_state(result, root=root, query=query)
     result.planning = RecallPlanning(
         selected_effort=selected_effort,
         reason=str(_EFFORT_DEFAULTS[selected_effort]["planning_reason"]),

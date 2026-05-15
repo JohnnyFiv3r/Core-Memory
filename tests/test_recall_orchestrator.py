@@ -1,5 +1,8 @@
 import unittest
+import json
+import tempfile
 from unittest.mock import patch
+from pathlib import Path
 
 from core_memory.retrieval.agent import recall
 from core_memory.retrieval.contracts import RecallResult
@@ -81,6 +84,76 @@ class TestRecallOrchestrator(unittest.TestCase):
     def test_dynamic_is_reserved(self):
         with self.assertRaisesRegex(ValueError, "reserved for a future"):
             recall("redis", effort="dynamic")
+
+    def test_recall_enriches_resolved_goals_claim_slots_and_grounding(self):
+        with tempfile.TemporaryDirectory() as td:
+            idx = {
+                "beads": {
+                    "b1": {
+                        "id": "b1",
+                        "type": "decision",
+                        "title": "Pick pgvector",
+                        "session_id": "s1",
+                        "claims": [
+                            {
+                                "id": "c1",
+                                "claim_kind": "decision",
+                                "subject": "Postgres",
+                                "slot": "backend",
+                                "value": "pgvector",
+                                "confidence": 0.9,
+                            }
+                        ],
+                    },
+                    "b2": {
+                        "id": "b2",
+                        "type": "outcome",
+                        "title": "Migration completed",
+                        "session_id": "s1",
+                        "claim_updates": [
+                            {
+                                "id": "u1",
+                                "decision": "reaffirm",
+                                "target_claim_id": "c1",
+                                "subject": "Postgres",
+                                "slot": "backend",
+                                "trigger_bead_id": "b2",
+                                "grounding_hash": "sha256:claim",
+                                "chain_seq": 7,
+                            }
+                        ],
+                    },
+                    "g1": {
+                        "id": "g1",
+                        "type": "goal",
+                        "title": "Finish pgvector migration",
+                        "session_id": "s1",
+                        "status": "resolved",
+                        "promotion_state": "resolved",
+                        "resolved_by_bead_id": "b2",
+                        "resolved_at": "2026-05-15T00:00:00Z",
+                        "promotion_reason": "matched outcome",
+                    },
+                },
+                "associations": [
+                    {"source_bead": "b2", "target_bead": "g1", "relationship": "resolves"},
+                ],
+            }
+            p = Path(td) / ".beads" / "index.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps(idx), encoding="utf-8")
+            raw = {"ok": True, "results": [{"bead_id": "b2", "title": "Migration completed"}]}
+
+            with patch("core_memory.retrieval.agent.memory_execute", return_value=raw):
+                result = recall("was the pgvector migration resolved?", effort="medium", root=td, include_raw=False)
+
+        self.assertEqual("sha256:claim", result.evidence[0].grounding_hash)
+        self.assertEqual(["g1"], [g.bead_id for g in result.resolved_goals])
+        slot = result.claim_slots["Postgres:backend"]
+        self.assertEqual("pgvector", slot.current_value)
+        self.assertEqual("active", slot.status)
+        self.assertEqual(7, slot.chain_seq)
+        self.assertEqual("sha256:claim", slot.grounding_hash)
 
 
 if __name__ == "__main__":

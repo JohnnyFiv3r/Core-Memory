@@ -6,9 +6,11 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.integrations.mcp.tools.ingest import ingest_handler
-from core_memory.transcript_ingest import ingest_transcript, normalize_transcript_payload
+from core_memory.persistence.store import MemoryStore
+from core_memory.transcript_ingest import ingest_transcript, ingest_turn_envelopes, normalize_transcript_payload
 
 
 def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
@@ -52,6 +54,59 @@ class TranscriptIngestSurfaceTests(unittest.TestCase):
         self.assertEqual(1, out["turns_paired"])
         self.assertEqual(1, out["turns_ingested"])
         self.assertEqual("library:demo", out["session_id"])
+        self.assertIn("associations_created", out)
+
+    def test_turn_envelope_ingest_populates_window_beads_per_turn(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(str(Path(td) / "store"))
+            prior = store.add_bead(type="context", title="Prior", summary=["prior"], session_id="s1")
+            envelopes = [
+                {"session_id": "s1", "turn_id": "t1", "turns": [{"role": "user", "content": "one"}], "metadata": {}},
+                {"session_id": "s1", "turn_id": "t2", "turns": [{"role": "user", "content": "two"}], "metadata": {}},
+            ]
+
+            def fake_process_turn_finalized(root: str, **env):
+                title = f"bead-{env['turn_id']}"
+                bid = MemoryStore(root).add_bead(type="context", title=title, summary=[title], session_id=env["session_id"], source_turn_ids=[env["turn_id"]])
+                return {"ok": True, "bead_ids": [bid]}
+
+            with patch("core_memory.transcript_ingest.process_turn_finalized", side_effect=fake_process_turn_finalized) as spy:
+                out = ingest_turn_envelopes(root=str(Path(td) / "store"), envelopes=envelopes)
+
+            first_window = spy.call_args_list[0].kwargs["window_bead_ids"]
+            second_window = spy.call_args_list[1].kwargs["window_bead_ids"]
+
+        self.assertTrue(out["ok"])
+        self.assertIn(prior, first_window)
+        self.assertIn(prior, second_window)
+        self.assertIn(out["ingested"][0]["bead_ids"][0], second_window)
+
+    def test_transcript_result_summarizes_created_associations(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "store")
+
+            def fake_process_turn_finalized(root: str, **env):
+                store = MemoryStore(root)
+                b1 = store.add_bead(type="decision", title="A", summary=["A"], session_id=env["session_id"], source_turn_ids=[env["turn_id"]])
+                b2 = store.add_bead(type="context", title="B", summary=["B"], session_id=env["session_id"], source_turn_ids=[env["turn_id"]])
+                idx = store._read_json(store.beads_dir / "index.json")
+                idx.setdefault("associations", []).append(
+                    {"source_bead": b1, "target_bead": b2, "relationship": "supports", "confidence": 0.8}
+                )
+                store._write_json(store.beads_dir / "index.json", idx)
+                return {"ok": True, "bead_ids": [b1, b2]}
+
+            with patch("core_memory.transcript_ingest.process_turn_finalized", side_effect=fake_process_turn_finalized):
+                out = ingest_transcript(
+                    root=root,
+                    transcript_id="assoc-demo",
+                    session_id="s1",
+                    turns=[{"role": "user", "content": "A"}, {"role": "assistant", "content": "B"}],
+                )
+
+        self.assertEqual(1, out["associations_created"]["count"])
+        self.assertEqual({"supports": 1}, out["associations_created"]["by_type"])
+        self.assertEqual("supports", out["associations_created"]["items"][0]["relationship"])
 
     def test_mcp_ingest_accepts_inline_turns(self):
         with tempfile.TemporaryDirectory() as td:
