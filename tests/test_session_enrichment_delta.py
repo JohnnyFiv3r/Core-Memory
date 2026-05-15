@@ -195,300 +195,23 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, len(delta["associations"]))
         self.assertEqual(0, delta["diagnostics"]["quarantined"])
 
-    def test_bead_entities_are_projected_as_delta_entity_upserts(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={
-                "beads_create": [
-                    {
-                        "type": "decision",
-                        "title": "OpenAI Platform migration",
-                        "summary": ["Open AI Platform was selected."],
-                        "source_turn_ids": ["t1"],
-                        "entities": ["Open AI Platform", "OpenAI Platform"],
-                    }
-                ]
-            },
-            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1"]},
-        )
 
-        self.assertEqual(1, len(delta["entity_upserts"]))
-        entity = delta["entity_upserts"][0]
-        self.assertEqual("entity:openaiplatform", entity["dedupe_key"])
-        self.assertEqual("openaiplatform", entity["normalized_label"])
-        self.assertTrue(str(entity["source_bead_key"]).startswith("bead:s1:t1:decision:"))
-
-    def test_explicit_invalid_entity_upsert_is_quarantined(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"entity_upserts": [{"label": "!!!"}]},
-        )
-
-        self.assertEqual([], delta["entity_upserts"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined"])
-        self.assertIn("invalid_entity_label", delta["diagnostics"]["quarantine"][0]["reasons"])
-
-    def test_entity_upserts_project_to_crawler_updates(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={
-                "entity_upserts": [
-                    {
-                        "label": "OpenAI Platform",
-                        "aliases": ["Open AI Platform"],
-                        "entity_kind": "product",
-                        "source_bead_id": "b1",
-                        "evidence": "Open AI Platform selected",
-                        "confidence": 0.91,
-                    }
-                ]
-            },
-        )
-        projected = delta_to_crawler_updates(delta)
-
-        self.assertEqual(1, len(projected["entity_upserts"]))
-        row = projected["entity_upserts"][0]
-        self.assertEqual("OpenAI Platform", row["label"])
-        self.assertEqual("b1", row["source_bead_id"])
-        self.assertEqual("model_inferred", row["provenance"])
-        self.assertNotIn("context_fingerprint", row)
-
-    def test_entity_upsert_uses_live_registry_noise_policy(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"entity_upserts": [{"label": "the"}]},
-        )
-
-        self.assertEqual([], delta["entity_upserts"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined"])
-        self.assertIn("invalid_entity_label", delta["diagnostics"]["quarantine"][0]["reasons"])
-
-    def test_claims_are_projected_as_delta_rows_with_stable_keys(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={
-                "claims": [
-                    {
-                        "id": "claim-random-1",
-                        "claim_kind": "preference",
-                        "subject": "user",
-                        "slot": "preference_editor",
-                        "value": "Neovim",
-                        "reason_text": "User said they prefer Neovim.",
-                        "confidence": 0.9,
-                        "source_bead_id": "b1",
-                        "source_turn_ids": ["t1"],
-                    },
-                    {
-                        "id": "claim-random-2",
-                        "claim_kind": "preference",
-                        "subject": "user",
-                        "slot": "preference_editor",
-                        "value": "Neovim",
-                        "reason_text": "Duplicate semantic claim.",
-                        "confidence": 0.7,
-                        "source_bead_id": "b1",
-                        "source_turn_ids": ["t1"],
-                    },
-                ]
-            },
-        )
-        projected = delta_to_crawler_updates(delta)
-
-        self.assertEqual(1, len(delta["claims"]))
-        self.assertTrue(delta["claims"][0]["dedupe_key"].startswith("claim:user:preference_editor:"))
-        self.assertNotIn("claim-random", delta["claims"][0]["dedupe_key"])
-        self.assertEqual("claim-random-1", projected["claims"][0]["id"])
-
-    def test_invalid_claim_is_quarantined(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"claims": [{"subject": "user", "slot": "preference", "value": "coffee"}]},
-        )
-
-        self.assertEqual([], delta["claims"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined"])
-        self.assertIn("invalid_claim", delta["diagnostics"]["quarantine"][0]["reasons"])
-
-    def test_claim_missing_live_required_fields_is_quarantined(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={
-                "claims": [
-                    {
-                        "subject": "user",
-                        "slot": "preference",
-                        "value": "coffee",
-                        "reason_text": "User said coffee.",
-                    }
-                ]
-            },
-        )
-
-        self.assertEqual([], delta["claims"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined"])
-        self.assertIn("invalid_claim", delta["diagnostics"]["quarantine"][0]["reasons"])
-
-    def test_claim_updates_are_projected_with_sequence_keys(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={
-                "claims": [
-                    {
-                        "id": "claim-new",
-                        "claim_kind": "preference",
-                        "subject": "user",
-                        "slot": "preference_drink",
-                        "value": "tea",
-                        "reason_text": "User said they now prefer tea.",
-                        "confidence": 0.88,
-                        "source_bead_id": "b2",
-                    }
-                ],
-                "claim_updates": [
-                    {
-                        "decision": "supersede",
-                        "target_claim_id": "claim-old",
-                        "replacement_claim_id": "claim-new",
-                        "subject": "user",
-                        "slot": "preference_drink",
-                        "trigger_bead_id": "b2",
-                        "reason_text": "New preference supersedes old preference.",
-                    }
-                ],
-            },
-        )
-        projected = delta_to_crawler_updates(delta)
-
-        self.assertEqual(1, len(delta["claim_updates"]))
-        update = delta["claim_updates"][0]
-        self.assertEqual("claim-update:s1:t1:0", update["sequence_key"])
-        self.assertTrue(update["dedupe_key"].startswith("claim-update:"))
-        self.assertEqual(delta["claims"][0]["dedupe_key"], update["replacement_claim_key"])
-        self.assertEqual("supersede", projected["claim_updates"][0]["decision"])
-
-    def test_invalid_claim_update_is_quarantined(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"claim_updates": [{"decision": "supersede", "target_claim_id": "claim-old"}]},
-        )
-
-        self.assertEqual([], delta["claim_updates"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined"])
-        self.assertIn("invalid_claim_update", delta["diagnostics"]["quarantine"][0]["reasons"])
-
-    def test_duplicate_claim_updates_dedupe_like_live_explicit_updates(self):
-        row = {
-            "decision": "supersede",
-            "target_claim_id": "claim-old",
-            "replacement_claim_id": "claim-new",
-            "trigger_bead_id": "b2",
-            "reason_text": "New claim supersedes old claim.",
+    def test_future_delta_rows_are_reserved_diagnostic_only(self):
+        updates = {
+            "entity_upserts": [{"label": "OpenAI Platform"}],
+            "claims": [{"subject": "user", "slot": "preference", "value": "coffee"}],
+            "claim_updates": [{"decision": "supersede", "target_claim_id": "c1"}],
+            "goal_lifecycle": [{"goal_bead_id": "g1", "action": "complete"}],
+            "memory_outcomes": [{"bead_id": "b1", "interaction_role": "memory_resolution"}],
         }
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"claim_updates": [dict(row), dict(row)]},
-        )
-
-        self.assertEqual(1, len(delta["claim_updates"]))
-        self.assertEqual("claim-update:s1:t1:0", delta["claim_updates"][0]["sequence_key"])
-
-    def test_goal_lifecycle_rows_are_projected_into_delta(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={
-                "goal_lifecycle": [
-                    {
-                        "goal_bead_id": "goal-1",
-                        "action": "complete",
-                        "reason_text": "Outcome bead indicates the migration finished.",
-                        "confidence": 0.86,
-                    }
-                ]
-            },
-        )
+        delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)
         projected = delta_to_crawler_updates(delta)
 
-        self.assertEqual(1, len(delta["goal_lifecycle"]))
-        row = delta["goal_lifecycle"][0]
-        self.assertEqual("goal-bead:goal-1", row["goal_key"])
-        self.assertEqual("goal-life:s1:t1:0", row["sequence_key"])
-        self.assertTrue(row["dedupe_key"].startswith("goal-life:goal-bead:goal-1:complete:"))
-        self.assertEqual("complete", projected["goal_lifecycle"][0]["action"])
-
-    def test_invalid_goal_lifecycle_row_is_quarantined(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"goal_lifecycle": [{"goal_bead_id": "goal-1", "action": "resolved"}]},
-        )
-
-        self.assertEqual([], delta["goal_lifecycle"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined"])
-        self.assertIn("invalid_goal_lifecycle", delta["diagnostics"]["quarantine"][0]["reasons"])
-
-    def test_memory_outcome_rows_are_projected_into_delta(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={
-                "memory_outcomes": [
-                    {
-                        "bead_id": "b-turn",
-                        "interaction_role": "memory_resolution",
-                        "memory_outcome": {
-                            "role": "memory_resolution",
-                            "description": "Memory directly answered a question.",
-                            "bead_count": 2,
-                        },
-                    }
-                ]
-            },
-        )
-        projected = delta_to_crawler_updates(delta)
-
-        self.assertEqual(1, len(delta["memory_outcomes"]))
-        row = delta["memory_outcomes"][0]
-        self.assertEqual("memory-outcome:b-turn:t1", row["dedupe_key"])
-        self.assertEqual("memory_resolution", row["interaction_role"])
-        self.assertEqual("memory_resolution", projected["memory_outcomes"][0]["interaction_role"])
-
-    def test_invalid_memory_outcome_row_is_quarantined(self):
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"memory_outcomes": [{"interaction_role": "memory_resolution", "memory_outcome": {}}]},
-        )
-
-        self.assertEqual([], delta["memory_outcomes"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined"])
-        self.assertIn("invalid_memory_outcome", delta["diagnostics"]["quarantine"][0]["reasons"])
-
-    def test_duplicate_memory_outcomes_dedupe_by_bead_and_turn(self):
-        row = {
-            "bead_id": "b-turn",
-            "interaction_role": "memory_reflection",
-            "memory_outcome": {"role": "memory_reflection", "description": "Memory was surfaced.", "bead_count": 1},
-        }
-        delta = crawler_updates_to_delta(
-            session_id="s1",
-            turn_id="t1",
-            updates={"memory_outcomes": [dict(row), dict(row)]},
-        )
-
-        self.assertEqual(1, len(delta["memory_outcomes"]))
-        self.assertEqual("memory-outcome:b-turn:t1", delta["memory_outcomes"][0]["dedupe_key"])
+        for row_type in ("entity_upserts", "claims", "claim_updates", "goal_lifecycle", "memory_outcomes"):
+            self.assertEqual([], delta[row_type])
+            self.assertEqual(1, delta["diagnostics"]["reserved_input_counts"][row_type])
+            self.assertEqual([], projected.get(row_type, []))
+        self.assertEqual(0, delta["diagnostics"]["quarantined"])
 
     def test_array_bounds_quarantine_overflow(self):
         updates = {"promotions": [f"b{i}" for i in range(70)]}
@@ -525,12 +248,17 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         }
         return row_for[row_type](i)
 
-    def test_all_array_bounds_are_explicit_and_quarantine_overflow(self):
-        for row_type, limit in DELTA_ROW_LIMITS.items():
+    def test_active_array_bounds_are_explicit_and_quarantine_overflow(self):
+        active_row_types = ("beads_create", "promotions", "associations", "association_lifecycle")
+        for row_type in active_row_types:
+            limit = DELTA_ROW_LIMITS[row_type]
             with self.subTest(row_type=row_type):
                 crawler_ctx = None
                 if row_type == "associations":
-                    crawler_ctx = {"session_id": "s1", "visible_bead_ids": [f"b{i}-tgt" for i in range(limit + 1)]}
+                    crawler_ctx = {
+                        "session_id": "s1",
+                        "visible_bead_ids": [x for i in range(limit + 1) for x in (f"b{i}-src", f"b{i}-tgt")],
+                    }
                 delta = crawler_updates_to_delta(
                     session_id="s1",
                     turn_id="t1",
@@ -558,14 +286,15 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(list(DELTA_ROW_TYPES), list(delta["diagnostics"]["accepted_counts"].keys()))
         self.assertEqual(list(DELTA_ROW_TYPES), list(delta["diagnostics"]["quarantined_counts"].keys()))
         self.assertEqual(1, delta["diagnostics"]["accepted_counts"]["promotions"])
-        self.assertEqual(1, delta["diagnostics"]["quarantined_counts"]["entity_upserts"])
+        self.assertEqual(1, delta["diagnostics"]["reserved_input_counts"]["entity_upserts"])
+        self.assertEqual(0, delta["diagnostics"]["quarantined_counts"]["entity_upserts"])
 
-    def test_all_accepted_row_types_emit_common_contract_fields(self):
-        for row_type in DELTA_ROW_TYPES:
+    def test_active_accepted_row_types_emit_common_contract_fields(self):
+        for row_type in ("beads_create", "promotions", "associations", "association_lifecycle"):
             with self.subTest(row_type=row_type):
                 crawler_ctx = None
                 if row_type == "associations":
-                    crawler_ctx = {"session_id": "s1", "visible_bead_ids": ["b0-tgt"]}
+                    crawler_ctx = {"session_id": "s1", "visible_bead_ids": ["b0-src", "b0-tgt"]}
                 delta = crawler_updates_to_delta(
                     session_id="s1",
                     turn_id="t1",
@@ -651,36 +380,6 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual("test", test_delta["promotions"][0]["provenance"]["kind"])
         self.assertEqual([], test_delta["promotions"][0]["evidence_refs"])
 
-    def test_default_grounding_refs_do_not_leak_back_to_crawler_shape(self):
-        updates = {
-            "beads_create": [
-                {
-                    "type": "decision",
-                    "title": "Use JSONB",
-                    "summary": ["PostgreSQL JSONB keeps writes transactional"],
-                    "source_turn_ids": ["t1"],
-                }
-            ],
-            "claims": [
-                {
-                    "id": "claim-1",
-                    "claim_kind": "preference",
-                    "subject": "user",
-                    "slot": "preference_editor",
-                    "value": "Neovim",
-                    "reason_text": "User said they prefer Neovim.",
-                    "confidence": 0.9,
-                    "source_bead_id": "b1",
-                    "source_turn_ids": ["t1"],
-                }
-            ],
-        }
-        delta = crawler_updates_to_delta(session_id="s1", turn_id="t1", updates=updates)
-        projected = delta_to_crawler_updates(delta)
-
-        self.assertNotIn("evidence_refs", projected["beads_create"][0])
-        self.assertNotIn("evidence_refs", projected["claims"][0])
-
     def test_explicit_grounding_refs_survive_projection(self):
         ref = {"kind": "turn", "id": "t1", "field": "user_query", "quote": "hello", "hash": None}
         delta = crawler_updates_to_delta(
@@ -745,7 +444,7 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         delta = crawler_updates_to_delta(
             session_id="s1",
             turn_id="t1",
-            updates={"entity_upserts": [{"label": "!!!"}]},
+            updates={"associations": [{"source_bead_id": "b2", "relationship": "supports"}]},
         )
 
         with tempfile.TemporaryDirectory() as td:
@@ -760,15 +459,15 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, second["deduped"])
         self.assertEqual(1, len(rows))
         self.assertEqual(2, rows[0]["seen_count"])
-        self.assertEqual("entity_upserts", rows[0]["row_type"])
-        self.assertIn("invalid_entity_label", rows[0]["reasons"])
+        self.assertEqual("associations", rows[0]["row_type"])
+        self.assertIn("missing_source_target_or_relationship", rows[0]["reasons"])
         self.assertEqual(str(tempfile_path), first["path"])
 
     def test_write_delta_quarantine_serializes_concurrent_replays(self):
         delta = crawler_updates_to_delta(
             session_id="s1",
             turn_id="t1",
-            updates={"entity_upserts": [{"label": "!!!"}]},
+            updates={"associations": [{"source_bead_id": "b2", "relationship": "supports"}]},
         )
 
         with tempfile.TemporaryDirectory() as td:
@@ -897,106 +596,6 @@ class TestCanonicalSessionProjection(unittest.TestCase):
             right_projection = canonical_session_projection(right, "s1")
             self.assertTrue(projections_equal(left_projection, right_projection))
             self.assertIn("entities", left_projection)
-
-    def test_delta_projection_matches_direct_claim_rows_and_updates(self):
-        from core_memory.persistence.store_claim_ops import write_claims_to_bead, write_claim_updates_to_bead
-
-        with tempfile.TemporaryDirectory() as base, tempfile.TemporaryDirectory() as td:
-            b1, b2 = self._seed_two_bead_store(base)
-            left = str(Path(td) / "direct")
-            right = str(Path(td) / "delta")
-            shutil.copytree(base, left)
-            shutil.copytree(base, right)
-
-            updates = {
-                "claims": [
-                    {
-                        "id": "claim-jsonb",
-                        "claim_kind": "custom",
-                        "subject": "PostgreSQL",
-                        "slot": "storage_choice",
-                        "value": "JSONB",
-                        "reason_text": "The session selected JSONB.",
-                        "confidence": 0.8,
-                        "source_bead_id": b1,
-                        "source_turn_ids": ["t1"],
-                    }
-                ],
-                "claim_updates": [
-                    {
-                        "id": "update-jsonb",
-                        "decision": "reaffirm",
-                        "target_claim_id": "claim-jsonb",
-                        "subject": "PostgreSQL",
-                        "slot": "storage_choice",
-                        "trigger_bead_id": b2,
-                        "reason_text": "The rationale still supports JSONB.",
-                    }
-                ],
-            }
-
-            write_claims_to_bead(left, b1, updates["claims"])
-            write_claim_updates_to_bead(left, b2, updates["claim_updates"])
-
-            projected = delta_to_crawler_updates(
-                crawler_updates_to_delta(session_id="s1", turn_id="t3", updates=updates)
-            )
-            write_claims_to_bead(right, b1, projected["claims"])
-            write_claim_updates_to_bead(right, b2, projected["claim_updates"])
-
-            self.assertTrue(
-                projections_equal(canonical_session_projection(left, "s1"), canonical_session_projection(right, "s1"))
-            )
-
-    def test_delta_projected_claim_rows_and_updates_are_rerun_idempotent(self):
-        from core_memory.persistence.store_claim_ops import write_claims_to_bead, write_claim_updates_to_bead
-
-        with tempfile.TemporaryDirectory() as td:
-            b1, b2 = self._seed_two_bead_store(td)
-            updates = {
-                "claims": [
-                    {
-                        "id": "claim-jsonb",
-                        "claim_kind": "custom",
-                        "subject": "PostgreSQL",
-                        "slot": "storage_choice",
-                        "value": "JSONB",
-                        "reason_text": "The session selected JSONB.",
-                        "confidence": 0.8,
-                        "source_bead_id": b1,
-                        "source_turn_ids": ["t1"],
-                    }
-                ],
-                "claim_updates": [
-                    {
-                        "id": "update-jsonb",
-                        "decision": "reaffirm",
-                        "target_claim_id": "claim-jsonb",
-                        "subject": "PostgreSQL",
-                        "slot": "storage_choice",
-                        "trigger_bead_id": b2,
-                        "reason_text": "The rationale still supports JSONB.",
-                    }
-                ],
-            }
-            projected = delta_to_crawler_updates(
-                crawler_updates_to_delta(session_id="s1", turn_id="t3", updates=updates)
-            )
-
-            write_claims_to_bead(td, b1, projected["claims"])
-            write_claim_updates_to_bead(td, b2, projected["claim_updates"])
-            first = canonical_session_projection(td, "s1")
-
-            write_claims_to_bead(td, b1, projected["claims"])
-            write_claim_updates_to_bead(td, b2, projected["claim_updates"])
-            second = canonical_session_projection(td, "s1")
-
-            self.assertTrue(projections_equal(first, second))
-            bead_rows = second["beads"]
-            claims = [claim for bead in bead_rows.values() for claim in bead.get("claims", [])]
-            updates_rows = [update for bead in bead_rows.values() for update in bead.get("claim_updates", [])]
-            self.assertEqual(1, len(claims))
-            self.assertEqual(1, len(updates_rows))
 
     def test_delta_projection_matches_direct_promotion_and_association_lifecycle_state(self):
         from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates

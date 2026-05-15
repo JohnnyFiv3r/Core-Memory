@@ -1,14 +1,14 @@
 # session_enrichment_delta.v1 contract
 
-Status: active Slice A/B contract for #9. Runtime paths now project queued/inline enrichment outputs into this shape and route semantic side effects through crawler/delta merge authority where folded.
+Status: active Slice A adapter contract for #9. Runtime paths project queued/inline enrichment outputs into this shape for the Slice A row types only.
 
 ## Purpose
 
-`session_enrichment_delta.v1` is the shared envelope for one session-window enrichment judgment. It started as an adapter shape around existing write paths; it is now the canonical queued/inline interchange format for folded semantic side effects so both execution modes converge on equivalent committed state.
+`session_enrichment_delta.v1` is the shared envelope for one session-window enrichment judgment. Slice A uses it as an adapter shape around existing write paths so inline and queued enrichment can converge on equivalent committed state before any semantic subsystem is folded into a unified judge.
 
-The contract is not a new semantic policy owner. Semantic policy stays in the existing Core Memory runtime and domain modules. OpenClaw/plugin bridge code must not own relationship, claim, entity, goal, memory-outcome, or promotion semantics.
+The contract is not a new semantic policy owner. Semantic policy stays in the existing Core Memory runtime and domain modules. OpenClaw/plugin bridge code must not own relationship, claim, entity, or promotion semantics.
 
-The adapter must support both current execution modes: queued enrichment when `CORE_MEMORY_ENRICHMENT_QUEUE` is enabled and inline fallback when the queue is disabled.
+The adapter supports both current execution modes: queued enrichment when `CORE_MEMORY_ENRICHMENT_QUEUE` is enabled and inline fallback when the queue is disabled.
 
 ## Design goals
 
@@ -82,11 +82,11 @@ All row arrays are bounded before normalization. Slice A defaults:
 - `promotions`: max 64
 - `associations`: max 256
 - `association_lifecycle`: max 128
-- `entity_upserts`: max 128
-- `claims`: max 128
-- `claim_updates`: max 128
-- `goal_lifecycle`: max 64
-- `memory_outcomes`: max 8
+- `entity_upserts`: reserved; accepted count remains 0 in Slice A
+- `claims`: reserved; accepted count remains 0 in Slice A
+- `claim_updates`: reserved; accepted count remains 0 in Slice A
+- `goal_lifecycle`: reserved; accepted count remains 0 in Slice A
+- `memory_outcomes`: reserved; accepted count remains 0 in Slice A
 
 Rows over the bound are quarantined with reason `array_bound_exceeded`. The accepted prefix remains processable.
 
@@ -236,7 +236,7 @@ Rules:
 
 ### `entity_upserts[]`
 
-Crawler/delta merge target: explicit `entity_upserts` are queued by `apply_crawler_updates(...)` and applied through `upsert_canonical_entity(...)` during `merge_crawler_updates(...)`. Programmatic bead label indexing remains write-time deterministic sync.
+Reserved for #8 folding. Slice A records input counts diagnostically but does not accept or project these rows.
 
 ```json
 {
@@ -256,7 +256,7 @@ Rules:
 
 ### `claims[]`
 
-Crawler/delta merge target: explicit claim rows are queued by `apply_crawler_updates(...)` and appended to source beads during `merge_crawler_updates(...)`. `write_claims_to_bead(...)` remains a low-level storage/compatibility primitive.
+Reserved for later claim folding. Slice A records input counts diagnostically but does not accept or project these rows.
 
 ```json
 {
@@ -274,12 +274,12 @@ Crawler/delta merge target: explicit claim rows are queued by `apply_crawler_upd
 
 Rules:
 
-- Claim persistence must dedupe by stable claim identity / `dedupe_key` equivalent; generated `id` must not be the equality key.
-- Runtime semantic claim decisions should be queued through crawler/delta authority, not independently persisted from turn finalization/enrichment.
+- Slice A must not claim replay safety for claims until persisted claim writes dedupe by `dedupe_key` or an equivalent canonical identity.
+- Generated `id` must not be the equality key.
 
 ### `claim_updates[]`
 
-Crawler/delta merge target: claim update decisions are emitted with `persist=False`, queued by `apply_crawler_updates(...)`, and appended to trigger beads during `merge_crawler_updates(...)`. `write_claim_updates_to_bead(...)` remains a low-level storage/compatibility primitive.
+Reserved for later claim-update folding. Slice A records input counts diagnostically but does not accept or project these rows.
 
 ```json
 {
@@ -306,7 +306,7 @@ Rules:
 
 ### `goal_lifecycle[]`
 
-Crawler/delta merge target: goal lifecycle rows are queued by `apply_crawler_updates(...)` and applied to session-local goal beads during `merge_crawler_updates(...)`.
+Reserved for #2 folding. Slice A records input counts diagnostically but does not accept or project these rows.
 
 ```json
 {
@@ -321,7 +321,7 @@ Crawler/delta merge target: goal lifecycle rows are queued by `apply_crawler_upd
 
 ### `memory_outcomes[]`
 
-Crawler/delta merge target: memory outcome rows are queued by `apply_crawler_updates(...)` and applied to session-local turn beads during `merge_crawler_updates(...)`. `write_memory_outcome_to_bead(...)` remains a low-level storage/compatibility primitive.
+Reserved for later memory-outcome folding. Slice A records input counts diagnostically but does not accept or project these rows.
 
 ```json
 {
@@ -386,14 +386,14 @@ The comparator must ignore:
 1. Capture current subsystem outputs and normalize them into `session_enrichment_delta.v1`.
 2. Validate bounds, required common fields, canonical enums, visible-scope rules, and confidence ranges.
 3. Quarantine invalid rows.
-4. Convert accepted rows into crawler/delta side effects:
-   - `beads_create`, `promotions`, `associations`, `association_lifecycle`, `entity_upserts`, `claims`, `claim_updates`, `goal_lifecycle`, and `memory_outcomes` flow through `apply_crawler_updates(...)` plus `merge_crawler_updates(...)` paths.
-   - Low-level direct write helpers remain available for storage compatibility, tests, and legacy callers, but runtime semantic decisions should not bypass crawler/delta authority.
+4. Convert accepted Slice A rows through crawler/delta side effects:
+   - `beads_create`, `promotions`, `associations`, and `association_lifecycle` flow through `apply_crawler_updates(...)` plus `merge_crawler_updates(...)` paths.
+   - `entity_upserts`, `claims`, `claim_updates`, `goal_lifecycle`, and `memory_outcomes` stay reserved/diagnostic-only until their owning slices are folded.
 5. Use the canonical projection equality gate to prove inline and queued enrichment equivalence.
 
 ## Acceptance notes for #9 Slice A
 
-- Re-running the same turn/enrichment job must not duplicate associations, promotion marks, entities, claims, or claim updates in the final canonical projection.
+- Re-running the same turn/enrichment job must not duplicate Slice A associations or promotion marks in the final canonical projection.
 - Existing tests and behavior must remain preserved.
 - Window bounds must be explicit and test-covered.
 - Every accepted row must carry provenance, evidence/context refs, confidence, and a stable dedupe key.

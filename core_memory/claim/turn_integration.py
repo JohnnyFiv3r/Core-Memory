@@ -16,8 +16,6 @@ def extract_and_attach_claims(
     turn_id: str,
     created_bead_ids: list[str],
     req: dict,
-    *,
-    persist: bool = True,
 ) -> dict:
     """
     Extract claims from a turn and attach them to the canonical turn bead only.
@@ -66,7 +64,7 @@ def extract_and_attach_claims(
     unique_claims = dedup_claims(valid_claims)
 
     claims_written = 0
-    if canonical_bead_id and unique_claims and persist:
+    if canonical_bead_id and unique_claims:
         write_claims_to_bead(root, canonical_bead_id, unique_claims)
         claims_written = len(unique_claims)
 

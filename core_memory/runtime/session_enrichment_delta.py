@@ -319,7 +319,6 @@ def _normalize_entity_upsert_row(
         "normalized_label": normalized_label,
         "aliases": alias_norms[:12],
         "entity_kind": _as_str(row.get("entity_kind") or row.get("kind")) or "other",
-        "source_bead_id": _as_str(row.get("source_bead_id") or row.get("bead_id")) or None,
         "source_bead_key": source_bead_key,
         "evidence": _as_str(row.get("evidence")) or None,
     }
@@ -770,43 +769,6 @@ def crawler_updates_to_delta(
         if tid and tid not in src_turns:
             out.setdefault("warnings", []).append("current_turn_id_missing_from_source_turn_ids")
         delta["beads_create"].append(out)
-        for entity_label in _str_list(row.get("entities"), limit=40):
-            entity_candidates.append(
-                (
-                    {"label": entity_label, "aliases": [entity_label], "confidence": row.get("confidence", 0.72)},
-                    bead_dedupe_key,
-                    "crawler_updates.beads_create.entities",
-                )
-            )
-
-    explicit_entity_rows = [r for r in raw.get("entity_upserts") or [] if isinstance(r, dict)]
-    for row in explicit_entity_rows:
-        entity_candidates.append(
-            (row, _as_str(row.get("source_bead_key")) or None, "crawler_updates.entity_upserts")
-        )
-
-    entity_candidates, q = _bounded(entity_candidates, "entity_upserts", session_id=sid, turn_id=tid)
-    quarantine_rows.extend(q)
-    seen_entity_keys: set[str] = set()
-    for row, source_bead_key, source in entity_candidates:
-        normalized_entity = _normalize_entity_upsert_row(
-            row,
-            source=source,
-            source_bead_key=source_bead_key,
-            turn_id=tid,
-            context_fingerprint=ctx_fp,
-            default_provenance_kind=default_provenance_kind,
-        )
-        if not normalized_entity:
-            quarantine_rows.append(
-                _quarantine("entity_upserts", row, ["invalid_entity_label"], session_id=sid, turn_id=tid)
-            )
-            continue
-        key = str(normalized_entity.get("dedupe_key") or "")
-        if key in seen_entity_keys:
-            continue
-        seen_entity_keys.add(key)
-        delta["entity_upserts"].append(normalized_entity)
 
     promotions_raw = _str_list(raw.get("promotions"))
     for reviewed in raw.get("reviewed_beads") or []:
@@ -882,12 +844,17 @@ def crawler_updates_to_delta(
                 )
             )
             continue
+        visibility_reasons: list[str] = []
+        if src not in visible_bead_ids and not historical_association_scope:
+            visibility_reasons.append("source_outside_visible_window")
         if tgt not in visible_bead_ids and not historical_association_scope:
+            visibility_reasons.append("target_outside_visible_window")
+        if visibility_reasons:
             quarantine_rows.append(
                 _quarantine(
                     "associations",
                     row,
-                    ["target_outside_visible_window"],
+                    visibility_reasons,
                     session_id=sid,
                     turn_id=tid,
                 )
@@ -963,103 +930,11 @@ def crawler_updates_to_delta(
         )
         delta["association_lifecycle"].append(out)
 
-    claim_rows = [r for r in raw.get("claims") or [] if isinstance(r, dict)]
-    claim_rows, q = _bounded(claim_rows, "claims", session_id=sid, turn_id=tid)
-    quarantine_rows.extend(q)
-    claim_key_by_id: dict[str, str] = {}
-    seen_claim_keys: set[str] = set()
-    for row in claim_rows:
-        source_bead_key = _as_str(row.get("source_bead_key") or row.get("source_bead_id")) or None
-        normalized_claim = _normalize_delta_claim_row(
-            row,
-            source_bead_key=source_bead_key,
-            turn_id=tid,
-            context_fingerprint=ctx_fp,
-            default_provenance_kind=default_provenance_kind,
-        )
-        if not normalized_claim:
-            quarantine_rows.append(_quarantine("claims", row, ["invalid_claim"], session_id=sid, turn_id=tid))
-            continue
-        key = str(normalized_claim.get("dedupe_key") or "")
-        claim_id = _as_str(normalized_claim.get("id"))
-        if claim_id:
-            claim_key_by_id[claim_id] = key
-        if key in seen_claim_keys:
-            continue
-        seen_claim_keys.add(key)
-        delta["claims"].append(normalized_claim)
-
-    claim_update_rows = [r for r in raw.get("claim_updates") or [] if isinstance(r, dict)]
-    claim_update_rows, q = _bounded(claim_update_rows, "claim_updates", session_id=sid, turn_id=tid)
-    quarantine_rows.extend(q)
-    seen_claim_update_keys: set[str] = set()
-    for i, row in enumerate(claim_update_rows):
-        sequence_key = f"claim-update:{sid}:{tid}:{i}"
-        normalized_update = _normalize_delta_claim_update_row(
-            row,
-            turn_id=tid,
-            context_fingerprint=ctx_fp,
-            sequence_key=sequence_key,
-            claim_key_by_id=claim_key_by_id,
-            default_provenance_kind=default_provenance_kind,
-        )
-        if not normalized_update:
-            quarantine_rows.append(
-                _quarantine("claim_updates", row, ["invalid_claim_update"], session_id=sid, turn_id=tid)
-            )
-            continue
-        key = str(normalized_update.get("dedupe_key") or "")
-        if key in seen_claim_update_keys:
-            continue
-        seen_claim_update_keys.add(key)
-        delta["claim_updates"].append(normalized_update)
-
-    goal_lifecycle_rows = [r for r in raw.get("goal_lifecycle") or [] if isinstance(r, dict)]
-    goal_lifecycle_rows, q = _bounded(goal_lifecycle_rows, "goal_lifecycle", session_id=sid, turn_id=tid)
-    quarantine_rows.extend(q)
-    seen_goal_lifecycle_keys: set[str] = set()
-    for i, row in enumerate(goal_lifecycle_rows):
-        sequence_key = f"goal-life:{sid}:{tid}:{i}"
-        normalized_goal = _normalize_goal_lifecycle_row(
-            row,
-            session_id=sid,
-            turn_id=tid,
-            context_fingerprint=ctx_fp,
-            sequence_key=sequence_key,
-            default_provenance_kind=default_provenance_kind,
-        )
-        if not normalized_goal:
-            quarantine_rows.append(
-                _quarantine("goal_lifecycle", row, ["invalid_goal_lifecycle"], session_id=sid, turn_id=tid)
-            )
-            continue
-        key = str(normalized_goal.get("dedupe_key") or "")
-        if key in seen_goal_lifecycle_keys:
-            continue
-        seen_goal_lifecycle_keys.add(key)
-        delta["goal_lifecycle"].append(normalized_goal)
-
-    memory_outcome_rows = [r for r in raw.get("memory_outcomes") or [] if isinstance(r, dict)]
-    memory_outcome_rows, q = _bounded(memory_outcome_rows, "memory_outcomes", session_id=sid, turn_id=tid)
-    quarantine_rows.extend(q)
-    seen_memory_outcome_keys: set[str] = set()
-    for row in memory_outcome_rows:
-        normalized_outcome = _normalize_memory_outcome_row(
-            row,
-            turn_id=tid,
-            context_fingerprint=ctx_fp,
-            default_provenance_kind=default_provenance_kind,
-        )
-        if not normalized_outcome:
-            quarantine_rows.append(
-                _quarantine("memory_outcomes", row, ["invalid_memory_outcome"], session_id=sid, turn_id=tid)
-            )
-            continue
-        key = str(normalized_outcome.get("dedupe_key") or "")
-        if key in seen_memory_outcome_keys:
-            continue
-        seen_memory_outcome_keys.add(key)
-        delta["memory_outcomes"].append(normalized_outcome)
+    reserved_row_types = ("entity_upserts", "claims", "claim_updates", "goal_lifecycle", "memory_outcomes")
+    reserved_input_counts = {
+        row_type: len([r for r in raw.get(row_type) or [] if isinstance(r, dict)])
+        for row_type in reserved_row_types
+    }
 
     accepted_counts = {row_type: len(delta.get(row_type) or []) for row_type in DELTA_ROW_TYPES}
     quarantined_counts = {row_type: 0 for row_type in DELTA_ROW_TYPES}
@@ -1074,6 +949,7 @@ def crawler_updates_to_delta(
         "row_limits": dict(DELTA_ROW_LIMITS),
         "accepted_counts": accepted_counts,
         "quarantined_counts": quarantined_counts,
+        "reserved_input_counts": reserved_input_counts,
     }
     return delta
 
@@ -1107,7 +983,6 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
         "promotions": [],
         "associations": [],
         "association_lifecycle": [],
-        "entity_upserts": [],
         "claims": [],
         "claim_updates": [],
         "goal_lifecycle": [],
@@ -1158,63 +1033,8 @@ def delta_to_crawler_updates(delta: dict[str, Any]) -> dict[str, Any]:
                     "provenance": _row_provenance_kind(row),
                 }
             )
-    entity_adapter_keys = {
-        "dedupe_key",
-        "provenance",
-        "context_fingerprint",
-        "sequence_key",
-        "rationale",
-        "normalized_label",
-    }
-    for row in delta.get("entity_upserts") or []:
-        if isinstance(row, dict):
-            source = _as_str((row.get("provenance") or {}).get("source") if isinstance(row.get("provenance"), dict) else "")
-            if source == "crawler_updates.beads_create.entities":
-                # These are audit rows for bead_create.entities. Projecting them
-                # would duplicate write-time programmatic indexing for the same
-                # newly-created bead. Explicit crawler entity_upserts still roundtrip.
-                continue
-            projected = _strip_adapter_keys_for_projection(row, entity_adapter_keys)
-            projected["provenance"] = _row_provenance_kind(row)
-            out["entity_upserts"].append(projected)
-    claim_adapter_keys = {
-        "dedupe_key",
-        "provenance",
-        "context_fingerprint",
-        "sequence_key",
-        "rationale",
-        "source_bead_key",
-        "target_claim_key",
-        "replacement_claim_key",
-    }
-    for row in delta.get("claims") or []:
-        if isinstance(row, dict):
-            out["claims"].append(_strip_adapter_keys_for_projection(row, claim_adapter_keys))
-    for row in delta.get("claim_updates") or []:
-        if isinstance(row, dict):
-            out["claim_updates"].append(_strip_adapter_keys_for_projection(row, claim_adapter_keys))
-    goal_lifecycle_adapter_keys = {
-        "dedupe_key",
-        "confidence",
-        "provenance",
-        "context_fingerprint",
-        "sequence_key",
-        "rationale",
-    }
-    for row in delta.get("goal_lifecycle") or []:
-        if isinstance(row, dict):
-            out["goal_lifecycle"].append(_strip_adapter_keys_for_projection(row, goal_lifecycle_adapter_keys))
-    memory_outcome_adapter_keys = {
-        "dedupe_key",
-        "confidence",
-        "provenance",
-        "context_fingerprint",
-        "sequence_key",
-        "rationale",
-    }
-    for row in delta.get("memory_outcomes") or []:
-        if isinstance(row, dict):
-            out["memory_outcomes"].append(_strip_adapter_keys_for_projection(row, memory_outcome_adapter_keys))
+    # Future delta rows are reserved for later slices. Slice A projection only
+    # carries beads, promotions, associations, and association lifecycle rows.
     return out
 
 
