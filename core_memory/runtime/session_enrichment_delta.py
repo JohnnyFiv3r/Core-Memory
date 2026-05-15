@@ -813,6 +813,12 @@ def canonical_session_projection(root: str | Path, session_id: str) -> dict[str,
     bead_id_map = {bid: _stable_bead_key(row) for bid, row in raw_beads.items()}
     visible_keys = [bead_id_map.get(bid, bid) for bid in visible_ids]
     visible_set = set(visible_ids) | set(visible_keys)
+    session_entity_ids = {
+        _as_str(eid)
+        for row in raw_beads.values()
+        for eid in (row.get("entity_ids") or [])
+        if _as_str(eid)
+    }
 
     claim_id_map: dict[str, str] = {}
     for bid, row in raw_beads.items():
@@ -885,12 +891,17 @@ def canonical_session_projection(root: str | Path, session_id: str) -> dict[str,
     for eid, row in (index.get("entities") or {}).items():
         if not isinstance(row, dict):
             continue
+        eid_s = _as_str(eid)
+        provenance_rows = [p for p in (row.get("provenance") or []) if isinstance(p, dict)]
+        session_provenance_rows = [p for p in provenance_rows if _as_str(p.get("bead_id")) in raw_beads]
+        if eid_s not in session_entity_ids and not session_provenance_rows:
+            continue
         normalized = _strip_keys(row, _VOLATILE_ENTITY_FIELDS)
         if "aliases" in normalized:
             normalized["aliases"] = _normalize_list(normalized.get("aliases"))
         if "provenance" in normalized:
             prov = []
-            for p in normalized.get("provenance") or []:
+            for p in session_provenance_rows:
                 if isinstance(p, dict):
                     p_norm = _strip_keys(p, {"ts", "created_at", "updated_at"})
                     bead_id = _as_str(p_norm.get("bead_id"))

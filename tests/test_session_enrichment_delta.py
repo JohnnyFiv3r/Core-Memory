@@ -612,6 +612,49 @@ class TestCanonicalSessionProjection(unittest.TestCase):
             self.assertTrue(projections_equal(left_projection, right_projection))
             self.assertIn("entities", left_projection)
 
+    def test_projection_filters_entities_to_session_scope(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            store.add_bead(
+                type="decision",
+                title="OpenAI Platform migration",
+                summary=["OpenAI Platform was selected."],
+                session_id="s1",
+                source_turn_ids=["t1"],
+                entities=["OpenAI Platform"],
+            )
+            s2_bead = store.add_bead(
+                type="decision",
+                title="Unrelated Redis migration",
+                summary=["Redis was selected."],
+                session_id="s2",
+                source_turn_ids=["t1"],
+                entities=["Redis"],
+            )
+
+            idx_path = store.beads_dir / "index.json"
+            idx = store._read_json(idx_path)
+            store._write_json(idx_path, idx)
+
+            first = canonical_session_projection(td, "s1")
+            self.assertIn("entities", first)
+            self.assertIn("openai", str(first).lower())
+            self.assertNotIn("redis", str(first).lower())
+
+            # Mutating an unrelated session entity must not perturb the s1 projection.
+            idx = store._read_json(idx_path)
+            s2_entity_ids = set(idx["beads"][s2_bead].get("entity_ids") or [])
+            for eid in s2_entity_ids:
+                idx["entities"][eid]["aliases"].append("Redis cache")
+                idx["entities"][eid].setdefault("provenance", []).append(
+                    {"kind": "bead", "bead_id": s2_bead, "source": "test"}
+                )
+            store._write_json(idx_path, idx)
+
+            second = canonical_session_projection(td, "s1")
+
+        self.assertTrue(projections_equal(first, second))
+
     def test_delta_projection_matches_direct_promotion_and_association_lifecycle_state(self):
         from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
 

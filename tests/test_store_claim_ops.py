@@ -195,6 +195,50 @@ class TestStoreClaimOps(unittest.TestCase):
         self.assertEqual(["a", "b", "bead9"], rows[0]["evidence_bead_ids"])
         self.assertEqual(1, rows[0]["chain_seq"])
 
+    def test_claim_update_dedupe_preserves_different_decisions_for_same_grounding(self):
+        with tempfile.TemporaryDirectory() as td:
+            write_claims_to_bead(td, "bead1", [make_claim("c1")])
+            base = {
+                "target_claim_id": "c1",
+                "subject": "user",
+                "slot": "preference",
+                "reason_text": "same evidence, different verdict",
+                "trigger_bead_id": "bead2",
+                "evidence_bead_ids": ["bead2"],
+                "judge_model": "judge-v1",
+                "prompt_version": "prompt-v1",
+                "rubric_version": "rubric-v1",
+            }
+            write_claim_updates_to_bead(td, "bead2", [dict(base, id="u1", decision="reaffirm")])
+            write_claim_updates_to_bead(td, "bead2", [dict(base, id="u2", decision="conflict")])
+
+            rows = read_claim_updates_for_bead(td, "bead2")
+            state = resolve_current_state(td, "user", "preference")
+
+        self.assertEqual(["reaffirm", "conflict"], [r.get("decision") for r in rows])
+        self.assertEqual("conflict", state.get("status"))
+
+    def test_claim_update_dedupe_preserves_different_replacements_for_same_grounding(self):
+        with tempfile.TemporaryDirectory() as td:
+            base = {
+                "decision": "supersede",
+                "target_claim_id": "c1",
+                "subject": "user",
+                "slot": "preference",
+                "reason_text": "same evidence, different replacement",
+                "trigger_bead_id": "bead2",
+                "evidence_bead_ids": ["bead2"],
+                "judge_model": "judge-v1",
+                "prompt_version": "prompt-v1",
+                "rubric_version": "rubric-v1",
+            }
+            write_claim_updates_to_bead(td, "bead2", [dict(base, id="u1", replacement_claim_id="c2")])
+            write_claim_updates_to_bead(td, "bead2", [dict(base, id="u2", replacement_claim_id="c3")])
+
+            rows = read_claim_updates_for_bead(td, "bead2")
+
+        self.assertEqual(["c2", "c3"], [r.get("replacement_claim_id") for r in rows])
+
     def test_claim_update_chain_seq_is_per_subject_slot(self):
         with tempfile.TemporaryDirectory() as td:
             write_claim_updates_to_bead(

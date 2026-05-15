@@ -226,14 +226,16 @@ def _claim_dedupe_key(row: dict[str, Any]) -> tuple[Any, ...]:
 
 def _claim_update_dedupe_key(row: dict[str, Any]) -> tuple[Any, ...]:
     target = str(row.get("target_claim_id") or "").strip()
+    decision = str(row.get("decision") or "").strip().lower()
+    replacement = str(row.get("replacement_claim_id") or "").strip()
     grounding_hash = str(row.get("grounding_hash") or "").strip()
     if target and grounding_hash:
-        return ("grounding", target, grounding_hash)
+        return ("grounding", target, decision, replacement, grounding_hash)
     return (
         "decision",
-        str(row.get("decision") or "").strip().lower(),
+        decision,
         target,
-        str(row.get("replacement_claim_id") or "").strip(),
+        replacement,
         str(row.get("trigger_bead_id") or "").strip(),
     )
 
