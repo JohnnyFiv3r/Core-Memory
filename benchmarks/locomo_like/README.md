@@ -35,6 +35,12 @@ python -m benchmarks.locomo_like.runner --subset local --myelination compare
 python -m benchmarks.locomo_like.runner --subset full --preload-turns /path/to/locomo_turns.jsonl
 ```
 
+## Public baseline positioning
+
+Public comparison notes for Mem0, Memanto, baseline RAG, and the Core Memory feature-flag matrix live at:
+
+- `docs/benchmarks/locomo/baselines.md`
+
 ## Report output
 
 The runner emits machine-readable JSON containing:
