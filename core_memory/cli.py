@@ -50,6 +50,7 @@ from .cli_handlers_graph import handle_graph_command
 from .cli_handlers_metrics import handle_metrics_command
 from .cli_handlers_integrations import handle_integration_commands
 from .cli_handlers_ops import handle_ops_commands
+from .cli_handlers_semantic import handle_semantic_command
 from .cli_diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
 from .integrations.mcp.cli import install_payload, status_payload as mcp_status_payload, uninstall_payload, version_payload
 
@@ -100,7 +101,7 @@ def main():
 
     subparsers = parser.add_subparsers(
         dest="command",
-        metavar="{setup,store,memory,inspect,ingest,integrations,ops,mcp,dev}",
+        metavar="{setup,store,memory,inspect,ingest,integrations,ops,semantic,mcp,dev}",
     )
 
     # Grouped surface (preferred)
@@ -203,6 +204,16 @@ def main():
     ops_sub.add_parser("rebuild", help="Rebuild index from events")
     ops_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index")
     ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
+
+    semantic_parser = subparsers.add_parser("semantic", help="Inspect and operate semantic indexing")
+    semantic_sub = semantic_parser.add_subparsers(dest="semantic_cmd")
+    semantic_sub.add_parser("status", help="Show semantic manifest and queue status as JSON")
+    semantic_rebuild = semantic_sub.add_parser("rebuild", help="Enqueue a semantic index rebuild")
+    semantic_rebuild.add_argument("--mode", choices=["delta", "reconcile"], default="delta")
+    semantic_rebuild.add_argument("--wait", action="store_true", help="Drain the semantic worker immediately after enqueue")
+    semantic_tail = semantic_sub.add_parser("tail", help="Show recent semantic lifecycle events as JSON")
+    semantic_tail.add_argument("-n", type=int, default=20)
+    semantic_sub.add_parser("doctor", help="Show semantic mode/backend diagnostics as JSON")
 
     mcp_parser = subparsers.add_parser("mcp", help="Install and inspect the MCP protocol server")
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_cmd")
@@ -357,6 +368,7 @@ def main():
             "ingest": ingest_parser,
             "integrations": integrations_parser,
             "ops": ops_parser,
+            "semantic": semantic_parser,
             "mcp": mcp_parser,
             "dev": dev_parser,
         },
@@ -395,6 +407,9 @@ def main():
             )
             return
         ingest_parser.print_help()
+        return
+
+    if handle_semantic_command(args=args, root=args.root):
         return
 
     if args.command == "mcp":
