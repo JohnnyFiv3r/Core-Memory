@@ -140,6 +140,8 @@ def add_bead_for_store(
                 "bead_id": c["other_id"],
                 "relationship": c["relationship"],
                 "score": c["score"],
+                "reason_code": c.get("reason_code"),
+                "reason_text": c.get("reason_text"),
                 "authoritative": False,
                 "source": "store_quick_preview",
             }
