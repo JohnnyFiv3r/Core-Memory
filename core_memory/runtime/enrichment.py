@@ -242,7 +242,27 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             logger.warning("enrichment: memory outcome failed for turn %s: %s", turn_id, exc)
             results["stages_failed"].append("memory_outcome")
 
-    # Stage 8: quality metric
+    # Stage 8: goal lifecycle resolution
+    try:
+        from core_memory.runtime.goal_lifecycle import resolve_goals_for_turn
+        canonical_bead_id = str((claim_telemetry or {}).get("canonical_bead_id") or bead_id)
+        goal_visible_ids = sorted(
+            set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])
+        )
+        goal_lifecycle = resolve_goals_for_turn(
+            root=root,
+            session_id=session_id,
+            turn_id=turn_id,
+            outcome_bead_id=canonical_bead_id,
+            visible_bead_ids=goal_visible_ids,
+        )
+        results["goal_lifecycle"] = goal_lifecycle
+        results["stages_completed"].append("goal_lifecycle")
+    except Exception as exc:
+        logger.warning("enrichment: goal lifecycle failed for turn %s: %s", turn_id, exc)
+        results["stages_failed"].append("goal_lifecycle")
+
+    # Stage 9: quality metric
     try:
         _emit_agent_turn_quality_metric(
             root=root,
