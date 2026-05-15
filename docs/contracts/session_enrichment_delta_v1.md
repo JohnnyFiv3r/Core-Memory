@@ -1,12 +1,12 @@
 # session_enrichment_delta.v1 contract
 
-Status: proposed Slice A contract for #9. This is a design artifact only; no runtime behavior changes are implied by this document.
+Status: active Slice A/B contract for #9. Runtime paths now project queued/inline enrichment outputs into this shape and route semantic side effects through crawler/delta merge authority where folded.
 
 ## Purpose
 
-`session_enrichment_delta.v1` is the shared envelope for one session-window enrichment judgment. Slice A uses it as an adapter shape around existing write paths so inline and queued enrichment can converge on equivalent committed state before any semantic subsystem is folded into a unified judge.
+`session_enrichment_delta.v1` is the shared envelope for one session-window enrichment judgment. It started as an adapter shape around existing write paths; it is now the canonical queued/inline interchange format for folded semantic side effects so both execution modes converge on equivalent committed state.
 
-The contract is not a new semantic policy owner. Semantic policy stays in the existing Core Memory runtime and domain modules. OpenClaw/plugin bridge code must not own relationship, claim, entity, or promotion semantics.
+The contract is not a new semantic policy owner. Semantic policy stays in the existing Core Memory runtime and domain modules. OpenClaw/plugin bridge code must not own relationship, claim, entity, goal, memory-outcome, or promotion semantics.
 
 The adapter must support both current execution modes: queued enrichment when `CORE_MEMORY_ENRICHMENT_QUEUE` is enabled and inline fallback when the queue is disabled.
 
@@ -236,7 +236,7 @@ Rules:
 
 ### `entity_upserts[]`
 
-Adapter target after #8 folding: `upsert_canonical_entity(...)` and `sync_bead_entities_for_index(...)` effects.
+Crawler/delta merge target: explicit `entity_upserts` are queued by `apply_crawler_updates(...)` and applied through `upsert_canonical_entity(...)` during `merge_crawler_updates(...)`. Programmatic bead label indexing remains write-time deterministic sync.
 
 ```json
 {
@@ -256,7 +256,7 @@ Rules:
 
 ### `claims[]`
 
-Adapter target after claim folding: `write_claims_to_bead(...)` effects.
+Crawler/delta merge target: explicit claim rows are queued by `apply_crawler_updates(...)` and appended to source beads during `merge_crawler_updates(...)`. `write_claims_to_bead(...)` remains a low-level storage/compatibility primitive.
 
 ```json
 {
@@ -274,12 +274,12 @@ Adapter target after claim folding: `write_claims_to_bead(...)` effects.
 
 Rules:
 
-- Slice A must not claim replay safety for claims until persisted claim writes dedupe by `dedupe_key` or an equivalent canonical identity.
-- Generated `id` must not be the equality key.
+- Claim persistence must dedupe by stable claim identity / `dedupe_key` equivalent; generated `id` must not be the equality key.
+- Runtime semantic claim decisions should be queued through crawler/delta authority, not independently persisted from turn finalization/enrichment.
 
 ### `claim_updates[]`
 
-Adapter target after claim update folding: `emit_claim_updates(...)` and `write_claim_updates_to_bead(...)` effects.
+Crawler/delta merge target: claim update decisions are emitted with `persist=False`, queued by `apply_crawler_updates(...)`, and appended to trigger beads during `merge_crawler_updates(...)`. `write_claim_updates_to_bead(...)` remains a low-level storage/compatibility primitive.
 
 ```json
 {
@@ -306,7 +306,7 @@ Rules:
 
 ### `goal_lifecycle[]`
 
-Reserved for #2 folding.
+Crawler/delta merge target: goal lifecycle rows are queued by `apply_crawler_updates(...)` and applied to session-local goal beads during `merge_crawler_updates(...)`.
 
 ```json
 {
@@ -321,7 +321,7 @@ Reserved for #2 folding.
 
 ### `memory_outcomes[]`
 
-Adapter target today: `write_memory_outcome_to_bead(...)` effects.
+Crawler/delta merge target: memory outcome rows are queued by `apply_crawler_updates(...)` and applied to session-local turn beads during `merge_crawler_updates(...)`. `write_memory_outcome_to_bead(...)` remains a low-level storage/compatibility primitive.
 
 ```json
 {
@@ -386,10 +386,9 @@ The comparator must ignore:
 1. Capture current subsystem outputs and normalize them into `session_enrichment_delta.v1`.
 2. Validate bounds, required common fields, canonical enums, visible-scope rules, and confidence ranges.
 3. Quarantine invalid rows.
-4. Convert accepted rows back into existing write calls:
-   - `beads_create` / `associations` / `association_lifecycle` / `promotions` -> `apply_crawler_updates(...)` and `merge_crawler_updates(...)` paths.
-   - `claims` / `claim_updates` remain existing functions until their dedupe gap is fixed.
-   - `entity_upserts` remain current entity sync until #8 folding.
+4. Convert accepted rows into crawler/delta side effects:
+   - `beads_create`, `promotions`, `associations`, `association_lifecycle`, `entity_upserts`, `claims`, `claim_updates`, `goal_lifecycle`, and `memory_outcomes` flow through `apply_crawler_updates(...)` plus `merge_crawler_updates(...)` paths.
+   - Low-level direct write helpers remain available for storage compatibility, tests, and legacy callers, but runtime semantic decisions should not bypass crawler/delta authority.
 5. Use the canonical projection equality gate to prove inline and queued enrichment equivalence.
 
 ## Acceptance notes for #9 Slice A
