@@ -11,6 +11,7 @@ from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.runtime.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 from core_memory.association.quarantine import write_quarantine
+from core_memory.claim.outcomes import INTERACTION_ROLES
 from core_memory.entity.registry import normalize_entity_alias, upsert_canonical_entity
 from core_memory.schema.models import Claim, ClaimUpdate
 from core_memory.policy.association_contract import assoc_dedupe_key
@@ -283,6 +284,58 @@ def _normalize_claim_update_rows(updates: dict[str, Any]) -> list[dict[str, Any]
     return out
 
 
+_GOAL_LIFECYCLE_ACTIONS = {"open", "progress", "blocked", "complete", "abandon", "reopen"}
+
+
+def _normalize_goal_lifecycle_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for row in [x for x in (updates.get("goal_lifecycle") or []) if isinstance(x, dict)]:
+        action = str(row.get("action") or row.get("status") or row.get("goal_status") or "").strip().lower()
+        goal_bead_id = str(row.get("goal_bead_id") or row.get("bead_id") or "").strip()
+        if action not in _GOAL_LIFECYCLE_ACTIONS or not goal_bead_id:
+            continue
+        key = (goal_bead_id, action)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(
+            {
+                "goal_bead_id": goal_bead_id,
+                "action": action,
+                "reason_text": str(row.get("reason_text") or row.get("reason") or "").strip() or None,
+                "confidence": row.get("confidence"),
+                "provenance": str(row.get("provenance") or "model_inferred").strip().lower() or "model_inferred",
+            }
+        )
+    return out
+
+
+def _normalize_memory_outcome_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in [x for x in (updates.get("memory_outcomes") or []) if isinstance(x, dict)]:
+        bead_id = str(row.get("bead_id") or row.get("source_bead_id") or row.get("turn_bead_id") or "").strip()
+        outcome = row.get("memory_outcome") if isinstance(row.get("memory_outcome"), dict) else row.get("outcome")
+        if not bead_id or not isinstance(outcome, dict):
+            continue
+        role = str(row.get("interaction_role") or outcome.get("role") or "").strip()
+        if role not in INTERACTION_ROLES:
+            continue
+        if bead_id in seen:
+            continue
+        seen.add(bead_id)
+        out.append(
+            {
+                "bead_id": bead_id,
+                "interaction_role": role,
+                "memory_outcome": dict(outcome),
+                "provenance": str(row.get("provenance") or "model_inferred").strip().lower() or "model_inferred",
+            }
+        )
+    return out
+
+
 def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in_bead_ids: list[str] | None = None) -> dict[str, Any]:
     """Provide bounded session-scoped context for agent-judged crawler decisions."""
     rows = read_session_surface(root, session_id)
@@ -320,6 +373,8 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "entity_upserts": "list[{label,aliases?,entity_kind?,source_bead_id?,evidence?,confidence?,provenance?}]",
             "claims": "list[{id,claim_kind,subject,slot,value,reason_text,confidence,source_bead_id,source_turn_ids?}]",
             "claim_updates": "list[{id?,decision,target_claim_id,replacement_claim_id?,subject?,slot?,reason_text,confidence?,trigger_bead_id}]",
+            "goal_lifecycle": "list[{goal_bead_id,action,reason_text?,confidence?,provenance?}]",
+            "memory_outcomes": "list[{bead_id,interaction_role,memory_outcome,provenance?}]",
         },
         "append_only_rules": [
             "promotion_marked can only be set true and means preserve_full_in_rolling semantics",
@@ -378,6 +433,8 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         entity_upserts_applied = 0
         claims_appended = 0
         claim_updates_appended = 0
+        goal_lifecycle_applied = 0
+        memory_outcomes_applied = 0
         quarantined = 0
         lifecycle_applied = 0
         lifecycle_rejected = 0
@@ -475,6 +532,48 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                     bead["claim_updates"] = []
                 claim_updates_appended += _append_deduped(bead["claim_updates"], [update], _claim_update_dedupe_key)
                 beads[trigger_bead_id] = bead
+            elif kind == "goal_lifecycle":
+                goal_bead_id = str(row.get("goal_bead_id") or "").strip()
+                action = str(row.get("action") or "").strip().lower()
+                bead = beads.get(goal_bead_id)
+                if not isinstance(bead, dict) or goal_bead_id not in session_bead_ids or action not in _GOAL_LIFECYCLE_ACTIONS:
+                    continue
+                events = [x for x in (bead.get("goal_lifecycle") or []) if isinstance(x, dict)]
+                event = {
+                    "action": action,
+                    "reason_text": row.get("reason_text"),
+                    "confidence": row.get("confidence"),
+                    "provenance": str(row.get("provenance") or "model_inferred"),
+                    "created_at": str(row.get("created_at") or datetime.now(timezone.utc).isoformat()),
+                }
+                key = (action, str(event.get("reason_text") or ""), str(event.get("provenance") or ""))
+                seen = {
+                    (str(e.get("action") or ""), str(e.get("reason_text") or ""), str(e.get("provenance") or ""))
+                    for e in events
+                }
+                if key not in seen:
+                    events.append(event)
+                    goal_lifecycle_applied += 1
+                bead["goal_lifecycle"] = events[-50:]
+                bead["goal_status"] = action
+                beads[goal_bead_id] = bead
+            elif kind == "memory_outcome":
+                bead_id = str(row.get("bead_id") or "").strip()
+                bead = beads.get(bead_id)
+                if not isinstance(bead, dict) or bead_id not in session_bead_ids:
+                    continue
+                role = str(row.get("interaction_role") or "").strip()
+                outcome = row.get("memory_outcome")
+                if role not in INTERACTION_ROLES or not isinstance(outcome, dict):
+                    continue
+                before = (bead.get("interaction_role"), _canonical_json(bead.get("memory_outcome")))
+                bead["interaction_role"] = role
+                bead["memory_outcome"] = dict(outcome)
+                bead["memory_outcome_provenance"] = str(row.get("provenance") or "model_inferred")
+                after = (bead.get("interaction_role"), _canonical_json(bead.get("memory_outcome")))
+                if after != before:
+                    memory_outcomes_applied += 1
+                beads[bead_id] = bead
             elif kind == "association_append":
                 src = str(row.get("source_bead") or "")
                 tgt = str(row.get("target_bead") or "")
@@ -620,6 +719,8 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
         "entity_upserts_applied": entity_upserts_applied,
         "claims_appended": claims_appended,
         "claim_updates_appended": claim_updates_appended,
+        "goal_lifecycle_applied": goal_lifecycle_applied,
+        "memory_outcomes_applied": memory_outcomes_applied,
         "association_lifecycle_applied": lifecycle_applied,
         "association_lifecycle_rejected": lifecycle_rejected,
         "associations_quarantined": quarantined,
@@ -719,6 +820,8 @@ def apply_crawler_updates(
         entity_rows = _normalize_entity_rows(updates or {})
         claim_rows = _normalize_claim_rows(updates or {})
         claim_update_rows = _normalize_claim_update_rows(updates or {})
+        goal_lifecycle_rows = _normalize_goal_lifecycle_rows(updates or {})
+        memory_outcome_rows = _normalize_memory_outcome_rows(updates or {})
         if current_turn_bead_id:
             for assoc_row in assoc_rows:
                 src = str(assoc_row.get("source_bead") or "").strip()
@@ -750,6 +853,8 @@ def apply_crawler_updates(
         entity_upserts_queued = 0
         claims_queued = 0
         claim_updates_queued = 0
+        goal_lifecycle_queued = 0
+        memory_outcomes_queued = 0
         for bid in promotions:
             b = beads.get(str(bid))
             if not b or str(b.get("session_id") or "") != str(session_id) or str(bid) not in session_bead_ids:
@@ -821,6 +926,38 @@ def apply_crawler_updates(
                 },
             )
             claim_updates_queued += 1
+
+        for row in goal_lifecycle_rows:
+            goal_bead_id = str(row.get("goal_bead_id") or "").strip()
+            if goal_bead_id not in session_bead_ids:
+                continue
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "goal_lifecycle",
+                    "session_id": str(session_id),
+                    **row,
+                    "created_at": now,
+                },
+            )
+            goal_lifecycle_queued += 1
+
+        for row in memory_outcome_rows:
+            bead_id = str(row.get("bead_id") or "").strip()
+            if bead_id not in session_bead_ids:
+                continue
+            append_jsonl(
+                log_path,
+                {
+                    "schema": "openclaw.memory.crawler_update.v1",
+                    "kind": "memory_outcome",
+                    "session_id": str(session_id),
+                    **row,
+                    "created_at": now,
+                },
+            )
+            memory_outcomes_queued += 1
 
         appended = 0
         lifecycle_queued = 0
@@ -961,6 +1098,8 @@ def apply_crawler_updates(
         "entity_upserts_queued": entity_upserts_queued,
         "claims_queued": claims_queued,
         "claim_updates_queued": claim_updates_queued,
+        "goal_lifecycle_queued": goal_lifecycle_queued,
+        "memory_outcomes_queued": memory_outcomes_queued,
         "associations_appended": appended,
         "association_lifecycle_queued": lifecycle_queued,
         "association_lifecycle_rejected": lifecycle_rejected,

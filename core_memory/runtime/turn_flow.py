@@ -48,7 +48,6 @@ def process_turn_finalized_impl(
     extract_and_attach_claims_fn: Callable[..., dict[str, Any]] | None = None,
     emit_claim_updates_fn: Callable[..., list[dict[str, Any]]] | None = None,
     classify_memory_outcome_fn: Callable[..., dict[str, Any] | None] | None = None,
-    write_memory_outcome_to_bead_fn: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     req = normalize_turn_request(
         session_id=session_id,
@@ -450,12 +449,22 @@ def process_turn_finalized_impl(
                 "reflection_triggered": bool(md.get("reflection_triggered") or md.get("memory_reflection")),
             }
             outcome = classify_memory_outcome_fn(turn_context)
-            if isinstance(outcome, dict) and write_memory_outcome_to_bead_fn is not None:
-                write_memory_outcome_to_bead_fn(
-                    root, canonical_turn_bead_id,
-                    interaction_role=outcome.get("interaction_role"),
-                    memory_outcome=outcome.get("memory_outcome"),
+            if isinstance(outcome, dict):
+                run_association_pass(
+                    root=root,
+                    session_id=req["session_id"],
+                    updates={
+                        "memory_outcomes": [
+                            {
+                                "bead_id": canonical_turn_bead_id,
+                                "interaction_role": outcome.get("interaction_role"),
+                                "memory_outcome": outcome.get("memory_outcome"),
+                            }
+                        ]
+                    },
+                    visible_bead_ids=visible_ids,
                 )
+                turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
                 memory_outcome_written = True
 
         emit_agent_turn_quality_metric(

@@ -232,7 +232,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     # Stage 7: memory outcome
     if claim_layer_enabled():
         try:
-            from core_memory.runtime.engine import classify_memory_outcome, write_memory_outcome_to_bead
+            from core_memory.runtime.engine import classify_memory_outcome
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             if canonical_bead_id:
                 md = dict(payload.get("metadata") or {})
@@ -251,11 +251,21 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
                 }
                 outcome = classify_memory_outcome(turn_context)
                 if isinstance(outcome, dict):
-                    write_memory_outcome_to_bead(
-                        root, canonical_bead_id,
-                        interaction_role=outcome.get("interaction_role"),
-                        memory_outcome=outcome.get("memory_outcome"),
+                    run_association_pass(
+                        root=root,
+                        session_id=session_id,
+                        updates={
+                            "memory_outcomes": [
+                                {
+                                    "bead_id": canonical_bead_id,
+                                    "interaction_role": outcome.get("interaction_role"),
+                                    "memory_outcome": outcome.get("memory_outcome"),
+                                }
+                            ]
+                        },
+                        visible_bead_ids=visible_ids,
                     )
+                    merge_crawler_updates(root=root, session_id=session_id)
             results["stages_completed"].append("memory_outcome")
         except Exception as exc:
             logger.warning("enrichment: memory outcome failed for turn %s: %s", turn_id, exc)

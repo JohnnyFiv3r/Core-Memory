@@ -262,6 +262,72 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertEqual(1, len(bead1.get("claims") or []))
             self.assertEqual(1, len(bead2.get("claim_updates") or []))
 
+    def test_memory_outcomes_are_crawler_queued_merged_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            b1 = s.add_bead(type="context", title="A", summary=["Used memory"], session_id="s1", source_turn_ids=["t1"])
+            updates = {
+                "memory_outcomes": [
+                    {
+                        "bead_id": b1,
+                        "interaction_role": "memory_resolution",
+                        "memory_outcome": {
+                            "role": "memory_resolution",
+                            "description": "Memory directly answered.",
+                            "bead_count": 1,
+                        },
+                    }
+                ]
+            }
+
+            out = apply_crawler_turn_updates(root=td, session_id="s1", visible_bead_ids=[b1], updates=updates)
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(1, int(out.get("memory_outcomes_queued") or 0))
+            merge = merge_crawler_updates(td, "s1")
+            self.assertTrue(merge.get("ok"))
+            self.assertEqual(1, int(merge.get("memory_outcomes_applied") or 0))
+
+            out2 = apply_crawler_turn_updates(root=td, session_id="s1", visible_bead_ids=[b1], updates=updates)
+            self.assertTrue(out2.get("ok"))
+            merge2 = merge_crawler_updates(td, "s1")
+            self.assertEqual(0, int(merge2.get("memory_outcomes_applied") or 0))
+
+            idx = s._read_json(s.beads_dir / "index.json")
+            bead = (idx.get("beads") or {}).get(b1) or {}
+            self.assertEqual("memory_resolution", bead.get("interaction_role"))
+            self.assertEqual(1, (bead.get("memory_outcome") or {}).get("bead_count"))
+
+    def test_goal_lifecycle_is_crawler_queued_merged_and_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            s = MemoryStore(td)
+            goal = s.add_bead(type="goal", title="Ship Slice A", summary=["Finish migration"], session_id="s1", source_turn_ids=["t1"])
+            updates = {
+                "goal_lifecycle": [
+                    {
+                        "goal_bead_id": goal,
+                        "action": "complete",
+                        "reason_text": "Acceptance gate passed.",
+                        "confidence": 0.93,
+                    }
+                ]
+            }
+
+            out = apply_crawler_turn_updates(root=td, session_id="s1", visible_bead_ids=[goal], updates=updates)
+            self.assertTrue(out.get("ok"))
+            self.assertEqual(1, int(out.get("goal_lifecycle_queued") or 0))
+            merge = merge_crawler_updates(td, "s1")
+            self.assertEqual(1, int(merge.get("goal_lifecycle_applied") or 0))
+
+            out2 = apply_crawler_turn_updates(root=td, session_id="s1", visible_bead_ids=[goal], updates=updates)
+            self.assertTrue(out2.get("ok"))
+            merge2 = merge_crawler_updates(td, "s1")
+            self.assertEqual(0, int(merge2.get("goal_lifecycle_applied") or 0))
+
+            idx = s._read_json(s.beads_dir / "index.json")
+            bead = (idx.get("beads") or {}).get(goal) or {}
+            self.assertEqual("complete", bead.get("goal_status"))
+            self.assertEqual(1, len(bead.get("goal_lifecycle") or []))
+
     def test_association_lifecycle_overlay_supersede_and_retract(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
