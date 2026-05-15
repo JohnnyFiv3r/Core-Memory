@@ -149,6 +149,20 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("target_outside_visible_window", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_association_source_outside_visible_window_is_quarantined(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={"associations": [{"source_bead_id": "b9", "target_bead_id": "b1", "relationship": "supports"}]},
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1", "b2"]},
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual([], delta["associations"])
+        self.assertEqual([], projected["associations"])
+        self.assertEqual(1, delta["diagnostics"]["quarantined"])
+        self.assertIn("source_outside_visible_window", delta["diagnostics"]["quarantine"][0]["reasons"])
+
     def test_association_target_with_empty_visible_window_is_quarantined(self):
         delta = crawler_updates_to_delta(
             session_id="s1",
@@ -208,6 +222,7 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         projected = delta_to_crawler_updates(delta)
 
         for row_type in ("entity_upserts", "claims", "claim_updates", "goal_lifecycle", "memory_outcomes"):
+            self.assertEqual(0, DELTA_ROW_LIMITS[row_type])
             self.assertEqual([], delta[row_type])
             self.assertEqual(1, delta["diagnostics"]["reserved_input_counts"][row_type])
             self.assertEqual([], projected.get(row_type, []))

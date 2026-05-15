@@ -6,21 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.claim.outcomes import INTERACTION_ROLES
-from core_memory.claim.validation import validate_claim
 from core_memory.persistence.io_utils import store_lock
-from core_memory.entity.registry import _is_valid_entity_alias, normalize_entity_alias
-from core_memory.schema.normalization import (
-    CLAIM_UPDATE_DECISIONS,
-    INFERENCE_CANONICAL_RELATION_TYPES,
-    normalize_claim_kind,
-)
+from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
 
 SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
 CANONICAL_DELTA_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
-GOAL_LIFECYCLE_ACTIONS = {"open", "progress", "blocked", "complete", "abandon", "reopen"}
-MEMORY_OUTCOME_ROLES = set(INTERACTION_ROLES)
 DELTA_QUARANTINE_PATH = ".beads/events/session-enrichment-delta-quarantine.jsonl"
 
 DELTA_ROW_LIMITS = {
@@ -28,11 +19,11 @@ DELTA_ROW_LIMITS = {
     "promotions": 64,
     "associations": 256,
     "association_lifecycle": 128,
-    "entity_upserts": 128,
-    "claims": 128,
-    "claim_updates": 128,
-    "goal_lifecycle": 64,
-    "memory_outcomes": 8,
+    "entity_upserts": 0,  # reserved; Slice A does not process these rows
+    "claims": 0,  # reserved; Slice A does not process these rows
+    "claim_updates": 0,  # reserved; Slice A does not process these rows
+    "goal_lifecycle": 0,  # reserved; Slice A does not process these rows
+    "memory_outcomes": 0,  # reserved; Slice A does not process these rows
 }
 DELTA_ROW_TYPES = tuple(DELTA_ROW_LIMITS.keys())
 
@@ -178,248 +169,6 @@ def _normalize_claim_update_row(
     }
     normalized["dedupe_key"] = f"claim-update:{stable_hash(basis)[:20]}"
     return normalized
-
-
-def _normalize_delta_claim_row(
-    row: dict[str, Any],
-    *,
-    source_bead_key: str | None,
-    turn_id: str,
-    context_fingerprint: str,
-    default_provenance_kind: str = "model_inferred",
-) -> dict[str, Any] | None:
-    raw_for_validation = dict(row)
-    if raw_for_validation.get("reason_text") is None and raw_for_validation.get("reason") is not None:
-        raw_for_validation["reason_text"] = raw_for_validation.get("reason")
-    valid, _errors = validate_claim(raw_for_validation)
-    if not valid:
-        return None
-
-    source_turn_ids = _str_list(row.get("source_turn_ids") or ([turn_id] if turn_id else []))
-    normalized = {
-        "id": _as_str(row.get("id")),
-        "claim_kind": normalize_claim_kind(row.get("claim_kind")),
-        "subject": _as_str(row.get("subject")),
-        "slot": _as_str(row.get("slot")),
-        "value": row.get("value"),
-        "reason_text": _as_str(row.get("reason_text")) or _as_str(row.get("reason")),
-        "source_bead_id": _as_str(row.get("source_bead_id")) or None,
-        "source_bead_key": source_bead_key or _as_str(row.get("source_bead_key")) or None,
-        "source_turn_ids": source_turn_ids,
-        "observed_at": row.get("observed_at"),
-        "recorded_at": row.get("recorded_at"),
-        "effective_from": row.get("effective_from") or row.get("valid_from"),
-        "effective_to": row.get("effective_to") or row.get("valid_to"),
-    }
-    normalized.update(
-        _base_row(
-            dedupe_key="pending",
-            confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
-            source="crawler_updates.claims",
-            turn_id=turn_id,
-            evidence_refs=row.get("evidence_refs") or [],
-            context_fingerprint=context_fingerprint,
-            rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
-        )
-    )
-    basis = {
-        "subject": normalized["subject"].lower(),
-        "slot": normalized["slot"].lower(),
-        "value": normalized.get("value"),
-        "source_bead_key": normalized.get("source_bead_key"),
-        "source_turn_ids": _normalize_list(normalized.get("source_turn_ids")),
-    }
-    normalized["dedupe_key"] = f"claim:{basis['subject']}:{basis['slot']}:{stable_hash(basis)[:16]}"
-    return normalized
-
-
-def _normalize_delta_claim_update_row(
-    row: dict[str, Any],
-    *,
-    turn_id: str,
-    context_fingerprint: str,
-    sequence_key: str,
-    claim_key_by_id: dict[str, str],
-    default_provenance_kind: str = "model_inferred",
-) -> dict[str, Any] | None:
-    decision = _as_str(row.get("decision")).lower()
-    if decision not in CLAIM_UPDATE_DECISIONS:
-        return None
-    target_claim_id = _as_str(row.get("target_claim_id") or row.get("claim_id"))
-    replacement_claim_id = _as_str(row.get("replacement_claim_id") or row.get("successor_claim_id"))
-    trigger_bead_id = _as_str(row.get("trigger_bead_id"))
-    if not target_claim_id:
-        return None
-    if decision in {"supersede", "retract", "conflict"} and not trigger_bead_id:
-        return None
-
-    target_claim_key = _as_str(row.get("target_claim_key")) or claim_key_by_id.get(target_claim_id, target_claim_id)
-    replacement_claim_key = (
-        _as_str(row.get("replacement_claim_key"))
-        or claim_key_by_id.get(replacement_claim_id, replacement_claim_id)
-        or None
-    )
-    reason = _as_str(row.get("reason_text")) or "session decision pass"
-    normalized = {
-        "id": _as_str(row.get("id")) or None,
-        "decision": decision,
-        "target_claim_id": target_claim_id,
-        "target_claim_key": target_claim_key,
-        "replacement_claim_id": replacement_claim_id or None,
-        "replacement_claim_key": replacement_claim_key,
-        "subject": _as_str(row.get("subject")),
-        "slot": _as_str(row.get("slot")),
-        "reason_text": reason,
-        "trigger_bead_id": trigger_bead_id or None,
-    }
-    basis = {
-        "decision": decision,
-        "target_claim_key": target_claim_key,
-        "replacement_claim_key": replacement_claim_key,
-        "trigger_bead_id": trigger_bead_id,
-    }
-    normalized.update(
-        _base_row(
-            dedupe_key=f"claim-update:{stable_hash(basis)[:20]}",
-            confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
-            source="crawler_updates.claim_updates",
-            bead_id=trigger_bead_id or None,
-            turn_id=turn_id,
-            evidence_refs=row.get("evidence_refs") or [],
-            context_fingerprint=context_fingerprint,
-            sequence_key=sequence_key,
-            rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
-        )
-    )
-    return normalized
-
-
-def _normalize_entity_upsert_row(
-    row: dict[str, Any],
-    *,
-    source: str,
-    source_bead_key: str | None,
-    turn_id: str,
-    context_fingerprint: str,
-    default_provenance_kind: str = "model_inferred",
-) -> dict[str, Any] | None:
-    label = _as_str(row.get("label") or row.get("name") or row.get("value") or row.get("text"))
-    normalized_label = normalize_entity_alias(label)
-    if not _is_valid_entity_alias(label, normalized_label):
-        return None
-    aliases = _str_list(row.get("aliases") or [label], limit=12)
-    alias_norms = sorted({normalize_entity_alias(alias) for alias in aliases if normalize_entity_alias(alias)})
-    if normalized_label not in alias_norms:
-        alias_norms.insert(0, normalized_label)
-
-    out = {
-        "label": label,
-        "normalized_label": normalized_label,
-        "aliases": alias_norms[:12],
-        "entity_kind": _as_str(row.get("entity_kind") or row.get("kind")) or "other",
-        "source_bead_key": source_bead_key,
-        "evidence": _as_str(row.get("evidence")) or None,
-    }
-    out.update(
-        _base_row(
-            dedupe_key=f"entity:{normalized_label}",
-            confidence=row.get("confidence", 0.72),
-            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
-            source=source,
-            turn_id=turn_id,
-            evidence_refs=row.get("evidence_refs") or [],
-            context_fingerprint=context_fingerprint,
-            rationale=_as_str(row.get("evidence") or row.get("rationale")) or None,
-        )
-    )
-    return out
-
-
-def _normalize_goal_lifecycle_row(
-    row: dict[str, Any],
-    *,
-    session_id: str,
-    turn_id: str,
-    context_fingerprint: str,
-    sequence_key: str,
-    default_provenance_kind: str = "model_inferred",
-) -> dict[str, Any] | None:
-    action = _as_str(row.get("action") or row.get("status") or row.get("goal_status")).lower()
-    goal_bead_id = _as_str(row.get("goal_bead_id") or row.get("bead_id")) or None
-    goal_key = _as_str(row.get("goal_key"))
-    if not goal_key and goal_bead_id:
-        goal_key = f"goal-bead:{goal_bead_id}"
-    if not goal_key:
-        title = _as_str(row.get("title") or row.get("goal") or row.get("summary"))
-        if title:
-            goal_key = f"goal:{stable_hash({'session_id': session_id, 'title': title})[:16]}"
-    if action not in GOAL_LIFECYCLE_ACTIONS or not goal_key:
-        return None
-
-    out = {
-        "goal_bead_id": goal_bead_id,
-        "goal_key": goal_key,
-        "action": action,
-        "reason_text": _as_str(row.get("reason_text") or row.get("reason")) or None,
-    }
-    out.update(
-        _base_row(
-            dedupe_key=f"goal-life:{goal_key}:{action}:{sequence_key}",
-            confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
-            source="crawler_updates.goal_lifecycle",
-            bead_id=goal_bead_id,
-            turn_id=turn_id,
-            evidence_refs=row.get("evidence_refs") or [],
-            context_fingerprint=context_fingerprint,
-            sequence_key=sequence_key,
-            rationale=_as_str(row.get("rationale") or row.get("reason_text")) or None,
-        )
-    )
-    return out
-
-
-def _normalize_memory_outcome_row(
-    row: dict[str, Any],
-    *,
-    turn_id: str,
-    context_fingerprint: str,
-    default_provenance_kind: str = "model_inferred",
-) -> dict[str, Any] | None:
-    bead_id = _as_str(row.get("bead_id") or row.get("source_bead_id") or row.get("turn_bead_id"))
-    outcome = row.get("memory_outcome")
-    if not isinstance(outcome, dict):
-        outcome = row.get("outcome")
-    if not bead_id or not isinstance(outcome, dict):
-        return None
-
-    role = _as_str(row.get("interaction_role") or outcome.get("role")) or None
-    if role is not None and role not in MEMORY_OUTCOME_ROLES:
-        return None
-
-    out = {
-        "bead_id": bead_id,
-        "interaction_role": role,
-        "memory_outcome": dict(outcome),
-    }
-    out.update(
-        _base_row(
-            dedupe_key=f"memory-outcome:{bead_id}:{turn_id}",
-            confidence=row.get("confidence", 0.8),
-            provenance_kind=_as_str(row.get("provenance")) or default_provenance_kind,
-            source="crawler_updates.memory_outcomes",
-            bead_id=bead_id,
-            turn_id=turn_id,
-            evidence_refs=row.get("evidence_refs") or [],
-            context_fingerprint=context_fingerprint,
-            rationale=_as_str(row.get("rationale") or outcome.get("description")) or None,
-        )
-    )
-    return out
-
-
 def stable_hash(value: Any) -> str:
     return hashlib.sha256(_canonical_json(value).encode("utf-8")).hexdigest()
 
