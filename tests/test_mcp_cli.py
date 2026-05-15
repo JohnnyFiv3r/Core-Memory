@@ -1,12 +1,14 @@
 import json
+import os
 import subprocess
 import sys
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest import mock
 
-from core_memory.integrations.mcp.cli import install_client_config, install_payload, status_payload, version_payload
+from core_memory.integrations.mcp.cli import SEMANTIC_INSTALL_WARNING, install_client_config, install_payload, status_payload, version_payload
 
 
 class MCPCLITests(unittest.TestCase):
@@ -42,6 +44,23 @@ class MCPCLITests(unittest.TestCase):
         self.assertFalse(out["ok"])
         self.assertEqual("no_clients_detected", out["error"]["code"])
         self.assertIn("core-memory", out["manual"]["mcpServers"])
+
+    def test_install_payload_includes_semantic_doctor_hint(self):
+        with tempfile.TemporaryDirectory() as td:
+            cfg = Path(td) / ".cursor" / "mcp.json"
+            cfg.parent.mkdir(parents=True)
+            cfg.write_text(json.dumps({}), encoding="utf-8")
+            root = Path(td) / "store"
+            stderr = StringIO()
+            with mock.patch("core_memory.integrations.mcp.cli._home", return_value=Path(td)), \
+                 mock.patch.dict(os.environ, {}, clear=True), \
+                 mock.patch("sys.stderr", stderr):
+                out = install_payload(client="cursor", root=str(root), no_start=True, dry_run=True)
+        self.assertTrue(out["ok"])
+        self.assertIn("semantic", out)
+        self.assertIn("next_step", out["semantic"])
+        self.assertIn(out["semantic"]["mode"], {"required", "degraded_allowed"})
+        self.assertEqual(SEMANTIC_INSTALL_WARNING + "\n", stderr.getvalue())
 
     def test_cli_mcp_version_command_outputs_json(self):
         proc = subprocess.run(

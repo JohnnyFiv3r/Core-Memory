@@ -26,7 +26,13 @@ def handle_semantic_command(*, args: Any, root: str | Path) -> bool:
     root_p = Path(root)
 
     if cmd == "status":
-        _print_json(semantic_status(root_p))
+        out = semantic_status(root_p)
+        doctor = semantic_doctor(root_p)
+        out["provider"] = doctor.get("provider")
+        out["provider_detected"] = doctor.get("provider_detected")
+        out["degraded"] = bool(doctor.get("degraded"))
+        out["degraded_mode_enabled"] = bool(doctor.get("degraded_mode_enabled"))
+        _print_json(out)
         return True
 
     if cmd == "rebuild":
