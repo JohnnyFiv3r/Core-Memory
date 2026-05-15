@@ -142,6 +142,12 @@ class TestAssociationCrawlerContract(unittest.TestCase):
                                     "provenance": "model_inferred",
                                     "reason_code": "supporting_evidence",
                                     "evidence_fields": ["summary"],
+                                    "evidence_bead_ids": [b2, b1],
+                                    "judge_model": "assoc-judge-v1",
+                                    "prompt_version": "assoc-prompt-v1",
+                                    "rubric_version": "assoc-rubric-v1",
+                                    "turn_id": "t2",
+                                    "visible_bead_ids": [b1, b2],
                                 }
                             ],
                         }
@@ -164,6 +170,21 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertEqual("model_inferred", row.get("provenance"))
             self.assertEqual("supporting_evidence", row.get("reason_code"))
             self.assertEqual(["summary"], row.get("evidence_fields"))
+            self.assertEqual(sorted([b1, b2]), row.get("evidence_bead_ids"))
+            self.assertEqual("assoc-judge-v1", row.get("judge_model"))
+            self.assertEqual("assoc-prompt-v1", row.get("prompt_version"))
+            self.assertEqual("assoc-rubric-v1", row.get("rubric_version"))
+            self.assertEqual("t2", row.get("turn_id"))
+            self.assertEqual([b1, b2], row.get("visible_bead_ids"))
+            self.assertTrue(str(row.get("grounding_hash") or "").startswith("sha256:"))
+
+            merge = merge_crawler_updates(td, "s1")
+            self.assertTrue(merge.get("ok"))
+            idx = s._read_json(s.beads_dir / "index.json")
+            assoc = (idx.get("associations") or [])[0]
+            self.assertEqual(sorted([b1, b2]), assoc.get("evidence_bead_ids"))
+            self.assertEqual("t2", assoc.get("turn_id"))
+            self.assertTrue(str(assoc.get("grounding_hash") or "").startswith("sha256:"))
 
     def test_association_lifecycle_overlay_supersede_and_retract(self):
         with tempfile.TemporaryDirectory() as td:
