@@ -99,6 +99,18 @@ def _canonical_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
 
 
+def _association_evidence_refs(payload: dict[str, Any]) -> list[Any]:
+    refs: list[Any] = []
+    for ref in payload.get("evidence_refs") or []:
+        if isinstance(ref, dict):
+            refs.append(dict(ref))
+        else:
+            text = str(ref or "").strip()
+            if text:
+                refs.append(text)
+    return refs
+
+
 def compute_association_grounding_hash(payload: dict[str, Any]) -> str:
     """Stable idempotency/provenance hash for judged association edges."""
     basis = {
@@ -169,6 +181,7 @@ def validate_and_normalize_inference_payload(payload: dict[str, Any], *, mode: s
         "provenance": provenance,
         "reason_code": payload.get("reason_code"),
         "evidence_fields": list(payload.get("evidence_fields") or []),
+        "evidence_refs": _association_evidence_refs(payload),
         "evidence_bead_ids": evidence_bead_ids,
         "judge_model": judge_model,
         "prompt_version": prompt_version,
