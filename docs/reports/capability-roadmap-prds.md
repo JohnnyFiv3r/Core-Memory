@@ -404,6 +404,12 @@ Every Dreamer output is `status: unreviewed` until explicitly accepted. Dreamer 
 4. **#14** — Start after #11 wiring is done (uses myelination job infrastructure). ~3 days.
 5. **#12** — Start after #11 (myelination hook) and #14 (contradiction candidate type in `dreamer_candidates.py`). ~3 days.
 
+**Unifying substrate:** `emergent-geometry-substrate.md` argues #2/#11/#12/#13/#14
+are facets of one learned metric over the bead graph (time-decayed, success-weighted
+co-activation from the existing retrieval-feedback log). If that thesis is adopted,
+the PRDs below should share that metric rather than each growing a private scoring
+function. The substrate's incremental path makes step 1 a strict superset of #11.
+
 **Shared infrastructure touched by multiple items:**
 - `retrieval/contracts.py` — #13 adds `as_of` + `EvidenceItem.created_at`; #14 adds `ConflictItem` + `RecallResult.conflicts`. Coordinate on schema version bump.
 - `retrieval/retrieval_planner.py` — #13 adds temporal filtering, #11 adds bonus application, #14 adds conflict resolution. Coordinate: these are additive passes in sequence, not competing changes.
