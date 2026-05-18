@@ -36,6 +36,37 @@ class TranscriptIngestSurfaceTests(unittest.TestCase):
         self.assertEqual("TRANSCRIPT_INGEST", out["envelopes"][0]["origin"])
         self.assertEqual(["user", "assistant"], [t["role"] for t in out["envelopes"][0]["turns"]])
         self.assertEqual(["user"], [t["role"] for t in out["envelopes"][1]["turns"]])
+        self.assertEqual("unpaired_final_user_turn", out["warnings"][0]["code"])
+
+    def test_ingest_pairs_user_query_and_assistant_final_without_dropping_odd_turn(self):
+        with tempfile.TemporaryDirectory() as td:
+            seen: list[dict] = []
+
+            def fake_process_turn_finalized(root: str, **env):
+                seen.append(dict(env))
+                return {"ok": True, "bead_ids": [f"b{len(seen)}"]}
+
+            with patch("core_memory.transcript_ingest.process_turn_finalized", side_effect=fake_process_turn_finalized):
+                out = ingest_transcript(
+                    root=str(Path(td) / "store"),
+                    transcript_id="pairing-ac4",
+                    session_id="s-ac4",
+                    turns=[
+                        {"role": "user", "content": "Question one?"},
+                        {"role": "assistant", "content": "Answer one."},
+                        {"role": "user", "content": "Question two?"},
+                        {"role": "assistant", "content": "Answer two."},
+                        {"role": "user", "content": "Unpaired question?"},
+                    ],
+                )
+
+        self.assertEqual(3, len(seen))
+        self.assertEqual(["user", "assistant"], [t["role"] for t in seen[0]["turns"]])
+        self.assertEqual("Question one?", seen[0]["turns"][0]["content"])
+        self.assertEqual("Answer one.", seen[0]["turns"][1]["content"])
+        self.assertEqual(["user", "assistant"], [t["role"] for t in seen[1]["turns"]])
+        self.assertEqual(["user"], [t["role"] for t in seen[2]["turns"]])
+        self.assertEqual("unpaired_final_user_turn", out["warnings"][0]["code"])
 
     def test_direct_library_ingests_transcript(self):
         with tempfile.TemporaryDirectory() as td:

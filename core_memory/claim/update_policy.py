@@ -52,15 +52,18 @@ def _with_grounding(row: dict[str, Any]) -> dict[str, Any]:
     return out
 
 
-def _update_dedupe_key(row: dict[str, Any]) -> tuple[str, str, str, str]:
+def _update_dedupe_key(row: dict[str, Any]) -> tuple[str, str, str, str, str]:
     target = _as_text(row.get("target_claim_id"))
+    decision = _decision(row.get("decision"))
+    replacement = _as_text(row.get("replacement_claim_id"))
     grounding_hash = _as_text(row.get("grounding_hash"))
     if target and grounding_hash:
-        return ("grounding", target, grounding_hash, "")
+        return ("grounding", target, decision, replacement, grounding_hash)
     return (
-        _decision(row.get("decision")),
+        "fallback",
         target,
-        _as_text(row.get("replacement_claim_id")),
+        decision,
+        replacement,
         _as_text(row.get("trigger_bead_id")),
     )
 
