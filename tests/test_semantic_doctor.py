@@ -33,10 +33,10 @@ class TestSemanticDoctor(unittest.TestCase):
             self.assertEqual("degraded_allowed", out.get("mode"))
             self.assertTrue(out.get("degraded_mode_enabled"))
 
-    def test_provider_detected_reports_openai_priority_over_anthropic(self):
+    def test_provider_detected_reports_openai_priority_over_gemini(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
-            {"OPENAI_API_KEY": "sk-test", "ANTHROPIC_API_KEY": "anthropic-test"},
+            {"OPENAI_API_KEY": "sk-test", "GEMINI_API_KEY": "gemini-test"},
             clear=True,
         ):
             MemoryStore(td)
@@ -49,12 +49,12 @@ class TestSemanticDoctor(unittest.TestCase):
         self.assertEqual("OPENAI_API_KEY", detected.get("source"))
         self.assertIn("precedence", detected.get("reason") or "")
 
-    def test_provider_detected_reports_anthropic_when_openai_absent(self):
-        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"ANTHROPIC_API_KEY": "anthropic-test"}, clear=True):
+    def test_provider_detected_reports_gemini_when_openai_absent(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"GEMINI_API_KEY": "gemini-test"}, clear=True):
             MemoryStore(td)
             out = semantic_doctor(Path(td))
-        self.assertEqual("anthropic", out.get("provider"))
-        self.assertEqual("ANTHROPIC_API_KEY", (out.get("provider_detected") or {}).get("source"))
+        self.assertEqual("gemini", out.get("provider"))
+        self.assertEqual("GEMINI_API_KEY", (out.get("provider_detected") or {}).get("source"))
 
     def test_provider_detected_reports_null_when_keyless(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):

@@ -42,13 +42,13 @@ Transcripts are where most decision making actually happens, across agent conver
 
 ## Quick Start
 
-Core Memory auto-detects your embeddings provider from OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY. No configuration needed.
+Core Memory auto-detects your embeddings provider from OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY. No configuration needed.
 
 ```bash
 uvx "core-memory[mcp]" mcp serve
 ```
 
-Core Memory starts on http://localhost:8000/mcp and stores data in ~/.core-memory/.
+Core Memory starts on http://localhost:8000/mcp and stores data in ~/.core-memory/store.
 
 For Claude Code, add to your MCP config:
 
@@ -63,7 +63,7 @@ For Claude Code, add to your MCP config:
 }
 ```
 
-Start a new conversation. Your agent captures and recalls automatically.
+Start a new conversation. MCP-capable agents can capture and recall through the bundled Core Memory tools and agent guide.
 
 Or install directly from PyPI for Python SDK use:
 
@@ -73,37 +73,37 @@ pip install "core-memory[mcp]"
 
 To ingest existing transcripts, use the CLI command:
 
-`core-memory ingest my-transcript.jsonl`
+`core-memory ingest transcript my-transcript.jsonl`
 
 Or call the ingest tool directly from any connected MCP client. Accepts JSONL or JSON with user/assistant, human/ai, or customer/agent roles.
 
-See the [full setup guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/mcp/quickstart.md) for Cursor, ChatGPT, OpenClaw, and adapter configurations for PydanticAI, LangChain, and SpringAI.
+See the [full setup guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/mcp/quickstart.md) for MCP client configuration and adapter configurations for OpenClaw, PydanticAI, LangChain, and SpringAI.
 
 ---
 
 ## Features
 
-**Transcript-native storage** Built specifically for conversational data, each turn is normalized into a memory object rather than chunked and indexed alongside authored documents.
+**Transcript-native storage:** Built specifically for conversational data, each turn is normalized into a memory object rather than chunked and indexed alongside authored documents.
 
-**Captures every turn automatically** The LLM applies causal labels from a fixed taxonomy rather than judging importance, so nothing is filtered before storage and no explicit "remember this" is required.
+**Captures every turn automatically:** The LLM applies causal labels from a fixed taxonomy rather than judging importance, so nothing is filtered before storage and no explicit "remember this" is required.
 
-**Rolling context injection on a budget** Compacted memory objects carry only their title, type, and causal associations, fitting 10+ sessions of history into a fraction of the token cost of naive loading.
+**Rolling context injection on a budget:** Compacted memory objects carry only their title, type, and causal associations, fitting 10+ sessions of history into a fraction of the token cost of naive loading.
 
-**Causal graph, not a flat index** Memory objects are linked by typed relationships (caused_by, contradicts, supports, and more), so recall follows reasoning chains instead of ranking similarity scores.
+**Causal graph, not a flat index:** Memory objects are linked by typed relationships (caused_by, contradicts, supports, and more), so recall follows reasoning chains instead of ranking similarity scores.
 
-**Claims tracked and superseded** Statements like "user prefers PostgreSQL" are monitored and updated when later turns contradict them. Memory stays truthful, not just full.
+**Claims tracked and superseded:** Statements like "user prefers PostgreSQL" are monitored and updated when later turns contradict them. Memory stays truthful, not just full.
 
-**Full context is always retrievable** Full transcripts are preserved and linked via turn and session_ID references, so full context is always a tool call away.
+**Full context is always retrievable:** Full transcripts are preserved and linked via turn and session_ID references, so full context is always a tool call away.
 
-**Inspectable retrieval with provenance** Every recall() returns the source conversation, the traversal path that found it, and a verifiable hash. Retrieval is never a black box.
+**Inspectable retrieval with provenance:** Every recall() returns the source conversation, the traversal path that found it, and a verifiable hash. Retrieval is never a black box.
 
-**Depth on demand** recall(query, effort="low" | "medium" | "high") scales from fast lookup to full causal traversal. The orchestrator decides what the question needs.
+**Depth on demand:** recall(query, effort="low" | "medium" | "high") scales from fast lookup to full causal traversal. The orchestrator decides what the question needs.
 
-**Self-hosted MCP** Streamable-HTTP server at /mcp with a canonical agent guide that loads automatically at connection. No system prompt changes needed.
+**Self-hosted MCP:** Streamable-HTTP server at /mcp with a canonical agent guide that loads automatically at connection. No system prompt changes needed.
 
-**Auto-detected embedding model** Picks up OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY from your environment. Runs in degraded mode with one hint if none are set.
+**Auto-detected embedding model:** Picks up OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY from your environment. Runs in degraded mode with one hint if none are set.
 
-**Plug and play adoption** Your data stays on your infrastructure. No cloud dependencies. A single MCP server setup works across every MCP-compatible client — Claude Code, Cursor, Windsurf, Open WebUI, and any other — out of the box.
+**Plug and play adoption:** Your data stays on your infrastructure. No cloud dependencies. A single MCP server setup works across any MCP-compatible client.
 
 <p align="center">
   <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/master/docs/assets/core-memory-causal-graph.png" alt="Core Memory causal graph alongside the grounded bead JSON returned by recall()" width="100%" />
@@ -116,12 +116,7 @@ See the [full setup guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/maste
 ## Supported Clients
 
 **MCP Connection**
-Any MCP-compatible client works out of the box via the streamable-HTTP server at `/mcp`. See the [MCP Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/mcp/quickstart.md) for setup instructions.
-
-- Claude Code
-- Cursor
-- Windsurf
-- Open WebUI
+Any client that can connect to MCP streamable-HTTP servers can use Core Memory through the `/mcp` endpoint. See the [MCP Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/mcp/quickstart.md) for setup instructions and example client configuration.
 
 **Adapter Layer**
 Use Core Memory as a memory backend directly within your agent harness:

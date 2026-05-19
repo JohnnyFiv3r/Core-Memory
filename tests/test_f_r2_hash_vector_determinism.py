@@ -110,12 +110,12 @@ class TestDefaultSemanticMode(unittest.TestCase):
         self.assertEqual(_normalize_semantic_mode(""), SEMANTIC_MODE_REQUIRED)
         self.assertEqual("gemini", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
 
-    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}, clear=True)
-    def test_anthropic_key_autoconfigures_required_provider(self):
+    @patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}, clear=True)
+    def test_google_key_autoconfigures_gemini_required_provider(self):
         self.assertEqual(_normalize_semantic_mode(None), SEMANTIC_MODE_REQUIRED)
-        self.assertEqual("anthropic", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
+        self.assertEqual("gemini", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
 
-    @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key", "ANTHROPIC_API_KEY": "test-key"}, clear=True)
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key", "GEMINI_API_KEY": "test-key"}, clear=True)
     def test_openai_takes_precedence_when_both_keys_present(self):
         self.assertEqual(_normalize_semantic_mode(None), SEMANTIC_MODE_REQUIRED)
         self.assertEqual("openai", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
@@ -179,11 +179,11 @@ class TestStartupCheckRequired(unittest.TestCase):
         self.assertTrue(sem_mod._startup_check_done)
         self.assertEqual("openai", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
 
-    @patch.dict(os.environ, {"ANTHROPIC_API_KEY": "test-key"}, clear=True)
-    def test_unset_mode_with_anthropic_provider_does_not_raise(self):
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True)
+    def test_unset_mode_with_gemini_provider_does_not_raise(self):
         _check_semantic_mode_startup()
         self.assertTrue(sem_mod._startup_check_done)
-        self.assertEqual("anthropic", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
+        self.assertEqual("gemini", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
 
     @patch.dict(os.environ, {}, clear=True)
     def test_unset_mode_keyless_prints_exact_hint_once_instead_of_raising(self):

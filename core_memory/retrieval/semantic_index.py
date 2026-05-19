@@ -120,7 +120,7 @@ def _backend_deployment_profile(backend: str) -> dict[str, Any]:
 
 KEYLESS_SEMANTIC_HINT = (
     "core-memory: no embedding provider configured — running in lexical-only mode.\n"
-    "Set OPENAI_API_KEY or ANTHROPIC_API_KEY for full semantic recall.\n"
+    "Set OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY for full semantic recall.\n"
     "Run `core-memory semantic doctor` to diagnose."
 )
 
@@ -160,7 +160,7 @@ def _semantic_provider_detection() -> dict[str, Any]:
             "source": "CORE_MEMORY_EMBEDDINGS_PROVIDER",
             "key": None,
             "reason": "explicit_provider_env",
-            "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
         }
     if str(os.environ.get("OPENAI_API_KEY") or "").strip():
         return {
@@ -168,17 +168,8 @@ def _semantic_provider_detection() -> dict[str, Any]:
             "selected_provider": "openai",
             "source": "OPENAI_API_KEY",
             "key": "OPENAI_API_KEY",
-            "reason": "OPENAI_API_KEY takes precedence over ANTHROPIC_API_KEY when both are set",
-            "priority": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        }
-    if str(os.environ.get("ANTHROPIC_API_KEY") or "").strip():
-        return {
-            "provider": "anthropic",
-            "selected_provider": "anthropic",
-            "source": "ANTHROPIC_API_KEY",
-            "key": "ANTHROPIC_API_KEY",
-            "reason": "ANTHROPIC_API_KEY selected because OPENAI_API_KEY is absent",
-            "priority": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "reason": "OPENAI_API_KEY takes precedence over Gemini/Google keys when both are set",
+            "priority": ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
         }
     if str(os.environ.get("GEMINI_API_KEY") or "").strip():
         return {
@@ -186,8 +177,8 @@ def _semantic_provider_detection() -> dict[str, Any]:
             "selected_provider": "gemini",
             "source": "GEMINI_API_KEY",
             "key": "GEMINI_API_KEY",
-            "reason": "GEMINI_API_KEY selected because OpenAI/Anthropic keys are absent",
-            "priority": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "reason": "GEMINI_API_KEY selected because OPENAI_API_KEY is absent",
+            "priority": ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
         }
     if str(os.environ.get("GOOGLE_API_KEY") or "").strip():
         return {
@@ -195,8 +186,8 @@ def _semantic_provider_detection() -> dict[str, Any]:
             "selected_provider": "gemini",
             "source": "GOOGLE_API_KEY",
             "key": "GOOGLE_API_KEY",
-            "reason": "GOOGLE_API_KEY selected because OpenAI/Anthropic/Gemini keys are absent",
-            "priority": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "reason": "GOOGLE_API_KEY selected because OPENAI_API_KEY and GEMINI_API_KEY are absent",
+            "priority": ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
         }
     return {
         "provider": None,
@@ -204,7 +195,7 @@ def _semantic_provider_detection() -> dict[str, Any]:
         "source": None,
         "key": None,
         "reason": "no provider env var or supported API key detected",
-        "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
     }
 
 
@@ -227,8 +218,6 @@ def _default_embedding_model(provider: str) -> str:
     p = str(provider or "").strip().lower()
     if p == "openai":
         return "text-embedding-3-small"
-    if p == "anthropic":
-        return "anthropic-default"
     return "gemini-embedding-001"
 
 
@@ -282,7 +271,6 @@ def _check_semantic_mode_startup() -> None:
     has_provider = bool(
         configured_provider == "hash"
         or os.environ.get("OPENAI_API_KEY")
-        or os.environ.get("ANTHROPIC_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
     )
