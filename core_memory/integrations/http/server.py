@@ -36,7 +36,8 @@ from core_memory.integrations.mcp.typed_write import (
     apply_reviewed_proposal as mcp_apply_reviewed_proposal,
     submit_entity_merge_proposal as mcp_submit_entity_merge_proposal,
 )
-from core_memory.integrations.mcp.protocol_server import MCP_HTTP_PATH, build_mcp_app
+from core_memory.integrations.mcp.constants import MCP_HTTP_PATH
+from core_memory.integrations.mcp.protocol_server import build_mcp_app
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
