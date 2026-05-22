@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from core_memory import Memory, Turn, capture, process_turn_finalized, emit_turn_finalized
@@ -87,6 +88,19 @@ class TestTurnSchemaCapture(unittest.TestCase):
         out = write_turn_finalized(root=".", session_id="s", turn_id="t", user_query="u", assistant_final="a")
         self.assertFalse(out.get("ok"))
         self.assertEqual("legacy_turn_fields_removed", out.get("error"))
+
+    def test_mcp_rejects_path_traversal_session_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            out = write_turn_finalized(
+                root=root,
+                session_id="x/../../outside/payload",
+                turn_id="t1",
+                turns=[{"speaker": "user", "role": "user", "content": "attacker bytes"}],
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("invalid_session_id", out.get("error"))
+            self.assertFalse((Path(td) / "outside").exists())
 
 
 if __name__ == "__main__":

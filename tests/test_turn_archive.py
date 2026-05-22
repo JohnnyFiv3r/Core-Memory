@@ -3,8 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
-from core_memory.runtime.turn_archive import get_turn_record
+from core_memory.runtime.turn_archive import append_turn_record, get_turn_record
 
 
 def test_emit_memory_event_writes_turn_archive_and_index(tmp_path: Path):
@@ -44,4 +46,56 @@ def test_emit_memory_event_writes_turn_archive_and_index(tmp_path: Path):
     assert hydrated is not None
     assert hydrated["turn_id"] == "t-1"
     assert hydrated["tools_trace"][0]["category"] == "search"
+
+
+def test_append_turn_record_rejects_path_traversal_session_id(tmp_path: Path):
+    outside = tmp_path / "outside"
+    root = tmp_path / "memory"
+
+    with pytest.raises(ValueError, match="invalid_session_id"):
+        append_turn_record(
+            root=root,
+            session_id="x/../../outside/payload",
+            turn_id="t-1",
+            transaction_id="tx-1",
+            trace_id="tr-1",
+            origin="USER_TURN",
+            ts="2026-01-01T00:00:00Z",
+            user_query="",
+            assistant_final=None,
+            turns=[{"speaker": "user", "role": "user", "content": "attacker bytes"}],
+            speakers=["user"],
+            assistant_final_ref=None,
+            assistant_final_hash="h",
+            tools_trace=[],
+            mesh_trace=[],
+            metadata={},
+        )
+
+    assert not outside.exists()
+    assert not (tmp_path / "outside" / "payload.jsonl").exists()
+
+
+def test_append_turn_record_rejects_path_traversal_turn_id(tmp_path: Path):
+    with pytest.raises(ValueError, match="invalid_turn_id"):
+        append_turn_record(
+            root=tmp_path / "memory",
+            session_id="s-1",
+            turn_id="x/../../outside/payload",
+            transaction_id="tx-1",
+            trace_id="tr-1",
+            origin="USER_TURN",
+            ts="2026-01-01T00:00:00Z",
+            user_query="",
+            assistant_final=None,
+            turns=[{"speaker": "user", "role": "user", "content": "attacker bytes"}],
+            speakers=["user"],
+            assistant_final_ref=None,
+            assistant_final_hash="h",
+            tools_trace=[],
+            mesh_trace=[],
+            metadata={},
+        )
+
+    assert not (tmp_path / "outside").exists()
 
