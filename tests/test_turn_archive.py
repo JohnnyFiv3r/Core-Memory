@@ -6,7 +6,8 @@ from pathlib import Path
 import pytest
 
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
-from core_memory.runtime.turn_archive import append_turn_record, get_turn_record
+from core_memory.identifiers import validate_archive_id
+from core_memory.runtime.turn_archive import append_turn_record, get_turn_record, rebuild_all_indexes, rebuild_session_index
 
 
 def test_emit_memory_event_writes_turn_archive_and_index(tmp_path: Path):
@@ -98,4 +99,36 @@ def test_append_turn_record_rejects_path_traversal_turn_id(tmp_path: Path):
         )
 
     assert not (tmp_path / "outside").exists()
+
+
+def test_validate_archive_id_rejects_padded_ids():
+    with pytest.raises(ValueError, match="invalid_session_id"):
+        validate_archive_id(" s-1", field="session_id")
+    with pytest.raises(ValueError, match="invalid_session_id"):
+        validate_archive_id("s-1 ", field="session_id")
+
+
+def test_rebuild_session_index_rejects_invalid_session_id_without_raising(tmp_path: Path):
+    result = rebuild_session_index(root=tmp_path, session_id="legacy session")
+    assert result["ok"] is False
+    assert result["error"] == "invalid_session_id"
+
+
+def test_rebuild_all_indexes_skips_invalid_legacy_session_files(tmp_path: Path):
+    turns_dir = tmp_path / ".turns"
+    turns_dir.mkdir(parents=True)
+    good = turns_dir / "session-good.jsonl"
+    bad = turns_dir / "session-legacy session.jsonl"
+    good.write_text(json.dumps({"turn_id": "t-1"}) + "\n", encoding="utf-8")
+    bad.write_text(json.dumps({"turn_id": "t-legacy"}) + "\n", encoding="utf-8")
+
+    result = rebuild_all_indexes(root=tmp_path)
+
+    assert result["ok"] is True
+    assert result["count"] == 1
+    assert result["skipped_count"] == 1
+    assert result["sessions"][0]["session_id"] == "good"
+    assert result["skipped"][0]["session_id"] == "legacy session"
+    assert (turns_dir / "session-good.idx.json").exists()
+    assert not (turns_dir / "session-legacy session.idx.json").exists()
 

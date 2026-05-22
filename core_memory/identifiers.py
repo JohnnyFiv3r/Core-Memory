@@ -13,7 +13,7 @@ def validate_archive_id(value: Any, *, field: str) -> str:
     markers, empty strings, and shell-ish characters instead of normalizing so
     callers cannot accidentally alias distinct external IDs onto one file.
     """
-    raw = str(value or "").strip()
-    if not ARCHIVE_ID_PATTERN.fullmatch(raw):
+    raw = str(value or "")
+    if raw != raw.strip() or not ARCHIVE_ID_PATTERN.fullmatch(raw):
         raise ValueError(f"invalid_{field}")
     return raw
