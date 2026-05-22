@@ -73,9 +73,23 @@ def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
     return out
 
 
-def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
+def _turn_judge_inputs(req: dict[str, Any]) -> tuple[str, str]:
+    """Return text inputs for semantic judging, including N-speaker turns.
+
+    Multi-speaker transcript rows can legitimately have no user/assistant role;
+    in that case the canonical compatibility fields are empty but turn_text is
+    the semantic content. Without this fallback all role=other rows collapse to
+    generic "turn memory" beads.
+    """
     user_query = str(req.get("user_query") or "").strip()
     assistant_final = str(req.get("assistant_final") or "").strip()
+    if not user_query and not assistant_final:
+        assistant_final = str(req.get("turn_text") or "").strip()
+    return user_query, assistant_final
+
+
+def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
+    user_query, assistant_final = _turn_judge_inputs(req)
     judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
     return {
         "beads_create": [
@@ -224,8 +238,7 @@ def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, 
             src.append(turn_id)
         out["source_turn_ids"] = src
     out["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
-    user_query = str(req.get("user_query") or "")
-    assistant_final = str(req.get("assistant_final") or "")
+    user_query, assistant_final = _turn_judge_inputs(req)
     judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
     # The current-turn bead write path is LLM-judged for every semantic field.
     # Preserve structural fields (source_turn_ids, prev/turn indices, lifecycle ids),
@@ -272,8 +285,7 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
             break
 
     if not has_turn:
-        user_query = str(req.get("user_query") or "").strip()
-        assistant_final = str(req.get("assistant_final") or "").strip()
+        user_query, assistant_final = _turn_judge_inputs(req)
         judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
         rows.append(
             {
