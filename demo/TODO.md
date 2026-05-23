@@ -140,6 +140,23 @@ Revalidation with the same grounding hash should return the same verdict or expl
 
 **Files:** `core_memory/retrieval/lifecycle.py`, `core_memory/retrieval/semantic_index.py`, `core_memory/runtime/jobs.py`, CLI semantic command modules
 
+## 8. Authentication for self-hosted MCP and HTTP server
+
+**Current behavior:** The MCP server and HTTP integration server have no authentication outside of the hosted demo's access controls. Any process that can reach the server's port can read and write memory.
+
+**Problem:** Self-hosted deployments (local agent harnesses, Docker, LAN-accessible instances) expose the full memory read/write surface without requiring a caller to prove identity. This is non-standard — even single-user self-hosted MCP servers conventionally use a shared secret or bearer token so that only the configured agent/harness can attach. Without it, any co-resident process or network peer can inject beads, corrupt claims, or exfiltrate the full memory store.
+
+**Standard:** MCP servers — including self-hosted — typically gate connections with a static bearer token passed as an env var (`CORE_MEMORY_TOKEN` or similar) and checked on every request. The HTTP server already has dead-code stubs for `x-memory-token` header checking; these need to be wired to an actual enforced secret.
+
+**Fix:**
+- Add a `CORE_MEMORY_TOKEN` env var (or `--token` CLI flag) to the HTTP and MCP server startup paths.
+- Enforce it on all write endpoints; optionally enforce on reads too (configurable).
+- Return `401 Unauthorized` with a clear message when the token is missing or wrong.
+- Document the env var in `AGENT_INSTRUCTIONS.md` and the self-hosting setup guide.
+- If token is unset, log a prominent warning at startup (do not silently allow open access).
+
+**Files:** `core_memory/integrations/http/server.py`, `core_memory/integrations/mcp/server.py`, `AGENT_INSTRUCTIONS.md`, deployment/setup docs
+
 ## 8. LLM-judged entity extraction and canonicalization in the live write path
 
 **Status:** Closed in code on 2026-05-13. The bead-field judge already authors
