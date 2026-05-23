@@ -8,6 +8,8 @@ from typing import Any
 
 from .bead_typing import CLASSIFIABLE_TYPES, classify_bead_type, is_retrieval_turn
 from .rationale import extract_causal_because, sanitize_because_for_turn, is_question_turn
+from core_memory.llm_client import chat_complete
+from core_memory.provider_config import resolve_chat_config
 
 logger = logging.getLogger(__name__)
 
@@ -143,6 +145,24 @@ def _parse_json(text: str) -> dict[str, Any] | None:
         return None
 
 
+
+def _llm_judge_provider_neutral(user_query: str, assistant_final: str) -> dict[str, Any] | None:
+    cfg = resolve_chat_config()
+    if not cfg.explicit:
+        return None
+    try:
+        text = chat_complete(
+            _PROMPT.format(user_query=user_query, assistant_final=assistant_final),
+            config=cfg,
+            max_tokens=700,
+            temperature=0,
+        )
+        return _parse_json(text)
+    except Exception as exc:
+        logger.debug("provider-neutral bead-field judge failed: %s", exc)
+        return None
+
+
 def _llm_judge_anthropic(user_query: str, assistant_final: str) -> dict[str, Any] | None:
     key = os.getenv("ANTHROPIC_API_KEY")
     if not key:
@@ -247,7 +267,9 @@ def judge_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, A
     if mode not in {"auto", "llm", "heuristic", "off"}:
         mode = "auto"
     if mode in {"auto", "llm"}:
-        obj = _llm_judge_anthropic(uq, af)
+        obj = _llm_judge_provider_neutral(uq, af)
+        if obj is None:
+            obj = _llm_judge_anthropic(uq, af)
         if obj is None:
             obj = _llm_judge_openai(uq, af)
         if isinstance(obj, dict):
