@@ -71,7 +71,16 @@ class TestBeadFieldJudge(unittest.TestCase):
                     "entities": [],
                     "tags": ["crawler_reviewed", "turn_finalized"],
                 }
-            ]
+            ],
+            "associations": [
+                {
+                    "source_bead_id": "__current_turn__",
+                    "target_bead_id": "bead-prior",
+                    "relationship": "supports",
+                    "reason_text": "same-session continuity",
+                    "confidence": 0.7,
+                }
+            ],
         }
         with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.policy.bead_judge._llm_judge_anthropic", return_value=JUDGED
@@ -106,6 +115,113 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual(["Redis is the selected coordination point for cache invalidation."], bead.get("retrieval_facts"))
         self.assertIn("llm_judged", bead.get("tags") or [])
         self.assertNotEqual(["Use Redis for cache invalidation."], bead.get("summary"))
+
+    def test_locomo_replay_preserves_request_scoped_crawler_fields_without_llm_judge(self):
+        crawler_updates = {
+            "beads_create": [
+                {
+                    "type": "context",
+                    "title": "Alice adopted a rescue dog named Pixel.",
+                    "summary": ["Alice adopted Pixel."],
+                    "source_turn_ids": ["t-locomo-1"],
+                    "detail": "Alice adopted a rescue dog named Pixel.",
+                    "entities": ["Alice", "Pixel"],
+                    "retrieval_eligible": True,
+                    "retrieval_title": "Alice adopted Pixel",
+                    "retrieval_facts": ["Alice adopted a rescue dog named Pixel."],
+                    "tags": ["crawler_reviewed", "turn_finalized", "locomo_replay"],
+                }
+            ],
+            "associations": [
+                {
+                    "source_bead_id": "__current_turn__",
+                    "target_bead_id": "bead-prior",
+                    "relationship": "supports",
+                    "reason_text": "same-session continuity",
+                    "confidence": 0.7,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.runtime.engine.judge_bead_fields", side_effect=AssertionError("judge should not run")
+        ), patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
+                "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
+                "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="locomo:conv-26:session:1",
+                turn_id="t-locomo-1",
+                turns=[{"speaker": "alice", "role": "other", "content": "Alice adopted a rescue dog named Pixel."}],
+                metadata={"replay_source": "locomo", "crawler_updates": crawler_updates},
+                policy=SidecarPolicy(create_threshold=0.6),
+            )
+            self.assertTrue(out.get("ok"))
+            store = MemoryStore(td)
+            idx = store._read_json(store.beads_dir / "index.json")
+            bead = next(iter((idx.get("beads") or {}).values()))
+
+        self.assertEqual("Alice adopted a rescue dog named Pixel.", bead.get("title"))
+        self.assertEqual(["Alice adopted Pixel."], bead.get("summary"))
+        self.assertEqual(["Alice", "Pixel"], bead.get("entities"))
+        self.assertEqual("Alice adopted Pixel", bead.get("retrieval_title"))
+        self.assertIn("agent_authored_semantic", bead.get("tags") or [])
+        self.assertNotIn("llm_judged", bead.get("tags") or [])
+
+    def test_locomo_replay_requires_specific_tag_before_skipping_judge(self):
+        crawler_updates = {
+            "beads_create": [
+                {
+                    "type": "context",
+                    "title": "stale crawler title",
+                    "summary": ["stale summary"],
+                    "source_turn_ids": ["t-locomo-2"],
+                    "tags": ["crawler_reviewed", "turn_finalized"],
+                }
+            ],
+            "associations": [
+                {
+                    "source_bead_id": "__current_turn__",
+                    "target_bead_id": "bead-prior",
+                    "relationship": "supports",
+                    "reason_text": "same-session continuity",
+                    "confidence": 0.7,
+                }
+            ],
+        }
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.policy.bead_judge._llm_judge_anthropic", return_value=JUDGED
+        ), patch("core_memory.policy.bead_judge._llm_judge_openai", return_value=None), patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
+                "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
+                "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="locomo:conv-26:session:1",
+                turn_id="t-locomo-2",
+                turns=[{"speaker": "alice", "role": "other", "content": "Use Redis for cache invalidation."}],
+                metadata={"replay_source": "locomo", "crawler_updates": crawler_updates},
+                policy=SidecarPolicy(create_threshold=0.6),
+            )
+            self.assertTrue(out.get("ok"))
+            store = MemoryStore(td)
+            idx = store._read_json(store.beads_dir / "index.json")
+            bead = next(iter((idx.get("beads") or {}).values()))
+
+        self.assertEqual("Use Redis for cache invalidation", bead.get("title"))
+        self.assertIn("llm_judged", bead.get("tags") or [])
+        self.assertNotIn("agent_authored_semantic", bead.get("tags") or [])
 
 
 if __name__ == "__main__":
