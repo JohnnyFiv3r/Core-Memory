@@ -39,7 +39,9 @@ mcp = ["fastapi", "uvicorn", "httpx", "mcp>=1.27.1,<2"]
 pydanticai = ["pydantic-ai"]
 semantic = ["numpy", "faiss-cpu"]
 tokenizer = ["tiktoken"]
-openai = ["openai", "numpy", "faiss-cpu", "tiktoken"]
+openai = ["openai"]
+anthropic = ["anthropic"]
+google = ["google-genai"]
 qdrant = ["qdrant-client"]
 chromadb = ["chromadb"]
 pgvector = ["psycopg[binary]"]
@@ -51,7 +53,8 @@ all = [
     "fastapi", "uvicorn", "httpx", "mcp>=1.27.1,<2",
     "pydantic-ai",
     "numpy", "faiss-cpu",
-    "openai",
+    "openai", "anthropic", "google-genai",
+    "tiktoken",
     "neo4j",
 ]
 

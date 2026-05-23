@@ -148,7 +148,7 @@ def _parse_json(text: str) -> dict[str, Any] | None:
 
 def _llm_judge_provider_neutral(user_query: str, assistant_final: str) -> dict[str, Any] | None:
     cfg = resolve_chat_config()
-    if not cfg.explicit:
+    if not cfg.provider:
         return None
     try:
         text = chat_complete(
