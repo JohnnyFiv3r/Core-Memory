@@ -119,6 +119,7 @@ from core_memory.entity.merge_flow import (
     decide_entity_merge_proposal,
 )
 from core_memory.runtime.engine import process_turn_finalized
+from core_memory.retrieval.agent import recall as memory_recall
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.transcript_ingest import ingest_transcript as ingest_transcript_sync, normalize_transcript_payload
 from core_memory.integrations.api import (
@@ -720,6 +721,90 @@ async def ingest_job_status_endpoint(job_id: str):
     if not isinstance(row, dict):
         return JSONResponse({"ok": False, "error": "ingest_job_not_found"}, status_code=404)
     return JSONResponse(_safe_ingest_job_payload(row))
+
+
+@app.post("/api/recall")
+async def recall_endpoint(request: Request):
+    """Grounded recall over the live memory store.
+
+    Body fields:
+      query   (str, required)  — the question or retrieval request
+      effort  (str, optional)  — "low" | "medium" | "high" (default "medium")
+      intent  (str, optional)  — e.g. "causal", "factual", "temporal"
+      k       (int, optional)  — max evidence items to return
+      as_of   (str, optional)  — ISO timestamp; reserved for 2.0 temporal API (#13)
+    """
+    body = await request.json()
+    query = str(body.get("query") or "").strip()
+    if not query:
+        return JSONResponse({"ok": False, "error": "query is required"}, status_code=400)
+
+    effort = str(body.get("effort") or "medium").strip()
+    if effort not in ("low", "medium", "high"):
+        return JSONResponse(
+            {"ok": False, "error": f"effort must be low|medium|high, got {effort!r}"},
+            status_code=400,
+        )
+
+    intent = str(body.get("intent") or "").strip() or None
+    k_raw = body.get("k")
+    k = int(k_raw) if k_raw is not None else None
+    # as_of accepted in body but not yet passed through — wired in 2.0 (#13)
+    as_of = str(body.get("as_of") or "").strip() or None
+
+    try:
+        result = memory_recall(
+            query,
+            effort=effort,
+            intent=intent,
+            k=k,
+            root=MEMORY_ROOT,
+            explain=True,
+            include_raw=False,
+        )
+    except Exception as exc:
+        logger.exception("recall endpoint error for query=%r", query)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    evidence = [
+        {
+            "bead_id": e.bead_id,
+            "type": e.type,
+            "title": e.title,
+            "excerpt": e.excerpt,
+            "score": e.score,
+            "reason": e.reason,
+            "metadata": e.metadata or {},
+        }
+        for e in (result.evidence or [])
+    ]
+
+    return JSONResponse({
+        "ok": True,
+        "query": query,
+        "effort": effort,
+        "as_of": as_of,  # echoed back; not yet applied (2.0 #13)
+        "answer": result.answer,
+        "why": result.why,
+        "evidence": evidence,
+        "sources": [
+            {
+                "turn_id": s.turn_id,
+                "session_id": s.session_id,
+                "speaker": s.speaker,
+                "bead_id": s.bead_id,
+            }
+            for s in (result.sources or [])
+        ],
+        "status": result.status,
+        "tier_path": result.tier_path or [],
+        "warnings": result.warnings or [],
+        "planning": {
+            "selected_effort": result.planning.selected_effort,
+            "reason": result.planning.reason,
+        } if result.planning else None,
+        "metadata": result.metadata or {},
+    })
 
 
 @app.get("/v1/memory/inspect/state")
