@@ -149,6 +149,29 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("target_outside_visible_window", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_current_turn_alias_source_is_allowed_for_queued_delta(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "associations": [
+                    {
+                        "source_bead_id": "__current_turn__",
+                        "target_bead_id": "b1",
+                        "relationship": "supports",
+                        "reason_text": "Current turn supports the visible prior bead.",
+                        "confidence": 0.8,
+                    }
+                ]
+            },
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1"]},
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(delta["associations"]))
+        self.assertEqual("__current_turn__", projected["associations"][0]["source_bead_id"])
+        self.assertEqual(0, delta["diagnostics"]["quarantined"])
+
     def test_association_source_outside_visible_window_is_quarantined(self):
         delta = crawler_updates_to_delta(
             session_id="s1",

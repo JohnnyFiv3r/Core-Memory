@@ -12,6 +12,12 @@ from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
 SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
 CANONICAL_DELTA_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
+CURRENT_TURN_ASSOC_SOURCE_ALIASES = {
+    "__current_turn__",
+    "current_turn",
+    "$current_turn",
+    "@current_turn",
+}
 DELTA_QUARANTINE_PATH = ".beads/events/session-enrichment-delta-quarantine.jsonl"
 
 DELTA_ROW_LIMITS = {
@@ -594,7 +600,8 @@ def crawler_updates_to_delta(
             )
             continue
         visibility_reasons: list[str] = []
-        if src not in visible_bead_ids and not historical_association_scope:
+        source_is_current_turn_alias = src.lower() in CURRENT_TURN_ASSOC_SOURCE_ALIASES
+        if src not in visible_bead_ids and not historical_association_scope and not source_is_current_turn_alias:
             visibility_reasons.append("source_outside_visible_window")
         if tgt not in visible_bead_ids and not historical_association_scope:
             visibility_reasons.append("target_outside_visible_window")
