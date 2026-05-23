@@ -410,8 +410,14 @@ co-activation from the existing retrieval-feedback log). If that thesis is adopt
 the PRDs below should share that metric rather than each growing a private scoring
 function. The substrate's incremental path makes step 1 a strict superset of #11.
 
+**SOUL.md (#15 — implicit 2.0 item):** The three-layer architecture (long-term graph /
+working memory / SOUL.md identity surface) is a 2.0 component not listed in #10–14.
+Full spec in `soul-synthesis-spec.md`. Hard dependencies: #11 (myelination signal), #14
+(contradiction pressure eligibility gate). Ships with #11 and #14 in 2.0 Phase B.
+
 **Shared infrastructure touched by multiple items:**
 - `retrieval/contracts.py` — #13 adds `as_of` + `EvidenceItem.created_at`; #14 adds `ConflictItem` + `RecallResult.conflicts`. Coordinate on schema version bump.
 - `retrieval/retrieval_planner.py` — #13 adds temporal filtering, #11 adds bonus application, #14 adds conflict resolution. Coordinate: these are additive passes in sequence, not competing changes.
 - `dreamer_candidates.py` — #14 adds `contradiction_pressure_candidate`; #12 adds `proposed_theme`. Both are new hypothesis types; they compose cleanly.
-- `jobs.py` — #11 adds `myelination-update`; #12 adds to the Dreamer cron. These are independent job kinds.
+- `jobs.py` — #11 adds `myelination-update`; #12 adds to the Dreamer cron; SOUL.md adds `soul-synthesis`. These are independent job kinds.
+- `turn_flow.py` — SOUL.md injection at session start; coordinate with #11's myelination manifest read and #13's `as_of` parameter to avoid multiple sequential reads at session init.

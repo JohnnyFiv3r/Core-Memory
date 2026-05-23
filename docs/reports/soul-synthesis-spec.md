@@ -271,6 +271,163 @@ epistemic authority (cannot override the graph). The invariant:
 
 ---
 
+## Problem statement and user value
+
+Most AI memory systems become ever-growing sludge. They accumulate facts without forming
+identity. An agent that has processed 10,000 turns has 10,000 facts but no stable self —
+each session starts from scratch, preferences are re-retrieved rather than remembered, and
+the agent cannot tell the difference between what it *knows* and what it *is*.
+
+SOUL.md solves this by maintaining a stable, compressed, human-readable identity surface
+that is injected at session start. The agent does not retrieve its identity — it has one.
+The difference is felt immediately: an agent with SOUL.md gives consistent answers to
+preference questions, maintains stable values across sessions, and reasons from its history
+rather than recalling it.
+
+Without SOUL.md: "What database would you recommend?" requires retrieving past decisions.
+With SOUL.md: the agent already knows it has a strong preference for operational simplicity
+and gives a consistent, grounded answer from the first token.
+
+---
+
+## Scope
+
+**In:**
+- `soul-synthesis` job reading myelination + claims + Dreamer signals
+- `soul_loader.py` discovery, classification, adapter registration
+- `.beads/identity/soul.md` as the output artifact
+- Working memory injection at session start via `turn_flow.py`
+- Synthesis event log and pending-diff file for review (2.0 mode)
+- CLI inspection commands (`soul status`, `soul show`, `soul history`, `soul accept/reject`)
+- Adapter stubs for OpenClaw and Hermes
+
+**Out:**
+- SOUL.md does not affect the bead graph — it is derived, not authoritative
+- `soul-synthesis` does not produce session recaps or summaries of recent events
+- SOUL.md is not synchronized across agent instances by default
+- No dedicated review UI — the pending diff file is the interface; rendering is a separate surface
+- SOUL.md does not replace manually maintained `AGENT_INSTRUCTIONS.md` or `CLAUDE.md`;
+  it coexists as the dynamically synthesized complement
+
+---
+
+## Hard dependencies
+
+| Dependency | Required for | Status |
+|------------|--------------|--------|
+| Claims `chain_seq` + `resolve_all_current_state()` | stability signal | Done |
+| Myelination wiring (#11) | myelination signal | Not yet wired to planner |
+| Contradiction pressure (#14) | eligibility gate conflict check | Not yet implemented |
+| Dreamer `proposed_theme` acceptance (#12) | third signal source | Optional — degrades gracefully |
+
+SOUL.md can ship with only the claims layer complete. The AND gate means it produces no
+entries when myelination or Dreamer signals are absent — cold start behavior, not a bug.
+Add signals progressively as their owning features land.
+
+---
+
+## LLM synthesis call
+
+- **Model:** small/cheap — this runs offline, not on the hot path. Haiku or equivalent.
+  Never Opus; synthesis quality does not require frontier capability.
+- **Output format:** structured JSON constrained by schema — not free text. Required fields:
+  `text`, `evidence_refs` (≥1 item), `confidence`, `section`
+  (`stable_preferences | persistent_commitments | recurring_goals | uncertainty_markers`)
+- **Evidence validation:** before applying any diff entry, verify each cited `claim_id` and
+  `principle_bead_id` exists in the store. Entries citing nonexistent evidence are quarantined
+  with reason `"evidence_not_found"` — not applied, not discarded, reviewable.
+- **Failure handling:** if the LLM call fails or returns invalid JSON, skip this synthesis
+  cycle entirely. Do not partially apply. Do not modify the existing SOUL.md. Log the failure
+  to `soul-synthesis.jsonl` with `status: "failed"`. Increment sleep pressure so the next
+  cycle triggers sooner.
+- **Prompt version:** the synthesis prompt carries a semantic version (`soul-synthesis-prompt-v1`).
+  Stored in the synthesis event log so every SOUL.md entry is traceable to the prompt that
+  produced it.
+- **Token budget:** cap input at 4,000 tokens per cluster. If a cluster exceeds this, split
+  by semantic proximity and run multiple calls. Never truncate evidence silently.
+
+---
+
+## Working memory injection
+
+`soul_loader.discover(root, harness_adapter)` runs at session start in `turn_flow.py`,
+before the first turn is processed.
+
+**Injection structure:**
+
+```
+[IDENTITY SURFACE]
+{soul.md identity_projection content — filtered by token budget}
+
+[BEHAVIORAL CONTEXT]
+{harness_policy content — AGENT_INSTRUCTIONS.md, CLAUDE.md, etc.}
+```
+
+Identity surface appears first — it shapes how the agent interprets the behavioral context,
+not the other way around.
+
+**Token budget enforcement:**
+- `SOUL_INJECTION_MAX_TOKENS` (default: 800)
+- When SOUL.md exceeds budget: include entries in descending `soul_score` order until budget
+  is reached. Always include all `uncertainty_markers` (they are safety-critical context).
+- When empty or cold start: omit the `[IDENTITY SURFACE]` block entirely — no empty section.
+
+**What the agent sees:**
+The agent is told explicitly: *"The Identity Surface below reflects your stable preferences,
+commitments, and beliefs as synthesized from your causal history. Reason from this context;
+do not treat it as retrieved facts to be cited."* The agent knows it is reading its own
+identity, not external evidence. This framing prevents the agent from citing SOUL.md entries
+as sources for factual claims.
+
+---
+
+## Success criteria
+
+**Structural (mechanically testable):**
+1. Every applied SOUL.md entry has ≥1 live evidence reference (claim_id or principle_bead_id
+   that exists in the store)
+2. No entry was applied at confidence above `SOUL_MAX_INITIAL_CONFIDENCE` on first synthesis
+3. Deprecated entries are archived, not deleted; the previous SOUL.md version is preserved
+4. Running `soul-synthesis` twice on identical state produces SOUL.md with same entries,
+   same evidence refs, confidence within ±0.05 (idempotency)
+5. A fresh deployment with zero sessions produces an empty SOUL.md, not a hallucinated one
+
+**Stability (testable over time):**
+6. A high-confidence entry present at synthesis N is still present at synthesis N+3 if no
+   underlying claim was superseded or contradicted
+7. An entry whose evidence claims were all retracted is deprecated within one synthesis cycle
+
+**Compression quality (rubric — human review):**
+8. SOUL.md entries cannot be reverse-engineered to reconstruct specific events (if yes: summary,
+   not identity)
+9. Two independent agents with similar claim histories produce semantically equivalent
+   SOUL.md entries (convergent synthesis — the identity reflects the graph, not the synthesis
+   prompt's phrasing variation)
+
+**Integration:**
+10. `soul_loader.discover()` on a root with no soul-related files returns `cold_start: True`
+    and does not raise
+11. An existing user-authored `SOUL.md` survives soul-synthesis without its pinned entries
+    being overwritten
+
+---
+
+## Observability — CLI surface
+
+All commands output JSON. All are read-only except `accept`/`reject`/`reset`.
+
+- `core-memory soul status` — entry count, last synthesis timestamp, confidence distribution,
+  whether a pending diff exists, sleep pressure current value vs. threshold
+- `core-memory soul show` — current SOUL.md rendered to stdout
+- `core-memory soul history [-n N]` — last N synthesis events from event log (default 5)
+- `core-memory soul diff` — pending diff entries awaiting review (2.0 mode)
+- `core-memory soul accept [--entry-id ID | --all]` — accept pending diff entries
+- `core-memory soul reject [--entry-id ID] [--reason TEXT]` — reject with reason
+- `core-memory soul reset` — archive current SOUL.md and zero sleep pressure; synthesis
+  restarts from scratch on next trigger. Does not delete evidence from the graph.
+
+---
+
 ## Soul discovery and harness adapter integration
 
 Core Memory should not assume it is the first or only system to have produced an identity
