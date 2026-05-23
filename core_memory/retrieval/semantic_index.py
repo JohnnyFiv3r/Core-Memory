@@ -7,6 +7,7 @@ import os
 import random
 import sys
 import time
+from core_memory.provider_config import resolve_embedding_config, normalize_provider, default_embedding_model as provider_default_embedding_model
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -152,50 +153,39 @@ def _normalize_semantic_mode(mode: str | None) -> str:
 
 
 def _semantic_provider_detection() -> dict[str, Any]:
-    explicit_provider = str(os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
-    if explicit_provider:
+    cfg = resolve_embedding_config()
+    provider = str(cfg.provider or "").strip().lower() or None
+    if provider:
+        reason = "provider-neutral embedding config detected"
+        if cfg.source == "OPENAI_API_KEY" and str(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip():
+            reason = "OPENAI_API_KEY takes precedence over Gemini/Google keys when both are set"
         return {
-            "provider": explicit_provider,
-            "selected_provider": explicit_provider,
-            "source": "CORE_MEMORY_EMBEDDINGS_PROVIDER",
+            "provider": provider,
+            "selected_provider": normalize_provider(provider),
+            "configured_provider": cfg.provider,
+            "source": cfg.source,
             "key": None,
-            "reason": "explicit_provider_env",
-            "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        }
-    if str(os.environ.get("OPENAI_API_KEY") or "").strip():
-        return {
-            "provider": "openai",
-            "selected_provider": "openai",
-            "source": "OPENAI_API_KEY",
-            "key": "OPENAI_API_KEY",
-            "reason": "OPENAI_API_KEY takes precedence over Gemini/Google keys when both are set",
-            "priority": ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        }
-    if str(os.environ.get("GEMINI_API_KEY") or "").strip():
-        return {
-            "provider": "gemini",
-            "selected_provider": "gemini",
-            "source": "GEMINI_API_KEY",
-            "key": "GEMINI_API_KEY",
-            "reason": "GEMINI_API_KEY selected because OPENAI_API_KEY is absent",
-            "priority": ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
-        }
-    if str(os.environ.get("GOOGLE_API_KEY") or "").strip():
-        return {
-            "provider": "gemini",
-            "selected_provider": "gemini",
-            "source": "GOOGLE_API_KEY",
-            "key": "GOOGLE_API_KEY",
-            "reason": "GOOGLE_API_KEY selected because OPENAI_API_KEY and GEMINI_API_KEY are absent",
-            "priority": ["OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+            "base_url_configured": bool(cfg.base_url),
+            "api_key_configured": bool(cfg.api_key),
+            "reason": reason,
+            "priority": [
+                "CORE_MEMORY_EMBEDDINGS_PROVIDER",
+                "CORE_MEMORY_EMBEDDINGS_BASE_URL",
+                "CORE_MEMORY_EMBEDDINGS_API_KEY",
+                "OPENAI_API_KEY",
+                "OPENROUTER_API_KEY",
+                "GEMINI_API_KEY",
+                "GOOGLE_API_KEY",
+            ],
         }
     return {
         "provider": None,
         "selected_provider": None,
+        "configured_provider": None,
         "source": None,
         "key": None,
-        "reason": "no provider env var or supported API key detected",
-        "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+        "reason": "no provider-neutral embedding config or supported API key detected",
+        "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "CORE_MEMORY_EMBEDDINGS_BASE_URL", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
     }
 
 
@@ -215,10 +205,7 @@ def _auto_configure_embedding_provider_from_keys() -> str:
 
 
 def _default_embedding_model(provider: str) -> str:
-    p = str(provider or "").strip().lower()
-    if p == "openai":
-        return "text-embedding-3-small"
-    return "gemini-embedding-001"
+    return provider_default_embedding_model(provider) or "gemini-embedding-001"
 
 
 def _emit_keyless_semantic_hint_once() -> None:
@@ -268,8 +255,11 @@ def _check_semantic_mode_startup() -> None:
 
     # required mode: check if an embedding provider is actually available
     configured_provider = _auto_configure_embedding_provider_from_keys() if not explicit_mode else str(os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
+    embed_cfg = resolve_embedding_config()
     has_provider = bool(
-        configured_provider == "hash"
+        configured_provider in {"hash", "openai", "openai-compatible", "gemini", "google"}
+        or embed_cfg.api_key
+        or embed_cfg.base_url
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
@@ -559,7 +549,7 @@ def _semantic_backend_requires_real_index(*, mode: str, provider: str, vector_ba
         return False
     if not texts:
         return False
-    if provider == "hash":
+    if normalize_provider(provider) == "hash":
         return False
     if _normalize_vector_backend(vector_backend) in _EXTERNAL_VECTOR_BACKENDS:
         return True
@@ -672,13 +662,15 @@ def _hash_vectors(texts: list[str], dim: int = 256):
 def _provider_vectors(texts: list[str], provider: str, model: str):
     import numpy as np  # type: ignore
 
-    if provider == "openai":
-        key = os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise RuntimeError("missing_openai_api_key")
-        from openai import OpenAI  # type: ignore
+    if provider in {"openai", "openai-compatible"}:
+        cfg = resolve_embedding_config()
+        key = cfg.api_key or os.environ.get("OPENAI_API_KEY")
+        base_url = (cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+        if not key and not base_url.startswith(("http://localhost", "http://127.0.0.1")):
+            raise RuntimeError("missing_openai_compatible_api_key")
+        import json as _json
+        import urllib.request as _urlreq
 
-        client = OpenAI(api_key=key)
         rows = []
         batch_size = _env_int("CORE_MEMORY_EMBEDDINGS_BATCH_SIZE", 64, min_value=1, max_value=2048)
         max_retries = _env_int("CORE_MEMORY_EMBEDDINGS_MAX_RETRIES", 4, min_value=0, max_value=12)
@@ -686,26 +678,31 @@ def _provider_vectors(texts: list[str], provider: str, model: str):
             batch = list(texts[i : i + batch_size])
             for attempt in range(max_retries + 1):
                 try:
-                    emb = client.embeddings.create(model=model, input=batch)
-                    data = list(getattr(emb, "data", []) or [])
-                    data = sorted(data, key=lambda item: int(getattr(item, "index", 0) or 0))
-                    vec_rows = [list(getattr(item, "embedding", []) or []) for item in data]
+                    payload = {"model": model, "input": batch}
+                    data = _json.dumps(payload).encode("utf-8")
+                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key or 'local'}"}
+                    req = _urlreq.Request(base_url + "/embeddings", data=data, headers=headers, method="POST")
+                    with _urlreq.urlopen(req, timeout=30) as resp:  # nosec - user/provider configured endpoint
+                        body = _json.loads(resp.read().decode("utf-8"))
+                    data_rows = sorted(list(body.get("data") or []), key=lambda item: int(item.get("index", 0) or 0))
+                    vec_rows = [list(item.get("embedding") or []) for item in data_rows]
                     if len(vec_rows) != len(batch):
-                        raise RuntimeError("openai_embedding_batch_mismatch")
+                        raise RuntimeError("openai_compatible_embedding_batch_mismatch")
                     rows.extend(vec_rows)
                     break
                 except Exception as exc:
                     if attempt >= max_retries or (not _embedding_retryable(exc)):
                         code = _embedding_error_token(exc)
-                        raise RuntimeError(f"openai_embedding_failed:{code}") from exc
+                        raise RuntimeError(f"openai_compatible_embedding_failed:{code}") from exc
                     _embedding_retry_sleep(attempt, _embedding_retry_after_seconds(exc))
         vecs = np.array(rows, dtype="float32")
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         return vecs / norms
 
-    if provider == "gemini":
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if provider in {"gemini", "google"}:
+        cfg = resolve_embedding_config()
+        key = cfg.api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not key:
             raise RuntimeError("missing_gemini_api_key")
 
@@ -767,7 +764,7 @@ def _vector_rows(vecs: Any) -> list[list[float]]:
 
 
 def _embed_vectors(*, texts: list[str], provider: str, model: str, hash_dim: int = 256):
-    p = str(provider or "").strip().lower()
+    p = normalize_provider(str(provider or "").strip().lower())
     if p == "hash":
         return _hash_vectors(texts, dim=max(1, int(hash_dim)))
     return _provider_vectors(texts, provider=p, model=model)
@@ -982,7 +979,7 @@ def build_semantic_index(root: Path) -> dict:
 
                 vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
                 dim = _vector_dim(vecs, fallback=256 if texts else 0)
-                if provider == "hash":
+                if normalize_provider(provider) == "hash":
                     backend = "faiss-hash"
                 else:
                     backend = f"faiss-{provider}"
