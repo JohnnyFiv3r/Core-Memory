@@ -734,7 +734,13 @@ async def recall_endpoint(request: Request):
       k       (int, optional)  — max evidence items to return
       as_of   (str, optional)  — ISO timestamp; reserved for 2.0 temporal API (#13)
     """
-    body = await request.json()
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "request body must be valid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "request body must be a JSON object"}, status_code=400)
+
     query = str(body.get("query") or "").strip()
     if not query:
         return JSONResponse({"ok": False, "error": "query is required"}, status_code=400)
@@ -748,7 +754,13 @@ async def recall_endpoint(request: Request):
 
     intent = str(body.get("intent") or "").strip() or None
     k_raw = body.get("k")
-    k = int(k_raw) if k_raw is not None else None
+    if k_raw is not None:
+        try:
+            k = int(k_raw)
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": f"k must be an integer, got {k_raw!r}"}, status_code=400)
+    else:
+        k = None
     # as_of accepted in body but not yet passed through — wired in 2.0 (#13)
     as_of = str(body.get("as_of") or "").strip() or None
 
