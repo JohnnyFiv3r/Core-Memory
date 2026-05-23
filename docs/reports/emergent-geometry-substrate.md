@@ -235,7 +235,72 @@ Stop scoring memory five different ways; learn one metric from the success log, 
 
 ---
 
-## 8. Satorid — Project 3.0 definition
+## 8. Three-layer cognitive architecture — SOUL.md
+
+The geometric substrate operates across three layers with distinct optimization targets, update cadences, and roles. Conflating them is the primary failure mode of existing memory systems.
+
+| Layer | Artifact | Optimizes for | Update cadence | Authority |
+|-------|----------|---------------|----------------|-----------|
+| Long-term graph | bead store + association graph | reconstructability | append-only, realtime | epistemic ground truth |
+| Working memory | session context + `window_bead_ids` | immediate cognition | every turn | none — consumed, not stored |
+| Identity surface | `SOUL.md` | continuity | slow synthesis | derived, not authoritative |
+
+**SOUL.md is derived state.** The graph is the epistemic authority. SOUL.md is a synthesized, low-entropy projection of the graph's stable, reinforced structure — the boundary in the holographic correspondence. The agent does not query its identity at session start; it *has* an identity, already reconstructed, already compressed, injected into working memory before the first turn. That is what separates temporal agency from memory-augmented response generation.
+
+### What SOUL.md contains
+
+Not recent events, raw retrievals, or summaries. The synthesis process produces identity-level compression:
+
+- Persistent claims that have survived N sessions without retraction
+- Reinforced abstractions with myelination score above threshold
+- Stable preferences derived from repeated goal-resolution patterns
+- Recurring commitments and durable identity motifs
+- Uncertainty markers on beliefs held below confidence threshold
+
+Example of the compression target: not "user discussed PostgreSQL migration" but "strong preference for operational simplicity and inspectable systems over opaque abstraction layers." That is a `proposed_theme` that has been validated through repeated retrieval utility and promoted to identity.
+
+### Schema
+
+Structured markdown, not prose. Each entry carries:
+- The claim or abstraction (compressed, interpretable)
+- Evidence basis: `claim_ids`, `principle_bead_ids` that grounded it
+- Last confirmed timestamp and myelination score
+- Confidence marker (explicit uncertainty where it exists)
+
+Stored at `.beads/identity/soul.md`. Not in the bead store; not directly editable by the agent.
+
+### Update mechanics — `soul-synthesis` job
+
+A bead or abstraction reaches SOUL.md only when all four conditions hold:
+1. Persisted across N sessions without retraction or supersede (claim stability)
+2. Myelination score exceeds M (repeatedly and usefully retrieved)
+3. No active contradiction pressure above threshold
+4. Dreamer has synthesized it from episodic chains into a principle
+
+The `soul-synthesis` job runs at the slowest cadence in the maintenance layer — triggered by sleep pressure crossing a higher threshold than standard Dreamer consolidation. It produces a proposed SOUL.md diff. In 2.0 the diff is reviewed before application; in Satorid it auto-applies under confidence threshold.
+
+### The authority inversion risk
+
+SOUL.md is not epistemic authority, but it has *behavioral* authority in practice because it is injected into working memory every session. This asymmetry requires one structural guardrail: SOUL.md entries must carry their evidence basis, and contradiction pressure detection (#14) must include SOUL.md entries in its conflict scan. A graph claim that contradicts a SOUL.md entry does not silently override it — it triggers re-synthesis and surfaces the inconsistency. SOUL.md can only be updated by `soul-synthesis`, never by the agent acting on session-turn input.
+
+### Multi-agent projection
+
+One bulk, multiple boundary projections. The same graph produces:
+- Per-user SOUL.md — individual identity and preferences
+- Per-agent SOUL.md — role-specific behavioral identity (the legal review agent vs. the engineering agent project different identity surfaces from the same shared graph)
+- Team SOUL.md — shared organizational identity that persists across agent and user turnover
+
+These are projections from different regions of the same causal graph, using the layered geometry (global → user → agent → session) defined in the multi-user architecture.
+
+### Bootstrapping path across versions
+
+- **1.0 (now):** SOUL.md is manually authored by the user following the correct schema. The format is right; the automation is not yet there. A hand-authored SOUL.md with proper evidence references and confidence markers is immediately useful and defines the target format for automated synthesis.
+- **2.0:** `soul-synthesis` job generates SOUL.md diff candidates from myelination + Dreamer output. User reviews and accepts. Graph-driven proposals, human-approved application.
+- **Satorid (3.0):** SOUL.md evolves under the system's own consolidation dynamics. Review remains possible but is not required for every update.
+
+---
+
+## 9. Satorid — Project 3.0 definition
 
 **Core Memory 2.0** builds the substrate: a self-optimizing information geometry where retrieval, write, and maintenance are unified under a single invariant. The trained topology cannot be exported because it is learned from causal history, not stored. That is the moat.
 
