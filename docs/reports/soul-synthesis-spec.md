@@ -271,14 +271,150 @@ epistemic authority (cannot override the graph). The invariant:
 
 ---
 
+## Soul discovery and harness adapter integration
+
+Core Memory should not assume it is the first or only system to have produced an identity
+document. A deployment may already have a manually authored `SOUL.md`, an
+`AGENT_INSTRUCTIONS.md` from OpenClaw, a `CLAUDE.md` from Claude Code, or a harness-specific
+identity file from Hermes or a custom integration. The soul loader detects and classifies
+whatever exists before injecting into working memory or running synthesis.
+
+### Source type classification
+
+Not all SOUL.md-style documents are treated the same way. Two distinct roles:
+
+| Role | Purpose | Synthesis treatment | Writeable by soul-synthesis |
+|------|---------|--------------------|-----------------------------|
+| `identity_projection` | Who the agent is — values, preferences, stable beliefs | Feeds synthesis pipeline as baseline; soul-synthesis extends and updates | Yes, with pinned-entry protection |
+| `harness_policy` | How the agent behaves — instructions, constraints, adapter rules | Injected into working memory as-is; never touched by synthesis | No |
+
+`AGENT_INSTRUCTIONS.md` and `CLAUDE.md` are `harness_policy`. They tell the agent how to
+behave. SOUL.md tells the agent who it is. Conflating them would let soul-synthesis
+accidentally overwrite policy documents with identity projections.
+
+### Detection priority order
+
+```
+soul_loader.discover(root, harness_adapter=None):
+
+1. CORE_MEMORY_SOUL_PATH env var
+      → explicit path override; use as-is regardless of format
+
+2. .beads/identity/soul.md
+      → synthesized soul (native format)
+      → role: identity_projection
+
+3. {root}/SOUL.md
+      → user-authored soul
+      → role: identity_projection, all entries pinned: true
+
+4. Harness adapter registered sources (in adapter priority order)
+      → role and format declared by adapter at registration
+      → examples: AGENT_INSTRUCTIONS.md, CLAUDE.md, .hermes/context.md
+
+5. None found → cold start, empty identity surface (correct, not an error)
+```
+
+### Format detection
+
+A discovered file is classified by its content:
+
+- **`core_memory_soul_v1`** — has `# Identity Surface` header AND entries with `Confidence:`,
+  `Myelination:`, `Evidence:` fields. Full parse; entries carry existing metadata.
+- **`prose_markdown`** — any markdown file without the synthesized schema markers.
+  Inject as-is; treat all entries as `pinned: true`.
+- **`json`** / **`yaml`** — structured formats from non-markdown harnesses. Adapter provides
+  a field mapping to the soul entry schema.
+
+When format cannot be determined, default to `prose_markdown` — safest, never corrupts.
+
+### Adapter registration
+
+Harness adapters declare their soul sources at initialization time rather than requiring
+Core Memory to know every possible harness location:
+
+```python
+# In the OpenClaw adapter:
+register_soul_source(
+    path="AGENT_INSTRUCTIONS.md",
+    format="prose_markdown",
+    role="harness_policy",
+    priority=4
+)
+
+# In a Hermes integration:
+register_soul_source(
+    path=".hermes/identity.md",
+    format="prose_markdown",
+    role="identity_projection",
+    priority=3
+)
+
+# Custom enterprise harness with JSON identity file:
+register_soul_source(
+    path="config/agent-identity.json",
+    format="json",
+    role="identity_projection",
+    priority=3,
+    field_map={"persona": "text", "core_values": "elaboration"}
+)
+```
+
+### SoulDiscoveryResult
+
+```python
+@dataclass
+class SoulDiscoveryResult:
+    found: bool
+    sources: list[SoulSource]       # all discovered files, in priority order
+    injection_content: str          # merged content for working memory injection
+    synthesis_baseline: str | None  # identity_projection content only, for soul-synthesis
+    cold_start: bool                # True if no sources found
+```
+
+`injection_content` merges all sources with `harness_policy` sources first (they set the
+behavioral frame), followed by `identity_projection` sources (they provide the identity
+surface). The agent reads both but soul-synthesis only sees `synthesis_baseline`.
+
+### Pinned entry protection
+
+Entries in user-authored (`prose_markdown`) sources are marked `pinned: true`. Soul-synthesis:
+
+- Never deprecates a pinned entry unless `epistemic_conflict_score > 0.7` against it
+- May add synthesized entries alongside pinned entries
+- After two successive synthesis cycles in which a pinned entry survives without contradiction,
+  it is absorbed as a soul-synthesis-owned entry (gains `confidence`, `myelination`, `evidence`
+  fields from the closest matching synthesized claim)
+
+This means a user who starts with a hand-authored `SOUL.md` sees it preserved and gradually
+enriched with evidence metadata, rather than overwritten.
+
+### Synthesis interaction with discovered sources
+
+If soul-synthesis finds an existing `identity_projection` source (synthesized or prose):
+
+1. Parse existing entries as the diff baseline
+2. Entries already present at high confidence with live evidence → skip (no redundant synthesis)
+3. Entries present but missing evidence refs (prose) → attempt to match against current claim
+   state; if matched, add evidence refs; if unmatched, leave as prose with `pinned: true`
+4. New candidates from myelination/claims not present in existing source → synthesize and add
+
+The result: soul-synthesis is additive and non-destructive on first encounter with any
+existing document it didn't produce.
+
+---
+
 ## Files
 
 | File | Purpose |
 |------|---------|
-| `.beads/identity/soul.md` | Current identity surface |
+| `.beads/identity/soul.md` | Current identity surface (synthesized) |
 | `.beads/events/soul-synthesis.jsonl` | Synthesis history (append-only) |
 | `.beads/events/soul-synthesis-pending.jsonl` | Pending diffs awaiting review (2.0) |
-| `core_memory/runtime/soul_synthesis.py` | New module |
+| `core_memory/runtime/soul_synthesis.py` | Synthesis job |
+| `core_memory/runtime/soul_loader.py` | Discovery, classification, adapter registration |
 | `core_memory/runtime/jobs.py` | Add `soul-synthesis` job kind |
-| `core_memory/runtime/turn_flow.py` | Inject `soul.md` into session working memory |
-| `core_memory/retrieval/agent.py` | Include soul.md content in recall context |
+| `core_memory/runtime/turn_flow.py` | Call `soul_loader.discover()`, inject result into session context |
+| `core_memory/retrieval/agent.py` | Include `injection_content` in recall context |
+| `core_memory/adapters/openclaw.py` | Register `AGENT_INSTRUCTIONS.md` as harness_policy source |
+| `core_memory/adapters/hermes.py` | Register Hermes-specific soul source (TBD path/format) |
