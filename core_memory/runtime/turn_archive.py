@@ -4,17 +4,31 @@ import json
 from pathlib import Path
 from typing import Any
 
+from core_memory.identifiers import validate_archive_id
+
 
 def _turns_dir(root: Path) -> Path:
     return root / ".turns"
 
 
+def _contained_archive_path(root: Path, filename: str) -> Path:
+    turns_dir = _turns_dir(root).resolve(strict=False)
+    candidate = (turns_dir / filename).resolve(strict=False)
+    try:
+        candidate.relative_to(turns_dir)
+    except ValueError as exc:
+        raise ValueError("turn_archive_path_escape") from exc
+    return candidate
+
+
 def _session_turns_file(root: Path, session_id: str) -> Path:
-    return _turns_dir(root) / f"session-{session_id}.jsonl"
+    sid = validate_archive_id(session_id, field="session_id")
+    return _contained_archive_path(root, f"session-{sid}.jsonl")
 
 
 def _session_idx_file(root: Path, session_id: str) -> Path:
-    return _turns_dir(root) / f"session-{session_id}.idx.json"
+    sid = validate_archive_id(session_id, field="session_id")
+    return _contained_archive_path(root, f"session-{sid}.idx.json")
 
 
 def _session_id_from_idx_name(name: str) -> str | None:
@@ -52,11 +66,15 @@ def _write_idx(path: Path, idx: dict[str, dict[str, int]]) -> None:
 
 def rebuild_session_index(*, root: Path, session_id: str) -> dict[str, Any]:
     """Rebuild turn_id->offset/length index from authoritative session JSONL."""
-    turns_file = _session_turns_file(root, session_id)
-    idx_file = _session_idx_file(root, session_id)
+    try:
+        sid = validate_archive_id(session_id, field="session_id")
+    except ValueError as exc:
+        return {"ok": False, "session_id": str(session_id), "entries": 0, "error": str(exc)}
+    turns_file = _session_turns_file(root, sid)
+    idx_file = _session_idx_file(root, sid)
     if not turns_file.exists():
         _write_idx(idx_file, {})
-        return {"ok": True, "session_id": session_id, "entries": 0, "path": str(idx_file)}
+        return {"ok": True, "session_id": sid, "entries": 0, "path": str(idx_file)}
 
     idx: dict[str, dict[str, int]] = {}
     with open(turns_file, "rb") as f:
@@ -74,28 +92,33 @@ def rebuild_session_index(*, root: Path, session_id: str) -> dict[str, Any]:
                 continue
             if not isinstance(obj, dict):
                 continue
-            tid = str(obj.get("turn_id") or "").strip()
-            if not tid:
+            try:
+                tid = validate_archive_id(obj.get("turn_id"), field="turn_id")
+            except ValueError:
                 continue
             idx[tid] = {"offset": offset, "length": int(len(raw))}
 
     _write_idx(idx_file, idx)
-    return {"ok": True, "session_id": session_id, "entries": len(idx), "path": str(idx_file)}
+    return {"ok": True, "session_id": sid, "entries": len(idx), "path": str(idx_file)}
 
 
 def rebuild_all_indexes(*, root: Path) -> dict[str, Any]:
     turns_dir = _turns_dir(root)
     turns_dir.mkdir(parents=True, exist_ok=True)
     out: list[dict[str, Any]] = []
+    skipped: list[dict[str, str]] = []
     for turns_file in sorted(turns_dir.glob("session-*.jsonl")):
         name = turns_file.name
         if not name.startswith("session-") or not name.endswith(".jsonl"):
             continue
         sid = name[len("session-") : -len(".jsonl")]
-        if not sid:
+        try:
+            validate_archive_id(sid, field="session_id")
+        except ValueError as exc:
+            skipped.append({"session_id": sid, "path": str(turns_file), "error": str(exc)})
             continue
         out.append(rebuild_session_index(root=root, session_id=sid))
-    return {"ok": True, "sessions": out, "count": len(out)}
+    return {"ok": True, "sessions": out, "count": len(out), "skipped": skipped, "skipped_count": len(skipped)}
 
 
 def append_turn_record(
@@ -123,14 +146,16 @@ def append_turn_record(
       - .turns/session-<session_id>.jsonl
       - .turns/session-<session_id>.idx.json
     """
-    turns_file = _session_turns_file(root, session_id)
-    idx_file = _session_idx_file(root, session_id)
+    sid = validate_archive_id(session_id, field="session_id")
+    tid = validate_archive_id(turn_id, field="turn_id")
+    turns_file = _session_turns_file(root, sid)
+    idx_file = _session_idx_file(root, sid)
     turns_file.parent.mkdir(parents=True, exist_ok=True)
 
     row = {
         "schema": "core_memory.turn_record.v1",
-        "session_id": str(session_id),
-        "turn_id": str(turn_id),
+        "session_id": sid,
+        "turn_id": tid,
         "transaction_id": str(transaction_id),
         "trace_id": str(trace_id),
         "ts": str(ts),
@@ -155,18 +180,23 @@ def append_turn_record(
         f.flush()
 
     idx = _read_idx(idx_file)
-    idx[str(turn_id)] = {"offset": offset, "length": int(len(encoded))}
+    idx[tid] = {"offset": offset, "length": int(len(encoded))}
     _write_idx(idx_file, idx)
 
     return {"ok": True, "path": str(turns_file), "offset": offset, "length": len(encoded)}
 
 
 def get_turn_record(*, root: Path, session_id: str, turn_id: str) -> dict[str, Any] | None:
-    idx = _read_idx(_session_idx_file(root, session_id))
-    hit = idx.get(str(turn_id))
+    try:
+        sid = validate_archive_id(session_id, field="session_id")
+        tid = validate_archive_id(turn_id, field="turn_id")
+    except ValueError:
+        return None
+    idx = _read_idx(_session_idx_file(root, sid))
+    hit = idx.get(tid)
     if not hit:
         return None
-    turns_file = _session_turns_file(root, session_id)
+    turns_file = _session_turns_file(root, sid)
     if not turns_file.exists():
         return None
     try:
@@ -187,6 +217,10 @@ def find_turn_record(*, root: Path, turn_id: str, session_id: str | None = None)
     """
     if session_id:
         return get_turn_record(root=root, session_id=session_id, turn_id=turn_id)
+    try:
+        validate_archive_id(turn_id, field="turn_id")
+    except ValueError:
+        return None
 
     turns_dir = _turns_dir(root)
     if not turns_dir.exists():

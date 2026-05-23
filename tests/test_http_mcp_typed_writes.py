@@ -36,6 +36,27 @@ class TestHttpMCPTypedWrites(unittest.TestCase):
             self.assertEqual("mcp.write_turn_finalized.v1", data.get("contract"))
             self.assertEqual("canonical_in_process", data.get("authority_path"))
 
+    def test_http_mcp_write_turn_finalized_rejects_path_traversal_ids(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            outside = Path(td) / "outside"
+            c = TestClient(app)
+            r = c.post(
+                "/v1/mcp/write-turn-finalized",
+                json={
+                    "root": root,
+                    "session_id": "x/../../outside/payload",
+                    "turn_id": "t1",
+                    "turns": [{"speaker": "user", "role": "user", "content": "attacker bytes"}],
+                },
+            )
+            self.assertEqual(400, r.status_code)
+            self.assertIn("invalid_session_id", str(r.json()))
+            self.assertFalse(outside.exists())
+
     def test_http_mcp_apply_reviewed_proposal(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
