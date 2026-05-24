@@ -81,7 +81,7 @@ class TestCanonicalMetadataFilters(unittest.TestCase):
                         "title": "Caroline support group",
                         "type": "context",
                         "status": "open",
-                        "source_turn_ids": ["locomo:conv-26:D1:3"],
+                        "source_turn_ids": ["locomo:conv-26:D1:3:3"],
                         "metadata": {"locomo_dia_ids": ["D1:3"]},
                     },
                 }
@@ -90,7 +90,7 @@ class TestCanonicalMetadataFilters(unittest.TestCase):
 
         self.assertEqual(["D1:3"], anchor["dia_ids"])
         self.assertEqual(["D1:3"], anchor["locomo_dia_ids"])
-        self.assertEqual(["locomo:conv-26:D1:3"], anchor["source_turn_ids"])
+        self.assertEqual(["locomo:conv-26:D1:3:3"], anchor["source_turn_ids"])
 
 
 if __name__ == "__main__":

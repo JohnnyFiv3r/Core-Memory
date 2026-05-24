@@ -521,16 +521,23 @@ def _locomo_dia_ids_from_bead(bead: dict[str, Any], res: dict[str, Any] | None =
                 out.extend(str(x).strip() for x in value if str(x).strip())
             elif str(value or "").strip():
                 out.append(str(value).strip())
+    import re
+
     for turn_id in list((bead or {}).get("source_turn_ids") or []):
         text = str(turn_id or "").strip()
         if not text:
             continue
+        # Prefer the LoCoMo evidence form (D<session>:<turn>) wherever it
+        # appears. Some replay paths produce IDs like
+        # ``locomo:conv-26:D1:3:3``; taking the final component alone yields
+        # ``3`` and breaks evidence scoring against gold ``D1:3``.
+        match = re.search(r"\bD\d+:\d+\b", text)
+        if match:
+            out.append(match.group(0))
+            continue
         parts = text.split(":")
         if len(parts) >= 3 and parts[0] == "locomo":
-            if len(parts) >= 4 and parts[-2].startswith("D") and parts[-1].isdigit():
-                out.append(f"{parts[-2]}:{parts[-1]}")
-            else:
-                out.append(parts[-1])
+            out.append(parts[-1])
     return sorted(set(x for x in out if x))
 
 
