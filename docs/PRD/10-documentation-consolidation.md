@@ -1,0 +1,268 @@
+# PRD: Documentation Consolidation
+
+**Phase:** 10
+**Status:** Not started
+**Prerequisite:** Phase 9 complete (structural changes must be reflected in architecture docs)
+
+---
+
+## Problem
+
+The docs directory has accreted through 20+ numbered development phases and now contains
+four distinct problems:
+
+1. **Phase artifacts at the wrong level.** `v2_p9_kickoff.md`, `v2_p17_*.md` through
+   `v2_p22_*.md` sit at `docs/` root. Most `v2_p*` files are already in
+   `docs/archive/history/` — these 11 are stragglers.
+
+2. **Two architecture documents that contradict each other.** `docs/ARCHITECTURE.md` (74
+   lines) references file names from before the v2 rename
+   (`event_ingress.py`, `event_state.py`, `memory_engine.py`) — none of those exist
+   anymore. `docs/architecture_overview.md` (58 lines) is the live one but both are
+   listed side-by-side in `docs/index.md` without indicating which is current.
+
+3. **The docs root has ~30 reference files with no signal about which are current, stale,
+   or superseded.** `REFACTOR_NOTES.md`, `adapter_layer_inventory.md`,
+   `schema_inventory_baseline.md`, `retrieval-canonical-v9-execution.md`, `springai_adapter.md`
+   are example files that may have been superseded by later work. A new contributor has
+   no way to know without reading all of them.
+
+4. **TODO tracking is split across two files** in different locations with different
+   formats: `demo/TODO.md` (engine correctness items #1–#7) and
+   `docs/reports/todo-validation-2026-05-15.md` (status of those items). The cleanup
+   workstream now adds a third document (`docs/cleanup-plan.md`). Finding "what is
+   currently open" requires reading all three.
+
+---
+
+## Success criteria
+
+1. All `v2_p*` phase artifacts at `docs/` root have been moved to `docs/archive/history/`.
+2. `docs/ARCHITECTURE.md` is archived. `docs/architecture_overview.md` is updated to
+   reflect the post-Phase-9 directory structure and is the single architectural reference.
+3. Every file at `docs/` root has a clear signal in `docs/index.md` about its status:
+   current / reference / archived. No unlisted files.
+4. `docs/index.md` is the verified entry point for docs navigation — it links
+   `docs/cleanup-plan.md` and `docs/PRD/` and its architecture section points only to
+   live documents.
+5. A new `docs/PRD/README.md` indexes all PRD files with one-line descriptions.
+6. The `docs/reports/todo-validation-2026-05-15.md` is merged into or superseded by a
+   single `docs/status.md` that tracks: open correctness items (from `demo/TODO.md`),
+   open cleanup items (from `docs/cleanup-plan.md`), and closed items.
+7. All links in `docs/index.md` resolve (no 404 links to files that were moved in
+   Phase 9).
+
+---
+
+## Sub-task 10a — Archive phase artifacts from docs root
+
+Move these 11 files to `docs/archive/history/`:
+
+- `v2_p9_kickoff.md` *(stray copy; main is already in archive/history/)*
+- `v2_p17_consolidate_gate.md`
+- `v2_p17_kickoff.md`
+- `v2_p18_closeout_checklist.md`
+- `v2_p18_kickoff.md`
+- `v2_p19_closeout_checklist.md`
+- `v2_p19_kickoff.md`
+- `v2_p20_closeout_checklist.md`
+- `v2_p20_kickoff.md`
+- `v2_p21_kickoff.md`
+- `v2_p22_notes.md`
+
+Check for broken `docs/index.md` links after moving (none of these are currently listed
+in `docs/index.md`, but confirm).
+
+---
+
+## Sub-task 10b — Retire `docs/ARCHITECTURE.md`
+
+`docs/ARCHITECTURE.md` references pre-v2 file names:
+- `event_ingress.py` (now `runtime/turn/ingress.py` after Phase 9)
+- `event_state.py` (now `runtime/state.py`)
+- `event_worker.py` (now `runtime/queue/worker.py` after Phase 9)
+- `memory_engine.py` (now `runtime/engine.py`)
+
+It also defines "Five Canonical Centers" that may have shifted with v2 architecture.
+
+**Process:**
+1. Read both `ARCHITECTURE.md` and `architecture_overview.md`.
+2. Extract any content from `ARCHITECTURE.md` that is not covered by
+   `architecture_overview.md` and is still accurate.
+3. Merge that content into `architecture_overview.md`.
+4. Move `ARCHITECTURE.md` to `docs/archive/history/`.
+5. Update `docs/index.md` to remove the `ARCHITECTURE.md` link and add a note:
+   "Archived — see `architecture_overview.md`."
+
+---
+
+## Sub-task 10c — Update `architecture_overview.md` for post-Phase-9 layout
+
+After Phases 4–9 ship, `architecture_overview.md` needs to reflect:
+
+- `runtime/` now has subdirectories (turn, flush, session, passes, queue, dreamer,
+  observability)
+- `graph/api.py` is gone; split modules are the surface
+- `cli/` is a package with parsers/ and handlers/
+- `integrations/openclaw/` is now a proper subdirectory
+- `StorageBackend` protocol has capability tiers (Phase 6)
+- `core-memory init` and `core-memory doctor` are expanded (Phase 8)
+
+The architecture doc should describe the **intended structure**, not just what exists.
+It should be short enough to read in 5 minutes. Reference `docs/index.md` for deeper
+dives. Aim for 100–150 lines.
+
+At minimum, the doc should answer:
+1. What are the layers and what does each own?
+2. Where does a write enter, what touches it, where does it land?
+3. Where does a read/recall enter, what tiers does it pass through?
+4. How are framework integrations structured (adapter pattern)?
+5. What is pluggable (storage, vector, graph)?
+
+---
+
+## Sub-task 10d — Audit and classify docs root files
+
+For each file at `docs/` root (excluding `index.md` itself and PRD/, archive/, reports/
+subdirectories), determine its status:
+
+| Status | Meaning | Action |
+|--------|---------|--------|
+| **Current** | Actively maintained; content is accurate | Keep; list in index.md with "reference" label |
+| **Stale-but-useful** | Historically informative; no longer fully accurate | Add "last verified" date to header; keep with warning |
+| **Superseded** | Content moved to a better location | Add redirect note; move to archive/ |
+| **Snapshot** | Point-in-time audit or report | Move to `docs/reports/` or `docs/archive/` |
+
+Files to classify (conduct per-file read + decision):
+
+| File | Likely status | Notes |
+|------|--------------|-------|
+| `REFACTOR_NOTES.md` | Superseded | v2 refactor is complete; content likely in archive |
+| `adapter_layer_inventory.md` | Snapshot | Superseded by `adapter_parity_matrix.md`? Verify. |
+| `adapter_parity_matrix.md` | Current or Snapshot | Check if still accurate |
+| `adr_association_type_policy.md` | Current | ADRs should be kept; ensure listed in index |
+| `bead_required_fields.md` | Current | Core schema reference; verify against models.py |
+| `canonical_contract.md` | Current | Verify still accurate; link from index |
+| `canonical_paths.md` | Current | Verify paths match post-Phase-9 layout |
+| `canonical_surfaces.md` | Current | Keep |
+| `claim_layer.md` | Current | Keep |
+| `contributor_map.md` | Stale-but-useful | May reference old contributor patterns |
+| `core_adapters_architecture.md` | Current or Superseded | Compare with `integrations/shared/` |
+| `dreamer_contract.md` | Current | Keep; verify against runtime/dreamer/ |
+| `good_first_issue_seed.md` | Current | Keep for contributors |
+| `graph_memory.md` | Current | Keep; verify post-Phase-4 |
+| `integration_contract.md` | Current | Verify against integrations/api.py after Phase 9g |
+| `memory_surfaces_spec.md` | Current | Keep |
+| `public_surface.md` | Current | Key doc; verify against __init__.__all__ |
+| `reranker-paths.md` | Snapshot | Move to reports/ |
+| `retrieval-canonical-v9-execution.md` | Snapshot | Move to reports/ or archive/ |
+| `retrieval_kpi_targets.md` | Current or Snapshot | Check if still tracked |
+| `retrieval_side_flow.md` | Current | Keep; verify post-Phase-5/6 |
+| `runtime_contract_clarity.md` | Current | Keep; update for Phase-9 structure |
+| `schema_canonical_spec.md` | Current | Keep |
+| `schema_inventory_baseline.md` | Snapshot | Move to reports/ |
+| `semantic_backend_modes.md` | Current | Keep; update for Phase-6 |
+| `springai_adapter.md` | Superseded | Content is in `integrations/springai/` |
+| `structural_pipeline_contract.md` | Current | Keep |
+| `truth_hierarchy.md` | Current | Keep |
+| `truth_hierarchy_policy.md` | Current | Keep |
+| `write_side_artifacts_semantics.md` | Current | Keep |
+| `write_side_flow.md` | Current | Keep |
+| `ARCHITECTURE.md` | Superseded | Handled in 10b |
+
+Files marked **Snapshot** or **Superseded** move to `docs/archive/` or `docs/reports/`
+as appropriate. All **Current** files get verified and listed in `docs/index.md`.
+
+---
+
+## Sub-task 10e — Consolidate TODO tracking into `docs/status.md`
+
+Currently open-item tracking is split:
+- `demo/TODO.md` — 7 engine-correctness items with cross-repo references
+- `docs/reports/todo-validation-2026-05-15.md` — status audit against those 7 items
+- `docs/cleanup-plan.md` — the new cleanup workstream (phases 0–8)
+
+**Create `docs/status.md`** as the single tracked-state document:
+
+```markdown
+# Core Memory — Open Work
+
+## Correctness items (engine behavior)
+*Source: demo/TODO.md + todo-validation-2026-05-15.md*
+
+| # | Item | Status | Notes |
+|---|------|--------|-------|
+| 1 | Extracted `because` reasoning | Closed | |
+| 2 | Goal lifecycle resolution | Open | ... |
+| 3 | Association relationship types | Partial | ... |
+...
+
+## Cleanup workstream
+*Source: docs/cleanup-plan.md — phases 0–8*
+
+Phase 0 (CI baseline): [ ]
+Phase 1 (dead files): [ ]
+...
+
+## Structural consolidation workstream
+*Source: docs/PRD/09-structural-consolidation.md — sub-tasks 9a–9g*
+
+9a (feature flags extraction): [ ]
+...
+```
+
+`demo/TODO.md` retains its cross-repo references and notes but links to `docs/status.md`
+for the authoritative completion state. `docs/reports/todo-validation-2026-05-15.md`
+becomes a historical snapshot referenced from `docs/status.md`.
+
+---
+
+## Sub-task 10f — Add `docs/PRD/README.md`
+
+Index all PRD files with a one-line description and status:
+
+```markdown
+# PRDs
+
+| File | Title | Status |
+|------|-------|--------|
+| 03-mcp-protocol-server.md | MCP Protocol Server | ? |
+| 04-graph-module-cleanup.md | Remove graph/api.py compat facade | Not started |
+| 05-persistence-delegation-flatten.md | Flatten persistence delegation | Not started |
+| 06-storage-adapter-boundary.md | Storage adapter capability tiers | Not started |
+| 07-neo4j-query-backend.md | Neo4j as query backend | Not started |
+| 08-init-wizard.md | core-memory init wizard | Not started |
+| 09-structural-consolidation.md | Runtime/CLI/OpenClaw restructure | Not started |
+| 10-documentation-consolidation.md | Docs cleanup and consolidation | Not started |
+```
+
+---
+
+## Sub-task 10g — Update `docs/index.md`
+
+After all prior sub-tasks complete, `docs/index.md` needs:
+
+1. **Architecture section** — remove `ARCHITECTURE.md` link; verify
+   `architecture_overview.md` link is current.
+2. **New sections:**
+   - "Open workstreams" → links to `status.md` and `cleanup-plan.md`
+   - "PRDs" → links to `PRD/README.md`
+3. **Remove** links to files moved to archive/ in 10a and 10d.
+4. **Add** links to any files classified as Current in 10d that aren't already listed.
+5. **Verify** the `eval/` links at the bottom still resolve after Phase 9e
+   (`longitudinal_benchmark.py` moved to `eval/`).
+6. **Fix** the "Neo4j (shadow graph)" label in the Adapters section — after Phase 7, Neo4j
+   is a query backend, not just a shadow graph.
+
+---
+
+## Guard rails
+
+- **Do not edit `architecture_overview.md` until Phase 9 is complete.** The doc should
+  reflect the actual post-refactor structure, not a future state.
+- **Do not delete `demo/TODO.md`.** It has cross-repo references to `Core-Memory-Demo`
+  that are meaningful to maintainers. Transform it to a pointer, not a replacement.
+- **Each sub-task is a single PR.** Docs moves are small; PR per sub-task keeps the review
+  surface narrow and the git blame clean.
+- **The 10d classification audit requires reading each file.** Do not classify by filename
+  alone — some files with historical-sounding names contain current contracts.

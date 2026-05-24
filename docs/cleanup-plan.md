@@ -177,6 +177,68 @@ run full pytest suite.
 
 ---
 
+---
+
+## Phase 9 — Structural Consolidation
+
+**PRD:** `docs/PRD/09-structural-consolidation.md`
+
+- [ ] **9a — Extract generic feature flags** from `integrations/openclaw_flags.py` into
+      `core_memory/config/feature_flags.py`. Only `supersede_openclaw_summary_enabled()`
+      stays with OpenClaw. Update all importers in `runtime/` and `integrations/api.py`.
+- [ ] **9b — Rename event schema strings** — replace `"openclaw.memory.*"` string
+      literals in `engine.py` and `flush_flow.py` with constants from a new
+      `runtime/event_schemas.py`. Accept legacy values on read during transition.
+- [ ] **9c — Move OpenClaw files into `integrations/openclaw/`** — 7 flat files become a
+      proper subdirectory matching every other integration. Add backward-compat re-export
+      shims at old paths for one release cycle. Extract abstract `CrawlerContract`
+      protocol in `association/` so it no longer imports OpenClaw by name.
+- [ ] **9d — Move CLI into `core_memory/cli/`** — rename `cli.py` to `cli/__init__.py`,
+      create `cli/parsers/` and `cli/handlers/` subdirectories, move all 13 CLI files.
+      Entry point `core_memory.cli:main` works without `pyproject.toml` changes.
+- [ ] **9e — Move Dreamer to `runtime/dreamer/`** — `dreamer.py` (top level), 
+      `runtime/dreamer_candidates.py`, and `runtime/dreamer_eval.py` all move to
+      `runtime/dreamer/analysis.py`, `candidates.py`, `eval.py`. Move
+      `runtime/longitudinal_benchmark.py` to `eval/`.
+- [ ] **9f — Reorganize `runtime/` into subdirectories** — create `turn/`, `flush/`,
+      `session/`, `passes/`, `queue/`, `observability/` subdirectories. Each `__init__.py`
+      re-exports old module symbols as a migration shim.
+- [ ] **9g — Thin `integrations/api.py`** — audit all 22+ outgoing imports; any that
+      reach internal modules (`runtime.*`, `claim.*`, etc.) are replaced with imports
+      from `core_memory`'s public `__all__`. Gaps in the public API are filled in
+      `__init__.py` first.
+
+**Risk:** Medium per sub-task, high in aggregate. Do one sub-task per PR. Never batch.
+
+---
+
+## Phase 10 — Documentation Consolidation
+
+**PRD:** `docs/PRD/10-documentation-consolidation.md`
+
+- [ ] **10a — Archive 11 stray `v2_p*` files** from `docs/` root to
+      `docs/archive/history/` (they belong there with the rest of the phase history)
+- [ ] **10b — Retire `docs/ARCHITECTURE.md`** — it references pre-v2 file names; merge
+      any still-accurate content into `architecture_overview.md`, then archive it
+- [ ] **10c — Update `architecture_overview.md`** to reflect post-Phase-9 directory
+      structure (new runtime subdirs, cli/ package, integrations/openclaw/, capability
+      tiers, init wizard). Target: 100–150 lines, readable in 5 minutes.
+- [ ] **10d — Audit and classify all docs/ root files** (30+ files) as Current, Snapshot,
+      or Superseded. Move Snapshot/Superseded files to `docs/reports/` or `docs/archive/`.
+      Every Current file gets verified and listed in `docs/index.md`.
+- [ ] **10e — Create `docs/status.md`** — single tracked-state document merging
+      `demo/TODO.md`'s correctness items (#1–#7), the cleanup workstream (phases 0–9),
+      and current completion states. `demo/TODO.md` becomes a pointer to it.
+- [ ] **10f — Add `docs/PRD/README.md`** — index of all PRD files with one-line
+      descriptions and statuses.
+- [ ] **10g — Update `docs/index.md`** — fix broken links from Phase 9 file moves,
+      add PRD section, add open-workstreams section, fix Neo4j label, verify all eval/
+      links resolve after longitudinal_benchmark.py moved.
+
+**Risk:** None functionally. Each sub-task is a docs-only PR.
+
+---
+
 ## Sequence dependency
 
 ```
@@ -187,6 +249,8 @@ Phase 5 → after Phase 4 (cleaner store surface makes audit more meaningful)
 Phase 6 → after Phase 5 (flat ops surface makes protocol extension cleaner)
 Phase 7 → after Phase 6 (needs extended StorageBackend protocol)
 Phase 8 → after Phase 6 (needs BackendCapabilities + create_backend config support)
+Phase 9 → after Phase 4 and 5 (structural moves are smaller when Phase 4/5 are done first)
+Phase 10 → after Phase 9 (architecture docs must reflect actual post-refactor layout)
 ```
 
 ---
