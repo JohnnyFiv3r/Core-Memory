@@ -34,6 +34,25 @@ from .catalog import build_catalog
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
 PUBLIC_HYDRATION_TURN_SOURCES = {"cited_turns", "cited_turns_plus_adjacent"}
+CONTROL_CONSTRAINT_KEYS = {
+    # Request/benchmark orchestration metadata, not corpus facets.  Treating
+    # these as hard bead metadata filters can erase valid retrieval candidates
+    # (for example every LoCoMo corpus bead lacks the per-question qa_id).
+    "qa_id",
+    "benchmark_name",
+    "benchmark_phase",
+    "recall_scope",
+    "selected_answer_effort",
+    "retrieval_efforts",
+}
+
+
+def _metadata_constraints(constraints: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(k): v
+        for k, v in dict(constraints or {}).items()
+        if str(k or "").strip() and str(k).strip() not in CONTROL_CONSTRAINT_KEYS and str(k).strip() != "require_structural"
+    }
 
 
 def _canonical_semantic_mode() -> str:
@@ -1136,7 +1155,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),
-            "metadata": {**dict(facets.get("metadata") or {}), **{k: v for k, v in constraints.items() if k != "require_structural"}},
+            "metadata": {**dict(facets.get("metadata") or {}), **_metadata_constraints(constraints)},
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = search_request(root=rp, query=query, k=k, intent=intent, submission=submission)
@@ -1172,7 +1191,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),
-            "metadata": {**dict(facets.get("metadata") or {}), **{k: v for k, v in constraints.items() if k != "require_structural"}},
+            "metadata": {**dict(facets.get("metadata") or {}), **_metadata_constraints(constraints)},
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = trace_request(

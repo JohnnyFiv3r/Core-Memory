@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from core_memory.retrieval.pipeline.canonical import _apply_typed_filters
+from core_memory.retrieval.pipeline.canonical import _apply_typed_filters, _metadata_constraints
 
 
 class TestCanonicalMetadataFilters(unittest.TestCase):
@@ -56,6 +56,19 @@ class TestCanonicalMetadataFilters(unittest.TestCase):
 
         self.assertEqual([], warnings)
         self.assertEqual(["bead-1"], [r["bead_id"] for r in out])
+
+    def test_benchmark_control_constraints_do_not_become_metadata_filters(self):
+        out = _metadata_constraints(
+            {
+                "benchmark_name": "locomo",
+                "conversation_id": "locomo:conv-26",
+                "qa_id": "locomo:conv-26:q0001",
+                "recall_scope": "full_bead_corpus",
+                "require_structural": False,
+            }
+        )
+
+        self.assertEqual({"conversation_id": "locomo:conv-26"}, out)
 
 
 if __name__ == "__main__":
