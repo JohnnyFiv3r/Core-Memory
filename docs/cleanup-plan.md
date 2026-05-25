@@ -7,7 +7,7 @@ This document tracks the cleanup and architectural improvement workstream identi
 codebase analysis. Each phase is a discrete, mergeable unit with its own test gate.
 Do not start a phase until the previous one has passed CI.
 
-PRDs for Phases 4–8 live in `docs/PRD/` and carry codebase-specific implementation detail.
+PRDs for all phases live in `docs/PRD/` and carry codebase-specific implementation detail.
 
 ---
 
@@ -30,15 +30,16 @@ PRDs for Phases 4–8 live in `docs/PRD/` and carry codebase-specific implementa
 
 ## Phase 1 — Delete Confirmed Dead Files
 
-**Goal:** Remove the 4 files with zero references anywhere in the repo.
+**Goal:** Remove the 3 files with zero references anywhere in the repo.
 
-- [ ] `core_memory/persistence/encryption.py` — stub with env-var docs, never imported
-- [ ] `core_memory/persistence/write_ops.py` — delegating stub, never imported
-- [ ] `core_memory/retrieval/vector_backend.py` — no imports anywhere
-- [ ] `core_memory/retrieval/pipeline/explain.py` — defines `build_explain()`, never called
+**Correction:** The original list contained 4 files. `core_memory/retrieval/vector_backend.py`
+is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`. Do not delete it.
 
-Procedure: `grep -r "<basename>"` across the entire repo to confirm zero refs, delete,
-run full pytest suite.
+**PRD:** `docs/PRD/01-dead-file-removal.md`
+
+- [x] `core_memory/persistence/encryption.py` — stub with env-var docs, never imported
+- [x] `core_memory/persistence/write_ops.py` — delegating stub, never imported
+- [x] `core_memory/retrieval/pipeline/explain.py` — defines `build_explain()`, never called
 
 **Risk:** None if Phase 0 CI is in place.
 
