@@ -66,13 +66,14 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 
 **Goal:** Lock in that `pydantic-ai` is optional; prevent it silently becoming required.
 
-- [ ] Add `pytest.mark.skipif(not importlib.util.find_spec("pydantic_ai"), reason="...")`
-      guards to `tests/test_pydanticai_adapter.py` and `tests/test_pydanticai_memory_tools.py`
-      (both currently have hard imports that fail without the extra)
-- [ ] Add CI matrix entry in `test.yml` that installs `core-memory` without `[pydanticai]`
-      and runs the full suite — confirms skip guards work and core doesn't depend on pydantic-ai
-- [ ] Add a tox/pytest fixture that asserts `pydantic_ai` does NOT appear in `sys.modules`
-      after `import core_memory` without the extra installed
+**PRD:** `docs/PRD/03a-pydanticai-boundary.md`
+
+- [x] Add `pytest.mark.skipif` guards to `tests/test_pydanticai_adapter.py` and
+      `tests/test_pydanticai_memory_tools.py` *(done in Phase 0)*
+- [x] Add CI matrix entry (`core-only` job) that installs without `[pydanticai]` *(done in Phase 0)*
+- [x] Add `tests/test_adapter_boundary_pydanticai.py` — subprocess-isolated assertion
+      that `pydantic_ai` never appears in `sys.modules` via `import core_memory` or
+      any internal subpackage
 
 **Risk:** Low. Additive guards only.
 
