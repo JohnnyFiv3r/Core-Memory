@@ -119,7 +119,6 @@ def bead_similarity(a: dict, b: dict) -> float:
 
 
 def find_recent_duplicate_bead_id_for_store(
-    store: Any,
     index: dict,
     bead: dict,
     *,
