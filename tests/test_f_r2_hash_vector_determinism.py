@@ -179,6 +179,20 @@ class TestStartupCheckRequired(unittest.TestCase):
         _check_semantic_mode_startup()
         self.assertTrue(sem_mod._startup_check_done)
 
+    @patch.dict(os.environ, {
+        "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
+        "CORE_MEMORY_EMBEDDINGS_BASE_URL": "http://localhost:1234/v1",
+        "CORE_MEMORY_EMBEDDINGS_PROVIDER": "",
+        "CORE_MEMORY_EMBEDDINGS_API_KEY": "",
+        "OPENAI_API_KEY": "",
+        "GEMINI_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+        "CORE_MEMORY_VECTOR_BACKEND": "",
+    }, clear=False)
+    def test_required_with_base_url_provider_does_not_raise(self):
+        _check_semantic_mode_startup()
+        self.assertTrue(sem_mod._startup_check_done)
+
     @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True)
     def test_unset_mode_with_openai_provider_does_not_raise(self):
         _check_semantic_mode_startup()

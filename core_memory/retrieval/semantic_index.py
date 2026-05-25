@@ -259,6 +259,7 @@ def _check_semantic_mode_startup() -> None:
     has_provider = bool(
         configured_provider in {"hash", "openai", "openai-compatible", "gemini", "google"}
         or embed_cfg.api_key
+        or embed_cfg.base_url
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
