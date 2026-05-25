@@ -19,15 +19,15 @@ from core_memory.policy.promotion import (
 )
 
 
-def promotion_score_for_store(store: Any, index: dict, bead: dict) -> tuple[float, dict]:
+def promotion_score_for_store(index: dict, bead: dict) -> tuple[float, dict]:
     return compute_promotion_score(index, bead)
 
 
-def adaptive_promotion_threshold_for_store(store: Any, index: dict) -> float:
+def adaptive_promotion_threshold_for_store(index: dict) -> float:
     return compute_adaptive_threshold(index)
 
 
-def candidate_promotable_for_store(store: Any, index: dict, bead: dict) -> tuple[bool, dict]:
+def candidate_promotable_for_store(index: dict, bead: dict) -> tuple[bool, dict]:
     return is_candidate_promotable(index, bead)
 
 

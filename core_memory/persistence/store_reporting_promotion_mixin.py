@@ -69,17 +69,17 @@ class StoreReportingPromotionMixin:
     def _promotion_score(self, index: dict, bead: dict) -> tuple[float, dict]:
         from ..persistence.store_promotion_ops import promotion_score_for_store
 
-        return promotion_score_for_store(self, index, bead)
+        return promotion_score_for_store(index, bead)
 
     def _adaptive_promotion_threshold(self, index: dict) -> float:
         from ..persistence.store_promotion_ops import adaptive_promotion_threshold_for_store
 
-        return adaptive_promotion_threshold_for_store(self, index)
+        return adaptive_promotion_threshold_for_store(index)
 
     def _candidate_promotable(self, index: dict, bead: dict) -> tuple[bool, dict]:
         from ..persistence.store_promotion_ops import candidate_promotable_for_store
 
-        return candidate_promotable_for_store(self, index, bead)
+        return candidate_promotable_for_store(index, bead)
 
     def _candidate_recommendation_rows(self, index: dict, query_text: str = "") -> tuple[list[dict], float]:
         from ..persistence.store_promotion_ops import candidate_recommendation_rows_for_store
