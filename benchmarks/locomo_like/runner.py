@@ -88,21 +88,42 @@ def _heuristic_entities(*texts: str, limit: int = 16) -> list[str]:
     return out
 
 
-def _seed_crawler_updates(*, user_query: str, assistant_final: str, turn_id: str) -> dict[str, Any]:
+def _locomo_crawler_updates(*, user_query: str, assistant_final: str, turn_id: str) -> dict[str, Any]:
+    """Author production-shaped LoCoMo replay crawler updates.
+
+    This benchmark harness must exercise the same write path as adapters:
+    semantic fields are authored before the write call, then Core Memory only
+    validates/persists/links/indexes and enforces structural invariants.
+    """
     uq = str(user_query or "").strip()
     af = str(assistant_final or "").strip()
+    fact_text = (af or uq or "turn memory").strip()
     title = (uq or af or "Turn memory").splitlines()[0][:160]
     entities = _heuristic_entities(uq, af)
+    topics = []
+    for token in re.findall(r"\b[a-zA-Z][a-zA-Z0-9_-]{3,}\b", f"{uq} {af}".lower()):
+        if token in {"this", "that", "with", "from", "turn", "memory", "assistant", "user"}:
+            continue
+        if token not in topics:
+            topics.append(token)
+        if len(topics) >= 8:
+            break
+    if not topics:
+        topics = ["locomo"]
     return {
         "beads_create": [
             {
                 "type": "context",
                 "title": title or "Turn memory",
-                "summary": [(uq or af or "turn memory")[:240]],
+                "summary": [fact_text[:240]],
                 "because": [uq[:240]] if uq else [],
                 "source_turn_ids": [str(turn_id or "")],
-                "entities": entities,
-                "tags": ["benchmark_preload", "crawler_reviewed", "turn_finalized"],
+                "entities": entities or ["LoCoMo"],
+                "topics": topics,
+                "retrieval_eligible": True,
+                "retrieval_title": title or fact_text[:160] or "LoCoMo replay turn",
+                "retrieval_facts": [fact_text[:500]],
+                "tags": ["benchmark_preload", "crawler_reviewed", "turn_finalized", "locomo_replay"],
             }
         ]
     }
@@ -192,7 +213,7 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
 
             md = dict(t.get("metadata") or {})
             if not isinstance(md.get("crawler_updates"), dict):
-                md["crawler_updates"] = _seed_crawler_updates(user_query=uq, assistant_final=af, turn_id=tid)
+                md["crawler_updates"] = _locomo_crawler_updates(user_query=uq, assistant_final=af, turn_id=tid)
 
             process_turn_finalized(
                 root=root,

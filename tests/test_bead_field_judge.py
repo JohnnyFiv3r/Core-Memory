@@ -58,13 +58,31 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual(["Redis is the selected coordination point for cache invalidation."], out["retrieval_facts"])
         self.assertEqual({"mode": "llm"}, out["judge"])
 
-    def test_turn_write_uses_field_judge_over_raw_defaults_and_agent_row(self):
+    def test_heuristic_fallback_authors_retrievable_durable_fields(self):
+        with patch("core_memory.policy.bead_judge._llm_judge_provider_neutral", return_value=None), patch(
+            "core_memory.policy.bead_judge._llm_judge_anthropic", return_value=None
+        ), patch("core_memory.policy.bead_judge._llm_judge_openai", return_value=None), patch.dict(
+            "os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "heuristic"}, clear=False
+        ):
+            out = judge_bead_fields("Remember Alice adopted Pixel.", "Recorded Alice adopted Pixel.")
+        self.assertTrue(out.get("retrieval_eligible"))
+        self.assertTrue(out.get("retrieval_title"))
+        self.assertTrue(out.get("retrieval_facts"))
+        self.assertEqual("heuristic", (out.get("judge") or {}).get("mode"))
+        self.assertEqual("heuristic", (out.get("judge") or {}).get("retrieval_authored_by"))
+
+    def test_turn_write_uses_field_judge_only_when_explicit_fallback_enabled(self):
         stale_agent_updates = {
             "beads_create": [
                 {
                     "type": "context",
                     "title": "Use Redis for cache invalidation.",
                     "summary": ["Use Redis for cache invalidation."],
+                    "retrieval_title": "Use Redis for cache invalidation",
+                    "retrieval_facts": ["Use Redis for cache invalidation."],
+                    "retrieval_eligible": True,
+                    "entities": ["Redis"],
+                    "topics": ["cache"],
                     "because": ["Use Redis for cache invalidation."],
                     "source_turn_ids": ["t1"],
                     "detail": "Recorded.",
@@ -88,6 +106,9 @@ class TestBeadFieldJudge(unittest.TestCase):
             "os.environ",
             {
                 "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
+                "CORE_MEMORY_BEAD_JUDGE_FALLBACK": "1",
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
                 "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
             },
@@ -106,15 +127,18 @@ class TestBeadFieldJudge(unittest.TestCase):
             idx = store._read_json(store.beads_dir / "index.json")
             bead = next(iter((idx.get("beads") or {}).values()))
 
-        self.assertEqual("decision", bead.get("type"))
-        self.assertEqual("Use Redis for cache invalidation", bead.get("title"))
-        self.assertEqual(["cache invalidation requires a shared low-latency coordination point"], bead.get("because"))
+        # Explicit fallback fills missing semantic fields only; it does not
+        # overwrite fields the adapter already authored.
+        self.assertEqual("context", bead.get("type"))
+        self.assertEqual("Use Redis for cache invalidation.", bead.get("title"))
+        self.assertEqual(["Use Redis for cache invalidation."], bead.get("summary"))
+        self.assertEqual(["Use Redis for cache invalidation."], bead.get("because"))
         self.assertEqual(["Redis"], bead.get("entities"))
+        self.assertEqual(["cache"], bead.get("topics"))
         self.assertTrue(bead.get("retrieval_eligible"))
-        self.assertEqual("Redis cache invalidation decision", bead.get("retrieval_title"))
-        self.assertEqual(["Redis is the selected coordination point for cache invalidation."], bead.get("retrieval_facts"))
+        self.assertEqual("Use Redis for cache invalidation", bead.get("retrieval_title"))
+        self.assertEqual(["Use Redis for cache invalidation."], bead.get("retrieval_facts"))
         self.assertIn("llm_judged", bead.get("tags") or [])
-        self.assertNotEqual(["Use Redis for cache invalidation."], bead.get("summary"))
 
     def test_locomo_replay_preserves_request_scoped_crawler_fields_without_llm_judge(self):
         crawler_updates = {
@@ -126,6 +150,7 @@ class TestBeadFieldJudge(unittest.TestCase):
                     "source_turn_ids": ["t-locomo-1"],
                     "detail": "Alice adopted a rescue dog named Pixel.",
                     "entities": ["Alice", "Pixel"],
+                    "topics": ["pets"],
                     "retrieval_eligible": True,
                     "retrieval_title": "Alice adopted Pixel",
                     "retrieval_facts": ["Alice adopted a rescue dog named Pixel."],
@@ -170,16 +195,21 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual(["Alice adopted Pixel."], bead.get("summary"))
         self.assertEqual(["Alice", "Pixel"], bead.get("entities"))
         self.assertEqual("Alice adopted Pixel", bead.get("retrieval_title"))
-        self.assertIn("agent_authored_semantic", bead.get("tags") or [])
+        self.assertIn("locomo_replay", bead.get("tags") or [])
         self.assertNotIn("llm_judged", bead.get("tags") or [])
 
-    def test_locomo_replay_requires_specific_tag_before_skipping_judge(self):
+    def test_untrusted_replay_rows_preserve_authored_fields_without_default_judge(self):
         crawler_updates = {
             "beads_create": [
                 {
                     "type": "context",
                     "title": "stale crawler title",
                     "summary": ["stale summary"],
+                    "retrieval_title": "stale crawler title",
+                    "retrieval_facts": ["stale summary"],
+                    "retrieval_eligible": True,
+                    "entities": ["Redis"],
+                    "topics": ["cache"],
                     "source_turn_ids": ["t-locomo-2"],
                     "tags": ["crawler_reviewed", "turn_finalized"],
                 }
@@ -219,8 +249,8 @@ class TestBeadFieldJudge(unittest.TestCase):
             idx = store._read_json(store.beads_dir / "index.json")
             bead = next(iter((idx.get("beads") or {}).values()))
 
-        self.assertEqual("Use Redis for cache invalidation", bead.get("title"))
-        self.assertIn("llm_judged", bead.get("tags") or [])
+        self.assertEqual("stale crawler title", bead.get("title"))
+        self.assertNotIn("llm_judged", bead.get("tags") or [])
         self.assertNotIn("agent_authored_semantic", bead.get("tags") or [])
 
 

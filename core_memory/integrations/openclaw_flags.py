@@ -48,10 +48,7 @@ def default_adjacent_turns() -> int:
 
 
 def agent_authored_required_enabled() -> bool:
-    """When enabled, semantic turn memory must come from agent-authored payloads.
-
-    Slice-0 scaffold only: runtime enforcement lands in follow-up slices.
-    """
+    """When enabled, semantic turn memory must come from agent-authored payloads."""
     return _env_bool("CORE_MEMORY_AGENT_AUTHORED_REQUIRED", False)
 
 
@@ -75,6 +72,15 @@ def agent_crawler_max_attempts() -> int:
         return max(1, int(raw or 2))
     except ValueError:
         return 2
+
+
+def bead_judge_fallback_enabled() -> bool:
+    """Allow Core Memory to re-author semantic bead fields as an explicit fallback.
+
+    Default is off: adapters/agents own semantic memory authorship. This fallback
+    exists for legacy demos and repair tooling, not the normal write path.
+    """
+    return _env_bool("CORE_MEMORY_BEAD_JUDGE_FALLBACK", False)
 
 
 def agent_min_semantic_associations_after_first() -> int:
@@ -125,20 +131,19 @@ def agent_authored_mode() -> str:
     # Legacy flag derivation
     req = agent_authored_required_enabled()
     fail_open = agent_authored_fail_open_enabled()
-    if req and not fail_open:
-        return "hard"
-    if req and fail_open:
-        return "warn"
-    # F-W2: default to warn in OSS (was observe/off)
+    if req:
+        return "enforce"
+    # Phase 3B: strict contract enforcement is opt-in only via
+    # CORE_MEMORY_AGENT_AUTHORED_REQUIRED=1 or explicit hard/enforce mode.
     return "warn"
 
 
 def resolved_agent_authored_gate() -> dict[str, object]:
     mode = agent_authored_mode()
-    if mode == "hard":
+    if mode in {"hard", "enforce"}:
         return {"mode": mode, "required": True, "fail_open": False}
     if mode == "warn":
-        return {"mode": mode, "required": True, "fail_open": True}
+        return {"mode": mode, "required": False, "fail_open": True}
     return {"mode": "off", "required": False, "fail_open": True}
 
 
@@ -177,6 +182,7 @@ def runtime_flags_snapshot() -> dict[str, object]:
         "agent_authored_gate_resolved": resolved_agent_authored_gate(),
         "agent_crawler_invoke_enabled": agent_crawler_invoke_enabled(),
         "agent_crawler_max_attempts": agent_crawler_max_attempts(),
+        "bead_judge_fallback_enabled": bead_judge_fallback_enabled(),
         "agent_min_semantic_associations_after_first": agent_min_semantic_associations_after_first(),
         "preview_association_promotion_enabled": preview_association_promotion_enabled(),
         "preview_association_allow_shared_tag": preview_association_allow_shared_tag(),

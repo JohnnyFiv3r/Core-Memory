@@ -76,6 +76,22 @@ class TestAgentCrawlerInvokeSlice3(unittest.TestCase):
             self.assertTrue(diag.get("ok"))
             self.assertEqual(2, int(diag.get("attempts") or 0))
 
+    def test_invalid_response_gets_validation_feedback_before_retry(self):
+        agent_crawler_fixtures.reset_state()
+        with patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_CRAWLER_CALLABLE": "agent_crawler_fixtures:invalid_then_success",
+                "CORE_MEMORY_AGENT_CRAWLER_MAX_ATTEMPTS": "2",
+            },
+            clear=False,
+        ):
+            updates, diag = invoke_turn_crawler_agent(root="/tmp", req=self._req(), crawler_context={})
+            self.assertIsInstance(updates, dict)
+            self.assertTrue(diag.get("ok"))
+            self.assertEqual(2, int(diag.get("attempts") or 0))
+
     def test_exhaustion_reports_error_code(self):
         agent_crawler_fixtures.reset_state()
         with patch.dict(

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.integrations.mcp.agent_guide import PROMPT_NAME, load_agent_guide
-from core_memory.integrations.mcp.constants import MCP_HEALTH_PATH, MCP_SPEC_VERSION
+from core_memory.integrations.mcp.constants import MCP_HEALTH_PATH, MCP_HTTP_PATH, MCP_SPEC_VERSION
 from core_memory.integrations.mcp.registry import TOOLS, call_tool
 
 

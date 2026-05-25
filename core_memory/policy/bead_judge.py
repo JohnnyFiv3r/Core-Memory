@@ -60,7 +60,23 @@ ASSISTANT: {assistant_final}
 
 def _clean_text(value: Any, *, limit: int = 240) -> str:
     s = re.sub(r"\s+", " ", str(value or "").strip())
+    if len(s) > int(limit):
+        logger.warning("bead_judge.text_truncated limit=%d original_len=%d", int(limit), len(s))
     return s[:limit].strip()
+
+
+def _prompt_template() -> str:
+    prompt_file = str(os.getenv("CORE_MEMORY_BEAD_FIELD_PROMPT_FILE") or "").strip()
+    if prompt_file:
+        try:
+            with open(prompt_file, "r", encoding="utf-8") as f:
+                text = f.read()
+            if text.strip():
+                return text
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("bead_judge.prompt_file_unreadable path=%s error=%s", prompt_file, exc)
+    prompt = str(os.getenv("CORE_MEMORY_BEAD_FIELD_PROMPT") or "").strip()
+    return prompt or _PROMPT
 
 
 def _clean_list(value: Any, *, limit: int = 6, item_limit: int = 240) -> list[str]:
@@ -105,29 +121,51 @@ def _heuristic_entities(*texts: str, limit: int = 16) -> list[str]:
     return out
 
 
+def _heuristic_topics(*texts: str, limit: int = 8) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    stop = {
+        "about", "after", "again", "assistant", "because", "before", "could", "decision",
+        "from", "have", "memory", "should", "that", "their", "there", "these", "this",
+        "those", "turn", "user", "what", "when", "where", "which", "with", "would",
+    }
+    for raw in texts:
+        for token in re.findall(r"\b[a-zA-Z][a-zA-Z0-9_-]{3,}\b", str(raw or "").lower()):
+            if token in stop or token in seen:
+                continue
+            seen.add(token)
+            out.append(token)
+            if len(out) >= max(1, int(limit)):
+                return out
+    return out
+
+
 def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, Any]:
     uq = str(user_query or "").strip()
     af = str(assistant_final or "").strip()
     text = uq or af or "turn memory"
+    title = (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory"
+    summary = [_clean_text(text, limit=240) or "turn memory"]
+    durable = bool(text.strip()) and not is_retrieval_turn(uq)
     return {
         "type": classify_bead_type(user_query=uq, assistant_final=af),
-        "title": (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory",
-        "summary": [_clean_text(text, limit=240) or "turn memory"],
-        "detail": (af or text)[:1200],
+        "title": title,
+        "summary": summary,
+        "detail": _clean_text(af or text, limit=1200),
         "because": extract_causal_because(user_query=uq, assistant_final=af),
         "supporting_facts": [],
         "evidence_refs": [],
         "entities": _heuristic_entities(uq, af),
-        "topics": [],
+        "topics": _heuristic_topics(uq, af),
         "state_change": "",
         "validity": "",
-        "retrieval_eligible": False,
-        "retrieval_title": "",
-        "retrieval_facts": [],
+        "retrieval_eligible": durable,
+        "retrieval_title": title if durable else "",
+        "retrieval_facts": summary if durable else [],
         "effective_from": "",
         "effective_to": "",
         "observed_at": "",
-        "judge": {"mode": "fallback"},
+        "judge": {"mode": "fallback", "retrieval_authored_by": "heuristic"},
     }
 
 
@@ -152,7 +190,7 @@ def _llm_judge_provider_neutral(user_query: str, assistant_final: str) -> dict[s
         return None
     try:
         text = chat_complete(
-            _PROMPT.format(user_query=user_query, assistant_final=assistant_final),
+            _prompt_template().format(user_query=user_query, assistant_final=assistant_final),
             config=cfg,
             max_tokens=700,
             temperature=0,
@@ -175,7 +213,7 @@ def _llm_judge_anthropic(user_query: str, assistant_final: str) -> dict[str, Any
             model=model,
             max_tokens=700,
             temperature=0,
-            messages=[{"role": "user", "content": _PROMPT.format(user_query=user_query, assistant_final=assistant_final)}],
+            messages=[{"role": "user", "content": _prompt_template().format(user_query=user_query, assistant_final=assistant_final)}],
         )
         return _parse_json(resp.content[0].text)
     except Exception as exc:
@@ -195,7 +233,7 @@ def _llm_judge_openai(user_query: str, assistant_final: str) -> dict[str, Any] |
             model=model,
             temperature=0,
             max_tokens=700,
-            messages=[{"role": "user", "content": _PROMPT.format(user_query=user_query, assistant_final=assistant_final)}],
+            messages=[{"role": "user", "content": _prompt_template().format(user_query=user_query, assistant_final=assistant_final)}],
         )
         return _parse_json(resp.choices[0].message.content or "")
     except Exception as exc:
@@ -276,10 +314,14 @@ def judge_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, A
             return _normalize_judged_fields(obj, user_query=uq, assistant_final=af, mode="llm")
         if mode == "llm":
             out = _fallback_bead_fields(uq, af)
-            out["judge"] = {"mode": "llm_failed_fallback"}
+            judge = dict(out.get("judge") or {})
+            judge["mode"] = "llm_failed_fallback"
+            out["judge"] = judge
             return out
     out = _fallback_bead_fields(uq, af)
-    out["judge"] = {"mode": "heuristic"}
+    judge = dict(out.get("judge") or {})
+    judge["mode"] = "heuristic"
+    out["judge"] = judge
     return out
 
 
