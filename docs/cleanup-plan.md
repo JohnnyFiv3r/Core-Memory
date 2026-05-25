@@ -49,14 +49,16 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 
 **Goal:** Remove dead defensive code; correct misleading docstrings.
 
-- [ ] `core_memory/retrieval/__init__.py` — remove the `__getattr__` lazy `recall` import.
-      No actual cycle exists; replace with a normal `from .agent import recall`.
-      Verify full test suite passes (a real cycle will fail immediately).
-- [ ] `core_memory/runtime/__init__.py` — rewrite the docstring: the empty `__init__` is
-      a lazy-loading optimization (defers loading heavy engine/job modules), not a
-      circular-import fix. No code change needed.
+**PRD:** `docs/PRD/02-circular-import-fix.md`
 
-**Risk:** Near zero. The first change is self-verifying via CI.
+- [ ] `core_memory/retrieval/__init__.py` — **DEFERRED to Phase 9g.** A real cycle
+      was found: `retrieval/pipeline/canonical.py` → `integrations/api.py` →
+      `runtime/jobs.py` → `runtime/engine.py` (layering violation). The `__getattr__`
+      hook is live defense, not dead code. Fix the layering violation first.
+- [x] `core_memory/runtime/__init__.py` — docstring rewritten to describe the
+      lazy-load rationale accurately (no "circular import" claim).
+
+**Risk:** Near zero. The completed change is docstring-only.
 
 ---
 

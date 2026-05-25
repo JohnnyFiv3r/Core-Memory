@@ -1,17 +1,53 @@
 # PRD: Fix Mislabeled Circular-Import Workarounds
 
 **Phase:** 2
-**Status:** Not started
+**Status:** Partially complete — sub-task 2b done; sub-task 2a deferred (real cycle found)
 **Prerequisite:** Phase 0 complete (CI workflow merged) — Phase 1 not required
 
 ---
 
-## Problem
+## Outcome of Phase 2 investigation
+
+Sub-task 2a was attempted: replacing the `__getattr__` hook with
+`from .agent import recall`. This caused an `ImportError` on startup, proving a
+**real cycle** exists. The `__getattr__` is genuine defense, not dead code.
+Sub-task 2a is deferred to Phase 9g (layering cleanup).
+
+Sub-task 2b was completed: `runtime/__init__.py` docstring corrected.
+
+### Real cycle chain (discovered during Phase 2)
+
+```
+core_memory.__init__
+  → core_memory.runtime.engine      (process_turn_finalized, etc.)
+  → core_memory.retrieval.lifecycle (mark_turn_checkpoint)
+  → core_memory.retrieval.__init__  [__getattr__ defers loading agent here]
+  → core_memory.retrieval.agent
+  → core_memory.retrieval.tools.memory
+  → core_memory.retrieval.pipeline
+  → core_memory.retrieval.pipeline.canonical
+  → core_memory.integrations.api    ← layering violation: retrieval imports integrations
+  → core_memory.runtime.jobs
+  → core_memory.runtime.compaction_queue
+  → core_memory.runtime.engine      ← cycle closes here
+```
+
+Root cause: `retrieval/pipeline/canonical.py` imports `hydrate_bead_sources`
+from `integrations/api.py`, which imports `async_jobs_status` from
+`runtime/jobs.py`. This violates the layering law
+(`retrieval → runtime → integrations` is one-way downward).
+
+The fix belongs in Phase 9g: thin `integrations/api.py` so it imports only from
+`core_memory.__init__` (public API), not from `runtime/` internals. Once that
+import is broken, the cycle dissolves and the `__getattr__` can be replaced with
+a direct import.
+
+---
+
+## Problem (original assessment)
 
 Two `__init__.py` files contain code or docstrings that claim defensive measures
-against circular imports — but no actual cycle exists. The defensive code is
-either dead or misleading, and it makes the import graph harder for new
-contributors to reason about.
+against circular imports.
 
 ### File 1: `core_memory/retrieval/__init__.py`
 
@@ -24,6 +60,10 @@ def __getattr__(name: str):
         return recall
     raise AttributeError(name)
 ```
+
+**Status: deferred.** The hook defends a real cycle. See cycle chain above.
+Do not remove until Phase 9g resolves the `integrations/api.py` layering
+violation.
 
 Investigation of `core_memory/retrieval/agent.py` shows it imports from:
 - `core_memory.retrieval.contracts`
