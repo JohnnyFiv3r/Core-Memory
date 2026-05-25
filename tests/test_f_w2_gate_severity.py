@@ -66,7 +66,7 @@ class TestResolvedGate(unittest.TestCase):
     def test_warn_gate(self):
         gate = resolved_agent_authored_gate()
         self.assertEqual(gate["mode"], "warn")
-        self.assertTrue(gate["required"])
+        self.assertFalse(gate["required"])
         self.assertTrue(gate["fail_open"])
 
     @patch.dict(os.environ, {"CORE_MEMORY_AGENT_AUTHORED_MODE": "off"}, clear=False)

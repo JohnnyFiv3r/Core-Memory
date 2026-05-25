@@ -72,6 +72,16 @@ class TurnEnvelope:
     metadata: dict = field(default_factory=dict)
 
     def finalize_hashes(self, full_text_override: Optional[str] = None) -> None:
+        if self.assistant_final is None and self.turns:
+            for t in reversed(self.turns):
+                if isinstance(t, dict) and str(t.get("role") or t.get("speaker") or "").lower() == "assistant":
+                    self.assistant_final = str(t.get("content") or "")
+                    break
+        if not self.user_query and self.turns:
+            for t in self.turns:
+                if isinstance(t, dict) and str(t.get("role") or t.get("speaker") or "").lower() == "user":
+                    self.user_query = str(t.get("content") or "")
+                    break
         final = full_text_override if full_text_override is not None else (self.assistant_final or "")
         self.assistant_final_hash = sha256_hex(final)
         envelope_basis = {

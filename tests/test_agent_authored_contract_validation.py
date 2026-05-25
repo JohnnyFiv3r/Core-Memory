@@ -10,8 +10,8 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"]},
-                    {"type": "context", "title": "B", "summary": ["y"]},
+                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {"type": "context", "title": "B", "summary": ["y"], "retrieval_title": "B", "retrieval_eligible": True, "retrieval_facts": ["y"], "entities": ["B"], "topics": ["topic"]},
                 ],
                 "associations": [
                     {
@@ -28,23 +28,23 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         self.assertEqual("agent_bead_fields_missing", code)
         self.assertIn("beads_create_must_have_exactly_one_row", str(details.get("reason") or ""))
 
-    def test_requires_associations_list(self):
+    def test_allows_missing_associations_for_first_turn(self):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"]},
+                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
                 ]
             }
         )
-        self.assertFalse(ok)
-        self.assertEqual("agent_associations_missing", code)
-        self.assertIn("associations_missing_or_empty", str(details.get("reason") or ""))
+        self.assertTrue(ok)
+        self.assertIsNone(code)
+        self.assertEqual(0, details.get("associations_count"))
 
     def test_rejects_invalid_association_confidence(self):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"]},
+                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
                 ],
                 "associations": [
                     {
@@ -67,7 +67,7 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"]},
+                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
                 ],
                 "associations": [
                     {

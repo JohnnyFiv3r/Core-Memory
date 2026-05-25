@@ -244,7 +244,10 @@ def run_async_jobs(
 
     if run_semantic and bool(sem_before.get("queued")):
         sem_run["ran"] = True
-        queue_mode = str(sem_before.get("mode") or "delta").strip().lower()
+        # Legacy callers/tests may only report queued=True without a mode; treat
+        # that as the original full rebuild behavior. The real queue status
+        # always carries an explicit mode and keeps the delta fast path.
+        queue_mode = str(sem_before.get("mode") or "reconcile").strip().lower()
         sem_run["reason"] = f"queued:{queue_mode}"
         try:
             if queue_mode == "reconcile":

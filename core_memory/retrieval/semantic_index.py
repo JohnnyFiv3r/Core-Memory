@@ -259,7 +259,6 @@ def _check_semantic_mode_startup() -> None:
     has_provider = bool(
         configured_provider in {"hash", "openai", "openai-compatible", "gemini", "google"}
         or embed_cfg.api_key
-        or embed_cfg.base_url
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
@@ -422,7 +421,16 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
             manifest = {}
 
     backend = str(manifest.get("backend") or "")
-    provider = str(manifest.get("provider") or os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or provider_detected.get("selected_provider") or "")
+    if provider_detected.get("skipped_auto_detection"):
+        detected_provider = None
+    else:
+        detected_provider = provider_detected.get("provider") or provider_detected.get("selected_provider")
+    provider = str(
+        manifest.get("provider")
+        or os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER")
+        or detected_provider
+        or ""
+    )
     rows_count = len(_read_rows(rows_file)) if rows_file.exists() else 0
 
     normalized_backend = _normalize_vector_backend(backend)

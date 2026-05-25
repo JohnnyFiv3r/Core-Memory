@@ -310,6 +310,18 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 if not src or not tgt or not rel:
                     continue
 
+                if rel == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+                    write_quarantine(
+                        Path(root),
+                        row,
+                        reasons=["noncanonical_relationship:precedes"],
+                        warnings=["noncanonical_relationship:precedes"],
+                        original_payload=row,
+                        session_id=str(session_id),
+                    )
+                    quarantined += 1
+                    continue
+
                 validated = validate_and_normalize_inference_payload(
                     {
                         "source_bead": src,
@@ -605,6 +617,17 @@ def apply_crawler_updates(
         lifecycle_rejected = 0
         for row in assoc_rows:
             if not isinstance(row, dict):
+                continue
+            if str(row.get("relationship") or "").strip().lower() == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+                write_quarantine(
+                    Path(root),
+                    row,
+                    reasons=["noncanonical_relationship:precedes"],
+                    warnings=["noncanonical_relationship:precedes"],
+                    original_payload=row,
+                    session_id=str(session_id),
+                )
+                quarantined += 1
                 continue
             validated = validate_and_normalize_inference_payload(row, mode=inference_mode)
             row_n = validated.record

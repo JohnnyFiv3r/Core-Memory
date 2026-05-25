@@ -113,6 +113,7 @@ def process_turn_finalized_impl(
             invocation_diag=invocation_preflight,
         )
         if gate_probe.get("blocked"):
+            contract_error = {"code": str(gate_probe.get("error_code") or error_agent_updates_missing), "details": dict(gate_probe.get("validation") or {})}
             return {
                 "ok": False,
                 "mode": "turn",
@@ -121,6 +122,7 @@ def process_turn_finalized_impl(
                 "failed": 1,
                 "error_code": str(gate_probe.get("error_code") or error_agent_updates_missing),
                 "error": "agent-authored crawler updates required",
+                "agent_contract_error": contract_error,
                 "crawler_handoff": {
                     "required": True,
                     "agent_authored_gate": gate_probe,
@@ -267,6 +269,7 @@ def process_turn_finalized_impl(
             result="blocked",
             error_code=str(gate.get("error_code") or error_agent_updates_missing),
         )
+        contract_error = {"code": str(gate.get("error_code") or error_agent_updates_missing), "details": dict(gate.get("validation") or {})}
         return {
             "ok": False,
             "mode": "turn",
@@ -275,6 +278,7 @@ def process_turn_finalized_impl(
             "failed": 1,
             "error_code": str(gate.get("error_code") or error_agent_updates_missing),
             "error": "agent-authored crawler updates required",
+            "agent_contract_error": contract_error,
             "emitted": emitted,
             "crawler_handoff": {
                 "required": True,
@@ -313,6 +317,7 @@ def process_turn_finalized_impl(
                     result="blocked",
                     error_code=error_agent_semantic_coverage_missing,
                 )
+                contract_error = {"code": error_agent_semantic_coverage_missing, "details": dict(gate.get("semantic_policy") or {})}
                 return {
                     "ok": False,
                     "mode": "turn",
@@ -321,6 +326,7 @@ def process_turn_finalized_impl(
                     "failed": 1,
                     "error_code": error_agent_semantic_coverage_missing,
                     "error": "insufficient non-temporal semantic associations for non-initial turn",
+                    "agent_contract_error": contract_error,
                     "emitted": emitted,
                     "crawler_handoff": {
                         "required": True,

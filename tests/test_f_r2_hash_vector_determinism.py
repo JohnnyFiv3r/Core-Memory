@@ -156,6 +156,12 @@ class TestStartupCheckRequired(unittest.TestCase):
             "GEMINI_API_KEY": "",
             "GOOGLE_API_KEY": "",
             "CORE_MEMORY_VECTOR_BACKEND": "",
+            "CORE_MEMORY_EMBEDDINGS_PROVIDER": "",
+            "CORE_MEMORY_EMBEDDING_PROVIDER": "",
+            "CORE_MEMORY_EMBEDDINGS_API_KEY": "",
+            "CORE_MEMORY_EMBEDDING_API_KEY": "",
+            "CORE_MEMORY_EMBEDDINGS_BASE_URL": "",
+            "CORE_MEMORY_EMBEDDING_BASE_URL": "",
         }
         with patch.dict(os.environ, env_clear):
             with self.assertRaises(RuntimeError) as ctx:
