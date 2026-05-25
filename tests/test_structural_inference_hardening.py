@@ -7,7 +7,8 @@ import pytest
 
 pytestmark = pytest.mark.facade
 
-from core_memory.graph.api import backfill_structural_edges, build_graph, infer_structural_edges
+from core_memory.graph.structural import backfill_structural_edges, infer_structural_edges
+from core_memory.graph.core import build_graph
 from core_memory.persistence.store import MemoryStore
 
 

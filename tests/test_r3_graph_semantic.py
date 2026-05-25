@@ -7,14 +7,10 @@ import pytest
 
 pytestmark = pytest.mark.facade
 
-from core_memory.graph.api import (
-    add_semantic_edge,
-    add_structural_edge,
-    build_graph,
-    causal_traverse,
-    decay_semantic_edges,
-    reinforce_semantic_edges,
-)
+from core_memory.graph.semantic import add_semantic_edge, decay_semantic_edges, reinforce_semantic_edges
+from core_memory.graph.structural import add_structural_edge
+from core_memory.graph.core import build_graph
+from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 from core_memory.retrieval.semantic_index import build_semantic_index, semantic_lookup
 from core_memory.persistence.store import MemoryStore
 

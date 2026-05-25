@@ -12,7 +12,7 @@ import pytest
 pytestmark = pytest.mark.facade
 
 from core_memory.graph import sync_structural_pipeline
-from core_memory.graph.api import causal_traverse as api_causal_traverse
+from core_memory.graph.traversal import causal_traverse_chains as api_causal_traverse
 from core_memory.graph.traversal import causal_traverse
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.tools import memory as memory_tools

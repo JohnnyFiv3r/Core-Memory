@@ -6,7 +6,8 @@ import pytest
 
 pytestmark = pytest.mark.facade
 
-from core_memory.graph.api import backfill_causal_links, build_graph
+from core_memory.graph.structural import backfill_causal_links
+from core_memory.graph.core import build_graph
 from core_memory.persistence.store import MemoryStore
 
 

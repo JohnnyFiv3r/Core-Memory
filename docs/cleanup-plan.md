@@ -83,18 +83,12 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 
 **PRD:** `docs/PRD/04-graph-module-cleanup.md`
 
-- [ ] Fix `causal_traverse` signature: make `anchor_ids` keyword-only in the split module
-      so the facade's positional-to-keyword conversion is no longer needed
-- [ ] Migrate `core_memory/cli_handlers_graph.py:7-16` to import from split modules
-      (`structural`, `traversal`, `semantic`) instead of `graph.api`
-- [ ] Migrate all 12 test files that import from `core_memory.graph.api` to use split
-      modules directly
-- [ ] Update `core_memory/graph/__init__.py`: replace star-import from `api` with explicit
-      re-exports from split modules (preserves `from core_memory.graph import build_graph`
-      for external consumers)
-- [ ] Delete `core_memory/graph/api.py`
-- [ ] Optionally rename `_api_impl.py` — the `_` prefix was meaningful when `api.py` was
-      the public surface; consider `core.py` or folding into split modules
+- [x] Signature check: CLI already passed `anchor_ids=` as keyword; no fix needed
+- [x] Rename `_api_impl.py` → `core.py`; update all internal references
+- [x] Migrate `core_memory/cli_handlers_graph.py` to import from split modules
+- [x] Migrate all 12 test files that imported from `core_memory.graph.api`
+- [x] Update `core_memory/graph/__init__.py`: explicit re-exports from split modules
+- [x] Delete `core_memory/graph/api.py`
 
 **Risk:** Medium. Many touched files but mechanical. Run Phase 0 CI after each step.
 

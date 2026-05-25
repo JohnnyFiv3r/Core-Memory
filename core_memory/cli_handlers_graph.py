@@ -4,16 +4,15 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .graph.api import (
+from .graph.core import build_graph, graph_stats
+from .graph.structural import (
+    backfill_causal_links,
     backfill_structural_edges,
-    build_graph,
-    graph_stats,
-    decay_semantic_edges,
-    causal_traverse,
     infer_structural_edges,
     sync_structural_pipeline,
-    backfill_causal_links,
 )
+from .graph.traversal import causal_traverse_chains as causal_traverse
+from .graph.semantic import decay_semantic_edges
 from .retrieval.semantic_index import build_semantic_index, semantic_lookup, semantic_doctor
 
 
