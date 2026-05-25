@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
+from core_memory.persistence.backend import get_backend_capabilities
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
     SEMANTIC_MODE_REQUIRED,
@@ -678,6 +679,7 @@ def search_request(
     submission: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rp = Path(root)
+    _caps = get_backend_capabilities(rp / ".beads")
     corpus = build_visible_corpus(rp)
     catalog = build_catalog(rp)
     entity_registry = load_entity_registry(rp)
@@ -755,7 +757,10 @@ def search_request(
     elif retrieval_mode == "temporal_first":
         sem_k = max(20, int(k) * 2)
 
-    sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
+    if _caps.vector_search:
+        sem = {"ok": False, "warnings": ["backend.search_candidates not yet wired in retrieval pipeline"]}
+    else:
+        sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
     if not sem.get("ok"):
         return _semantic_failure_response(
             query=query,
@@ -954,6 +959,7 @@ def trace_request(
     hydration: dict[str, Any] | None = None,
     submission: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _caps = get_backend_capabilities(Path(root) / ".beads")
     anchors_out: dict[str, Any]
     if anchor_ids:
         corpus = build_visible_corpus(Path(root))
@@ -977,7 +983,10 @@ def trace_request(
 
     anchors = anchors_out.get("anchors") or []
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
-    trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
+    if _caps.graph_traversal:
+        trav = {"ok": True, "chains": []}  # backend.traverse not yet wired; falls through to Python-side
+    else:
+        trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])
     relation_filter = {normalize_relation_type(str(x).strip()) for x in ((submission or {}).get("relation_types") or []) if str(x).strip()}
     if relation_filter:

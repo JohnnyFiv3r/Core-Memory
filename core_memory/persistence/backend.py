@@ -10,10 +10,27 @@ projection cache (index.json equivalent).
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
+
+
+@dataclass
+class BackendCapabilities:
+    """Declares which retrieval operations a backend can serve natively.
+
+    All flags default False. Backends that can serve a capability natively
+    set the corresponding flag True and implement the matching protocol method.
+    The retrieval pipeline checks capabilities before choosing between the
+    backend method and the Python-side fallback path.
+    """
+    vector_search: bool = False
+    graph_traversal: bool = False
+    full_text_search: bool = False
+    transcript_hydration: bool = False
 
 
 @runtime_checkable
@@ -59,6 +76,35 @@ class StorageBackend(Protocol):
     def get_stats(self) -> dict[str, Any]:
         """Get index statistics."""
         ...
+
+    def capabilities(self) -> BackendCapabilities:
+        """Declare which retrieval capabilities this backend can serve natively."""
+        ...
+
+    def search_candidates(
+        self,
+        query_vec: list[float],
+        filters: dict[str, Any] | None,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Semantic candidate search. Only called when capabilities().vector_search is True."""
+        raise NotImplementedError
+
+    def traverse(
+        self,
+        seed_ids: list[str],
+        edge_types: list[str] | None,
+        max_hops: int,
+    ) -> list[dict[str, Any]]:
+        """Graph traversal from seed beads. Only called when capabilities().graph_traversal is True."""
+        raise NotImplementedError
+
+    def hydrate_turn_refs(
+        self,
+        turn_refs: list[str],
+    ) -> list[dict[str, Any]]:
+        """Resolve turn IDs to full turn records. Only called when capabilities().transcript_hydration is True."""
+        raise NotImplementedError
 
 
 class JsonFileBackend:
@@ -140,6 +186,18 @@ class JsonFileBackend:
 
     def get_stats(self) -> dict[str, Any]:
         return dict(self.load_index().get("stats") or {})
+
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities()
+
+    def search_candidates(self, query_vec: list[float], filters: dict[str, Any] | None, limit: int) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def traverse(self, seed_ids: list[str], edge_types: list[str] | None, max_hops: int) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def hydrate_turn_refs(self, turn_refs: list[str]) -> list[dict[str, Any]]:
+        raise NotImplementedError
 
 
 _SCHEMA_SQL = """
@@ -367,6 +425,34 @@ class SqliteBackend:
         bead_count = self._conn.execute("SELECT COUNT(*) FROM beads").fetchone()[0]
         assoc_count = self._conn.execute("SELECT COUNT(*) FROM associations").fetchone()[0]
         return {"total_beads": bead_count, "total_associations": assoc_count}
+
+    def capabilities(self) -> BackendCapabilities:
+        return BackendCapabilities()
+
+    def search_candidates(self, query_vec: list[float], filters: dict[str, Any] | None, limit: int) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def traverse(self, seed_ids: list[str], edge_types: list[str] | None, max_hops: int) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+    def hydrate_turn_refs(self, turn_refs: list[str]) -> list[dict[str, Any]]:
+        raise NotImplementedError
+
+
+def get_backend_capabilities(beads_dir: Path) -> BackendCapabilities:
+    """Return capability declaration for the configured backend without instantiating it.
+
+    Reads CORE_MEMORY_BACKEND to determine the backend type and returns its
+    BackendCapabilities. All shipping backends (json, sqlite) declare zero
+    capabilities; the retrieval pipeline always falls through to Python-side
+    FAISS/graph-traverse paths. Phase 7 (Neo4j) updates this for graph_traversal.
+    """
+    backend_name = (os.environ.get("CORE_MEMORY_BACKEND") or "json").strip().lower()
+    _CAPS: dict[str, BackendCapabilities] = {
+        "json": BackendCapabilities(),
+        "sqlite": BackendCapabilities(),
+    }
+    return _CAPS.get(backend_name, BackendCapabilities())
 
 
 def create_backend(beads_dir: Path, backend: str = "json") -> StorageBackend:
