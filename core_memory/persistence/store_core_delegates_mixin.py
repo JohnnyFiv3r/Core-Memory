@@ -56,27 +56,27 @@ class StoreCoreDelegatesMixin:
     def _tokenize(self, text: str) -> set[str]:
         from ..persistence.store_text_hygiene_ops import tokenize_for_store
 
-        return tokenize_for_store(self, text)
+        return tokenize_for_store(text)
 
     def _is_memory_intent(self, text: str) -> bool:
         from ..persistence.store_text_hygiene_ops import is_memory_intent_for_store
 
-        return is_memory_intent_for_store(self, text)
+        return is_memory_intent_for_store(text)
 
     def _expand_query_tokens(self, text: str, base_tokens: set[str], max_extra: int = 24) -> set[str]:
         from ..persistence.store_text_hygiene_ops import expand_query_tokens_for_store
 
-        return expand_query_tokens_for_store(self, text, base_tokens, max_extra=max_extra)
+        return expand_query_tokens_for_store(text, base_tokens, max_extra=max_extra)
 
     def _redact_text(self, text: str) -> str:
         from ..persistence.store_text_hygiene_ops import redact_text_for_store
 
-        return redact_text_for_store(self, text)
+        return redact_text_for_store(text)
 
     def _sanitize_bead_content(self, bead: dict) -> dict:
         from ..persistence.store_text_hygiene_ops import sanitize_bead_content_for_store
 
-        return sanitize_bead_content_for_store(self, bead)
+        return sanitize_bead_content_for_store(bead)
 
     # Delegators to failure-pattern helper service
     def compute_failure_signature(self, plan: str) -> str:
@@ -115,7 +115,7 @@ class StoreCoreDelegatesMixin:
     def extract_constraints(self, text: str) -> list[str]:
         from ..persistence.store_text_hygiene_ops import extract_constraints_for_store
 
-        return extract_constraints_for_store(self, text)
+        return extract_constraints_for_store(text)
 
     def retrieve_with_context(
         self,
