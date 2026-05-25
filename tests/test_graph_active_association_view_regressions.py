@@ -7,6 +7,10 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+pytestmark = pytest.mark.facade
+
 from core_memory.graph import sync_structural_pipeline
 from core_memory.graph.api import causal_traverse as api_causal_traverse
 from core_memory.graph.traversal import causal_traverse

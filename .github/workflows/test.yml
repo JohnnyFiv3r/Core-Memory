@@ -1,0 +1,55 @@
+name: test
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "core_memory/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/test.yml"
+  pull_request:
+    paths:
+      - "core_memory/**"
+      - "tests/**"
+      - "pyproject.toml"
+      - ".github/workflows/test.yml"
+
+jobs:
+  core-only:
+    name: "pytest (core deps only)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -x -q --tb=short
+
+  full:
+    name: "pytest (all extras)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[all,dev]"
+      - run: pip install pytest-cov
+      - run: pytest tests/ -x -q --tb=short --cov=core_memory --cov-report=xml
+      - uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage.xml
+
+  py310:
+    name: "pytest (Python 3.10)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install -e ".[dev]"
+      - run: pytest tests/ -x -q --tb=short

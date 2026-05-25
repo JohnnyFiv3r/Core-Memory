@@ -3,6 +3,10 @@ import unittest
 import json
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.facade
+
 from core_memory.graph.api import (
     add_semantic_edge,
     add_structural_edge,

@@ -2,6 +2,10 @@ from __future__ import annotations
 
 import unittest
 
+import pytest
+
+pytestmark = pytest.mark.mixin_assembly
+
 from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.store_core_delegates_mixin import StoreCoreDelegatesMixin
 

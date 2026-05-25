@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.facade
+
 from core_memory.persistence.store import MemoryStore
 from core_memory.graph.api import causal_traverse
 
