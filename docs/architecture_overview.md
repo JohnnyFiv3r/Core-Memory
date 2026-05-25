@@ -63,18 +63,16 @@ companion that issues retrieval calls and shapes search forms.
 
 ### 2. Per turn (retrieval-side)
 - **Trigger:** agent receives a user query
-- **Action:**
-  1. Agent parses the query
-  2. If the injected rolling window provides full context, the agent answers from
-     injected context.
-  3. If not, the agent fills a search form and calls Core Memory's retrieval tools.
+- **Action:** The agent retrieves on **every turn** — even checking current session
+  context is a retrieval step. The agent parses the query, fills a search form, and
+  walks the retrieval tiers depth-first (cheapest first) until context is sufficient.
 - **Retrieval tiers (cheapest first):**
-  1. Rolling window / current session lookup
-  2. Semantic candidate retrieval (entity registry + semantic index) when rolling
-     window is dry
+  1. Rolling window / current session lookup — the starting tier, always consulted
+  2. Semantic candidate retrieval (entity registry + semantic index)
   3. Causal reasoning — walk causal edges from candidate seeds
   4. Full transcript hydration — recover the cited turns for source-grounded answers
-- **Outcome:** An answer that draws on causal memory beyond the rolling window.
+- **Outcome:** An answer grounded in causal memory. Tier depth varies per query; the
+  rolling window check is always tier 1, not a bypass condition.
 
 ### 3. Agent end (write-side, per turn)
 - **Trigger:** agent finishes a turn (canonical entry: `emit_turn_finalized` →
@@ -127,10 +125,10 @@ and do not extend or override core semantics.
 | Bead schema, turn ingestion, persistence | **Core / always on** | Foundation |
 | Association crawler | **Core / always on** | Tracks causal links between turns; always agent-judged |
 | Claim extraction | **Core / always on** | Detects repeated themes, synthesizes into rules, tracks "current truth" as conversations progress |
-| Entity registry | **Core / always on** | IDs candidate beads by semantic keyword when the rolling window is dry |
+| Entity registry | **Core / always on** | IDs candidate beads by semantic keyword; consulted as tier 2 in every retrieval pass |
 | Rolling window / compaction | **Core / always on** | Token-efficient continuity across sessions; compact beads carry type/title/associations only |
-| Retrieval pipeline | **Core / always on** | Tiered recall |
-| Semantic indexing | **Opt-in (today)** | Candidate retrieval when rolling window is dry. Currently gated behind faiss/pgvector. Direction: more universally available via the capability-tier adapter (Phase 6). |
+| Retrieval pipeline | **Core / always on** | Tiered recall — always executes, starting at tier 1 (rolling window) every turn |
+| Semantic indexing | **Opt-in (today)** | Tier-2 candidate retrieval. Currently gated behind faiss/pgvector. Direction: more universally available via the capability-tier adapter (Phase 6). |
 | Dreamer | **Background, opt-in** | "Move 37" — proposes novel associations across the bead graph as creativity. High-signal results can inform SOUL.md. |
 | Myelination | **Future / in active development** | Causal edges harden by validity + retrieval frequency; decay when stale, superseded, or never retrieved. Replaces vibes-based pruning with schema-driven pruning. |
 | SOUL.md | **Future / emerging** | Agent-authored identity that evolves over time. Informed by claims + dreamer + myelination. Concept from Peter Steinberger (https://soul.md). |
