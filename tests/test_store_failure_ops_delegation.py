@@ -20,8 +20,7 @@ class TestStoreFailureOpsDelegationSlice87A(unittest.TestCase):
                 sig = store.compute_failure_signature("bad plan")
             self.assertEqual("sig-1", sig)
             self.assertEqual(1, stub_sig.call_count)
-            self.assertIs(stub_sig.call_args[0][0], store)
-            self.assertEqual("bad plan", stub_sig.call_args[0][1])
+            self.assertEqual("bad plan", stub_sig.call_args[0][0])
 
             expected = {"ok": True, "risk": "low"}
             with patch("core_memory.persistence.store_failure_ops.preflight_failure_check_for_store", return_value=expected) as stub_pre:

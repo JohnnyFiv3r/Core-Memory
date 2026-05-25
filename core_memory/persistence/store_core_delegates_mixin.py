@@ -48,7 +48,7 @@ class StoreCoreDelegatesMixin:
     def _update_heads_for_bead(self, heads: dict, bead: dict) -> dict:
         from ..persistence.store_index_heads_ops import update_heads_for_bead_for_store
 
-        return update_heads_for_bead_for_store(self, heads, bead)
+        return update_heads_for_bead_for_store(heads, bead)
 
     # LEGACY COMPATIBILITY - These methods delegate to extracted modules.
     # See persistence/store_text_hygiene_ops, persistence/store_failure_ops, policy/promotion.
@@ -82,7 +82,7 @@ class StoreCoreDelegatesMixin:
     def compute_failure_signature(self, plan: str) -> str:
         from ..persistence.store_failure_ops import compute_failure_signature_for_store
 
-        return compute_failure_signature_for_store(self, plan)
+        return compute_failure_signature_for_store(plan)
 
     def find_failure_signature_matches(
         self,
@@ -225,7 +225,7 @@ class StoreCoreDelegatesMixin:
     def _required_field_issues(self, bead: dict) -> list[str]:
         from ..persistence.store_validation_helpers import required_field_issues_for_store
 
-        return required_field_issues_for_store(self, bead)
+        return required_field_issues_for_store(bead)
 
     def _validate_bead_fields(self, bead: dict):
         from ..persistence.store_validation_helpers import validate_bead_fields_for_store
@@ -272,7 +272,6 @@ class StoreCoreDelegatesMixin:
         from ..persistence.store_add_helpers import find_recent_duplicate_bead_id_for_store
 
         return find_recent_duplicate_bead_id_for_store(
-            self,
             index,
             bead,
             session_id=session_id,
