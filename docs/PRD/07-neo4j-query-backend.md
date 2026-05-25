@@ -27,19 +27,21 @@ The first-class targets are:
 1. **Neo4j** — explicit, schema-controlled property graph. Cypher queries. We own the
    schema, the ingest mapping, and the query shape. Highest fidelity to the bead/causal
    ontology.
-2. **Graphiti** (Zep's open-source temporal knowledge graph engine, built on Neo4j) — LLM-
-   augmented temporal KG. We hand it episodes (turn/bead text) and it extracts its own
-   entities + relationships. Lower-fidelity for causal beads but stronger for entity
-   resolution and temporal reasoning.
-3. **Zep Cloud** — managed Graphiti as a service. Same API shape as Graphiti, different
-   transport (HTTPS + API key).
+2. **Graphiti / Zep** — Graphiti is an open-source LLM-augmented temporal knowledge graph
+   engine built on Neo4j. Zep is the paid managed hosting of Graphiti — same library, same
+   API, different transport (self-hosted bolt vs. Zep Cloud HTTPS + API key). One
+   `GraphitiGraphBackend` class with a `deployment` config field handles both.
+3. **Obsidian** — local markdown vault with wikilink-based graph. Write-side: beads become
+   `.md` files with YAML frontmatter and `[[wikilink]]` associations. Read-side: optional
+   Local REST API plugin for full-text search. Primary value is human-browsable
+   visualization and AI-assisted note synthesis, not programmatic traversal.
 
 These providers have **different abstraction levels**. A single `Neo4jBackend` design
 (seed_ids + edge_types) won't cleanly accommodate Graphiti's `add_episode` / `search`
-contract. Phase 7 introduces a `GraphBackend` protocol distinct from `StorageBackend` —
-one that admits both styles — and a provider registry that future backends (Memgraph,
-Kuzu, JanusGraph, FalkorDB, custom internal services) can plug into without touching
-core code.
+contract, and neither fits Obsidian's file-per-bead model. Phase 7 introduces a
+`GraphBackend` protocol distinct from `StorageBackend` — one that admits all three styles —
+and a provider registry that future backends (Memgraph, Kuzu, JanusGraph, FalkorDB,
+custom internal services) can plug into without touching core code.
 
 ---
 
@@ -82,8 +84,8 @@ These are non-negotiable and must hold for every provider:
 | **`GraphBackend` protocol**                        | **Missing** | |
 | **`NullGraphBackend`**                             | **Missing** | Default; declares zero capabilities |
 | **`Neo4jGraphBackend`**                            | **Missing** | Read-side traverse via Cypher |
-| **`GraphitiGraphBackend`**                         | **Missing** | Episode-based ingest + search |
-| **`ZepGraphBackend`**                              | **Missing** | Thin wrapper over Zep Cloud API |
+| **`GraphitiGraphBackend`**                         | **Missing** | Self-hosted + Zep-hosted in one class |
+| **`ObsidianGraphBackend`**                         | **Missing** | Markdown vault write + Local REST search |
 | **Provider registry + factory**                    | **Missing** | `create_graph_backend()` |
 | **Retrieval-pipeline wiring**                      | **Missing** | Use `GraphBackend` not `StorageBackend.traverse` |
 | **Write-side hook (`on_bead_written`)**            | **Missing** | Replaces direct `sync_to_neo4j` calls |
@@ -102,10 +104,15 @@ When Phase 7 is complete:
    instance synced, `traverse(seed_ids, edge_types, max_hops)` executes a Cypher
    variable-length path query and returns chains in the same shape as
    `causal_traverse_chains`.
-4. `CORE_MEMORY_GRAPH_BACKEND=graphiti` returns `GraphitiGraphBackend`. With a live
-   Graphiti instance, `search_candidates(query_text=..., ...)` returns candidate beads
-   ranked by Graphiti's temporal KG retrieval.
-5. `CORE_MEMORY_GRAPH_BACKEND=zep` returns `ZepGraphBackend` (managed-service variant).
+4. `CORE_MEMORY_GRAPH_BACKEND=graphiti` returns `GraphitiGraphBackend` in self-hosted mode
+   (requires Neo4j + `graphiti-core`). `search_candidates(query_text=..., ...)` returns
+   candidate beads ranked by Graphiti's temporal KG retrieval.
+   `CORE_MEMORY_GRAPHITI_DEPLOYMENT=hosted` (or `CORE_MEMORY_GRAPH_BACKEND=zep` as alias)
+   switches the same class to Zep Cloud transport (HTTPS + API key, no local Neo4j needed).
+5. `CORE_MEMORY_GRAPH_BACKEND=obsidian` returns `ObsidianGraphBackend`. With a configured
+   vault path, `on_bead_written` writes a `.md` file with YAML frontmatter and wikilinks.
+   `search_candidates` proxies to the Obsidian Local REST API if enabled; otherwise
+   declares `full_text_search=False`.
 6. The retrieval pipeline (`canonical.py:trace_request` and `search_request`) consults
    `GraphBackend.capabilities()` before deciding whether to use the provider or fall back
    to the Python-side implementation. The fallback is always available.
@@ -369,109 +376,217 @@ RETURN
 Mapping must match `causal_traverse_chains` output exactly so downstream consumers
 (`canonical.py:chains`) are oblivious to the provider.
 
-### GraphitiGraphBackend
+### GraphitiGraphBackend (self-hosted and Zep-hosted)
+
+Graphiti and Zep are the same codebase. Graphiti is the open-source library
+(`graphiti-core` on PyPI). Zep is the managed hosting of that same library — same API
+shape, same episode model, different transport. One class handles both deployments via a
+`deployment` field.
 
 ```python
 # core_memory/persistence/graph/graphiti_backend.py
+from enum import Enum
+
+class GraphitiDeployment(str, Enum):
+    SELF_HOSTED = "self_hosted"   # local graphiti-core + your own Neo4j
+    HOSTED = "hosted"             # Zep Cloud (HTTPS + API key, no local Neo4j)
+
 class GraphitiGraphBackend:
     name = "graphiti"
 
     def __init__(self, config: GraphitiConfig):
-        # Lazy import of graphiti_core (optional dep).
-        from graphiti_core import Graphiti  # type: ignore
-        self._client = Graphiti(
-            neo4j_uri=config.neo4j_uri,
-            neo4j_user=config.neo4j_user,
-            neo4j_password=config.neo4j_password,
-            llm_client=config.build_llm_client(),
-        )
+        self._config = config
         self._healthy = None
+        if config.deployment == GraphitiDeployment.HOSTED:
+            # Zep Cloud path — uses zep-python SDK
+            from zep_cloud.client import AsyncZep  # type: ignore
+            self._client = AsyncZep(api_key=config.api_key, base_url=config.base_url)
+        else:
+            # Self-hosted path — uses graphiti-core directly
+            from graphiti_core import Graphiti  # type: ignore
+            self._client = Graphiti(
+                neo4j_uri=config.neo4j_uri,
+                neo4j_user=config.neo4j_user,
+                neo4j_password=config.neo4j_password,
+                llm_client=config.build_llm_client(),
+            )
 
     def capabilities(self) -> BackendCapabilities:
         if not self._is_healthy():
             return BackendCapabilities()
-        # Graphiti gives us both graph traversal (via Neo4j underneath)
-        # AND semantic+temporal search.
-        return BackendCapabilities(
-            graph_traversal=True,
-            vector_search=True,
-            full_text_search=True,
-        )
+        if self._config.deployment == GraphitiDeployment.SELF_HOSTED:
+            # Self-hosted has Neo4j underneath — full traversal available.
+            return BackendCapabilities(
+                graph_traversal=True,
+                vector_search=True,
+                full_text_search=True,
+            )
+        else:
+            # Hosted (Zep Cloud) does not expose raw Cypher; traversal stays Python-side.
+            return BackendCapabilities(
+                graph_traversal=False,
+                vector_search=True,
+                full_text_search=True,
+            )
 
     def search_candidates(self, *, query_text, query_vec=None, filters=None, limit=24):
-        # results = await self._client.search(query=query_text, num_results=limit)
-        # Map Graphiti EdgeSearchResult / NodeSearchResult to our bead-shape dicts.
+        # Self-hosted: self._client.search(query=query_text, num_results=limit)
+        # Hosted:      self._client.memory.search_sessions(text=query_text, ...)
+        # Both paths map results to {"bead_id": str, "score": float, ...} shape.
         # Bead ID resolution: episodes are stored with name=bead_id.
         ...
 
     def traverse(self, seed_ids, edge_types, max_hops, max_chains=5):
-        # Graphiti exposes get_nodes_by_query / get_episodes — limited compared to Cypher.
-        # For Phase 7 we run a constrained Cypher query through Graphiti's driver,
-        # using our own :Bead label namespace (we keep Graphiti's auto-extracted
-        # graph in its own namespace, and our beads in ours).
+        # Self-hosted only (hosted raises NotImplementedError).
+        # Runs constrained Cypher via Graphiti's underlying Neo4j driver.
+        # Uses :Bead label namespace — same query as Neo4jGraphBackend.traverse()
+        # but through Graphiti's driver rather than a standalone Neo4jClient.
         ...
 
     def on_bead_written(self, bead):
-        # Two-mode write:
-        # Mode A (default): bead → episode via add_episode(...).
-        #   Graphiti runs its LLM extractor and produces a temporal KG of
-        #   entities/relationships from the bead text.
-        # Mode B (raw): also MERGE the bead as a :Bead node (shared with Neo4j path)
-        #   so traverse() works against our explicit schema.
-        # Phase 7 implements Mode B; Mode A is opt-in via config flag.
+        # Two-mode write (both deployments):
+        # Mode B (default, "explicit"): MERGE :Bead node with our schema.
+        #   Self-hosted: Cypher via Graphiti driver.
+        #   Hosted: add_episode with structured metadata; skip LLM extractor.
+        # Mode A ("extracted"): full add_episode with LLM extraction enabled.
+        #   Graphiti builds its own entity/relationship graph from bead text.
+        #   Higher value for entity resolution; higher cost (LLM call per bead).
+        # Config: CORE_MEMORY_GRAPHITI_MODE = explicit | extracted | both
+        ...
+
+    def on_association_written(self, assoc):
+        # Mode B: MERGE typed relationship between :Bead nodes (self-hosted).
+        # Mode B hosted: add structured episode describing the link.
+        # Mode A: associations emerge implicitly from LLM extraction; no explicit write.
         ...
 
     def sync_from_storage(self, storage, *, dry_run=False):
-        # Iterate beads → add_episode (Mode A) and/or MERGE :Bead (Mode B).
-        # Iterate associations → MERGE typed edges (Mode B only).
+        # Iterate all beads → on_bead_written. Then all associations → on_association_written.
+        # Idempotent via MERGE / episode name dedup.
         ...
 ```
 
-**Trade-offs to surface in the doc.** Graphiti is opinionated. Its strength is auto-
-extraction of entities/relationships from natural language episodes. Its weakness for
-our case is that we already have explicit causal typing — we don't want Graphiti to
-re-extract and risk conflicting with our schema. Hence the dual-mode write:
+**Trade-offs to surface in docs:**
 
-- **Mode A (LLM extraction):** lean into Graphiti's strengths. Use it for entity
-  resolution and temporal queries. Our beads remain the source of truth in local
-  storage; Graphiti is a side index.
-- **Mode B (explicit schema):** treat Graphiti's Neo4j as a regular Neo4j and ignore
-  the LLM extractor. Phase 7's `traverse()` uses Mode B.
+- **Mode B (explicit schema, default):** core-memory controls the ontology. No LLM
+  calls on write. Traversal in self-hosted mode is equivalent to Neo4j direct. Choose
+  this when you want predictable causal graph fidelity.
+- **Mode A (LLM extraction, opt-in):** Graphiti builds a richer entity graph from bead
+  text — useful for entity resolution across beads, temporal reasoning, and natural-
+  language entity queries. Cost: one LLM call per bead write. Choose this when entity-
+  level retrieval matters more than schema control.
+- **Hosted vs. self-hosted:** hosted (Zep Cloud) requires no infrastructure but loses
+  raw Cypher access and thus `graph_traversal=False`. Self-hosted gives you full
+  capabilities at the cost of running Neo4j.
 
-Both modes coexist on the same Graphiti instance (different node labels). The PRD must
-make this explicit so a user choosing Graphiti understands the cost (LLM calls on every
-write in Mode A) and the value (entity-level semantic retrieval).
+Both modes coexist on the same instance (different node label prefixes). The PRD must
+make the LLM cost explicit: document it in the `GraphitiConfig.from_env()` docstring
+and surface a `CORE_MEMORY_GRAPHITI_MODE` warning in the `core-memory doctor` command
+(Phase 8).
 
-### ZepGraphBackend
+The `"zep"` provider name in `CORE_MEMORY_GRAPH_BACKEND` is registered as a factory
+alias to `GraphitiGraphBackend` with `deployment=HOSTED`. This lets users who think in
+terms of "Zep" still use their familiar name without a separate class.
 
-Same surface as `GraphitiGraphBackend`, but over Zep's HTTPS API:
+### ObsidianGraphBackend
+
+Obsidian is a markdown vault with a wikilink-based graph view. It is not a query engine
+in the Neo4j/Graphiti sense, but it fills a different role: human-browsable memory,
+AI-assisted synthesis via Smart Connections / Copilot plugins, and offline-capable
+personal knowledge graph. Many power users already run Obsidian; surfacing beads there
+is high value with low implementation complexity.
 
 ```python
-# core_memory/persistence/graph/zep_backend.py
-class ZepGraphBackend:
-    name = "zep"
+# core_memory/persistence/graph/obsidian_backend.py
+class ObsidianGraphBackend:
+    name = "obsidian"
 
-    def __init__(self, config: ZepConfig):
-        from zep_cloud.client import AsyncZep  # type: ignore
-        self._client = AsyncZep(api_key=config.api_key, base_url=config.base_url)
-        self._session_id = config.session_id  # core-memory's notion of a "user" / "agent"
+    def __init__(self, config: ObsidianConfig):
+        self._vault = Path(config.vault_path)
+        self._subfolder = config.subfolder or "core-memory"
+        self._rest_api_url = config.rest_api_url      # None if plugin not installed
+        self._rest_api_key = config.rest_api_key
+        self._healthy = None
+
+    def capabilities(self) -> BackendCapabilities:
+        rest_ok = self._rest_api_url is not None and self._is_rest_reachable()
+        return BackendCapabilities(
+            graph_traversal=False,       # Obsidian has no programmatic traversal API
+            vector_search=False,         # Smart Connections is UI-only
+            full_text_search=rest_ok,    # Local REST API: /search/simple/
+            transcript_hydration=False,
+        )
 
     def on_bead_written(self, bead):
-        # await self._client.memory.add(session_id=self._session_id, messages=[...])
-        # We map a bead to a Zep "message" with role="system" and content=bead.summary.
+        # Write {bead_id}.md to self._vault / self._subfolder /
+        # File format:
+        #   ---
+        #   id: {bead_id}
+        #   type: {bead.type}
+        #   session_id: {bead.session_id}
+        #   created_at: {bead.created_at}
+        #   tags: [{bead.topics}]
+        #   retrieval_eligible: {bead.retrieval_eligible}
+        #   ---
+        #   # {bead.title}
+        #
+        #   {bead.summary}
+        #
+        #   {bead.detail}
+        #
+        #   ## Because
+        #   {bead.because}
+        #
+        #   ## Links
+        #   (populated later by on_association_written)
         ...
 
-    def search_candidates(self, *, query_text, **kw):
-        # await self._client.memory.search_sessions(text=query_text, ...)
+    def on_association_written(self, assoc):
+        # Update the source bead's .md file: append [[target_bead_id]] under ## Links.
+        # Use frontmatter field `associations:` for machine-readable access.
+        # Idempotent: check if link already present before appending.
         ...
 
-    # traverse() returns NotImplementedError in Phase 7; Zep does not expose Cypher.
-    # Capabilities for Phase 7: vector_search=True, graph_traversal=False.
+    def on_bead_retracted(self, bead_id):
+        # Append a "retracted" callout block to the .md file.
+        # Do NOT delete the file — retraction is part of the audit trail.
+        ...
+
+    def search_candidates(self, *, query_text, query_vec=None, filters=None, limit=24):
+        # Requires rest_api_url set and Local REST API plugin running.
+        # GET /search/simple/?query={query_text}&contextLength=100
+        # Map results to our bead-shape dicts by extracting frontmatter id field.
+        ...
+
+    def traverse(self, seed_ids, edge_types, max_hops, max_chains=5):
+        raise NotImplementedError  # No programmatic graph traversal in Obsidian
+
+    def sync_from_storage(self, storage, *, dry_run=False):
+        # Iterate all beads → on_bead_written. Then all associations → on_association_written.
+        # Idempotent: overwrite existing files (content-idempotent via deterministic format).
+        ...
 ```
 
-Zep is the lightest provider — no infrastructure to run, fewest knobs, no Mode A/B
-choice. It is intentionally scoped to `search_candidates` only. Causal traversal
-remains on the Python fallback when Zep is selected.
+**Obsidian Local REST API plugin** ([obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api)):
+enables `GET /search/simple/`, `GET /vault/{filename}`, `PUT /vault/{filename}`.
+This is the only mechanism for programmatic read-back; it requires the plugin to be
+installed and running. `capabilities()` probes it at startup and on each health-TTL
+expiry. If the plugin is absent, `full_text_search=False` and `ObsidianGraphBackend`
+is write-only (still useful for the human-browsable graph).
+
+**File naming and collision avoidance:** bead IDs are UUIDs; filenames are
+`{bead_id}.md`. No collision possible. The subfolder default is `core-memory/` inside
+the vault root. Users can redirect to any existing subfolder via
+`CORE_MEMORY_OBSIDIAN_SUBFOLDER`.
+
+**Why not `graph_traversal=True`?** Wikilinks are bidirectional in Obsidian's UI but
+there is no public programmatic API to walk them hop-by-hop. Future Obsidian DataView /
+DataCore APIs may expose this; we leave the capability False for now and revisit when
+a stable API exists.
+
+**Why not `vector_search=True`?** Smart Connections (the Obsidian plugin that does
+vector search) is UI-only. There is no REST API for it. If/when that changes, a future
+sub-phase adds the capability.
 
 ---
 
@@ -517,13 +632,14 @@ def _register_first_party() -> None:
     except ImportError:
         pass
     try:
-        from .graphiti_backend import GraphitiGraphBackend, graphiti_factory
+        from .graphiti_backend import GraphitiGraphBackend, graphiti_factory, zep_factory
         register_graph_backend("graphiti", graphiti_factory)
+        register_graph_backend("zep", zep_factory)   # alias: same class, hosted deployment
     except ImportError:
         pass
     try:
-        from .zep_backend import ZepGraphBackend, zep_factory
-        register_graph_backend("zep", zep_factory)
+        from .obsidian_backend import ObsidianGraphBackend, obsidian_factory
+        register_graph_backend("obsidian", obsidian_factory)
     except ImportError:
         pass
 
@@ -649,31 +765,42 @@ time the local projection diverges from the graph backend (after a `rebuild-proj
 
 ```
 # Provider selection (default: none → NullGraphBackend, zero deps)
-CORE_MEMORY_GRAPH_BACKEND = none | neo4j | graphiti | zep | <custom>
+# "zep" is an alias for graphiti with deployment=hosted
+CORE_MEMORY_GRAPH_BACKEND = none | neo4j | graphiti | zep | obsidian | <custom>
 
-# Neo4j (also reused by Graphiti when graphiti backend selected)
-CORE_MEMORY_NEO4J_URI       = bolt://localhost:7687
-CORE_MEMORY_NEO4J_USER      = neo4j
-CORE_MEMORY_NEO4J_PASSWORD  = ...
-CORE_MEMORY_NEO4J_TLS       = 0|1
+# Neo4j (used by neo4j backend; also reused by graphiti in self-hosted mode)
+CORE_MEMORY_NEO4J_URI        = bolt://localhost:7687
+CORE_MEMORY_NEO4J_USER       = neo4j
+CORE_MEMORY_NEO4J_PASSWORD   = ...
+CORE_MEMORY_NEO4J_TLS        = 0|1
 CORE_MEMORY_NEO4J_TIMEOUT_MS = 5000
 
-# Graphiti-specific
-CORE_MEMORY_GRAPHITI_MODE   = explicit | extracted | both    # default: explicit
-CORE_MEMORY_GRAPHITI_LLM_PROVIDER = anthropic | openai       # for entity extraction
-CORE_MEMORY_GRAPHITI_LLM_MODEL    = claude-haiku-4-5-20251001
+# Graphiti / Zep — shared config section, deployment field selects transport
+CORE_MEMORY_GRAPHITI_DEPLOYMENT  = self_hosted | hosted          # default: self_hosted
+                                                                  # "hosted" = Zep Cloud
+CORE_MEMORY_GRAPHITI_MODE        = explicit | extracted | both   # default: explicit
+CORE_MEMORY_GRAPHITI_LLM_PROVIDER = anthropic | openai           # for Mode A extraction
+CORE_MEMORY_GRAPHITI_LLM_MODEL   = claude-haiku-4-5-20251001
+# Hosted (Zep Cloud) transport — only needed when GRAPHITI_DEPLOYMENT=hosted
+CORE_MEMORY_GRAPHITI_API_KEY     = ...
+CORE_MEMORY_GRAPHITI_BASE_URL    = https://api.getzep.com
+CORE_MEMORY_GRAPHITI_SESSION_ID  = core-memory-default
 
-# Zep Cloud
-CORE_MEMORY_ZEP_API_KEY     = ...
-CORE_MEMORY_ZEP_BASE_URL    = https://api.getzep.com
-CORE_MEMORY_ZEP_SESSION_ID  = core-memory-default   # the "user" identifier
+# Obsidian
+CORE_MEMORY_OBSIDIAN_VAULT_PATH  = /Users/you/Documents/MyVault
+CORE_MEMORY_OBSIDIAN_SUBFOLDER   = core-memory        # default
+CORE_MEMORY_OBSIDIAN_REST_URL    = http://127.0.0.1:27123  # Local REST API plugin; omit if not installed
+CORE_MEMORY_OBSIDIAN_REST_KEY    = ...                # REST plugin API key (if configured)
 
-# Health probe cadence (shared)
-CORE_MEMORY_GRAPH_HEALTH_TTL_S = 60
+# Health probe cadence (shared across all providers)
+CORE_MEMORY_GRAPH_HEALTH_TTL_S   = 60
 ```
 
-`Neo4jConfig`, `GraphitiConfig`, `ZepConfig` dataclasses live next to their respective
-provider modules. Each provides a `from_env()` classmethod for the factory.
+`Neo4jConfig`, `GraphitiConfig` (covers both self-hosted and hosted), and
+`ObsidianConfig` dataclasses live next to their respective provider modules. Each
+provides a `from_env()` classmethod used by the factory functions. There is no
+separate `ZepConfig` — Zep configuration is a sub-set of `GraphitiConfig` with
+`deployment=HOSTED`.
 
 ---
 
@@ -693,10 +820,14 @@ provider modules. Each provides a `from_env()` classmethod for the factory.
 - `tests/test_neo4j_graph_backend_fake.py` — `Neo4jClient` mocked to return fixture
   rows; verify Cypher params, result mapping, traversal shape, on_bead_written MERGE
   semantics.
-- `tests/test_graphiti_graph_backend_fake.py` — `graphiti_core.Graphiti` mocked;
-  verify episode payloads (Mode A) and explicit-schema writes (Mode B).
-- `tests/test_zep_graph_backend_fake.py` — `AsyncZep` mocked; verify message
-  payloads and search call shape.
+- `tests/test_graphiti_graph_backend_fake.py` — covers both deployments in one file.
+  Self-hosted path: `graphiti_core.Graphiti` mocked; verify episode payloads (Mode A)
+  and explicit-schema writes (Mode B). Hosted path: `zep_cloud.AsyncZep` mocked; verify
+  same write/search calls go through Zep transport. Assert that `name == "graphiti"` for
+  both, and that `capabilities().graph_traversal` is True for self-hosted, False for hosted.
+- `tests/test_obsidian_graph_backend_fake.py` — `ObsidianConfig` pointed at a temp
+  directory; verify `.md` file contents (frontmatter fields, wikilink format, retraction
+  callout). REST API path: mock `httpx` / `requests` call to `/search/simple/`.
 
 ### Provider tests with live services (gated)
 
@@ -704,11 +835,15 @@ provider modules. Each provides a `from_env()` classmethod for the factory.
   `CORE_MEMORY_NEO4J_URI` env. Docker Compose file at `tests/docker-compose.neo4j.yml`.
   Covers: bulk sync, 1-hop, 3-hop, edge-type filter, empty graph, disconnected seed,
   reachability outage mid-test.
-- `tests/test_graphiti_graph_backend_live.py` — `@pytest.mark.graphiti`, requires
-  `CORE_MEMORY_NEO4J_URI` + `CORE_MEMORY_GRAPHITI_LLM_API_KEY`. Smoke test for episode
-  ingest + retrieval.
-- `tests/test_zep_graph_backend_live.py` — `@pytest.mark.zep`, requires
-  `CORE_MEMORY_ZEP_API_KEY`. Hits Zep Cloud sandbox. Cleaned up via session deletion.
+- `tests/test_graphiti_graph_backend_live_selfhosted.py` — `@pytest.mark.graphiti`,
+  requires `CORE_MEMORY_NEO4J_URI` + `CORE_MEMORY_GRAPHITI_LLM_API_KEY`. Smoke test
+  for episode ingest + retrieval. Docker Compose Neo4j reused from neo4j-live job.
+- `tests/test_graphiti_graph_backend_live_hosted.py` — `@pytest.mark.zep`, requires
+  `CORE_MEMORY_GRAPHITI_API_KEY` + `CORE_MEMORY_GRAPHITI_DEPLOYMENT=hosted`. Hits Zep
+  Cloud sandbox. Cleaned up via session deletion after each test.
+- `tests/test_obsidian_graph_backend_live.py` — `@pytest.mark.obsidian`, requires
+  `CORE_MEMORY_OBSIDIAN_VAULT_PATH` pointing to a real vault. Tests write + verify file
+  contents. REST path requires `CORE_MEMORY_OBSIDIAN_REST_URL` with the plugin running.
 
 ### Pipeline integration tests
 
@@ -721,12 +856,13 @@ provider modules. Each provides a `from_env()` classmethod for the factory.
 
 ### CI matrix
 
-| Job                | Providers tested | Marker                | Required env                  |
-|--------------------|------------------|----------------------|--------------------------------|
-| default            | null             | (unmarked)            | none                           |
-| neo4j-live         | neo4j            | `@pytest.mark.neo4j`  | Docker Compose Neo4j 5         |
-| graphiti-live      | graphiti         | `@pytest.mark.graphiti` | Neo4j + LLM API key         |
-| zep-live           | zep              | `@pytest.mark.zep`    | `CORE_MEMORY_ZEP_API_KEY`      |
+| Job                    | Providers tested        | Marker                    | Required env                              |
+|------------------------|-------------------------|---------------------------|-------------------------------------------|
+| default                | null                    | (unmarked)                | none                                      |
+| neo4j-live             | neo4j                   | `@pytest.mark.neo4j`      | Docker Compose Neo4j 5                    |
+| graphiti-selfhosted    | graphiti (self-hosted)  | `@pytest.mark.graphiti`   | Neo4j + LLM API key                       |
+| graphiti-hosted (zep)  | graphiti (hosted)       | `@pytest.mark.zep`        | `CORE_MEMORY_GRAPHITI_API_KEY` + hosted   |
+| obsidian-live          | obsidian                | `@pytest.mark.obsidian`   | `CORE_MEMORY_OBSIDIAN_VAULT_PATH`         |
 
 The default CI job blocks merges and runs everywhere. The live jobs run on push to
 main and on PRs that touch `persistence/graph/` or the corresponding integration
@@ -736,21 +872,22 @@ modules.
 
 ## Implementation phasing
 
-| Sub-phase | Deliverable                                                       | Gate            |
-|-----------|--------------------------------------------------------------------|-----------------|
-| **7a**    | `persistence/graph/` package skeleton: protocol + `NullGraphBackend` + factory + retrieval pipeline wiring. Behavior unchanged (null returns all-False). | Phase 6 done |
-| **7b**    | `Neo4jGraphBackend.traverse()` + `health()` + `capabilities()`. Read-side only. Reuses existing `Neo4jClient`. Live tests gated. | 7a |
-| **7c**    | Write-side hook (`on_bead_written`, `on_association_written`) on `Neo4jGraphBackend`. Migrates `sync_to_neo4j` callers to the hook. | 7b |
-| **7d**    | `core-memory graph-sync` CLI. Bulk backfill. Idempotent. | 7c |
-| **7e**    | `GraphitiGraphBackend` (Mode B first — explicit schema). | 7c |
-| **7f**    | `GraphitiGraphBackend` Mode A — episode-based ingest with LLM extraction. Behind `CORE_MEMORY_GRAPHITI_MODE=extracted`. | 7e |
-| **7g**    | `ZepGraphBackend` — managed-service variant. `search_candidates` only; traversal NotImplemented. | 7c |
-| **7h**    | Document the plugin API for third-party providers (`register_graph_backend`). | 7g |
+| Sub-phase | Deliverable                                                                        | Gate            |
+|-----------|------------------------------------------------------------------------------------|-----------------|
+| **7a**    | `persistence/graph/` package skeleton: `GraphBackend` protocol + `NullGraphBackend` + factory (`create_graph_backend`) + retrieval pipeline wiring. Behavior unchanged (null → all-False). | Phase 6 done |
+| **7b**    | `Neo4jGraphBackend.traverse()` + `health()` + `capabilities()`. Read-side only. Reuses existing `Neo4jClient`. Live tests gated behind `@pytest.mark.neo4j`. | 7a |
+| **7c**    | Write-side hook (`on_bead_written`, `on_association_written`) on `Neo4jGraphBackend`. Migrates `sync_to_neo4j` in-pipeline callers to the hook. | 7b |
+| **7d**    | `core-memory graph-sync` CLI. Bulk backfill from local storage. Idempotent. | 7c |
+| **7e**    | `GraphitiGraphBackend` — Mode B (explicit schema, no LLM). Self-hosted deployment. `traverse()` via Graphiti's Neo4j driver, `search_candidates` via `graphiti.search()`. | 7c |
+| **7f**    | `GraphitiGraphBackend` — hosted deployment (Zep Cloud). Registered as `"zep"` alias. Same class, `CORE_MEMORY_GRAPHITI_DEPLOYMENT=hosted` switches transport to Zep HTTPS. | 7e |
+| **7g**    | `GraphitiGraphBackend` Mode A — LLM extraction (`add_episode`). Behind `CORE_MEMORY_GRAPHITI_MODE=extracted`. Documents cost. | 7f |
+| **7h**    | `ObsidianGraphBackend` — write `.md` files + wikilinks. Read via Local REST API if present. | 7d |
+| **7i**    | Document the plugin API for third-party providers (`register_graph_backend`). | 7h |
 
 Each sub-phase is independently shippable. 7a alone makes the existing Python fallback
 the explicit default with no behavior change. 7b makes Neo4j production-useful for
-traversal. 7c and 7d close the write loop. 7e–7g add the alternative providers. 7h is
-documentation only.
+traversal. 7c and 7d close the write loop. 7e–7g deliver Graphiti (self-hosted then
+hosted then LLM mode). 7h adds Obsidian. 7i is documentation only.
 
 ---
 
@@ -776,19 +913,25 @@ documentation only.
 
 | Risk | Mitigation |
 |------|------------|
-| **Graphiti LLM-extraction cost.** Every bead write triggers LLM calls in Mode A. | Mode A is opt-in. Default is Mode B (explicit schema, no LLM). Document cost up front. |
-| **Schema drift between providers.** Neo4j's `:Bead` label and Graphiti's auto-extracted nodes coexist; queries might cross-pollinate. | Namespace all our writes under a fixed label set (`:Bead`, `:Turn`, `:Association`). Document that Graphiti's auto-extracted graph is a side index. |
-| **Traversal result shape mismatch.** Provider returns chains with subtly different fields than Python `causal_traverse_chains`. | Define `GraphTraversalResult` TypedDict in `persistence/graph/types.py`. Every provider runs `_normalize_traversal_result` before returning. Contract-tested. |
-| **Live tests flaky in CI.** Docker Compose Neo4j slow to boot. | Live tests are gated and run async to the default suite. Default CI stays green on null backend only. |
-| **Provider connection holds linger.** Tests forget `close()`, leaving sockets. | Factory returns a singleton; harness teardown calls `close()` in a `conftest` fixture. |
-| **Zep session model doesn't fit core-memory's session_id.** | Map `CORE_MEMORY_ZEP_SESSION_ID` env to Zep "session", treat core-memory session_id as a metadata field on each message. Document the mismatch. |
+| **Graphiti LLM-extraction cost.** Every bead write triggers LLM calls in Mode A. | Mode A is opt-in. Default is Mode B (explicit schema, no LLM). Cost documented in `GraphitiConfig.from_env()` docstring; surfaced by `core-memory doctor`. |
+| **Schema drift between providers.** Neo4j `:Bead` labels and Graphiti's auto-extracted nodes coexist in the same Neo4j instance; queries might cross-pollinate. | Namespace all our writes under a fixed label set (`:Bead`, `:Association`). Document that Graphiti's auto-extracted graph is a side index with its own label prefixes. |
+| **Traversal result shape mismatch.** Provider returns chains with subtly different fields than Python `causal_traverse_chains`. | Define `GraphTraversalResult` TypedDict in `persistence/graph/types.py`. Every provider runs `_normalize_traversal_result` before returning. Contract-tested in fake tests. |
+| **Live tests flaky in CI.** Docker Compose Neo4j slow to boot; Zep Cloud sandbox rate-limited. | Live tests are gated and run async to the default suite. Default CI stays green on null backend only. Zep live tests use isolated session IDs cleaned up post-test. |
+| **Provider connection holds linger.** Tests forget `close()`, leaving sockets open. | Factory returns a process-scope singleton; `conftest.py` registers `atexit` / session-scope fixture that calls `close()`. |
+| **Graphiti hosted (Zep) session model doesn't fit core-memory's session_id.** | Map `CORE_MEMORY_GRAPHITI_SESSION_ID` env to the Zep session identifier. Core-memory `session_id` becomes a metadata field on each episode. Document the mismatch explicitly. |
+| **Obsidian vault path on CI.** CI runners don't have an Obsidian vault. | Obsidian live tests are `@pytest.mark.obsidian` and skipped unless `CORE_MEMORY_OBSIDIAN_VAULT_PATH` is set. Fake tests use `tempfile.TemporaryDirectory` and don't need a real vault. |
+| **Obsidian file conflicts.** Two processes writing to the same vault simultaneously. | `.md` writes are atomic (write-to-temp then `os.replace`). Same pattern as `atomic_write_json` in `io_utils.py`. |
 
 ---
 
 ## Out of scope (deferred to later phases)
 
 - **Memgraph, Kuzu, FalkorDB, JanusGraph, AWS Neptune adapters.** The plugin API in
-  7h is enough; third parties can ship these out-of-tree.
+  7i is enough; third parties can ship these out-of-tree.
+- **Obsidian `graph_traversal=True`.** No public Obsidian API for programmatic
+  wikilink traversal today. Revisit when DataCore or a community plugin exposes one.
+- **Obsidian Smart Connections integration (`vector_search=True`).** Smart Connections
+  is UI-only. No REST API. Out of scope until an API exists.
 - **Hybrid retrieval reranking that combines graph signal with FAISS scores.** Already
   partly handled by `run_hybrid_rerank_seeds`; deeper integration with provider-side
   graph scores is Phase 11+.
@@ -804,10 +947,18 @@ documentation only.
 
 1. **Should `GraphBackend.on_bead_written` be async?** Most providers' write APIs are
    async. Phase 7 keeps it sync for simplicity (drivers expose sync wrappers); revisit
-   if write latency becomes a problem.
-2. **How does the rolling-window compaction interact with graph backends?** When a
-   bead is archived or compressed, should the graph backend retain it? Default: yes
-   (the graph is an append-only audit log of writes); revisit if storage costs spike.
-3. **Provider observability.** Do we add a `GraphBackend.metrics()` method for
-   per-provider operation counts / latency histograms? Phase 7 punts; structured logs
-   are sufficient initially.
+   if write latency becomes a problem in production.
+2. **How does rolling-window compaction interact with graph backends?** When a bead is
+   archived or compressed, should the graph backend retain it? Default: yes (the graph
+   is an append-only audit log); revisit if Zep Cloud storage costs become a concern.
+3. **Provider observability.** Do we add a `GraphBackend.metrics()` method for per-
+   provider operation counts / latency histograms? Phase 7 punts; structured logs are
+   sufficient initially.
+4. **Obsidian bidirectional sync.** If a user edits a bead's `.md` file in Obsidian,
+   should Core Memory pick up that change? Phase 7 is write-only from Core Memory's
+   perspective. Bidirectional sync (vault → bead store) is a significant scope increase
+   and requires a separate PRD.
+5. **Graphiti Mode A + Obsidian.** Can we run both simultaneously — Graphiti for
+   entity-level retrieval and Obsidian for human browsing — without a multi-provider
+   routing mechanism? Yes: the user runs two graph backends via separate env setups (one
+   process per provider). The unified routing is deferred to the multi-provider phase.
