@@ -18,6 +18,9 @@ ERROR_AGENT_RETRIEVAL_FIELDS_MISSING = "agent_retrieval_fields_missing"
 ERROR_AGENT_INVOCATION_EXHAUSTED = "agent_invocation_exhausted"
 ERROR_AGENT_CALLABLE_MISSING = "agent_callable_missing"
 ERROR_AGENT_SEMANTIC_COVERAGE_MISSING = "agent_semantic_coverage_missing"
+ERROR_AGENT_CAUSAL_RATIONALE_MISSING = "agent_causal_rationale_missing"
+
+CAUSAL_BEAD_TYPES = {"decision", "outcome", "correction", "reversal", "precedent"}
 
 SEMANTIC_BEAD_FIELDS = (
     "type",
@@ -64,11 +67,7 @@ def _text_present(value: Any) -> bool:
 
 
 def _list_text_present(value: Any) -> bool:
-    if isinstance(value, list):
-        return any(_text_present(v) for v in value)
-    if isinstance(value, str):
-        return _text_present(value)
-    return False
+    return isinstance(value, list) and any(_text_present(v) for v in value)
 
 
 def _field_present(value: Any) -> bool:
@@ -97,7 +96,7 @@ def _confidence_valid(value: Any) -> bool:
     return 0.0 <= c <= 1.0
 
 
-def validate_agent_authored_updates(updates: dict[str, Any]) -> tuple[bool, str | None, dict[str, Any]]:
+def validate_agent_authored_updates(updates: dict[str, Any], *, max_create_per_turn: int | None = None) -> tuple[bool, str | None, dict[str, Any]]:
     """Strict shape gate for agent-authored crawler updates.
 
     Returns: (ok, error_code, details)
@@ -106,40 +105,59 @@ def validate_agent_authored_updates(updates: dict[str, Any]) -> tuple[bool, str 
         return False, ERROR_AGENT_UPDATES_INVALID, {"reason": "updates_not_dict"}
 
     rows = updates.get("beads_create")
-    if not isinstance(rows, list) or len(rows) != 1:
+    if not isinstance(rows, list) or len(rows) < 1:
         return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {
-            "reason": "beads_create_must_have_exactly_one_row",
+            "reason": "beads_create_must_have_at_least_one_row",
             "row_count": len(rows) if isinstance(rows, list) else None,
         }
-    row = rows[0]
-    if not isinstance(row, dict):
-        return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {"reason": "bead_row_not_object"}
+    if max_create_per_turn is not None and int(max_create_per_turn) > 0 and len(rows) > int(max_create_per_turn):
+        return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {
+            "reason": "beads_create_exceeds_policy_max",
+            "row_count": len(rows),
+            "max_create_per_turn": int(max_create_per_turn),
+        }
 
-    missing_bead = []
-    for key in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS:
-        if key in {"retrieval_title", "retrieval_facts"}:
-            continue
-        if key == "summary":
-            if not _list_text_present(row.get(key)):
-                missing_bead.append(key)
-        elif key in {"entities", "topics"}:
-            if not _list_text_present(row.get(key)):
-                missing_bead.append(key)
-        else:
-            if not _field_present(row.get(key)):
-                missing_bead.append(key)
-    if missing_bead:
-        return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {"missing_bead_fields": missing_bead}
+    retrieval_eligible_count = 0
+    for row_index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {"reason": "bead_row_not_object", "row_index": row_index}
 
-    retrieval_eligible = _truthy_bool(row.get("retrieval_eligible"))
-    missing_retrieval = []
-    if retrieval_eligible:
-        if not _text_present(row.get("retrieval_title")):
-            missing_retrieval.append("retrieval_title")
-        if not _list_text_present(row.get("retrieval_facts")):
-            missing_retrieval.append("retrieval_facts")
-    if missing_retrieval:
-        return False, ERROR_AGENT_RETRIEVAL_FIELDS_MISSING, {"missing_retrieval_fields": missing_retrieval}
+        missing_bead = []
+        for key in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS:
+            if key in {"retrieval_title", "retrieval_facts"}:
+                continue
+            if key == "summary":
+                if not _list_text_present(row.get(key)):
+                    missing_bead.append(key)
+            elif key in {"entities", "topics"}:
+                if not _list_text_present(row.get(key)):
+                    missing_bead.append(key)
+            else:
+                if not _field_present(row.get(key)):
+                    missing_bead.append(key)
+        if missing_bead:
+            return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {"row_index": row_index, "missing_bead_fields": missing_bead}
+
+        bead_type = str(row.get("type") or "").strip().lower()
+        if bead_type in CAUSAL_BEAD_TYPES and not _list_text_present(row.get("because")):
+            return False, ERROR_AGENT_CAUSAL_RATIONALE_MISSING, {
+                "row_index": row_index,
+                "type": bead_type,
+                "missing_bead_fields": ["because"],
+                "causal_types_require_because": sorted(CAUSAL_BEAD_TYPES),
+            }
+
+        retrieval_eligible = _truthy_bool(row.get("retrieval_eligible"))
+        if retrieval_eligible:
+            retrieval_eligible_count += 1
+        missing_retrieval = []
+        if retrieval_eligible:
+            if not _text_present(row.get("retrieval_title")):
+                missing_retrieval.append("retrieval_title")
+            if not _list_text_present(row.get("retrieval_facts")):
+                missing_retrieval.append("retrieval_facts")
+        if missing_retrieval:
+            return False, ERROR_AGENT_RETRIEVAL_FIELDS_MISSING, {"row_index": row_index, "missing_retrieval_fields": missing_retrieval}
 
     assocs = updates.get("associations")
     if assocs is None:
@@ -177,9 +195,9 @@ def validate_agent_authored_updates(updates: dict[str, Any]) -> tuple[bool, str 
         return False, ERROR_AGENT_UPDATES_INVALID, {"bad_association_rows": bad_rows[:10]}
 
     return True, None, {
-        "beads_create_count": 1,
+        "beads_create_count": len(rows),
         "associations_count": len(assocs),
-        "retrieval_eligible": retrieval_eligible,
+        "retrieval_eligible_count": retrieval_eligible_count,
     }
 
 
@@ -194,11 +212,14 @@ def contract_snapshot() -> dict[str, object]:
             ERROR_AGENT_INVOCATION_EXHAUSTED,
             ERROR_AGENT_CALLABLE_MISSING,
             ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
+            ERROR_AGENT_CAUSAL_RATIONALE_MISSING,
         ],
         "semantic_bead_fields": list(SEMANTIC_BEAD_FIELDS),
         "required_bead_fields": list(AGENT_AUTHORED_REQUIRED_BEAD_FIELDS),
         "required_association_fields": list(AGENT_AUTHORED_REQUIRED_ASSOC_FIELDS),
         "retrieval_fields_required_when_retrieval_eligible": ["retrieval_title", "retrieval_facts"],
+        "causal_types_require_because": sorted(CAUSAL_BEAD_TYPES),
+        "summary_shape": "list[str]",
         "required_semantic_fields_slice_1": [
             "retrieval_eligible",
             "retrieval_title",
@@ -206,6 +227,8 @@ def contract_snapshot() -> dict[str, object]:
             "entities",
             "topics",
         ],
-        "beads_create_exactly_one": True,
+        "beads_create_exactly_one": False,
+        "beads_create_min": 1,
+        "beads_create_max_policy": "SidecarPolicy.max_create_per_turn",
         "associations_required": False,
     }

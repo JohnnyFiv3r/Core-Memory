@@ -267,6 +267,7 @@ def _resolve_reviewed_updates(
     *,
     source_override: str | None = None,
     invocation_diag: dict[str, Any] | None = None,
+    max_create_per_turn: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     md = req.get("metadata") or {}
     reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
@@ -288,7 +289,7 @@ def _resolve_reviewed_updates(
 
     if isinstance(reviewed, dict) and reviewed:
         if required:
-            ok, code, details = validate_agent_authored_updates(reviewed)
+            ok, code, details = validate_agent_authored_updates(reviewed, max_create_per_turn=max_create_per_turn)
             gate["validation"] = details
             if not ok:
                 gate["error_code"] = code
@@ -367,7 +368,6 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
         src = [str(x) for x in (rows[i].get("source_turn_ids") or []) if str(x)]
         if turn_id and turn_id in src:
             has_turn = True
-            break
 
     if not has_turn:
         bead = _judged_turn_bead(req) if _judge_fallback_enabled() else _structural_turn_bead(req)

@@ -111,6 +111,7 @@ def process_turn_finalized_impl(
             req,
             source_override=source_preflight,
             invocation_diag=invocation_preflight,
+            max_create_per_turn=getattr(policy, "max_create_per_turn", None),
         )
         if gate_probe.get("blocked"):
             contract_error = {"code": str(gate_probe.get("error_code") or error_agent_updates_missing), "details": dict(gate_probe.get("validation") or {})}
@@ -259,6 +260,7 @@ def process_turn_finalized_impl(
         req_for_updates,
         source_override=source_override,
         invocation_diag=invocation_diag,
+        max_create_per_turn=getattr(policy, "max_create_per_turn", None),
     )
     if gate.get("blocked"):
         emit_agent_turn_quality_metric(

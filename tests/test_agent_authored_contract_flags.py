@@ -49,6 +49,11 @@ class TestAgentAuthoredContractSlice0(unittest.TestCase):
         self.assertTrue({"type", "title", "summary", "retrieval_eligible", "retrieval_title", "retrieval_facts", "entities", "topics"}.issubset(bead_required))
         self.assertEqual(["retrieval_title", "retrieval_facts"], snap.get("retrieval_fields_required_when_retrieval_eligible"))
         self.assertIn("agent_retrieval_fields_missing", errs)
+        self.assertIn("agent_causal_rationale_missing", errs)
+        self.assertIn("decision", snap.get("causal_types_require_because") or [])
+        self.assertEqual("list[str]", snap.get("summary_shape"))
+        self.assertFalse(snap.get("beads_create_exactly_one"))
+        self.assertEqual(1, snap.get("beads_create_min"))
 
 
 if __name__ == "__main__":

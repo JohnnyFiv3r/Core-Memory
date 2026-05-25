@@ -12,6 +12,7 @@ from core_memory.integrations.openclaw_flags import (
 from .agent_authored_contract import (
     ERROR_AGENT_CALLABLE_MISSING,
     ERROR_AGENT_INVOCATION_EXHAUSTED,
+    validate_agent_authored_updates,
 )
 
 
@@ -80,27 +81,40 @@ def invoke_turn_crawler_agent(
         }
 
     last_error = ""
+    prior_error: dict[str, Any] | None = None
     for attempt in range(1, max_attempts + 1):
         try:
-            result = fn(
-                {
-                    "root": root,
-                    "request": dict(req or {}),
-                    "crawler_context": dict(crawler_context or {}),
-                }
-            )
+            payload = {
+                "root": root,
+                "request": dict(req or {}),
+                "crawler_context": dict(crawler_context or {}),
+            }
+            if prior_error:
+                payload["prior_error"] = dict(prior_error)
+            result = fn(payload)
             updates = _extract_updates(result)
             if isinstance(updates, dict) and updates:
-                return dict(updates), {
-                    "attempted": True,
-                    "ok": True,
-                    "source": "agent_callable",
-                    "attempts": attempt,
-                    "error_code": None,
-                    "callable": callable_path,
+                ok, code, details = validate_agent_authored_updates(updates)
+                if ok:
+                    return dict(updates), {
+                        "attempted": True,
+                        "ok": True,
+                        "source": "agent_callable",
+                        "attempts": attempt,
+                        "error_code": None,
+                        "callable": callable_path,
+                    }
+                prior_error = {
+                    "code": str(code or "agent_updates_invalid"),
+                    "details": dict(details or {}),
+                    "attempt": attempt,
                 }
+                last_error = f"{prior_error['code']}:{prior_error['details']}"
+                continue
+            prior_error = {"code": "invalid_response", "details": {}, "attempt": attempt}
             last_error = "invalid_response"
         except Exception as exc:  # noqa: BLE001
+            prior_error = {"code": "exception", "details": {"error": str(exc)}, "attempt": attempt}
             last_error = str(exc)
 
     return None, {

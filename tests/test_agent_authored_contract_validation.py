@@ -6,11 +6,11 @@ from core_memory.runtime.agent_authored_contract import validate_agent_authored_
 
 
 class TestAgentAuthoredContractSlice2(unittest.TestCase):
-    def test_requires_exactly_one_bead_row(self):
+    def test_allows_multiple_bead_rows(self):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
                     {"type": "context", "title": "B", "summary": ["y"], "retrieval_title": "B", "retrieval_eligible": True, "retrieval_facts": ["y"], "entities": ["B"], "topics": ["topic"]},
                 ],
                 "associations": [
@@ -24,15 +24,29 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
                 ],
             }
         )
+        self.assertTrue(ok)
+        self.assertIsNone(code)
+        self.assertEqual(2, details.get("beads_create_count"))
+
+    def test_policy_can_cap_multiple_bead_rows(self):
+        ok, code, details = validate_agent_authored_updates(
+            {
+                "beads_create": [
+                    {"type": "context", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {"type": "context", "title": "B", "summary": ["y"], "retrieval_title": "B", "retrieval_eligible": True, "retrieval_facts": ["y"], "entities": ["B"], "topics": ["topic"]},
+                ]
+            },
+            max_create_per_turn=1,
+        )
         self.assertFalse(ok)
         self.assertEqual("agent_bead_fields_missing", code)
-        self.assertIn("beads_create_must_have_exactly_one_row", str(details.get("reason") or ""))
+        self.assertEqual("beads_create_exceeds_policy_max", details.get("reason"))
 
     def test_allows_missing_associations_for_first_turn(self):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
                 ]
             }
         )
@@ -40,11 +54,35 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         self.assertIsNone(code)
         self.assertEqual(0, details.get("associations_count"))
 
-    def test_rejects_invalid_association_confidence(self):
+    def test_rejects_causal_type_without_because(self):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
                     {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                ]
+            }
+        )
+        self.assertFalse(ok)
+        self.assertEqual("agent_causal_rationale_missing", code)
+        self.assertEqual(["because"], details.get("missing_bead_fields"))
+
+    def test_rejects_string_summary_shape(self):
+        ok, code, details = validate_agent_authored_updates(
+            {
+                "beads_create": [
+                    {"type": "context", "title": "A", "summary": "x", "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                ]
+            }
+        )
+        self.assertFalse(ok)
+        self.assertEqual("agent_bead_fields_missing", code)
+        self.assertIn("summary", details.get("missing_bead_fields") or [])
+
+    def test_rejects_invalid_association_confidence(self):
+        ok, code, details = validate_agent_authored_updates(
+            {
+                "beads_create": [
+                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
                 ],
                 "associations": [
                     {
@@ -67,7 +105,7 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
                 ],
                 "associations": [
                     {

@@ -58,6 +58,19 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual(["Redis is the selected coordination point for cache invalidation."], out["retrieval_facts"])
         self.assertEqual({"mode": "llm"}, out["judge"])
 
+    def test_heuristic_fallback_authors_retrievable_durable_fields(self):
+        with patch("core_memory.policy.bead_judge._llm_judge_provider_neutral", return_value=None), patch(
+            "core_memory.policy.bead_judge._llm_judge_anthropic", return_value=None
+        ), patch("core_memory.policy.bead_judge._llm_judge_openai", return_value=None), patch.dict(
+            "os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "heuristic"}, clear=False
+        ):
+            out = judge_bead_fields("Remember Alice adopted Pixel.", "Recorded Alice adopted Pixel.")
+        self.assertTrue(out.get("retrieval_eligible"))
+        self.assertTrue(out.get("retrieval_title"))
+        self.assertTrue(out.get("retrieval_facts"))
+        self.assertEqual("heuristic", (out.get("judge") or {}).get("mode"))
+        self.assertEqual("heuristic", (out.get("judge") or {}).get("retrieval_authored_by"))
+
     def test_turn_write_uses_field_judge_only_when_explicit_fallback_enabled(self):
         stale_agent_updates = {
             "beads_create": [
