@@ -119,3 +119,30 @@ Based on this audit, apply the following order (simplest first):
 4. `store_constraints.py` — `check_plan_constraints_for_store` is 1 PARTIAL, 1 STATEFUL
 5. `store_add_helpers.py` — `detect_decision_conflicts_for_store` is 1 PARTIAL, 2 STATEFUL
 6. `promotion_service.py` — `decide_promotion_bulk_for_store` loops over `decide_promotion_for_store`; handle last
+
+---
+
+## Step 5c outcome (2026-05-26)
+
+Re-running the audit after Step 5c: **0 STATELESS, 36 STATEFUL, 3 PARTIAL (39 total)** —
+down from 12 PARTIAL.
+
+**Flattened (per-file commits):**
+- `store_promotion_ops.py` — 7 `*_entry_for_store` wrappers removed; mixin imports
+  `promotion_service` directly. 4-hop chain reduced to 3.
+- `store_lifecycle_ops.py` — `safe_del_for_store` inlined into `MemoryStore.__del__`.
+- `store_dream_bootstrap_ops.py` — `dream_for_store` inlined into
+  `StoreCoreDelegatesMixin.dream`. Import + try/except now at the call site.
+
+**Left as-is (real logic, not pure pass-through):**
+- `decide_promotion_bulk_for_store` — bulk-apply loop with bound enforcement (max 100 rows)
+  and result aggregation. `store` is threaded through `decide_promotion_for_store` per row.
+- `detect_decision_conflicts_for_store` — antonym/negation conflict detection across decision
+  beads. `store` is used by `title_tokens_for_store` for tokenization. Refactoring to a
+  callback would add API surface for marginal gain.
+- `check_plan_constraints_for_store` — advisory satisfied/violated/unknown classification of
+  active constraints against a plan string. Calls `active_constraints_for_store(store, ...)`
+  for the data source.
+
+All three remaining PARTIAL functions are now documented in `docs/cleanup-plan.md` under
+Step 5c with their justification.

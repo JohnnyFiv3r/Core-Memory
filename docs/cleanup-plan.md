@@ -104,11 +104,26 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
       Report: `docs/reports/store-delegation-audit-2026-05-26.md`
 - [x] **Step 5b — Pilot:** `store_text_hygiene_ops.py` — remove `store` param from
       STATELESS functions, update mixin to call directly, run full suite
-- [ ] **Step 5c — Remaining files** (one per PR, smallest to largest):
-      `store_compaction_ops.py`, `store_dream_bootstrap_ops.py`, `store_index_heads_ops.py`,
-      `store_session_ops.py`, `store_autonomy_ops.py`, `store_failure_ops.py`,
-      `store_lifecycle_ops.py`, `store_promotion_ops.py`, `store_relationship_ops.py`
-- [ ] **Step 5d — Mixin consolidation:** Once ops files are flat, evaluate whether
+- [x] **Step 5c — Remaining files:** PARTIAL pass-through wrappers removed.
+      Down from 12 → 3 PARTIAL (39 total `*_for_store` functions). Flattened in
+      per-file commits:
+      - `store_promotion_ops.py` — 7 `*_entry_for_store` pass-throughs removed; mixin now
+        imports from `promotion_service` directly
+      - `store_lifecycle_ops.py` — `safe_del_for_store` inlined into `MemoryStore.__del__`
+      - `store_dream_bootstrap_ops.py` — `dream_for_store` inlined into
+        `StoreCoreDelegatesMixin.dream`
+
+      The 3 remaining PARTIAL functions have real logic and were left as-is per the PRD
+      "leave as-is and document why" option:
+      - `decide_promotion_bulk_for_store` — bulk-apply loop over `decide_promotion_for_store`
+      - `detect_decision_conflicts_for_store` — conflict detection; `store` used for tokenization
+      - `check_plan_constraints_for_store` — advisory check; reads via `active_constraints_for_store`
+
+      Other ops files in the original Step 5c list (`store_compaction_ops.py`,
+      `store_index_heads_ops.py`, `store_session_ops.py`, `store_autonomy_ops.py`,
+      `store_failure_ops.py`, `store_relationship_ops.py`) contain only STATEFUL functions
+      with genuine `store.attr` access — no flattening opportunity.
+- [ ] **Step 5d — Mixin consolidation:** Now that ops files are flat, evaluate whether
       `StoreCoreDelegatesMixin` (61 methods) and `StoreReportingPromotionMixin` (18 methods)
       should be inlined into `MemoryStore` or kept as thinner mixins
 
