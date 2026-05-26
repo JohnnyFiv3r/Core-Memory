@@ -61,6 +61,7 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
 
     # When Qdrant is the vector backend, issue one hybrid (sparse+dense) query with
     # eligibility filters pushed down — replaces both FAISS semantic_lookup and lexical_lookup.
+    _qdrant_fell_back = False
     if _configured_vector_backend() == VECTOR_BACKEND_QDRANT:
         qdrant_rows = _qdrant_hybrid_rows(root, retrieval_query, k=max(10, int(k) * 3))
         if qdrant_rows:
@@ -96,6 +97,9 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
                 "normalization": {"hybrid": "qdrant_native"},
                 "results": out,
             }
+
+        # Qdrant configured but returned no rows — flag as degraded fallback
+        _qdrant_fell_back = True
 
     # FAISS + lexical fallback path
     sem = semantic_lookup(root, query=retrieval_query, k=max(10, int(k) * 3))
@@ -173,8 +177,11 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         row["tie_break_policy"] = "fused>sem>lex>bead_id"
         ranked.append(row)
 
+    _degraded = _qdrant_fell_back or bool(sem.get("degraded", False))
+    _extra_warns = ["semantic_backend_unavailable_degraded"] if _qdrant_fell_back else []
     return {
         "ok": True,
+        "degraded": _degraded,
         "query": query,
         "retrieval_query": retrieval_query,
         "weights": {"semantic": w_sem, "lexical": w_lex},
@@ -182,5 +189,6 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         "matched_incidents": incident_matches,
         "matched_topics": sorted(topic_matches),
         "normalization": {"semantic": sem_mode, "lexical": lex_mode},
+        "warnings": _extra_warns + list(sem.get("warnings") or []),
         "results": ranked,
     }

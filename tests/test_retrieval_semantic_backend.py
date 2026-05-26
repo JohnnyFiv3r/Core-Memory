@@ -31,6 +31,7 @@ def _set_retrieval_eligible(root: Path, bead_id: str, *, status: str = "open") -
 
 def test_build_writes_manifest_and_rows(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CORE_MEMORY_EMBEDDINGS_PROVIDER", "hash")
+    monkeypatch.setenv("CORE_MEMORY_VECTOR_BACKEND", "local-faiss")
     s = MemoryStore(root=str(tmp_path))
     b = s.add_bead(type="decision", title="Redis fix", summary=["Raised pool size"], session_id="s1", source_turn_ids=["t1"])
     _set_retrieval_eligible(tmp_path, b, status="open")

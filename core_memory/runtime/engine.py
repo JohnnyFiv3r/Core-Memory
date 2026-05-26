@@ -190,9 +190,12 @@ def _resolve_reviewed_updates(
             if not ok:
                 gate["error_code"] = code
                 if fail_open:
-                    gate["source"] = "default_fallback"
-                    gate["used_fallback"] = True
-                    return _default_crawler_updates(req), gate
+                    # Warn mode: use the provided dict as best-effort so that
+                    # included associations are not silently discarded.
+                    gate["source"] = "agent_partial"
+                    gate["used_fallback"] = False
+                    gate["warned"] = True
+                    return dict(reviewed), gate
                 gate["blocked"] = True
                 return None, gate
         return dict(reviewed), gate

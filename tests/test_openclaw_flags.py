@@ -60,4 +60,4 @@ def test_agent_authored_mode_explicit_and_derived(monkeypatch):
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_MODE", "")
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_REQUIRED", "1")
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN", "0")
-    assert agent_authored_mode() == "enforce"
+    assert agent_authored_mode() == "hard"

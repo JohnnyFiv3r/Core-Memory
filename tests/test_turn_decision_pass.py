@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.persistence.store import MemoryStore
@@ -7,7 +9,7 @@ from core_memory.persistence.store import MemoryStore
 
 class TestTurnDecisionPass(unittest.TestCase):
     def test_turn_runs_visible_bead_decision_pass(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_ENRICHMENT_QUEUE": "off"}):
             store = MemoryStore(td)
             # Seed one prior visible bead in same session with weak signal -> candidate/null path.
             store.add_bead(
@@ -43,7 +45,7 @@ class TestTurnDecisionPass(unittest.TestCase):
             self.assertGreaterEqual(int((d2.get("counts") or {}).get("evaluated", 0)), 2)
 
     def test_custom_metadata_updates_still_create_turn_bead(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_ENRICHMENT_QUEUE": "off"}):
             store = MemoryStore(td)
             b1 = store.add_bead(type="context", title="Seed", summary=["x"], session_id="s2", source_turn_ids=["t0"])
 
