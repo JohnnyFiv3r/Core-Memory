@@ -255,10 +255,11 @@ logic and human output format).
       `cli/parsers/` and `cli/handlers/` subdirectories hold all 15 CLI files.
       Entry point `core_memory.cli:main` works without `pyproject.toml` changes.
       Backward-compat shims left at all old `cli_*.py` flat paths.
-- [ ] **9e — Move Dreamer to `runtime/dreamer/`** — `dreamer.py` (top level),
-      `runtime/dreamer_candidates.py`, and `runtime/dreamer_eval.py` all move to
-      `runtime/dreamer/analysis.py`, `candidates.py`, `eval.py`. Move
-      `runtime/longitudinal_benchmark.py` to `eval/`.
+- [x] **9e — Move Dreamer to `runtime/dreamer/`** — `dreamer.py` (top level),
+      `runtime/dreamer_candidates.py`, `runtime/dreamer_eval.py`, and
+      `runtime/longitudinal_benchmark.py` all move to
+      `runtime/dreamer/analysis.py`, `candidates.py`, `eval.py`, `longitudinal.py`.
+      Backward-compat shims left at all four old paths.
 - [ ] **9f — Reorganize `runtime/` into subdirectories** — create `turn/`, `flush/`,
       `session/`, `passes/`, `queue/`, `observability/` subdirectories. Each `__init__.py`
       re-exports old module symbols as a migration shim.
@@ -272,6 +273,12 @@ logic and human output format).
       **From 9a** (1 shim):
       - `integrations/openclaw_flags.py` — re-exports from `integrations/openclaw/flags.py`
         and `config/feature_flags.py`
+
+      **From 9e** (4 shims):
+      - `dreamer.py` — re-exports from `runtime/dreamer/analysis.py`
+      - `runtime/dreamer_candidates.py` — re-exports from `runtime/dreamer/candidates.py`
+      - `runtime/dreamer_eval.py` — re-exports from `runtime/dreamer/eval.py`
+      - `runtime/longitudinal_benchmark.py` — re-exports from `runtime/dreamer/longitudinal.py`
 
       **From 9c** (7 shims):
       - `integrations/openclaw_agent_end_bridge.py`
