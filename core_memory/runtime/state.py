@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..persistence.io_utils import append_jsonl, store_lock
-from ..integrations.openclaw_flags import transcript_archive_enabled
+from ..config.feature_flags import transcript_archive_enabled
 from .turn_archive import append_turn_record
 
 

@@ -27,7 +27,7 @@ from core_memory.entity.retrieval import infer_query_entity_context, expand_quer
 from core_memory.retrieval.evidence_scoring import rerank_semantic_rows
 from core_memory.runtime.myelination import compute_myelination_bonus_map
 from .convergence import run_hybrid_rerank_seeds
-from core_memory.integrations.openclaw_flags import (
+from core_memory.config.feature_flags import (
     claim_layer_enabled,
     claim_resolution_enabled,
     claim_retrieval_boost_enabled,

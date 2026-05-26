@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .live_session import read_live_session_beads
-from core_memory.integrations.openclaw_flags import (
+from core_memory.config.feature_flags import (
     agent_min_semantic_associations_after_first,
     claim_layer_enabled,
     preview_association_allow_shared_tag,

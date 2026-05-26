@@ -4,7 +4,7 @@ import importlib
 import os
 from typing import Any, Callable
 
-from core_memory.integrations.openclaw_flags import (
+from core_memory.config.feature_flags import (
     agent_authored_required_enabled,
     agent_crawler_invoke_enabled,
     agent_crawler_max_attempts,

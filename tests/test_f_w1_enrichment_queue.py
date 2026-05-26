@@ -311,7 +311,7 @@ class TestClaimDecisionVisibleWindowExpansion(unittest.TestCase):
         self.assertIn(str(session_bead), visible)
         self.assertIn(str(recalled_bead), visible)
 
-    @patch("core_memory.integrations.openclaw_flags.claim_layer_enabled", return_value=True)
+    @patch("core_memory.config.feature_flags.claim_layer_enabled", return_value=True)
     @patch("core_memory.runtime.engine.emit_claim_updates", return_value=[])
     @patch("core_memory.runtime.engine.extract_and_attach_claims")
     @patch("core_memory.runtime.engine._emit_agent_turn_quality_metric", return_value=None)

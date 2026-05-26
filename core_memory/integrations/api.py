@@ -15,7 +15,7 @@ from core_memory.runtime.jobs import async_jobs_status
 from core_memory.runtime.turn_archive import find_turn_record, get_turn_tools as _get_turn_tools, get_adjacent_turns as _get_adjacent_turns
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
-from core_memory.integrations.openclaw_flags import transcript_hydration_enabled, default_hydrate_tools_enabled, default_adjacent_turns
+from core_memory.config.feature_flags import transcript_hydration_enabled, default_hydrate_tools_enabled, default_adjacent_turns
 from core_memory.persistence.store import DEFAULT_ROOT
 from core_memory.schema.turn import normalize_turns, serialize_turns, user_content, assistant_content, turn_speakers, reject_legacy_turn_kwargs
 
