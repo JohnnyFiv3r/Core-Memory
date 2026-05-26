@@ -16,6 +16,7 @@ import yaml
 
 
 _DEFAULTS: dict[str, Any] = {
+    "mode": "local",
     "backend": "json",
     "vector_backend": "auto",
     "graph_backend": "kuzu",
@@ -64,39 +65,104 @@ def find_project_config(start: Path | None = None) -> Path | None:
 
 def load_settings(root: Path | None = None) -> dict[str, Any]:
     """Return merged settings dict: defaults < user-global < project-local < env vars."""
+    cfg, _ = load_settings_with_provenance(root)
+    return cfg
+
+
+def load_settings_with_provenance(
+    root: Path | None = None,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Return (cfg, provenance) where provenance maps flat key → source label."""
+    provenance: dict[str, str] = {}
     cfg = dict(_DEFAULTS)
     cfg["memory"] = dict(_DEFAULTS["memory"])
 
+    for k in cfg:
+        if k != "memory":
+            provenance[k] = "default"
+    for k in _DEFAULTS["memory"]:
+        provenance[f"memory.{k}"] = "default"
+
     user_cfg = _load_yaml(_USER_CONFIG_PATH)
     if user_cfg:
+        _track_provenance(user_cfg, "user-global (~/.core-memory/config.yaml)", provenance)
         cfg = _deep_merge(cfg, user_cfg)
 
     project_path = find_project_config(root)
     if project_path:
         project_cfg = _load_yaml(project_path)
         if project_cfg:
+            label = str(project_path)
+            _track_provenance(project_cfg, label, provenance)
             cfg = _deep_merge(cfg, project_cfg)
 
-    # env var overrides
-    _apply_env_overrides(cfg)
-    return cfg
+    _apply_env_overrides(cfg, provenance)
+    return cfg, provenance
 
 
-def _apply_env_overrides(cfg: dict[str, Any]) -> None:
-    if v := os.environ.get("CORE_MEMORY_BACKEND"):
-        cfg["backend"] = v
-    if v := os.environ.get("CORE_MEMORY_GRAPH_BACKEND"):
-        cfg["graph_backend"] = v
-    if v := os.environ.get("CORE_MEMORY_NEO4J_URI"):
-        cfg.setdefault("neo4j", {})["uri"] = v
-    if v := os.environ.get("CORE_MEMORY_NEO4J_USER"):
-        cfg.setdefault("neo4j", {})["username"] = v
-    if v := os.environ.get("CORE_MEMORY_NEO4J_PASSWORD"):
-        cfg.setdefault("neo4j", {})["password"] = v
-    if v := os.environ.get("CORE_MEMORY_POSTGRES_DSN"):
-        cfg.setdefault("postgres", {})["dsn"] = v
+def _track_provenance(
+    source_cfg: dict[str, Any], label: str, provenance: dict[str, str]
+) -> None:
+    for k, v in source_cfg.items():
+        if k == "memory" and isinstance(v, dict):
+            for mk in v:
+                provenance[f"memory.{mk}"] = label
+        else:
+            provenance[k] = label
+
+
+def _apply_env_overrides(
+    cfg: dict[str, Any], provenance: dict[str, str] | None = None
+) -> None:
+    _env_map = {
+        "CORE_MEMORY_BACKEND": ("backend", None),
+        "CORE_MEMORY_GRAPH_BACKEND": ("graph_backend", None),
+        "CORE_MEMORY_NEO4J_URI": ("neo4j", "uri"),
+        "CORE_MEMORY_NEO4J_USER": ("neo4j", "username"),
+        "CORE_MEMORY_NEO4J_PASSWORD": ("neo4j", "password"),
+        "CORE_MEMORY_POSTGRES_DSN": ("postgres", "dsn"),
+    }
+    for env_var, (key, subkey) in _env_map.items():
+        v = os.environ.get(env_var)
+        if not v:
+            continue
+        if subkey is None:
+            cfg[key] = v
+            if provenance is not None:
+                provenance[key] = f"env:{env_var}"
+        else:
+            cfg.setdefault(key, {})[subkey] = v
+            if provenance is not None:
+                provenance[f"{key}.{subkey}"] = f"env:{env_var}"
 
 
 def write_config(path: Path, cfg: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.dump(cfg, default_flow_style=False, sort_keys=False), encoding="utf-8")
+
+
+def config_set(path: Path, dotted_key: str, value: str) -> None:
+    """Set a dotted-key value in a YAML config file non-destructively."""
+    existing = _load_yaml(path) if path.exists() else {}
+    parts = dotted_key.split(".", 1)
+    if len(parts) == 1:
+        existing[parts[0]] = _coerce_value(value)
+    else:
+        existing.setdefault(parts[0], {})[parts[1]] = _coerce_value(value)
+    write_config(path, existing)
+
+
+def _coerce_value(v: str) -> Any:
+    if v.lower() in {"true", "yes", "on"}:
+        return True
+    if v.lower() in {"false", "no", "off"}:
+        return False
+    try:
+        return int(v)
+    except ValueError:
+        pass
+    try:
+        return float(v)
+    except ValueError:
+        pass
+    return v

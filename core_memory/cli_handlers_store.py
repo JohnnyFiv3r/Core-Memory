@@ -42,13 +42,8 @@ def handle_store_commands(*, args: Any, memory: Any, doctor_report: Callable[[st
         return True
 
     if cmd == "doctor":
-        report = doctor_report(args.root)
-        for chk in report.get("checks", []):
-            label = "PASS" if chk.get("pass") else "FAIL"
-            print(f"{label} {chk.get('name')}")
-        print(json.dumps(report, indent=2))
-        if not report.get("ok"):
-            raise SystemExit(1)
+        from .cli_handlers_setup import doctor_command
+        doctor_command(args)
         return True
 
     if cmd == "heads":

@@ -109,12 +109,28 @@ def main():
     # Grouped surface (preferred)
     setup_parser = subparsers.add_parser("setup", help="Initialize/configure/validate local Core Memory store")
     setup_sub = setup_parser.add_subparsers(dest="setup_cmd")
-    setup_init = setup_sub.add_parser("init", help="Run guided setup wizard (or --preset for non-interactive)")
-    setup_init.add_argument("--preset", choices=["local", "sqlite", "postgres", "neo4j"], help="Non-interactive preset (skips prompts)")
+    setup_init = setup_sub.add_parser("init", help="Run guided setup wizard (or --mode for non-interactive)")
+    setup_init.add_argument("--mode", choices=["local", "mcp", "app", "production", "custom"], help="Non-interactive mode (skips prompts)")
+    setup_init.add_argument("--preset", choices=["local", "sqlite", "postgres", "neo4j"], help="(deprecated) use --mode instead")
     setup_init.add_argument("--global", dest="global_config", action="store_true", help="Write to ~/.core-memory/config.yaml instead of .core-memory.yaml")
     setup_init.add_argument("--force", action="store_true", help="Overwrite existing config")
-    setup_sub.add_parser("doctor", help="Run capability-tier health checks (storage/vector/graph/dreamer)")
+    setup_doctor = setup_sub.add_parser("doctor", help="Run capability-tier health checks with profile-aware output")
+    setup_doctor.add_argument("--profile", choices=["local", "mcp", "app", "production"], help="Severity profile (auto-detected from config if omitted)")
+    setup_doctor.add_argument("--json", dest="json_output", action="store_true", help="Machine-readable JSON output")
     setup_sub.add_parser("paths", help="Show resolved store paths")
+
+    # config subcommand (8b-3)
+    config_parser = subparsers.add_parser("config", help="Inspect and update Core Memory configuration")
+    config_sub = config_parser.add_subparsers(dest="config_cmd")
+    config_sub.add_parser("show", help="Show resolved config with per-key provenance")
+    config_set_p = config_sub.add_parser("set", help="Set a config key in project-local .core-memory.yaml")
+    config_set_p.add_argument("key", help="Dotted key path (e.g. graph_backend or memory.dreamer)")
+    config_set_p.add_argument("value", help="Value to set")
+    config_sub.add_parser("validate", help="Check for contradictions or missing required fields")
+
+    # demo subcommand (8b-4)
+    demo_parser = subparsers.add_parser("demo", help="Run a synthetic write/recall loop to verify memory is working")
+    demo_parser.add_argument("--keep", action="store_true", help="Keep demo beads after the run")
 
     store_parser = subparsers.add_parser("store", help="Create/mutate stored memory records")
     store_sub = store_parser.add_subparsers(dest="store_cmd")
@@ -401,6 +417,23 @@ def main():
             memory = MemoryStore(root=args.root)
             print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
             return
+
+    if args.command == "config":
+        from .cli_handlers_setup import config_show_command, config_set_command, config_validate_command
+        if args.config_cmd == "show":
+            config_show_command(args)
+        elif args.config_cmd == "set":
+            config_set_command(args)
+        elif args.config_cmd == "validate":
+            config_validate_command(args)
+        else:
+            config_parser.print_help()
+        return
+
+    if args.command == "demo":
+        from .cli_handlers_setup import demo_command
+        demo_command(args)
+        return
 
     if args.command == "migrate":
         from core_memory.cli_handlers_migrate import handle_migrate

@@ -1,4 +1,4 @@
-"""CLI handlers for `core-memory setup init` (wizard) and `core-memory setup doctor`."""
+"""CLI handlers for setup init, setup doctor, config commands, and demo."""
 
 from __future__ import annotations
 
@@ -12,87 +12,89 @@ from typing import Any
 from .config.settings import (
     _PROJECT_CONFIG_NAME,
     _USER_CONFIG_PATH,
+    config_set,
     find_project_config,
     load_settings,
+    load_settings_with_provenance,
     write_config,
 )
 
 # ---------------------------------------------------------------------------
-# Presets
+# Mode definitions  (8b-1)
 # ---------------------------------------------------------------------------
 
-_PRESETS: dict[str, dict[str, Any]] = {
+_MEM_DEFAULTS: dict[str, Any] = {
+    "rolling_window_tokens": 4000,
+    "max_beads": 40,
+    "dreamer": True,
+    "transcript_grounding": True,
+}
+
+_MODES: dict[str, dict[str, Any]] = {
     "local": {
+        "mode": "local",
         "backend": "json",
         "vector_backend": "local-faiss",
         "graph_backend": "kuzu",
         "integration": "none",
-        "memory": {
-            "rolling_window_tokens": 4000,
-            "max_beads": 40,
-            "dreamer": True,
-            "transcript_grounding": True,
-        },
+        "memory": dict(_MEM_DEFAULTS),
     },
-    "sqlite": {
+    "mcp": {
+        "mode": "mcp",
+        "backend": "json",
+        "vector_backend": "local-faiss",
+        "graph_backend": "kuzu",
+        "integration": "mcp",
+        "memory": dict(_MEM_DEFAULTS),
+    },
+    "app": {
+        "mode": "app",
         "backend": "sqlite",
         "vector_backend": "local-faiss",
         "graph_backend": "kuzu",
         "integration": "none",
-        "memory": {
-            "rolling_window_tokens": 4000,
-            "max_beads": 40,
-            "dreamer": True,
-            "transcript_grounding": True,
-        },
+        "memory": dict(_MEM_DEFAULTS),
     },
-    "postgres": {
-        "backend": "sqlite",
+    "production": {
+        "mode": "production",
+        "backend": "postgres",
         "vector_backend": "pgvector",
-        "graph_backend": "kuzu",
+        "graph_backend": "neo4j",
         "integration": "none",
+        "neo4j": {"uri": "bolt://localhost:7687", "username": "neo4j", "password": ""},
         "postgres": {"dsn": ""},
-        "memory": {
-            "rolling_window_tokens": 4000,
-            "max_beads": 40,
-            "dreamer": True,
-            "transcript_grounding": True,
-        },
+        "memory": dict(_MEM_DEFAULTS),
     },
+}
+
+# Backward-compat preset aliases — --preset still works, maps to closest mode config.
+# "neo4j" preset kept as a named config since it doesn't cleanly map to production.
+_PRESETS: dict[str, dict[str, Any]] = {
+    "local": _MODES["local"],
+    "sqlite": _MODES["app"],
+    "postgres": _MODES["production"],
     "neo4j": {
+        "mode": "production",
         "backend": "json",
         "vector_backend": "local-faiss",
         "graph_backend": "neo4j",
         "integration": "mcp",
         "neo4j": {"uri": "bolt://localhost:7687", "username": "neo4j", "password": ""},
-        "memory": {
-            "rolling_window_tokens": 4000,
-            "max_beads": 40,
-            "dreamer": True,
-            "transcript_grounding": True,
-        },
+        "memory": dict(_MEM_DEFAULTS),
     },
 }
 
-_INSTALL_CHOICES = [
-    ("local", "Local/dev — JSONL files, no extra dependencies [default]"),
-    ("sqlite", "SQLite — single-file DB, better query indexing"),
-    ("postgres", "Postgres — pgvector-backed, recommended for production"),
-    ("neo4j", "Neo4j — graph-native traversal (recommended for causal inspection)"),
-    ("custom", "Custom — configure manually"),
-]
-
-_INTEGRATION_CHOICES = [
-    ("mcp", "MCP server (Claude Code, Cursor, etc.)"),
-    ("openclaw", "OpenClaw"),
-    ("pydanticai", "PydanticAI"),
-    ("http", "HTTP/webhook"),
-    ("none", "None / configure later"),
+_MODE_CHOICES = [
+    ("local",      "Local dev / trying it out   — no extra dependencies [default]"),
+    ("mcp",        "MCP server                  — Claude Desktop, Cursor, etc."),
+    ("app",        "App integration             — PydanticAI, OpenClaw, custom agents"),
+    ("production", "Production service          — Postgres + Neo4j + pgvector"),
+    ("custom",     "Custom / advanced           — configure manually"),
 ]
 
 
 # ---------------------------------------------------------------------------
-# Wizard
+# Wizard helpers
 # ---------------------------------------------------------------------------
 
 def _prompt(prompt_text: str, default: str = "") -> str:
@@ -127,23 +129,31 @@ def _prompt_choice(label: str, choices: list[tuple[str, str]], default_idx: int 
     return default_key
 
 
-def _interactive_wizard(root: str) -> dict[str, Any]:
+def _interactive_wizard() -> dict[str, Any]:
     print("\nCore Memory setup")
     print("-" * 30)
 
-    install_type = _prompt_choice("Install type:", _INSTALL_CHOICES)
+    mode = _prompt_choice("What are you setting up Core Memory for?", _MODE_CHOICES)
 
-    if install_type == "custom":
+    import copy
+    if mode == "custom":
         cfg: dict[str, Any] = {
+            "mode": "custom",
             "backend": "json",
             "vector_backend": "auto",
             "graph_backend": "kuzu",
+            "integration": "none",
         }
     else:
-        import copy
-        cfg = copy.deepcopy(_PRESETS.get(install_type, _PRESETS["local"]))
+        cfg = copy.deepcopy(_MODES.get(mode, _MODES["local"]))
 
-    if install_type == "neo4j":
+    if mode == "production":
+        print("\nPostgres connection")
+        cfg.setdefault("postgres", {})
+        dsn = _prompt("  DSN (leave blank to use CORE_MEMORY_POSTGRES_DSN env var)", "")
+        if dsn:
+            cfg["postgres"]["dsn"] = dsn
+
         print("\nNeo4j connection")
         cfg.setdefault("neo4j", {})
         cfg["neo4j"]["uri"] = _prompt("  URI", cfg["neo4j"].get("uri", "bolt://localhost:7687"))
@@ -152,18 +162,8 @@ def _interactive_wizard(root: str) -> dict[str, Any]:
         if password:
             cfg["neo4j"]["password"] = password
 
-    if install_type == "postgres":
-        print("\nPostgres connection")
-        cfg.setdefault("postgres", {})
-        dsn = _prompt("  DSN (leave blank to use CORE_MEMORY_POSTGRES_DSN env var)", "")
-        if dsn:
-            cfg["postgres"]["dsn"] = dsn
-
-    integration = _prompt_choice("Runtime integration:", _INTEGRATION_CHOICES, default_idx=0)
-    cfg["integration"] = integration
-
     print("\nMemory behavior (press Enter to accept defaults):")
-    mem = cfg.setdefault("memory", {})
+    mem = cfg.setdefault("memory", dict(_MEM_DEFAULTS))
     rw = _prompt("  Rolling window size (tokens)", str(mem.get("rolling_window_tokens", 4000)))
     try:
         mem["rolling_window_tokens"] = int(rw)
@@ -179,10 +179,15 @@ def _interactive_wizard(root: str) -> dict[str, Any]:
     return cfg
 
 
+# ---------------------------------------------------------------------------
+# init command  (8b-1)
+# ---------------------------------------------------------------------------
+
 def init_command(args: Any) -> None:
     """Handle `core-memory setup init`."""
     use_global = bool(getattr(args, "global_config", False))
-    preset = getattr(args, "preset", None)
+    mode = getattr(args, "mode", None)
+    preset = getattr(args, "preset", None)   # deprecated alias
     force = bool(getattr(args, "force", False))
     root = getattr(args, "root", ".")
 
@@ -205,27 +210,29 @@ def init_command(args: Any) -> None:
         )
         return
 
-    if preset:
+    # Resolve config from mode or preset
+    cfg: dict[str, Any] | None = None
+    if mode:
+        if mode not in _MODES and mode != "custom":
+            print(json.dumps({"ok": False, "error": f"unknown mode {mode!r}; valid: {', '.join(_MODES)}"}, indent=2))
+            sys.exit(1)
+        import copy
+        cfg = copy.deepcopy(_MODES[mode]) if mode != "custom" else {
+            "mode": "custom", "backend": "json", "vector_backend": "auto",
+            "graph_backend": "kuzu", "integration": "none",
+        }
+    elif preset:
         if preset not in _PRESETS:
-            print(
-                json.dumps(
-                    {
-                        "ok": False,
-                        "error": f"unknown preset {preset!r}; valid: {', '.join(_PRESETS)}",
-                    },
-                    indent=2,
-                )
-            )
+            print(json.dumps({"ok": False, "error": f"unknown preset {preset!r}; valid: {', '.join(_PRESETS)}"}, indent=2))
             sys.exit(1)
         import copy
         cfg = copy.deepcopy(_PRESETS[preset])
     else:
         if not sys.stdin.isatty():
-            # Non-interactive without preset → use local default
             import copy
-            cfg = copy.deepcopy(_PRESETS["local"])
+            cfg = copy.deepcopy(_MODES["local"])
         else:
-            cfg = _interactive_wizard(root)
+            cfg = _interactive_wizard()
 
     write_config(config_path, cfg)
 
@@ -234,8 +241,9 @@ def init_command(args: Any) -> None:
     (root_p / ".beads").mkdir(parents=True, exist_ok=True)
     (root_p / ".turns").mkdir(parents=True, exist_ok=True)
 
+    profile = cfg.get("mode", "local")
     print(f"\nWriting {config_path} ... done")
-    print("Run `core-memory setup doctor` to verify your setup.\n")
+    print(f"Run `core-memory doctor --profile {profile}` to verify your setup.\n")
 
     result = {
         "ok": True,
@@ -249,22 +257,38 @@ def init_command(args: Any) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Expanded doctor
+# Doctor probes
 # ---------------------------------------------------------------------------
 
 def _storage_probe(root: str) -> dict[str, Any]:
-    from pathlib import Path as P
-
-    root_p = P(root)
-    beads_dir = root_p / ".beads"
+    beads_dir = Path(root) / ".beads"
     exists = beads_dir.is_dir()
     writable = os.access(beads_dir, os.W_OK) if exists else False
 
     if not exists:
-        return {"status": "error", "detail": "beads dir missing", "hint": f"Run: core-memory setup init --root {root}"}
+        return {
+            "status": "error",
+            "summary": "beads dir missing",
+            "impact": "no memory can be written or read",
+            "fix": f"core-memory setup init --root {root}",
+        }
     if not writable:
-        return {"status": "error", "detail": "beads dir not writable", "hint": f"Check permissions on {beads_dir}"}
-    return {"status": "ok", "detail": str(beads_dir)}
+        return {
+            "status": "error",
+            "summary": "beads dir not writable",
+            "impact": "memory writes will fail",
+            "fix": f"check permissions on {beads_dir}",
+        }
+    # Count beads from index if it exists
+    idx = beads_dir / "index.json"
+    count = 0
+    if idx.exists():
+        try:
+            data = json.loads(idx.read_text(encoding="utf-8"))
+            count = len((data.get("beads") or {}))
+        except Exception:
+            pass
+    return {"status": "ok", "summary": f"{beads_dir} writable, {count} beads"}
 
 
 def _vector_probe(root: str) -> dict[str, Any]:
@@ -272,70 +296,124 @@ def _vector_probe(root: str) -> dict[str, Any]:
         from .semantic.store import SemanticStore
         ss = SemanticStore(root=root)
         size = ss.index_size() if hasattr(ss, "index_size") else None
-        detail: dict[str, Any] = {"status": "ok"}
+        result: dict[str, Any] = {"status": "ok", "summary": "index available"}
         if size is not None:
-            detail["index_size"] = size
-        return detail
+            result["index_size"] = size
+        return result
     except ImportError:
-        return {"status": "warning", "detail": "semantic store not available", "hint": "Install faiss-cpu or configure pgvector"}
-    except Exception as exc:
-        return {"status": "warning", "detail": str(exc)}
-
-
-def _graph_probe() -> dict[str, Any]:
-    try:
-        from .persistence.graph import create_graph_backend
-        gb = create_graph_backend()
-        caps = gb.capabilities()
-        if not caps.graph_traversal:
-            backend_name = type(gb).__name__
-            return {
-                "available": False,
-                "backend": backend_name,
-                "status": "warning",
-                "hint": "Set CORE_MEMORY_GRAPH_BACKEND=kuzu or neo4j to enable graph traversal",
-            }
-        backend_name = type(gb).__name__
         return {
-            "available": True,
-            "backend": backend_name,
-            "status": "ok",
+            "status": "warning",
+            "summary": "not configured",
+            "impact": "semantic recall will use BM25 keyword fallback",
+            "fix": 'pip install "core-memory[faiss]" then core-memory config set vector_backend local-faiss',
         }
     except Exception as exc:
-        return {"available": False, "status": "error", "detail": str(exc)}
+        return {
+            "status": "warning",
+            "summary": str(exc),
+            "impact": "semantic search unavailable",
+            "fix": "core-memory setup init or check faiss/pgvector installation",
+        }
+
+
+def _graph_probe(profile: str) -> dict[str, Any]:
+    """Graph probe with profile-aware framing.
+
+    For local/mcp/app profiles, Kuzu is the embedded default — always framed as ok.
+    For production profiles, Neo4j is required.
+    """
+    try:
+        from .persistence.graph import create_graph_backend
+        from .persistence.graph.null_backend import NullGraphBackend
+        gb = create_graph_backend()
+        caps = gb.capabilities()
+        backend_name = type(gb).__name__
+
+        if profile == "production":
+            # Production requires Neo4j
+            from .persistence.graph.neo4j_backend import Neo4jGraphBackend
+            if not isinstance(gb, Neo4jGraphBackend):
+                return {
+                    "status": "error",
+                    "summary": f"Neo4j not active (using {backend_name})",
+                    "impact": "production causal traversal requires durable graph backend",
+                    "fix": 'core-memory config set graph_backend neo4j && pip install "core-memory[neo4j]"',
+                }
+            if not caps.graph_traversal:
+                return {
+                    "status": "error",
+                    "summary": "Neo4j unreachable",
+                    "impact": "causal traversal will fail",
+                    "fix": "verify Neo4j is running at the configured URI and credentials are correct",
+                }
+            return {"status": "ok", "summary": "Neo4j connected"}
+
+        # local/mcp/app: Kuzu is the expected embedded default
+        if isinstance(gb, NullGraphBackend):
+            return {
+                "status": "warning",
+                "summary": "Kuzu unavailable, using Python fallback",
+                "impact": "causal traversal uses in-memory Python walker; slower on large stores",
+                "fix": 'pip install "core-memory[kuzu]"',
+            }
+        return {
+            "status": "ok",
+            "summary": f"{backend_name.replace('GraphBackend', '')} (embedded, zero-config)",
+        }
+    except Exception as exc:
+        if profile == "production":
+            return {"status": "error", "summary": str(exc), "impact": "graph unavailable", "fix": "check Neo4j config"}
+        return {"status": "warning", "summary": str(exc)}
+
+
+def _mcp_probe(root: str) -> dict[str, Any]:
+    """Check whether an MCP client config references core-memory."""
+    # Check Claude Desktop config as the most common target
+    claude_config = Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    if not claude_config.exists():
+        # Linux / Windows paths
+        claude_config = Path.home() / ".config" / "Claude" / "claude_desktop_config.json"
+
+    if claude_config.exists():
+        try:
+            data = json.loads(claude_config.read_text(encoding="utf-8"))
+            servers = data.get("mcpServers") or {}
+            if any("core-memory" in k or "core_memory" in k for k in servers):
+                return {"status": "ok", "summary": "MCP server registered in Claude config"}
+        except Exception:
+            pass
+
+    return {
+        "status": "error",
+        "summary": "MCP server not registered",
+        "impact": "Claude / Cursor cannot connect to Core Memory tools",
+        "fix": "core-memory mcp install claude",
+    }
 
 
 def _transcript_probe(root: str) -> dict[str, Any]:
     turns_dir = Path(root) / ".turns"
     if not turns_dir.exists():
         return {
-            "status": "warning",
-            "turns_dir": str(turns_dir),
-            "hint": "No turns yet — hydration available after first session",
+            "status": "info",
+            "summary": "no turns yet — hydration available after first session",
         }
     count = len(list(turns_dir.glob("*.jsonl"))) + len(list(turns_dir.glob("*.json")))
-    return {"status": "ok", "turns_dir": str(turns_dir), "count": count}
+    return {"status": "ok", "summary": f"{count} turn file(s) in {turns_dir}"}
 
 
 def _dreamer_probe(root: str) -> dict[str, Any]:
     pid_file = Path(root) / ".beads" / "dreamer.pid"
     if not pid_file.exists():
-        return {
-            "status": "not_running",
-            "hint": "Start with: core-memory dreamer start",
-        }
+        return {"status": "info", "summary": "not running", "fix": "core-memory dreamer start"}
     try:
         pid = int(pid_file.read_text().strip())
-        try:
-            os.kill(pid, 0)
-            return {"status": "ok", "pid": pid}
-        except ProcessLookupError:
-            return {
-                "status": "not_running",
-                "hint": "Stale PID file — start with: core-memory dreamer start",
-            }
+        os.kill(pid, 0)
+        return {"status": "ok", "summary": f"running (pid {pid})"}
+    except (ProcessLookupError, OSError):
+        return {"status": "info", "summary": "stale PID — not running", "fix": "core-memory dreamer start"}
     except Exception as exc:
-        return {"status": "warning", "detail": str(exc)}
+        return {"status": "warning", "summary": str(exc)}
 
 
 def _rolling_window_probe(root: str) -> dict[str, Any]:
@@ -345,38 +423,363 @@ def _rolling_window_probe(root: str) -> dict[str, Any]:
         rr = read_rolling_records(root)
         elapsed_ms = round((time.monotonic() - t0) * 1000)
         records = rr.get("records") or []
-        return {
-            "status": "ok",
-            "record_count": len(records),
-            "last_read_ms": elapsed_ms,
-        }
+        return {"status": "ok", "summary": f"{len(records)} records", "last_read_ms": elapsed_ms}
     except Exception as exc:
-        return {"status": "error", "detail": str(exc)}
+        return {"status": "error", "summary": str(exc), "impact": "rolling window unavailable", "fix": "check store integrity"}
 
 
-def expanded_doctor(root: str) -> dict[str, Any]:
-    """Run all capability-tier probes. Returns structured report."""
-    report: dict[str, Any] = {
-        "storage": _storage_probe(root),
-        "vector_search": _vector_probe(root),
-        "graph_traversal": _graph_probe(),
-        "transcript_hydration": _transcript_probe(root),
-        "dreamer": _dreamer_probe(root),
-        "rolling_window": _rolling_window_probe(root),
+# ---------------------------------------------------------------------------
+# Doctor profile severity matrix  (8b-2)
+# ---------------------------------------------------------------------------
+
+# Values: "error" | "warning" | "info" | "ok" | None (don't show)
+_SEVERITY: dict[str, dict[str, str | None]] = {
+    #              storage   vector      graph     mcp      transcript  dreamer   rolling_window
+    "local":      ("error",  "info",     "ok",     None,    "info",     "info",   "ok"),
+    "mcp":        ("error",  "info",     "ok",     "error", "info",     "info",   "ok"),
+    "app":        ("error",  "warning",  "ok",     None,    "info",     "info",   "ok"),
+    "production": ("error",  "error",    "error",  None,    "ok",       "warning","error"),
+    "custom":     ("error",  "warning",  "warning",None,    "info",     "info",   "ok"),
+}
+_SEVERITY_KEYS = ("storage", "vector_search", "graph_traversal", "mcp", "transcript_hydration", "dreamer", "rolling_window")
+
+
+def _profile_from_config(root: str) -> str:
+    cfg = load_settings(root=Path(root))
+    return str(cfg.get("mode") or "local")
+
+
+def expanded_doctor(root: str, profile: str | None = None) -> dict[str, Any]:
+    """Run all capability-tier probes and apply profile severity filter."""
+    if profile is None:
+        profile = _profile_from_config(root)
+
+    severity_row = _SEVERITY.get(profile, _SEVERITY["local"])
+    severity_map = dict(zip(_SEVERITY_KEYS, severity_row))
+
+    raw: dict[str, Any] = {
+        "storage":             _storage_probe(root),
+        "vector_search":       _vector_probe(root),
+        "graph_traversal":     _graph_probe(profile),
+        "mcp":                 _mcp_probe(root),
+        "transcript_hydration":_transcript_probe(root),
+        "dreamer":             _dreamer_probe(root),
+        "rolling_window":      _rolling_window_probe(root),
     }
 
-    has_error = any(
-        v.get("status") == "error"
-        for v in report.values()
-        if isinstance(v, dict)
-    )
+    report: dict[str, Any] = {"profile": profile}
+    has_error = False
+
+    for key in _SEVERITY_KEYS:
+        max_sev = severity_map.get(key)
+        if max_sev is None:
+            continue  # hidden for this profile
+
+        probe = raw[key]
+        probe_status = probe.get("status", "ok")
+
+        # Cap severity at profile max: if probe says "error" but profile caps at "warning", downgrade
+        effective_status = _cap_severity(probe_status, max_sev)
+        result = dict(probe)
+        result["status"] = effective_status
+        report[key] = result
+
+        if effective_status == "error":
+            has_error = True
+
     report["ok"] = not has_error
     return report
 
 
+def _cap_severity(probe_status: str, max_severity: str) -> str:
+    """Downgrade probe status if profile doesn't allow that severity."""
+    order = {"error": 3, "warning": 2, "info": 1, "ok": 0, "not_running": 1}
+    max_order = order.get(max_severity, 3)
+    probe_order = order.get(probe_status, 0)
+    if probe_order > max_order:
+        return max_severity
+    return probe_status
+
+
+# ---------------------------------------------------------------------------
+# Human-readable doctor formatter  (8b-2)
+# ---------------------------------------------------------------------------
+
+_STATUS_ICON = {"ok": "✓", "warning": "⚠", "error": "✗", "info": "ℹ", "not_running": "ℹ"}
+_LABEL_WIDTH = 22
+
+
+def _format_doctor_human(report: dict[str, Any]) -> str:
+    profile = report.get("profile", "local")
+    lines = [f"Core Memory Doctor  [profile: {profile}]", ""]
+
+    label_map = {
+        "storage":              "Storage",
+        "vector_search":        "Embeddings",
+        "graph_traversal":      "Graph",
+        "mcp":                  "MCP server",
+        "transcript_hydration": "Transcripts",
+        "dreamer":              "Dreamer",
+        "rolling_window":       "Rolling window",
+    }
+
+    for key in _SEVERITY_KEYS:
+        if key not in report:
+            continue
+        probe = report[key]
+        status = probe.get("status", "ok")
+        icon = _STATUS_ICON.get(status, "?")
+        label = label_map.get(key, key)
+        summary = probe.get("summary", probe.get("detail", ""))
+        lines.append(f"{icon} {label:<{_LABEL_WIDTH}} {summary}")
+
+        impact = probe.get("impact")
+        fix = probe.get("fix")
+        if impact:
+            lines.append(f"  {'':>{_LABEL_WIDTH}}   Impact: {impact}")
+        if fix:
+            lines.append(f"  {'':>{_LABEL_WIDTH}}   Fix:    {fix}")
+
+    lines.append("")
+    if report.get("ok"):
+        lines.append("Status: ready")
+    else:
+        first_fix = next(
+            (report[k].get("fix") for k in _SEVERITY_KEYS if k in report and report[k].get("status") == "error" and report[k].get("fix")),
+            None,
+        )
+        lines.append("Status: action required")
+        if first_fix:
+            lines.append(f"Next:   {first_fix}")
+
+    return "\n".join(lines)
+
+
 def doctor_command(args: Any) -> None:
     root = getattr(args, "root", ".")
-    report = expanded_doctor(root)
-    print(json.dumps(report, indent=2))
+    profile = getattr(args, "profile", None)
+    as_json = bool(getattr(args, "json_output", False))
+
+    # Auto-JSON when stdout is not a tty (scripts, CI, subprocess).
+    if not as_json and not sys.stdout.isatty():
+        as_json = True
+
+    report = expanded_doctor(root, profile=profile)
+
+    if as_json:
+        print(json.dumps(report, indent=2))
+    else:
+        print(_format_doctor_human(report))
+
     if not report.get("ok"):
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Config commands  (8b-3)
+# ---------------------------------------------------------------------------
+
+def config_show_command(args: Any) -> None:
+    root = getattr(args, "root", ".")
+    cfg, provenance = load_settings_with_provenance(root=Path(root))
+
+    project_path = find_project_config(Path(root))
+    user_path = _USER_CONFIG_PATH
+
+    print("\nResolved configuration  (project-local > user-global > defaults; env vars override all)\n")
+
+    top_keys = ["mode", "backend", "graph_backend", "vector_backend", "integration"]
+    for k in top_keys:
+        v = cfg.get(k, "")
+        src = provenance.get(k, "default")
+        print(f"  {k:<28} {str(v):<20} [{src}]")
+
+    mem = cfg.get("memory", {})
+    for k, v in mem.items():
+        full_key = f"memory.{k}"
+        src = provenance.get(full_key, "default")
+        print(f"  {full_key:<28} {str(v):<20} [{src}]")
+
+    print("\nSources searched:")
+    print(f"  project-local:  {project_path or '(not found)'}")
+    print(f"  user-global:    {user_path}{'' if user_path.exists() else '  (not found)'}")
+    env_keys = [k for k in provenance.values() if k.startswith("env:")]
+    if env_keys:
+        print(f"  env vars:       {', '.join(set(env_keys))}")
+    else:
+        print("  env vars:       none relevant set")
+    print()
+
+
+def config_set_command(args: Any) -> None:
+    root = getattr(args, "root", ".")
+    key = str(getattr(args, "key", ""))
+    value = str(getattr(args, "value", ""))
+
+    config_path = Path(root) / _PROJECT_CONFIG_NAME
+    config_set(config_path, key, value)
+    print(json.dumps({"ok": True, "path": str(config_path), "key": key, "value": value}, indent=2))
+
+
+def config_validate_command(args: Any) -> None:
+    root = getattr(args, "root", ".")
+    cfg = load_settings(root=Path(root))
+
+    errors: list[str] = []
+    warnings: list[str] = []
+
+    mode = cfg.get("mode", "local")
+    graph_backend = cfg.get("graph_backend", "kuzu")
+    backend = cfg.get("backend", "json")
+    vector_backend = cfg.get("vector_backend", "auto")
+
+    if graph_backend == "neo4j":
+        neo4j_cfg = cfg.get("neo4j") or {}
+        if not neo4j_cfg.get("uri") and not os.environ.get("CORE_MEMORY_NEO4J_URI"):
+            errors.append("graph_backend=neo4j but no neo4j.uri set (use CORE_MEMORY_NEO4J_URI env var)")
+
+    if backend == "postgres":
+        pg_cfg = cfg.get("postgres") or {}
+        if not pg_cfg.get("dsn") and not os.environ.get("CORE_MEMORY_POSTGRES_DSN"):
+            errors.append("backend=postgres but no postgres.dsn set (use CORE_MEMORY_POSTGRES_DSN env var)")
+
+    if vector_backend == "pgvector" and backend not in {"postgres"}:
+        warnings.append("vector_backend=pgvector requires backend=postgres")
+
+    if mode == "production":
+        if graph_backend != "neo4j":
+            warnings.append(f"mode=production but graph_backend={graph_backend!r}; recommend neo4j for durable traversal")
+        if backend not in {"postgres"}:
+            warnings.append(f"mode=production but backend={backend!r}; recommend postgres for durability")
+
+    result = {
+        "ok": len(errors) == 0,
+        "errors": errors,
+        "warnings": warnings,
+    }
+    print(json.dumps(result, indent=2))
+    if errors:
+        sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# Demo command  (8b-4)
+# ---------------------------------------------------------------------------
+
+_DEMO_BEADS = [
+    {
+        "type": "decision",
+        "title": "Chose Python over Go for the agent runtime",
+        "summary": ["Python has the ML/AI ecosystem; Go has better concurrency primitives"],
+        "tags": ["language", "architecture"],
+    },
+    {
+        "type": "context",
+        "title": "Project goal: evaluate causal memory systems for long-running agents",
+        "summary": ["Agents lose context across sessions; causal memory preserves the why"],
+        "tags": ["project", "goal"],
+    },
+    {
+        "type": "insight",
+        "title": "Go concurrency does not outweigh Python ecosystem for this use case",
+        "summary": ["NumPy, transformers, faiss — all Python-first; concurrency handled via async"],
+        "tags": ["language", "tradeoff"],
+    },
+]
+_DEMO_SESSION = "__core_memory_demo__"
+
+
+def demo_command(args: Any) -> None:
+    root = getattr(args, "root", ".")
+    keep = bool(getattr(args, "keep", False))
+
+    from .persistence.store import MemoryStore
+
+    print("\nCore Memory demo")
+    print("-" * 30)
+    print()
+
+    memory = MemoryStore(root=root)
+    written_ids: list[str] = []
+
+    print("Writing 3 synthetic beads...")
+    for bead in _DEMO_BEADS:
+        bead_id = memory.add_bead(
+            type=bead["type"],
+            title=bead["title"],
+            summary=bead["summary"],
+            tags=bead.get("tags"),
+            session_id=_DEMO_SESSION,
+        )
+        written_ids.append(bead_id)
+        print(f"  ✓ {bead['type']}: \"{bead['title']}\"")
+
+    print()
+    query = "why did we choose Python?"
+    print(f"Running recall: \"{query}\"")
+    print()
+
+    t0 = time.monotonic()
+    results = memory.query(type="decision", session_id=_DEMO_SESSION, limit=3)
+    if not results:
+        results = memory.query(session_id=_DEMO_SESSION, limit=5)
+    elapsed = round((time.monotonic() - t0) * 1000)
+
+    if results:
+        top = results[0]
+        print(f"  Result ({elapsed}ms):")
+        print(f"  {top.get('type', 'bead')}: \"{top.get('title', '')}\"")
+        summary = top.get("summary") or []
+        if summary:
+            print(f"  → {summary[0]}")
+    else:
+        print(f"  (no results in {elapsed}ms — store may be empty)")
+
+    # Graph status
+    print()
+    try:
+        from .persistence.graph import create_graph_backend
+        gb = create_graph_backend()
+        caps = gb.capabilities()
+        gname = type(gb).__name__.replace("GraphBackend", "")
+        if caps.graph_traversal:
+            print(f"  Graph: {gname} active — causal chains available")
+        else:
+            print(f"  Graph: {gname} (Python fallback — causal chains use in-memory walker)")
+    except Exception:
+        pass
+
+    if not keep:
+        print()
+        print("Cleaning up demo beads...")
+        _cleanup_demo(memory, written_ids)
+        print("  done")
+
+    print()
+    print("Memory is working. Run `core-memory doctor` for full setup status.")
+    print()
+
+
+def _cleanup_demo(memory: Any, bead_ids: list[str]) -> None:
+    try:
+        # Remove from session file (primary source for session_id queries)
+        session_file = memory.beads_dir / f"session-{_DEMO_SESSION}.jsonl"
+        if session_file.exists():
+            session_file.unlink()
+    except Exception:
+        pass
+    try:
+        # Also remove from index
+        idx_path = memory.beads_dir / "index.json"
+        index = memory._read_json(idx_path)
+        beads = index.get("beads") or {}
+        changed = False
+        for bead_id in bead_ids:
+            if bead_id in beads:
+                del beads[bead_id]
+                changed = True
+        if changed:
+            index["beads"] = beads
+            memory._write_json(idx_path, index)
+    except Exception:
+        pass
