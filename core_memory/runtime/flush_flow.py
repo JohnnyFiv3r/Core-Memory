@@ -16,6 +16,7 @@ from .flush_state import (
     upsert_process_flush_checkpoint_bead,
 )
 from .side_effects import enqueue_post_write_side_effects
+from .event_schemas import FLUSH_REPORT, FLUSH_CHECKPOINT
 
 
 def process_flush_impl(
@@ -114,7 +115,7 @@ def process_flush_impl(
         append_jsonl(
             checkpoints,
             {
-                "schema": "openclaw.memory.flush_report.v1",
+                "schema": FLUSH_REPORT,
                 "stage": "skipped",
                 "session_id": str(session_id or ""),
                 "source": str(source or "flush_hook"),
@@ -130,7 +131,7 @@ def process_flush_impl(
     append_jsonl(
         checkpoints,
         {
-            "schema": "openclaw.memory.flush_checkpoint.v1",
+            "schema": FLUSH_CHECKPOINT,
             "stage": "start",
             "session_id": str(session_id or ""),
             "source": str(source or "flush_hook"),
@@ -165,7 +166,7 @@ def process_flush_impl(
         append_jsonl(
             checkpoints,
             {
-                "schema": "openclaw.memory.flush_checkpoint.v1",
+                "schema": FLUSH_CHECKPOINT,
                 "stage": "failed",
                 "session_id": str(session_id or ""),
                 "source": str(source or "flush_hook"),
@@ -176,7 +177,7 @@ def process_flush_impl(
         append_jsonl(
             checkpoints,
             {
-                "schema": "openclaw.memory.flush_report.v1",
+                "schema": FLUSH_REPORT,
                 "stage": "failed",
                 "session_id": str(session_id or ""),
                 "source": str(source or "flush_hook"),
@@ -205,7 +206,7 @@ def process_flush_impl(
     append_jsonl(
         checkpoints,
         {
-            "schema": "openclaw.memory.flush_checkpoint.v1",
+            "schema": FLUSH_CHECKPOINT,
             "stage": "committed",
             "session_id": str(session_id or ""),
             "source": str(source or "flush_hook"),
@@ -263,7 +264,7 @@ def process_flush_impl(
     append_jsonl(
         checkpoints,
         {
-            "schema": "openclaw.memory.flush_report.v1",
+            "schema": FLUSH_REPORT,
             "stage": "committed",
             "session_id": str(session_id or ""),
             "source": str(source or "flush_hook"),

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .live_session import read_live_session_beads
+from .event_schemas import CRAWLER_UPDATE
 from core_memory.config.feature_flags import (
     agent_min_semantic_associations_after_first,
     claim_layer_enabled,
@@ -356,7 +357,7 @@ def _queue_preview_associations(root: str, session_id: str, visible_bead_ids: li
             append_jsonl(
                 log_path,
                 {
-                    "schema": "openclaw.memory.crawler_update.v1",
+                    "schema": CRAWLER_UPDATE,
                     "kind": "association_append",
                     "session_id": session_id,
                     "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",

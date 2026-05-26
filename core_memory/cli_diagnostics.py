@@ -8,6 +8,7 @@ from pathlib import Path
 from .persistence.store import MemoryStore
 from .runtime.engine import process_turn_finalized, process_flush
 from .retrieval.tools.memory import execute as memory_execute_tool
+from .runtime.event_schemas import HEALTH_REPORT
 
 
 def canonical_health_report(root: str, write_path: str | None = None) -> dict:
@@ -37,7 +38,7 @@ def canonical_health_report(root: str, write_path: str | None = None) -> dict:
 
     out = {
         "ok": True,
-        "schema": "openclaw.memory.canonical_health_report.v1",
+        "schema": HEALTH_REPORT,
         "root": str(root),
         "checks": checks,
         "all_green": all(bool(v) for v in checks.values()),

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import append_jsonl, store_lock
+from core_memory.runtime.event_schemas import CRAWLER_UPDATE
 from core_memory.runtime.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 from core_memory.association.quarantine import write_quarantine
@@ -586,7 +587,7 @@ def apply_crawler_updates(
             append_jsonl(
                 log_path,
                 {
-                    "schema": "openclaw.memory.crawler_update.v1",
+                    "schema": CRAWLER_UPDATE,
                     "kind": "promotion_mark",
                     "session_id": str(session_id),
                     "bead_id": str(bid),
@@ -641,7 +642,7 @@ def apply_crawler_updates(
             append_jsonl(
                 log_path,
                 {
-                    "schema": "openclaw.memory.crawler_update.v1",
+                    "schema": CRAWLER_UPDATE,
                     "kind": "association_append",
                     "session_id": str(session_id),
                     "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
@@ -719,7 +720,7 @@ def apply_crawler_updates(
             append_jsonl(
                 log_path,
                 {
-                    "schema": "openclaw.memory.crawler_update.v1",
+                    "schema": CRAWLER_UPDATE,
                     "kind": "association_lifecycle",
                     "session_id": str(session_id),
                     "association_id": aid,

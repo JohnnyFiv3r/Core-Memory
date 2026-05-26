@@ -16,6 +16,7 @@ from typing import Any, Optional
 from ..persistence.io_utils import append_jsonl, store_lock
 from ..config.feature_flags import transcript_archive_enabled
 from .turn_archive import append_turn_record
+from .event_schemas import TURN_ENVELOPE, MEMORY_EVENT
 
 
 def _iso_now() -> str:
@@ -50,7 +51,7 @@ def sha256_hex(text: str) -> str:
 
 @dataclass
 class TurnEnvelope:
-    schema: str = "openclaw.memory.turn_envelope.v1"
+    schema: str = TURN_ENVELOPE
     session_id: str = ""
     turn_id: str = ""
     transaction_id: str = ""
@@ -101,7 +102,7 @@ class TurnEnvelope:
 
 @dataclass
 class MemoryEvent:
-    schema: str = "openclaw.memory.event.v1"
+    schema: str = MEMORY_EVENT
     event_id: str = ""
     session_id: str = ""
     turn_id: str = ""
