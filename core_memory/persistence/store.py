@@ -72,6 +72,9 @@ class MemoryStore(StoreReportingPromotionMixin, StoreCoreDelegatesMixin):
         close_store_for_store(self)
 
     def __del__(self):  # pragma: no cover
-        from ..persistence.store_lifecycle_ops import safe_del_for_store
+        from ..persistence.store_lifecycle_ops import close_store_for_store
 
-        safe_del_for_store(self)
+        try:
+            close_store_for_store(self)
+        except Exception:
+            pass
