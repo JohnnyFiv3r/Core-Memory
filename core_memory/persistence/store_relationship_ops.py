@@ -86,7 +86,25 @@ def link_for_store(
         events.event_association_created(store.root, assoc, use_lock=False)
         mark_trace_dirty(store.root, reason="link")
 
-        return assoc_id
+    _mirror_association_to_graph(store.root, assoc)
+    return assoc_id
+
+
+def _mirror_association_to_graph(root: Any, assoc: dict) -> None:
+    """Best-effort mirror association to graph backend. Failures log warnings, never raise."""
+    import logging
+    import os
+    from pathlib import Path
+    _log = logging.getLogger(__name__)
+
+    if os.environ.get("CORE_MEMORY_GRAPH_BACKEND", "kuzu").strip().lower() in ("none", ""):
+        return
+    try:
+        from core_memory.persistence.graph.factory import create_graph_backend
+        graph = create_graph_backend(Path(root))
+        graph.on_association_written(assoc)
+    except Exception as exc:
+        _log.warning("graph on_association_written failed for %s: %s", assoc.get("id"), exc)
 
 
 def recall_for_store(store: Any, bead_id: str) -> bool:

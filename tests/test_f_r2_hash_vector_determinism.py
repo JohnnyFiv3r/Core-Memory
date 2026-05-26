@@ -127,12 +127,14 @@ class TestStartupCheckRequired(unittest.TestCase):
     @patch.dict(os.environ, {
         "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
     }, clear=False)
-    def test_required_no_provider_raises(self):
+    def test_required_no_provider_raises_when_no_qdrant(self):
+        # Qdrant+FastEmbed is the new default and provides its own embeddings.
+        # Only raises if the user explicitly switches to FAISS/local with no other provider.
         env_clear = {
             "OPENAI_API_KEY": "",
             "GEMINI_API_KEY": "",
             "GOOGLE_API_KEY": "",
-            "CORE_MEMORY_VECTOR_BACKEND": "",
+            "CORE_MEMORY_VECTOR_BACKEND": "local-faiss",
         }
         with patch.dict(os.environ, env_clear):
             with self.assertRaises(RuntimeError) as ctx:
@@ -141,6 +143,21 @@ class TestStartupCheckRequired(unittest.TestCase):
             self.assertIn("required", msg)
             self.assertIn("degraded_allowed", msg)
             self.assertIn("pip install", msg)
+
+    @patch.dict(os.environ, {
+        "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
+    }, clear=False)
+    def test_required_qdrant_default_does_not_raise(self):
+        # Qdrant+FastEmbed provides its own embeddings — no external API key required.
+        env_clear = {
+            "OPENAI_API_KEY": "",
+            "GEMINI_API_KEY": "",
+            "GOOGLE_API_KEY": "",
+            "CORE_MEMORY_VECTOR_BACKEND": "qdrant",
+        }
+        with patch.dict(os.environ, env_clear):
+            _check_semantic_mode_startup()  # must not raise
+            self.assertTrue(sem_mod._startup_check_done)
 
     @patch.dict(os.environ, {
         "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",

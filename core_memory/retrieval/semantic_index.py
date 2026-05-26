@@ -32,20 +32,32 @@ _EXTERNAL_VECTOR_BACKENDS = {VECTOR_BACKEND_QDRANT, VECTOR_BACKEND_PGVECTOR, VEC
 
 
 def _normalize_vector_backend(value: str | None) -> str:
-    v = str(value or VECTOR_BACKEND_LOCAL_FAISS).strip().lower().replace("_", "-")
-    if v in {"", "auto", "local", "faiss", "local-faiss"}:
-        return VECTOR_BACKEND_LOCAL_FAISS
-    if v in {"qdrant"}:
+    # Default is qdrant (embedded, zero-ops). Use CORE_MEMORY_VECTOR_BACKEND=local-faiss to opt back.
+    v = str(value or VECTOR_BACKEND_QDRANT).strip().lower().replace("_", "-")
+    if v in {"", "auto", "qdrant"}:
         return VECTOR_BACKEND_QDRANT
+    if v in {"local", "faiss", "local-faiss"}:
+        return VECTOR_BACKEND_LOCAL_FAISS
     if v in {"pgvector", "postgres", "postgresql"}:
         return VECTOR_BACKEND_PGVECTOR
     if v in {"chromadb", "chroma"}:
         return VECTOR_BACKEND_CHROMADB
-    return VECTOR_BACKEND_LOCAL_FAISS
+    return VECTOR_BACKEND_QDRANT
+
+
+_faiss_deprecation_emitted = False
 
 
 def _configured_vector_backend() -> str:
-    return _normalize_vector_backend(os.environ.get("CORE_MEMORY_VECTOR_BACKEND"))
+    global _faiss_deprecation_emitted
+    result = _normalize_vector_backend(os.environ.get("CORE_MEMORY_VECTOR_BACKEND"))
+    if result == VECTOR_BACKEND_LOCAL_FAISS and not _faiss_deprecation_emitted:
+        _faiss_deprecation_emitted = True
+        logger.warning(
+            "core-memory: FAISS backend is deprecated; set CORE_MEMORY_VECTOR_BACKEND=qdrant. "
+            "FAISS will be removed in the next major version."
+        )
+    return result
 
 
 def _vector_collection_name(root: Path) -> str:
@@ -59,10 +71,13 @@ def _vector_collection_name(root: Path) -> str:
 def _create_external_backend(*, root: Path, backend: str, dimension: int):
     collection = _vector_collection_name(root)
     if backend == VECTOR_BACKEND_QDRANT:
+        url = os.environ.get("CORE_MEMORY_QDRANT_URL") or None
+        path = os.environ.get("CORE_MEMORY_QDRANT_PATH") or str(root / ".beads" / "qdrant")
         return create_vector_backend(
             "qdrant",
             collection_name=collection,
-            url=str(os.environ.get("CORE_MEMORY_QDRANT_URL") or "http://localhost:6333"),
+            url=url,
+            path=None if url else path,
             dimensions=int(max(1, dimension)),
         )
     if backend == VECTOR_BACKEND_PGVECTOR:
@@ -144,10 +159,11 @@ def _check_semantic_mode_startup() -> None:
         )
         return
 
-    # required mode: check if an embedding provider is actually available
+    # required mode: check if an embedding provider is actually available.
+    # Naming a provider (even without a key) counts as configured — key absence is caught at lookup time.
     configured_provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
     has_provider = bool(
-        configured_provider == "hash"
+        configured_provider in {"hash", "openai", "gemini", "google", "anthropic"}
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
@@ -160,9 +176,11 @@ def _check_semantic_mode_startup() -> None:
         pass
 
     vector_backend = _configured_vector_backend()
-    has_external = vector_backend in _EXTERNAL_VECTOR_BACKENDS
+    # Qdrant with FastEmbed provides its own embeddings — no external API key required.
+    has_qdrant_fastembed = vector_backend == VECTOR_BACKEND_QDRANT
+    has_external = vector_backend in _EXTERNAL_VECTOR_BACKENDS and not has_qdrant_fastembed
 
-    if not has_provider and not has_external and not has_faiss:
+    if not has_provider and not has_external and not has_faiss and not has_qdrant_fastembed:
         raise RuntimeError(
             "core-memory: semantic mode is 'required' (default) but no embedding provider is configured. "
             "Either:\n"

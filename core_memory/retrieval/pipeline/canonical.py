@@ -8,6 +8,8 @@ import json
 
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 from core_memory.persistence.backend import get_backend_capabilities
+from core_memory.persistence.graph.factory import create_graph_backend
+from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
     SEMANTIC_MODE_REQUIRED,
@@ -757,10 +759,14 @@ def search_request(
     elif retrieval_mode == "temporal_first":
         sem_k = max(20, int(k) * 2)
 
-    if _caps.vector_search:
-        sem = {"ok": False, "warnings": ["backend.search_candidates not yet wired in retrieval pipeline"]}
-    else:
-        sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
+    try:
+        if _caps.vector_search:
+            # Qdrant hybrid: sparse+dense in one query with eligibility filters pushed down
+            sem = hybrid_lookup(rp, expanded_query or query, k=sem_k)
+        else:
+            sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
+    except RuntimeError:
+        sem = {"ok": False, "warnings": ["semantic_backend_unavailable"]}
     if not sem.get("ok"):
         return _semantic_failure_response(
             query=query,
@@ -984,7 +990,9 @@ def trace_request(
     anchors = anchors_out.get("anchors") or []
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
     if _caps.graph_traversal:
-        trav = {"ok": True, "chains": []}  # backend.traverse not yet wired; falls through to Python-side
+        _graph = create_graph_backend(Path(root))
+        _chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=3, max_chains=5)
+        trav = {"ok": True, "chains": _chains, "backend": _graph.name}
     else:
         trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])

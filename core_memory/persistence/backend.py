@@ -440,19 +440,25 @@ class SqliteBackend:
 
 
 def get_backend_capabilities(beads_dir: Path) -> BackendCapabilities:
-    """Return capability declaration for the configured backend without instantiating it.
+    """Return capability declaration based on configured storage + vector + graph backends.
 
-    Reads CORE_MEMORY_BACKEND to determine the backend type and returns its
-    BackendCapabilities. All shipping backends (json, sqlite) declare zero
-    capabilities; the retrieval pipeline always falls through to Python-side
-    FAISS/graph-traverse paths. Phase 7 (Neo4j) updates this for graph_traversal.
+    Storage backend (CORE_MEMORY_BACKEND) determines base capabilities.
+    Vector backend (CORE_MEMORY_VECTOR_BACKEND) and graph backend
+    (CORE_MEMORY_GRAPH_BACKEND) extend them.
     """
-    backend_name = (os.environ.get("CORE_MEMORY_BACKEND") or "json").strip().lower()
-    _CAPS: dict[str, BackendCapabilities] = {
-        "json": BackendCapabilities(),
-        "sqlite": BackendCapabilities(),
-    }
-    return _CAPS.get(backend_name, BackendCapabilities())
+    vector = (os.environ.get("CORE_MEMORY_VECTOR_BACKEND") or "qdrant").strip().lower()
+    graph = (os.environ.get("CORE_MEMORY_GRAPH_BACKEND") or "kuzu").strip().lower()
+
+    vector_search = vector in ("qdrant",)
+    full_text_search = vector in ("qdrant",)
+    graph_traversal = graph in ("kuzu", "neo4j")
+
+    return BackendCapabilities(
+        vector_search=vector_search,
+        graph_traversal=graph_traversal,
+        full_text_search=full_text_search,
+        transcript_hydration=False,
+    )
 
 
 def create_backend(beads_dir: Path, backend: str = "json") -> StorageBackend:

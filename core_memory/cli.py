@@ -198,6 +198,11 @@ def main():
     int_migrate_sub.add_parser("rebuild-turn-indexes", help="Rebuild .turns per-session indexes")
     int_migrate_sub.add_parser("backfill-bead-session-ids", help="Backfill missing bead session_id values")
 
+    migrate_parser = subparsers.add_parser("migrate", help="Populate Qdrant and Kuzu from existing bead store (idempotent)")
+    migrate_parser.add_argument("--dry-run", action="store_true", help="Report counts without writing")
+    migrate_parser.add_argument("--skip-vectors", action="store_true", help="Skip Qdrant population")
+    migrate_parser.add_argument("--skip-graph", action="store_true", help="Skip Kuzu/graph population")
+
     ops_parser = subparsers.add_parser("ops", help="Operational maintenance and diagnostics")
     ops_sub = ops_parser.add_subparsers(dest="ops_cmd")
     ops_sub.add_parser("doctor", help="Run local store health checks")
@@ -384,6 +389,10 @@ def main():
         memory = MemoryStore(root=args.root)
         print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
         return
+
+    if args.command == "migrate":
+        from core_memory.cli_handlers_migrate import handle_migrate
+        sys.exit(handle_migrate(args))
 
     if args.command == "ingest":
         if args.ingest_cmd == "transcript":
