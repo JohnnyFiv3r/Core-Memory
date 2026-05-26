@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core_memory.runtime.worker import SidecarPolicy
+from core_memory.runtime.queue.worker import SidecarPolicy
 from core_memory.runtime.engine import process_turn_finalized, emit_turn_finalized
 from core_memory.schema.turn import Turn
 

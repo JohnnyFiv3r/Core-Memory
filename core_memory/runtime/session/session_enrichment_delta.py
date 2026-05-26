@@ -794,7 +794,7 @@ def canonical_session_projection(root: str | Path, session_id: str) -> dict[str,
     It reads the canonical committed surfaces only; it does not mutate runtime
     state or make semantic decisions.
     """
-    from core_memory.runtime.session_surface import read_session_surface
+    from core_memory.runtime.session.session_surface import read_session_surface
 
     root_path = Path(root)
     sid = _as_str(session_id)

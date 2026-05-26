@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, list_dreamer_candidates
-from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
+from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 
 
 def _load_json_object(path: str, *, code_prefix: str, flag_name: str) -> dict[str, Any]:

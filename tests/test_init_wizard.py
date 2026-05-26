@@ -34,7 +34,7 @@ def _make_args(**kwargs):
 
 class TestPresetMode(unittest.TestCase):
     def test_preset_local_writes_config(self):
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, preset="local")
             with patch("sys.stdout"):
@@ -43,7 +43,7 @@ class TestPresetMode(unittest.TestCase):
 
     def test_preset_local_config_correct_backend(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, preset="local")
             with patch("sys.stdout"):
@@ -54,7 +54,7 @@ class TestPresetMode(unittest.TestCase):
 
     def test_preset_neo4j_config_correct(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, preset="neo4j")
             with patch("sys.stdout"):
@@ -65,7 +65,7 @@ class TestPresetMode(unittest.TestCase):
 
     def test_preset_sqlite_config_correct(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, preset="sqlite")
             with patch("sys.stdout"):
@@ -74,7 +74,7 @@ class TestPresetMode(unittest.TestCase):
             self.assertEqual(config["backend"], "sqlite")
 
     def test_unknown_preset_exits(self):
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, preset="totally_unknown")
             with patch("sys.stdout"), self.assertRaises(SystemExit) as cm:
@@ -89,7 +89,7 @@ class TestPresetMode(unittest.TestCase):
 class TestModeWizard(unittest.TestCase):
     def test_mode_local_writes_kuzu_graph_backend(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, mode="local")
             with patch("sys.stdout"):
@@ -100,7 +100,7 @@ class TestModeWizard(unittest.TestCase):
 
     def test_mode_mcp_writes_integration_mcp(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, mode="mcp")
             with patch("sys.stdout"):
@@ -111,7 +111,7 @@ class TestModeWizard(unittest.TestCase):
 
     def test_mode_app_writes_sqlite_backend(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, mode="app")
             with patch("sys.stdout"):
@@ -122,7 +122,7 @@ class TestModeWizard(unittest.TestCase):
 
     def test_mode_production_writes_neo4j_and_postgres(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, mode="production")
             with patch("sys.stdout"):
@@ -134,7 +134,7 @@ class TestModeWizard(unittest.TestCase):
 
     def test_mode_beats_preset_when_both_given(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             # --mode mcp should win over --preset local
             args = _make_args(root=tmpdir, mode="mcp", preset="local")
@@ -144,7 +144,7 @@ class TestModeWizard(unittest.TestCase):
             self.assertEqual(config["integration"], "mcp")
 
     def test_unknown_mode_exits(self):
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, mode="totally_unknown")
             with patch("sys.stdout"), self.assertRaises(SystemExit) as cm:
@@ -153,7 +153,7 @@ class TestModeWizard(unittest.TestCase):
 
     def test_all_non_production_modes_use_kuzu(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         for mode in ("local", "mcp", "app"):
             with self.subTest(mode=mode), tempfile.TemporaryDirectory() as tmpdir:
                 args = _make_args(root=tmpdir, mode=mode)
@@ -171,7 +171,7 @@ class TestModeWizard(unittest.TestCase):
 class TestIdempotency(unittest.TestCase):
     def test_second_run_skips_without_force(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, mode="local")
             with patch("sys.stdout"):
@@ -189,7 +189,7 @@ class TestIdempotency(unittest.TestCase):
 
     def test_force_overwrites_existing(self):
         import yaml
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, mode="local")
             with patch("sys.stdout"):
@@ -211,7 +211,7 @@ class TestIdempotency(unittest.TestCase):
 
 class TestGlobalFlag(unittest.TestCase):
     def test_global_writes_to_home_dir(self):
-        from core_memory.cli_handlers_setup import init_command
+        from core_memory.cli.handlers.setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_home_config = Path(tmpdir) / "config.yaml"
             with patch("core_memory.cli.handlers.setup._USER_CONFIG_PATH", fake_home_config):

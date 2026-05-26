@@ -185,6 +185,9 @@ def process_turn_finalized_impl(
                 "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
             }
 
+    gate: dict[str, Any] = {}
+    reviewed_updates: dict[str, Any] | None = None
+
     claimed, state_after = try_claim_memory_pass(Path(root), req["session_id"], req["turn_id"])
     if not claimed:
         emit_agent_turn_quality_metric(
@@ -351,7 +354,7 @@ def process_turn_finalized_impl(
 
     # F-W1: enqueue enrichment stages instead of running them inline.
     # The bead is already persisted — enrichment is post-commit.
-    from core_memory.runtime.enrichment import enqueue_turn_enrichment, _enrichment_queue_enabled
+    from core_memory.runtime.passes.enrichment import enqueue_turn_enrichment, _enrichment_queue_enabled
 
     bead_id = str((delta or {}).get("bead_id") or "")
     enrichment_queued = False

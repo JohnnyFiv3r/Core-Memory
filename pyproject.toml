@@ -70,6 +70,7 @@ include = ["core_memory*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["."]
 markers = [
     "facade: tests that import from core_memory.graph.api (targeted for Phase 4 removal)",
     "mixin_assembly: tests that instantiate MemoryStore end-to-end via mixin chain (targeted for Phase 5)",

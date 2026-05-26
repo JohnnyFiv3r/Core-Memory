@@ -5,7 +5,7 @@ import sys
 from typing import Any
 
 from core_memory.integrations.openclaw.compaction_bridge import process_compaction_event
-from core_memory.runtime.compaction_queue import (
+from core_memory.runtime.queue.compaction_queue import (
     enqueue_compaction_event as _enqueue_compaction_event,
     drain_compaction_queue as _drain_compaction_queue,
 )

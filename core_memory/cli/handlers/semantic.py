@@ -6,7 +6,7 @@ from typing import Any
 
 from core_memory.retrieval.lifecycle import enqueue_semantic_rebuild, semantic_status, semantic_tail
 from core_memory.retrieval.semantic_index import semantic_doctor
-from core_memory.runtime.jobs import run_async_jobs
+from core_memory.runtime.queue.jobs import run_async_jobs
 
 
 def _print_json(payload: dict[str, Any]) -> None:

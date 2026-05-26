@@ -14,8 +14,8 @@ from typing import Any
 
 from core_memory.persistence.store import DEFAULT_ROOT
 from core_memory.retrieval.lifecycle import enqueue_semantic_rebuild
-from core_memory.runtime.compaction_queue import drain_compaction_queue, enqueue_compaction_event
-from core_memory.runtime.side_effect_queue import (
+from core_memory.runtime.queue.compaction_queue import drain_compaction_queue, enqueue_compaction_event
+from core_memory.runtime.queue.side_effect_queue import (
     drain_side_effect_queue,
     enqueue_side_effect_event,
     side_effect_queue_status,

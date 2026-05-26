@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core_memory.integrations.openclaw_runtime import coordinator_finalize_hook, finalize_and_process_turn
-from core_memory.integrations.openclaw_onboard import run_openclaw_onboard, render_onboard_report
+from core_memory.integrations.openclaw.runtime import coordinator_finalize_hook, finalize_and_process_turn
+from core_memory.integrations.openclaw.onboard import run_openclaw_onboard, render_onboard_report
 
 
 def handle_integration_commands(*, args: Any, memory: Any, sidecar_parser: Any, openclaw_parser: Any) -> bool:

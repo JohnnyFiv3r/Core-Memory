@@ -69,13 +69,11 @@ This could be LLM-assisted (ask "does this turn resolve any open goals?") or heu
 
 ## 3. Association relationship types
 
-**Current behavior:** All associations created from `association_preview` have relationship type `shared_tag`. This is the store's quick-match heuristic.
+**Status:** Partially resolved. The `association_preview` path now assigns canonical relationship types (`caused_by`, `led_to`, `reinforces`, `transferable_lesson`, etc.) using `core_memory/association/preview.py`. The runtime explicitly treats `shared_tag` as a non-canonical heuristic match (see `engine.py` around `_queue_preview_associations`).
 
-**Problem:** The relationship types should be more descriptive — `caused_by`, `led_to`, `reinforces`, etc. The schema supports 28 relationship types but only `shared_tag` is used in practice through the PydanticAI path.
+**Remaining gap:** The PydanticAI adapter path still defaults to `shared_tag` when no relationship type is specified by the agent. To fully close this, either have the agent provide explicit relationship types, or run the preview classifier on agent-proposed associations before committing them.
 
-**Fix:** Either use the LLM to classify the relationship type when queuing associations, or improve the store's preview logic to infer richer relationship types from bead content.
-
-**Files:** `core_memory/runtime/engine.py` (`_queue_preview_associations`), `core_memory/persistence/store.py` (association preview logic)
+**Files:** `core_memory/association/preview.py`, `core_memory/runtime/engine.py` (`_queue_preview_associations`), `core_memory/integrations/pydantic_ai/`
 
 ## 4. Bead type classifier — questions misclassified as precedent
 

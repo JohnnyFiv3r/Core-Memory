@@ -5,10 +5,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core_memory.persistence.archive_index import rebuild_archive_index
-from core_memory.runtime.dreamer_eval import dreamer_eval_report
-from core_memory.runtime.longitudinal_benchmark import longitudinal_benchmark_v2
-from core_memory.runtime.reviewer_quick_value import reviewer_quick_value_v2
-from core_memory.runtime.myelination import myelination_report
+from core_memory.runtime.dreamer.eval import dreamer_eval_report
+from core_memory.runtime.dreamer.longitudinal import longitudinal_benchmark_v2
+from core_memory.runtime.observability.reviewer_quick_value import reviewer_quick_value_v2
+from core_memory.runtime.observability.myelination import myelination_report
 
 
 def handle_metrics_command(*, args: Any, memory: Any, metrics_parser: Any, canonical_health_report: Callable[[str, str | None], dict]) -> bool:

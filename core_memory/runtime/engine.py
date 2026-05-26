@@ -464,7 +464,7 @@ def process_turn_finalized(
     # F-W1: drain enrichment queue after critical path returns
     if result.get("ok") and result.get("enrichment_queued"):
         try:
-            from core_memory.runtime.side_effect_queue import drain_side_effect_queue
+            from core_memory.runtime.queue.side_effect_queue import drain_side_effect_queue
             drain_out = drain_side_effect_queue(root=root, max_items=1)
             result["enrichment_drain"] = drain_out
             if claim_layer_enabled():

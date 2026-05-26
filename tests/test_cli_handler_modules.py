@@ -6,11 +6,11 @@ from unittest.mock import Mock, patch
 import tempfile
 from pathlib import Path
 
-from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates
+from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
-from core_memory.cli_handlers_store import handle_store_commands
-from core_memory.cli_handlers_graph import handle_graph_command
-from core_memory.cli_handlers_metrics import handle_metrics_command
+from core_memory.cli.handlers.store import handle_store_commands
+from core_memory.cli.handlers.graph import handle_graph_command
+from core_memory.cli.handlers.metrics import handle_metrics_command
 
 
 class TestCliHandlerModulesSlice51A(unittest.TestCase):

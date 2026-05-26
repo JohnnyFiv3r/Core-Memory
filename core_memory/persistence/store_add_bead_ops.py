@@ -9,7 +9,7 @@ from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
-from core_memory.runtime.session_surface import read_session_surface
+from core_memory.runtime.session.session_surface import read_session_surface
 
 
 def add_bead_for_store(
