@@ -135,19 +135,19 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 ## Phase 6 — Unify StorageBackend + VectorBackend into Capability Tiers
 
 **PRD:** `docs/PRD/06-storage-adapter-boundary.md`
+**Status:** Complete (already implemented)
 
-- [ ] Extend `StorageBackend` protocol (`persistence/backend.py`) with three new methods:
+- [x] Extend `StorageBackend` protocol (`persistence/backend.py`) with three new methods:
       `search_candidates(query_vec, filters, limit)`,
       `traverse(seed_ids, edge_types, max_hops)`,
       `hydrate_turn_refs(turn_refs)`
-- [ ] Add `BackendCapabilities` dataclass with boolean flags:
+- [x] Add `BackendCapabilities` dataclass with boolean flags:
       `vector_search`, `graph_traversal`, `full_text_search`, `transcript_hydration`
-- [ ] `JsonFileBackend` and `SqliteBackend` declare `vector_search=False,
-      graph_traversal=False` — Python fallbacks handle those tiers
-- [ ] Wire retrieval pipeline to check capabilities before delegating: use backend method
-      if `capabilities.vector_search` else use existing FAISS/pgvector path
-- [ ] Keep existing `VectorBackend` abstraction working as a side-car for backends that
-      declare `vector_search=False`
+- [x] `JsonFileBackend` and `SqliteBackend` declare all flags `False`; Python fallbacks fire
+- [x] Retrieval pipeline (`canonical.py`) checks `_caps.vector_search` and
+      `_caps.graph_traversal` before delegating — else branches are the existing paths
+- [x] Existing `VectorBackend` (FAISS/pgvector) remains the fallback for `vector_search=False`
+- [x] `tests/test_backend_capabilities.py` — 11 tests covering all criteria (all pass)
 
 **Risk:** Medium. No behavior changes; capability flags start `False` everywhere.
 
