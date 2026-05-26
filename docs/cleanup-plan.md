@@ -204,23 +204,36 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 ## Phase 8 — `core-memory init` Guided Wizard + `core-memory doctor` Expansion
 
 **PRD:** `docs/PRD/08-init-wizard.md`
-**Status:** Complete (2026-05-26)
 
-- [x] Expand `core-memory init` into a guided wizard with `--preset` flag for
-      non-interactive use. Wizard options:
-      Install type (local/sqlite/postgres/neo4j/custom),
-      Runtime integration (MCP/OpenClaw/PydanticAI/HTTP/none),
-      Memory behavior (rolling window size, dreamer on/off, grounding on/off)
-- [x] Write output to `~/.core-memory/config.yaml` (user-global) or `.core-memory.yaml`
-      (project-local, takes precedence); `core_memory/config/settings.py` reads + merges
-      config with env vars (defaults < user-global < project-local < env vars)
-- [x] Expand `core-memory setup doctor` to verify each capability tier:
-      storage backend reachable, vector search, graph traversal, transcript hydration,
-      dreamer status, rolling window — structured JSON output, exits 1 on any error
-- [x] `core-memory setup init` creates `.beads/` and `.turns/` directories, writes
-      `.core-memory.yaml`; idempotent (no-op without `--force`); `--global` writes to home
+### Phase 8a — Complete (2026-05-26)
 
-**Risk:** Low for wizard (additive). Medium for doctor (touches diagnostic paths).
+- [x] Layered config reader (`core_memory/config/settings.py`):
+      defaults < user-global `~/.core-memory/config.yaml` < project-local `.core-memory.yaml` < env vars
+- [x] `core-memory setup init` guided wizard with `--preset`, `--global`, `--force`;
+      creates `.beads/` + `.turns/`, writes `.core-memory.yaml`; idempotent without `--force`
+- [x] `core-memory setup doctor` expanded to 6 capability tiers: storage, vector search,
+      graph traversal, transcript hydration, dreamer, rolling window — structured JSON output,
+      exits 1 on any error tier
+
+### Phase 8b — Scope extended (PRD updated 2026-05-26)
+
+- [ ] **8b-1 Mode-based wizard** — `--mode local|mcp|app|production` replaces `--preset`;
+      first wizard question is use-case intent, not storage backend; `--preset` kept as
+      deprecated alias; `mode` field written to config; Kuzu is the default graph for all
+      non-production modes (no graph config step for local/mcp/app)
+- [ ] **8b-2 Doctor profiles** — `--profile local|mcp|app|production` (auto-detected from
+      config `mode`); profile gates severity matrix (local hides Neo4j checks, production
+      escalates them to errors); human-readable default output with three-part warnings
+      (Impact / Fix per non-ok check); Kuzu shown as "✓ Graph: Kuzu (embedded)" for
+      local/mcp/app, never a warning; `--json` flag for machine-readable output
+- [ ] **8b-3 `core-memory config` subcommand** — `config show` (resolved values + per-key
+      provenance), `config set key value` (non-destructive in-place update of project-local
+      config), `config validate` (contradiction checks for declared mode)
+- [ ] **8b-4 `core-memory demo`** — synthetic write/recall loop; writes 3 beads, runs recall,
+      prints causal chain; exits 0; cleans up demo session; `--keep` flag to retain beads
+
+**Risk:** Low for wizard/config/demo (additive). Medium for doctor refactor (touches probe
+logic and human output format).
 
 ---
 
