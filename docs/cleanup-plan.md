@@ -215,22 +215,21 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
       graph traversal, transcript hydration, dreamer, rolling window — structured JSON output,
       exits 1 on any error tier
 
-### Phase 8b — Scope extended (PRD updated 2026-05-26)
+### Phase 8b — Complete (2026-05-26)
 
-- [ ] **8b-1 Mode-based wizard** — `--mode local|mcp|app|production` replaces `--preset`;
-      first wizard question is use-case intent, not storage backend; `--preset` kept as
-      deprecated alias; `mode` field written to config; Kuzu is the default graph for all
-      non-production modes (no graph config step for local/mcp/app)
-- [ ] **8b-2 Doctor profiles** — `--profile local|mcp|app|production` (auto-detected from
-      config `mode`); profile gates severity matrix (local hides Neo4j checks, production
-      escalates them to errors); human-readable default output with three-part warnings
-      (Impact / Fix per non-ok check); Kuzu shown as "✓ Graph: Kuzu (embedded)" for
-      local/mcp/app, never a warning; `--json` flag for machine-readable output
-- [ ] **8b-3 `core-memory config` subcommand** — `config show` (resolved values + per-key
-      provenance), `config set key value` (non-destructive in-place update of project-local
-      config), `config validate` (contradiction checks for declared mode)
-- [ ] **8b-4 `core-memory demo`** — synthetic write/recall loop; writes 3 beads, runs recall,
-      prints causal chain; exits 0; cleans up demo session; `--keep` flag to retain beads
+- [x] **8b-1 Mode-based wizard** — `--mode local|mcp|app|production` replaces `--preset`;
+      first wizard question is use-case intent; `--preset` kept as deprecated alias; `mode`
+      field written to config; Kuzu is the default graph for all non-production modes
+- [x] **8b-2 Doctor profiles** — `--profile` auto-detected from config `mode`; severity
+      matrix gates what's error/warning/info/hidden per profile; human-readable default output
+      with ✓/⚠/✗/ℹ icons and three-part Impact/Fix hints; auto-JSON when stdout is not a
+      tty; Kuzu shown as "embedded, zero-config" for local/mcp/app, never a warning
+- [x] **8b-3 `core-memory config` subcommand** — `config show` with per-key provenance
+      (file path / "default" / "env:VAR"); `config set key value` non-destructive in-place
+      update; `config validate` catches neo4j-without-uri, postgres-without-dsn, and
+      production-without-durable-backend contradictions
+- [x] **8b-4 `core-memory demo`** — writes 3 synthetic beads, queries, prints result + graph
+      status; cleans up session file on exit; `--keep` retains beads
 
 **Risk:** Low for wizard/config/demo (additive). Medium for doctor refactor (touches probe
 logic and human output format).
