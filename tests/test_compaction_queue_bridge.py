@@ -12,7 +12,7 @@ class TestCompactionQueueBridge(unittest.TestCase):
             self.assertTrue(enq.get("ok"))
             self.assertEqual(1, enq.get("queue_depth"))
 
-            with patch("core_memory.integrations.openclaw_compaction_queue.process_compaction_event") as proc:
+            with patch("core_memory.integrations.openclaw.compaction_queue.process_compaction_event") as proc:
                 proc.return_value = {"ok": True}
                 out = drain_compaction_queue(root=td, max_items=1)
                 self.assertTrue(out.get("ok"))
@@ -22,7 +22,7 @@ class TestCompactionQueueBridge(unittest.TestCase):
     def test_failure_schedules_retry(self):
         with tempfile.TemporaryDirectory() as td:
             enqueue_compaction_event(event={"runId": "r1"}, ctx={"sessionKey": "main"}, root=td)
-            with patch("core_memory.integrations.openclaw_compaction_queue.process_compaction_event") as proc:
+            with patch("core_memory.integrations.openclaw.compaction_queue.process_compaction_event") as proc:
                 proc.return_value = {"ok": False, "error": "timeout"}
                 out1 = drain_compaction_queue(root=td, max_items=1)
                 self.assertGreaterEqual((out1.get("failed") or 0), 1)
