@@ -7,8 +7,8 @@ from core_memory.runtime.jobs import enqueue_async_job
 
 
 class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
-    @patch("core_memory.runtime.jobs.semantic_rebuild_queue_status")
-    @patch("core_memory.runtime.jobs.enqueue_semantic_rebuild")
+    @patch("core_memory.runtime.queue.jobs.semantic_rebuild_queue_status")
+    @patch("core_memory.runtime.queue.jobs.enqueue_semantic_rebuild")
     def test_enqueue_semantic_rebuild(self, enqueue_semantic, semantic_status):
         enqueue_semantic.return_value = {"ok": True, "queued": True, "epoch": 4}
         semantic_status.return_value = {"ok": True, "kind": "semantic_rebuild", "queued": True, "pending": 1}
@@ -21,8 +21,8 @@ class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
         self.assertTrue((out.get("queue") or {}).get("queued"))
         self.assertTrue((out.get("status") or {}).get("queued"))
 
-    @patch("core_memory.runtime.jobs.compaction_queue_status")
-    @patch("core_memory.runtime.jobs.enqueue_compaction_event")
+    @patch("core_memory.runtime.queue.jobs.compaction_queue_status")
+    @patch("core_memory.runtime.queue.jobs.enqueue_compaction_event")
     def test_enqueue_compaction(self, enqueue_compaction, compaction_status):
         enqueue_compaction.return_value = {"ok": True, "queue_depth": 2, "id": "cq-1"}
         compaction_status.return_value = {"ok": True, "kind": "compaction", "queue_depth": 2}
@@ -48,8 +48,8 @@ class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
         self.assertEqual("unknown_kind", err.get("code"))
         self.assertIn("allowed", err)
 
-    @patch("core_memory.runtime.jobs.side_effect_queue_status")
-    @patch("core_memory.runtime.jobs.enqueue_side_effect_event")
+    @patch("core_memory.runtime.queue.jobs.side_effect_queue_status")
+    @patch("core_memory.runtime.queue.jobs.enqueue_side_effect_event")
     def test_enqueue_dreamer_side_effect_kind(self, enqueue_side_effect, side_effect_status):
         enqueue_side_effect.return_value = {"ok": True, "id": "se-1", "queue_depth": 1, "kind": "dreamer-run"}
         side_effect_status.return_value = {"ok": True, "kind": "side_effects", "queue_depth": 1}

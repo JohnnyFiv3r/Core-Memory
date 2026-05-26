@@ -260,7 +260,7 @@ logic and human output format).
       `runtime/longitudinal_benchmark.py` all move to
       `runtime/dreamer/analysis.py`, `candidates.py`, `eval.py`, `longitudinal.py`.
       Backward-compat shims left at all four old paths.
-- [ ] **9f — Reorganize `runtime/` into subdirectories** — create `turn/`, `flush/`,
+- [x] **9f — Reorganize `runtime/` into subdirectories** — create `turn/`, `flush/`,
       `session/`, `passes/`, `queue/`, `observability/` subdirectories. Each `__init__.py`
       re-exports old module symbols as a migration shim.
 - [ ] **9g — Thin `integrations/api.py`** — audit all 22+ outgoing imports; any that
@@ -296,9 +296,38 @@ logic and human output format).
         `cli_handlers_setup.py`, `cli_handlers_store.py`, `cli_memory_handlers.py`,
         `cli_parser_extended.py`, `cli_parser_memory.py`, `cli_parser_ops.py`
 
+      **From 9f** (27 shims):
+      - `runtime/turn_flow.py` → `runtime/turn/turn_flow.py`
+      - `runtime/turn_prep.py` → `runtime/turn/turn_prep.py`
+      - `runtime/turn_archive.py` → `runtime/turn/turn_archive.py`
+      - `runtime/turn_quality.py` → `runtime/turn/turn_quality.py`
+      - `runtime/ingress.py` → `runtime/turn/ingress.py`
+      - `runtime/flush_flow.py` → `runtime/flush/flush_flow.py`
+      - `runtime/flush_state.py` → `runtime/flush/flush_state.py`
+      - `runtime/live_session.py` → `runtime/session/live_session.py`
+      - `runtime/session_start_flow.py` → `runtime/session/session_start_flow.py`
+      - `runtime/session_enrichment_delta.py` → `runtime/session/session_enrichment_delta.py`
+      - `runtime/session_surface.py` → `runtime/session/session_surface.py`
+      - `runtime/goal_lifecycle.py` → `runtime/session/goal_lifecycle.py`
+      - `runtime/association_pass.py` → `runtime/passes/association_pass.py`
+      - `runtime/decision_pass.py` → `runtime/passes/decision_pass.py`
+      - `runtime/enrichment.py` → `runtime/passes/enrichment.py`
+      - `runtime/agent_authored_contract.py` → `runtime/passes/agent_authored_contract.py`
+      - `runtime/agent_crawler_invoke.py` → `runtime/passes/agent_crawler_invoke.py`
+      - `runtime/jobs.py` → `runtime/queue/jobs.py`
+      - `runtime/side_effect_queue.py` → `runtime/queue/side_effect_queue.py`
+      - `runtime/side_effects.py` → `runtime/queue/side_effects.py`
+      - `runtime/compaction_queue.py` → `runtime/queue/compaction_queue.py`
+      - `runtime/worker.py` → `runtime/queue/worker.py`
+      - `runtime/observability.py` → `runtime/observability/observability.py`
+      - `runtime/reviewer_quick_value.py` → `runtime/observability/reviewer_quick_value.py`
+      - `runtime/myelination.py` → `runtime/observability/myelination.py`
+      - `runtime/retrieval_feedback.py` → `runtime/observability/retrieval_feedback.py`
+      - `runtime/retrieval_value_overrides.py` → `runtime/observability/retrieval_value_overrides.py`
+
       **Prerequisite:** grep the full repo (tests, docs, external tool scripts) for any
       import of each old flat path. Update each callsite to the canonical location before
-      deleting. This task should be done as one PR per shim group (9a, 9c, 9d) so
+      deleting. This task should be done as one PR per shim group (9a, 9c, 9d, 9e, 9f) so
       failures are easy to bisect.
 
 **Risk:** Medium per sub-task, high in aggregate. Do one sub-task per PR. Never batch.

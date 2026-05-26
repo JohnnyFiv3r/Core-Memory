@@ -7,7 +7,7 @@ from pathlib import Path
 class TestRuntimeJobsLayeringSlice52A(unittest.TestCase):
     def test_runtime_jobs_not_coupled_to_openclaw_integration_queue_module(self):
         repo = Path(__file__).resolve().parents[1]
-        text = (repo / "core_memory" / "runtime" / "jobs.py").read_text(encoding="utf-8")
+        text = (repo / "core_memory" / "runtime" / "queue" / "jobs.py").read_text(encoding="utf-8")
         self.assertNotIn("integrations.openclaw_compaction_queue", text)
         self.assertIn("runtime.compaction_queue", text)
 
