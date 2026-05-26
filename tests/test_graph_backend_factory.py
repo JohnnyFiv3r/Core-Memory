@@ -9,10 +9,12 @@ from core_memory.persistence.graph.factory import _PROVIDERS
 
 
 class TestCreateGraphBackendEnvRouting(unittest.TestCase):
-    def test_no_env_var_returns_null(self):
+    def test_no_env_var_defaults_to_kuzu(self):
+        # Default is kuzu (embedded, zero-ops). Empty string behaves the same.
+        from core_memory.persistence.graph.kuzu_backend import KuzuGraphBackend
         with patch.dict("os.environ", {"CORE_MEMORY_GRAPH_BACKEND": ""}, clear=False):
             gb = create_graph_backend()
-        self.assertIsInstance(gb, NullGraphBackend)
+        self.assertIsInstance(gb, KuzuGraphBackend)
 
     def test_none_returns_null(self):
         with patch.dict("os.environ", {"CORE_MEMORY_GRAPH_BACKEND": "none"}, clear=False):

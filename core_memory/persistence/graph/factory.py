@@ -40,7 +40,7 @@ def create_graph_backend(root: Path | None = None) -> GraphBackend:
     On unknown provider name or construction failure, logs a warning and
     returns NullGraphBackend so the caller always gets a valid backend.
     """
-    name = (os.environ.get("CORE_MEMORY_GRAPH_BACKEND") or "none").strip().lower()
+    name = (os.environ.get("CORE_MEMORY_GRAPH_BACKEND") or "kuzu").strip().lower()
 
     factory = _PROVIDERS.get(name)
     if factory is not None:
