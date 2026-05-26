@@ -242,20 +242,20 @@ logic and human output format).
 
 **PRD:** `docs/PRD/09-structural-consolidation.md`
 
-- [ ] **9a — Extract generic feature flags** from `integrations/openclaw_flags.py` into
+- [x] **9a — Extract generic feature flags** from `integrations/openclaw_flags.py` into
       `core_memory/config/feature_flags.py`. Only `supersede_openclaw_summary_enabled()`
       stays with OpenClaw. Update all importers in `runtime/` and `integrations/api.py`.
-- [ ] **9b — Rename event schema strings** — replace `"openclaw.memory.*"` string
+- [x] **9b — Rename event schema strings** — replace `"openclaw.memory.*"` string
       literals in `engine.py` and `flush_flow.py` with constants from a new
       `runtime/event_schemas.py`. Accept legacy values on read during transition.
-- [ ] **9c — Move OpenClaw files into `integrations/openclaw/`** — 7 flat files become a
-      proper subdirectory matching every other integration. Add backward-compat re-export
-      shims at old paths for one release cycle. Extract abstract `CrawlerContract`
-      protocol in `association/` so it no longer imports OpenClaw by name.
-- [ ] **9d — Move CLI into `core_memory/cli/`** — rename `cli.py` to `cli/__init__.py`,
-      create `cli/parsers/` and `cli/handlers/` subdirectories, move all 13 CLI files.
+- [x] **9c — Move OpenClaw files into `integrations/openclaw/`** — 7 flat files become a
+      proper subdirectory matching every other integration. Backward-compat re-export
+      shims left at old `integrations/openclaw_*.py` paths.
+- [x] **9d — Move CLI into `core_memory/cli/`** — `cli.py` → `cli/__init__.py` + `__main__.py`,
+      `cli/parsers/` and `cli/handlers/` subdirectories hold all 15 CLI files.
       Entry point `core_memory.cli:main` works without `pyproject.toml` changes.
-- [ ] **9e — Move Dreamer to `runtime/dreamer/`** — `dreamer.py` (top level), 
+      Backward-compat shims left at all old `cli_*.py` flat paths.
+- [ ] **9e — Move Dreamer to `runtime/dreamer/`** — `dreamer.py` (top level),
       `runtime/dreamer_candidates.py`, and `runtime/dreamer_eval.py` all move to
       `runtime/dreamer/analysis.py`, `candidates.py`, `eval.py`. Move
       `runtime/longitudinal_benchmark.py` to `eval/`.
@@ -266,6 +266,33 @@ logic and human output format).
       reach internal modules (`runtime.*`, `claim.*`, etc.) are replaced with imports
       from `core_memory`'s public `__all__`. Gaps in the public API are filled in
       `__init__.py` first.
+- [ ] **9h — Delete all backward-compat shims** — remove every re-export shim created
+      during Phase 9 structural moves. Full inventory:
+
+      **From 9a** (1 shim):
+      - `integrations/openclaw_flags.py` — re-exports from `integrations/openclaw/flags.py`
+        and `config/feature_flags.py`
+
+      **From 9c** (7 shims):
+      - `integrations/openclaw_agent_end_bridge.py`
+      - `integrations/openclaw_compaction_bridge.py`
+      - `integrations/openclaw_compaction_queue.py`
+      - `integrations/openclaw_onboard.py`
+      - `integrations/openclaw_read_bridge.py`
+      - `integrations/openclaw_runtime.py`
+      *(openclaw_flags.py already listed above)*
+
+      **From 9d** (15 shims):
+      - `cli_compat.py`, `cli_diagnostics.py`, `cli_handlers_graph.py`,
+        `cli_handlers_integrations.py`, `cli_handlers_metrics.py`,
+        `cli_handlers_migrate.py`, `cli_handlers_ops.py`, `cli_handlers_semantic.py`,
+        `cli_handlers_setup.py`, `cli_handlers_store.py`, `cli_memory_handlers.py`,
+        `cli_parser_extended.py`, `cli_parser_memory.py`, `cli_parser_ops.py`
+
+      **Prerequisite:** grep the full repo (tests, docs, external tool scripts) for any
+      import of each old flat path. Update each callsite to the canonical location before
+      deleting. This task should be done as one PR per shim group (9a, 9c, 9d) so
+      failures are easy to bisect.
 
 **Risk:** Medium per sub-task, high in aggregate. Do one sub-task per PR. Never batch.
 
