@@ -123,9 +123,10 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
       `store_index_heads_ops.py`, `store_session_ops.py`, `store_autonomy_ops.py`,
       `store_failure_ops.py`, `store_relationship_ops.py`) contain only STATEFUL functions
       with genuine `store.attr` access — no flattening opportunity.
-- [ ] **Step 5d — Mixin consolidation:** Now that ops files are flat, evaluate whether
-      `StoreCoreDelegatesMixin` (61 methods) and `StoreReportingPromotionMixin` (18 methods)
-      should be inlined into `MemoryStore` or kept as thinner mixins
+- [x] **Step 5d — Mixin consolidation:** Both mixin files deleted. All 79 methods (61 core +
+      18 reporting/promotion) inlined directly into `MemoryStore` in `store.py`. MRO is now
+      `[MemoryStore, object]`. Mixin-assembly tests rewritten as method-contract assertions on
+      `MemoryStore`. Full suite: 1025 passed, 4 failed (unchanged baseline).
 
 **Risk:** High individually, low per-step. Do not batch steps. Full CI between each file.
 
