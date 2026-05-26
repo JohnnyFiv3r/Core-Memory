@@ -108,6 +108,34 @@ def handle_graph_command(*, args: Any, memory: Any, graph_parser: Any) -> bool:
         print(json.dumps(out, indent=2))
         if not bool(out.get("ok")):
             raise SystemExit(2)
+    elif args.graph_cmd == "backend-sync":
+        from .persistence.graph.factory import create_graph_backend
+        from .persistence.backend import create_backend
+
+        gb = create_graph_backend(Path(memory.root))
+        if gb.name in ("null", "none"):
+            out = {"ok": False, "error": "no_graph_backend_configured",
+                   "hint": "Set CORE_MEMORY_GRAPH_BACKEND=neo4j (or kuzu) before running backend-sync."}
+            print(json.dumps(out, indent=2))
+            raise SystemExit(2)
+
+        storage = create_backend(Path(memory.root) / ".beads")
+        index = storage.load_index()
+        beads = list((index.get("beads") or {}).values())
+        associations = list(index.get("associations") or [])
+        dry_run = bool(getattr(args, "dry_run", False))
+
+        if dry_run:
+            out = {"ok": True, "dry_run": True, "would_sync_beads": len(beads),
+                   "would_sync_associations": len(associations), "backend": gb.name}
+        else:
+            out = gb.sync_from_storage(beads, associations)
+            out.setdefault("ok", True)
+            out["backend"] = gb.name
+
+        print(json.dumps(out, indent=2))
+        if not bool(out.get("ok")):
+            raise SystemExit(1)
     else:
         graph_parser.print_help()
     return True

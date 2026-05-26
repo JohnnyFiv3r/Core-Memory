@@ -153,21 +153,51 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 
 ---
 
-## Phase 7 — Promote Neo4j from Sync Target to Query Backend
+## Phase 7 — Graph Backend Abstraction (Pluggable Causal Graph Providers)
 
 **PRD:** `docs/PRD/07-neo4j-query-backend.md`
+**Status:** Sub-phases 7a–7d complete; 7e–7h (Graphiti, Obsidian) deferred
 
-- [ ] Create `integrations/neo4j/backend.py` implementing the extended `StorageBackend`
-      protocol with `capabilities.graph_traversal = True`
-- [ ] Implement `traverse()` via Cypher: `MATCH (b:Bead {id: $id})-[r*1..3]->(n:Bead)`
-      using existing `client.py` and `mapper.py`
-- [ ] `backend.py` is the read path; existing `sync.py` remains the write path
-- [ ] Register via `create_backend(root, backend="neo4j")`
-- [ ] Add `neo4j` backend option to `CORE_MEMORY_BACKEND` env var docs
-- [ ] Add integration tests that run against a local Neo4j instance (Docker Compose or
-      pytest-docker) and cover `traverse()` + `search_candidates()` round-trips
+### Sub-phase 7a — `persistence/graph/` package + protocol + factory
 
-**Risk:** Medium. Isolated to Neo4j integration module. No changes to core recall path.
+- [x] `GraphBackend` protocol in `persistence/graph/protocol.py`
+- [x] `NullGraphBackend` (default; all-False caps, no-op write hooks)
+- [x] `create_graph_backend(root)` factory reads `CORE_MEMORY_GRAPH_BACKEND`
+- [x] `register_graph_backend(name, factory)` plugin hook added to factory
+- [x] Factory falls back to `NullGraphBackend` on unknown provider or construction error (no raise)
+- [x] Retrieval pipeline (`canonical.py`) routes `graph_traversal` branch through factory
+- [x] `test_graph_backend_protocol.py` — 10 tests covering NullGraphBackend contract
+- [x] `test_graph_backend_factory.py` — env routing, missing-dep fallback, plugin registry
+
+### Sub-phase 7b — `Neo4jGraphBackend` read path
+
+- [x] `traverse()` via Cypher variable-length path query
+- [x] `health()` liveness probe (`RETURN 1`)
+- [x] `capabilities()` with TTL-based health probe — returns all-False when Neo4j unreachable
+- [x] `KuzuGraphBackend` (embedded; `CORE_MEMORY_GRAPH_BACKEND=kuzu`) — same interface
+- [x] `test_graph_backend_capabilities.py` — 5 tests (healthy/unhealthy/TTL/recovery)
+- [x] `test_graph_backend_neo4j_parity.py` + `test_kuzu_graph_backend.py` — mocked coverage
+- [ ] Live tests (`@pytest.mark.neo4j`) — deferred to CI Docker Compose setup
+
+### Sub-phase 7c — Write-side hooks
+
+- [x] `store_add_bead_ops.py` calls `graph.on_bead_written(bead)` after local write
+- [x] `store_relationship_ops.py` calls `graph.on_association_written(assoc)` after link write
+- [x] Failures are logged as warnings; never block the local write
+
+### Sub-phase 7d — `core-memory graph backend-sync` CLI
+
+- [x] `graph backend-sync [--dry-run]` subcommand added to parser + handler
+- [x] Loads beads/associations from `StorageBackend`, calls `gb.sync_from_storage(beads, assocs)`
+- [x] Returns exit code 2 when no graph backend is configured
+
+### Sub-phases 7e–7h (deferred)
+
+- [ ] `GraphitiGraphBackend` — self-hosted (7e) + Zep-hosted alias (7f) + Mode A LLM (7g)
+- [ ] `ObsidianGraphBackend` — markdown vault write + Local REST search (7h)
+- [ ] Plugin API docs (7i)
+
+**Risk:** Medium. Isolated to `persistence/graph/`. No changes to core recall path.
 
 ---
 

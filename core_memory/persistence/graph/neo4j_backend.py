@@ -1,8 +1,11 @@
 from __future__ import annotations
 
 import os
+import time
 
 from core_memory.persistence.backend import BackendCapabilities
+
+_DEFAULT_HEALTH_TTL_S = 60.0
 
 
 class Neo4jGraphBackend:
@@ -16,6 +19,11 @@ class Neo4jGraphBackend:
         except ImportError:
             raise ImportError("Neo4j backend requires: pip install core-memory[neo4j]")
         self._driver = GraphDatabase.driver(uri, auth=(user, password))
+        self._healthy: bool | None = None
+        self._health_checked_at: float = 0.0
+        self._health_ttl_s: float = float(
+            os.environ.get("CORE_MEMORY_GRAPH_HEALTH_TTL_S") or _DEFAULT_HEALTH_TTL_S
+        )
 
     @classmethod
     def from_env(cls) -> "Neo4jGraphBackend":
@@ -24,7 +32,16 @@ class Neo4jGraphBackend:
         password = os.environ.get("CORE_MEMORY_NEO4J_PASSWORD", "")
         return cls(uri=uri, user=user, password=password)
 
+    def _needs_recheck(self) -> bool:
+        return self._healthy is None or (time.monotonic() - self._health_checked_at) >= self._health_ttl_s
+
     def capabilities(self) -> BackendCapabilities:
+        if self._needs_recheck():
+            result = self.health()
+            self._healthy = bool(result.get("ok"))
+            self._health_checked_at = time.monotonic()
+        if not self._healthy:
+            return BackendCapabilities()
         return BackendCapabilities(graph_traversal=True)
 
     def health(self) -> dict:

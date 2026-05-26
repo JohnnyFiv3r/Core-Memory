@@ -92,6 +92,11 @@ def add_graph_parser(subparsers: argparse._SubParsersAction, *, legacy_help: str
     g_neo4j_sync.add_argument("--prune", action="store_true", help="Prune non-matching shadow graph data (optional)")
     g_neo4j_sync.add_argument("--full", action="store_true", help="Ignore filters and sync full projection")
     g_neo4j_sync.add_argument("--dry-run", action="store_true", help="Plan projection without remote writes")
+    g_backend_sync = graph_sub.add_parser(
+        "backend-sync",
+        help="Bulk sync local projection into the configured graph backend (CORE_MEMORY_GRAPH_BACKEND)",
+    )
+    g_backend_sync.add_argument("--dry-run", action="store_true", help="Report counts without writing to the backend")
     return graph_parser
 
 

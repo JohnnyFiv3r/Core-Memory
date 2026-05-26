@@ -1,7 +1,7 @@
 # PRD: Graph Backend Abstraction — Pluggable Causal Graph Providers
 
 **Phase:** 7
-**Status:** Not started
+**Status:** Sub-phases 7a–7d complete; 7e–7h (Graphiti, Obsidian) deferred
 **Prerequisite:** Phase 6 complete (`BackendCapabilities` + extended `StorageBackend` protocol)
 **Supersedes:** earlier scope of "Phase 7: Neo4j Query Backend" (now subsumed)
 
