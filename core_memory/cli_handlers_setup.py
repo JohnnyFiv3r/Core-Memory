@@ -68,7 +68,10 @@ _MODES: dict[str, dict[str, Any]] = {
 }
 
 # Backward-compat preset aliases — --preset still works, maps to closest mode config.
-# "neo4j" preset kept as a named config since it doesn't cleanly map to production.
+# New users should use --mode instead; --preset is a deprecated interface.
+# "neo4j" is a legacy preset (json storage + neo4j graph + mcp integration) that
+# predates the mode system and does not map cleanly to any current mode.
+# Equivalent intent: --mode production, then override backend manually.
 _PRESETS: dict[str, dict[str, Any]] = {
     "local": _MODES["local"],
     "sqlite": _MODES["app"],
@@ -279,6 +282,42 @@ def _storage_probe(root: str) -> dict[str, Any]:
             "impact": "memory writes will fail",
             "fix": f"check permissions on {beads_dir}",
         }
+
+    # For non-json backends, verify backend reachability beyond directory check.
+    try:
+        cfg = load_settings(root=Path(root))
+        backend = cfg.get("backend", "json")
+
+        if backend == "postgres":
+            dsn = (cfg.get("postgres") or {}).get("dsn") or os.environ.get("CORE_MEMORY_POSTGRES_DSN", "")
+            if not dsn:
+                return {
+                    "status": "error",
+                    "summary": "postgres backend: no DSN configured",
+                    "impact": "memory reads and writes will fail at runtime",
+                    "fix": "core-memory config set postgres.dsn <dsn>  or set CORE_MEMORY_POSTGRES_DSN",
+                }
+            try:
+                import psycopg2  # type: ignore[import-untyped]
+                conn = psycopg2.connect(dsn, connect_timeout=3)
+                conn.close()
+                return {"status": "ok", "summary": "postgres reachable"}
+            except ImportError:
+                return {
+                    "status": "warning",
+                    "summary": "postgres DSN set; psycopg2 not installed — connectivity unverified",
+                    "fix": 'pip install "core-memory[postgres]"',
+                }
+            except Exception as exc:
+                return {
+                    "status": "error",
+                    "summary": f"postgres unreachable: {exc}",
+                    "impact": "memory reads and writes will fail at runtime",
+                    "fix": "check postgres is running and DSN credentials are correct",
+                }
+    except Exception:
+        pass
+
     # Count beads from index if it exists
     idx = beads_dir / "index.json"
     count = 0
@@ -367,25 +406,40 @@ def _graph_probe(profile: str) -> dict[str, Any]:
 
 
 def _mcp_probe(root: str) -> dict[str, Any]:
-    """Check whether an MCP client config references core-memory."""
-    # Check Claude Desktop config as the most common target
-    claude_config = Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
-    if not claude_config.exists():
-        # Linux / Windows paths
-        claude_config = Path.home() / ".config" / "Claude" / "claude_desktop_config.json"
+    """Check whether any known MCP client config references core-memory."""
+    home = Path.home()
+    appdata = Path(os.environ.get("APPDATA", ""))
 
-    if claude_config.exists():
+    # (client_label, config_path) — checked in order; first match wins.
+    candidates = [
+        # Claude Desktop — macOS
+        ("Claude Desktop", home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"),
+        # Claude Desktop — Linux
+        ("Claude Desktop", home / ".config" / "Claude" / "claude_desktop_config.json"),
+        # Claude Desktop — Windows
+        ("Claude Desktop", appdata / "Claude" / "claude_desktop_config.json"),
+        # Cursor — user-global (Linux/macOS)
+        ("Cursor", home / ".cursor" / "mcp.json"),
+        # Cursor — Windows user-global
+        ("Cursor", home / "AppData" / "Roaming" / "Cursor" / "User" / "mcp.json"),
+        # Cursor — workspace-local
+        ("Cursor (workspace)", Path(root) / ".cursor" / "mcp.json"),
+    ]
+
+    for client, config_path in candidates:
+        if not config_path.exists():
+            continue
         try:
-            data = json.loads(claude_config.read_text(encoding="utf-8"))
+            data = json.loads(config_path.read_text(encoding="utf-8"))
             servers = data.get("mcpServers") or {}
             if any("core-memory" in k or "core_memory" in k for k in servers):
-                return {"status": "ok", "summary": "MCP server registered in Claude config"}
+                return {"status": "ok", "summary": f"MCP server registered ({client})"}
         except Exception:
             pass
 
     return {
         "status": "error",
-        "summary": "MCP server not registered",
+        "summary": "MCP server not registered in any known client config",
         "impact": "Claude / Cursor cannot connect to Core Memory tools",
         "fix": "core-memory mcp install claude",
     }
@@ -458,14 +512,16 @@ def expanded_doctor(root: str, profile: str | None = None) -> dict[str, Any]:
     severity_map = dict(zip(_SEVERITY_KEYS, severity_row))
 
     raw: dict[str, Any] = {
-        "storage":             _storage_probe(root),
-        "vector_search":       _vector_probe(root),
-        "graph_traversal":     _graph_probe(profile),
-        "mcp":                 _mcp_probe(root),
-        "transcript_hydration":_transcript_probe(root),
-        "dreamer":             _dreamer_probe(root),
-        "rolling_window":      _rolling_window_probe(root),
+        "storage":              _storage_probe(root),
+        "vector_search":        _vector_probe(root),
+        "graph_traversal":      _graph_probe(profile),
+        "transcript_hydration": _transcript_probe(root),
+        "dreamer":              _dreamer_probe(root),
+        "rolling_window":       _rolling_window_probe(root),
     }
+    # MCP probe does filesystem I/O across multiple client config paths; only run when visible.
+    if severity_map.get("mcp") is not None:
+        raw["mcp"] = _mcp_probe(root)
 
     report: dict[str, Any] = {"profile": profile}
     has_error = False
@@ -493,7 +549,7 @@ def expanded_doctor(root: str, profile: str | None = None) -> dict[str, Any]:
 
 def _cap_severity(probe_status: str, max_severity: str) -> str:
     """Downgrade probe status if profile doesn't allow that severity."""
-    order = {"error": 3, "warning": 2, "info": 1, "ok": 0, "not_running": 1}
+    order = {"error": 3, "warning": 2, "info": 1, "ok": 0}
     max_order = order.get(max_severity, 3)
     probe_order = order.get(probe_status, 0)
     if probe_order > max_order:
@@ -505,7 +561,7 @@ def _cap_severity(probe_status: str, max_severity: str) -> str:
 # Human-readable doctor formatter  (8b-2)
 # ---------------------------------------------------------------------------
 
-_STATUS_ICON = {"ok": "✓", "warning": "⚠", "error": "✗", "info": "ℹ", "not_running": "ℹ"}
+_STATUS_ICON = {"ok": "✓", "warning": "⚠", "error": "✗", "info": "ℹ"}
 _LABEL_WIDTH = 22
 
 
@@ -703,6 +759,9 @@ def demo_command(args: Any) -> None:
     written_ids: list[str] = []
 
     print("Writing 3 synthetic beads...")
+    # add_bead is used directly here instead of emit_turn_finalized because the demo
+    # operates on an ephemeral session and does not need the full write pipeline
+    # (association crawl, claim extraction, promotion).
     for bead in _DEMO_BEADS:
         bead_id = memory.add_bead(
             type=bead["type"],
@@ -716,14 +775,13 @@ def demo_command(args: Any) -> None:
 
     print()
     query = "why did we choose Python?"
-    print(f"Running recall: \"{query}\"")
+    print(f"Recall: \"{query}\"")
     print()
 
     t0 = time.monotonic()
-    results = memory.query(type="decision", session_id=_DEMO_SESSION, limit=3)
-    if not results:
-        results = memory.query(session_id=_DEMO_SESSION, limit=5)
+    ctx = memory.retrieve_with_context(query_text=query, limit=3)
     elapsed = round((time.monotonic() - t0) * 1000)
+    results = ctx.get("results") or []
 
     if results:
         top = results[0]
