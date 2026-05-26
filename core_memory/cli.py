@@ -51,6 +51,7 @@ from .cli_handlers_metrics import handle_metrics_command
 from .cli_handlers_integrations import handle_integration_commands
 from .cli_handlers_ops import handle_ops_commands
 from .cli_handlers_semantic import handle_semantic_command
+from .cli_handlers_setup import doctor_command, init_command
 from .cli_diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
 from .integrations.mcp.cli import install_payload, status_payload as mcp_status_payload, uninstall_payload, version_payload
 
@@ -61,7 +62,8 @@ def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
 
 
 def _doctor_report(root: str) -> dict:
-    return doctor_report(root)
+    from .cli_handlers_setup import expanded_doctor
+    return expanded_doctor(root)
 
 
 def _simple_recall_fallback(memory: MemoryStore, query_text: str, limit: int = 8) -> dict:
@@ -107,8 +109,11 @@ def main():
     # Grouped surface (preferred)
     setup_parser = subparsers.add_parser("setup", help="Initialize/configure/validate local Core Memory store")
     setup_sub = setup_parser.add_subparsers(dest="setup_cmd")
-    setup_sub.add_parser("init", help="Initialize store directories at --root")
-    setup_sub.add_parser("doctor", help="Run local store health checks")
+    setup_init = setup_sub.add_parser("init", help="Run guided setup wizard (or --preset for non-interactive)")
+    setup_init.add_argument("--preset", choices=["local", "sqlite", "postgres", "neo4j"], help="Non-interactive preset (skips prompts)")
+    setup_init.add_argument("--global", dest="global_config", action="store_true", help="Write to ~/.core-memory/config.yaml instead of .core-memory.yaml")
+    setup_init.add_argument("--force", action="store_true", help="Overwrite existing config")
+    setup_sub.add_parser("doctor", help="Run capability-tier health checks (storage/vector/graph/dreamer)")
     setup_sub.add_parser("paths", help="Show resolved store paths")
 
     store_parser = subparsers.add_parser("store", help="Create/mutate stored memory records")
@@ -383,12 +388,19 @@ def main():
     if apply_grouped_aliases(args, openclaw_group_parser=int_openclaw):
         return
 
-    # setup init/paths are direct grouped-surface operations and intentionally
-    # stay local to the CLI shell.
-    if args.command == "setup" and args.setup_cmd in {"init", "paths"}:
-        memory = MemoryStore(root=args.root)
-        print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
-        return
+    # setup init/paths/doctor are handled before MemoryStore construction so that
+    # `init` can run even on a blank directory.
+    if args.command == "setup":
+        if args.setup_cmd == "init":
+            init_command(args)
+            return
+        if args.setup_cmd == "doctor":
+            doctor_command(args)
+            return
+        if args.setup_cmd == "paths":
+            memory = MemoryStore(root=args.root)
+            print(json.dumps({"ok": True, "root": args.root, "beads_dir": str(memory.beads_dir), "turns_dir": str(memory.turns_dir)}, indent=2))
+            return
 
     if args.command == "migrate":
         from core_memory.cli_handlers_migrate import handle_migrate

@@ -1,7 +1,7 @@
 # PRD: `core-memory init` Wizard + `core-memory doctor` Expansion
 
 **Phase:** 8
-**Status:** Not started
+**Status:** Complete (2026-05-26)
 **Prerequisite:** Phase 6 complete (`BackendCapabilities`, config-driven `create_backend`)
 
 ---

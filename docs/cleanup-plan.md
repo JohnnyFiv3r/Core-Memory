@@ -204,19 +204,21 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 ## Phase 8 — `core-memory init` Guided Wizard + `core-memory doctor` Expansion
 
 **PRD:** `docs/PRD/08-init-wizard.md`
+**Status:** Complete (2026-05-26)
 
-- [ ] Expand `core-memory init` into a guided wizard with `--preset` flag for
+- [x] Expand `core-memory init` into a guided wizard with `--preset` flag for
       non-interactive use. Wizard options:
       Install type (local/sqlite/postgres/neo4j/custom),
       Runtime integration (MCP/OpenClaw/PydanticAI/HTTP/none),
       Memory behavior (rolling window size, dreamer on/off, grounding on/off)
-- [ ] Write output to `~/.core-memory/config.yaml` (user-global) or `.core-memory.yaml`
-      (project-local, takes precedence); `create_backend()` reads this file
-- [ ] Expand `core-memory doctor` to verify each capability tier:
-      storage backend reachable, vector search working, graph traversal working (if
-      applicable), transcript hydration, dreamer status
-- [ ] Make Neo4j the documented recommended quick-install for users who want native
-      causal traversal; keep local JSONL as the no-deps dev path
+- [x] Write output to `~/.core-memory/config.yaml` (user-global) or `.core-memory.yaml`
+      (project-local, takes precedence); `core_memory/config/settings.py` reads + merges
+      config with env vars (defaults < user-global < project-local < env vars)
+- [x] Expand `core-memory setup doctor` to verify each capability tier:
+      storage backend reachable, vector search, graph traversal, transcript hydration,
+      dreamer status, rolling window — structured JSON output, exits 1 on any error
+- [x] `core-memory setup init` creates `.beads/` and `.turns/` directories, writes
+      `.core-memory.yaml`; idempotent (no-op without `--force`); `--global` writes to home
 
 **Risk:** Low for wizard (additive). Medium for doctor (touches diagnostic paths).
 
