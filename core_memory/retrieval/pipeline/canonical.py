@@ -775,7 +775,7 @@ def search_request(
             warnings=list(sem.get("warnings") or []) + list(claim_warnings),
             provider=str(sem.get("provider") or ""),
         )
-    sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
+    sem_rows = [dict(r or {}) for r in (sem.get("results") or []) if str((r or {}).get("bead_id") or "") in by_id]
     conv = run_hybrid_rerank_seeds(
         rp,
         query=expanded_query or query,
