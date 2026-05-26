@@ -29,8 +29,8 @@ class TestCliIntegrationHandlersSlice51A(unittest.TestCase):
             replace_memory_core=False,
             dry_run=True,
         )
-        with patch("core_memory.cli_handlers_integrations.run_openclaw_onboard", return_value={"ok": True}) as run, patch(
-            "core_memory.cli_handlers_integrations.render_onboard_report", return_value="ok"
+        with patch("core_memory.cli.handlers.integrations.run_openclaw_onboard", return_value={"ok": True}) as run, patch(
+            "core_memory.cli.handlers.integrations.render_onboard_report", return_value="ok"
         ) as render, patch("builtins.print"):
             handled = handle_integration_commands(args=args, memory=Mock(), sidecar_parser=Mock(), openclaw_parser=Mock())
 

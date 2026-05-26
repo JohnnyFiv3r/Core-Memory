@@ -214,7 +214,7 @@ class TestGlobalFlag(unittest.TestCase):
         from core_memory.cli_handlers_setup import init_command
         with tempfile.TemporaryDirectory() as tmpdir:
             fake_home_config = Path(tmpdir) / "config.yaml"
-            with patch("core_memory.cli_handlers_setup._USER_CONFIG_PATH", fake_home_config):
+            with patch("core_memory.cli.handlers.setup._USER_CONFIG_PATH", fake_home_config):
                 args = _make_args(root=tmpdir, mode="local", global_config=True)
                 with patch("sys.stdout"):
                     init_command(args)

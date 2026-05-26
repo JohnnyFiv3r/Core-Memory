@@ -25,35 +25,35 @@ import json
 import sys
 
 # Use relative import to avoid circular import
-from .persistence.store import MemoryStore, DEFAULT_ROOT
-from .retrieval.tools.memory import (
+from ..persistence.store import MemoryStore, DEFAULT_ROOT
+from ..retrieval.tools.memory import (
     execute as memory_execute_tool,
     execute as memory_execute,
     search as memory_search_tool,
     trace as memory_trace_tool,
 )
-from .cli_compat import (
+from .compat import (
     rewrite_legacy_dev_memory_argv,
     ensure_group_subcommand_selected,
     apply_grouped_aliases,
 )
-from .cli_memory_handlers import handle_memory_command
-from .cli_parser_memory import add_memory_command_surface
-from .cli_parser_ops import add_async_jobs_command_surfaces
-from .cli_parser_extended import (
+from .handlers.memory import handle_memory_command
+from .parsers.memory import add_memory_command_surface
+from .parsers.ops import add_async_jobs_command_surfaces
+from .parsers.extended import (
     add_sidecar_openclaw_parsers,
     add_graph_parser,
     add_metrics_parser,
 )
-from .cli_handlers_store import handle_store_commands
-from .cli_handlers_graph import handle_graph_command
-from .cli_handlers_metrics import handle_metrics_command
-from .cli_handlers_integrations import handle_integration_commands
-from .cli_handlers_ops import handle_ops_commands
-from .cli_handlers_semantic import handle_semantic_command
-from .cli_handlers_setup import doctor_command, init_command
-from .cli_diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
-from .integrations.mcp.cli import install_payload, status_payload as mcp_status_payload, uninstall_payload, version_payload
+from .handlers.store import handle_store_commands
+from .handlers.graph import handle_graph_command
+from .handlers.metrics import handle_metrics_command
+from .handlers.integrations import handle_integration_commands
+from .handlers.ops import handle_ops_commands
+from .handlers.semantic import handle_semantic_command
+from .handlers.setup import doctor_command, init_command
+from .diagnostics import canonical_health_report, doctor_report, simple_recall_fallback
+from ..integrations.mcp.cli import install_payload, status_payload as mcp_status_payload, uninstall_payload, version_payload
 
 
 # Compatibility wrappers for tests/legacy imports during CLI boundary split.
@@ -62,7 +62,7 @@ def _canonical_health_report(root: str, write_path: str | None = None) -> dict:
 
 
 def _doctor_report(root: str) -> dict:
-    from .cli_handlers_setup import expanded_doctor
+    from .handlers.setup import expanded_doctor
     return expanded_doctor(root)
 
 
@@ -269,7 +269,7 @@ def main():
         help_text="Canonical memory interface (search/trace/execute)",
         dest="memory_cmd",
     )
-    
+
     legacy_help = argparse.SUPPRESS
 
     add_async_jobs_command_surfaces(
@@ -288,14 +288,14 @@ def main():
     add_parser.add_argument("--tags", nargs="*", help="Tags")
     add_parser.add_argument("--context-tags", nargs="*", help="Environment/context tags")
     add_parser.add_argument("--session-id", help="Session ID")
-    
+
     # query command (legacy top-level; use `inspect list`)
     query_parser = subparsers.add_parser("query", help=legacy_help)
     query_parser.add_argument("--type", help="Filter by type")
     query_parser.add_argument("--status", help="Filter by status")
     query_parser.add_argument("--tags", nargs="*", help="Filter by tags")
     query_parser.add_argument("--limit", type=int, default=20)
-    
+
     # stats command (legacy top-level; use `inspect stats` or `store stats`)
     subparsers.add_parser("stats", help=legacy_help)
 
@@ -330,13 +330,13 @@ def main():
     retrieve_ctx_parser.add_argument("--deep-recall", action="store_true", help="Enable bounded deep recall (auto-uncompact compacted/archived beads)")
     retrieve_ctx_parser.add_argument("--max-uncompact-per-turn", type=int, default=2, help="Bounded deep recall budget per call")
     retrieve_ctx_parser.add_argument("--no-auto-memory-intent", action="store_true", help="Disable memory-intent heuristic trigger")
-    
+
     # dream command (legacy top-level)
     dream_parser = subparsers.add_parser("dream", help=legacy_help)
     dream_parser.add_argument("--novel-only", action="store_true", help="Exclude previously surfaced bead pairs")
     dream_parser.add_argument("--seen-window-runs", type=int, default=0, help="Only consider the last N Dreamer runs for novelty dedupe (0=all)")
     dream_parser.add_argument("--max-exposure", type=int, default=-1, help="Skip candidates where either bead has been surfaced more than this count (-1=disabled)")
-    
+
     # rebuild command (legacy top-level; use `ops rebuild`)
     subparsers.add_parser("rebuild", help=legacy_help)
 
@@ -419,7 +419,7 @@ def main():
             return
 
     if args.command == "config":
-        from .cli_handlers_setup import config_show_command, config_set_command, config_validate_command
+        from .handlers.setup import config_show_command, config_set_command, config_validate_command
         if args.config_cmd == "show":
             config_show_command(args)
         elif args.config_cmd == "set":
@@ -431,12 +431,12 @@ def main():
         return
 
     if args.command == "demo":
-        from .cli_handlers_setup import demo_command
+        from .handlers.setup import demo_command
         demo_command(args)
         return
 
     if args.command == "migrate":
-        from core_memory.cli_handlers_migrate import handle_migrate
+        from core_memory.cli.handlers.migrate import handle_migrate
         sys.exit(handle_migrate(args))
 
     if args.command == "ingest":
@@ -483,7 +483,7 @@ def main():
         return
 
     memory = MemoryStore(root=args.root)
-    
+
     if handle_store_commands(args=args, memory=memory, doctor_report=doctor_report):
         pass
 
