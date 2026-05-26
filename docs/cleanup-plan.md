@@ -98,10 +98,11 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 
 **PRD:** `docs/PRD/05-persistence-delegation-flatten.md`
 
-- [ ] **Step 5a — Audit:** Write a script that inspects each `*_for_store` function and
+- [x] **Step 5a — Audit:** Write a script that inspects each `*_for_store` function and
       classifies it as STATEFUL (reads/writes `store` fields), STATELESS (ignores `store`
-      param), or PARTIAL. Expected finding: <10% are truly stateful.
-- [ ] **Step 5b — Pilot:** `store_text_hygiene_ops.py` — remove `store` param from
+      param), or PARTIAL. Finding: 0 STATELESS, 36 STATEFUL, 12 PARTIAL (48 total).
+      Report: `docs/reports/store-delegation-audit-2026-05-26.md`
+- [x] **Step 5b — Pilot:** `store_text_hygiene_ops.py` — remove `store` param from
       STATELESS functions, update mixin to call directly, run full suite
 - [ ] **Step 5c — Remaining files** (one per PR, smallest to largest):
       `store_compaction_ops.py`, `store_dream_bootstrap_ops.py`, `store_index_heads_ops.py`,
