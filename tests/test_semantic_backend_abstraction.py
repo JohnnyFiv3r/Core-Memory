@@ -28,6 +28,12 @@ class _FakeVectorBackend:
             out.append({"bead_id": bead_id, "score": 0.91, "metadata": dict(meta or {})})
         return out
 
+    def hybrid_search(self, query: str, k: int = 8, filters: dict | None = None):
+        out = []
+        for bead_id, emb, meta in self.upserts[: max(1, int(k))]:
+            out.append({"bead_id": bead_id, "score": 0.91, "metadata": dict(meta or {})})
+        return out
+
     def delete(self, bead_id: str):  # pragma: no cover - protocol completeness
         return None
 
@@ -74,6 +80,41 @@ class TestSemanticBackendAbstractionSlice58A(unittest.TestCase):
             self.assertEqual("qdrant", doctor.get("backend"))
             self.assertEqual("distributed_safe", doctor.get("deployment_profile"))
             self.assertTrue(bool(doctor.get("usable_backend")))
+
+    def test_qdrant_fastembed_lookup_never_calls_external_embed_api(self):
+        """Qdrant+FastEmbed lookup must use hybrid_search, not _embed_vectors.
+
+        Regression guard for the bug where semantic_lookup() called _embed_vectors()
+        with the configured provider (default: gemini) even when the index was built
+        with FastEmbed, causing missing_gemini_api_key failures on every query.
+        """
+        fake = _FakeVectorBackend()
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_VECTOR_BACKEND": "qdrant", "CORE_MEMORY_EMBEDDINGS_PROVIDER": ""},
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            s.add_bead(type="context", title="Test", summary=["content"], session_id="s1", source_turn_ids=["t1"])
+
+            with patch("core_memory.retrieval.semantic_index.create_vector_backend", return_value=fake):
+                built = build_semantic_index(Path(td))
+            self.assertTrue(built.get("ok"))
+
+            import json as _json
+            manifest = _json.loads((Path(td) / ".beads" / "semantic" / "manifest.json").read_text())
+            self.assertEqual("fastembed", manifest.get("provider"), "Build must record fastembed provider")
+
+            embed_called = []
+            with patch("core_memory.retrieval.semantic_index.create_vector_backend", return_value=fake), \
+                 patch("core_memory.retrieval.semantic_index._embed_vectors",
+                       side_effect=lambda **kw: embed_called.append(kw) or [[0.0]]):
+                looked = semantic_lookup(Path(td), "test query", k=3)
+
+            self.assertFalse(embed_called, "_embed_vectors must not be called for Qdrant+FastEmbed lookup")
+            self.assertTrue(looked.get("ok"))
+            self.assertFalse(bool(looked.get("degraded")))
 
 
 if __name__ == "__main__":

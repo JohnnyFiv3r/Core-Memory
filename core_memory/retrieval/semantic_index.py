@@ -985,6 +985,7 @@ def build_semantic_index(root: Path) -> dict:
                     vb.upsert_texts(bead_ids=bead_ids, texts=texts, metadatas=metadatas)
                     # dim is managed by FastEmbed; use sentinel to skip external-dim validation
                     dim = 1
+                    provider = "fastembed"  # Mark manifest so lookup uses native Qdrant query path
                 else:
                     vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
                     dim = _vector_dim(vecs, fallback=256 if texts else 0)
@@ -1372,7 +1373,10 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
     req_provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
     req_model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(req_provider)).strip()
     req_vector_backend = _configured_vector_backend()
-    if (
+    # Qdrant+FastEmbed manages its own embedding model — never rebuild due to external provider mismatch.
+    _manifest_is_fastembed = str(manifest.get("provider") or "").strip().lower() == "fastembed"
+    _req_is_qdrant_fastembed = req_vector_backend == VECTOR_BACKEND_QDRANT
+    if not (_manifest_is_fastembed and _req_is_qdrant_fastembed) and (
         (manifest.get("provider") and (str(manifest.get("provider")) != req_provider or str(manifest.get("model")) != req_model))
         or (manifest.get("vector_backend") and _normalize_vector_backend(str(manifest.get("vector_backend"))) != req_vector_backend)
     ):
@@ -1457,21 +1461,26 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
         try:
             backend_n = _normalize_vector_backend(backend)
             manifest_provider = str(manifest.get("provider") or req_provider)
-            qv = _embed_vectors(
-                texts=[query],
-                provider=manifest_provider,
-                model=str(manifest.get("model") or req_model),
-                hash_dim=int(manifest.get("dimension") or 256),
-            )
-            q_rows = _vector_rows(qv)
-            if not q_rows:
-                raise RuntimeError("query_embedding_empty")
-            vb = _create_external_backend(
-                root=root,
-                backend=backend_n,
-                dimension=max(1, _vector_dim(qv, fallback=int(manifest.get("dimension") or 256))),
-            )
-            raw = vb.search(q_rows[0], k=max(1, int(k)))
+            if backend_n == VECTOR_BACKEND_QDRANT and manifest_provider == "fastembed":
+                # FastEmbed index: use Qdrant's native query_text path — no external API key required.
+                vb = _create_external_backend(root=root, backend=backend_n, dimension=1)
+                raw = vb.hybrid_search(query, k=max(1, int(k)))
+            else:
+                qv = _embed_vectors(
+                    texts=[query],
+                    provider=manifest_provider,
+                    model=str(manifest.get("model") or req_model),
+                    hash_dim=int(manifest.get("dimension") or 256),
+                )
+                q_rows = _vector_rows(qv)
+                if not q_rows:
+                    raise RuntimeError("query_embedding_empty")
+                vb = _create_external_backend(
+                    root=root,
+                    backend=backend_n,
+                    dimension=max(1, _vector_dim(qv, fallback=int(manifest.get("dimension") or 256))),
+                )
+                raw = vb.search(q_rows[0], k=max(1, int(k)))
 
             row_by_id = {str(r.get("bead_id") or ""): r for r in rows}
             out = []
