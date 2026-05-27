@@ -7,8 +7,15 @@ from unittest.mock import patch
 from core_memory.persistence.graph import NullGraphBackend, create_graph_backend, register_graph_backend
 from core_memory.persistence.graph.factory import _PROVIDERS
 
+try:
+    import kuzu  # noqa: F401
+    _KUZU_AVAILABLE = True
+except ImportError:
+    _KUZU_AVAILABLE = False
+
 
 class TestCreateGraphBackendEnvRouting(unittest.TestCase):
+    @unittest.skipUnless(_KUZU_AVAILABLE, "kuzu not installed")
     def test_no_env_var_defaults_to_kuzu(self):
         # Default is kuzu (embedded, zero-ops). Empty string behaves the same.
         from core_memory.persistence.graph.kuzu_backend import KuzuGraphBackend

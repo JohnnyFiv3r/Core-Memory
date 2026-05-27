@@ -432,14 +432,21 @@ class TestConfigCommands(unittest.TestCase):
                 yaml.dump({"graph_backend": "neo4j"})
             )
             args = _make_args(root=tmpdir)
-            with patch("core_memory.config.settings._USER_CONFIG_PATH", Path(tmpdir) / "no.yaml"):
-                buf = io.StringIO()
-                with patch("sys.stdout", buf), self.assertRaises(SystemExit) as cm:
-                    config_validate_command(args)
-                self.assertEqual(cm.exception.code, 1)
-                data = json.loads(buf.getvalue())
-                self.assertFalse(data["ok"])
-                self.assertTrue(any("neo4j" in e.lower() for e in data["errors"]))
+            # Ensure CORE_MEMORY_NEO4J_URI is absent so the validator cannot satisfy the
+            # URI requirement from the environment (it would suppress the validation error).
+            saved_uri = os.environ.pop("CORE_MEMORY_NEO4J_URI", None)
+            try:
+                with patch("core_memory.config.settings._USER_CONFIG_PATH", Path(tmpdir) / "no.yaml"):
+                    buf = io.StringIO()
+                    with patch("sys.stdout", buf), self.assertRaises(SystemExit) as cm:
+                        config_validate_command(args)
+                    self.assertEqual(cm.exception.code, 1)
+                    data = json.loads(buf.getvalue())
+                    self.assertFalse(data["ok"])
+                    self.assertTrue(any("neo4j" in e.lower() for e in data["errors"]))
+            finally:
+                if saved_uri is not None:
+                    os.environ["CORE_MEMORY_NEO4J_URI"] = saved_uri
 
     def test_config_validate_passes_for_local_mode(self):
         import yaml
