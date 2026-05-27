@@ -72,7 +72,7 @@ class Neo4jGraphBackend:
         cypher = f"""
         MATCH path = (s:Bead)-[r:ASSOCIATION*1..{max_hops}]->(n:Bead)
         WHERE s.id IN $seed_ids
-          AND n.status = 'active'{edge_filter}
+          AND n.status <> 'retracted'{edge_filter}
         WITH
             [node IN nodes(path) | {{id: node.id, type: node.type, title: node.title}}] AS nodes,
             [rel IN relationships(path) | {{

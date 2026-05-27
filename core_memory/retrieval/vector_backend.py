@@ -112,6 +112,17 @@ class QdrantBackend:
             points=[PointStruct(id=point_id, vector=embedding, payload=payload)],
         )
 
+    def upsert_texts(self, bead_ids: list[str], texts: list[str], metadatas: list[dict[str, Any]]) -> None:
+        """Batch upsert using FastEmbed native indexing — no external embedding API required."""
+        ids = [_bead_id_to_qdrant_id(bid) for bid in bead_ids]
+        payloads = [{**meta, "bead_id": bid} for bid, meta in zip(bead_ids, metadatas)]
+        self._client.add(
+            collection_name=self._collection,
+            documents=texts,
+            metadata=payloads,
+            ids=ids,
+        )
+
     def search(
         self,
         query_embedding: list[float],

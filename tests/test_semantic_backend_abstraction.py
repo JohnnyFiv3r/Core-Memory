@@ -18,6 +18,10 @@ class _FakeVectorBackend:
     def upsert(self, bead_id: str, embedding: list[float], metadata: dict):
         self.upserts.append((bead_id, embedding, dict(metadata or {})))
 
+    def upsert_texts(self, bead_ids: list[str], texts: list[str], metadatas: list[dict]):
+        for bid, meta in zip(bead_ids, metadatas):
+            self.upserts.append((bid, [], dict(meta or {})))
+
     def search(self, query_embedding: list[float], k: int = 8, filters: dict | None = None):
         out = []
         for bead_id, emb, meta in self.upserts[: max(1, int(k))]:

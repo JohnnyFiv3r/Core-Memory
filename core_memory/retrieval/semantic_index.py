@@ -828,20 +828,36 @@ def build_semantic_index(root: Path) -> dict:
         last_build_error = ""
         if vector_backend in _EXTERNAL_VECTOR_BACKENDS:
             try:
-                vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
-                dim = _vector_dim(vecs, fallback=256 if texts else 0)
-                vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
-                for row, emb in zip(rows, _vector_rows(vecs)):
-                    vb.upsert(
-                        bead_id=str(row.get("bead_id") or ""),
-                        embedding=emb,
-                        metadata={
-                            "status": row.get("status"),
-                            "session_id": row.get("session_id"),
-                            "source_surface": row.get("source_surface"),
-                            "created_at": row.get("created_at"),
-                        },
-                    )
+                if vector_backend == VECTOR_BACKEND_QDRANT:
+                    # Qdrant+FastEmbed generates embeddings natively — bypass _embed_vectors.
+                    vb = _create_external_backend(root=root, backend=vector_backend, dimension=1536)
+                    bead_ids = [str(r.get("bead_id") or "") for r in rows]
+                    metadatas = [
+                        {
+                            "status": r.get("status"),
+                            "session_id": r.get("session_id"),
+                            "source_surface": r.get("source_surface"),
+                            "created_at": r.get("created_at"),
+                        }
+                        for r in rows
+                    ]
+                    vb.upsert_texts(bead_ids=bead_ids, texts=texts, metadatas=metadatas)
+                    dim = 0
+                else:
+                    vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
+                    dim = _vector_dim(vecs, fallback=256 if texts else 0)
+                    vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+                    for row, emb in zip(rows, _vector_rows(vecs)):
+                        vb.upsert(
+                            bead_id=str(row.get("bead_id") or ""),
+                            embedding=emb,
+                            metadata={
+                                "status": row.get("status"),
+                                "session_id": row.get("session_id"),
+                                "source_surface": row.get("source_surface"),
+                                "created_at": row.get("created_at"),
+                            },
+                        )
                 backend = vector_backend
                 semantic_ready = True
                 # no local faiss artifact in external backend mode

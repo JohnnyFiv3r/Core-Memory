@@ -44,7 +44,7 @@ def _qdrant_hybrid_rows(root: Path, retrieval_query: str, k: int) -> list[dict[s
         rows = backend.hybrid_search(
             query=retrieval_query,
             k=k,
-            filters={"retrieval_eligible": True, "status": "active"},
+            filters={"retrieval_eligible": True},
         )
         return rows
     except Exception as exc:
