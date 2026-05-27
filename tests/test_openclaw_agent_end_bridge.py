@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.integrations.openclaw_agent_end_bridge import process_agent_end_event
+from core_memory.integrations.openclaw.agent_end_bridge import process_agent_end_event
 
 
 class TestOpenClawAgentEndBridge(unittest.TestCase):

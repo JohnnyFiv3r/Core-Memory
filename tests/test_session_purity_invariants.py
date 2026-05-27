@@ -6,7 +6,7 @@ from pathlib import Path
 
 from core_memory.runtime.engine import read_live_session
 from core_memory.persistence.store import MemoryStore
-from core_memory.integrations.openclaw_runtime import resolve_core_session_id
+from core_memory.integrations.openclaw.runtime import resolve_core_session_id
 
 
 class TestP9SessionPurityInvariants(unittest.TestCase):

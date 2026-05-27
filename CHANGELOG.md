@@ -3,13 +3,15 @@
 ## [Unreleased]
 
 ### Changed
-- **Phase 9h (partial):** Deleted all 31 `runtime/` root backward-compat shims (9e dreamer
-  shims + 9f subpackage shims) and migrated all callsites to canonical subpackage paths.
-  `runtime/` root now contains only `engine.py`, `state.py`, `event_schemas.py`, and `__init__.py`.
-  These were never part of the documented public API. Remaining shims (`openclaw_*.py`,
-  `cli_*.py`) are retained pending external callsite coordination.
-- Updated `docs/contributor_map.md` to reference canonical `runtime/queue/` and
-  `runtime/dreamer/` paths instead of deleted flat-file shim paths.
+- **Phase 9h (complete):** Deleted all 52 backward-compat shims created during Phase 9
+  structural moves and migrated every callsite to canonical paths:
+  - 31 `runtime/` root shims (9e dreamer + 9f subpackage) → `runtime/{turn,flush,session,passes,queue,observability,dreamer}/`
+  - 7 `integrations/openclaw_*.py` shims (9c) → `integrations/openclaw/`
+  - 14 `core_memory/cli_*.py` shims (9d) → `core_memory/cli/`
+  - 90+ import callsites in tests, eval, benchmarks, and source files updated.
+  - `scripts/openclaw_bridge_ci_smoke.sh` updated to canonical module path.
+  - `runtime/` root now contains only `engine.py`, `state.py`, `event_schemas.py`, `__init__.py`.
+- Updated `docs/contributor_map.md` to reference canonical subpackage paths.
 
 ## [1.1.0] - 2026-05-09
 

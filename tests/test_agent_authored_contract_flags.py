@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from core_memory.integrations.openclaw_flags import (
+from core_memory.integrations.openclaw.flags import (
     agent_authored_fail_open_enabled,
     agent_authored_required_enabled,
     runtime_flags_snapshot,

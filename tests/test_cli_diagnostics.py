@@ -4,7 +4,7 @@ import tempfile
 import unittest
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.cli_diagnostics import doctor_report, simple_recall_fallback
+from core_memory.cli.diagnostics import doctor_report, simple_recall_fallback
 
 
 class TestCliDiagnosticsSlice51A(unittest.TestCase):

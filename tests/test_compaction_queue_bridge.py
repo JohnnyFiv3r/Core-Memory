@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core_memory.integrations.openclaw_compaction_queue import enqueue_compaction_event, drain_compaction_queue
+from core_memory.integrations.openclaw.compaction_queue import enqueue_compaction_event, drain_compaction_queue
 
 
 class TestCompactionQueueBridge(unittest.TestCase):

@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
-from core_memory.cli_handlers_integrations import handle_integration_commands
+from core_memory.cli.handlers.integrations import handle_integration_commands
 
 
 class TestCliIntegrationHandlersSlice51A(unittest.TestCase):

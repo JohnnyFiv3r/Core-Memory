@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from core_memory.integrations.api import get_turn, hydrate_bead_sources
-from core_memory.integrations.openclaw_flags import agent_authored_mode, resolved_agent_authored_gate, runtime_flags_snapshot
-from core_memory.integrations.openclaw_onboard import run_openclaw_onboard
+from core_memory.integrations.openclaw.flags import agent_authored_mode, resolved_agent_authored_gate, runtime_flags_snapshot
+from core_memory.integrations.openclaw.onboard import run_openclaw_onboard
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
 
 

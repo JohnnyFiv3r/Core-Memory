@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from core_memory.integrations.openclaw_flags import (
+from core_memory.integrations.openclaw.flags import (
     agent_authored_mode,
     resolved_agent_authored_gate,
 )

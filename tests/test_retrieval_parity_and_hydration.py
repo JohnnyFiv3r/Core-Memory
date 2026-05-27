@@ -4,7 +4,7 @@ import os
 import tempfile
 import unittest
 
-from core_memory.integrations.openclaw_agent_end_bridge import process_agent_end_event
+from core_memory.integrations.openclaw.agent_end_bridge import process_agent_end_event
 from core_memory.integrations.pydanticai.run import run_with_memory_sync, flush_session
 from core_memory.retrieval.tools.memory import execute
 

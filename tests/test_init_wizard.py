@@ -298,21 +298,21 @@ class TestSettingsLoader(unittest.TestCase):
 
 class TestDoctorProfiles(unittest.TestCase):
     def test_local_profile_hides_mcp_check(self):
-        from core_memory.cli_handlers_setup import expanded_doctor
+        from core_memory.cli.handlers.setup import expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             report = expanded_doctor(tmpdir, profile="local")
         self.assertNotIn("mcp", report)
 
     def test_mcp_profile_includes_mcp_check(self):
-        from core_memory.cli_handlers_setup import expanded_doctor
+        from core_memory.cli.handlers.setup import expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             report = expanded_doctor(tmpdir, profile="mcp")
         self.assertIn("mcp", report)
 
     def test_local_profile_graph_is_ok_not_error(self):
-        from core_memory.cli_handlers_setup import expanded_doctor
+        from core_memory.cli.handlers.setup import expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             report = expanded_doctor(tmpdir, profile="local")
@@ -321,25 +321,25 @@ class TestDoctorProfiles(unittest.TestCase):
         self.assertNotEqual(graph.get("status"), "error")
 
     def test_production_profile_does_not_hide_graph(self):
-        from core_memory.cli_handlers_setup import expanded_doctor
+        from core_memory.cli.handlers.setup import expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             report = expanded_doctor(tmpdir, profile="production")
         self.assertIn("graph_traversal", report)
 
     def test_cap_severity_downgrades_error_to_warning(self):
-        from core_memory.cli_handlers_setup import _cap_severity
+        from core_memory.cli.handlers.setup import _cap_severity
         self.assertEqual(_cap_severity("error", "warning"), "warning")
         self.assertEqual(_cap_severity("warning", "warning"), "warning")
         self.assertEqual(_cap_severity("info", "warning"), "info")
 
     def test_cap_severity_allows_error_at_error_max(self):
-        from core_memory.cli_handlers_setup import _cap_severity
+        from core_memory.cli.handlers.setup import _cap_severity
         self.assertEqual(_cap_severity("error", "error"), "error")
 
     def test_doctor_json_flag_outputs_json(self):
         import io
-        from core_memory.cli_handlers_setup import doctor_command
+        from core_memory.cli.handlers.setup import doctor_command
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             args = _make_args(root=tmpdir, json_output=True)
@@ -351,7 +351,7 @@ class TestDoctorProfiles(unittest.TestCase):
 
     def test_doctor_human_output_contains_status_icon(self):
         import io
-        from core_memory.cli_handlers_setup import _format_doctor_human, expanded_doctor
+        from core_memory.cli.handlers.setup import _format_doctor_human, expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             report = expanded_doctor(tmpdir)
@@ -359,7 +359,7 @@ class TestDoctorProfiles(unittest.TestCase):
         self.assertIn("✓", output)
 
     def test_human_format_includes_impact_and_fix_for_warning(self):
-        from core_memory.cli_handlers_setup import _format_doctor_human
+        from core_memory.cli.handlers.setup import _format_doctor_human
         report = {
             "profile": "mcp",
             "ok": False,
@@ -382,7 +382,7 @@ class TestDoctorProfiles(unittest.TestCase):
 
 class TestConfigCommands(unittest.TestCase):
     def test_config_show_prints_output(self):
-        from core_memory.cli_handlers_setup import config_show_command
+        from core_memory.cli.handlers.setup import config_show_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir)
             with patch("core_memory.config.settings._USER_CONFIG_PATH", Path(tmpdir) / "no.yaml"):
@@ -396,7 +396,7 @@ class TestConfigCommands(unittest.TestCase):
 
     def test_config_set_updates_file(self):
         import yaml
-        from core_memory.cli_handlers_setup import config_set_command
+        from core_memory.cli.handlers.setup import config_set_command
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / ".core-memory.yaml"
             config_path.write_text(yaml.dump({"backend": "json", "graph_backend": "kuzu"}))
@@ -412,7 +412,7 @@ class TestConfigCommands(unittest.TestCase):
 
     def test_config_set_dotted_key(self):
         import yaml
-        from core_memory.cli_handlers_setup import config_set_command
+        from core_memory.cli.handlers.setup import config_set_command
         with tempfile.TemporaryDirectory() as tmpdir:
             config_path = Path(tmpdir) / ".core-memory.yaml"
             config_path.write_text(yaml.dump({"backend": "json", "memory": {"dreamer": True}}))
@@ -426,7 +426,7 @@ class TestConfigCommands(unittest.TestCase):
 
     def test_config_validate_catches_neo4j_without_uri(self):
         import io, yaml
-        from core_memory.cli_handlers_setup import config_validate_command
+        from core_memory.cli.handlers.setup import config_validate_command
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".core-memory.yaml").write_text(
                 yaml.dump({"graph_backend": "neo4j"})
@@ -450,7 +450,7 @@ class TestConfigCommands(unittest.TestCase):
 
     def test_config_validate_passes_for_local_mode(self):
         import yaml
-        from core_memory.cli_handlers_setup import config_validate_command
+        from core_memory.cli.handlers.setup import config_validate_command
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".core-memory.yaml").write_text(
                 yaml.dump({"mode": "local", "backend": "json", "graph_backend": "kuzu"})
@@ -468,14 +468,14 @@ class TestConfigCommands(unittest.TestCase):
 
 class TestDemoCommand(unittest.TestCase):
     def test_demo_runs_without_error(self):
-        from core_memory.cli_handlers_setup import demo_command
+        from core_memory.cli.handlers.setup import demo_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, keep=True)
             with patch("builtins.print"):
                 demo_command(args)
 
     def test_demo_writes_beads_to_store(self):
-        from core_memory.cli_handlers_setup import demo_command, _DEMO_SESSION
+        from core_memory.cli.handlers.setup import demo_command, _DEMO_SESSION
         from core_memory.persistence.store import MemoryStore
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, keep=True)
@@ -486,7 +486,7 @@ class TestDemoCommand(unittest.TestCase):
             self.assertGreaterEqual(len(beads), 1)
 
     def test_demo_cleans_up_without_keep(self):
-        from core_memory.cli_handlers_setup import demo_command, _DEMO_SESSION
+        from core_memory.cli.handlers.setup import demo_command, _DEMO_SESSION
         from core_memory.persistence.store import MemoryStore
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, keep=False)
@@ -497,7 +497,7 @@ class TestDemoCommand(unittest.TestCase):
             self.assertEqual(len(beads), 0, "demo beads should be cleaned up without --keep")
 
     def test_demo_exits_0_on_blank_store(self):
-        from core_memory.cli_handlers_setup import demo_command
+        from core_memory.cli.handlers.setup import demo_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir, keep=False)
             with patch("builtins.print"):
@@ -511,7 +511,7 @@ class TestDemoCommand(unittest.TestCase):
 
 class TestExpandedDoctor(unittest.TestCase):
     def test_doctor_returns_structured_report(self):
-        from core_memory.cli_handlers_setup import expanded_doctor
+        from core_memory.cli.handlers.setup import expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             report = expanded_doctor(tmpdir)
@@ -522,21 +522,21 @@ class TestExpandedDoctor(unittest.TestCase):
         self.assertIn("ok", report)
 
     def test_doctor_storage_error_when_missing_beads(self):
-        from core_memory.cli_handlers_setup import expanded_doctor
+        from core_memory.cli.handlers.setup import expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             report = expanded_doctor(tmpdir)
         self.assertEqual(report["storage"]["status"], "error")
         self.assertFalse(report["ok"])
 
     def test_doctor_ok_true_when_beads_dir_present(self):
-        from core_memory.cli_handlers_setup import expanded_doctor
+        from core_memory.cli.handlers.setup import expanded_doctor
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             report = expanded_doctor(tmpdir)
         self.assertEqual(report["storage"]["status"], "ok")
 
     def test_doctor_command_exits_1_on_error(self):
-        from core_memory.cli_handlers_setup import doctor_command
+        from core_memory.cli.handlers.setup import doctor_command
         with tempfile.TemporaryDirectory() as tmpdir:
             args = _make_args(root=tmpdir)
             with patch("builtins.print"), self.assertRaises(SystemExit) as cm:
@@ -544,7 +544,7 @@ class TestExpandedDoctor(unittest.TestCase):
             self.assertEqual(cm.exception.code, 1)
 
     def test_doctor_command_exits_0_on_ok(self):
-        from core_memory.cli_handlers_setup import doctor_command
+        from core_memory.cli.handlers.setup import doctor_command
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / ".beads").mkdir()
             args = _make_args(root=tmpdir)

@@ -1,6 +1,6 @@
 import unittest
 
-import core_memory.integrations.openclaw_agent_end_bridge as openclaw_bridge
+import core_memory.integrations.openclaw.agent_end_bridge as openclaw_bridge
 import core_memory.integrations.springai.bridge as springai_bridge
 import core_memory.integrations.pydanticai.run as pyd_run
 

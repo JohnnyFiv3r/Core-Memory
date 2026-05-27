@@ -267,34 +267,29 @@ logic and human output format).
       reach internal modules (`runtime.*`, `claim.*`, etc.) are replaced with imports
       from `core_memory`'s public `__all__`. Gaps in the public API are filled in
       `__init__.py` first.
-- [~] **9h — Delete all backward-compat shims** — remove every re-export shim created
+- [x] **9h — Delete all backward-compat shims** — remove every re-export shim created
       during Phase 9 structural moves. Full inventory:
 
-      > **Phase 9e+9f shims (31 files) deleted.** All callers migrated to canonical
-      > paths. Remaining: openclaw (9c), cli (9d), and openclaw_flags (9a) shims — these
-      > have external callers via plugin `python -m` paths and AGENT_INSTRUCTIONS.md
-      > references; delete only after coordinating external callsite updates.
+      > **All 52 shims deleted.** Phase 9e+9f (31 files), 9c openclaw (7 files),
+      > 9d cli (14 files), and 9a openclaw_flags all removed. All callers migrated
+      > to canonical subpackage paths.
 
-      **From 9a** (1 shim):
-      - `integrations/openclaw_flags.py` — re-exports from `integrations/openclaw/flags.py`
-        and `config/feature_flags.py`
+      **From 9a** (1 shim — deleted ✓):
+      - ~~`integrations/openclaw_flags.py`~~
 
       **From 9e** (4 shims — all deleted ✓):
-      - ~~`dreamer.py`~~ — re-exports from `runtime/dreamer/analysis.py`
-      - ~~`runtime/dreamer_candidates.py`~~ — re-exports from `runtime/dreamer/candidates.py`
-      - ~~`runtime/dreamer_eval.py`~~ — re-exports from `runtime/dreamer/eval.py`
-      - ~~`runtime/longitudinal_benchmark.py`~~ — re-exports from `runtime/dreamer/longitudinal.py`
+      - ~~`dreamer.py`~~, ~~`runtime/dreamer_candidates.py`~~, ~~`runtime/dreamer_eval.py`~~, ~~`runtime/longitudinal_benchmark.py`~~
 
-      **From 9c** (7 shims):
-      - `integrations/openclaw_agent_end_bridge.py`
-      - `integrations/openclaw_compaction_bridge.py`
-      - `integrations/openclaw_compaction_queue.py`
-      - `integrations/openclaw_onboard.py`
-      - `integrations/openclaw_read_bridge.py`
-      - `integrations/openclaw_runtime.py`
-      *(openclaw_flags.py already listed above)*
+      **From 9c** (7 shims — all deleted ✓):
+      - ~~`integrations/openclaw_agent_end_bridge.py`~~, ~~`compaction_bridge.py`~~,
+        ~~`compaction_queue.py`~~, ~~`onboard.py`~~, ~~`read_bridge.py`~~, ~~`runtime.py`~~,
+        ~~`openclaw_flags.py`~~
 
-      **From 9d** (15 shims):
+      **From 9d** (15 shims — all deleted ✓):
+      - ~~All `cli_*.py` flat files~~. Canonical: `core_memory/cli/` package.
+
+      **From 9f** (30 shims — all deleted ✓):
+      - ~~All `runtime/` root shims~~. Canonical: `runtime/{turn,flush,session,passes,queue,observability}/` subpackages.
       - `cli_compat.py`, `cli_diagnostics.py`, `cli_handlers_graph.py`,
         `cli_handlers_integrations.py`, `cli_handlers_metrics.py`,
         `cli_handlers_migrate.py`, `cli_handlers_ops.py`, `cli_handlers_semantic.py`,

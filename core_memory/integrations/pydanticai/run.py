@@ -11,7 +11,7 @@ except ImportError:
     pass
 
 from core_memory.integrations.api import IntegrationContext, _resolve_root
-from core_memory.integrations.openclaw_flags import core_memory_enabled, runtime_flags_snapshot
+from core_memory.integrations.openclaw.flags import core_memory_enabled, runtime_flags_snapshot
 from core_memory.runtime.engine import process_turn_finalized, process_flush
 from core_memory.schema.turn import Turn
 

@@ -383,7 +383,7 @@ class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
     # ------------------------------------------------------------------
     def test_migrate_idempotent(self):
         """Run migrate twice; Kuzu node count must be identical after each run."""
-        from core_memory.cli_handlers_migrate import handle_migrate
+        from core_memory.cli.handlers.migrate import handle_migrate
 
         args1 = argparse.Namespace(root=self.root, dry_run=False, skip_vectors=True, skip_graph=False)
         args2 = argparse.Namespace(root=self.root, dry_run=False, skip_vectors=True, skip_graph=False)

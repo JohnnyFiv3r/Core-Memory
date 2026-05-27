@@ -5,7 +5,7 @@ import shutil
 import tempfile
 import unittest
 
-from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
+from core_memory.integrations.openclaw.runtime import finalize_and_process_turn
 from core_memory.runtime.queue.worker import SidecarPolicy
 from core_memory.persistence.store import MemoryStore
 

@@ -130,7 +130,7 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
 class TestRunTurnEnrichmentDeltaAuthority(unittest.TestCase):
     """Queued enrichment consumes normalized delta projection when available."""
 
-    @patch("core_memory.integrations.openclaw_flags.claim_layer_enabled", return_value=False)
+    @patch("core_memory.integrations.openclaw.flags.claim_layer_enabled", return_value=False)
     @patch("core_memory.runtime.engine._emit_agent_turn_quality_metric", return_value=None)
     @patch("core_memory.runtime.engine.run_session_decision_pass", return_value={})
     @patch("core_memory.runtime.engine._queue_preview_associations", return_value=0)

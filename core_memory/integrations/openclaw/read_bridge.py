@@ -5,7 +5,7 @@ read-path operations: search, trace, continuity, execute.
 
 Usage (stdin → stdout):
     echo '{"action": "search", "query": "why PostgreSQL?", "root": "./memory"}' \
-        | python -m core_memory.integrations.openclaw_read_bridge
+        | python -m core_memory.integrations.openclaw.read_bridge
 
 Supported actions:
     search      — canonical request-first search (query shorthand or request payload)
