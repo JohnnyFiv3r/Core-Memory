@@ -9,6 +9,7 @@ import json
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 from core_memory.persistence.backend import get_backend_capabilities
 from core_memory.persistence.graph.factory import create_graph_backend
+from core_memory.persistence.graph.protocol import NullGraphBackend
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
@@ -991,8 +992,12 @@ def trace_request(
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
     if _caps.graph_traversal:
         _graph = create_graph_backend(Path(root))
-        _chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=3, max_chains=5)
-        trav = {"ok": True, "chains": _chains, "backend": _graph.name}
+        if isinstance(_graph, NullGraphBackend):
+            # Configured backend unavailable (e.g. kuzu not installed); fall back to Python traversal.
+            trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
+        else:
+            _chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=3, max_chains=5)
+            trav = {"ok": True, "chains": _chains, "backend": _graph.name}
     else:
         trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])

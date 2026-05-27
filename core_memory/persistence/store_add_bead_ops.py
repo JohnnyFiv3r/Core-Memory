@@ -239,16 +239,10 @@ def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
             except Exception:
                 pass
             vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=dimension)
-            # Build a minimal embedding from available text (actual embedding happens via Qdrant FastEmbed)
             payload = _bead_payload(bead)
             text = _embed_text(bead)
-            if hasattr(vec_backend, "hybrid_search"):
-                # upsert using point with text payload for FastEmbed to embed
-                from qdrant_client.models import PointStruct
-                vec_backend._client.upsert(
-                    collection_name=vec_backend._collection,
-                    points=[PointStruct(id=str(bead["id"]), vector={}, payload={**payload, "_text": text})],
-                )
+            bead_id = str(bead.get("id") or "")
+            vec_backend.upsert_texts(bead_ids=[bead_id], texts=[text], metadatas=[payload])
         except Exception as exc:
             _log.warning("qdrant upsert failed for bead %s: %s", bead.get("id"), exc)
 

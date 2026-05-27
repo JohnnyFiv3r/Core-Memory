@@ -1,8 +1,11 @@
 import unittest
 
-from fastapi.testclient import TestClient
+import pytest
 
-from core_memory.integrations.mcp.protocol_server import _transport_security_settings, build_mcp_app
+fastapi = pytest.importorskip("fastapi", reason="fastapi not installed; skipping MCP server live tests")
+from fastapi.testclient import TestClient  # noqa: E402
+
+from core_memory.integrations.mcp.protocol_server import _transport_security_settings, build_mcp_app  # noqa: E402
 
 
 class MCPProtocolServerLiveTests(unittest.TestCase):

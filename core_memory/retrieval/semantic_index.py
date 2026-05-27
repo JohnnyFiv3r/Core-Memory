@@ -834,15 +834,18 @@ def build_semantic_index(root: Path) -> dict:
                     bead_ids = [str(r.get("bead_id") or "") for r in rows]
                     metadatas = [
                         {
-                            "status": r.get("status"),
-                            "session_id": r.get("session_id"),
-                            "source_surface": r.get("source_surface"),
-                            "created_at": r.get("created_at"),
+                            "status": c.get("status"),
+                            "session_id": c.get("session_id"),
+                            "source_surface": c.get("source_surface"),
+                            "created_at": c.get("created_at"),
+                            "retrieval_eligible": True,
+                            "topics": list(c.get("tags") or []),
                         }
-                        for r in rows
+                        for c in corpus
                     ]
                     vb.upsert_texts(bead_ids=bead_ids, texts=texts, metadatas=metadatas)
-                    dim = 0
+                    # dim is managed by FastEmbed; use sentinel to skip external-dim validation
+                    dim = 1
                 else:
                     vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
                     dim = _vector_dim(vecs, fallback=256 if texts else 0)

@@ -54,18 +54,9 @@ the demo TODO tracks adoption surfaces, endpoints, packaging, and benchmark repo
 
 ## 2. Goal lifecycle — resolution mechanism
 
-**Current behavior:** Goals classify correctly and stay as `candidate` indefinitely. There is no way to resolve or close a goal.
+**Status: Resolved.** `core_memory/runtime/session/goal_lifecycle.py` now implements goal resolution detection, association linking from outcome to goal bead, and status transition logic. Tests live in `tests/test_goal_lifecycle.py`.
 
-**Problem:** When a later turn says "we finished the OAuth2 migration", nothing links that outcome to the original goal bead or transitions the goal to a resolved state.
-
-**Fix:** Build a goal resolution pass that:
-- Detects when a new `outcome` bead relates to an open `goal` bead
-- Creates an association linking the outcome to the goal
-- Transitions the goal status (e.g. `candidate` → `promoted` or a new `resolved` state)
-
-This could be LLM-assisted (ask "does this turn resolve any open goals?") or heuristic (keyword/semantic matching between outcomes and goals).
-
-**Files:** `core_memory/runtime/engine.py`, `core_memory/policy/promotion_contract.py`
+**Files:** `core_memory/runtime/session/goal_lifecycle.py`, `tests/test_goal_lifecycle.py`
 
 ## 3. Association relationship types
 
