@@ -36,8 +36,8 @@ def enqueue_turn_enrichment(
     if not _enrichment_queue_enabled():
         return None
 
-    from core_memory.runtime.side_effect_queue import enqueue_side_effect_event
-    from core_memory.runtime.session_enrichment_delta import (
+    from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
+    from core_memory.runtime.session.session_enrichment_delta import (
         crawler_updates_to_delta,
         delta_to_crawler_updates,
         write_delta_quarantine,
@@ -92,7 +92,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     enrichment_delta = payload.get("enrichment_delta") if isinstance(payload.get("enrichment_delta"), dict) else None
     reviewed_updates = dict(payload.get("reviewed_updates") or {})
     if isinstance(enrichment_delta, dict):
-        from core_memory.runtime.session_enrichment_delta import delta_to_crawler_updates
+        from core_memory.runtime.session.session_enrichment_delta import delta_to_crawler_updates
         reviewed_updates = delta_to_crawler_updates(dict(enrichment_delta or {}))
     crawler_visible = list(payload.get("crawler_visible_bead_ids") or [])
 
@@ -101,9 +101,9 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
         _emit_agent_turn_quality_metric,
         _queue_preview_associations,
     )
-    from core_memory.runtime.association_pass import run_association_pass
+    from core_memory.runtime.passes.association_pass import run_association_pass
     from core_memory.association.crawler_contract import merge_crawler_updates
-    from core_memory.runtime.decision_pass import run_session_decision_pass
+    from core_memory.runtime.passes.decision_pass import run_session_decision_pass
     from core_memory.config.feature_flags import (
         claim_layer_enabled,
     )
@@ -244,7 +244,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
 
     # Stage 8: goal lifecycle resolution
     try:
-        from core_memory.runtime.goal_lifecycle import resolve_goals_for_turn
+        from core_memory.runtime.session.goal_lifecycle import resolve_goals_for_turn
         canonical_bead_id = str((claim_telemetry or {}).get("canonical_bead_id") or bead_id)
         goal_visible_ids = sorted(
             set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from core_memory.runtime.agent_authored_contract import validate_agent_authored_updates
+from core_memory.runtime.passes.agent_authored_contract import validate_agent_authored_updates
 
 
 class TestAgentAuthoredContractSlice2(unittest.TestCase):

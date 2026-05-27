@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.session_enrichment_delta import (
+from core_memory.runtime.session.session_enrichment_delta import (
     DELTA_QUARANTINE_PATH,
     DELTA_ROW_LIMITS,
     DELTA_ROW_TYPES,

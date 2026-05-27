@@ -517,7 +517,7 @@ class MemoryStore:
     def dream(self, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
         """Run Dreamer association analysis."""
         try:
-            from core_memory import dreamer
+            from core_memory.runtime.dreamer import analysis as dreamer
         except ImportError:
             return [{"error": "Dreamer not available"}]
         return dreamer.run_analysis(

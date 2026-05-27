@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
-from core_memory.runtime.dreamer_eval import dreamer_eval_report
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
+from core_memory.runtime.dreamer.eval import dreamer_eval_report
 
 
 class TestDreamerEvalSlice64A(unittest.TestCase):

@@ -201,7 +201,7 @@ def enqueue_dreamer_candidates(
 
     # DV2-2 retrieval feedback loop context (review-only signal input)
     try:
-        from core_memory.runtime.retrieval_feedback import summarize_retrieval_feedback
+        from core_memory.runtime.observability.retrieval_feedback import summarize_retrieval_feedback
 
         feedback_since = str(run_meta.get("feedback_since") or "30d")
         feedback_limit = int(run_meta.get("feedback_limit") or 500)
@@ -458,7 +458,7 @@ def decide_dreamer_candidate(
             }
 
         if hypothesis_type == "retrieval_value_candidate":
-            from core_memory.runtime.retrieval_value_overrides import apply_retrieval_value_override
+            from core_memory.runtime.observability.retrieval_value_overrides import apply_retrieval_value_override
 
             rp = (target.get("review_payload") or {}) if isinstance(target.get("review_payload"), dict) else {}
             src = str(rp.get("source_bead_id") or target.get("source_bead_id") or "").strip()

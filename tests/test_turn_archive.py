@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
-from core_memory.runtime.turn_archive import get_turn_record
+from core_memory.runtime.turn.turn_archive import get_turn_record
 
 
 def test_emit_memory_event_writes_turn_archive_and_index(tmp_path: Path):

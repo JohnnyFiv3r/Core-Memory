@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.runtime.goal_lifecycle import resolve_goals_for_turn
+from core_memory.runtime.session.goal_lifecycle import resolve_goals_for_turn
 
 
 class TestGoalLifecycleResolution(unittest.TestCase):

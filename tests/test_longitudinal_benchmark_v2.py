@@ -6,8 +6,8 @@ import unittest
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
-from core_memory.runtime.longitudinal_benchmark import longitudinal_benchmark_v2
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
+from core_memory.runtime.dreamer.longitudinal import longitudinal_benchmark_v2
 
 
 class TestLongitudinalBenchmarkV2Slice65A(unittest.TestCase):

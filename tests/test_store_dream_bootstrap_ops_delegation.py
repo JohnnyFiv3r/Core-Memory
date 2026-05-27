@@ -18,7 +18,7 @@ class TestStoreDreamBootstrapOpsDelegationSlice86A(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cm-store-bootstrap-deleg-") as td:
             store = MemoryStore(td)
             expected = [{"relationship": "supports"}]
-            with patch("core_memory.dreamer.run_analysis", return_value=expected) as stub:
+            with patch("core_memory.runtime.dreamer.analysis.run_analysis", return_value=expected) as stub:
                 out = store.dream(novel_only=True, seen_window_runs=3, max_exposure=2)
             self.assertEqual(expected, out)
             self.assertEqual(1, stub.call_count)

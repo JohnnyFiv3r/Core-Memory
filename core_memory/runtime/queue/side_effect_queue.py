@@ -12,8 +12,8 @@ from core_memory.persistence.io_utils import store_lock
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.integrations.neo4j.sync import sync_to_neo4j
-from core_memory import dreamer
-from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates
+from core_memory.runtime.dreamer import analysis as dreamer
+from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
 
 _SIDE_EFFECT_KINDS = {"dreamer-run", "neo4j-sync", "health-recompute", "turn-enrichment"}
@@ -262,7 +262,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         }
 
     if k == "turn-enrichment":
-        from core_memory.runtime.enrichment import run_turn_enrichment
+        from core_memory.runtime.passes.enrichment import run_turn_enrichment
         out = run_turn_enrichment(root=str(root), payload=p)
         return {
             "ok": bool(out.get("ok")),

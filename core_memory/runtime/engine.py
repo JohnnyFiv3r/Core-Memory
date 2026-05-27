@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .live_session import read_live_session_beads
+from .session.live_session import read_live_session_beads
 from .event_schemas import CRAWLER_UPDATE
 from core_memory.config.feature_flags import (
     agent_min_semantic_associations_after_first,
@@ -26,21 +26,21 @@ from ..association.crawler_contract import (
     merge_crawler_updates,
     _crawler_updates_log_path,
 )
-from .association_pass import run_association_pass
+from .passes.association_pass import run_association_pass
 from ..write_pipeline.continuity_injection import load_continuity_injection
 from .state import mark_memory_pass, try_claim_memory_pass
-from .ingress import maybe_emit_finalize_memory_event
-from .worker import SidecarPolicy, process_memory_event
+from .turn.ingress import maybe_emit_finalize_memory_event
+from .queue.worker import SidecarPolicy, process_memory_event
 from ..write_pipeline.orchestrate import run_consolidate_pipeline
 from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
-from .decision_pass import run_session_decision_pass
+from .passes.decision_pass import run_session_decision_pass
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..policy.bead_judge import judge_bead_fields
 from ..policy.rationale import sanitize_because_for_turn
 from ..retrieval.lifecycle import mark_turn_checkpoint
-from .agent_crawler_invoke import invoke_turn_crawler_agent
-from .agent_authored_contract import (
+from .passes.agent_crawler_invoke import invoke_turn_crawler_agent
+from .passes.agent_authored_contract import (
     ERROR_AGENT_CALLABLE_MISSING,
     ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
     ERROR_AGENT_UPDATES_INVALID,
@@ -48,12 +48,12 @@ from .agent_authored_contract import (
     ERROR_AGENT_UPDATES_MISSING,
     validate_agent_authored_updates,
 )
-from .turn_prep import normalize_turn_request as _normalize_turn_request, infer_semantic_bead_type as _infer_semantic_bead_type
+from .turn.turn_prep import normalize_turn_request as _normalize_turn_request, infer_semantic_bead_type as _infer_semantic_bead_type
 from ..schema.turn import Turn, reject_legacy_turn_kwargs
-from .session_start_flow import process_session_start_impl
-from .turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
-from .flush_flow import process_flush_impl
-from .turn_flow import process_turn_finalized_impl
+from .session.session_start_flow import process_session_start_impl
+from .turn.turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
+from .flush.flush_flow import process_flush_impl
+from .turn.turn_flow import process_turn_finalized_impl
 
 logger = logging.getLogger(__name__)
 

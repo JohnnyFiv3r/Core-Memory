@@ -4,8 +4,8 @@ from pathlib import Path
 from unittest.mock import patch
 
 from benchmarks.locomo_like.runner import run_benchmark
-from core_memory.runtime.myelination import compute_myelination_bonus_map
-from core_memory.runtime.retrieval_feedback import record_retrieval_feedback
+from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
+from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
 
 
 class TestMyelinationExperiment(unittest.TestCase):

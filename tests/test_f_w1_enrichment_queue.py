@@ -15,12 +15,12 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.enrichment import (
+from core_memory.runtime.passes.enrichment import (
     _enrichment_queue_enabled,
     enqueue_turn_enrichment,
     run_turn_enrichment,
 )
-from core_memory.runtime.side_effect_queue import (
+from core_memory.runtime.queue.side_effect_queue import (
     _SIDE_EFFECT_KINDS,
     _queue_path,
     side_effect_queue_status,
@@ -135,7 +135,7 @@ class TestRunTurnEnrichmentDeltaAuthority(unittest.TestCase):
     @patch("core_memory.runtime.engine.run_session_decision_pass", return_value={})
     @patch("core_memory.runtime.engine._queue_preview_associations", return_value=0)
     @patch("core_memory.association.crawler_contract.merge_crawler_updates", return_value={"associations_appended": 0})
-    @patch("core_memory.runtime.association_pass.run_association_pass", return_value={"created_bead_ids": []})
+    @patch("core_memory.runtime.passes.association_pass.run_association_pass", return_value={"created_bead_ids": []})
     def test_enrichment_delta_overrides_parallel_reviewed_updates(
         self,
         association_spy,
@@ -145,7 +145,7 @@ class TestRunTurnEnrichmentDeltaAuthority(unittest.TestCase):
         _quality_spy,
         _claim_enabled_spy,
     ):
-        from core_memory.runtime.session_enrichment_delta import crawler_updates_to_delta
+        from core_memory.runtime.session.session_enrichment_delta import crawler_updates_to_delta
 
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)

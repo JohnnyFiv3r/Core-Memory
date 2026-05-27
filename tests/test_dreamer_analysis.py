@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from core_memory import dreamer
+from core_memory.runtime.dreamer import analysis as dreamer
 from core_memory.persistence.store import MemoryStore
 
 
@@ -20,8 +20,8 @@ class TestDreamerAnalysisSlice62A(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cm-dream-") as td:
             self._seed_two_beads(td)
             s = MemoryStore(td)
-            with patch("core_memory.dreamer.compute_distance", return_value=0.9), patch(
-                "core_memory.dreamer.score_association",
+            with patch("core_memory.runtime.dreamer.analysis.compute_distance", return_value=0.9), patch(
+                "core_memory.runtime.dreamer.analysis.score_association",
                 return_value={"relationship": "structural_symmetry", "novelty": 0.8, "confidence": 0.8, "grounding": 0.9},
             ):
                 first = dreamer.run_analysis(store=s, novel_only=False)
@@ -34,8 +34,8 @@ class TestDreamerAnalysisSlice62A(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cm-dream-") as td:
             self._seed_two_beads(td)
             s = MemoryStore(td)
-            with patch("core_memory.dreamer.compute_distance", return_value=0.9), patch(
-                "core_memory.dreamer.score_association",
+            with patch("core_memory.runtime.dreamer.analysis.compute_distance", return_value=0.9), patch(
+                "core_memory.runtime.dreamer.analysis.score_association",
                 return_value={"relationship": "structural_symmetry", "novelty": 0.8, "confidence": 0.8, "grounding": 0.9},
             ):
                 first = dreamer.run_analysis(store=s, novel_only=False)

@@ -4,18 +4,18 @@ import json
 from pathlib import Path
 from typing import Any
 
-from core_memory.runtime.live_session import read_live_session_beads
+from core_memory.runtime.session.live_session import read_live_session_beads
 from core_memory.association.crawler_contract import merge_crawler_updates_for_flush
 from core_memory.runtime.state import get_memory_pass
 from core_memory.write_pipeline.orchestrate import run_consolidate_pipeline
 from core_memory.persistence.io_utils import append_jsonl
 from core_memory.retrieval.lifecycle import mark_flush_checkpoint
-from core_memory.runtime.flush_state import (
+from core_memory.runtime.flush.flush_state import (
     read_flush_state,
     write_flush_state,
     upsert_process_flush_checkpoint_bead,
 )
-from core_memory.runtime.side_effects import enqueue_post_write_side_effects
+from core_memory.runtime.queue.side_effects import enqueue_post_write_side_effects
 from core_memory.runtime.event_schemas import FLUSH_REPORT, FLUSH_CHECKPOINT
 
 

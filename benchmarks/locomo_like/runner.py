@@ -16,11 +16,11 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.store_claim_ops import write_claim_updates_to_bead, write_claims_to_bead
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.semantic_index import semantic_doctor
-from core_memory.runtime.jobs import async_jobs_status, run_async_jobs
+from core_memory.runtime.queue.jobs import async_jobs_status, run_async_jobs
 from core_memory.runtime.engine import process_turn_finalized
-from core_memory.runtime.association_pass import run_association_pass
+from core_memory.runtime.passes.association_pass import run_association_pass
 from core_memory.association.crawler_contract import merge_crawler_updates
-from core_memory.runtime.myelination import myelination_report
+from core_memory.runtime.observability.myelination import myelination_report
 
 from .reporting import build_report, render_summary
 from .schema import BenchmarkCase, GoldCase, build_cases
@@ -277,7 +277,7 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
     # Optional Dreamer fixture hooks for DV2 benchmark correlation paths.
     dreamer_associations = list(setup.get("dreamer_associations") or [])
     if dreamer_associations:
-        from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates, list_dreamer_candidates, decide_dreamer_candidate
+        from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates, list_dreamer_candidates, decide_dreamer_candidate
 
         # Resolve bead keys in association rows.
         materialized_assoc: list[dict[str, Any]] = []

@@ -39,7 +39,7 @@ class TestHttpMCPTypedWrites(unittest.TestCase):
     def test_http_mcp_apply_reviewed_proposal(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app
-        from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates
+        from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")

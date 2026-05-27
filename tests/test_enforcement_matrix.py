@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
-from core_memory.runtime.worker import SidecarPolicy
+from core_memory.runtime.queue.worker import SidecarPolicy
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.engine import process_flush
 

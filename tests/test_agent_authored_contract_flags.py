@@ -9,7 +9,7 @@ from core_memory.integrations.openclaw_flags import (
     agent_authored_required_enabled,
     runtime_flags_snapshot,
 )
-from core_memory.runtime.agent_authored_contract import contract_snapshot
+from core_memory.runtime.passes.agent_authored_contract import contract_snapshot
 
 
 class TestAgentAuthoredContractSlice0(unittest.TestCase):

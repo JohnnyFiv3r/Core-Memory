@@ -5,7 +5,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from core_memory.runtime.retrieval_feedback import read_retrieval_feedback
+from core_memory.runtime.observability.retrieval_feedback import read_retrieval_feedback
 
 
 def myelination_enabled() -> bool:

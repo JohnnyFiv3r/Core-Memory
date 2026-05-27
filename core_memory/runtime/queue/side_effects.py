@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from core_memory.retrieval.lifecycle import enqueue_semantic_rebuild
-from core_memory.runtime.side_effect_queue import enqueue_side_effect_event
+from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
 
 
 def _mode() -> str:

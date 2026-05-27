@@ -9,7 +9,7 @@ from core_memory.config.feature_flags import (
     agent_crawler_invoke_enabled,
     agent_crawler_max_attempts,
 )
-from core_memory.runtime.agent_authored_contract import (
+from core_memory.runtime.passes.agent_authored_contract import (
     ERROR_AGENT_CALLABLE_MISSING,
     ERROR_AGENT_INVOCATION_EXHAUSTED,
 )

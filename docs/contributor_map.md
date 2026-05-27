@@ -55,14 +55,14 @@ If you're new, this is the shortest map of where behavior lives.
 - store/maintenance handlers: `core_memory/cli_handlers_store.py`
 
 ## Async/side effects (current and target)
-- async substrate entrypoints: `core_memory/runtime/jobs.py`
-- compaction queue primitive: `core_memory/runtime/compaction_queue.py`
-- side-effect queue primitive: `core_memory/runtime/side_effect_queue.py`
-- post-write side-effect enqueue policy: `core_memory/runtime/side_effects.py`
+- async substrate entrypoints: `core_memory/runtime/queue/jobs.py`
+- compaction queue primitive: `core_memory/runtime/queue/compaction_queue.py`
+- side-effect queue primitive: `core_memory/runtime/queue/side_effect_queue.py`
+- post-write side-effect enqueue policy: `core_memory/runtime/queue/side_effects.py`
 
 ## Dreamer
-- implementation: `core_memory/dreamer.py`
-- candidate queue + adjudication helpers: `core_memory/runtime/dreamer_candidates.py`
+- implementation: `core_memory/runtime/dreamer/analysis.py`
+- candidate queue + adjudication helpers: `core_memory/runtime/dreamer/candidates.py`
 - contract doc: `docs/dreamer_contract.md`
 - role: async candidate-generating subsystem with reviewable adjudication path.
 

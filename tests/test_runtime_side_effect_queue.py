@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.side_effect_queue import (
+from core_memory.runtime.queue.side_effect_queue import (
     drain_side_effect_queue,
     enqueue_side_effect_event,
     process_side_effect_event,

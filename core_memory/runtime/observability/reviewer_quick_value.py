@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory import memory_execute, process_flush, process_turn_finalized
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
 
 
 def _probe_retrieval(root: str | Path, query: str) -> dict[str, Any]:

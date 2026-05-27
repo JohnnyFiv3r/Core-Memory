@@ -443,7 +443,7 @@ def process_turn_finalized_impl(
                 memory_outcome_written = True
 
         try:
-            from core_memory.runtime.goal_lifecycle import resolve_goals_for_turn
+            from core_memory.runtime.session.goal_lifecycle import resolve_goals_for_turn
             goal_visible_ids = sorted(
                 set(visible_ids + [str(x) for x in (req.get("window_bead_ids") or []) if str(x).strip()])
             )

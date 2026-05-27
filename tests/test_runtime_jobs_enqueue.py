@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from core_memory.runtime.jobs import enqueue_async_job
+from core_memory.runtime.queue.jobs import enqueue_async_job
 
 
 class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
