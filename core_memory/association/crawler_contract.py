@@ -16,6 +16,7 @@ from core_memory.policy.association_contract import assoc_dedupe_key
 from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_PERMISSIVE,
     INFERENCE_MODE_STRICT,
+    NONCANONICAL_TEMPORAL_RELATIONSHIPS,
     validate_and_normalize_inference_payload,
 )
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract, can_be_retrieval_eligible, rewrite_generic_title
@@ -346,6 +347,17 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 src = str(row_n.get("source_bead") or "")
                 tgt = str(row_n.get("target_bead") or "")
                 rel = str(row_n.get("relationship") or "")
+                if inference_mode == INFERENCE_MODE_STRICT and rel in NONCANONICAL_TEMPORAL_RELATIONSHIPS:
+                    write_quarantine(
+                        Path(root),
+                        row_n,
+                        reasons=[f"noncanonical_relationship:{rel}"],
+                        warnings=list(row_n.get("warnings") or []),
+                        original_payload=row,
+                        session_id=str(session_id),
+                    )
+                    quarantined += 1
+                    continue
                 if src not in beads or tgt not in beads:
                     continue
                 exists = any(
@@ -620,6 +632,17 @@ def apply_crawler_updates(
             src = str(row_n.get("source_bead") or "")
             tgt = str(row_n.get("target_bead") or "")
             rel_n = str(row_n.get("relationship") or "")
+            if inference_mode == INFERENCE_MODE_STRICT and rel_n in NONCANONICAL_TEMPORAL_RELATIONSHIPS:
+                write_quarantine(
+                    Path(root),
+                    row_n,
+                    reasons=[f"noncanonical_relationship:{rel_n}"],
+                    warnings=list(row_n.get("warnings") or []),
+                    original_payload=row,
+                    session_id=str(session_id),
+                )
+                quarantined += 1
+                continue
             dedupe_key = assoc_dedupe_key(
                 {
                     "source_bead_id": src,

@@ -33,8 +33,13 @@ _EXTERNAL_VECTOR_BACKENDS = {VECTOR_BACKEND_QDRANT, VECTOR_BACKEND_PGVECTOR, VEC
 
 def _normalize_vector_backend(value: str | None) -> str:
     # Default is qdrant (embedded, zero-ops). Use CORE_MEMORY_VECTOR_BACKEND=local-faiss to opt back.
+    # An explicitly empty env var is treated as no external vector backend; tests and
+    # operators use this to force required-mode failure instead of silently falling
+    # through to qdrant.
+    if value is not None and str(value).strip() == "":
+        return VECTOR_BACKEND_LOCAL_FAISS
     v = str(value or VECTOR_BACKEND_QDRANT).strip().lower().replace("_", "-")
-    if v in {"", "auto", "qdrant"}:
+    if v in {"auto", "qdrant"}:
         return VECTOR_BACKEND_QDRANT
     if v in {"local", "faiss", "local-faiss"}:
         return VECTOR_BACKEND_LOCAL_FAISS

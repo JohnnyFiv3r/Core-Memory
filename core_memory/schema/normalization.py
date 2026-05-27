@@ -146,6 +146,7 @@ CANONICAL_BEAD_STATUSES = {
     "archived",
     "compacted",
     "superseded",
+    "transient",
 }
 
 

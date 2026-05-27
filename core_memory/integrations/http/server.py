@@ -252,6 +252,13 @@ def _semantic_http_response(result: dict[str, Any]) -> JSONResponse | None:
     code = str(((result.get("error") or {}).get("code") or "")).strip()
     if not result.get("ok") and code == "semantic_backend_unavailable":
         return JSONResponse(status_code=503, content=result)
+    warnings = {str(x) for x in (result.get("warnings") or [])}
+    mode = str(os.getenv("CORE_MEMORY_CANONICAL_SEMANTIC_MODE") or "required").strip().lower()
+    if mode == "required" and "semantic_backend_unavailable" in warnings:
+        content = dict(result)
+        content["ok"] = False
+        content.setdefault("error", {"code": "semantic_backend_unavailable", "message": "semantic backend unavailable in required mode"})
+        return JSONResponse(status_code=503, content=content)
     return None
 
 
