@@ -12,11 +12,11 @@
 | Task | File | Status |
 |------|------|--------|
 | Layered config reader (defaults < user-global < project-local < env vars) | `core_memory/config/settings.py` | ✓ |
-| `core-memory setup init` wizard with `--preset`, `--global`, `--force` | `core_memory/cli_handlers_setup.py` | ✓ |
-| Creates `.beads/` + `.turns/` on init, writes `.core-memory.yaml` | `cli_handlers_setup.py:init_command` | ✓ |
-| Idempotent init (skips without `--force`) | `cli_handlers_setup.py:init_command` | ✓ |
-| `expanded_doctor` — 6-tier JSON report (storage/vector/graph/dreamer/rolling-window/transcript) | `cli_handlers_setup.py:expanded_doctor` | ✓ |
-| Exits 1 on any `"error"` tier | `cli_handlers_setup.py:doctor_command` | ✓ |
+| `core-memory setup init` wizard with `--preset`, `--global`, `--force` | `core_memory/cli/handlers/setup.py` | ✓ |
+| Creates `.beads/` + `.turns/` on init, writes `.core-memory.yaml` | `cli/handlers/setup.py:init_command` | ✓ |
+| Idempotent init (skips without `--force`) | `cli/handlers/setup.py:init_command` | ✓ |
+| `expanded_doctor` — 6-tier JSON report (storage/vector/graph/dreamer/rolling-window/transcript) | `cli/handlers/setup.py:expanded_doctor` | ✓ |
+| Exits 1 on any `"error"` tier | `cli/handlers/setup.py:doctor_command` | ✓ |
 | `ops doctor` / top-level `doctor` use `expanded_doctor` | `cli.py` | ✓ |
 | 17 new tests | `tests/test_init_wizard.py` | ✓ |
 
@@ -299,7 +299,7 @@ Exits 0 always (demo beads are written to a temporary session, not promoted).
 
 ### 8b-1 Mode wizard
 
-1. Add `mode` field to `_DEFAULTS` and `_PRESETS` in `cli_handlers_setup.py`.
+1. Add `mode` field to `_DEFAULTS` and `_PRESETS` in `cli/handlers/setup.py`.
 2. Rename `_PRESETS` keys from `local/sqlite/postgres/neo4j` to `local/mcp/app/production`;
    keep `--preset` as deprecated alias for `--mode`.
 3. Rewrite `_interactive_wizard()` to ask use-case intent first. Mode resolves the stack.
@@ -326,7 +326,7 @@ Exits 0 always (demo beads are written to a temporary session, not promoted).
 
 1. Add `config_parser` to `cli.py` with subcommands `show`, `set`, `validate`.
 2. Add `config_show_command(args)`, `config_set_command(args)`, `config_validate_command(args)`
-   to `cli_handlers_setup.py`.
+   to `cli/handlers/setup.py`.
 3. `config show`: calls `load_settings(root)`, re-runs the load with provenance tracking
    (add `load_settings_with_provenance(root)` variant that returns `{key: (value, source)}`).
 4. `config set key value`: parses dotted key path, reads existing YAML, updates in-place,
@@ -339,7 +339,7 @@ Exits 0 always (demo beads are written to a temporary session, not promoted).
 ### 8b-4 Demo command
 
 1. Add `demo` top-level subcommand to `cli.py`.
-2. Add `demo_command(args)` to `cli_handlers_setup.py`.
+2. Add `demo_command(args)` to `cli/handlers/setup.py`.
 3. Write 3 synthetic beads via `MemoryStore.add_bead()`, tag session as `demo`.
 4. Run `recall()` with a canned query ("why did we choose Python?").
 5. Print human-readable result showing matched beads and causal chain if available.

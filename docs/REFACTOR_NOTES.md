@@ -1,5 +1,11 @@
 # Core Memory Refactor - Completed
 
+> **⚠️ Historical document — Phase 1 refactor closeout.**
+> References pre-Phase-9 paths (`openclaw_integration.py`,
+> `integrations/openclaw_agent_end_bridge.py`, etc.) that no longer exist.
+> Current canonical paths: `core_memory/integrations/openclaw/*.py`.
+> Retained for history; will be archived in Phase 10.
+
 ## ✅ All Items Complete
 
 ### Phase 1 Quick Wins

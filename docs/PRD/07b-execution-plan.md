@@ -427,7 +427,7 @@ zero-mirror behavior.
 ### 7b-7 — `core-memory migrate` CLI command
 
 **Files (new)**
-- `core_memory/cli_handlers_migrate.py`
+- `core_memory/cli/handlers/migrate.py`
 
 **Files (modify)**
 - `core_memory/cli.py` (or wherever subcommand dispatch lives) — register

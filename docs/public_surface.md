@@ -42,6 +42,7 @@ instead of direct `.beads` / `.turns` layout reads:
 - `core_memory.integrations.api.inspect_bead_hydration(...)`
 - `core_memory.integrations.api.inspect_claim_slot(...)`
 - `core_memory.integrations.api.list_turn_summaries(...)`
+- `core_memory.hydrate_bead_sources(...)` — also exported as `core_memory.integrations.api.hydrate_bead_sources`. Explicit post-selection source recovery from bead provenance links and/or explicit turn IDs.
 
 Convenience package-root aliases are also exported:
 - `core_memory.memory_search`
@@ -49,14 +50,14 @@ Convenience package-root aliases are also exported:
 - `core_memory.memory_execute`
 
 ## Async job/queue operations (canonical ops surface)
-- `core_memory.runtime.jobs.async_jobs_status(root='...')`
-- `core_memory.runtime.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute', ...)`
-- `core_memory.runtime.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
+- `core_memory.runtime.queue.jobs.async_jobs_status(root='...')`
+- `core_memory.runtime.queue.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute', ...)`
+- `core_memory.runtime.queue.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
 
 Dreamer candidate queue surfaces:
-- `core_memory.runtime.dreamer_candidates.enqueue_dreamer_candidates(...)`
-- `core_memory.runtime.dreamer_candidates.list_dreamer_candidates(...)`
-- `core_memory.runtime.dreamer_candidates.decide_dreamer_candidate(...)`
+- `core_memory.runtime.dreamer.candidates.enqueue_dreamer_candidates(...)`
+- `core_memory.runtime.dreamer.candidates.list_dreamer_candidates(...)`
+- `core_memory.runtime.dreamer.candidates.decide_dreamer_candidate(...)`
 
 All async ops payloads include:
 - `schema_version = "core_memory.async_jobs.v1"`

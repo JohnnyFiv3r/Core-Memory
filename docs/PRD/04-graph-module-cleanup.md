@@ -17,7 +17,7 @@ This creates two concrete problems:
 
 1. **Parameter transformation bug hidden in the facade.** `graph/api.py:causal_traverse`
    converts `anchor_ids` from positional to keyword-only before forwarding to
-   `causal_traverse_chains`. The CLI caller at `cli_handlers_graph.py:43` passes it
+   `causal_traverse_chains`. The CLI caller at `cli/handlers/graph.py:43` passes it
    positionally. Removing the facade without fixing this first breaks the `graph trace`
    command.
 
@@ -37,7 +37,7 @@ This creates two concrete problems:
 | `graph/traversal.py` | Real implementation — `causal_traverse_chains` and helpers |
 | `graph/semantic.py` | Real implementation — semantic edge ops |
 | `graph/__init__.py` | Star-imports `api.py`, re-exports to bare `core_memory.graph` |
-| `cli_handlers_graph.py:7-16` | Imports 8 functions from `core_memory.graph.api` |
+| `cli/handlers/graph.py:7-16` | Imports 8 functions from `core_memory.graph.api` |
 | Test files importing `graph.api` | 12 files across `tests/` |
 
 ---
@@ -47,7 +47,7 @@ This creates two concrete problems:
 1. `core_memory/graph/api.py` does not exist.
 2. `core_memory/graph/__init__.py` re-exports the same public symbols directly from the
    split modules (no change to `from core_memory.graph import X` for external callers).
-3. `cli_handlers_graph.py` imports from split modules; all 8 graph subcommands work.
+3. `cli/handlers/graph.py` imports from split modules; all 8 graph subcommands work.
 4. All 12 test files that previously imported from `graph.api` import from split modules.
 5. Full pytest suite passes. `pytest -m facade` (tagged in Phase 0) passes.
 6. `_api_impl.py` either renamed to remove the private prefix or its functions folded
@@ -60,7 +60,7 @@ This creates two concrete problems:
 **In:**
 - `graph/api.py` deletion
 - `graph/__init__.py` re-export cleanup
-- `cli_handlers_graph.py` import migration
+- `cli/handlers/graph.py` import migration
 - 12 test file import migrations
 - `causal_traverse` signature fix in `graph/traversal.py`
 - Optional: rename `_api_impl.py`
@@ -91,9 +91,9 @@ to:
 def causal_traverse_chains(root, anchor_ids=None, *, ...):
 ```
 
-or add a positional overload. Verify `cli_handlers_graph.py:43` call still works.
+or add a positional overload. Verify `cli/handlers/graph.py:43` call still works.
 
-**Step 2 — Migrate `cli_handlers_graph.py`**
+**Step 2 — Migrate `cli/handlers/graph.py`**
 
 Replace the 8 imports from `core_memory.graph.api` with direct imports from the
 appropriate split module. Cross-reference each symbol:

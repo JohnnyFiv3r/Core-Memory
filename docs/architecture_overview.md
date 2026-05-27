@@ -104,10 +104,10 @@ companion that issues retrieval calls and shapes search forms.
 | Persistence | `persistence/` | Store, projection cache, pluggable storage backends |
 | Domain logic | `claim/`, `entity/`, `association/`, `graph/` | Claim extraction & resolution, entity registry, association inference, causal graph operations |
 | Retrieval | `retrieval/` | Tiered recall pipeline (rolling window → semantic → causal → hydration) |
-| Runtime | `runtime/`, `write_pipeline/` | Turn orchestration, write flow, side-effect queue, dreamer, observability |
+| Runtime | `runtime/{turn,flush,session,passes,queue,observability,dreamer}/`, `write_pipeline/` | Turn orchestration, write flow, side-effect queue, dreamer, observability |
 | Public API | `core_memory/__init__.py`, `memory.py`, `transcript_ingest.py` | Curated surface for consumers |
-| CLI | `cli.py`, `cli_*` | Command-line surface (subject to Phase 9 reorganization into `cli/`) |
-| Integrations | `integrations/` | Framework adapters (MCP, OpenClaw, PydanticAI, etc.) — consume the public API |
+| CLI | `cli/` (parsers, handlers, compat) | Command-line surface |
+| Integrations | `integrations/` (`openclaw/`, `pydanticai/`, `mcp/`, `http/`, …) | Framework adapters — consume the public API |
 
 **Layering law:** dependencies flow downward only:
 ```

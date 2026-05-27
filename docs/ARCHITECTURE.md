@@ -1,5 +1,11 @@
 # Core Memory Architecture
 
+> **⚠️ SUPERSEDED — historical document.**
+> This file references pre-Phase-9 file names (`event_ingress.py`,
+> `openclaw_integration.py`, etc.). The canonical architecture reference
+> is now `docs/architecture_overview.md`. This file is retained for
+> historical context and will be archived as part of Phase 10.
+
 ## Five Canonical Centers
 
 The codebase revolves around five canonical centers:

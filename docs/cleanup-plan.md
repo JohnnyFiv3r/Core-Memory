@@ -51,10 +51,12 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 
 **PRD:** `docs/PRD/02-circular-import-fix.md`
 
-- [ ] `core_memory/retrieval/__init__.py` — **DEFERRED to Phase 9g.** A real cycle
-      was found: `retrieval/pipeline/canonical.py` → `integrations/api.py` →
-      `runtime/jobs.py` → `runtime/engine.py` (layering violation). The `__getattr__`
-      hook is live defense, not dead code. Fix the layering violation first.
+- [x] `core_memory/retrieval/__init__.py` — **Resolved in Phase 9g.** The real
+      cycle (`retrieval/pipeline/canonical.py` → `integrations/api.py` →
+      `runtime/queue/jobs.py` → `retrieval/lifecycle.py`) was broken by
+      converting the top-level `hydrate_bead_sources` import in `canonical.py`
+      to lazy function-level imports. The `__getattr__` hook is retained as
+      documented defense.
 - [x] `core_memory/runtime/__init__.py` — docstring rewritten to describe the
       lazy-load rationale accurately (no "circular import" claim).
 

@@ -36,9 +36,9 @@ An import from `runtime/` into an integration is a bug in the other direction.
 ### 2. All frameworks are equal adapters
 
 No adapter gets privileged access to internal modules. OpenClaw is the original
-testbed and is currently over-coupled (Phase 9 unwinds this). **Do not deepen
-OpenClaw coupling.** Do not add new imports of `openclaw_*` modules from anywhere
-outside `integrations/`.
+testbed; Phase 9 unwound its over-coupling and isolated it in
+`integrations/openclaw/`. **Do not deepen OpenClaw coupling.** Do not add new
+imports of `integrations.openclaw.*` modules from anywhere outside `integrations/`.
 
 ### 3. Retrieval happens every turn — always
 
@@ -70,10 +70,11 @@ public API.
 
 ### 6. No new flat files at `core_memory/` root or `runtime/` root
 
-`core_memory/` root already has too many flat `.py` files (Phase 9 refactor
-addresses this). Do not add new ones. New CLI handlers go in `cli_handlers_*.py`
-(existing pattern) or wait for `cli/` package. New runtime concerns go in an
-existing `runtime/` submodule.
+`core_memory/` root and `runtime/` root are now clean (Phase 9 complete). Do not
+re-introduce flat `.py` files. CLI code goes in `core_memory/cli/` (handlers,
+parsers, compat). Runtime concerns go in the relevant `runtime/` subpackage
+(`turn/`, `flush/`, `session/`, `passes/`, `queue/`, `observability/`,
+`dreamer/`). OpenClaw integration code goes in `integrations/openclaw/`.
 
 ---
 
@@ -95,16 +96,13 @@ Entry: `emit_turn_finalized` → `process_turn_finalized`
 
 ---
 
-## OpenClaw coupling — current known violations (grandfathered)
+## OpenClaw coupling — resolved (Phase 9 complete)
 
-These exist today and are being fixed in Phase 9. Do not add new instances:
-
-- `core_memory/runtime/engine.py` imports `openclaw_flags` (should import from
-  `core_memory/config/feature_flags.py` after Phase 9a)
-- Schema strings `"openclaw.memory.flush_report.v1"` etc. embedded in runtime
-  events (fix: constants in `runtime/event_schemas.py` with legacy aliases, Phase 9b)
-- 7 `openclaw_*.py` files at `integrations/` root (fix: move to
-  `integrations/openclaw/`, Phase 9c)
+The OpenClaw integration is now isolated in `core_memory/integrations/openclaw/`
+like any other adapter. Generic feature flags live in `core_memory/config/feature_flags.py`
+(no more `openclaw_flags.py`). Runtime event schemas live in
+`core_memory/runtime/event_schemas.py` as constants. Do not add new imports that
+route runtime or persistence code through `integrations/openclaw/`.
 
 ---
 

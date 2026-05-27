@@ -744,7 +744,7 @@ $ core-memory graph-sync --provider=neo4j --root=. [--dry-run]
 ```
 
 ```python
-# core_memory/cli_handlers_graph_sync.py
+# core_memory/cli/handlers/graph_sync.py
 def handle_graph_sync(args) -> int:
     storage = create_backend(Path(args.root) / ".beads")
     gb = create_graph_backend()

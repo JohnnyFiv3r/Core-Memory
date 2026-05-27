@@ -134,9 +134,9 @@ If behavior changes, these owners must be updated first.
 ## C) Integration phases
 
 ### C1. OpenClaw bridge hooks
-- `core_memory.integrations.openclaw_agent_end_bridge`
-- `core_memory.integrations.openclaw_compaction_bridge`
-- `core_memory.integrations.openclaw_runtime` (compat integration helpers)
+- `core_memory.integrations.openclaw.agent_end_bridge`
+- `core_memory.integrations.openclaw.compaction_bridge`
+- `core_memory.integrations.openclaw.runtime` (compat integration helpers)
 
 ### C2. Public integration APIs
 - `core_memory.integrations.api`
@@ -156,7 +156,7 @@ If behavior changes, these owners must be updated first.
 
 ## E) Deprecated / transitional paths (track for removal)
 
-- `core_memory.integrations.openclaw_runtime` (compat helper surface)
+- `core_memory.integrations.openclaw.runtime` (compat helper surface)
 
 These should never be treated as canonical owners.
 

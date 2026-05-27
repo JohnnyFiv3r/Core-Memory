@@ -20,8 +20,8 @@ python -m unittest tests.test_turn_hydration_slice3
 
 ## Flag/guard checks
 ```bash
-python -m unittest tests.test_openclaw_flags_slice5
-python -m unittest tests.test_supersession_guards_slice6
+python -m unittest tests.test_openclaw_flags
+python -m unittest tests.test_supersession_guards
 ```
 
 ## Validate for

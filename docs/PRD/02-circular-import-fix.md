@@ -1,8 +1,14 @@
 # PRD: Fix Mislabeled Circular-Import Workarounds
 
 **Phase:** 2
-**Status:** Partially complete — sub-task 2b done; sub-task 2a deferred (real cycle found)
+**Status:** Complete — 2b done in this phase; 2a addressed in Phase 9g (cycle broken via lazy import)
 **Prerequisite:** Phase 0 complete (CI workflow merged) — Phase 1 not required
+
+> The `retrieval → integrations → runtime → retrieval` cycle that 2a
+> uncovered was resolved in Phase 9g by converting the top-level
+> `hydrate_bead_sources` import in `retrieval/pipeline/canonical.py` to
+> lazy function-level imports. The `__getattr__` guard in
+> `retrieval/__init__.py` is retained as documented defense.
 
 ---
 

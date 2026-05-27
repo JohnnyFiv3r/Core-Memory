@@ -9,7 +9,9 @@ If you're new, this is the shortest map of where behavior lives.
     - `process_session_start(...)`
     - `process_flush(...)`
 - lifecycle implementation modules under `core_memory/runtime/`:
-  - `turn_flow.py`, `turn_prep.py`, `session_start_flow.py`, `flush_flow.py`, `turn_quality.py`, `flush_state.py`
+  - `turn/turn_flow.py`, `turn/turn_prep.py`, `turn/turn_quality.py`
+  - `session/session_start_flow.py`
+  - `flush/flush_flow.py`, `flush/flush_state.py`
 
 ## Canonical retrieval
 - tool entrypoints: `core_memory/retrieval/tools/memory.py`
@@ -46,13 +48,13 @@ If you're new, this is the shortest map of where behavior lives.
 - rationale scoring service: `core_memory/reporting/store_rationale.py`
 
 ## CLI surfaces
-- thin entrypoint + routing: `core_memory/cli.py`
-- compatibility alias logic: `core_memory/cli_compat.py`
-- memory parser surface: `core_memory/cli_parser_memory.py`
-- memory command handlers: `core_memory/cli_memory_handlers.py`
-- graph handlers: `core_memory/cli_handlers_graph.py`
-- metrics handlers: `core_memory/cli_handlers_metrics.py`
-- store/maintenance handlers: `core_memory/cli_handlers_store.py`
+- entrypoint + routing: `core_memory/cli/__init__.py`, `core_memory/cli/__main__.py`
+- compatibility alias logic: `core_memory/cli/compat.py`
+- memory parser surface: `core_memory/cli/parsers/memory.py`
+- memory command handlers: `core_memory/cli/handlers/memory.py`
+- graph handlers: `core_memory/cli/handlers/graph.py`
+- metrics handlers: `core_memory/cli/handlers/metrics.py`
+- store/maintenance handlers: `core_memory/cli/handlers/store.py`
 
 ## Async/side effects (current and target)
 - async substrate entrypoints: `core_memory/runtime/queue/jobs.py`

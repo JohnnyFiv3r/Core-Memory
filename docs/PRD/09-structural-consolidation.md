@@ -1,8 +1,14 @@
 # PRD: Structural Consolidation — runtime, CLI, OpenClaw, Dreamer
 
 **Phase:** 9
-**Status:** Not started
+**Status:** Complete (9a–9h)
 **Prerequisite:** Phases 4 and 5 complete (graph and persistence cleaned up)
+
+> Phase 9 is complete: all 52 backward-compat shims deleted, callsites
+> migrated to canonical subpackage paths, layering violation in
+> `retrieval/pipeline/canonical.py` fixed via lazy import. The discussion
+> below is preserved as historical design context — paths referenced as
+> shim destinations now exist only at the canonical locations described.
 
 ---
 

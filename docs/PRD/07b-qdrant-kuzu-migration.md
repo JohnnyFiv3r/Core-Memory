@@ -314,7 +314,7 @@ The command detects the configured backends and skips steps for unconfigured one
 | `persistence/graph/factory.py` | New | `create_graph_backend()`, registers kuzu + neo4j |
 | `persistence/graph/__init__.py` | New | Package init |
 | `runtime/write_path.py` (or equivalent) | Modify | Add post-write upsert to Qdrant + merge to Kuzu |
-| `cli_handlers_migrate.py` | New | `core-memory migrate` command |
+| `cli/handlers/migrate.py` | New | `core-memory migrate` command |
 | `graph/traversal.py` | No change | Python walker retained as fallback |
 
 ---
