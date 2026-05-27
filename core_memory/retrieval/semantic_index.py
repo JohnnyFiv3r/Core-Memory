@@ -290,9 +290,10 @@ def _check_semantic_mode_startup() -> None:
     vector_backend = _configured_vector_backend()
     # Qdrant with FastEmbed provides its own embeddings — no external API key required.
     has_qdrant_fastembed = vector_backend == VECTOR_BACKEND_QDRANT
+    # FAISS is a vector index, not an embedding provider — it still needs an external API key.
     has_external = vector_backend in _EXTERNAL_VECTOR_BACKENDS and not has_qdrant_fastembed
 
-    if not has_provider and not has_external and not has_faiss and not has_qdrant_fastembed:
+    if not has_provider and not has_external and not has_qdrant_fastembed:
         raise RuntimeError(
             "core-memory: semantic mode is 'required' (default) but no embedding provider is configured. "
             "Either:\n"
