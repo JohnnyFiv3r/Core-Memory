@@ -1,8 +1,16 @@
 from __future__ import annotations
 
 import re
-import tomllib
+import sys
 import unittest
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomli as tomllib  # type: ignore
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore
 from pathlib import Path
 
 import core_memory
@@ -18,6 +26,8 @@ class TestReleaseSurfaceConsistency(unittest.TestCase):
         self.license = self.repo / "LICENSE"
 
     def _pyproject_data(self) -> dict:
+        if tomllib is None:
+            self.skipTest("tomllib requires Python 3.11+ or tomli package")
         return tomllib.loads(self.pyproject.read_text(encoding="utf-8"))
 
     def test_version_is_single_source(self):

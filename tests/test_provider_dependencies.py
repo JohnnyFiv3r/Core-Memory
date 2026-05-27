@@ -1,12 +1,21 @@
 import pathlib
-import tomllib
+import sys
 import unittest
+
+if sys.version_info >= (3, 11):
+    import tomllib
+else:
+    try:
+        import tomli as tomllib  # type: ignore
+    except ModuleNotFoundError:
+        tomllib = None  # type: ignore
 from unittest.mock import patch
 
 from core_memory.provider_config import provider_extra_hint, resolve_chat_config
 
 
 class TestProviderNeutralDependencies(unittest.TestCase):
+    @unittest.skipIf(tomllib is None, "tomllib requires Python 3.11+ or tomli package")
     def test_base_package_stays_minimal_and_hosted_sdks_are_extras(self):
         data = tomllib.loads(pathlib.Path("pyproject.toml").read_text())
         deps = data["project"].get("dependencies") or []
