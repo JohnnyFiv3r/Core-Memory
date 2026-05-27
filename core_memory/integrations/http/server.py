@@ -11,6 +11,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from core_memory.identifiers import validate_archive_id
 from core_memory.integrations.api import (
     IntegrationContext,
     inspect_state,
@@ -353,8 +354,13 @@ async def turn_finalized(
 
     if payload.user_query is not None or payload.assistant_final is not None:
         return JSONResponse(status_code=400, content={"ok": False, "error": "legacy_turn_fields_removed", "message": "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] instead. See docs/concepts/turn_schema.md."})
-    transaction_id = payload.transaction_id or f"tx-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
-    trace_id = payload.trace_id or f"tr-{payload.turn_id}-{uuid.uuid4().hex[:8]}"
+    try:
+        session_id = validate_archive_id(payload.session_id, field="session_id")
+        turn_id = validate_archive_id(payload.turn_id, field="turn_id")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    transaction_id = payload.transaction_id or f"tx-{turn_id}-{uuid.uuid4().hex[:8]}"
+    trace_id = payload.trace_id or f"tr-{turn_id}-{uuid.uuid4().hex[:8]}"
 
     tenant = _resolve_tenant(x_tenant_id)
     ictx = IntegrationContext(
@@ -369,8 +375,8 @@ async def turn_finalized(
 
     out = process_turn_finalized(
         root=_resolve_root(payload.root, x_tenant_id),
-        session_id=payload.session_id,
-        turn_id=payload.turn_id,
+        session_id=session_id,
+        turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
         turns=list(payload.turns or []),
@@ -563,10 +569,15 @@ async def mcp_write_turn_finalized_endpoint(
     _check_auth(authorization, x_memory_token)
     if payload.user_query is not None or payload.assistant_final is not None:
         return JSONResponse(status_code=400, content={"ok": False, "error": "legacy_turn_fields_removed", "message": "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] instead. See docs/concepts/turn_schema.md."})
+    try:
+        session_id = validate_archive_id(payload.session_id, field="session_id")
+        turn_id = validate_archive_id(payload.turn_id, field="turn_id")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     out = mcp_write_turn_finalized(
         root=_resolve_root(payload.root, x_tenant_id),
-        session_id=str(payload.session_id or ""),
-        turn_id=str(payload.turn_id or ""),
+        session_id=session_id,
+        turn_id=turn_id,
         turns=list(payload.turns or []),
         transaction_id=str(payload.transaction_id or ""),
         trace_id=str(payload.trace_id or ""),

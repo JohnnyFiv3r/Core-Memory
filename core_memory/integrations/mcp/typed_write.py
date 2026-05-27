@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from typing import Any
 
+from core_memory.identifiers import validate_archive_id
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, submit_entity_merge_candidate
 from core_memory.schema.turn import reject_legacy_turn_kwargs
@@ -101,9 +102,12 @@ def write_turn_finalized(
         reject_legacy_turn_kwargs(legacy_kwargs, surface="write_turn_finalized")
     except TypeError as exc:
         return {"ok": False, "error": "legacy_turn_fields_removed", "message": str(exc), "contract": "mcp.write_turn_finalized.v1"}
-    sid = str(session_id or "").strip()
-    tid = str(turn_id or "").strip()
-    if not sid or not tid or not turns:
+    try:
+        sid = validate_archive_id(session_id, field="session_id")
+        tid = validate_archive_id(turn_id, field="turn_id")
+    except ValueError as exc:
+        return {"ok": False, "error": str(exc), "contract": "mcp.write_turn_finalized.v1"}
+    if not turns:
         return {"ok": False, "error": "missing_required_fields", "contract": "mcp.write_turn_finalized.v1"}
 
     tx = str(transaction_id or "").strip() or f"tx-{tid}-{uuid.uuid4().hex[:8]}"

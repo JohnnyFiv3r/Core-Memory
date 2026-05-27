@@ -1,525 +1,272 @@
 <p align="center">
- <img src="docs/assets/core-memory-hero-banner.jpg" alt="Core Memory" width="100%" />
+  <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/master/docs/assets/core-memory-hero-banner.jpg" alt="Core Memory banner" />
 </p>
 
 <p align="center">
- <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache-2.0 License"></a>
- <a href="#"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-Apache%202.0-blue.svg" alt="Apache-2.0 License"></a>
+  <a href="#"><img src="https://img.shields.io/badge/python-3.10%2B-blue.svg" alt="Python 3.10+"></a>
 </p>
 
 <p align="center">
- <b>Causal memory for AI agents.</b><br>
- Structured memory objects + causal trace over durable events — so agents can recall <i>why</i>, not just <i>what</i>.
+  <b>Causal memory for AI agents.</b><br>
+  Structured memory objects + causal trace over durable events — so agents can recall <i>why</i>, not just <i>what</i>.
 </p>
 
 <p align="center">
- <a href="#install">Install</a> ·
- <a href="#fastest-paths">Fastest Paths</a> ·
- <a href="#service-mode-springai--http">Service Mode</a> ·
- <a href="#current-status">Current Status</a> ·
- <a href="docs/architecture_overview.md">Architecture</a> ·
- <a href="docs/public_surface.md">Public Surface</a> ·
- <a href="#contributing">Contributing</a> ·
- <a href="#maintainers">Maintainers</a>
+  <a href="#quick-start">Quickstart</a> · <a href="#features">Features</a> · <a href="#supported-clients">Supported Clients</a> · <a href="#contributing">Contributing</a>
 </p>
 
----
+## Core Memory
 
-## Reviewer Quick Path
+Give your AI agents persistent memory built for the way conversations actually work. Core Memory is a plug and play, self-hosted conversational memory MCP server that captures each turn as a memory object, builds causal links as the dialogue unfolds, and recalls with full evidence. Works with Claude Code, Cursor, ChatGPT, or any MCP-compatible client.
 
-1. `core-memory --root ./memory setup init`
-2. `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed PYTHONPATH=. python3 examples/canonical_5min.py`
-3. `PYTHONPATH=. python3 examples/proof_carry_forward.py`
-4. `PYTHONPATH=. python3 -m eval.reviewer_quick_value_v2 --root ./memory --strict`
+Transcripts are where most decision making actually happens, across agent conversations, email threads, and Slack. Yet every tool treats them as a noisier version of a document. Core Memory is built specifically for that problem.
 
-Optional follow-up telemetry (proxy-style, not full strategy replay benchmark):
-- `PYTHONPATH=. python3 -m eval.dreamer_behavior_eval --root ./memory --since 30d`
-- `PYTHONPATH=. python3 -m eval.longitudinal_benchmark_v2 --root ./memory --since 30d`
+**Remember every turn:** Each turn produces a memory object linked to prior turns by typed causal edges. Claims are tracked and superseded when contradicted, so memory stays truthful as the dialogue develops.
 
-Then use:
-- [docs/reviewers/start-here.md](docs/reviewers/start-here.md)
-- [docs/contributor_map.md](docs/contributor_map.md)
-- [docs/canonical_surfaces.md](docs/canonical_surfaces.md)
-- [docs/architecture_overview.md](docs/architecture_overview.md)
-- [docs/integrations/](docs/integrations/) (OpenClaw / PydanticAI / SpringAI / LangChain / Neo4j shadow graph)
+**Stored as a causal graph:** Memory objects are linked by the relationship between them, like `caused_by`, `contradicts`, and `supports`. When you ask a question, your agent follows the chain of reasoning, not just a ranked vector similarity score. Every result shows you the path of causality between the memory events.
 
-## Current Status
+**Depth on demand:** Tune recall(query, effort="low" | "medium" | "high") for your needs. Fast lookup when that is enough, full causal traversal when the question needs it. The orchestrator decides.
 
-- **Canonical surfaces:** `process_turn_finalized(turns=[...])` / `process_session_start` / `process_flush` + `search` / `trace` / `execute`
-- **Adapter helper ingress:** `emit_turn_finalized(...)` remains supported for bridge/integration adapters
-- **Compatibility surfaces:** archived or non-primary docs/modules retained for migration/history only
-- **Experimental areas:** optional adapters and evaluation harnesses that are useful but not yet hard product contract
-- **Not yet integrated:** ideas/proposals not represented in canonical docs or adapter references are intentionally out of current contract scope
-
-## Product Contract (Plain English)
-
-If you're new here, this is the shortest trust contract for what is stable now:
-
-- **Required (core product):**
-  - write memory with `process_turn_finalized(turns=[...])`
-  - read memory with `memory search|trace|execute` (or Python equivalents)
-- **Recommended for most users:**
-  - keep `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` on base installs
-  - install `core-memory[semantic]` when you want strict semantic retrieval behavior
-- **Compatibility (supported, not primary):**
-  - direct `MemoryStore` workflows
-  - legacy CLI aliases like `recall ...`
-- **Experimental / adapter-specific:**
-  - optional integrations and eval harnesses that are not listed as canonical surfaces
-
-If a feature is not in this contract or `docs/public_surface.md`, treat it as non-primary.
-
-### 30-second tier map (mandatory vs optional)
-
-- **Required**
-  - base install: `pip install core-memory`
-  - canonical write boundary: `process_turn_finalized(turns=[...])`
-  - canonical retrieval: `memory search|trace|execute` (or Python equivalents)
-- **Recommended**
-  - semantic extras: `pip install "core-memory[semantic]"`
-  - strict semantic retrieval mode (`CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required`) when you need hard semantic guarantees
-- **Compatibility (supported, not primary)**
-  - `MemoryStore` direct workflows
-  - adapter helper ingress `emit_turn_finalized(...)`
-- **Experimental / optional extensions**
-  - Neo4j shadow adapter (visualization/inspection)
-  - eval harnesses under `eval/`
-
-### Plain-English glossary for first-touch terms
-
-- **canonical semantic mode** → strict semantic retrieval mode
-- **`degraded_allowed`** → allow lexical fallback if semantic backend is missing
-- **companion service** → optional HTTP service mode
-- **hydration** → load source details after selecting retrieval results
-
----
-
-## Live Demo
+**Rolling context injection on a budget:** Compacted memory objects carry only their title, type, and causal associations, allowing 10+ sessions of history to be injected for a fraction of the token cost of naive loading. Promoted objects stay full context when active, and the agent can expand any compacted memory on demand with a single tool call.
 
 <p align="center">
- <a href="https://youtu.be/56uyTJEnOAA">
- <img src="docs/assets/core-memory-live-demo-still.jpg" alt="Core Memory live demo (click to watch on YouTube)" width="100%" />
- </a>
+  <a href="https://youtu.be/56uyTJEnOAA">
+    <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/master/docs/assets/core-memory-live-demo-still.jpg" alt="Core Memory live demo (click to watch on YouTube)" width="100%" />
+  </a>
 </p>
 
-[Watch the Core Memory live demo on YouTube](https://youtu.be/56uyTJEnOAA)
+<p align="center"><a href="https://youtu.be/56uyTJEnOAA">Watch the Core Memory live demo on YouTube</a></p>
 
 ---
 
-## What Is Core Memory?
+## Quick Start
 
-Most agent memory systems store *what happened*. Core Memory stores **why it happened**.
-
-It records structured memory events called **beads** — decisions, lessons, outcomes, evidence, context — and the causal links between them. When an agent asks “why did we change strategy?”, Core Memory retrieves a decision chain, not just keyword matches.
-
-### Why use it?
-
-| Approach | Failure Mode | Core Memory |
-|---|---|---|
-| Chat log replay | Context window explodes | Bounded rolling window with compaction |
-| Vector similarity | “Similar” ≠ “relevant” | Semantic-first anchors + causal trace over explicit bead links |
-| Tool call logs | No reasoning structure | Explicit bead → bead associations |
-
-**Core local write flow has zero required runtime dependencies beyond Python.**
-Query-based anchor lookup in canonical mode requires semantic backend support (or explicit degraded mode opt-in).
-Optional extras exist for HTTP service mode and integration-specific workflows.
-
----
-
-## Install
-
-### From PyPI
+Core Memory auto-detects your embeddings provider from OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY. No configuration needed.
 
 ```bash
-pip install core-memory
+uvx "core-memory[mcp]" mcp serve
 ```
 
-### From source
+Core Memory starts on http://localhost:8000/mcp and stores data in ~/.core-memory/store.
 
-```bash
-git clone https://github.com/JohnnyFiv3r/Core-Memory.git
-cd Core-Memory
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -e .
+For Claude Code, add to your MCP config:
+
+```json
+{
+  "mcpServers": {
+    "core-memory": {
+      "type": "streamable-http",
+      "url": "http://localhost:8000/mcp"
+    }
+  }
+}
 ```
 
-### Optional extras
+Start a new conversation. MCP-capable agents can capture and recall through the bundled Core Memory tools and agent guide.
 
-Semantic backend extras (recommended for canonical query path):
-
-```bash
-pip install "core-memory[semantic]"
-```
-
-If you want provider-backed semantic embeddings, install the matching client library in the same Python environment. For example, OpenAI-backed semantic retrieval needs:
-
-```bash
-pip install openai
-```
-
-HTTP companion service:
-
-```bash
-pip install "core-memory[http]"
-```
-
-MCP protocol server for MCP-capable agent clients:
+Or install directly from PyPI for Python SDK use:
 
 ```bash
 pip install "core-memory[mcp]"
-core-memory mcp version
-core-memory mcp install --no-start   # writes client config when a supported client config is detected
-core-memory mcp status
 ```
 
-The MCP server mounts at `http://localhost:8000/mcp` and exposes tools `capture`, `recall`, `ingest`, and `status`, plus prompt `core-memory.agent-guide`. See [docs/integrations/mcp/quickstart.md](docs/integrations/mcp/quickstart.md).
+To ingest existing transcripts, use the CLI command:
 
-PydanticAI adapter:
+`core-memory ingest transcript my-transcript.jsonl`
 
-```bash
-pip install "core-memory[pydanticai]"
-```
+Or call the ingest tool directly from any connected MCP client. Accepts JSONL or JSON with user/assistant, human/ai, or customer/agent roles.
 
-Neo4j shadow graph adapter (visualization/inspection only):
-
-```bash
-pip install "core-memory[neo4j]"
-```
-
-Developer/test extras:
-
-```bash
-pip install "core-memory[dev]"
-```
+See the [full setup guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/mcp/quickstart.md) for MCP client configuration and adapter configurations for OpenClaw, PydanticAI, LangChain, and SpringAI.
 
 ---
 
-## Fastest Paths
+## Features
 
-### 1) Friendliest Python path
+**Transcript-native storage:** Built specifically for conversational data, each turn is normalized into a memory object rather than chunked and indexed alongside authored documents.
 
-Use `capture` for observed conversation writes and `recall` for single-query reads. `capture` is the quick-start helper for the canonical `process_turn_finalized(turns=[...])` boundary; `recall` currently delegates to `memory_execute(...)`. See [docs/concepts/turn_schema.md](docs/concepts/turn_schema.md) for the multi-speaker turn schema and migration notes.
+**Captures every turn automatically:** The LLM applies causal labels from a fixed taxonomy rather than judging importance, so nothing is filtered before storage and no explicit "remember this" is required.
 
-```python
-from core_memory import capture, recall
+**Rolling context injection on a budget:** Compacted memory objects carry only their title, type, and causal associations, fitting 10+ sessions of history into a fraction of the token cost of naive loading.
 
-root = "./memory"
+**Causal graph, not a flat index:** Memory objects are linked by typed relationships (caused_by, contradicts, supports, and more), so recall follows reasoning chains instead of ranking similarity scores.
 
-capture(
-    root=root,
-    session_id="quickstart",
-    turn_id="t1",
-    user="Why did we choose Postgres?",
-    assistant="Decision: choose Postgres because JSONB lowers integration risk.",
-)
+**Claims tracked and superseded:** Statements like "user prefers PostgreSQL" are monitored and updated when later turns contradict them. Memory stays truthful, not just full.
 
-out = recall("why did we choose Postgres?", root=root)
-print(out.get("ok"), len(out.get("results") or []))
-```
+**Full context is always retrievable:** Full transcripts are preserved and linked via turn and session_ID references, so full context is always a tool call away.
 
-`remember(...)` is intentionally not part of this surface yet; that future verb is reserved for declarative user-authored memory writes (tracked separately in TODO #21 / future PRD work).
+**Inspectable retrieval with provenance:** Every recall() returns the source conversation, the traversal path that found it, and a verifiable hash. Retrieval is never a black box.
 
-### 2) Smallest believable product path (5 minutes)
+**Depth on demand:** recall(query, effort="low" | "medium" | "high") scales from fast lookup to full causal traversal. The orchestrator decides what the question needs.
 
-No adapters, no direct `MemoryStore` calls, canonical boundaries only.
+**Self-hosted MCP:** Streamable-HTTP server at /mcp with a canonical agent guide that loads automatically at connection. No system prompt changes needed.
 
-```bash
-core-memory --root ./memory setup init
+**Auto-detected embedding model:** Picks up OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY from your environment. Runs in degraded mode with one hint if none are set.
 
-# Base install path (no semantic extras)
-export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed
-python3 - <<'PY'
-from core_memory import process_turn_finalized, memory_execute
+**Plug and play adoption:** Your data stays on your infrastructure. No cloud dependencies. A single MCP server setup works across any MCP-compatible client.
 
-root = "./memory"
-process_turn_finalized(
-    root=root,
-    session_id="five-minute",
-    turn_id="t1",
-    turns=[
-        {"speaker": "user", "role": "user", "content": "What should we do about Redis timeouts?"},
-        {"speaker": "assistant", "role": "assistant", "content": "Decision: increase pool size to 200."},
-    ],
-)
-out = memory_execute(
-    request={"raw_query": "why redis timeouts", "intent": "causal", "k": 5},
-    root=root,
-    explain=True,
-)
-print({
-    "ok": out.get("ok"),
-    "degraded": out.get("degraded", False),
-    "result_count": len(out.get("results") or []),
-})
-PY
-```
+<p align="center">
+  <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/master/docs/assets/core-memory-causal-graph.png" alt="Core Memory causal graph alongside the grounded bead JSON returned by recall()" width="100%" />
+</p>
 
-Expected output:
-- `ok: true`
-- a non-zero `result_count`
-- `degraded: true` is acceptable in this base-install path
-
-If you want strict canonical semantic mode instead:
-
-```bash
-pip install "core-memory[semantic]"
-unset CORE_MEMORY_CANONICAL_SEMANTIC_MODE
-python3 - <<'PY'
-from core_memory import process_turn_finalized, memory_execute
-
-root = "./memory"
-process_turn_finalized(
-    root=root,
-    session_id="five-minute",
-    turn_id="t1",
-    turns=[
-        {"speaker": "user", "role": "user", "content": "What should we do about Redis timeouts?"},
-        {"speaker": "assistant", "role": "assistant", "content": "Decision: increase pool size to 200."},
-    ],
-)
-out = memory_execute(
-    request={"raw_query": "why redis timeouts", "intent": "causal", "k": 5},
-    root=root,
-    explain=True,
-)
-print({
-    "ok": out.get("ok"),
-    "degraded": out.get("degraded", False),
-    "result_count": len(out.get("results") or []),
-})
-PY
-```
-
-Source-checkout equivalent example script:
-
-```bash
-PYTHONPATH=. python3 examples/canonical_5min.py
-```
-
-### 3) Canonical Python runtime/retrieval path
-
-```python
-from core_memory import process_turn_finalized, memory_execute
-
-root = "./memory"
-
-process_turn_finalized(
- root=root,
- session_id="s1",
- turn_id="t1",
- turns=[
-  {"speaker": "user", "role": "user", "content": "Why did Redis fail?"},
-  {"speaker": "assistant", "role": "assistant", "content": "Decision: increase Redis pool to 200 to prevent exhaustion."},
- ],
-)
-
-out = memory_execute(
- request={"raw_query": "why redis", "intent": "causal", "k": 5},
- root=root,
- explain=True,
-)
-
-print(out.get("ok"), len(out.get("results") or []))
-```
-
-### 4) CLI retrieval surface
-
-Once memory exists, canonical retrieval CLI is:
-
-```bash
-core-memory --root ./memory memory search --query "redis pool"
-core-memory --root ./memory memory trace --query "why redis pool"
-core-memory --root ./memory memory execute --request '{"raw_query":"why redis","intent":"causal","k":5}'
-```
-
-### 5) Compatibility store API (advanced / direct persistence)
-
-`MemoryStore` remains available for direct persistence workflows and migrations,
-but it is not the primary canonical runtime path.
-
-See:
-- `examples/store_compat_quickstart.py`
+<p align="center"><i>The causal memory graph (left) and the grounded bead JSON returned by <code>recall()</code> (right) — type, entities, session_id, and source_turn_ids make every retrieval inspectable.</i></p>
 
 ---
 
-## Service Mode (SpringAI / HTTP)
+## Supported Clients
 
-For JVM, JS/TS-adjacent, or service-oriented architectures, run Core Memory as a companion HTTP service.
+**MCP Connection**
+Any client that can connect to MCP streamable-HTTP servers can use Core Memory through the `/mcp` endpoint. See the [MCP Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/mcp/quickstart.md) for setup instructions and example client configuration.
 
-### Start the service
+**Adapter Layer**
+Use Core Memory as a memory backend directly within your agent harness:
 
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -e ".[http]"
-python3 -m core_memory.integrations.http.server
-```
-
-Equivalent startup command:
-
-```bash
-python3 -m uvicorn core_memory.integrations.http.server:app --host 0.0.0.0 --port 8000
-```
-
-Optional auth:
-
-```bash
-export CORE_MEMORY_HTTP_TOKEN="change-me"
-```
-
-### Verify the service
-
-```bash
-curl http://localhost:8000/healthz
-```
-
-```bash
-curl -X POST http://localhost:8000/v1/memory/execute \
- -H "Content-Type: application/json" \
- -d '{
- "request": {
- "raw_query": "why did we change strategy?",
- "intent": "causal",
- "k": 5
- },
- "explain": true
- }'
-```
-
-### SpringAI write path
-
-Send finalized assistant turns to:
-
-- `POST /v1/memory/turn-finalized`
-
-Minimum useful fields:
-
-- `session_id`
-- `turn_id`
-- `turns` — list of `{speaker, role, content}` objects
-
-Session lifecycle boundaries:
-
-- `POST /v1/memory/session-start` (explicit session-start snapshot boundary)
-- `POST /v1/memory/session-flush` (session-end flush boundary)
-- `GET /v1/memory/continuity` (pure-read continuity payload; no implicit writes)
-
-### SpringAI runtime path
-
-Preferred single-call endpoint:
-
-- `POST /v1/memory/execute`
-
-This is the best fit for service-oriented orchestration where a backend needs one deterministic memory call instead of multiple client-side routing steps.
-
-See also:
-
-- [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
-- [docs/integrations/springai/integration-guide.md](docs/integrations/springai/integration-guide.md)
-- [docs/integrations/springai/api-reference.md](docs/integrations/springai/api-reference.md)
+| Client | Plugin | Quickstart | Integration Guide | API Reference | Adapter Spec |
+|------------|---------|------------|-------------------|---------------|--------------|
+| OpenClaw   | [Plugin](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/plugins/openclaw-core-memory-bridge/openclaw.plugin.json) and [Skill](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/plugins/openclaw-core-memory-bridge/skills/core-memory/SKILL.md) | [Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/openclaw/quickstart.md) and [Setup Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/openclaw/plugin-setup.md) | [Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/openclaw/integration-guide.md) | [API Reference](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/openclaw/api-reference.md) | [Adapter Spec](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/adapters/openclaw.md) |
+| PydanticAI | — | [Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/pydanticai/quickstart.md) | [Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/pydanticai/integration-guide.md) | [API Reference](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/pydanticai/api-reference.md) | [Adapter Spec](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/adapters/pydanticai.md) |
+| SpringAI   | — | [Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/springai/quickstart.md) | [Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/springai/integration-guide.md) | [API Reference](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/springai/api-reference.md) | [Adapter Spec](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/springai_adapter.md) |
+| LangChain  | — | [Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/langchain/quickstart.md) | [Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/langchain/integration-guide.md) | [API Reference](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/langchain/api-reference.md) | [Adapter Spec](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/adapters/langchain.md) |
 
 ---
 
-## Integrations
-
-### Canonical ingress port
-
-```python
-from core_memory import process_turn_finalized
-```
-
-Adapter/helper ingress remains available for bridge code:
-
-```python
-from core_memory.integrations.api import emit_turn_finalized
-```
-
-### Available integration surfaces
-
-- OpenClaw bridge
-- PydanticAI native adapter
-- SpringAI / HTTP companion service
-- LangChain (`CoreMemory`, `CoreMemoryRetriever`)
-- Neo4j shadow graph adapter (projection-only visualization/inspection)
-
-### Good starting points
-
-- **Canonical first-touch**
-  - [examples/canonical_5min.py](examples/canonical_5min.py)
-  - [examples/quickstart.py](examples/quickstart.py)
-- **Recommended value proofs**
-  - [examples/proof_carry_forward.py](examples/proof_carry_forward.py)
-  - [eval/reviewer_quick_value_v2.py](eval/reviewer_quick_value_v2.py)
-- **Recommended integration starts**
-  - [examples/pydanticai_basic.py](examples/pydanticai_basic.py)
-  - [docs/integrations/springai/quickstart.md](docs/integrations/springai/quickstart.md)
-  - [docs/integrations/mcp/quickstart.md](docs/integrations/mcp/quickstart.md)
-  - [docs/integrations/langchain/quickstart.md](docs/integrations/langchain/quickstart.md)
-  - [docs/integrations/neo4j/quickstart.md](docs/integrations/neo4j/quickstart.md)
-- **Compatibility**
-  - [examples/store_compat_quickstart.py](examples/store_compat_quickstart.py)
-
----
+<p align="center">
+  <img src="https://raw.githubusercontent.com/JohnnyFiv3r/Core-Memory/master/docs/assets/core-memory-architecture-new.png" alt="Core Memory Architecture Diagram" />
+</p>
 
 ## How It Works
 
-<p align="center">
- <img src="docs/assets/core-memory-architecture-new.png" alt="Core Memory Architecture — Retrieval and Write sides" width="100%" />
-</p>
+Core Memory separates retrieval from writes, connected through session-scoped storage. Each agent turn follows the same loop:
 
-Core Memory separates **retrieval** from **writes**, connected through session-scoped bead storage. Each agent turn follows the same loop:
+**Capture:** Call capture() after each turn — or connect via MCP and it happens automatically. Each turn becomes a memory object typed as a decision, lesson, outcome, evidence, or context. An agent judge assigns typed causal associations (caused_by, contradicts, supports, and more), and claims are tracked and superseded when later turns update them. Nothing is filtered before storage — the LLM assigns structure, not importance.
 
-1. **Inject** — build a bounded context packet
-2. **Execute** — run the agent turn
-3. **Extract** — capture structured events as beads
-4. **Store** — append to durable session/event surfaces
-5. **Compact** — preserve important causal memory, compress the rest
-6. **Recall** — retrieve causal chains when the agent needs them
+**Recall:** recall(query, effort="low" | "medium" | "high") is the single read verb. Before each agent turn, a bounded context packet is built from the rolling window: promoted memory objects at full context, compacted ones as lightweight stubs. effort="low" runs lexical and semantic anchor search. effort="medium" adds temporal routing. effort="high" runs the full orchestration pipeline: causal traversal, multi-hop chains, goal resolution, and claim-slot enrichment. The orchestrator decides what the question needs.
+
+**Grounding:** Every recall() returns a RecallResult — not just the memory, but the source conversation it came from, the traversal path that found it, and a verifiable hash. The result carries per-memory evidence records and a planning trace showing exactly which retrieval surfaces fired. Retrieval is deterministic from indexed state.
+
+**Maintain:** Memory objects are either promoted (full context in the rolling window) or compacted to title, type, and associations only. Compacted objects remain queryable and their associations stay intact — the agent expands any on demand with a single tool call. Frequently-walked causal edges strengthen over time; rarely-accessed memory compacts naturally.
+
+
+**Core Concepts**
+
+**Memory Object**
+A memory object is a structured unit of recall typed as a decision, lesson, outcome, evidence, context, or another typed event. Each object is either promoted (full context in the rolling window) or compacted (title, type, and associations only). Promoted objects are immediately available; compacted objects can be expanded on demand via a single tool call.
+
+**Rolling Window**
+Before each agent turn, Core Memory builds a bounded context packet from the rolling window — the session-scoped set of memory objects visible to the current conversation. Promoted objects contribute full context; compacted stubs contribute their title, type, and associations. The rolling window allows 10+ sessions of history to fit within a standard token budget.
+
+**Associations**
+Associations are typed causal or temporal links between memory objects, assigned by an agent judge from a fixed 28-label taxonomy (caused_by, contradicts, supports, and more). Associations remain queryable even as memory objects compact. Unlike semantic similarity links, associations encode the reason one memory relates to another.
+
+**Claims**
+Claims are verifiable statements extracted from conversation turns and tracked across sessions. When a later turn contradicts an existing claim, the association graph is updated — the prior claim is superseded, not deleted. The full history of a changing belief is preserved while the current state remains accurate.
+
+**Retrieval Pipeline**
+Three canonical surfaces, exposed through recall(query, effort=...):
+
+* `search` — lexical and semantic anchor retrieval (`effort="low"`)
+* `trace` — causal traversal from search anchors (`effort="medium"`)
+* `execute` — full orchestration: search + trace + goal resolution + claim-slot enrichment (`effort="high"`)
+
+Hydration is explicit post-selection source recovery (turn/tools/adjacent) — not a general retrieval mode and not the same as the rolling window. Retrieval is deterministic from indexed state.
+
+**RecallResult**
+Every `recall()` returns a typed `RecallResult` with `evidence[]` (memory objects with grounding hashes), `sources[]`, `steps[]` (which surfaces fired and in what order), `resolved_goals[]`, and `claim_slots{}`. Stable across MCP, REST, and Python SDK.
+
+**Semantic Mode**
+
+| Mode | Behavior |
+|---|---|
+| `required` (default) | Fails closed when semantic backend is unavailable |
+| `degraded_allowed` | Lexical fallback with degraded markers |
+
+**Storage Backend**
+
+| Backend | Use case |
+|---|---|
+| `local-faiss` | Development, single-process only (`[semantic]`) |
+| `qdrant` | Production, distributed (`[qdrant]`) |
+| `pgvector` | Production, Postgres-native (`[pgvector]`) |
+| `chromadb` | Development alternative (`[chromadb]`) |
+
+Set via CORE_MEMORY_VECTOR_BACKEND. Avoid local-faiss for multi-worker deployments. See semantic backend docs.
+
+Learn more in the [architecture docs](docs/ARCHITECTURE.md).
 
 ---
 
-## Core Concepts
+## Recall Example
 
-### Beads
+**Request**
 
-A bead is a structured memory event: decision, lesson, outcome, evidence, context, or another typed unit of recall.
+```python
+from core_memory import recall
 
-### Associations
+result = recall(
+    "what database did we decide on for Project Heron?",
+    effort="high",
+    root="~/.core-memory"
+)
+```
 
-Associations are explicit links between beads and remain queryable even as memory compacts.
+**Response**
 
-### Retrieval Pipeline
-
-Canonical retrieval surfaces:
-- `search` (anchor retrieval)
-- `trace` (causal traversal)
-- `execute` (single orchestration entrypoint)
-
-Semantic mode behavior:
-- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=required` (default) fails closed for query-based anchor lookup when semantic backend is unavailable.
-- `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` allows explicit degraded lexical fallback with markers.
-
-Semantic backend deployment guidance:
-- `faiss-*` local index is development/single-process oriented (single-writer).
-- `qdrant` and `pgvector` are the recommended distributed-safe production backends.
-- For multi-worker production deployments, avoid relying on local FAISS write paths.
-- backend selection is explicit via `CORE_MEMORY_VECTOR_BACKEND` (`local-faiss|qdrant|pgvector|chromadb`).
-
-See `docs/semantic_backend_modes.md` for backend mode details.
-
-Hydration is explicit post-selection source recovery (turn/tools/adjacent), not a general retrieval mode.
-
-Deep recall exists as a separate capability and is not the same thing as canonical hydration.
-
-Retrieval is deterministic from indexed state.
+```json
+{
+  "contract": "recall_result",
+  "schema_version": "recall_result.v1",
+  "status": "answered",
+  "answer": "PostgreSQL",
+  "why": "Decision recorded in session 2026-04-12: PostgreSQL selected for Project Heron tenant config",
+  "evidence": [
+    {
+      "bead_id": "b_a3f9c2",
+      "type": "decision",
+      "title": "PostgreSQL selected for Project Heron tenant config",
+      "content_excerpt": "We decided to use PostgreSQL for the main tenant config database.",
+      "score": 0.94,
+      "grounding_hash": "sha256:e3b0c44..."
+    }
+  ],
+  "sources": [
+    {
+      "turn_id": "turn_042",
+      "session_id": "session_2026_04_12",
+      "bead_id": "b_a3f9c2",
+      "speaker": "user",
+      "ts": "2026-04-12T14:23:00Z"
+    }
+  ],
+  "steps": [
+    { "tier": "semantic", "status": "ok", "result_count": 3, "why": "anchor search" },
+    { "tier": "causal",   "status": "ok", "result_count": 1, "why": "causal chains resolved" }
+  ],
+  "planning": {
+    "selected_effort": "high",
+    "reason": "full orchestration: search + trace + goal resolution + claim enrichment"
+  },
+  "claim_slots": {
+    "project_heron.database": {
+      "subject": "project_heron",
+      "slot": "database",
+      "current_value": "PostgreSQL",
+      "status": "active",
+      "current_claim_id": "claim_b3f1a9",
+      "chain_seq": 1,
+      "grounding_hash": "sha256:e3b0c44..."
+    }
+  },
+  "resolved_goals": [],
+  "warnings": []
+}
+```
 
 ---
 
-## Repo Map
+## Documentation
 
-```text
+**Repo Map**
+```
 core_memory/
 ├── persistence/
 ├── schema/
@@ -532,19 +279,17 @@ core_memory/
 ├── policy/
 └── cli.py
 ```
-
 Other useful folders:
 
-- `examples/` runnable examples
-- `tests/` behavioral and regression coverage
-- `docs/` architecture, integration guides, and contracts
-- `plugins/` OpenClaw bridge assets
-- `demo/` live demo app and assets
+* examples/ runnable examples
+* tests/ behavioral and regression coverage
+* docs/ architecture, integration guides, and contracts
+* plugins/ OpenClaw bridge assets
+* demo/ live demo app and assets
 
 ---
 
 ## Contributing
-
 ```bash
 git clone https://github.com/JohnnyFiv3r/Core-Memory.git
 cd Core-Memory
@@ -559,16 +304,9 @@ pytest
 
 Useful docs:
 
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [docs/public_surface.md](docs/public_surface.md)
-- [docs/index.md](docs/index.md)
-
----
-
-## Inspiration
-
-Inspired in part by Steve Yegge’s writing on beads and memory systems:
-https://github.com/steveyegge/beads
+[CONTRIBUTING.md](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/CONTRIBUTING.md)
+[Public Surface](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/public_surface.md)
+[Index](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/index.md)
 
 ---
 
@@ -576,15 +314,19 @@ https://github.com/steveyegge/beads
 
 Core Memory is maintained by:
 
-- John Inniger ([@JohnnyFiv3r](https://github.com/JohnnyFiv3r))
-- Chris Dedow ([@chrisdedow](https://github.com/chrisdedow))
+[John Inniger](https://github.com/JohnnyFiv3r) (@JohnnyFiv3r)
+[Chris Dedow](https://github.com/chrisdedow) (@chrisdedow)
 
 For bugs and feature requests, please open an issue. For anything else related to the project, feel free to reach out to the maintainers directly.
 
 ---
 
+## Inspiration
+
+Inspired in part by Steve Yegge's writing on beads and memory systems: https://github.com/steveyegge/beads
+
+---
+
 <p align="center">
- <a href="LICENSE">Apache-2.0 License</a> ·
- <a href="CODE_OF_CONDUCT.md">Code of Conduct</a> ·
- <a href="CHANGELOG.md">Changelog</a>
+  <a href="LICENSE">Apache-2.0 License</a> · <a href="CODE_OF_CONDUCT.md">Code of Conduct</a> · <a href="CHANGELOG.md">Changelog</a>
 </p>
