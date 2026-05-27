@@ -48,7 +48,7 @@ class StoreCoreDelegatesMixin:
     def _update_heads_for_bead(self, heads: dict, bead: dict) -> dict:
         from ..persistence.store_index_heads_ops import update_heads_for_bead_for_store
 
-        return update_heads_for_bead_for_store(self, heads, bead)
+        return update_heads_for_bead_for_store(heads, bead)
 
     # LEGACY COMPATIBILITY - These methods delegate to extracted modules.
     # See persistence/store_text_hygiene_ops, persistence/store_failure_ops, policy/promotion.
@@ -56,33 +56,33 @@ class StoreCoreDelegatesMixin:
     def _tokenize(self, text: str) -> set[str]:
         from ..persistence.store_text_hygiene_ops import tokenize_for_store
 
-        return tokenize_for_store(self, text)
+        return tokenize_for_store(text)
 
     def _is_memory_intent(self, text: str) -> bool:
         from ..persistence.store_text_hygiene_ops import is_memory_intent_for_store
 
-        return is_memory_intent_for_store(self, text)
+        return is_memory_intent_for_store(text)
 
     def _expand_query_tokens(self, text: str, base_tokens: set[str], max_extra: int = 24) -> set[str]:
         from ..persistence.store_text_hygiene_ops import expand_query_tokens_for_store
 
-        return expand_query_tokens_for_store(self, text, base_tokens, max_extra=max_extra)
+        return expand_query_tokens_for_store(text, base_tokens, max_extra=max_extra)
 
     def _redact_text(self, text: str) -> str:
         from ..persistence.store_text_hygiene_ops import redact_text_for_store
 
-        return redact_text_for_store(self, text)
+        return redact_text_for_store(text)
 
     def _sanitize_bead_content(self, bead: dict) -> dict:
         from ..persistence.store_text_hygiene_ops import sanitize_bead_content_for_store
 
-        return sanitize_bead_content_for_store(self, bead)
+        return sanitize_bead_content_for_store(bead)
 
     # Delegators to failure-pattern helper service
     def compute_failure_signature(self, plan: str) -> str:
         from ..persistence.store_failure_ops import compute_failure_signature_for_store
 
-        return compute_failure_signature_for_store(self, plan)
+        return compute_failure_signature_for_store(plan)
 
     def find_failure_signature_matches(
         self,
@@ -115,7 +115,7 @@ class StoreCoreDelegatesMixin:
     def extract_constraints(self, text: str) -> list[str]:
         from ..persistence.store_text_hygiene_ops import extract_constraints_for_store
 
-        return extract_constraints_for_store(self, text)
+        return extract_constraints_for_store(text)
 
     def retrieve_with_context(
         self,
@@ -225,7 +225,7 @@ class StoreCoreDelegatesMixin:
     def _required_field_issues(self, bead: dict) -> list[str]:
         from ..persistence.store_validation_helpers import required_field_issues_for_store
 
-        return required_field_issues_for_store(self, bead)
+        return required_field_issues_for_store(bead)
 
     def _validate_bead_fields(self, bead: dict):
         from ..persistence.store_validation_helpers import validate_bead_fields_for_store
@@ -272,7 +272,6 @@ class StoreCoreDelegatesMixin:
         from ..persistence.store_add_helpers import find_recent_duplicate_bead_id_for_store
 
         return find_recent_duplicate_bead_id_for_store(
-            self,
             index,
             bead,
             session_id=session_id,
@@ -433,10 +432,12 @@ class StoreCoreDelegatesMixin:
 
     def dream(self, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
         """Run Dreamer association analysis."""
-        from ..persistence.store_dream_bootstrap_ops import dream_for_store
-
-        return dream_for_store(
-            self,
+        try:
+            from core_memory.runtime.dreamer import analysis as dreamer
+        except ImportError:
+            return [{"error": "Dreamer not available"}]
+        return dreamer.run_analysis(
+            store=self,
             novel_only=novel_only,
             seen_window_runs=seen_window_runs,
             max_exposure=max_exposure,

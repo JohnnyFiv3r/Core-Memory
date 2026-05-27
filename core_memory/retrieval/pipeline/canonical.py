@@ -7,6 +7,10 @@ from datetime import datetime
 import json
 
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
+from core_memory.persistence.backend import get_backend_capabilities
+from core_memory.persistence.graph.factory import create_graph_backend
+from core_memory.persistence.graph.protocol import NullGraphBackend
+from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
     _normalize_semantic_mode,
@@ -14,7 +18,6 @@ from core_memory.retrieval.semantic_index import (
     semantic_unavailable_payload,
 )
 from core_memory.retrieval.visible_corpus import build_visible_corpus
-from core_memory.integrations.api import hydrate_bead_sources
 from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
 from core_memory.claim.retrieval_planner import plan_retrieval_mode, boost_claim_results
 from core_memory.claim.resolver import resolve_all_current_state
@@ -22,9 +25,9 @@ from core_memory.claim.answer_policy import score_answer
 from core_memory.entity.registry import load_entity_registry
 from core_memory.entity.retrieval import infer_query_entity_context, expand_query_with_entities
 from core_memory.retrieval.evidence_scoring import rerank_semantic_rows
-from core_memory.runtime.myelination import compute_myelination_bonus_map
+from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
 from .convergence import run_hybrid_rerank_seeds
-from core_memory.integrations.openclaw_flags import (
+from core_memory.config.feature_flags import (
     claim_layer_enabled,
     claim_resolution_enabled,
     claim_retrieval_boost_enabled,
@@ -741,6 +744,7 @@ def search_request(
     submission: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     rp = Path(root)
+    _caps = get_backend_capabilities(rp / ".beads")
     corpus = build_visible_corpus(rp)
     catalog = build_catalog(rp)
     entity_registry = load_entity_registry(rp)
@@ -818,7 +822,14 @@ def search_request(
     elif retrieval_mode == "temporal_first":
         sem_k = max(20, int(k) * 2)
 
-    sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
+    try:
+        if _caps.vector_search:
+            # Qdrant hybrid: sparse+dense in one query with eligibility filters pushed down
+            sem = hybrid_lookup(rp, expanded_query or query, k=sem_k)
+        else:
+            sem = semantic_lookup(rp, expanded_query or query, k=sem_k, mode=_canonical_semantic_mode())
+    except RuntimeError:
+        sem = {"ok": False, "warnings": ["semantic_backend_unavailable"]}
     if not sem.get("ok"):
         return _semantic_failure_response(
             query=query,
@@ -827,7 +838,7 @@ def search_request(
             warnings=list(sem.get("warnings") or []) + list(claim_warnings),
             provider=str(sem.get("provider") or ""),
         )
-    sem_rows = [dict(r or {}) for r in (sem.get("results") or [])]
+    sem_rows = [dict(r or {}) for r in (sem.get("results") or []) if str((r or {}).get("bead_id") or "") in by_id]
     conv = run_hybrid_rerank_seeds(
         rp,
         query=expanded_query or query,
@@ -1017,6 +1028,7 @@ def trace_request(
     hydration: dict[str, Any] | None = None,
     submission: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    _caps = get_backend_capabilities(Path(root) / ".beads")
     anchors_out: dict[str, Any]
     if anchor_ids:
         corpus = build_visible_corpus(Path(root))
@@ -1040,7 +1052,16 @@ def trace_request(
 
     anchors = anchors_out.get("anchors") or []
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
-    trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
+    if _caps.graph_traversal:
+        _graph = create_graph_backend(Path(root))
+        if isinstance(_graph, NullGraphBackend):
+            # Configured backend unavailable (e.g. kuzu not installed); fall back to Python traversal.
+            trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
+        else:
+            _chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=3, max_chains=5)
+            trav = {"ok": True, "chains": _chains, "backend": _graph.name}
+    else:
+        trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])
     relation_filter = {normalize_relation_type(str(x).strip()) for x in ((submission or {}).get("relation_types") or []) if str(x).strip()}
     if relation_filter:
@@ -1151,6 +1172,7 @@ def trace_request(
         hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
+            from core_memory.integrations.api import hydrate_bead_sources  # lazy: avoids retrieval→integrations cycle
             h = hydrate_bead_sources(
                 root=str(root),
                 bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],
@@ -1273,6 +1295,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
+            from core_memory.integrations.api import hydrate_bead_sources  # lazy: avoids retrieval→integrations cycle
             h = hydrate_bead_sources(
                 root=str(root),
                 bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],

@@ -12,7 +12,7 @@ from core_memory.runtime.engine import (
     apply_crawler_turn_updates,
     continuity_injection_context,
 )
-from core_memory.runtime.worker import SidecarPolicy
+from core_memory.runtime.queue.worker import SidecarPolicy
 from core_memory.retrieval.tools.memory import execute
 from core_memory.persistence.store import MemoryStore
 

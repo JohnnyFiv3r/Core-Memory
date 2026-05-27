@@ -1,5 +1,7 @@
+import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.persistence.store import MemoryStore
@@ -7,7 +9,7 @@ from core_memory.persistence.store import MemoryStore
 
 class TestTurnAssociationVisibility(unittest.TestCase):
     def test_turn_can_append_association_across_visible_session_beads(self):
-        with tempfile.TemporaryDirectory() as td:
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_ENRICHMENT_QUEUE": "off"}):
             s = MemoryStore(td)
             b1 = s.add_bead(type="context", title="B1", summary=["x"], session_id="s1", source_turn_ids=["t0"])
             b2 = s.add_bead(type="context", title="B2", summary=["y"], session_id="s1", source_turn_ids=["t1"])
@@ -34,10 +36,10 @@ class TestTurnAssociationVisibility(unittest.TestCase):
             )
 
             self.assertTrue(out.get("ok"))
-            auto_apply = ((out.get("crawler_handoff") or {}).get("auto_apply") or {})
+            auto_apply = ((out.get("crawler_handoff") or {}).get("association_pass") or {})
             self.assertGreaterEqual(int(auto_apply.get("associations_appended") or 0), 1)
 
-            turn_merge = ((out.get("crawler_handoff") or {}).get("turn_merge") or {})
+            turn_merge = ((out.get("crawler_handoff") or {}).get("merge") or {})
             self.assertGreaterEqual(int(turn_merge.get("associations_appended") or 0), 1)
 
             idx = s._read_json(s.beads_dir / "index.json")

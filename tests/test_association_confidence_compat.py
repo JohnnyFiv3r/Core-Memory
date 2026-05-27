@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+
+pytestmark = pytest.mark.facade
+
 from core_memory.persistence.store import MemoryStore
-from core_memory.graph.api import causal_traverse
+from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
 
 
 def test_legacy_missing_confidence_association_traverses(tmp_path: Path):

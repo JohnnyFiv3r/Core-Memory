@@ -5,7 +5,7 @@ from typing import Any
 
 from core_memory.identifiers import validate_archive_id
 from core_memory.runtime.engine import process_turn_finalized
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, submit_entity_merge_candidate
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, submit_entity_merge_candidate
 from core_memory.schema.turn import reject_legacy_turn_kwargs
 
 

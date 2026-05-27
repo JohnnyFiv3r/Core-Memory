@@ -1,8 +1,8 @@
 import tempfile
 import unittest
 
-from core_memory.runtime.turn_quality import association_mix_stats
-from core_memory.runtime.flush_state import read_flush_state, write_flush_state, upsert_process_flush_checkpoint_bead
+from core_memory.runtime.turn.turn_quality import association_mix_stats
+from core_memory.runtime.flush.flush_state import read_flush_state, write_flush_state, upsert_process_flush_checkpoint_bead
 
 
 class TestRuntimeSplitModulesSlice46A(unittest.TestCase):

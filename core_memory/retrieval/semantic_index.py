@@ -35,20 +35,32 @@ _EXTERNAL_VECTOR_BACKENDS = {VECTOR_BACKEND_QDRANT, VECTOR_BACKEND_PGVECTOR, VEC
 
 
 def _normalize_vector_backend(value: str | None) -> str:
-    v = str(value or VECTOR_BACKEND_LOCAL_FAISS).strip().lower().replace("_", "-")
-    if v in {"", "auto", "local", "faiss", "local-faiss"}:
-        return VECTOR_BACKEND_LOCAL_FAISS
-    if v in {"qdrant"}:
+    # Default is qdrant (embedded, zero-ops). Use CORE_MEMORY_VECTOR_BACKEND=local-faiss to opt back.
+    v = str(value or VECTOR_BACKEND_QDRANT).strip().lower().replace("_", "-")
+    if v in {"", "auto", "qdrant"}:
         return VECTOR_BACKEND_QDRANT
+    if v in {"local", "faiss", "local-faiss"}:
+        return VECTOR_BACKEND_LOCAL_FAISS
     if v in {"pgvector", "postgres", "postgresql"}:
         return VECTOR_BACKEND_PGVECTOR
     if v in {"chromadb", "chroma"}:
         return VECTOR_BACKEND_CHROMADB
-    return VECTOR_BACKEND_LOCAL_FAISS
+    return VECTOR_BACKEND_QDRANT
+
+
+_faiss_deprecation_emitted = False
 
 
 def _configured_vector_backend() -> str:
-    return _normalize_vector_backend(os.environ.get("CORE_MEMORY_VECTOR_BACKEND"))
+    global _faiss_deprecation_emitted
+    result = _normalize_vector_backend(os.environ.get("CORE_MEMORY_VECTOR_BACKEND"))
+    if result == VECTOR_BACKEND_LOCAL_FAISS and not _faiss_deprecation_emitted:
+        _faiss_deprecation_emitted = True
+        logger.warning(
+            "core-memory: FAISS backend is deprecated; set CORE_MEMORY_VECTOR_BACKEND=qdrant. "
+            "FAISS will be removed in the next major version."
+        )
+    return result
 
 
 def _vector_collection_name(root: Path) -> str:
@@ -62,10 +74,13 @@ def _vector_collection_name(root: Path) -> str:
 def _create_external_backend(*, root: Path, backend: str, dimension: int):
     collection = _vector_collection_name(root)
     if backend == VECTOR_BACKEND_QDRANT:
+        url = os.environ.get("CORE_MEMORY_QDRANT_URL") or None
+        path = os.environ.get("CORE_MEMORY_QDRANT_PATH") or str(root / ".beads" / "qdrant")
         return create_vector_backend(
             "qdrant",
             collection_name=collection,
-            url=str(os.environ.get("CORE_MEMORY_QDRANT_URL") or "http://localhost:6333"),
+            url=url,
+            path=None if url else path,
             dimensions=int(max(1, dimension)),
         )
     if backend == VECTOR_BACKEND_PGVECTOR:
@@ -222,7 +237,8 @@ def _has_semantic_provider_signal() -> bool:
         return True
     if _auto_detect_embedding_provider_from_keys():
         return True
-    if _normalize_vector_backend(os.environ.get("CORE_MEMORY_VECTOR_BACKEND")) in _EXTERNAL_VECTOR_BACKENDS:
+    explicit_backend = str(os.environ.get("CORE_MEMORY_VECTOR_BACKEND") or "").strip()
+    if explicit_backend and _normalize_vector_backend(explicit_backend) in _EXTERNAL_VECTOR_BACKENDS:
         return True
     return False
 
@@ -272,9 +288,12 @@ def _check_semantic_mode_startup() -> None:
         pass
 
     vector_backend = _configured_vector_backend()
-    has_external = vector_backend in _EXTERNAL_VECTOR_BACKENDS
+    # Qdrant with FastEmbed provides its own embeddings — no external API key required.
+    has_qdrant_fastembed = vector_backend == VECTOR_BACKEND_QDRANT
+    # FAISS is a vector index, not an embedding provider — it still needs an external API key.
+    has_external = vector_backend in _EXTERNAL_VECTOR_BACKENDS and not has_qdrant_fastembed
 
-    if not has_provider and not has_external and not has_faiss:
+    if not has_provider and not has_external and not has_qdrant_fastembed:
         raise RuntimeError(
             "core-memory: semantic mode is 'required' (default) but no embedding provider is configured. "
             "Either:\n"
@@ -949,20 +968,43 @@ def build_semantic_index(root: Path) -> dict:
         last_build_error = ""
         if vector_backend in _EXTERNAL_VECTOR_BACKENDS:
             try:
-                vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
-                dim = _vector_dim(vecs, fallback=256 if texts else 0)
-                vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
-                for row, emb in zip(rows, _vector_rows(vecs)):
-                    vb.upsert(
-                        bead_id=str(row.get("bead_id") or ""),
-                        embedding=emb,
-                        metadata={
-                            "status": row.get("status"),
-                            "session_id": row.get("session_id"),
-                            "source_surface": row.get("source_surface"),
-                            "created_at": row.get("created_at"),
-                        },
-                    )
+                if vector_backend == VECTOR_BACKEND_QDRANT:
+                    # Qdrant+FastEmbed generates embeddings natively — bypass _embed_vectors.
+                    # Pass dimension=0 so QdrantBackend skips VectorParams collection creation;
+                    # upsert_texts() uses client.add() which creates a fastembed-configured collection.
+                    # Pre-creating with VectorParams(size=1536) would produce incompatible params.
+                    vb = _create_external_backend(root=root, backend=vector_backend, dimension=0)
+                    bead_ids = [str(r.get("bead_id") or "") for r in rows]
+                    metadatas = [
+                        {
+                            "status": c.get("status"),
+                            "session_id": c.get("session_id"),
+                            "source_surface": c.get("source_surface"),
+                            "created_at": c.get("created_at"),
+                            "retrieval_eligible": True,
+                            "topics": list(c.get("tags") or []),
+                        }
+                        for c in corpus
+                    ]
+                    vb.upsert_texts(bead_ids=bead_ids, texts=texts, metadatas=metadatas)
+                    # dim is managed by FastEmbed; use sentinel to skip external-dim validation
+                    dim = 1
+                    provider = "fastembed"  # Mark manifest so lookup uses native Qdrant query path
+                else:
+                    vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
+                    dim = _vector_dim(vecs, fallback=256 if texts else 0)
+                    vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+                    for row, emb in zip(rows, _vector_rows(vecs)):
+                        vb.upsert(
+                            bead_id=str(row.get("bead_id") or ""),
+                            embedding=emb,
+                            metadata={
+                                "status": row.get("status"),
+                                "session_id": row.get("session_id"),
+                                "source_surface": row.get("source_surface"),
+                                "created_at": row.get("created_at"),
+                            },
+                        )
                 backend = vector_backend
                 semantic_ready = True
                 # no local faiss artifact in external backend mode
@@ -1335,7 +1377,10 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
     req_provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
     req_model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(req_provider)).strip()
     req_vector_backend = _configured_vector_backend()
-    if (
+    # Qdrant+FastEmbed manages its own embedding model — never rebuild due to external provider mismatch.
+    _manifest_is_fastembed = str(manifest.get("provider") or "").strip().lower() == "fastembed"
+    _req_is_qdrant_fastembed = req_vector_backend == VECTOR_BACKEND_QDRANT
+    if not (_manifest_is_fastembed and _req_is_qdrant_fastembed) and (
         (manifest.get("provider") and (str(manifest.get("provider")) != req_provider or str(manifest.get("model")) != req_model))
         or (manifest.get("vector_backend") and _normalize_vector_backend(str(manifest.get("vector_backend"))) != req_vector_backend)
     ):
@@ -1420,21 +1465,26 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
         try:
             backend_n = _normalize_vector_backend(backend)
             manifest_provider = str(manifest.get("provider") or req_provider)
-            qv = _embed_vectors(
-                texts=[query],
-                provider=manifest_provider,
-                model=str(manifest.get("model") or req_model),
-                hash_dim=int(manifest.get("dimension") or 256),
-            )
-            q_rows = _vector_rows(qv)
-            if not q_rows:
-                raise RuntimeError("query_embedding_empty")
-            vb = _create_external_backend(
-                root=root,
-                backend=backend_n,
-                dimension=max(1, _vector_dim(qv, fallback=int(manifest.get("dimension") or 256))),
-            )
-            raw = vb.search(q_rows[0], k=max(1, int(k)))
+            if backend_n == VECTOR_BACKEND_QDRANT and manifest_provider == "fastembed":
+                # FastEmbed index: use Qdrant's native query_text path — no external API key required.
+                vb = _create_external_backend(root=root, backend=backend_n, dimension=1)
+                raw = vb.hybrid_search(query, k=max(1, int(k)))
+            else:
+                qv = _embed_vectors(
+                    texts=[query],
+                    provider=manifest_provider,
+                    model=str(manifest.get("model") or req_model),
+                    hash_dim=int(manifest.get("dimension") or 256),
+                )
+                q_rows = _vector_rows(qv)
+                if not q_rows:
+                    raise RuntimeError("query_embedding_empty")
+                vb = _create_external_backend(
+                    root=root,
+                    backend=backend_n,
+                    dimension=max(1, _vector_dim(qv, fallback=int(manifest.get("dimension") or 256))),
+                )
+                raw = vb.search(q_rows[0], k=max(1, int(k)))
 
             row_by_id = {str(r.get("bead_id") or ""): r for r in rows}
             out = []

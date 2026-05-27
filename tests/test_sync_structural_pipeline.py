@@ -2,7 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.graph.api import sync_structural_pipeline, build_graph
+import pytest
+
+pytestmark = pytest.mark.facade
+
+from core_memory.graph.structural import sync_structural_pipeline
+from core_memory.graph.core import build_graph
 from core_memory.persistence.store import MemoryStore
 
 

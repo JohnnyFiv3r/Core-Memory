@@ -41,19 +41,4 @@ def init_index_for_store(store: Any) -> None:
             )
 
 
-def dream_for_store(store: Any, *, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
-    """Run Dreamer association analysis via runtime dreamer module."""
-    try:
-        from core_memory import dreamer
-
-        return dreamer.run_analysis(
-            store=store,
-            novel_only=novel_only,
-            seen_window_runs=seen_window_runs,
-            max_exposure=max_exposure,
-        )
-    except ImportError:
-        return [{"error": "Dreamer not available"}]
-
-
-__all__ = ["init_index_for_store", "dream_for_store"]
+__all__ = ["init_index_for_store"]

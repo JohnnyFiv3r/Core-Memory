@@ -11,7 +11,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from core_memory.integrations.openclaw_flags import (
+from core_memory.integrations.openclaw.flags import (
     agent_authored_mode,
     resolved_agent_authored_gate,
 )
@@ -66,6 +66,7 @@ class TestResolvedGate(unittest.TestCase):
     def test_warn_gate(self):
         gate = resolved_agent_authored_gate()
         self.assertEqual(gate["mode"], "warn")
+        # warn: gate does not block (required=False) but is fail_open — logs/metrics only
         self.assertFalse(gate["required"])
         self.assertTrue(gate["fail_open"])
 

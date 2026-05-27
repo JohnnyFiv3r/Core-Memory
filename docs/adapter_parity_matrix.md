@@ -11,7 +11,7 @@ Legend:
 | Adapter | Session start | Turn finalized | Session flush | Continuity load | Search | Trace | Execute |
 |---|---:|---:|---:|---:|---:|---:|---:|
 | HTTP | ✅ (`POST /v1/memory/session-start`) | ✅ (`/v1/memory/turn-finalized`) | ✅ (`/v1/memory/session-flush`) | ✅ (`GET /v1/memory/continuity`) | ✅ | ✅ | ✅ |
-| OpenClaw | ✅ (`read-bridge action=session_start`) | ✅ (`openclaw_agent_end_bridge`) | ⚠️ (`process_flush` runtime boundary) | ✅ (`read-bridge action=continuity`) | ✅ | ✅ | ✅ |
+| OpenClaw | ✅ (`read-bridge action=session_start`) | ✅ (`openclaw.agent_end_bridge`) | ⚠️ (`process_flush` runtime boundary) | ✅ (`read-bridge action=continuity`) | ✅ | ✅ | ✅ |
 | PydanticAI | ✅ (`ensure_session_start(...)`) | ✅ (`run_with_memory*`) | ✅ (`flush_session`) | ✅ (`continuity_prompt(...)`) | ✅ | ✅ | ✅ |
 | LangChain | ✅ (`CoreMemory.load_memory_variables` calls `process_session_start`) | ✅ (`CoreMemory.save_context`) | ✅ (`CoreMemory.clear`) | ✅ (`load_memory_variables` continuity read) | ✅ (`CoreMemoryRetriever`) | ✅ (via canonical trace surface) | ✅ (via canonical execute surface) |
 

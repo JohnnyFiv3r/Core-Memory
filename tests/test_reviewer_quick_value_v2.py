@@ -3,8 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-import core_memory.runtime.reviewer_quick_value as rqv
-from core_memory.runtime.reviewer_quick_value import reviewer_quick_value_v2
+import core_memory.runtime.observability.reviewer_quick_value as rqv
+from core_memory.runtime.observability.reviewer_quick_value import reviewer_quick_value_v2
 
 
 class TestReviewerQuickValueV2Slice66A(unittest.TestCase):

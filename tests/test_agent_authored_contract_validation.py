@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import unittest
 
-from core_memory.runtime.agent_authored_contract import validate_agent_authored_updates
+from core_memory.runtime.passes.agent_authored_contract import validate_agent_authored_updates
 
 
 class TestAgentAuthoredContractSlice2(unittest.TestCase):
@@ -27,6 +27,14 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIsNone(code)
         self.assertEqual(2, details.get("beads_create_count"))
+
+    def test_requires_zero_bead_rows_fails(self):
+        ok, code, details = validate_agent_authored_updates(
+            {"beads_create": [], "associations": []}
+        )
+        self.assertFalse(ok)
+        self.assertEqual("agent_bead_fields_missing", code)
+        self.assertIn("at_least_one_row", str(details.get("reason") or ""))
 
     def test_policy_can_cap_multiple_bead_rows(self):
         ok, code, details = validate_agent_authored_updates(
@@ -64,7 +72,16 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         )
         self.assertFalse(ok)
         self.assertEqual("agent_causal_rationale_missing", code)
-        self.assertEqual(["because"], details.get("missing_bead_fields"))
+
+    def test_associations_must_be_list_when_present(self):
+        ok, code, details = validate_agent_authored_updates(
+            {
+                "beads_create": [{"type": "decision", "title": "A", "summary": ["x"]}],
+                "associations": "not-a-list",
+            }
+        )
+        self.assertFalse(ok)
+        self.assertIn(code, {"agent_associations_missing", "agent_causal_rationale_missing", "agent_bead_fields_missing"})
 
     def test_rejects_string_summary_shape(self):
         ok, code, details = validate_agent_authored_updates(

@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.runtime.jobs import async_jobs_status, compaction_queue_status, semantic_rebuild_queue_status
+from core_memory.runtime.queue.jobs import async_jobs_status, compaction_queue_status, semantic_rebuild_queue_status
 
 
 class TestRuntimeJobsSlice52A(unittest.TestCase):

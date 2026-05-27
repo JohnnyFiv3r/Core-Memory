@@ -3,8 +3,8 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core_memory.integrations.openclaw_runtime import finalize_and_process_turn
-from core_memory.runtime.worker import SidecarPolicy
+from core_memory.integrations.openclaw.runtime import finalize_and_process_turn
+from core_memory.runtime.queue.worker import SidecarPolicy
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.persistence.store import MemoryStore
 

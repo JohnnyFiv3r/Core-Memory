@@ -46,7 +46,7 @@ The critical path should be: **normalize → emit event → persist bead → ret
 
 ### Leveraging the existing `side_effect_queue` module
 
-`core_memory/runtime/side_effect_queue.py` already implements:
+`core_memory/runtime/queue/side_effect_queue.py` already implements:
 - JSON-based queue in `.beads/events/side-effects-queue.json`
 - Lease-based claim with `_CLAIM_LEASE_SECONDS = 120`
 - `store_lock` protection

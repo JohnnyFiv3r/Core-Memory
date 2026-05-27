@@ -35,7 +35,7 @@ def has_evidence(bead: dict) -> bool:
     return bool((bead.get("evidence_refs") or []) or (bead.get("tool_output_ids") or []) or (bead.get("tool_output_id") or "").strip())
 
 
-def required_field_issues_for_store(store: Any, bead: dict) -> list[str]:
+def required_field_issues_for_store(bead: dict) -> list[str]:
     issues: list[str] = []
     t = str(bead.get("type") or "").strip()
     title = str(bead.get("title") or "").strip()
@@ -128,7 +128,7 @@ def validate_bead_fields_for_store(store: Any, bead: dict) -> None:
             if not isinstance(tag, str):
                 raise ValueError("context_tags entries must be strings")
 
-    issues = required_field_issues_for_store(store, bead)
+    issues = required_field_issues_for_store(bead)
     if issues and bool(store.strict_required_fields):
         raise ValueError("required field validation failed: " + ", ".join(issues))
     if issues:

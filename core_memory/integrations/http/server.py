@@ -21,8 +21,8 @@ from core_memory.integrations.api import (
     list_turn_summaries,
 )
 from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, list_dreamer_candidates
-from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
+from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
@@ -37,7 +37,8 @@ from core_memory.integrations.mcp.typed_write import (
     apply_reviewed_proposal as mcp_apply_reviewed_proposal,
     submit_entity_merge_proposal as mcp_submit_entity_merge_proposal,
 )
-from core_memory.integrations.mcp.protocol_server import MCP_HTTP_PATH, build_mcp_app
+from core_memory.integrations.mcp.constants import MCP_HTTP_PATH
+from core_memory.integrations.mcp.protocol_server import build_mcp_app
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
@@ -796,7 +797,7 @@ async def metrics(
     x_memory_token: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
-    from core_memory.runtime.observability import get_metrics
+    from core_memory.runtime.observability.observability import get_metrics
     return get_metrics()
 
 

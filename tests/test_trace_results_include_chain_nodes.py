@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+
+import pytest
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.pipeline.canonical import trace_request
 
 
-def test_trace_request_returns_expanded_chain_nodes_not_only_anchors(tmp_path: Path):
+def test_trace_request_returns_expanded_chain_nodes_not_only_anchors(tmp_path: Path, monkeypatch):
+    # Force the Python causal walker (reads index.json associations directly).
+    # Kuzu/Neo4j backends require their own sync path and would return empty chains.
+    monkeypatch.setenv("CORE_MEMORY_GRAPH_BACKEND", "none")
     store = MemoryStore(root=str(tmp_path))
     anchor = store.add_bead(
         type="evidence",

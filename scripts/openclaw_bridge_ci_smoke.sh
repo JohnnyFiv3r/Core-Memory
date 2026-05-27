@@ -24,7 +24,7 @@ echo "[ci-smoke] events=$base_events pass=$base_pass"
 
 # Synthetic finalized-turn payload (CI-safe, no live chat required)
 RUN_ID="ci-smoke-run-$(date +%s)-$RANDOM"
-python3 -m core_memory.integrations.openclaw_agent_end_bridge <<JSON
+python3 -m core_memory.integrations.openclaw.agent_end_bridge <<JSON
 {
   "event": {
     "runId": "${RUN_ID}",

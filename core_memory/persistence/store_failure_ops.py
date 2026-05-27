@@ -9,7 +9,7 @@ from core_memory.retrieval.failure_patterns import (
 )
 
 
-def compute_failure_signature_for_store(store: Any, plan: str) -> str:
+def compute_failure_signature_for_store(plan: str) -> str:
     return compute_failure_signature(plan)
 
 

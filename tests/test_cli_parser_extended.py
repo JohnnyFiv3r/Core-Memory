@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import unittest
 
-from core_memory.cli_parser_extended import (
+from core_memory.cli.parsers.extended import (
     add_sidecar_openclaw_parsers,
     add_graph_parser,
     add_metrics_parser,

@@ -9,7 +9,7 @@ from core_memory.integrations.mcp.typed_write import (
     apply_reviewed_proposal,
     submit_entity_merge_proposal,
 )
-from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates, list_dreamer_candidates
+from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates, list_dreamer_candidates
 
 
 class TestMCPTypedWrites(unittest.TestCase):

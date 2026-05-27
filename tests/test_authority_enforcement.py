@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.runtime.worker import process_memory_event, SidecarPolicy
+from core_memory.runtime.queue.worker import process_memory_event, SidecarPolicy
 from core_memory.persistence.store import MemoryStore
 
 

@@ -130,6 +130,31 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertEqual("metadata.crawler_updates", gate.get("source"))
             self.assertFalse(gate.get("used_fallback"))
 
+    def test_strict_mode_blocks_when_bead_fields_missing(self):
+        # Zero associations is now valid; hard mode blocks on missing required bead fields.
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
+                metadata={
+                    "crawler_updates": {
+                        # Missing required "title" field
+                        "beads_create": [{"type": "decision", "summary": ["summary"]}]
+                    }
+                },
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("agent_bead_fields_missing", out.get("error_code"))
+
     def test_strict_mode_allows_missing_associations_on_first_turn(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,

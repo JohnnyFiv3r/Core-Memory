@@ -14,7 +14,7 @@ This bridge implements the thin integration shape:
 
 ## Implementation
 
-- Module: `core_memory.integrations.openclaw_agent_end_bridge`
+- Module: `core_memory.integrations.openclaw.agent_end_bridge`
 - Entry: `process_agent_end_event(event, ctx, root=None)`
 - CLI mode: reads JSON from stdin and prints JSON result
 
@@ -64,7 +64,7 @@ Key format:
 ## Example shell wiring
 
 ```bash
-python -m core_memory.integrations.openclaw_agent_end_bridge <<'JSON'
+python -m core_memory.integrations.openclaw.agent_end_bridge <<'JSON'
 {"event":{"messages":[{"role":"user","content":"u"},{"role":"assistant","content":"a"}]},"ctx":{"sessionId":"s1","sessionKey":"main"}}
 JSON
 ```

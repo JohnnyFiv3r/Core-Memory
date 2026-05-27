@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import patch
 
 from core_memory.runtime.engine import process_turn_finalized, process_flush
-from core_memory.runtime.worker import SidecarPolicy
+from core_memory.runtime.queue.worker import SidecarPolicy
 from core_memory.persistence.store import MemoryStore
 
 

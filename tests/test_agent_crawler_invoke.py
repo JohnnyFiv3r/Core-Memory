@@ -4,7 +4,7 @@ import os
 import unittest
 from unittest.mock import patch
 
-from core_memory.runtime.agent_crawler_invoke import invoke_turn_crawler_agent
+from core_memory.runtime.passes.agent_crawler_invoke import invoke_turn_crawler_agent
 import agent_crawler_fixtures
 
 

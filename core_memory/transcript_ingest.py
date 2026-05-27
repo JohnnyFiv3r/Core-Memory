@@ -254,13 +254,12 @@ def ingest_turn_envelopes(*, root: str, envelopes: list[dict[str, Any]], flush_p
 
 
 def _associations_created_summary(root: str, bead_ids: list[str]) -> dict[str, Any]:
+    import json as _json
     created = {str(x) for x in (bead_ids or []) if str(x).strip()}
     if not created:
         return {"count": 0, "by_type": {}, "items": []}
     try:
-        import json
-
-        idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+        idx = _json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
     except Exception:
         return {"count": 0, "by_type": {}, "items": []}
     rows: list[dict[str, Any]] = []

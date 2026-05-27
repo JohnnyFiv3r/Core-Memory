@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.runtime.association_pass import run_association_pass
+from core_memory.runtime.passes.association_pass import run_association_pass
 from core_memory.persistence.store import MemoryStore
 
 

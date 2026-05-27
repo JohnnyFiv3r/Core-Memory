@@ -69,17 +69,17 @@ class StoreReportingPromotionMixin:
     def _promotion_score(self, index: dict, bead: dict) -> tuple[float, dict]:
         from ..persistence.store_promotion_ops import promotion_score_for_store
 
-        return promotion_score_for_store(self, index, bead)
+        return promotion_score_for_store(index, bead)
 
     def _adaptive_promotion_threshold(self, index: dict) -> float:
         from ..persistence.store_promotion_ops import adaptive_promotion_threshold_for_store
 
-        return adaptive_promotion_threshold_for_store(self, index)
+        return adaptive_promotion_threshold_for_store(index)
 
     def _candidate_promotable(self, index: dict, bead: dict) -> tuple[bool, dict]:
         from ..persistence.store_promotion_ops import candidate_promotable_for_store
 
-        return candidate_promotable_for_store(self, index, bead)
+        return candidate_promotable_for_store(index, bead)
 
     def _candidate_recommendation_rows(self, index: dict, query_text: str = "") -> tuple[list[dict], float]:
         from ..persistence.store_promotion_ops import candidate_recommendation_rows_for_store
@@ -88,9 +88,9 @@ class StoreReportingPromotionMixin:
 
     def promotion_slate(self, limit: int = 20, query_text: str = "") -> dict:
         """Build bounded candidate promotion slate with advisory recommendations."""
-        from ..persistence.store_promotion_ops import promotion_slate_entry_for_store
+        from .promotion_service import promotion_slate_for_store
 
-        return promotion_slate_entry_for_store(self, limit=limit, query_text=query_text)
+        return promotion_slate_for_store(self, limit=limit, query_text=query_text)
 
     def evaluate_candidates(
         self,
@@ -100,9 +100,9 @@ class StoreReportingPromotionMixin:
         min_age_hours: int = 12,
     ) -> dict:
         """Refresh advisory recommendation fields for candidates."""
-        from ..persistence.store_promotion_ops import evaluate_candidates_entry_for_store
+        from .promotion_service import evaluate_candidates_for_store
 
-        return evaluate_candidates_entry_for_store(
+        return evaluate_candidates_for_store(
             self,
             limit=limit,
             query_text=query_text,
@@ -119,9 +119,9 @@ class StoreReportingPromotionMixin:
         considerations: Optional[list[str]] = None,
     ) -> dict:
         """Apply agent-led promotion decision for a bead."""
-        from ..persistence.store_promotion_ops import decide_promotion_entry_for_store
+        from .promotion_service import decide_promotion_for_store
 
-        return decide_promotion_entry_for_store(
+        return decide_promotion_for_store(
             self,
             bead_id=bead_id,
             decision=decision,
@@ -131,15 +131,15 @@ class StoreReportingPromotionMixin:
 
     def decide_promotion_bulk(self, decisions: list[dict]) -> dict:
         """Apply a bounded batch of agent promotion decisions."""
-        from ..persistence.store_promotion_ops import decide_promotion_bulk_entry_for_store
+        from .promotion_service import decide_promotion_bulk_for_store
 
-        return decide_promotion_bulk_entry_for_store(self, decisions)
+        return decide_promotion_bulk_for_store(self, decisions)
 
     def decide_session_promotion_states(self, *, session_id: str, visible_bead_ids: Optional[list[str]] = None, turn_id: str = "") -> dict:
         """Per-turn session decision pass: promoted|candidate|null for visible beads."""
-        from ..persistence.store_promotion_ops import decide_session_promotion_states_entry_for_store
+        from .promotion_service import decide_session_promotion_states_for_store
 
-        return decide_session_promotion_states_entry_for_store(
+        return decide_session_promotion_states_for_store(
             self,
             session_id=session_id,
             visible_bead_ids=visible_bead_ids,
@@ -148,15 +148,15 @@ class StoreReportingPromotionMixin:
 
     def promotion_kpis(self, limit: int = 500) -> dict:
         """Report promotion decision volume, reasons, and rec-vs-decision alignment."""
-        from ..persistence.store_promotion_ops import promotion_kpis_entry_for_store
+        from .promotion_service import promotion_kpis_for_store
 
-        return promotion_kpis_entry_for_store(self, limit=limit)
+        return promotion_kpis_for_store(self, limit=limit)
 
     def rebalance_promotions(self, apply: bool = False) -> dict:
         """Phase B: score promoted beads and demote weakly-supported promotions."""
-        from ..persistence.store_promotion_ops import rebalance_promotions_entry_for_store
+        from .promotion_service import rebalance_promotions_for_store
 
-        return rebalance_promotions_entry_for_store(self, apply=apply)
+        return rebalance_promotions_for_store(self, apply=apply)
 
 
 __all__ = ["StoreReportingPromotionMixin"]

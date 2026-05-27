@@ -38,9 +38,8 @@ class TestStoreAddHelpersDelegationSlice69A(unittest.TestCase):
             self.assertEqual("bead-dup", out)
             self.assertEqual(1, stub.call_count)
             args, kwargs = stub.call_args
-            self.assertIs(args[0], store)
-            self.assertIs(args[1], index)
-            self.assertIs(args[2], bead)
+            self.assertIs(args[0], index)
+            self.assertIs(args[1], bead)
             self.assertEqual("s1", kwargs.get("session_id"))
             self.assertEqual(10, kwargs.get("window"))
 

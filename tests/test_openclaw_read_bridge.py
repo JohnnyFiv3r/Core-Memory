@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.integrations.openclaw_read_bridge import dispatch
+from core_memory.integrations.openclaw.read_bridge import dispatch
 
 
 class TestOpenClawReadBridge(unittest.TestCase):

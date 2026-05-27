@@ -118,6 +118,9 @@ def build_visible_corpus(root: str | Path, *, include_system: bool = False) -> l
         rows[bid] = _to_row(b, "projection")
 
     # session surface overlays mutable fields
+    # Each line is treated as a delta update to the bead's state. Admission is
+    # checked on the MERGED state so tombstone lines (e.g. status="retracted") are
+    # applied correctly: a retraction line removes a previously-visible bead.
     session_dir = root_p / ".beads"
     for p in session_dir.glob("session-*.jsonl"):
         for ln in p.read_text(encoding="utf-8").splitlines():
@@ -133,10 +136,12 @@ def build_visible_corpus(root: str | Path, *, include_system: bool = False) -> l
             bid = str(bead.get("id") or "")
             if not bid:
                 continue
-            if not _admit(bead, include_system=include_system):
-                continue
             merged = dict((rows.get(bid) or {}).get("bead") or {})
             merged.update(bead)
+            merged.setdefault("id", bid)
+            if not _admit(merged, include_system=include_system):
+                rows.pop(bid, None)
+                continue
             rows[bid] = _to_row(merged, "session")
 
     out = list(rows.values())

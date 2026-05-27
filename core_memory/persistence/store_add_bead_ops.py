@@ -9,7 +9,7 @@ from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
-from core_memory.runtime.session_surface import read_session_surface
+from core_memory.runtime.session.session_surface import read_session_surface
 
 
 def add_bead_for_store(
@@ -192,7 +192,68 @@ def add_bead_for_store(
     store.track_bead_created(1)
     mark_semantic_dirty(store.root, reason="add_bead")
 
+    _mirror_bead_to_backends(store.root, bead)
+
     return bead_id
+
+
+def _embed_text(bead: dict) -> str:
+    title = str(bead.get("title") or "")
+    summary = " ".join(str(s) for s in (bead.get("summary") or []))
+    facts = " ".join(str(f) for f in (bead.get("retrieval_facts") or []))
+    return f"{title}. {summary}. {facts}".strip(". ")
+
+
+def _bead_payload(bead: dict) -> dict:
+    return {
+        "bead_id": str(bead.get("id") or ""),
+        "type": str(bead.get("type") or ""),
+        "session_id": str(bead.get("session_id") or ""),
+        "created_at": str(bead.get("created_at") or ""),
+        "retrieval_eligible": bool(bead.get("retrieval_eligible", True)),
+        "status": str(bead.get("status") or "open"),
+        "topics": [str(t) for t in (bead.get("tags") or [])],
+        "entities": [str(e) for e in (bead.get("entities") or [])],
+        "title": str(bead.get("title") or ""),
+        "promoted": bool(bead.get("promotion_state") == "promoted"),
+    }
+
+
+def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
+    """Best-effort mirror to Qdrant and Kuzu. Failures log warnings, never raise."""
+    import logging
+    _log = logging.getLogger(__name__)
+    from pathlib import Path
+    root_path = Path(root)
+
+    from core_memory.retrieval.semantic_index import _configured_vector_backend, VECTOR_BACKEND_QDRANT
+    if _configured_vector_backend() == VECTOR_BACKEND_QDRANT and bead.get("retrieval_eligible", True):
+        try:
+            from core_memory.retrieval.semantic_index import _create_external_backend, _paths
+            import json
+            manifest_file, *_ = _paths(root_path)
+            dimension = 1536
+            try:
+                manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+                dimension = int(manifest.get("dimension") or 1536)
+            except Exception:
+                pass
+            vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=dimension)
+            payload = _bead_payload(bead)
+            text = _embed_text(bead)
+            bead_id = str(bead.get("id") or "")
+            vec_backend.upsert_texts(bead_ids=[bead_id], texts=[text], metadatas=[payload])
+        except Exception as exc:
+            _log.warning("qdrant upsert failed for bead %s: %s", bead.get("id"), exc)
+
+    from core_memory.persistence.graph.factory import create_graph_backend
+    import os
+    if os.environ.get("CORE_MEMORY_GRAPH_BACKEND", "kuzu").strip().lower() not in ("none", ""):
+        try:
+            graph = create_graph_backend(root_path)
+            graph.on_bead_written(bead)
+        except Exception as exc:
+            _log.warning("graph on_bead_written failed for bead %s: %s", bead.get("id"), exc)
 
 
 __all__ = ["add_bead_for_store"]

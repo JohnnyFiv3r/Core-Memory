@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from core_memory.runtime.longitudinal_benchmark import longitudinal_benchmark_v2
+from core_memory.runtime.dreamer.longitudinal import longitudinal_benchmark_v2
 
 
 def main() -> int:

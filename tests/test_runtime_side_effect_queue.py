@@ -8,7 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.side_effect_queue import (
+from core_memory.runtime.queue.side_effect_queue import (
     drain_side_effect_queue,
     enqueue_side_effect_event,
     process_side_effect_event,
@@ -106,7 +106,7 @@ class TestRuntimeSideEffectQueueSlice59A(unittest.TestCase):
 
     def test_dreamer_side_effect_writes_candidate_queue(self):
         with tempfile.TemporaryDirectory(prefix="cm-se-") as td:
-            with patch("core_memory.runtime.side_effect_queue.dreamer.run_analysis") as ra:
+            with patch("core_memory.runtime.queue.side_effect_queue.dreamer.run_analysis") as ra:
                 ra.return_value = [
                     {
                         "source": "b1",
@@ -149,7 +149,7 @@ class TestRuntimeSideEffectQueueSlice59A(unittest.TestCase):
             s = MemoryStore(td)
             b1 = s.add_bead(type="decision", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
             b2 = s.add_bead(type="lesson", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"])
-            with patch("core_memory.runtime.side_effect_queue.dreamer.run_analysis") as ra:
+            with patch("core_memory.runtime.queue.side_effect_queue.dreamer.run_analysis") as ra:
                 ra.return_value = [
                     {
                         "source": b1,

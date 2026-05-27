@@ -265,5 +265,6 @@ class TestClaimUpdatePolicy(unittest.TestCase):
         self.assertEqual(1, len({u.get("grounding_hash") for u in updates}))
 
 
+
 if __name__ == "__main__":
     unittest.main()

@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 from types import SimpleNamespace
 
-from core_memory.cli_compat import (
+from core_memory.cli.compat import (
     rewrite_legacy_dev_memory_argv,
     ensure_group_subcommand_selected,
     apply_grouped_aliases,

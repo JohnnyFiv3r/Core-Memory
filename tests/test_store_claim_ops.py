@@ -239,6 +239,7 @@ class TestStoreClaimOps(unittest.TestCase):
 
         self.assertEqual(["c2", "c3"], [r.get("replacement_claim_id") for r in rows])
 
+
     def test_claim_update_chain_seq_is_per_subject_slot(self):
         with tempfile.TemporaryDirectory() as td:
             write_claim_updates_to_bead(

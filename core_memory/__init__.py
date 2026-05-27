@@ -28,6 +28,7 @@ from .retrieval.contracts import (
     recall_result_from_memory_execute,
     validate_recall_effort,
 )
+from .integrations.api import hydrate_bead_sources
 from ._version import VERSION, __version__
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
@@ -80,6 +81,7 @@ __all__ = [
     "JsonFileBackend",
     "SqliteBackend",
     "create_backend",
+    "hydrate_bead_sources",
     "Bead",
     "BeadType",
     "Scope",

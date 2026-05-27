@@ -51,36 +51,80 @@ class VectorBackend(Protocol):
         ...
 
 
+def _bead_id_to_qdrant_id(bead_id: str) -> str:
+    """Map an arbitrary bead ID to a UUID5. Deterministic and collision-resistant.
+
+    Qdrant embedded mode (local QdrantClient) requires UUID or integer point IDs.
+    Server mode accepts arbitrary strings, but we use UUID5 everywhere for consistency.
+    """
+    import uuid as _uuid
+    return str(_uuid.uuid5(_uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8"), str(bead_id)))
+
+
 class QdrantBackend:
     """Qdrant vector search backend.
+
+    Embedded mode (zero-ops): pass path=".beads/qdrant" — no server required.
+    Server mode: pass url="http://localhost:6333" or set CORE_MEMORY_QDRANT_URL.
 
     Requires: pip install core-memory[qdrant]
     """
 
-    def __init__(self, collection_name: str = "core_memory_beads", url: str = "http://localhost:6333", dimensions: int = 1536):
+    def __init__(
+        self,
+        collection_name: str = "core_memory_beads",
+        url: str | None = None,
+        path: str | None = None,
+        dimensions: int = 1536,
+    ):
         try:
             from qdrant_client import QdrantClient
             from qdrant_client.models import Distance, VectorParams
         except ImportError:
             raise ImportError("Qdrant backend requires: pip install core-memory[qdrant]")
 
-        self._client = QdrantClient(url=url)
+        if url:
+            self._client = QdrantClient(url=url)
+        elif path:
+            import os
+            os.makedirs(path, exist_ok=True)
+            self._client = QdrantClient(path=path)
+        else:
+            self._client = QdrantClient(":memory:")
+
         self._collection = collection_name
 
-        # Ensure collection exists
-        collections = [c.name for c in self._client.get_collections().collections]
-        if collection_name not in collections:
-            self._client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=int(dimensions), distance=Distance.COSINE),
-            )
+        # Ensure collection exists for regular vector mode.
+        # Skip when dimensions=0: caller will use upsert_texts()/client.add() which
+        # creates a fastembed-configured collection — pre-creating with VectorParams
+        # would produce an incompatible collection type.
+        if int(dimensions) > 0:
+            collections = [c.name for c in self._client.get_collections().collections]
+            if collection_name not in collections:
+                self._client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(size=int(dimensions), distance=Distance.COSINE),
+                )
 
     def upsert(self, bead_id: str, embedding: list[float], metadata: dict[str, Any]) -> None:
         from qdrant_client.models import PointStruct
-
+        # Store original bead_id in payload for retrieval; use UUID5 as point ID.
+        point_id = _bead_id_to_qdrant_id(bead_id)
+        payload = {**metadata, "bead_id": bead_id}
         self._client.upsert(
             collection_name=self._collection,
-            points=[PointStruct(id=bead_id, vector=embedding, payload=metadata)],
+            points=[PointStruct(id=point_id, vector=embedding, payload=payload)],
+        )
+
+    def upsert_texts(self, bead_ids: list[str], texts: list[str], metadatas: list[dict[str, Any]]) -> None:
+        """Batch upsert using FastEmbed native indexing — no external embedding API required."""
+        ids = [_bead_id_to_qdrant_id(bid) for bid in bead_ids]
+        payloads = [{**meta, "bead_id": bid} for bid, meta in zip(bead_ids, metadatas)]
+        self._client.add(
+            collection_name=self._collection,
+            documents=texts,
+            metadata=payloads,
+            ids=ids,
         )
 
     def search(
@@ -100,6 +144,8 @@ class QdrantBackend:
                 conditions.append(FieldCondition(key="status", match=MatchValue(value=filters["status"])))
             if "session_id" in filters:
                 conditions.append(FieldCondition(key="session_id", match=MatchValue(value=filters["session_id"])))
+            if "retrieval_eligible" in filters:
+                conditions.append(FieldCondition(key="retrieval_eligible", match=MatchValue(value=bool(filters["retrieval_eligible"]))))
             if "created_after" in filters:
                 conditions.append(FieldCondition(key="created_at", range=Range(gte=filters["created_after"])))
             if "created_before" in filters:
@@ -107,31 +153,81 @@ class QdrantBackend:
             if conditions:
                 qdrant_filter = Filter(must=conditions)
 
-        results = self._client.search(
+        response = self._client.query_points(
             collection_name=self._collection,
-            query_vector=query_embedding,
+            query=query_embedding,
             limit=k,
             query_filter=qdrant_filter,
+            with_payload=True,
         )
         return [
-            {"bead_id": str(r.id), "score": float(r.score), "metadata": dict(r.payload or {})}
-            for r in results
+            # Recover original bead_id from payload (UUID5 point ID is internal)
+            {"bead_id": str((r.payload or {}).get("bead_id") or r.id), "score": float(r.score), "metadata": dict(r.payload or {})}
+            for r in response.points
         ]
 
     def delete(self, bead_id: str) -> None:
         from qdrant_client.models import PointIdsList
-        self._client.delete(collection_name=self._collection, points_selector=PointIdsList(points=[bead_id]))
+        point_id = _bead_id_to_qdrant_id(bead_id)
+        self._client.delete(collection_name=self._collection, points_selector=PointIdsList(points=[point_id]))
 
     def update_metadata(self, bead_id: str, metadata: dict[str, Any]) -> None:
+        point_id = _bead_id_to_qdrant_id(bead_id)
         self._client.set_payload(
             collection_name=self._collection,
             payload=dict(metadata or {}),
-            points=[bead_id],
+            points=[point_id],
         )
 
     def count(self) -> int:
         info = self._client.get_collection(self._collection)
         return info.points_count or 0
+
+    def hybrid_search(
+        self,
+        query: str,
+        k: int = 8,
+        filters: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Sparse+dense hybrid search using FastEmbed. One Qdrant query replaces FAISS + lexical.py."""
+        try:
+            from qdrant_client.models import FieldCondition, Filter, MatchValue, Prefetch, Query
+        except ImportError:
+            raise ImportError("Qdrant hybrid search requires: pip install 'qdrant-client[fastembed]'")
+
+        must_conditions = []
+        if filters:
+            for key in ("type", "status", "session_id"):
+                if key in filters:
+                    must_conditions.append(FieldCondition(key=key, match=MatchValue(value=filters[key])))
+            if "retrieval_eligible" in filters:
+                must_conditions.append(
+                    FieldCondition(key="retrieval_eligible", match=MatchValue(value=bool(filters["retrieval_eligible"])))
+                )
+
+        qdrant_filter = Filter(must=must_conditions) if must_conditions else None
+
+        results = self._client.query(
+            collection_name=self._collection,
+            query_text=query,
+            query_filter=qdrant_filter,
+            limit=k,
+        )
+        return [
+            {"bead_id": str((r.payload or {}).get("bead_id") or r.id), "score": float(r.score), "metadata": dict(r.payload or {})}
+            for r in results
+        ]
+
+    def retrieve_by_ids(self, bead_ids: list[str]) -> list[dict[str, Any]]:
+        """Point lookup by bead ID — O(1) per batch."""
+        if not bead_ids:
+            return []
+        point_ids = [_bead_id_to_qdrant_id(bid) for bid in bead_ids]
+        points = self._client.retrieve(collection_name=self._collection, ids=point_ids, with_payload=True)
+        return [
+            {"bead_id": str((p.payload or {}).get("bead_id") or p.id), "metadata": dict(p.payload or {})}
+            for p in points
+        ]
 
 
 class ChromaDBBackend:
@@ -358,7 +454,8 @@ def create_vector_backend(backend_type: str = "qdrant", **kwargs: Any) -> Vector
 
     Args:
         backend_type: "qdrant", "chromadb", or "pgvector"
-        **kwargs: Passed to the backend constructor
+        **kwargs: Passed to the backend constructor. For qdrant, pass url= for server
+                  mode or path= for embedded mode (zero-ops, recommended default).
     """
     if backend_type == "qdrant":
         return QdrantBackend(**kwargs)
