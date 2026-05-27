@@ -284,6 +284,10 @@ class TestNeo4jImportError(unittest.TestCase):
         # Ensure neo4j is NOT in sys.modules so ImportError fires
         _remove_fake_neo4j()
 
+    @unittest.skipIf(
+        __import__("importlib").util.find_spec("neo4j") is not None,
+        "neo4j is installed — ImportError test only meaningful when package is absent",
+    )
     def test_constructor_raises_import_error_when_neo4j_missing(self):
         import importlib
         import core_memory.persistence.graph.neo4j_backend as _mod

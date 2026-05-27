@@ -94,13 +94,17 @@ class QdrantBackend:
 
         self._collection = collection_name
 
-        # Ensure collection exists
-        collections = [c.name for c in self._client.get_collections().collections]
-        if collection_name not in collections:
-            self._client.create_collection(
-                collection_name=collection_name,
-                vectors_config=VectorParams(size=int(dimensions), distance=Distance.COSINE),
-            )
+        # Ensure collection exists for regular vector mode.
+        # Skip when dimensions=0: caller will use upsert_texts()/client.add() which
+        # creates a fastembed-configured collection — pre-creating with VectorParams
+        # would produce an incompatible collection type.
+        if int(dimensions) > 0:
+            collections = [c.name for c in self._client.get_collections().collections]
+            if collection_name not in collections:
+                self._client.create_collection(
+                    collection_name=collection_name,
+                    vectors_config=VectorParams(size=int(dimensions), distance=Distance.COSINE),
+                )
 
     def upsert(self, bead_id: str, embedding: list[float], metadata: dict[str, Any]) -> None:
         from qdrant_client.models import PointStruct

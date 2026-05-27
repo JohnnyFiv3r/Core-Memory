@@ -970,7 +970,10 @@ def build_semantic_index(root: Path) -> dict:
             try:
                 if vector_backend == VECTOR_BACKEND_QDRANT:
                     # Qdrant+FastEmbed generates embeddings natively — bypass _embed_vectors.
-                    vb = _create_external_backend(root=root, backend=vector_backend, dimension=1536)
+                    # Pass dimension=0 so QdrantBackend skips VectorParams collection creation;
+                    # upsert_texts() uses client.add() which creates a fastembed-configured collection.
+                    # Pre-creating with VectorParams(size=1536) would produce incompatible params.
+                    vb = _create_external_backend(root=root, backend=vector_backend, dimension=0)
                     bead_ids = [str(r.get("bead_id") or "") for r in rows]
                     metadatas = [
                         {

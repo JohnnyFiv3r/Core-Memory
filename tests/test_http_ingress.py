@@ -474,8 +474,9 @@ class TestHttpIngress(unittest.TestCase):
         os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = "required"
         os.environ["CORE_MEMORY_EMBEDDINGS_PROVIDER"] = "openai"
         os.environ["OPENAI_API_KEY"] = ""
-        # Pin to no vector backend so Qdrant+FastEmbed cannot bypass the missing-key check.
-        os.environ["CORE_MEMORY_VECTOR_BACKEND"] = ""
+        # Pin to local-faiss so Qdrant+FastEmbed cannot bypass the missing-key check.
+        # Empty string normalises to Qdrant (the default), so we must be explicit.
+        os.environ["CORE_MEMORY_VECTOR_BACKEND"] = "local-faiss"
         try:
             with tempfile.TemporaryDirectory() as td:
                 root = str(Path(td) / "memory")
