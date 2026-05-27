@@ -34,6 +34,12 @@ as dead nodes in the codebase knowledge graph.
 
 ## Sub-task 1a — Delete `core_memory/persistence/encryption.py`
 
+> **⚠️ SUPERSEDED — do not delete.** `encryption.py` was restored as a
+> backward-compatibility shim in Phase 9f/9g (branch `claude/validate-demo-todos-SCRSz`).
+> It now re-exports the canonical symbols so existing callers continue to work.
+> Removal requires a breaking-change process and a deprecation cycle. Update this
+> sub-task when the shim layer is formally deprecated.
+
 **Verify dead** (must produce zero hits outside the file itself and docs):
 ```bash
 grep -rn 'from.*persistence.*import.*encryption\|persistence\.encryption\|persistence/encryption' \
@@ -41,17 +47,17 @@ grep -rn 'from.*persistence.*import.*encryption\|persistence\.encryption\|persis
   core_memory/ tests/ docs/ benchmarks/ demo/ eval/ scripts/ plugins/ 2>/dev/null
 ```
 
-Expected: only `persistence/encryption.py` itself in the output (self-doc string).
-
-**Action:** `git rm core_memory/persistence/encryption.py`
-
 **File facts:** 115 lines. Defines `is_encryption_enabled()`, `encrypt()`,
 `decrypt()`, `generate_key()`. Pulls `cryptography` from the `[encryption]` extra.
-No call site exists.
 
 ---
 
 ## Sub-task 1b — Delete `core_memory/persistence/write_ops.py`
+
+> **⚠️ SUPERSEDED — do not delete.** `write_ops.py` was restored as a
+> backward-compatibility shim in Phase 9f/9g (branch `claude/validate-demo-todos-SCRSz`).
+> It re-exports write symbols so callers using the old import path continue to work.
+> Removal requires a breaking-change process and a deprecation cycle.
 
 **Verify dead:**
 ```bash
@@ -60,16 +66,17 @@ grep -rn 'from.*persistence.*import.*write_ops\|persistence\.write_ops\|persiste
   core_memory/ tests/ docs/ benchmarks/ demo/ eval/ scripts/ plugins/ 2>/dev/null
 ```
 
-Expected: zero hits.
-
-**Action:** `git rm core_memory/persistence/write_ops.py`
-
 **File facts:** 31 lines. Thin delegating stub. Re-exports symbols that callers
 import directly from elsewhere now.
 
 ---
 
 ## Sub-task 1c — Delete `core_memory/retrieval/pipeline/explain.py`
+
+> **⚠️ SUPERSEDED — do not delete.** `explain.py` was restored as a
+> backward-compatibility shim in Phase 9f/9g (branch `claude/validate-demo-todos-SCRSz`).
+> It re-exports `build_explain` so any external callers using the old path continue
+> to work. Removal requires a breaking-change process and a deprecation cycle.
 
 **Verify dead** (note: many files use the word "explain" — this check looks for
 imports of *this specific module* or calls to its function):
@@ -80,14 +87,10 @@ grep -rn 'from.*pipeline.*import.*explain\|pipeline\.explain\b\|build_explain' \
   core_memory/ tests/ docs/ benchmarks/ demo/ eval/ scripts/ plugins/ 2>/dev/null
 ```
 
-Expected: only the definition site `retrieval/pipeline/explain.py:4:def build_explain(...)`.
-
-**Action:** `git rm core_memory/retrieval/pipeline/explain.py`
-
 **File facts:** 25 lines. Defines `build_explain(snapped, snap_decisions, warnings,
 retrieval_debug) -> dict`. The active `explain` payload is built inline at
 `core_memory/retrieval/pipeline/__init__.py:113-122` — `build_explain` is
-unreferenced.
+unreferenced from first-party code.
 
 **Watch out:** Do not delete or modify `retrieval/pipeline/__init__.py` — its
 inline `explain` block is the live implementation.

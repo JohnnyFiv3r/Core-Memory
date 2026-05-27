@@ -54,6 +54,8 @@ all = [
     "numpy", "faiss-cpu",
     "openai",
     "neo4j",
+    "qdrant-client[fastembed]>=1.9",
+    "kuzu>=0.4",
 ]
 
 [project.scripts]

@@ -4,7 +4,14 @@ import tempfile
 import unittest
 from pathlib import Path
 
+try:
+    import kuzu  # noqa: F401
+    _KUZU_AVAILABLE = True
+except ImportError:
+    _KUZU_AVAILABLE = False
 
+
+@unittest.skipUnless(_KUZU_AVAILABLE, "kuzu not installed")
 class TestKuzuGraphBackend(unittest.TestCase):
     def setUp(self):
         self._td = tempfile.TemporaryDirectory(prefix="cm-kuzu-")

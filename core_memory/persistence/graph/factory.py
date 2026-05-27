@@ -34,8 +34,8 @@ def register_graph_backend(name: str, factory: Callable[[], GraphBackend]) -> No
 def create_graph_backend(root: Path | None = None) -> GraphBackend:
     """Factory for graph backends. Reads CORE_MEMORY_GRAPH_BACKEND env var.
 
-    Defaults to 'none' (NullGraphBackend — zero deps, Python fallback).
-    Set CORE_MEMORY_GRAPH_BACKEND=kuzu|neo4j|<custom> to enable a provider.
+    Defaults to 'kuzu' (embedded graph, zero server ops).
+    Set CORE_MEMORY_GRAPH_BACKEND=none|neo4j|<custom> to change provider.
 
     On unknown provider name or construction failure, logs a warning and
     returns NullGraphBackend so the caller always gets a valid backend.

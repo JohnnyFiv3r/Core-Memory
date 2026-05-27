@@ -170,6 +170,34 @@ fallback, not the policy authority.
 `AGENT_INSTRUCTIONS.md`, `docs/integrations/openclaw/canonical_contract.md`,
 `plugins/openclaw-core-memory-bridge/skills/core-memory/SKILL.md`, `tests/test_entity_registry.py`
 
+## 8b. Turn/flush ordering: ok=True before bead is persisted (known architectural risk)
+
+**Status:** Pre-existing. Not introduced by this branch.
+
+**Risk:** When `CORE_MEMORY_ENRICHMENT_QUEUE=on` (the default), `process_turn_finalized()`
+returns `ok=True` before the bead is durably persisted to `index.json`. The bead write
+is enqueued as a side-effect that runs asynchronously. A caller that trusts the `ok=True`
+response and immediately queries `index.json` or the vector index may observe the bead
+missing.
+
+**Affected code:**
+- `core_memory/runtime/passes/enrichment.py` — `CORE_MEMORY_ENRICHMENT_QUEUE` defaults to `"on"`
+- `core_memory/runtime/queue/side_effect_queue.py` — queue drain is the persistence path when queue is enabled
+- `tests/test_f_w1_enrichment_queue.py` — currently only asserts session JSONL exists, not `index.json`
+
+**Recommended strengthening:** Add an assertion in `test_f_w1_enrichment_queue.py` that the
+bead appears in `index.json` (not just the session JSONL) after the queue is drained. This
+would catch any future regression where the queue drain path stops persisting to the index.
+
+**Fix scope:** This requires clarifying whether `ok=True` means "turn accepted into queue"
+or "turn durably committed". Currently it means the former. If callers need the latter
+semantics, `process_turn_finalized` should either flush the queue before returning, or
+return a separate `committed: bool` field indicating durable persistence status. Full fix
+tracked under #9 (unified session-window enrichment) which will revisit enrichment
+queue semantics.
+
+---
+
 ## 9. Unify session-window enrichment crawler for associations, claims, entities, and promotion
 
 **Status:** Planned. This is the architectural follow-up to #2, #3, #6, and #8.

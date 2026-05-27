@@ -48,6 +48,13 @@ def _retract_bead(root: str, bead_id: str) -> None:
             with open(session_file, "a", encoding="utf-8") as f:
                 f.write(retraction_line + "\n")
 
+try:
+    import qdrant_client  # noqa: F401
+    import kuzu  # noqa: F401
+    _BACKENDS_AVAILABLE = True
+except ImportError:
+    _BACKENDS_AVAILABLE = False
+
 import core_memory.retrieval.semantic_index as _sem_idx
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.pipeline.canonical import build_visible_corpus
@@ -62,6 +69,7 @@ _BACKEND_ENV = {
 }
 
 
+@unittest.skipUnless(_BACKENDS_AVAILABLE, "qdrant-client or kuzu not installed")
 class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
     """Full pipeline E2E: write beads → retrieve via Qdrant/Kuzu (lexical fallback)."""
 
@@ -291,11 +299,11 @@ class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
             for node in chain.get("nodes") or []:
                 chain_bead_ids.add(str((node or {}).get("id") or ""))
 
-        # At least one of the children should appear in the chains
+        # All 3 caused_by children must appear in the chains
         child_ids = {self.child1_id, self.child2_id, self.child3_id}
         self.assertTrue(
-            chain_bead_ids.intersection(child_ids),
-            f"no caused_by children found in trace chains. chains={out.get('chains')[:2]}",
+            child_ids.issubset(chain_bead_ids),
+            f"not all caused_by children found in trace chains. missing={child_ids - chain_bead_ids}, chains={out.get('chains')[:2]}",
         )
 
     # ------------------------------------------------------------------

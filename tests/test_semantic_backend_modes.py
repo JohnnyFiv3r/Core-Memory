@@ -26,7 +26,7 @@ class TestSemanticBackendModes(unittest.TestCase):
                 s.add_bead(type="decision", title="A", summary=["alpha"], session_id="main", source_turn_ids=["t1"])
                 out = build_semantic_index(Path(td))
                 self.assertTrue(out.get("ok"))
-                self.assertIn(out.get("backend"), {"faiss-hash", "lexical"})
+                self.assertIn(out.get("backend"), {"faiss-hash", "lexical", "qdrant"})
                 q = semantic_lookup(Path(td), "alpha", k=3)
                 self.assertTrue(q.get("ok"))
         finally:
