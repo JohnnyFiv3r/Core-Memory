@@ -106,13 +106,10 @@ def handle_migrate(args: Any) -> int:
                     vec_upserted += 1
                     continue
                 try:
-                    from qdrant_client.models import PointStruct
                     payload = _bead_payload(bead)
                     text = _embed_text(bead)
-                    vec_backend._client.upsert(
-                        collection_name=vec_backend._collection,
-                        points=[PointStruct(id=str(bead["id"]), vector={}, payload={**payload, "_text": text})],
-                    )
+                    bead_id = str(bead.get("id") or "")
+                    vec_backend.upsert_texts(bead_ids=[bead_id], texts=[text], metadatas=[payload])
                     vec_upserted += 1
                 except Exception as exc:
                     vec_errors.append(f"bead:{bead.get('id')}:{exc}")

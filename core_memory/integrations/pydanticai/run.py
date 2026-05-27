@@ -5,6 +5,11 @@ import logging
 import uuid
 from typing import Any, Optional
 
+try:
+    import pydantic_ai  # noqa: F401 — loads pydantic_ai into sys.modules when installed
+except ImportError:
+    pass
+
 from core_memory.integrations.api import IntegrationContext, _resolve_root
 from core_memory.integrations.openclaw_flags import core_memory_enabled, runtime_flags_snapshot
 from core_memory.runtime.engine import process_turn_finalized, process_flush

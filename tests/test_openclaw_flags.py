@@ -54,7 +54,7 @@ def test_agent_authored_mode_explicit_and_derived(monkeypatch):
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_MODE", "warn")
     assert agent_authored_mode() == "warn"
     gate = resolved_agent_authored_gate()
-    assert gate["required"] is True
+    assert gate["required"] is False  # warn: gate does not block; logs/metrics only
     assert gate["fail_open"] is True
 
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_MODE", "")

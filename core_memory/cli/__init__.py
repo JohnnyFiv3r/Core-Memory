@@ -115,7 +115,7 @@ def main():
     setup_init.add_argument("--global", dest="global_config", action="store_true", help="Write to ~/.core-memory/config.yaml instead of .core-memory.yaml")
     setup_init.add_argument("--force", action="store_true", help="Overwrite existing config")
     setup_doctor = setup_sub.add_parser("doctor", help="Run capability-tier health checks with profile-aware output")
-    setup_doctor.add_argument("--profile", choices=["local", "mcp", "app", "production"], help="Severity profile (auto-detected from config if omitted)")
+    setup_doctor.add_argument("--profile", choices=["local", "mcp", "app", "production", "custom"], help="Severity profile (auto-detected from config if omitted)")
     setup_doctor.add_argument("--json", dest="json_output", action="store_true", help="Machine-readable JSON output")
     setup_sub.add_parser("paths", help="Show resolved store paths")
 

@@ -113,7 +113,8 @@ def resolved_agent_authored_gate() -> dict[str, object]:
     if mode == "hard":
         return {"mode": mode, "required": True, "fail_open": False}
     if mode == "warn":
-        return {"mode": mode, "required": True, "fail_open": True}
+        # warn: gate logic runs but does not block or mark beads; just emits metrics
+        return {"mode": mode, "required": False, "fail_open": True}
     return {"mode": "off", "required": False, "fail_open": True}
 
 

@@ -28,7 +28,7 @@ def run_openclaw_onboard(
     replace_memory_core: bool | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    repo_root = Path(__file__).resolve().parents[2]
+    repo_root = Path(__file__).resolve().parents[3]
     default_plugin_dir = repo_root / "plugins" / "openclaw-core-memory-bridge"
     plugin_path = Path(plugin_dir) if plugin_dir else default_plugin_dir
 

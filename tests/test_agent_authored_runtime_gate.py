@@ -121,7 +121,8 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertEqual("metadata.crawler_updates", gate.get("source"))
             self.assertFalse(gate.get("used_fallback"))
 
-    def test_strict_mode_blocks_when_associations_missing(self):
+    def test_strict_mode_blocks_when_bead_fields_missing(self):
+        # Zero associations is now valid; hard mode blocks on missing required bead fields.
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
@@ -137,18 +138,13 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
                     "crawler_updates": {
-                        "beads_create": [
-                            {
-                                "type": "decision",
-                                "title": "Agent decided",
-                                "summary": ["summary"],
-                            }
-                        ]
+                        # Missing required "title" field
+                        "beads_create": [{"type": "decision", "summary": ["summary"]}]
                     }
                 },
             )
             self.assertFalse(out.get("ok"))
-            self.assertEqual("agent_associations_missing", out.get("error_code"))
+            self.assertEqual("agent_bead_fields_missing", out.get("error_code"))
 
     def test_strict_mode_accepts_agent_callable_updates(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(

@@ -6,3 +6,6 @@ from core_memory.integrations.openclaw.agent_end_bridge import (  # noqa: F401
     process_agent_end_event,
     main,
 )
+
+if __name__ == "__main__":
+    main()

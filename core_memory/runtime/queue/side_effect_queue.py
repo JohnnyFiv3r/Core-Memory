@@ -320,6 +320,7 @@ def drain_side_effect_queue(
     processed = 0
     failed = 0
     skipped_terminal = 0
+    item_results: list[dict[str, Any]] = []
 
     for claim in claimed:
         item_id = str(claim.get("id") or "")
@@ -344,6 +345,7 @@ def drain_side_effect_queue(
                 processed += 1
                 if bool(out.get("terminal_skipped")):
                     skipped_terminal += 1
+                item_results.append({"id": item_id, "kind": claim.get("kind"), "result": out})
                 queue = [r for r in queue if str(r.get("id") or "") != item_id]
                 state["consecutive_failures"] = 0
                 state["opened_until"] = 0
@@ -379,6 +381,7 @@ def drain_side_effect_queue(
         "circuit_open": bool(int(state.get("opened_until") or 0) > int(time.time())),
         "opened_until": int(state.get("opened_until") or 0),
         "last_error": str(state.get("last_error") or ""),
+        "item_results": item_results,
     }
 
 

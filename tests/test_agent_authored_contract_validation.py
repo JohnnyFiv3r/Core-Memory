@@ -6,8 +6,9 @@ from core_memory.runtime.agent_authored_contract import validate_agent_authored_
 
 
 class TestAgentAuthoredContractSlice2(unittest.TestCase):
-    def test_requires_exactly_one_bead_row(self):
-        ok, code, details = validate_agent_authored_updates(
+    def test_requires_at_least_one_bead_row(self):
+        # Multiple bead rows are now accepted; the old exactly-one constraint was too strict.
+        ok, _code, _details = validate_agent_authored_updates(
             {
                 "beads_create": [
                     {"type": "decision", "title": "A", "summary": ["x"]},
@@ -24,21 +25,36 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
                 ],
             }
         )
+        self.assertTrue(ok)
+
+    def test_requires_zero_bead_rows_fails(self):
+        ok, code, details = validate_agent_authored_updates(
+            {"beads_create": [], "associations": []}
+        )
         self.assertFalse(ok)
         self.assertEqual("agent_bead_fields_missing", code)
-        self.assertIn("beads_create_must_have_exactly_one_row", str(details.get("reason") or ""))
+        self.assertIn("at_least_one_row", str(details.get("reason") or ""))
 
-    def test_requires_associations_list(self):
-        ok, code, details = validate_agent_authored_updates(
+    def test_associations_are_optional(self):
+        # Crawler passes may find no linkable priors; omitting associations is valid.
+        ok, _code, _details = validate_agent_authored_updates(
             {
                 "beads_create": [
                     {"type": "decision", "title": "A", "summary": ["x"]},
                 ]
             }
         )
+        self.assertTrue(ok)
+
+    def test_associations_must_be_list_when_present(self):
+        ok, code, details = validate_agent_authored_updates(
+            {
+                "beads_create": [{"type": "decision", "title": "A", "summary": ["x"]}],
+                "associations": "not-a-list",
+            }
+        )
         self.assertFalse(ok)
         self.assertEqual("agent_associations_missing", code)
-        self.assertIn("associations_missing_or_empty", str(details.get("reason") or ""))
 
     def test_rejects_invalid_association_confidence(self):
         ok, code, details = validate_agent_authored_updates(

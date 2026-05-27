@@ -199,6 +199,11 @@ def init_command(args: Any) -> None:
     else:
         config_path = Path(root) / _PROJECT_CONFIG_NAME
 
+    # Always ensure store directories exist, even when skipping config write.
+    _root_p = Path(root)
+    (_root_p / ".beads").mkdir(parents=True, exist_ok=True)
+    (_root_p / ".turns").mkdir(parents=True, exist_ok=True)
+
     if config_path.exists() and not force:
         print(
             json.dumps(

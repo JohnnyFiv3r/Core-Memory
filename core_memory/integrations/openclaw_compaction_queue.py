@@ -9,3 +9,6 @@ from core_memory.integrations.openclaw.compaction_queue import (  # noqa: F401
 )
 # Preserve the delegation assertion for test_runtime_jobs_layering.py
 _DELEGATES_TO = "core_memory.runtime.compaction_queue"
+
+if __name__ == "__main__":
+    main()
