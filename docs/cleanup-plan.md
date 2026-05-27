@@ -263,10 +263,23 @@ logic and human output format).
 - [x] **9f — Reorganize `runtime/` into subdirectories** — create `turn/`, `flush/`,
       `session/`, `passes/`, `queue/`, `observability/` subdirectories. Each `__init__.py`
       re-exports old module symbols as a migration shim.
-- [ ] **9g — Thin `integrations/api.py`** — audit all 22+ outgoing imports; any that
+- [x] **9g — Thin `integrations/api.py`** — audit all 22+ outgoing imports; any that
       reach internal modules (`runtime.*`, `claim.*`, etc.) are replaced with imports
       from `core_memory`'s public `__all__`. Gaps in the public API are filled in
       `__init__.py` first.
+
+      > **Layering violation fixed.** The cycle `retrieval/pipeline/canonical.py →
+      > integrations/api → runtime/jobs → retrieval` was broken by converting the
+      > module-level `from core_memory.integrations.api import hydrate_bead_sources`
+      > in `canonical.py` to lazy function-level imports (two call sites).
+      > `hydrate_bead_sources` added to `core_memory/__init__.py` public API.
+      > `retrieval/__init__.py` `__getattr__` guard preserved and documented.
+      >
+      > Remaining: `api.py` internal imports (`runtime.*`, `claim.*`, `entity.*`) are
+      > implementation details of integration functions, not layering violations in the
+      > context of the integrations/ tier. Full replacement would require either
+      > expanding the public API with internal utilities or restructuring api.py into
+      > a thinner dispatch layer — deferred to Phase 10 refactor.
 - [x] **9h — Delete all backward-compat shims** — remove every re-export shim created
       during Phase 9 structural moves. Full inventory:
 

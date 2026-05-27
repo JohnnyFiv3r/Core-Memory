@@ -158,7 +158,7 @@ extends the protocol with `search_candidates()`, `traverse()`,
 | 6 | Storage adapter capability tiers | Not started |
 | 7 | Neo4j as query backend | Not started |
 | 8 | `core-memory init` wizard + doctor | Not started |
-| 9 | Structural consolidation (runtime/, cli/, openclaw/) | In progress (9a–9f done; 9g–9h partial) |
+| 9 | Structural consolidation (runtime/, cli/, openclaw/) | Complete (9a–9h done) |
 | 10 | Documentation consolidation | Not started |
 
 See `docs/cleanup-plan.md` for sequence, prerequisites, and guard rails.

@@ -18,7 +18,6 @@ from core_memory.retrieval.semantic_index import (
     semantic_unavailable_payload,
 )
 from core_memory.retrieval.visible_corpus import build_visible_corpus
-from core_memory.integrations.api import hydrate_bead_sources
 from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
 from core_memory.claim.retrieval_planner import plan_retrieval_mode, boost_claim_results
 from core_memory.claim.resolver import resolve_all_current_state
@@ -1110,6 +1109,7 @@ def trace_request(
         hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
+            from core_memory.integrations.api import hydrate_bead_sources  # lazy: avoids retrieval→integrations cycle
             h = hydrate_bead_sources(
                 root=str(root),
                 bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],
@@ -1232,6 +1232,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
+            from core_memory.integrations.api import hydrate_bead_sources  # lazy: avoids retrieval→integrations cycle
             h = hydrate_bead_sources(
                 root=str(root),
                 bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],
