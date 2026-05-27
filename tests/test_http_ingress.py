@@ -55,6 +55,27 @@ class TestHttpIngress(unittest.TestCase):
             idx = json.loads(idx_file.read_text(encoding="utf-8"))
             self.assertGreaterEqual(len((idx.get("beads") or {})), 1)
 
+    def test_http_turn_finalized_rejects_path_traversal_ids(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            outside = Path(td) / "outside"
+            c = TestClient(app)
+            r = c.post(
+                "/v1/memory/turn-finalized",
+                json={
+                    "root": root,
+                    "session_id": "x/../../outside/payload",
+                    "turn_id": "t1",
+                    "turns": [{"speaker": "user", "role": "user", "content": "attacker bytes"}],
+                },
+            )
+            self.assertEqual(400, r.status_code)
+            self.assertIn("invalid_session_id", str(r.json()))
+            self.assertFalse(outside.exists())
+
     def test_http_runtime_execute_endpoint(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app

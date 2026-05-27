@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "core-memory"
-version = "1.1.0"
+version = "1.1.1"
 description = "Persistent causal agent memory with lossless compaction"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -39,7 +39,9 @@ mcp = ["fastapi", "uvicorn", "httpx", "mcp>=1.27.1,<2"]
 pydanticai = ["pydantic-ai"]
 semantic = ["numpy", "faiss-cpu"]
 tokenizer = ["tiktoken"]
-openai = ["openai", "numpy", "faiss-cpu", "tiktoken"]
+openai = ["openai"]
+anthropic = ["anthropic"]
+google = ["google-genai"]
 qdrant = ["qdrant-client[fastembed]>=1.9"]
 kuzu = ["kuzu>=0.4"]
 chromadb = ["chromadb"]
@@ -52,7 +54,8 @@ all = [
     "fastapi", "uvicorn", "httpx", "mcp>=1.27.1,<2",
     "pydantic-ai",
     "numpy", "faiss-cpu",
-    "openai",
+    "openai", "anthropic", "google-genai",
+    "tiktoken",
     "neo4j",
     "qdrant-client[fastembed]>=1.9",
     "kuzu>=0.4",

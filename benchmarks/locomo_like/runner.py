@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,7 @@ from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.store_claim_ops import write_claim_updates_to_bead, write_claims_to_bead
 from core_memory.retrieval.tools import memory as memory_tools
+from core_memory.retrieval.agent import recall as core_recall
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.queue.jobs import async_jobs_status, run_async_jobs
 from core_memory.runtime.engine import process_turn_finalized
@@ -86,21 +88,42 @@ def _heuristic_entities(*texts: str, limit: int = 16) -> list[str]:
     return out
 
 
-def _seed_crawler_updates(*, user_query: str, assistant_final: str, turn_id: str) -> dict[str, Any]:
+def _locomo_crawler_updates(*, user_query: str, assistant_final: str, turn_id: str) -> dict[str, Any]:
+    """Author production-shaped LoCoMo replay crawler updates.
+
+    This benchmark harness must exercise the same write path as adapters:
+    semantic fields are authored before the write call, then Core Memory only
+    validates/persists/links/indexes and enforces structural invariants.
+    """
     uq = str(user_query or "").strip()
     af = str(assistant_final or "").strip()
+    fact_text = (af or uq or "turn memory").strip()
     title = (uq or af or "Turn memory").splitlines()[0][:160]
     entities = _heuristic_entities(uq, af)
+    topics = []
+    for token in re.findall(r"\b[a-zA-Z][a-zA-Z0-9_-]{3,}\b", f"{uq} {af}".lower()):
+        if token in {"this", "that", "with", "from", "turn", "memory", "assistant", "user"}:
+            continue
+        if token not in topics:
+            topics.append(token)
+        if len(topics) >= 8:
+            break
+    if not topics:
+        topics = ["locomo"]
     return {
         "beads_create": [
             {
                 "type": "context",
                 "title": title or "Turn memory",
-                "summary": [(uq or af or "turn memory")[:240]],
+                "summary": [fact_text[:240]],
                 "because": [uq[:240]] if uq else [],
                 "source_turn_ids": [str(turn_id or "")],
-                "entities": entities,
-                "tags": ["benchmark_preload", "crawler_reviewed", "turn_finalized"],
+                "entities": entities or ["LoCoMo"],
+                "topics": topics,
+                "retrieval_eligible": True,
+                "retrieval_title": title or fact_text[:160] or "LoCoMo replay turn",
+                "retrieval_facts": [fact_text[:500]],
+                "tags": ["benchmark_preload", "crawler_reviewed", "turn_finalized", "locomo_replay"],
             }
         ]
     }
@@ -190,7 +213,7 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
 
             md = dict(t.get("metadata") or {})
             if not isinstance(md.get("crawler_updates"), dict):
-                md["crawler_updates"] = _seed_crawler_updates(user_query=uq, assistant_final=af, turn_id=tid)
+                md["crawler_updates"] = _locomo_crawler_updates(user_query=uq, assistant_final=af, turn_id=tid)
 
             process_turn_finalized(
                 root=root,
@@ -351,6 +374,68 @@ def _evaluate_case(*, case: BenchmarkCase, gold: GoldCase, out: dict[str, Any], 
     return overall, checks
 
 
+def _slot_validation(*, gold: GoldCase, actual_answer_class: str, recall_payload: dict[str, Any]) -> dict[str, Any]:
+    expected = str(gold.expected_slot or "").strip()
+    if not expected:
+        return {"expected_slot": "", "found": False, "match": None, "status": "not_applicable"}
+    slots = recall_payload.get("claim_slots") if isinstance(recall_payload.get("claim_slots"), dict) else {}
+    row = dict((slots or {}).get(expected) or {})
+    if not row:
+        return {"expected_slot": expected, "found": False, "match": False, "status": "abstain"}
+    # The fixture gold schema currently carries answer class rather than a literal
+    # slot value. Keep this scoring diagnostic additive: the slot matches when recall
+    # surfaced the expected slot and the case answer class matched the gold class.
+    match = str(actual_answer_class or "") == str(gold.expected_answer_class or "")
+    return {
+        "expected_slot": expected,
+        "found": True,
+        "match": bool(match),
+        "status": "correct" if match else "incorrect",
+        "current_value": row.get("current_value"),
+        "chain_seq": row.get("chain_seq"),
+        "grounding_hash": row.get("grounding_hash"),
+    }
+
+
+def _evidence_grounding_hashes(recall_payload: dict[str, Any]) -> list[str]:
+    hashes: list[str] = []
+    for item in list(recall_payload.get("evidence") or []):
+        if not isinstance(item, dict):
+            continue
+        h = str(item.get("grounding_hash") or "").strip()
+        if h:
+            hashes.append(h)
+    return hashes
+
+
+def _engine_state_slots(root: str) -> list[str]:
+    state = resolve_all_current_state(root)
+    slots = dict(state.get("slots") or {}) if isinstance(state, dict) else {}
+    rows: list[str] = []
+    for key, row in slots.items():
+        if not isinstance(row, dict) or str(row.get("status") or "") != "active":
+            continue
+        current = row.get("current_claim") if isinstance(row.get("current_claim"), dict) else {}
+        subject = str(current.get("subject") or str(key).split(":", 1)[0] or "").strip()
+        slot = str(current.get("slot") or (str(key).split(":", 1)[1] if ":" in str(key) else "")).strip()
+        if not subject or not slot:
+            continue
+        chain_seq = 0
+        for event in list(row.get("timeline") or []):
+            if not isinstance(event, dict):
+                continue
+            update = event.get("update") if isinstance(event.get("update"), dict) else {}
+            raw_seq = update.get("chain_seq") if isinstance(update, dict) else None
+            if str(raw_seq or "").isdigit():
+                chain_seq = max(chain_seq, int(raw_seq))
+        rows.append(f"{subject}:{slot}:{chain_seq}")
+    return sorted(rows)
+
+
+def _hash_engine_state_slots(rows: list[str]) -> str:
+    return hashlib.sha256("\n".join(sorted(str(x) for x in rows)).encode("utf-8")).hexdigest()
+
+
 def _queue_snapshot(root: str) -> dict[str, Any]:
     st = async_jobs_status(root)
     if not isinstance(st, dict):
@@ -495,6 +580,65 @@ def _case_token_usage(*, root: str, query: str, out: dict[str, Any]) -> dict[str
     }
 
 
+def _run_recall_for_benchmark(req: dict[str, Any], *, root: str) -> tuple[dict[str, Any], dict[str, Any]]:
+    result = core_recall(dict(req or {}), effort="high", root=root, explain=True, include_raw=True)
+    payload = result.to_dict()
+    raw = dict(payload.get("raw") or {})
+    if not raw:
+        raw = {
+            "ok": True,
+            "results": list(payload.get("evidence") or []),
+            "chains": [],
+            "warnings": list(payload.get("warnings") or []),
+            "answer_outcome": str(payload.get("status") or ""),
+        }
+    return raw, payload
+
+
+def _case_diagnostics(*, case: BenchmarkCase, gold: GoldCase, out: dict[str, Any], recall_payload: dict[str, Any], root: str) -> dict[str, Any]:
+    actual_class = str(out.get("answer_outcome") or "")
+    slot_validation = _slot_validation(gold=gold, actual_answer_class=actual_class, recall_payload=recall_payload)
+    state_slots = _engine_state_slots(root)
+    return {
+        "evidence_grounding_hashes": _evidence_grounding_hashes(recall_payload),
+        "grounding_stable": True,
+        "grounding_prior_found": False,
+        "slot_validation": slot_validation,
+        "engine_state_slots": state_slots,
+        "engine_state_hash": _hash_engine_state_slots(state_slots),
+        "recall_result": recall_payload,
+    }
+
+
+def _apply_grounding_stability(case_results: list[dict[str, Any]], prior_report: dict[str, Any] | None) -> None:
+    prior_cases = {
+        str(row.get("case_id") or ""): list(row.get("evidence_grounding_hashes") or [])
+        for row in list((prior_report or {}).get("cases") or [])
+        if isinstance(row, dict) and str(row.get("case_id") or "")
+    }
+    for row in case_results:
+        cid = str(row.get("case_id") or "")
+        current = [str(x) for x in list(row.get("evidence_grounding_hashes") or [])]
+        if cid not in prior_cases:
+            row["grounding_prior_found"] = False
+            row["grounding_stable"] = True
+            continue
+        prior = [str(x) for x in list(prior_cases.get(cid) or [])]
+        row["grounding_prior_found"] = True
+        row["prior_evidence_grounding_hashes"] = prior
+        row["grounding_stable"] = current == prior
+
+
+def _load_prior_report(path: Path | None) -> dict[str, Any] | None:
+    if not path or not path.exists():
+        return None
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else None
+    except Exception:
+        return None
+
+
 def run_case(
     *,
     case: BenchmarkCase,
@@ -556,7 +700,7 @@ def run_case(
             backend_diag = semantic_doctor(Path(td))
             backend_mode = _benchmark_backend_mode(backend_diag, semantic_mode=str(semantic_mode))
             t_query = time.perf_counter()
-            out = memory_tools.execute(req, root=td, explain=True)
+            out, recall_payload = _run_recall_for_benchmark(req, root=td)
             retrieval_ms = (time.perf_counter() - t_query) * 1000.0
             myelination_obs = myelination_report(td, since="30d", limit=1000, top=5)
 
@@ -566,6 +710,7 @@ def run_case(
         latency_ms = (time.perf_counter() - t0_total) * 1000.0
         dreamer_corr = _correlate_dreamer_case(td, out)
         token_usage = _case_token_usage(root=td, query=case.query, out=out)
+        diagnostics = _case_diagnostics(case=case, gold=gold, out=out, recall_payload=recall_payload, root=td)
         return {
             "case_id": case.id,
             "bucket_labels": list(case.bucket_labels),
@@ -592,6 +737,7 @@ def run_case(
             "myelination_stats": dict((myelination_obs or {}).get("stats") or {}),
             "preload_turn_count": int(len(preload_turns or [])),
             "token_usage": token_usage,
+            **diagnostics,
         }
 
     with tempfile.TemporaryDirectory(prefix="cm-bench-") as td:
@@ -640,7 +786,7 @@ def run_case(
             backend_diag = semantic_doctor(Path(td))
             backend_mode = _benchmark_backend_mode(backend_diag, semantic_mode=str(semantic_mode))
             t_query = time.perf_counter()
-            out = memory_tools.execute(req, root=td, explain=True)
+            out, recall_payload = _run_recall_for_benchmark(req, root=td)
             retrieval_ms = (time.perf_counter() - t_query) * 1000.0
             myelination_obs = myelination_report(td, since="30d", limit=1000, top=5)
 
@@ -650,6 +796,7 @@ def run_case(
         latency_ms = (time.perf_counter() - t0_total) * 1000.0
         dreamer_corr = _correlate_dreamer_case(td, out)
         token_usage = _case_token_usage(root=td, query=case.query, out=out)
+        diagnostics = _case_diagnostics(case=case, gold=gold, out=out, recall_payload=recall_payload, root=td)
         return {
             "case_id": case.id,
             "bucket_labels": list(case.bucket_labels),
@@ -676,6 +823,7 @@ def run_case(
             "myelination_stats": dict((myelination_obs or {}).get("stats") or {}),
             "preload_turn_count": int(len(preload_turns or [])),
             "token_usage": token_usage,
+            **diagnostics,
         }
 
 
@@ -691,6 +839,7 @@ def run_benchmark(
     myelination_mode: str = "off",
     preload_turns_file: Path | None = None,
     benchmark_root: str | None = None,
+    prior_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     pairs = build_cases(fixtures_dir=fixtures_dir, gold_dir=gold_dir)
     pairs = sorted(pairs, key=lambda p: p[0].id)
@@ -730,6 +879,8 @@ def run_benchmark(
     else:
         baseline_results = []
         case_results = _run_results(mode_n == "on")
+
+    _apply_grounding_stability(case_results, prior_report)
 
     backend_modes = sorted(set(str(c.get("benchmark_backend_mode") or "") for c in case_results if str(c.get("benchmark_backend_mode") or "")))
 
@@ -810,8 +961,12 @@ def main() -> int:
     p.add_argument("--vector-backend", choices=["local-faiss", "qdrant", "pgvector", "chromadb"], default="local-faiss")
     p.add_argument("--myelination", choices=["off", "on", "compare"], default="off")
     p.add_argument("--preload-turns", default="", help="Optional JSONL of canonical turn-finalized rows to preload per case")
+    p.add_argument("--prior-report", default="", help="Optional previous report JSON to compare grounding hashes against")
     p.add_argument("--out", default="")
     args = p.parse_args()
+
+    prior_path = Path(args.prior_report) if str(args.prior_report or "").strip() else (Path(args.out) if str(args.out or "").strip() else None)
+    prior_report = _load_prior_report(prior_path)
 
     report = run_benchmark(
         fixtures_dir=Path(args.fixtures),
@@ -823,6 +978,7 @@ def main() -> int:
         vector_backend=str(args.vector_backend),
         myelination_mode=str(args.myelination),
         preload_turns_file=(Path(args.preload_turns) if str(args.preload_turns or "").strip() else None),
+        prior_report=prior_report,
     )
 
     print(render_summary(report))

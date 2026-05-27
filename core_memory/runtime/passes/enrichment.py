@@ -137,6 +137,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             "created_bead_ids": list(auto_apply.get("created_bead_ids") or []),
             "current_turn_bead_id": str(auto_apply.get("current_turn_bead_id") or ""),
         }
+        results["auto_apply"] = auto_apply
     except Exception as exc:
         logger.warning("enrichment: association pass failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("association")
@@ -170,6 +171,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     # Stage 4: crawler merge
     try:
         turn_merge = merge_crawler_updates(root=root, session_id=session_id)
+        results["merge"] = turn_merge
         results["stages_completed"].append("crawler_merge")
     except Exception as exc:
         logger.warning("enrichment: crawler merge failed for turn %s: %s", turn_id, exc)
@@ -184,6 +186,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             visible_bead_ids=visible_ids,
             turn_id=turn_id,
         )
+        results["decision_pass"] = decision_pass
         results["stages_completed"].append("decision_pass")
     except Exception as exc:
         logger.warning("enrichment: decision pass failed for turn %s: %s", turn_id, exc)

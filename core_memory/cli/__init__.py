@@ -22,6 +22,7 @@ Examples:
 
 import argparse
 import json
+import os
 import sys
 
 # Use relative import to avoid circular import
@@ -251,6 +252,10 @@ def main():
     mcp_install.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
     mcp_status = mcp_sub.add_parser("status", help="Check Core Memory MCP server status")
     mcp_status.add_argument("--port", type=int, default=8000)
+    mcp_serve = mcp_sub.add_parser("serve", help="Run the MCP streamable-HTTP server")
+    mcp_serve.add_argument("--host", default="127.0.0.1")
+    mcp_serve.add_argument("--port", type=int, default=8000)
+    mcp_serve.add_argument("--root")
     mcp_uninstall = mcp_sub.add_parser("uninstall", help="Remove Core Memory MCP client config")
     mcp_uninstall.add_argument("--client", choices=["claude-code", "cursor", "windsurf", "open-webui"])
     mcp_uninstall.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
@@ -475,6 +480,14 @@ def main():
             return
         if args.mcp_cmd == "install":
             print(json.dumps(install_payload(client=args.client, root=args.root, port=args.port, no_start=args.no_start, dry_run=args.dry_run), indent=2))
+            return
+        if args.mcp_cmd == "serve":
+            if args.root:
+                os.environ["CORE_MEMORY_ROOT"] = args.root
+            os.environ["CORE_MEMORY_HTTP_PORT"] = str(args.port)
+            import uvicorn
+
+            uvicorn.run("core_memory.integrations.http.server:app", host=args.host, port=args.port)
             return
         if args.mcp_cmd == "uninstall":
             print(json.dumps(uninstall_payload(client=args.client, dry_run=args.dry_run), indent=2))

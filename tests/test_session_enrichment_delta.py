@@ -149,6 +149,29 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("target_outside_visible_window", delta["diagnostics"]["quarantine"][0]["reasons"])
 
+    def test_current_turn_alias_source_is_allowed_for_queued_delta(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "associations": [
+                    {
+                        "source_bead_id": "__current_turn__",
+                        "target_bead_id": "b1",
+                        "relationship": "supports",
+                        "reason_text": "Current turn supports the visible prior bead.",
+                        "confidence": 0.8,
+                    }
+                ]
+            },
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1"]},
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(delta["associations"]))
+        self.assertEqual("__current_turn__", projected["associations"][0]["source_bead_id"])
+        self.assertEqual(0, delta["diagnostics"]["quarantined"])
+
     def test_association_source_outside_visible_window_is_quarantined(self):
         delta = crawler_updates_to_delta(
             session_id="s1",
@@ -611,6 +634,49 @@ class TestCanonicalSessionProjection(unittest.TestCase):
             right_projection = canonical_session_projection(right, "s1")
             self.assertTrue(projections_equal(left_projection, right_projection))
             self.assertIn("entities", left_projection)
+
+    def test_projection_filters_entities_to_session_scope(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            store.add_bead(
+                type="decision",
+                title="OpenAI Platform migration",
+                summary=["OpenAI Platform was selected."],
+                session_id="s1",
+                source_turn_ids=["t1"],
+                entities=["OpenAI Platform"],
+            )
+            s2_bead = store.add_bead(
+                type="decision",
+                title="Unrelated Redis migration",
+                summary=["Redis was selected."],
+                session_id="s2",
+                source_turn_ids=["t1"],
+                entities=["Redis"],
+            )
+
+            idx_path = store.beads_dir / "index.json"
+            idx = store._read_json(idx_path)
+            store._write_json(idx_path, idx)
+
+            first = canonical_session_projection(td, "s1")
+            self.assertIn("entities", first)
+            self.assertIn("openai", str(first).lower())
+            self.assertNotIn("redis", str(first).lower())
+
+            # Mutating an unrelated session entity must not perturb the s1 projection.
+            idx = store._read_json(idx_path)
+            s2_entity_ids = set(idx["beads"][s2_bead].get("entity_ids") or [])
+            for eid in s2_entity_ids:
+                idx["entities"][eid]["aliases"].append("Redis cache")
+                idx["entities"][eid].setdefault("provenance", []).append(
+                    {"kind": "bead", "bead_id": s2_bead, "source": "test"}
+                )
+            store._write_json(idx_path, idx)
+
+            second = canonical_session_projection(td, "s1")
+
+        self.assertTrue(projections_equal(first, second))
 
     def test_delta_projection_matches_direct_promotion_and_association_lifecycle_state(self):
         from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates

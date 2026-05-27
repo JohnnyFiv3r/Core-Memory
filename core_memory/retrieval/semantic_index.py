@@ -5,7 +5,9 @@ import json
 import logging
 import os
 import random
+import sys
 import time
+from core_memory.provider_config import resolve_embedding_config, normalize_provider, default_embedding_model as provider_default_embedding_model
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
@@ -20,6 +22,7 @@ from .visible_corpus import build_visible_corpus
 logger = logging.getLogger(__name__)
 _faiss_warning_emitted = False
 _startup_check_done = False
+_startup_keyless_hint_emitted = False
 
 SEMANTIC_MODE_REQUIRED = "required"
 SEMANTIC_MODE_DEGRADED_ALLOWED = "degraded_allowed"
@@ -131,11 +134,113 @@ def _backend_deployment_profile(backend: str) -> dict[str, Any]:
     }
 
 
+KEYLESS_SEMANTIC_HINT = (
+    "core-memory: no embedding provider configured — running in lexical-only mode.\n"
+    "Set OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY for full semantic recall.\n"
+    "Run `core-memory semantic doctor` to diagnose."
+)
+
+
+def _explicit_semantic_mode_value(mode: str | None = None) -> str:
+    explicit = str(mode or "").strip().lower()
+    if explicit:
+        return explicit
+    return str(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE") or "").strip().lower()
+
+
 def _normalize_semantic_mode(mode: str | None) -> str:
-    m = str(mode or os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE") or SEMANTIC_MODE_REQUIRED).strip().lower()
+    explicit = str(mode or "").strip().lower()
+    if explicit:
+        m = explicit
+    else:
+        env_mode = str(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE") or "").strip().lower()
+        if env_mode:
+            m = env_mode
+        elif _has_semantic_provider_signal():
+            _auto_configure_embedding_provider_from_keys()
+            m = SEMANTIC_MODE_REQUIRED
+        else:
+            os.environ.setdefault("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", SEMANTIC_MODE_DEGRADED_ALLOWED)
+            m = SEMANTIC_MODE_DEGRADED_ALLOWED
     if m not in {SEMANTIC_MODE_REQUIRED, SEMANTIC_MODE_DEGRADED_ALLOWED}:
         return SEMANTIC_MODE_REQUIRED
     return m
+
+
+def _semantic_provider_detection() -> dict[str, Any]:
+    cfg = resolve_embedding_config()
+    provider = str(cfg.provider or "").strip().lower() or None
+    if provider:
+        reason = "provider-neutral embedding config detected"
+        if cfg.source == "OPENAI_API_KEY" and str(os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip():
+            reason = "OPENAI_API_KEY takes precedence over Gemini/Google keys when both are set"
+        return {
+            "provider": provider,
+            "selected_provider": normalize_provider(provider),
+            "configured_provider": cfg.provider,
+            "source": cfg.source,
+            "key": None,
+            "base_url_configured": bool(cfg.base_url),
+            "api_key_configured": bool(cfg.api_key),
+            "reason": reason,
+            "priority": [
+                "CORE_MEMORY_EMBEDDINGS_PROVIDER",
+                "CORE_MEMORY_EMBEDDINGS_BASE_URL",
+                "CORE_MEMORY_EMBEDDINGS_API_KEY",
+                "OPENAI_API_KEY",
+                "OPENROUTER_API_KEY",
+                "GEMINI_API_KEY",
+                "GOOGLE_API_KEY",
+            ],
+        }
+    return {
+        "provider": None,
+        "selected_provider": None,
+        "configured_provider": None,
+        "source": None,
+        "key": None,
+        "reason": "no provider-neutral embedding config or supported API key detected",
+        "priority": ["CORE_MEMORY_EMBEDDINGS_PROVIDER", "CORE_MEMORY_EMBEDDINGS_BASE_URL", "OPENAI_API_KEY", "GEMINI_API_KEY", "GOOGLE_API_KEY"],
+    }
+
+
+def _auto_detect_embedding_provider_from_keys() -> str:
+    detected = _semantic_provider_detection()
+    return str(detected.get("provider") or "")
+
+
+def _auto_configure_embedding_provider_from_keys() -> str:
+    configured = str(os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
+    if configured:
+        return configured
+    detected = str(_semantic_provider_detection().get("provider") or "")
+    if detected:
+        os.environ.setdefault("CORE_MEMORY_EMBEDDINGS_PROVIDER", detected)
+    return detected
+
+
+def _default_embedding_model(provider: str) -> str:
+    return provider_default_embedding_model(provider) or "gemini-embedding-001"
+
+
+def _emit_keyless_semantic_hint_once() -> None:
+    global _startup_keyless_hint_emitted
+    if _startup_keyless_hint_emitted:
+        return
+    _startup_keyless_hint_emitted = True
+    print(KEYLESS_SEMANTIC_HINT, file=sys.stderr)
+
+
+def _has_semantic_provider_signal() -> bool:
+    configured_provider = str(os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
+    if configured_provider:
+        return True
+    if _auto_detect_embedding_provider_from_keys():
+        return True
+    explicit_backend = str(os.environ.get("CORE_MEMORY_VECTOR_BACKEND") or "").strip()
+    if explicit_backend and _normalize_vector_backend(explicit_backend) in _EXTERNAL_VECTOR_BACKENDS:
+        return True
+    return False
 
 
 def _check_semantic_mode_startup() -> None:
@@ -149,21 +254,28 @@ def _check_semantic_mode_startup() -> None:
         return
     _startup_check_done = True
 
+    explicit_mode = _explicit_semantic_mode_value()
+    provider_detection = _semantic_provider_detection()
     mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
 
     if mode == SEMANTIC_MODE_DEGRADED_ALLOWED:
-        logger.warning(
-            "core-memory: semantic mode is 'degraded_allowed' — lexical-only retrieval; "
-            "deterministic within and across restarts via fixed-seed hashing. "
-            "Install an embedding provider for full semantic recall: pip install core-memory[semantic]"
-        )
+        if not explicit_mode and not provider_detection.get("provider"):
+            _emit_keyless_semantic_hint_once()
+        else:
+            logger.warning(
+                "core-memory: semantic mode is 'degraded_allowed' — lexical-only retrieval; "
+                "deterministic within and across restarts via fixed-seed hashing. "
+                "Install an embedding provider for full semantic recall: pip install core-memory[semantic]"
+            )
         return
 
-    # required mode: check if an embedding provider is actually available.
-    # Naming a provider (even without a key) counts as configured — key absence is caught at lookup time.
-    configured_provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
+    # required mode: check if an embedding provider is actually available
+    configured_provider = _auto_configure_embedding_provider_from_keys() if not explicit_mode else str(os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "").strip().lower()
+    embed_cfg = resolve_embedding_config()
     has_provider = bool(
-        configured_provider in {"hash", "openai", "gemini", "google", "anthropic"}
+        configured_provider in {"hash", "openai", "openai-compatible", "gemini", "google"}
+        or embed_cfg.api_key
+        or embed_cfg.base_url
         or os.environ.get("OPENAI_API_KEY")
         or os.environ.get("GEMINI_API_KEY")
         or os.environ.get("GOOGLE_API_KEY")
@@ -308,6 +420,15 @@ def _embedding_retry_sleep(attempt: int, retry_after_seconds: float | None = Non
 def semantic_doctor(root: Path) -> dict[str, Any]:
     """Operational diagnostics for canonical semantic mode."""
     manifest_file, faiss_file, rows_file, *_ = _paths(root)
+    explicit_mode = _explicit_semantic_mode_value()
+    provider_detected = _semantic_provider_detection()
+    if explicit_mode and not os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"):
+        provider_detected = {
+            **provider_detected,
+            "selected_provider": None,
+            "skipped_auto_detection": True,
+            "reason": "CORE_MEMORY_CANONICAL_SEMANTIC_MODE is explicitly set; provider key auto-detection is disabled",
+        }
     mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
     degraded_enabled = mode == SEMANTIC_MODE_DEGRADED_ALLOWED
 
@@ -319,7 +440,16 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
             manifest = {}
 
     backend = str(manifest.get("backend") or "")
-    provider = str(manifest.get("provider") or os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "")
+    if provider_detected.get("skipped_auto_detection"):
+        detected_provider = None
+    else:
+        detected_provider = provider_detected.get("provider") or provider_detected.get("selected_provider")
+    provider = str(
+        manifest.get("provider")
+        or os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER")
+        or detected_provider
+        or ""
+    )
     rows_count = len(_read_rows(rows_file)) if rows_file.exists() else 0
 
     normalized_backend = _normalize_vector_backend(backend)
@@ -354,6 +484,8 @@ def semantic_doctor(root: Path) -> dict[str, Any]:
         "manifest_exists": manifest_file.exists(),
         "backend": backend or "not_built",
         "provider": provider or "unknown",
+        "provider_detected": provider_detected,
+        "degraded": degraded_enabled,
         "rows_count": int(rows_count),
         "faiss_index_exists": faiss_file.exists(),
         "connectivity_checked": bool(ext_backend),
@@ -444,7 +576,7 @@ def _semantic_backend_requires_real_index(*, mode: str, provider: str, vector_ba
         return False
     if not texts:
         return False
-    if provider == "hash":
+    if normalize_provider(provider) == "hash":
         return False
     if _normalize_vector_backend(vector_backend) in _EXTERNAL_VECTOR_BACKENDS:
         return True
@@ -557,13 +689,15 @@ def _hash_vectors(texts: list[str], dim: int = 256):
 def _provider_vectors(texts: list[str], provider: str, model: str):
     import numpy as np  # type: ignore
 
-    if provider == "openai":
-        key = os.environ.get("OPENAI_API_KEY")
-        if not key:
-            raise RuntimeError("missing_openai_api_key")
-        from openai import OpenAI  # type: ignore
+    if provider in {"openai", "openai-compatible"}:
+        cfg = resolve_embedding_config()
+        key = cfg.api_key or os.environ.get("OPENAI_API_KEY")
+        base_url = (cfg.base_url or "https://api.openai.com/v1").rstrip("/")
+        if not key and not base_url.startswith(("http://localhost", "http://127.0.0.1")):
+            raise RuntimeError("missing_openai_compatible_api_key")
+        import json as _json
+        import urllib.request as _urlreq
 
-        client = OpenAI(api_key=key)
         rows = []
         batch_size = _env_int("CORE_MEMORY_EMBEDDINGS_BATCH_SIZE", 64, min_value=1, max_value=2048)
         max_retries = _env_int("CORE_MEMORY_EMBEDDINGS_MAX_RETRIES", 4, min_value=0, max_value=12)
@@ -571,26 +705,31 @@ def _provider_vectors(texts: list[str], provider: str, model: str):
             batch = list(texts[i : i + batch_size])
             for attempt in range(max_retries + 1):
                 try:
-                    emb = client.embeddings.create(model=model, input=batch)
-                    data = list(getattr(emb, "data", []) or [])
-                    data = sorted(data, key=lambda item: int(getattr(item, "index", 0) or 0))
-                    vec_rows = [list(getattr(item, "embedding", []) or []) for item in data]
+                    payload = {"model": model, "input": batch}
+                    data = _json.dumps(payload).encode("utf-8")
+                    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {key or 'local'}"}
+                    req = _urlreq.Request(base_url + "/embeddings", data=data, headers=headers, method="POST")
+                    with _urlreq.urlopen(req, timeout=30) as resp:  # nosec - user/provider configured endpoint
+                        body = _json.loads(resp.read().decode("utf-8"))
+                    data_rows = sorted(list(body.get("data") or []), key=lambda item: int(item.get("index", 0) or 0))
+                    vec_rows = [list(item.get("embedding") or []) for item in data_rows]
                     if len(vec_rows) != len(batch):
-                        raise RuntimeError("openai_embedding_batch_mismatch")
+                        raise RuntimeError("openai_compatible_embedding_batch_mismatch")
                     rows.extend(vec_rows)
                     break
                 except Exception as exc:
                     if attempt >= max_retries or (not _embedding_retryable(exc)):
                         code = _embedding_error_token(exc)
-                        raise RuntimeError(f"openai_embedding_failed:{code}") from exc
+                        raise RuntimeError(f"openai_compatible_embedding_failed:{code}") from exc
                     _embedding_retry_sleep(attempt, _embedding_retry_after_seconds(exc))
         vecs = np.array(rows, dtype="float32")
         norms = np.linalg.norm(vecs, axis=1, keepdims=True)
         norms[norms == 0] = 1.0
         return vecs / norms
 
-    if provider == "gemini":
-        key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
+    if provider in {"gemini", "google"}:
+        cfg = resolve_embedding_config()
+        key = cfg.api_key or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         if not key:
             raise RuntimeError("missing_gemini_api_key")
 
@@ -652,7 +791,7 @@ def _vector_rows(vecs: Any) -> list[list[float]]:
 
 
 def _embed_vectors(*, texts: list[str], provider: str, model: str, hash_dim: int = 256):
-    p = str(provider or "").strip().lower()
+    p = normalize_provider(str(provider or "").strip().lower())
     if p == "hash":
         return _hash_vectors(texts, dim=max(1, int(hash_dim)))
     return _provider_vectors(texts, provider=p, model=model)
@@ -817,8 +956,8 @@ def build_semantic_index(root: Path) -> dict:
         rows = _rows_from_corpus(corpus)
         texts = [str(r.get("semantic_text") or "") for r in rows]
 
-        provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
-        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "gemini-embedding-001").strip()
+        provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
+        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(provider)).strip()
         vector_backend = _configured_vector_backend()
 
         backend = "lexical"
@@ -886,7 +1025,7 @@ def build_semantic_index(root: Path) -> dict:
 
                 vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
                 dim = _vector_dim(vecs, fallback=256 if texts else 0)
-                if provider == "hash":
+                if normalize_provider(provider) == "hash":
                     backend = "faiss-hash"
                 else:
                     backend = f"faiss-{provider}"
@@ -1075,8 +1214,8 @@ def apply_semantic_delta(root: Path) -> dict[str, Any]:
             }
 
         manifest = _read_manifest(manifest_file)
-        provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
-        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "gemini-embedding-001").strip()
+        provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
+        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(provider)).strip()
 
         prev_rows = _read_rows(rows_file)
         prev_by_id = {str(r.get("bead_id") or ""): dict(r) for r in prev_rows if str(r.get("bead_id") or "")}
@@ -1230,8 +1369,8 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
     rows = _read_rows(rows_file)
 
     # Provider/model mismatch -> hard rebuild before querying.
-    req_provider = (os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER") or "gemini").strip().lower()
-    req_model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or "gemini-embedding-001").strip()
+    req_provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
+    req_model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(req_provider)).strip()
     req_vector_backend = _configured_vector_backend()
     if (
         (manifest.get("provider") and (str(manifest.get("provider")) != req_provider or str(manifest.get("model")) != req_model))

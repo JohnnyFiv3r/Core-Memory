@@ -33,6 +33,52 @@ class TestSemanticDoctor(unittest.TestCase):
             self.assertEqual("degraded_allowed", out.get("mode"))
             self.assertTrue(out.get("degraded_mode_enabled"))
 
+    def test_provider_detected_reports_openai_priority_over_gemini(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"OPENAI_API_KEY": "sk-test", "GEMINI_API_KEY": "gemini-test"},
+            clear=True,
+        ):
+            MemoryStore(td)
+            out = semantic_doctor(Path(td))
+        self.assertEqual("required", out.get("mode"))
+        self.assertEqual("openai", out.get("provider"))
+        self.assertFalse(out.get("degraded"))
+        detected = out.get("provider_detected") or {}
+        self.assertEqual("openai", detected.get("provider"))
+        self.assertEqual("OPENAI_API_KEY", detected.get("source"))
+        self.assertIn("precedence", detected.get("reason") or "")
+
+    def test_provider_detected_reports_gemini_when_openai_absent(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"GEMINI_API_KEY": "gemini-test"}, clear=True):
+            MemoryStore(td)
+            out = semantic_doctor(Path(td))
+        self.assertEqual("gemini", out.get("provider"))
+        self.assertEqual("GEMINI_API_KEY", (out.get("provider_detected") or {}).get("source"))
+
+    def test_provider_detected_reports_null_when_keyless(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {}, clear=True):
+            MemoryStore(td)
+            out = semantic_doctor(Path(td))
+        self.assertEqual("degraded_allowed", out.get("mode"))
+        self.assertEqual("unknown", out.get("provider"))
+        self.assertIsNone((out.get("provider_detected") or {}).get("provider"))
+
+    def test_explicit_mode_skips_key_auto_detection(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed", "OPENAI_API_KEY": "sk-test"},
+            clear=True,
+        ):
+            MemoryStore(td)
+            out = semantic_doctor(Path(td))
+        self.assertEqual("degraded_allowed", out.get("mode"))
+        self.assertEqual("unknown", out.get("provider"))
+        detected = out.get("provider_detected") or {}
+        self.assertEqual("openai", detected.get("provider"))
+        self.assertIsNone(detected.get("selected_provider"))
+        self.assertTrue(detected.get("skipped_auto_detection"))
+
     def test_reports_usable_backend_when_manifest_rows_faiss_exist(self):
         with tempfile.TemporaryDirectory() as td:
             MemoryStore(td)

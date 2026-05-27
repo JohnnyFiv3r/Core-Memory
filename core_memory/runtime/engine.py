@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import uuid
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from pathlib import Path
@@ -37,7 +38,7 @@ from ..persistence.store import MemoryStore
 from .passes.decision_pass import run_session_decision_pass
 from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..policy.bead_judge import judge_bead_fields
-from ..policy.rationale import sanitize_because_for_turn
+from ..policy.bead_typing import CLASSIFIABLE_TYPES
 from ..retrieval.lifecycle import mark_turn_checkpoint
 from .passes.agent_crawler_invoke import invoke_turn_crawler_agent
 from .passes.agent_authored_contract import (
@@ -57,6 +58,62 @@ from .turn.turn_flow import process_turn_finalized_impl
 
 logger = logging.getLogger(__name__)
 
+SEMANTIC_FIELDS = (
+    "title",
+    "summary",
+    "detail",
+    "because",
+    "retrieval_eligible",
+    "retrieval_title",
+    "retrieval_facts",
+    "entities",
+    "topics",
+    "supporting_facts",
+    "evidence_refs",
+    "state_change",
+    "validity",
+    "effective_from",
+    "effective_to",
+    "observed_at",
+)
+
+_ALLOWED_BEAD_TYPES = set(CLASSIFIABLE_TYPES)
+
+
+def _judge_fallback_enabled() -> bool:
+    return str(os.getenv("CORE_MEMORY_BEAD_JUDGE_FALLBACK", "0")).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _field_present(row: dict[str, Any], field: str) -> bool:
+    if field not in row:
+        return False
+    value = row.get(field)
+    if isinstance(value, bool):
+        return True
+    if isinstance(value, (list, tuple)):
+        return len(value) > 0
+    if value is None:
+        return False
+    return bool(str(value).strip())
+
+
+def _maybe_apply_judge_fallback(row: dict[str, Any], user_query: str, assistant_final: str) -> dict[str, Any]:
+    if not _judge_fallback_enabled():
+        return row
+    out = dict(row)
+    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
+    for field in SEMANTIC_FIELDS:
+        if not _field_present(out, field) and judged.get(field) is not None:
+            out[field] = judged.get(field)
+    tags = [str(x) for x in (out.get("tags") or []) if str(x).strip()]
+    if "bead_judge_fallback" not in tags:
+        tags.append("bead_judge_fallback")
+    judge_tag = "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"
+    if judge_tag not in tags:
+        tags.append(judge_tag)
+    out["tags"] = tags
+    return out
+
 
 # Canonical runtime center.
 # P6A Step 2: deepen ownership by making memory_engine responsible for
@@ -74,36 +131,82 @@ def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
     return out
 
 
-def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
+
+
+
+def _turn_judge_inputs(req: dict[str, Any]) -> tuple[str, str]:
+    """Return text inputs for semantic judging, including N-speaker turns.
+
+    Multi-speaker transcript rows can legitimately have no user/assistant role;
+    in that case the canonical compatibility fields are empty but turn_text is
+    the semantic content. Without this fallback all role=other rows collapse to
+    generic "turn memory" beads.
+    """
     user_query = str(req.get("user_query") or "").strip()
     assistant_final = str(req.get("assistant_final") or "").strip()
+    if not user_query and not assistant_final:
+        assistant_final = str(req.get("turn_text") or "").strip()
+    return user_query, assistant_final
+
+
+def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine") -> dict[str, Any]:
+    user_query, assistant_final = _turn_judge_inputs(req)
+    text = (user_query or assistant_final or "turn memory").strip()
+    title = (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory"
+    return {
+        "type": _infer_semantic_bead_type(user_query, assistant_final),
+        "title": title,
+        "summary": [text[:240] or "turn memory"],
+        "because": [],
+        "source_turn_ids": [str(req.get("turn_id") or "")],
+        "source_turn_ref": dict(req.get("source_turn_ref") or {}),
+        "entities": _default_entities_from_text(user_query, assistant_final),
+        "topics": [],
+        "supporting_facts": [],
+        "evidence_refs": [],
+        "state_change": "",
+        "validity": "",
+        "retrieval_eligible": False,
+        "retrieval_title": "",
+        "retrieval_facts": [],
+        "effective_from": "",
+        "effective_to": "",
+        "observed_at": "",
+        "tags": ["crawler_reviewed", "turn_finalized", tag, "semantic_fallback_disabled"],
+        "detail": (assistant_final or text)[:1200],
+    }
+
+
+def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
+    user_query, assistant_final = _turn_judge_inputs(req)
     judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
     return {
-        "beads_create": [
-            {
-                "type": str(judged.get("type") or "context"),
-                "title": str(judged.get("title") or "Turn memory"),
-                "summary": list(judged.get("summary") or ["turn memory"]),
-                "because": list(judged.get("because") or []),
-                "source_turn_ids": [str(req.get("turn_id") or "")],
-                "source_turn_ref": dict(req.get("source_turn_ref") or {}),
-                "entities": list(judged.get("entities") or []),
-                "topics": list(judged.get("topics") or []),
-                "supporting_facts": list(judged.get("supporting_facts") or []),
-                "evidence_refs": list(judged.get("evidence_refs") or []),
-                "state_change": judged.get("state_change"),
-                "validity": judged.get("validity"),
-                "retrieval_eligible": bool(judged.get("retrieval_eligible", False)),
-                "retrieval_title": judged.get("retrieval_title"),
-                "retrieval_facts": list(judged.get("retrieval_facts") or []),
-                "effective_from": judged.get("effective_from"),
-                "effective_to": judged.get("effective_to"),
-                "observed_at": judged.get("observed_at"),
-                "tags": ["crawler_reviewed", "turn_finalized", "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"],
-                "detail": str(judged.get("detail") or "")[:1200],
-            }
-        ]
+        "type": str(judged.get("type") or "context"),
+        "title": str(judged.get("title") or "Turn memory"),
+        "summary": list(judged.get("summary") or ["turn memory"]),
+        "because": list(judged.get("because") or []),
+        "source_turn_ids": [str(req.get("turn_id") or "")],
+        "source_turn_ref": dict(req.get("source_turn_ref") or {}),
+        "entities": list(judged.get("entities") or []),
+        "topics": list(judged.get("topics") or []),
+        "supporting_facts": list(judged.get("supporting_facts") or []),
+        "evidence_refs": list(judged.get("evidence_refs") or []),
+        "state_change": judged.get("state_change"),
+        "validity": judged.get("validity"),
+        "retrieval_eligible": bool(judged.get("retrieval_eligible", False)),
+        "retrieval_title": judged.get("retrieval_title"),
+        "retrieval_facts": list(judged.get("retrieval_facts") or []),
+        "effective_from": judged.get("effective_from"),
+        "effective_to": judged.get("effective_to"),
+        "observed_at": judged.get("observed_at"),
+        "tags": ["crawler_reviewed", "turn_finalized", "bead_judge_fallback", "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"],
+        "detail": str(judged.get("detail") or "")[:1200],
     }
+
+
+def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
+    bead = _judged_turn_bead(req) if _judge_fallback_enabled() else _structural_turn_bead(req)
+    return {"beads_create": [bead]}
 
 
 def _default_entities_from_text(*texts: str, limit: int = 16) -> list[str]:
@@ -165,6 +268,7 @@ def _resolve_reviewed_updates(
     *,
     source_override: str | None = None,
     invocation_diag: dict[str, Any] | None = None,
+    max_create_per_turn: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     md = req.get("metadata") or {}
     reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
@@ -186,17 +290,18 @@ def _resolve_reviewed_updates(
 
     if isinstance(reviewed, dict) and reviewed:
         if required:
-            ok, code, details = validate_agent_authored_updates(reviewed)
+            ok, code, details = validate_agent_authored_updates(reviewed, max_create_per_turn=max_create_per_turn)
             gate["validation"] = details
             if not ok:
                 gate["error_code"] = code
                 if fail_open:
-                    # Warn mode: use the provided dict as best-effort so that
-                    # included associations are not silently discarded.
-                    gate["source"] = "agent_partial"
-                    gate["used_fallback"] = False
-                    gate["warned"] = True
-                    return dict(reviewed), gate
+                    gate["source"] = "default_fallback"
+                    gate["used_fallback"] = True
+                    fallback = _default_crawler_updates(req)
+                    for key in ("beads_create", "creations", "associations"):
+                        if isinstance(reviewed.get(key), list):
+                            fallback[key] = list(reviewed.get(key) or [])
+                    return fallback, gate
                 gate["blocked"] = True
                 return None, gate
         return dict(reviewed), gate
@@ -218,43 +323,32 @@ def _resolve_reviewed_updates(
     return _default_crawler_updates(req), gate
 
 
-def _enforce_turn_row_invariants(root: str, req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
-    """Enforce per-turn bead row invariants: source_turn_ids, required fields."""
+def _enforce_structural_invariants(root: str, req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    """Enforce structural row invariants without re-authoring semantics."""
     out = dict(row)
-    turn_id = str(req.get("turn_id") or "")
+    now = datetime.now(timezone.utc).isoformat()
+    turn_id = str(req.get("turn_id") or "").strip()
+    session_id = str(req.get("session_id") or "").strip()
+
+    if not str(out.get("bead_id") or "").strip():
+        out["bead_id"] = f"bead-{uuid.uuid4().hex[:12].upper()}"
+
+    bead_type = str(out.get("type") or "").strip().lower()
+    out["type"] = bead_type if bead_type in _ALLOWED_BEAD_TYPES else "context"
+
+    if not str(out.get("created_at") or "").strip():
+        out["created_at"] = now
     if turn_id:
+        out["turn_id"] = str(out.get("turn_id") or turn_id)
         src = [str(x) for x in (out.get("source_turn_ids") or []) if str(x).strip()]
         if turn_id not in src:
             src.append(turn_id)
         out["source_turn_ids"] = src
-    out["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
-    user_query = str(req.get("user_query") or "")
-    assistant_final = str(req.get("assistant_final") or "")
-    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
-    # The current-turn bead write path is LLM-judged for every semantic field.
-    # Preserve structural fields (source_turn_ids, prev/turn indices, lifecycle ids),
-    # but make the field judge authoritative over semantic bead content.
-    semantic_fields = (
-        "type", "title", "summary", "detail", "entities", "topics", "supporting_facts", "evidence_refs",
-        "state_change", "validity", "retrieval_title", "retrieval_facts", "effective_from", "effective_to", "observed_at",
-    )
-    for field in semantic_fields:
-        if judged.get(field):
-            out[field] = judged.get(field)
-    out["retrieval_eligible"] = bool(judged.get("retrieval_eligible", out.get("retrieval_eligible", False)))
-    if not out.get("type"):
-        out["type"] = _infer_semantic_bead_type(user_query, assistant_final)
-    out["because"] = sanitize_because_for_turn(
-        list(judged.get("because") or out.get("because") or []),
-        user_query=user_query,
-        assistant_final=assistant_final,
-        bead_type=str(out.get("type") or ""),
-    )
-    tags = [str(x) for x in (out.get("tags") or ["crawler_reviewed", "turn_finalized"]) if str(x).strip()]
-    judge_tag = "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"
-    if judge_tag not in tags:
-        tags.append(judge_tag)
-    out["tags"] = tags
+    if session_id and not str(out.get("session_id") or "").strip():
+        out["session_id"] = session_id
+    if not out.get("source_turn_ref"):
+        out["source_turn_ref"] = {"turn_id": turn_id, "session_id": session_id, "speakers": list(req.get("speakers") or [])}
+
     return out
 
 
@@ -269,40 +363,18 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
-        rows[i] = _enforce_turn_row_invariants(root, req, row)
+        rows[i] = _enforce_structural_invariants(root, req, row)
+        user_query, assistant_final = _turn_judge_inputs(req)
+        rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final)
         src = [str(x) for x in (rows[i].get("source_turn_ids") or []) if str(x)]
         if turn_id and turn_id in src:
             has_turn = True
-            break
 
     if not has_turn:
-        user_query = str(req.get("user_query") or "").strip()
-        assistant_final = str(req.get("assistant_final") or "").strip()
-        judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
-        rows.append(
-            {
-                "type": str(judged.get("type") or _infer_semantic_bead_type(user_query, assistant_final)),
-                "title": str(judged.get("title") or "Turn memory"),
-                "summary": list(judged.get("summary") or ["turn memory"]),
-                "because": list(judged.get("because") or []),
-                "source_turn_ids": [turn_id],
-                "source_turn_ref": dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])}),
-                "tags": ["crawler_reviewed", "turn_finalized", "seeded_by_engine", "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"],
-                "detail": str(judged.get("detail") or "")[:1200],
-                "entities": list(judged.get("entities") or []),
-                "topics": list(judged.get("topics") or []),
-                "supporting_facts": list(judged.get("supporting_facts") or []),
-                "evidence_refs": list(judged.get("evidence_refs") or []),
-                "state_change": judged.get("state_change"),
-                "validity": judged.get("validity"),
-                "retrieval_eligible": bool(judged.get("retrieval_eligible", False)),
-                "retrieval_title": judged.get("retrieval_title"),
-                "retrieval_facts": list(judged.get("retrieval_facts") or []),
-                "effective_from": judged.get("effective_from"),
-                "effective_to": judged.get("effective_to"),
-                "observed_at": judged.get("observed_at"),
-            }
-        )
+        bead = _judged_turn_bead(req) if _judge_fallback_enabled() else _structural_turn_bead(req)
+        bead["source_turn_ids"] = [turn_id]
+        bead["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
+        rows.append(bead)
 
     out[key] = rows
     return out
@@ -467,6 +539,22 @@ def process_turn_finalized(
             from core_memory.runtime.queue.side_effect_queue import drain_side_effect_queue
             drain_out = drain_side_effect_queue(root=root, max_items=1)
             result["enrichment_drain"] = drain_out
+            for item in list(drain_out.get("results") or []):
+                if not isinstance(item, dict) or item.get("kind") != "turn-enrichment":
+                    continue
+                enriched = item.get("result") if isinstance(item.get("result"), dict) else {}
+                handoff = result.setdefault("crawler_handoff", {})
+                if isinstance(enriched, dict):
+                    if enriched.get("auto_apply") is not None:
+                        handoff["auto_apply"] = enriched.get("auto_apply")
+                        handoff["association_pass"] = enriched.get("auto_apply")
+                    if enriched.get("merge") is not None:
+                        handoff["merge"] = enriched.get("merge")
+                        handoff["turn_merge"] = enriched.get("merge")
+                    if enriched.get("decision_pass") is not None:
+                        handoff["decision_pass"] = enriched.get("decision_pass")
+                    if enriched.get("goal_lifecycle") is not None:
+                        result["goal_lifecycle"] = enriched.get("goal_lifecycle")
             if claim_layer_enabled():
                 try:
                     from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -8,8 +9,8 @@ import unittest
 from pathlib import Path
 
 
-def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:
-    return subprocess.run([sys.executable, "-m", "core_memory.cli", *args], cwd=str(cwd), capture_output=True, text=True)
+def _run_cli(args: list[str], cwd: Path, *, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
+    return subprocess.run([sys.executable, "-m", "core_memory.cli", *args], cwd=str(cwd), capture_output=True, text=True, env=env)
 
 
 class TestSemanticCli(unittest.TestCase):
@@ -60,6 +61,24 @@ class TestSemanticCli(unittest.TestCase):
             self.assertEqual(0, out.returncode, out.stderr)
             data = json.loads(out.stdout)
             self.assertIn("ok", data)
+
+    def test_semantic_status_reports_auto_detected_openai_provider(self):
+        cwd = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory(prefix="cm-semantic-cli-") as td:
+            root = Path(td) / "memory"
+            env = {
+                **os.environ,
+                "OPENAI_API_KEY": "sk-test",
+                "ANTHROPIC_API_KEY": "",
+                "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "",
+                "CORE_MEMORY_EMBEDDINGS_PROVIDER": "",
+            }
+            out = _run_cli(["--root", str(root), "semantic", "status"], cwd, env=env)
+            self.assertEqual(0, out.returncode, out.stderr)
+            data = json.loads(out.stdout)
+            self.assertEqual("openai", data.get("provider"))
+            self.assertFalse(data.get("degraded"))
+            self.assertEqual("OPENAI_API_KEY", (data.get("provider_detected") or {}).get("source"))
 
 
 if __name__ == "__main__":

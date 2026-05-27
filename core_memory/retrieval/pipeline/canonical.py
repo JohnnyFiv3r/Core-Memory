@@ -13,7 +13,7 @@ from core_memory.persistence.graph.protocol import NullGraphBackend
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
-    SEMANTIC_MODE_REQUIRED,
+    _normalize_semantic_mode,
     semantic_lookup,
     semantic_unavailable_payload,
 )
@@ -37,11 +37,29 @@ from .catalog import build_catalog
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
 PUBLIC_HYDRATION_TURN_SOURCES = {"cited_turns", "cited_turns_plus_adjacent"}
+CONTROL_CONSTRAINT_KEYS = {
+    # Request/benchmark orchestration metadata, not corpus facets.  Treating
+    # these as hard bead metadata filters can erase valid retrieval candidates
+    # (for example every LoCoMo corpus bead lacks the per-question qa_id).
+    "qa_id",
+    "benchmark_name",
+    "benchmark_phase",
+    "recall_scope",
+    "selected_answer_effort",
+    "retrieval_efforts",
+}
+
+
+def _metadata_constraints(constraints: dict[str, Any]) -> dict[str, Any]:
+    return {
+        str(k): v
+        for k, v in dict(constraints or {}).items()
+        if str(k or "").strip() and str(k).strip() not in CONTROL_CONSTRAINT_KEYS and str(k).strip() != "require_structural"
+    }
 
 
 def _canonical_semantic_mode() -> str:
-    m = str(os.getenv("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", SEMANTIC_MODE_REQUIRED) or SEMANTIC_MODE_REQUIRED).strip().lower()
-    return m if m in {"required", "degraded_allowed"} else SEMANTIC_MODE_REQUIRED
+    return _normalize_semantic_mode(os.getenv("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
 
 
 def _semantic_failure_response(*, query: str, intent: str, k: int, warnings: list[str], provider: str | None = None) -> dict[str, Any]:
@@ -488,10 +506,51 @@ def _lexical_rescue(query: str, corpus: list[dict[str, Any]], *, max_add: int = 
     return out[: max(0, int(max_add))]
 
 
+def _locomo_dia_ids_from_bead(bead: dict[str, Any], res: dict[str, Any] | None = None) -> list[str]:
+    """Expose LoCoMo evidence IDs on public retrieval rows when present.
+
+    Benchmark replay stores dia IDs on bead metadata and/or source turn IDs
+    (for example ``locomo:conv-26:D1:3``).  If anchors omit these IDs, the
+    benchmark can retrieve the correct bead but still score evidence recall as
+    zero and the answerer refuses to cite support.
+    """
+    out: list[str] = []
+    for source in (res or {}, bead, dict((bead or {}).get("metadata") or {})):
+        if not isinstance(source, dict):
+            continue
+        for key in ("dia_ids", "dia_id", "locomo_dia_ids", "locomo_dia_id"):
+            value = source.get(key)
+            if isinstance(value, (list, tuple, set)):
+                out.extend(str(x).strip() for x in value if str(x).strip())
+            elif str(value or "").strip():
+                out.append(str(value).strip())
+    import re
+
+    for turn_id in list((bead or {}).get("source_turn_ids") or []):
+        text = str(turn_id or "").strip()
+        if not text:
+            continue
+        # Prefer the LoCoMo evidence form (D<session>:<turn>) wherever it
+        # appears. Some replay paths produce IDs like
+        # ``locomo:conv-26:D1:3:3``; taking the final component alone yields
+        # ``3`` and breaks evidence scoring against gold ``D1:3``.
+        match = re.search(r"\bD\d+:\d+\b", text)
+        if match:
+            out.append(match.group(0))
+            continue
+        parts = text.split(":")
+        if len(parts) >= 3 and parts[0] == "locomo":
+            out.append(parts[-1])
+    return sorted(set(x for x in out if x))
+
+
 def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[str, Any]:
     bid = str(res.get("bead_id") or "")
     row = by_id.get(bid) or {}
     bead = row.get("bead") or {}
+    metadata = dict(bead.get("metadata") or {})
+    source_turn_ids = list(bead.get("source_turn_ids") or [])
+    dia_ids = _locomo_dia_ids_from_bead(bead, res)
     return {
         "bead_id": bid,
         "title": str(bead.get("title") or ""),
@@ -507,11 +566,15 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
         "context_bias_score": float(res.get("context_bias_score") or 0.0),
         "source_surface": str(res.get("source_surface") or row.get("source_surface") or "projection"),
         "status": str(res.get("status") or row.get("status") or ""),
+        "session_id": str(row.get("session_id") or bead.get("session_id") or ""),
+        "source_turn_ids": source_turn_ids,
+        "metadata": metadata,
         "claim_slot_key": str(res.get("claim_slot_key") or ""),
         "claim_id": str(res.get("claim_id") or ""),
         "claim_value": res.get("claim_value"),
         "claim_status": str(res.get("claim_status") or ""),
-        "dia_ids": list(res.get("dia_ids") or []),
+        "dia_ids": dia_ids,
+        "locomo_dia_ids": dia_ids,
     }
 
 
@@ -1159,7 +1222,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),
-            "metadata": {**dict(facets.get("metadata") or {}), **{k: v for k, v in constraints.items() if k != "require_structural"}},
+            "metadata": {**dict(facets.get("metadata") or {}), **_metadata_constraints(constraints)},
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = search_request(root=rp, query=query, k=k, intent=intent, submission=submission)
@@ -1195,7 +1258,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),
-            "metadata": {**dict(facets.get("metadata") or {}), **{k: v for k, v in constraints.items() if k != "require_structural"}},
+            "metadata": {**dict(facets.get("metadata") or {}), **_metadata_constraints(constraints)},
             "require_structural": bool(constraints.get("require_structural", False)),
         }
         out = trace_request(

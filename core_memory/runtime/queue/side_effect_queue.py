@@ -321,6 +321,7 @@ def drain_side_effect_queue(
     failed = 0
     skipped_terminal = 0
     item_results: list[dict[str, Any]] = []
+    results: list[dict[str, Any]] = []
 
     for claim in claimed:
         item_id = str(claim.get("id") or "")
@@ -329,6 +330,9 @@ def drain_side_effect_queue(
             out = process_item(root=root, kind=str(claim.get("kind") or ""), payload=dict(claim.get("payload") or {}))
         except Exception as exc:
             out = {"ok": False, "error": {"code": "processor_exception", "message": str(exc)}}
+
+        if isinstance(out, dict):
+            results.append(dict(out))
 
         with store_lock(Path(root)):
             queue, state = _load_queue_and_state_locked(root)
@@ -382,6 +386,7 @@ def drain_side_effect_queue(
         "opened_until": int(state.get("opened_until") or 0),
         "last_error": str(state.get("last_error") or ""),
         "item_results": item_results,
+        "results": item_results,
     }
 
 

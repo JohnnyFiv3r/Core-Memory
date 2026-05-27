@@ -52,6 +52,7 @@ def default_adjacent_turns() -> int:
 
 
 def agent_authored_required_enabled() -> bool:
+    """When enabled, semantic turn memory must come from agent-authored payloads."""
     return _env_bool("CORE_MEMORY_AGENT_AUTHORED_REQUIRED", False)
 
 
@@ -69,6 +70,15 @@ def agent_crawler_max_attempts() -> int:
         return max(1, int(raw or 2))
     except ValueError:
         return 2
+
+
+def bead_judge_fallback_enabled() -> bool:
+    """Allow Core Memory to re-author semantic bead fields as an explicit fallback.
+
+    Default is off: adapters/agents own semantic memory authorship. This fallback
+    exists for legacy demos and repair tooling, not the normal write path.
+    """
+    return _env_bool("CORE_MEMORY_BEAD_JUDGE_FALLBACK", False)
 
 
 def agent_min_semantic_associations_after_first() -> int:
@@ -100,17 +110,16 @@ def agent_authored_mode() -> str:
     if raw == "observe":
         return "off"
     req = agent_authored_required_enabled()
-    fail_open = agent_authored_fail_open_enabled()
-    if req and not fail_open:
+    if req:
+        # REQUIRED=1 always means hard gate; FAIL_OPEN is a legacy hint that has
+        # no effect when REQUIRED is set (agent-authored updates are mandatory).
         return "hard"
-    if req and fail_open:
-        return "warn"
     return "warn"
 
 
 def resolved_agent_authored_gate() -> dict[str, object]:
     mode = agent_authored_mode()
-    if mode == "hard":
+    if mode in {"hard", "enforce"}:
         return {"mode": mode, "required": True, "fail_open": False}
     if mode == "warn":
         # warn: gate logic runs but does not block or mark beads; just emits metrics
@@ -157,6 +166,7 @@ def runtime_flags_snapshot() -> dict[str, object]:
         "agent_authored_gate_resolved": resolved_agent_authored_gate(),
         "agent_crawler_invoke_enabled": agent_crawler_invoke_enabled(),
         "agent_crawler_max_attempts": agent_crawler_max_attempts(),
+        "bead_judge_fallback_enabled": bead_judge_fallback_enabled(),
         "agent_min_semantic_associations_after_first": agent_min_semantic_associations_after_first(),
         "preview_association_promotion_enabled": preview_association_promotion_enabled(),
         "preview_association_allow_shared_tag": preview_association_allow_shared_tag(),

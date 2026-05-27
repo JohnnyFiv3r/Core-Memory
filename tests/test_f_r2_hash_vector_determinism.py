@@ -3,7 +3,7 @@
 Verifies:
 1. _deterministic_token_hash produces identical output across calls (no PYTHONHASHSEED dependency).
 2. _hash_vectors produces byte-identical output across calls.
-3. Default semantic mode is 'required' (not 'degraded_allowed').
+3. First-run semantic mode auto-detects provider keys and otherwise degrades visibly.
 4. In required mode with no provider: raises RuntimeError with actionable message.
 5. In degraded_allowed mode: logs once at startup, stays silent afterward.
 6. degraded=true response flag is preserved in degraded_allowed mode.
@@ -15,6 +15,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
 
@@ -93,17 +94,36 @@ class TestHashVectorsDeterministic(unittest.TestCase):
 
 
 class TestDefaultSemanticMode(unittest.TestCase):
-    """Default mode is 'required', not 'degraded_allowed'."""
+    """Unset mode is first-run friendly: keys enable required mode, keyless degrades."""
 
-    @patch.dict(os.environ, {}, clear=False)
-    def test_default_is_required(self):
-        os.environ.pop("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", None)
+    @patch.dict(os.environ, {}, clear=True)
+    def test_unset_keyless_defaults_to_degraded_allowed(self):
+        self.assertEqual(_normalize_semantic_mode(None), SEMANTIC_MODE_DEGRADED_ALLOWED)
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True)
+    def test_openai_key_autoconfigures_required_provider(self):
         self.assertEqual(_normalize_semantic_mode(None), SEMANTIC_MODE_REQUIRED)
+        self.assertEqual("openai", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
 
-    @patch.dict(os.environ, {}, clear=False)
-    def test_empty_string_is_required(self):
-        os.environ.pop("CORE_MEMORY_CANONICAL_SEMANTIC_MODE", None)
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True)
+    def test_gemini_key_autoconfigures_required_provider(self):
         self.assertEqual(_normalize_semantic_mode(""), SEMANTIC_MODE_REQUIRED)
+        self.assertEqual("gemini", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
+
+    @patch.dict(os.environ, {"GOOGLE_API_KEY": "test-key"}, clear=True)
+    def test_google_key_autoconfigures_gemini_required_provider(self):
+        self.assertEqual(_normalize_semantic_mode(None), SEMANTIC_MODE_REQUIRED)
+        self.assertEqual("gemini", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key", "GEMINI_API_KEY": "test-key"}, clear=True)
+    def test_openai_takes_precedence_when_both_keys_present(self):
+        self.assertEqual(_normalize_semantic_mode(None), SEMANTIC_MODE_REQUIRED)
+        self.assertEqual("openai", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
+
+    @patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed", "OPENAI_API_KEY": "sk-test-key"}, clear=True)
+    def test_explicit_mode_skips_auto_provider_configuration(self):
+        self.assertEqual(_normalize_semantic_mode(None), SEMANTIC_MODE_DEGRADED_ALLOWED)
+        self.assertIsNone(os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
 
     def test_explicit_degraded_allowed(self):
         self.assertEqual(_normalize_semantic_mode("degraded_allowed"), SEMANTIC_MODE_DEGRADED_ALLOWED)
@@ -120,9 +140,11 @@ class TestStartupCheckRequired(unittest.TestCase):
 
     def setUp(self):
         sem_mod._startup_check_done = False
+        sem_mod._startup_keyless_hint_emitted = False
 
     def tearDown(self):
         sem_mod._startup_check_done = False
+        sem_mod._startup_keyless_hint_emitted = False
 
     @patch.dict(os.environ, {
         "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
@@ -132,9 +154,16 @@ class TestStartupCheckRequired(unittest.TestCase):
         # Only raises if the user explicitly switches to FAISS/local with no other provider.
         env_clear = {
             "OPENAI_API_KEY": "",
+            "ANTHROPIC_API_KEY": "",
             "GEMINI_API_KEY": "",
             "GOOGLE_API_KEY": "",
             "CORE_MEMORY_VECTOR_BACKEND": "local-faiss",
+            "CORE_MEMORY_EMBEDDINGS_PROVIDER": "",
+            "CORE_MEMORY_EMBEDDING_PROVIDER": "",
+            "CORE_MEMORY_EMBEDDINGS_API_KEY": "",
+            "CORE_MEMORY_EMBEDDING_API_KEY": "",
+            "CORE_MEMORY_EMBEDDINGS_BASE_URL": "",
+            "CORE_MEMORY_EMBEDDING_BASE_URL": "",
         }
         with patch.dict(os.environ, env_clear):
             with self.assertRaises(RuntimeError) as ctx:
@@ -167,15 +196,51 @@ class TestStartupCheckRequired(unittest.TestCase):
         _check_semantic_mode_startup()
         self.assertTrue(sem_mod._startup_check_done)
 
+    @patch.dict(os.environ, {
+        "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
+        "CORE_MEMORY_EMBEDDINGS_BASE_URL": "http://localhost:1234/v1",
+        "CORE_MEMORY_EMBEDDINGS_PROVIDER": "",
+        "CORE_MEMORY_EMBEDDINGS_API_KEY": "",
+        "OPENAI_API_KEY": "",
+        "GEMINI_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+        "CORE_MEMORY_VECTOR_BACKEND": "",
+    }, clear=False)
+    def test_required_with_base_url_provider_does_not_raise(self):
+        _check_semantic_mode_startup()
+        self.assertTrue(sem_mod._startup_check_done)
+
+    @patch.dict(os.environ, {"OPENAI_API_KEY": "sk-test-key"}, clear=True)
+    def test_unset_mode_with_openai_provider_does_not_raise(self):
+        _check_semantic_mode_startup()
+        self.assertTrue(sem_mod._startup_check_done)
+        self.assertEqual("openai", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
+
+    @patch.dict(os.environ, {"GEMINI_API_KEY": "test-key"}, clear=True)
+    def test_unset_mode_with_gemini_provider_does_not_raise(self):
+        _check_semantic_mode_startup()
+        self.assertTrue(sem_mod._startup_check_done)
+        self.assertEqual("gemini", os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER"))
+
+    @patch.dict(os.environ, {}, clear=True)
+    def test_unset_mode_keyless_prints_exact_hint_once_instead_of_raising(self):
+        buf = StringIO()
+        with patch("sys.stderr", buf):
+            _check_semantic_mode_startup()
+            _check_semantic_mode_startup()
+        self.assertEqual(sem_mod.KEYLESS_SEMANTIC_HINT + "\n", buf.getvalue())
+
 
 class TestStartupCheckDegradedAllowed(unittest.TestCase):
     """In degraded_allowed mode: logs once, stays silent."""
 
     def setUp(self):
         sem_mod._startup_check_done = False
+        sem_mod._startup_keyless_hint_emitted = False
 
     def tearDown(self):
         sem_mod._startup_check_done = False
+        sem_mod._startup_keyless_hint_emitted = False
 
     @patch.dict(os.environ, {
         "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed",
@@ -198,7 +263,7 @@ class TestStartupCheckDegradedAllowed(unittest.TestCase):
         "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed",
     }, clear=False)
     def test_degraded_does_not_raise(self):
-        env_clear = {"OPENAI_API_KEY": "", "GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""}
+        env_clear = {"OPENAI_API_KEY": "", "ANTHROPIC_API_KEY": "", "GEMINI_API_KEY": "", "GOOGLE_API_KEY": ""}
         with patch.dict(os.environ, env_clear):
             _check_semantic_mode_startup()
         self.assertTrue(sem_mod._startup_check_done)

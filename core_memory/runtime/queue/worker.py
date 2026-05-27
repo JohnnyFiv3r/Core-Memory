@@ -23,7 +23,7 @@ class SidecarPolicy:
 
 
 def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPolicy | None = None) -> dict[str, Any]:
-    _ = policy or SidecarPolicy()
+    policy_obj = policy or SidecarPolicy()
     envelope = payload.get("envelope") or {}
 
     session_id = envelope.get("session_id", "main")
@@ -59,6 +59,15 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
             "candidates_evaluated": 0,
             "candidates_auto_archived": 0,
             "mode": "mechanical_only",
+            "result": "mechanical_noop",
+            "policy": {
+                "create_threshold": policy_obj.create_threshold,
+                "promote_threshold": policy_obj.promote_threshold,
+                "max_create_per_turn": policy_obj.max_create_per_turn,
+                "max_promote_per_turn": policy_obj.max_promote_per_turn,
+                "applied": False,
+                "reason": "mechanical_only_no_semantic_writes",
+            },
         },
     }
 
@@ -79,7 +88,7 @@ def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPoli
             "run_id": f"event-worker-{session_id}-{turn_id}",
             "mode": "core_memory",
             "task_id": "memory_pass",
-            "result": "success",
+            "result": "mechanical_noop",
             "steps": 1,
             "tool_calls": 0,
             "beads_created": 0,

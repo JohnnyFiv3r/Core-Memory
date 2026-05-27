@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from core_memory import Memory, Turn, capture, process_turn_finalized, emit_turn_finalized
@@ -70,6 +71,22 @@ class TestTurnSchemaCapture(unittest.TestCase):
             self.assertEqual("I prefer Postgres", event.get("user_query"))
             self.assertEqual("Decision depends on ops risk", event.get("assistant_final"))
 
+    def test_other_only_turn_uses_turn_text_for_semantic_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = process_turn_finalized(
+                root=td,
+                session_id="meeting",
+                turn_id="t-other-1",
+                turns=[Turn(speaker="alice", role="other", content="Alice adopted a rescue dog named Pixel.")],
+            )
+            self.assertTrue(out.get("ok"))
+            from core_memory.persistence.store import MemoryStore
+            idx = MemoryStore(td)._read_json(Path(td) / ".beads" / "index.json")
+            beads = list((idx.get("beads") or {}).values())
+            self.assertEqual(1, len(beads))
+            self.assertIn("Alice adopted", beads[0].get("title"))
+            self.assertNotEqual("assistant turn", beads[0].get("title"))
+
     def test_session_context_scopes_capture(self):
         with tempfile.TemporaryDirectory() as td:
             with Memory(td).session("planning") as s:
@@ -87,6 +104,19 @@ class TestTurnSchemaCapture(unittest.TestCase):
         out = write_turn_finalized(root=".", session_id="s", turn_id="t", user_query="u", assistant_final="a")
         self.assertFalse(out.get("ok"))
         self.assertEqual("legacy_turn_fields_removed", out.get("error"))
+
+    def test_mcp_rejects_path_traversal_session_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            out = write_turn_finalized(
+                root=root,
+                session_id="x/../../outside/payload",
+                turn_id="t1",
+                turns=[{"speaker": "user", "role": "user", "content": "attacker bytes"}],
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("invalid_session_id", out.get("error"))
+            self.assertFalse((Path(td) / "outside").exists())
 
 
 if __name__ == "__main__":

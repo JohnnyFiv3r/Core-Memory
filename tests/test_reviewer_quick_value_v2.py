@@ -30,6 +30,11 @@ class TestReviewerQuickValueV2Slice66A(unittest.TestCase):
     def test_dreamer_seed_path_avoids_direct_store_add_bead_writes(self):
         self.assertFalse(hasattr(rqv, "MemoryStore"))
 
+    def test_seeded_crawler_updates_use_beads_create(self):
+        source = rqv.Path(rqv.__file__).read_text(encoding="utf-8")
+        self.assertIn('"beads_create"', source)
+        self.assertNotIn('"creations"', source)
+
 
 if __name__ == "__main__":
     unittest.main()

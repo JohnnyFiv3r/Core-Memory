@@ -795,7 +795,7 @@ async def recall_endpoint(request: Request):
         "ok": True,
         "query": query,
         "effort": effort,
-        "as_of": as_of,
+        "as_of": as_of,  # echoed back; not yet applied (2.0 #13)
         "answer": result.answer,
         "why": result.why,
         "evidence": evidence,

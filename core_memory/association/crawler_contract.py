@@ -47,6 +47,7 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                         "reason_code": a.get("reason_code"),
                         "evidence_fields": a.get("evidence_fields"),
                         "evidence_bead_ids": a.get("evidence_bead_ids"),
+                        "evidence_refs": a.get("evidence_refs"),
                         "judge_model": a.get("judge_model"),
                         "prompt_version": a.get("prompt_version"),
                         "rubric_version": a.get("rubric_version"),
@@ -92,6 +93,7 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                 "reason_code": a.get("reason_code"),
                 "evidence_fields": list(a.get("evidence_fields") or []),
                 "evidence_bead_ids": list(a.get("evidence_bead_ids") or []),
+                "evidence_refs": list(a.get("evidence_refs") or []),
                 "judge_model": a.get("judge_model"),
                 "prompt_version": a.get("prompt_version"),
                 "rubric_version": a.get("rubric_version"),
@@ -309,6 +311,18 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 if not src or not tgt or not rel:
                     continue
 
+                if rel == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+                    write_quarantine(
+                        Path(root),
+                        row,
+                        reasons=["noncanonical_relationship:precedes"],
+                        warnings=["noncanonical_relationship:precedes"],
+                        original_payload=row,
+                        session_id=str(session_id),
+                    )
+                    quarantined += 1
+                    continue
+
                 validated = validate_and_normalize_inference_payload(
                     {
                         "source_bead": src,
@@ -320,6 +334,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                         "reason_code": row.get("reason_code"),
                         "evidence_fields": list(row.get("evidence_fields") or []),
                         "evidence_bead_ids": list(row.get("evidence_bead_ids") or []),
+                        "evidence_refs": list(row.get("evidence_refs") or []),
                         "judge_model": row.get("judge_model"),
                         "prompt_version": row.get("prompt_version"),
                         "rubric_version": row.get("rubric_version"),
@@ -372,6 +387,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                         "reason_code": row_n.get("reason_code"),
                         "evidence_fields": list(row_n.get("evidence_fields") or []),
                         "evidence_bead_ids": list(row_n.get("evidence_bead_ids") or []),
+                        "evidence_refs": list(row_n.get("evidence_refs") or []),
                         "judge_model": row_n.get("judge_model"),
                         "prompt_version": row_n.get("prompt_version"),
                         "rubric_version": row_n.get("rubric_version"),
@@ -603,6 +619,17 @@ def apply_crawler_updates(
         for row in assoc_rows:
             if not isinstance(row, dict):
                 continue
+            if str(row.get("relationship") or "").strip().lower() == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+                write_quarantine(
+                    Path(root),
+                    row,
+                    reasons=["noncanonical_relationship:precedes"],
+                    warnings=["noncanonical_relationship:precedes"],
+                    original_payload=row,
+                    session_id=str(session_id),
+                )
+                quarantined += 1
+                continue
             validated = validate_and_normalize_inference_payload(row, mode=inference_mode)
             row_n = validated.record
 
@@ -659,6 +686,7 @@ def apply_crawler_updates(
                     "reason_code": row_n.get("reason_code"),
                     "evidence_fields": list(row_n.get("evidence_fields") or []),
                     "evidence_bead_ids": list(row_n.get("evidence_bead_ids") or []),
+                    "evidence_refs": list(row_n.get("evidence_refs") or []),
                     "judge_model": row_n.get("judge_model"),
                     "prompt_version": row_n.get("prompt_version"),
                     "rubric_version": row_n.get("rubric_version"),
