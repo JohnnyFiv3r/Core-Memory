@@ -96,6 +96,38 @@ def _relationship_for_candidate(
     )
 
 
+def infer_relationship(bead_a: dict, bead_b: dict) -> tuple[str, str]:
+    """Return (relationship, reason_code) for two beads using the preview classifier.
+
+    Intended as a fallback when an agent-authored association omits the relationship field.
+    Always produces a canonical relationship — callers must not override agent-supplied values.
+    """
+    new_text = str(bead_a.get("title", "")) + " " + " ".join(bead_a.get("summary") or [])
+    other_text = str(bead_b.get("title", "")) + " " + " ".join(bead_b.get("summary") or [])
+    new_tokens = _tokenize(new_text)
+    other_tokens = _tokenize(other_text)
+    new_tags = set(bead_a.get("tags") or [])
+    other_tags = set(bead_b.get("tags") or [])
+    shared_tags = sorted(new_tags.intersection(other_tags))
+    overlap = len(new_tokens.intersection(other_tokens))
+    same_session = bool(
+        bead_a.get("session_id") and bead_a.get("session_id") == bead_b.get("session_id")
+    )
+    new_causal = _causal_hint_score(new_text)
+    other_causal = _causal_hint_score(other_text)
+
+    rel, reason_code, _ = _relationship_for_candidate(
+        bead=bead_a,
+        other=bead_b,
+        shared_tags=shared_tags,
+        token_overlap=overlap,
+        same_session=same_session,
+        new_causal=new_causal,
+        other_causal=other_causal,
+    )
+    return rel, reason_code
+
+
 def run_association_pass(index: dict, bead: dict, *, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
     """Compute deterministic association preview candidates.
 

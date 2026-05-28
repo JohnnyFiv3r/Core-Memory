@@ -241,6 +241,8 @@ def main():
     semantic_tail = semantic_sub.add_parser("tail", help="Show recent semantic lifecycle events as JSON")
     semantic_tail.add_argument("-n", type=int, default=20)
     semantic_sub.add_parser("doctor", help="Show semantic mode/backend diagnostics as JSON")
+    semantic_backfill = semantic_sub.add_parser("backfill", help="Force full semantic re-embedding (reconcile rebuild, blocks until complete)")
+    semantic_backfill.add_argument("--dry-run", action="store_true", help="Report what would be rebuilt without running")
 
     mcp_parser = subparsers.add_parser("mcp", help="Install and inspect the MCP protocol server")
     mcp_sub = mcp_parser.add_subparsers(dest="mcp_cmd")

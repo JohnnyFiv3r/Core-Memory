@@ -1,9 +1,47 @@
 from __future__ import annotations
 
 import json
+import logging
+import os
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+_log = logging.getLogger(__name__)
+
+# Auto-drain state: one daemon thread per store root.
+_DRAIN_LOCK: threading.Lock = threading.Lock()
+_DRAIN_THREADS: dict[str, threading.Thread] = {}
+
+
+def _autodrain_worker(root_str: str) -> None:
+    try:
+        from core_memory.runtime.queue.jobs import run_async_jobs
+        run_async_jobs(root_str, run_semantic=True, max_compaction=0, max_side_effects=0)
+    except Exception as exc:
+        _log.debug("semantic autodrain worker error for %s: %s", root_str, exc)
+    finally:
+        with _DRAIN_LOCK:
+            _DRAIN_THREADS.pop(root_str, None)
+
+
+def _maybe_start_autodrain(root: Path) -> None:
+    if os.environ.get("CORE_MEMORY_SEMANTIC_AUTODRAIN", "on").strip().lower() == "off":
+        return
+    root_str = str(root)
+    with _DRAIN_LOCK:
+        existing = _DRAIN_THREADS.get(root_str)
+        if existing is not None and existing.is_alive():
+            return
+        t = threading.Thread(
+            target=_autodrain_worker,
+            args=(root_str,),
+            daemon=True,
+            name=f"semantic-autodrain:{root_str[-24:]}",
+        )
+        _DRAIN_THREADS[root_str] = t
+        t.start()
 
 
 def _now() -> str:
@@ -88,6 +126,8 @@ def mark_semantic_dirty(root: str | Path, *, reason: str, enqueue: bool = True) 
     m["last_dirty_reason"] = str(reason or "unspecified")
     _write_json(m_path, m)
     q = enqueue_semantic_rebuild(root_p, mode="delta") if enqueue else {"ok": True, "queued": False, "mode": "delta"}
+    if enqueue:
+        _maybe_start_autodrain(root_p)
     return {"ok": True, "manifest": str(m_path), "queue": q}
 
 
@@ -114,6 +154,10 @@ def semantic_status(root: str | Path) -> dict[str, Any]:
     mode = str(queue.get("mode") or manifest.get("mode") or "delta").strip().lower()
     if mode not in {"delta", "reconcile"}:
         mode = "delta"
+    autodrain_on = os.environ.get("CORE_MEMORY_SEMANTIC_AUTODRAIN", "on").strip().lower() != "off"
+    with _DRAIN_LOCK:
+        drain_running = str(root_p) in _DRAIN_THREADS and _DRAIN_THREADS[str(root_p)].is_alive()
+
     return {
         "ok": True,
         "root": str(root_p),
@@ -126,12 +170,17 @@ def semantic_status(root: str | Path) -> dict[str, Any]:
             "queued": bool(queue.get("queued")),
             "queued_at": queue.get("queued_at"),
             "epoch": int(queue.get("epoch") or 0),
+            "depth": 1 if bool(queue.get("queued")) else 0,
         },
         "queue_epoch": int(queue.get("epoch") or 0),
         "mode": mode,
         "last_checkpoint": {
             "turn_id": manifest.get("last_turn_id"),
             "flush_tx_id": manifest.get("last_flush_tx_id"),
+        },
+        "autodrain": {
+            "enabled": autodrain_on,
+            "running": drain_running,
         },
         "manifest": manifest,
     }
