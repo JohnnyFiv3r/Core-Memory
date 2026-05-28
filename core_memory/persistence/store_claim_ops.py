@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import store_lock
 from core_memory.schema.models import Claim, ClaimUpdate
+
+_log = logging.getLogger(__name__)
 
 
 DEFAULT_CLAIM_JUDGE_MODEL = "current-runtime"
@@ -312,6 +315,15 @@ def _append_claim_update_rows(index: dict, existing: list[dict], incoming: list[
     for row in incoming:
         key = _claim_update_dedupe_key(row)
         if key in seen:
+            gh = str(row.get("grounding_hash") or "").strip()
+            if gh:
+                _log.warning(
+                    "duplicate_grounding: skipping ClaimUpdate for (%s, %s, %s) grounding_hash=%s",
+                    str(row.get("subject") or ""),
+                    str(row.get("slot") or ""),
+                    str(row.get("decision") or ""),
+                    gh,
+                )
             continue
         subject = str(row.get("subject") or "")
         slot = str(row.get("slot") or "")

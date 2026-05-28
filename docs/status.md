@@ -47,13 +47,13 @@ descriptions.
 |---|---|---|
 | 1 | Replace echo-based `because` with LLM extraction | **Closed** |
 | 2 | Goal lifecycle — resolution mechanism | **Closed** |
-| 3 | Association relationship types | **Partial** — PydanticAI adapter still defaults to `shared_tag` |
+| 3 | Association relationship types | **Done** — preview classifier fills missing relationship in `apply_crawler_updates` |
 | 4 | Bead type classifier — questions misclassified as precedent | **Closed** |
-| 5 | Grounding hashes for judged association/claim validation | **Open** |
-| 6 | Monotonic sequencing for claim supersede chains | **Open** |
-| 7 | Automatic, durable, inspectable semantic indexing ergonomics | **Open** |
+| 5 | Grounding hashes for judged association/claim validation | **Done** — grounding-hash per-slot dedup in `_append_claim_update_rows` + WARNING telemetry |
+| 6 | Monotonic sequencing for claim supersede chains | **Closed** — fully covered by `chain_seq` (verified) |
+| 7 | Automatic, durable, inspectable semantic indexing ergonomics | **Done** — auto-drain thread, `semantic backfill`, extended status/doctor |
 | 8 | LLM-judged entity extraction in live write path | **Closed** |
-| 9 | Unify session-window enrichment crawler | **Planned** |
+| 9 | Unify session-window enrichment crawler | **Slice A done** — analysis artifact in `docs/PRD/session-enrichment-delta-analysis.md`; Slice B pending |
 
 ---
 
@@ -71,8 +71,9 @@ myelination.
 
 ### Demo TODO alignment
 The paired adoption/API roadmap lives in `JohnnyFiv3r/Core-Memory-Demo` repo.
-Engine-correctness items #5, #6, #7, #9 above are the remaining open items that
-affect benchmark reproducibility and production readiness.
+Engine-correctness items #3, #5, #7 are now **Done** (branch `claude/validate-demo-todos-SCRSz`).
+TODO #9 Slice A (analysis artifact) is Done; Slice B (delta envelope implementation) is next.
+See `docs/PRD/execution-plan-search-quality-and-enrichment.md` for the full plan.
 
 ---
 

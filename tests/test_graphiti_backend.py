@@ -33,26 +33,17 @@ def _make_fake_graphiti():
     sys.modules["graphiti_core"] = fake
     sys.modules["graphiti_core.nodes"] = fake_nodes
 
-    # Fake neo4j driver
-    fake_neo4j = types.ModuleType("neo4j")
-    fake_driver = MagicMock()
-    fake_gdb = MagicMock()
-    fake_gdb.driver.return_value = fake_driver
-    fake_neo4j.GraphDatabase = fake_gdb
-    sys.modules["neo4j"] = fake_neo4j
-
-    return fake, client_mock, fake_driver
+    return fake, client_mock, None
 
 
 def _remove_fakes():
     for mod in ["graphiti_core", "graphiti_core.nodes"]:
         sys.modules.pop(mod, None)
-    sys.modules.pop("neo4j", None)
 
 
 class TestGraphitiGraphBackend(unittest.TestCase):
     def setUp(self):
-        self._fake, self._client, self._driver = _make_fake_graphiti()
+        self._fake, self._client, _ = _make_fake_graphiti()
         import importlib
         import core_memory.persistence.graph.graphiti_backend as _mod
         importlib.reload(_mod)

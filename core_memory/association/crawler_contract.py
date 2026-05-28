@@ -619,6 +619,22 @@ def apply_crawler_updates(
         for row in assoc_rows:
             if not isinstance(row, dict):
                 continue
+            # Fill missing relationship using preview classifier as fallback.
+            # Never overrides an agent-supplied value; only fires when the field is absent.
+            # Note: _normalize_review_rows defaults provenance to "model_inferred", so we
+            # must set provenance unconditionally here when the classifier provides the relationship.
+            if not str(row.get("relationship") or "").strip():
+                src0 = str(row.get("source_bead") or "")
+                tgt0 = str(row.get("target_bead") or "")
+                sb0 = beads.get(src0)
+                tb0 = beads.get(tgt0)
+                if sb0 and tb0:
+                    from core_memory.association.preview import infer_relationship
+                    row = dict(row)
+                    row["relationship"], _rc = infer_relationship(sb0, tb0)
+                    if not str(row.get("reason_code") or "").strip():
+                        row["reason_code"] = _rc
+                    row["provenance"] = "preview_classifier"
             if str(row.get("relationship") or "").strip().lower() == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
                 write_quarantine(
                     Path(root),
