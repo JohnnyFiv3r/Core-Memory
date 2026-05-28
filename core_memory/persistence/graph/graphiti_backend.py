@@ -69,16 +69,18 @@ class GraphitiGraphBackend:
                 raise ValueError("ZEP_API_KEY required for deployment='hosted'")
             try:
                 from graphiti_core.driver.falkordb import FalkorDBDriver
-                driver = FalkorDBDriver(url=uri, api_key=zep_api_key)
+                graph_driver = FalkorDBDriver(url=uri, api_key=zep_api_key)
             except ImportError:
                 raise ImportError(
                     "Zep hosted deployment requires falkordb driver in graphiti-core"
                 )
+            self._client = Graphiti(graph_driver=graph_driver, llm_client=llm_client)
         else:
-            from neo4j import GraphDatabase
-            driver = GraphDatabase.driver(uri, auth=(user, password))
-
-        self._client = Graphiti(driver=driver, llm_client=llm_client)
+            # Pass Neo4j credentials directly — graphiti-core constructs its own
+            # internal Neo4jDriver from these. Do NOT pass a raw neo4j.Driver
+            # object; Graphiti's constructor does not accept a `driver=` kwarg and
+            # neo4j.Driver is not a graphiti GraphDriver type.
+            self._client = Graphiti(uri, user, password, llm_client=llm_client)
 
         try:
             asyncio.run(self._client.build_indices_and_constraints())
