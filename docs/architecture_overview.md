@@ -102,12 +102,13 @@ companion that issues retrieval calls and shapes search forms.
 |---|---|---|
 | Schema | `schema/`, `temporal/` | Bead/turn/association data shapes; temporal resolution |
 | Persistence | `persistence/` | Store, projection cache, pluggable storage backends |
+| Graph tier | `persistence/graph/` | Pluggable causal graph backends; `GraphBackend` protocol + factory |
 | Domain logic | `claim/`, `entity/`, `association/`, `graph/` | Claim extraction & resolution, entity registry, association inference, causal graph operations |
 | Retrieval | `retrieval/` | Tiered recall pipeline (rolling window → semantic → causal → hydration) |
-| Runtime | `runtime/{turn,flush,session,passes,queue,observability,dreamer}/`, `write_pipeline/` | Turn orchestration, write flow, side-effect queue, dreamer, observability |
+| Runtime | `runtime/{turn,flush,session,passes,queue,observability,dreamer}/` | Turn orchestration, write flow, side-effect queue, dreamer, observability |
 | Public API | `core_memory/__init__.py`, `memory.py`, `transcript_ingest.py` | Curated surface for consumers |
-| CLI | `cli/` (parsers, handlers, compat) | Command-line surface |
-| Integrations | `integrations/` (`openclaw/`, `pydanticai/`, `mcp/`, `http/`, …) | Framework adapters — consume the public API |
+| CLI | `cli/{parsers,handlers}/` | Command-line surface; entry point `core_memory.cli:main` |
+| Integrations | `integrations/{openclaw,pydanticai,mcp,http,obsidian,…}/` | Framework adapters — consume the public API |
 
 **Layering law:** dependencies flow downward only:
 ```
@@ -148,8 +149,10 @@ Current adapters:
 - **SpringAI / HTTP** — service bridge for Java/Spring orchestrators
 - **LangChain** — `CoreMemory`, `CoreMemoryRetriever`
 - **CrewAI** — multi-agent crew memory
-- **Neo4j** — currently a one-way projection sink; will become a queryable graph
-  backend (Phase 7)
+- **Neo4j** — pluggable graph backend with read + write paths (Phase 7 complete)
+- **Graphiti** — temporal knowledge graph backend via `graphiti-core`; self-hosted or
+  Zep-hosted alias
+- **Obsidian** — write-only vault mirror via `BeadSyncTarget` protocol
 
 Adapters consume the public API. They do not import from `core_memory/runtime/`,
 `core_memory/persistence/`, `core_memory/retrieval/`, or any other internal module.
@@ -158,29 +161,42 @@ Adapters consume the public API. They do not import from `core_memory/runtime/`,
 
 ## Storage and capability model
 
-**Current state:**
-- Storage is pluggable behind the `StorageBackend` protocol
-  (`persistence/backend.py`). `JsonFileBackend` (default, no deps) and
-  `SqliteBackend` ship.
-- Semantic indexing is pluggable behind a `VectorBackend` (FAISS or pgvector).
-- Causal traversal runs in Python against the flat association list.
+Storage is pluggable behind the `StorageBackend` protocol (`persistence/backend.py`).
+`JsonFileBackend` (default, no deps) and `SqliteBackend` ship. `create_backend()` is
+the factory; reads `CORE_MEMORY_BACKEND`.
 
-**Direction (Phase 6):**
-Unify storage and retrieval into one capability-tier system. Backends declare what
-they serve natively:
+Backends declare capability flags:
 
 ```python
 @dataclass
 class BackendCapabilities:
-    vector_search: bool       # backend can do search_candidates()
-    graph_traversal: bool     # backend can do traverse() natively
-    full_text_search: bool    # backend can do lexical_lookup() natively
-    transcript_hydration: bool  # backend can do hydrate_turn_refs() natively
+    vector_search: bool          # backend can do search_candidates()
+    graph_traversal: bool        # backend can do traverse() natively
+    full_text_search: bool       # backend can do lexical_lookup() natively
+    transcript_hydration: bool   # backend can do hydrate_turn_refs() natively
 ```
 
-Python fallbacks remain for backends that declare `False`. Neo4j (Phase 7) declares
-`graph_traversal=True`. This is how "Core Memory is causal-first; the backend just
-executes graph operations efficiently" becomes mechanical.
+Python fallbacks remain for backends that declare `False`.
+
+### Graph tier (Phase 7 — complete)
+
+The graph tier is separately pluggable via `GraphBackend` protocol
+(`persistence/graph/protocol.py`). `create_graph_backend()` reads
+`CORE_MEMORY_GRAPH_BACKEND`.
+
+| Provider | Capabilities |
+|---|---|
+| `kuzu` (default) | Embedded; graph traversal; zero deps |
+| `neo4j` | Graph traversal; requires `core-memory[neo4j]` |
+| `graphiti` | Temporal KG + vector search; requires `core-memory[graphiti]` |
+| `zep` | Graphiti on Zep-hosted cloud; same extra |
+
+Custom backends register via `register_graph_backend(name, factory)`.
+
+Write-only vault mirrors use the separate `BeadSyncTarget` protocol
+(`integrations/obsidian/protocol.py`) activated via `CORE_MEMORY_SYNC_TARGETS`.
+
+See `docs/graph_backend_plugin.md` for the plugin API reference.
 
 ---
 
@@ -218,9 +234,10 @@ Curated surface in `core_memory/__init__.py`:
 
 ## References
 
-- `docs/cleanup-plan.md` — current cleanup/refactor workstream (phases 0–10)
-- `docs/PRD/` — detailed PRDs per cleanup phase
+- `docs/status.md` — single source of truth for open work and completion state
+- `docs/cleanup-plan.md` — cleanup/refactor workstream (phases 0–10) with per-step checkboxes
+- `docs/PRD/README.md` — index of all PRD specs
 - `docs/index.md` — full docs navigation
-- `docs/status.md` (post Phase 10c) — single source of truth for open work
+- `docs/graph_backend_plugin.md` — graph backend + sync target plugin API
 - `docs/canonical_surfaces.md` — public surface contract
 - `docs/integrations/` — per-adapter integration guides

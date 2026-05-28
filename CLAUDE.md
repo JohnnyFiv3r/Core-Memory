@@ -1,7 +1,8 @@
 # CLAUDE.md — Core Memory
 
 Canonical reference: `docs/architecture_overview.md`
-Cleanup workstream: `docs/cleanup-plan.md` + `docs/PRD/`
+Phase completion state: `docs/status.md`
+Cleanup workstream: `docs/cleanup-plan.md` + `docs/PRD/README.md`
 
 ---
 
@@ -147,17 +148,18 @@ extends the protocol with `search_candidates()`, `traverse()`,
 
 | Phase | Topic | Status |
 |---|---|---|
-| 0 | CI baseline + architectural linter | Not started |
-| 1 | Dead file removal | Not started |
-| 2 | Circular import fixes | Not started |
-| 3 | PydanticAI + adapter boundary | Not started |
-| 4 | `graph/api.py` compat facade removal | Not started |
-| 5 | Persistence delegation flatten | Not started |
-| 6 | Storage adapter capability tiers | Not started |
-| 7 | Neo4j as query backend | Not started |
-| 8 | `core-memory init` wizard + doctor | Not started |
+| 0 | CI baseline + coverage | Complete |
+| 1 | Dead file removal | Complete |
+| 2 | Circular import fixes | Complete |
+| 3 | PydanticAI + adapter boundary | Complete |
+| 4 | `graph/api.py` compat facade removal | Complete |
+| 5 | Persistence delegation flatten | Complete |
+| 6 | Storage adapter capability tiers | Complete |
+| 7 | Graph backend abstraction (Neo4j, Graphiti, Obsidian, plugin API) | Complete (7a–7i done) |
+| 8 | `core-memory init` wizard + doctor | Complete (8a–8b done) |
 | 9 | Structural consolidation (runtime/, cli/, openclaw/) | Complete (9a–9h done) |
-| 10 | Documentation consolidation | Not started |
+| 10 | Documentation consolidation | Complete (10a–10g done) |
 
-See `docs/cleanup-plan.md` for sequence, prerequisites, and guard rails.
-See `docs/PRD/` for detailed task specs per phase.
+See `docs/status.md` for current completion state and open items.
+See `docs/cleanup-plan.md` for sequence, prerequisites, and per-step details.
+See `docs/PRD/README.md` for all task specs.

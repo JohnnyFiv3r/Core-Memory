@@ -16,7 +16,10 @@ from core_memory.runtime.dreamer import analysis as dreamer
 from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
 
-_SIDE_EFFECT_KINDS = {"dreamer-run", "neo4j-sync", "health-recompute", "turn-enrichment"}
+_SIDE_EFFECT_KINDS = {
+    "dreamer-run", "neo4j-sync", "health-recompute",
+    "turn-enrichment", "graphiti-episode-add",
+}
 _CLAIM_LEASE_SECONDS = 120
 
 
@@ -269,6 +272,41 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "kind": k,
             "result": out,
         }
+
+    if k == "graphiti-episode-add":
+        try:
+            from core_memory.persistence.graph.factory import create_graph_backend
+            from core_memory.persistence.graph.graphiti_backend import GraphitiGraphBackend
+            gb = create_graph_backend(Path(root))
+            if not isinstance(gb, GraphitiGraphBackend):
+                return {
+                    "ok": True,
+                    "kind": k,
+                    "terminal_skipped": True,
+                    "reason": "active backend is not GraphitiGraphBackend",
+                }
+            if p.get("bulk_sync"):
+                index_path = Path(root) / ".beads" / "index.json"
+                index = _read_json(index_path, {"beads": {}, "associations": []})
+                beads = list(index.get("beads", {}).values())
+                assocs = index.get("associations", [])
+                result = gb.sync_from_storage(beads=beads, associations=assocs)
+                return {"ok": True, "kind": k, "result": result}
+            bead = p.get("bead") or {}
+            assoc = p.get("assoc")
+            if assoc:
+                gb._write_association_sync(assoc)
+            else:
+                gb._write_bead_sync(bead)
+            return {"ok": True, "kind": k}
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).warning("graphiti-episode-add failed: %s", exc)
+            return {
+                "ok": False,
+                "kind": k,
+                "error": {"code": "graphiti_write_error", "detail": str(exc)},
+            }
 
     return {
         "ok": False,

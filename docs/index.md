@@ -20,7 +20,7 @@ Use this page as the authoritative map of current docs.
 
 ## Architecture
 - [`architecture_overview.md`](architecture_overview.md)
-- [`ARCHITECTURE.md`](ARCHITECTURE.md)
+- [`graph_backend_plugin.md`](graph_backend_plugin.md)
 - [`canonical_paths.md`](canonical_paths.md)
 - [`integration_contract.md`](integration_contract.md)
 - [`core_adapters_architecture.md`](core_adapters_architecture.md)
@@ -36,7 +36,9 @@ Use this page as the authoritative map of current docs.
 - PydanticAI: [`integrations/pydanticai/README.md`](integrations/pydanticai/README.md)
 - SpringAI / HTTP: [`integrations/springai/README.md`](integrations/springai/README.md)
 - LangChain: [`integrations/langchain/README.md`](integrations/langchain/README.md)
-- Neo4j (shadow graph): [`integrations/neo4j/README.md`](integrations/neo4j/README.md)
+- Neo4j (graph backend): [`integrations/neo4j/README.md`](integrations/neo4j/README.md)
+- Graphiti / Zep: [`graph_backend_plugin.md`](graph_backend_plugin.md)
+- Obsidian vault mirror: [`graph_backend_plugin.md`](graph_backend_plugin.md)
 
 ## Integration quickstarts
 - [`integrations/openclaw/quickstart.md`](integrations/openclaw/quickstart.md)
@@ -66,6 +68,10 @@ Use this page as the authoritative map of current docs.
 - `../eval/dreamer_behavior_eval.py`
 - `../eval/longitudinal_benchmark_v2.py` (proxy telemetry)
 - `../eval/reviewer_quick_value_v2.py`
+
+## Open work
+- [`status.md`](status.md) — single source of truth for completion state and open items
+- [`PRD/README.md`](PRD/README.md) — index of all cleanup-phase PRD specs
 
 ## Compatibility / historical material
 - [`archive/`](archive/) — superseded migration/process/history docs

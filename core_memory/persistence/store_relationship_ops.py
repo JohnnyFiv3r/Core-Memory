@@ -106,6 +106,17 @@ def _mirror_association_to_graph(root: Any, assoc: dict) -> None:
     except Exception as exc:
         _log.warning("graph on_association_written failed for %s: %s", assoc.get("id"), exc)
 
+    import os
+    targets_env = (os.environ.get("CORE_MEMORY_SYNC_TARGETS") or "").strip().lower()
+    if targets_env and targets_env != "none":
+        for name in [t.strip() for t in targets_env.split(",") if t.strip()]:
+            if name == "obsidian":
+                try:
+                    from core_memory.integrations.obsidian import ObsidianSyncTarget
+                    ObsidianSyncTarget.from_env().on_association_written(assoc)
+                except Exception as exc:
+                    _log.warning("obsidian on_association_written failed for %s: %s", assoc.get("id"), exc)
+
 
 def recall_for_store(store: Any, bead_id: str) -> bool:
     """Record a recall (strengthens association, myelination)."""

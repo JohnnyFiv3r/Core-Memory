@@ -49,6 +49,8 @@ pgvector = ["psycopg[binary]"]
 langchain = ["langchain-core"]
 crewai = ["crewai"]
 neo4j = ["neo4j"]
+graphiti = ["graphiti-core>=0.3", "neo4j>=5.0"]
+obsidian = []
 encryption = ["cryptography"]
 all = [
     "fastapi", "uvicorn", "httpx", "mcp>=1.27.1,<2",
@@ -81,6 +83,8 @@ markers = [
     "mixin_assembly: tests that instantiate MemoryStore end-to-end via mixin chain (targeted for Phase 5)",
     "pydanticai: tests that require the pydanticai optional extra",
     "neo4j: tests that require a live Neo4j instance",
+    "graphiti: tests that require graphiti-core installed",
+    "obsidian: tests that exercise the Obsidian vault sync target",
 ]
 
 [tool.ruff]
