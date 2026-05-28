@@ -285,6 +285,13 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
                     "terminal_skipped": True,
                     "reason": "active backend is not GraphitiGraphBackend",
                 }
+            if p.get("bulk_sync"):
+                index_path = Path(root) / ".beads" / "index.json"
+                index = _read_json(index_path, {"beads": {}, "associations": []})
+                beads = list(index.get("beads", {}).values())
+                assocs = index.get("associations", [])
+                result = gb.sync_from_storage(beads=beads, associations=assocs)
+                return {"ok": True, "kind": k, "result": result}
             bead = p.get("bead") or {}
             assoc = p.get("assoc")
             if assoc:

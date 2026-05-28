@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
 from core_memory.persistence.backend import BackendCapabilities
@@ -54,6 +55,7 @@ class GraphitiGraphBackend:
         deployment: str = "local",
         zep_api_key: str | None = None,
         llm_client: GraphitiLLMClientProtocol | None = None,
+        root: str | Path | None = None,
     ) -> None:
         try:
             from graphiti_core import Graphiti
@@ -90,6 +92,10 @@ class GraphitiGraphBackend:
         )
         self._loop: asyncio.AbstractEventLoop | None = None
         self._loop_thread: threading.Thread | None = None
+        # Store root for enqueuing jobs into the correct per-store side-effect queue.
+        # Falls back to DEFAULT_ROOT only when called outside a store context (rare).
+        from core_memory.persistence.store import DEFAULT_ROOT
+        self._root: Path = Path(root) if root is not None else Path(DEFAULT_ROOT)
 
     @classmethod
     def from_env(
@@ -97,6 +103,7 @@ class GraphitiGraphBackend:
         *,
         deployment: str = "local",
         llm_client: GraphitiLLMClientProtocol | None = None,
+        root: str | Path | None = None,
     ) -> "GraphitiGraphBackend":
         return cls(
             uri=os.environ.get("CORE_MEMORY_NEO4J_URI", "bolt://localhost:7687"),
@@ -105,6 +112,7 @@ class GraphitiGraphBackend:
             deployment=deployment,
             zep_api_key=os.environ.get("ZEP_API_KEY"),
             llm_client=llm_client,
+            root=root,
         )
 
     def _get_loop(self) -> asyncio.AbstractEventLoop:
@@ -147,9 +155,8 @@ class GraphitiGraphBackend:
             return
         try:
             from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
-            from core_memory.persistence.store import DEFAULT_ROOT
             enqueue_side_effect_event(
-                root=DEFAULT_ROOT,
+                root=self._root,
                 kind="graphiti-episode-add",
                 payload={"bead": bead},
                 idempotency_key=f"graphiti:bead:{bead_id}",
@@ -163,9 +170,8 @@ class GraphitiGraphBackend:
             return
         try:
             from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
-            from core_memory.persistence.store import DEFAULT_ROOT
             enqueue_side_effect_event(
-                root=DEFAULT_ROOT,
+                root=self._root,
                 kind="graphiti-episode-add",
                 payload={"assoc": assoc},
                 idempotency_key=f"graphiti:assoc:{assoc_id}",

@@ -73,7 +73,7 @@ def create_graph_backend(root: Path | None = None) -> GraphBackend:
     if name == "graphiti":
         try:
             from .graphiti_backend import GraphitiGraphBackend
-            return GraphitiGraphBackend.from_env(deployment="local")
+            return GraphitiGraphBackend.from_env(deployment="local", root=root)
         except Exception as exc:
             _log.warning("graphiti graph backend construction failed (%s); falling back to null", exc)
             return NullGraphBackend()
@@ -81,7 +81,7 @@ def create_graph_backend(root: Path | None = None) -> GraphBackend:
     if name == "zep":
         try:
             from .graphiti_backend import GraphitiGraphBackend
-            return GraphitiGraphBackend.from_env(deployment="hosted")
+            return GraphitiGraphBackend.from_env(deployment="hosted", root=root)
         except Exception as exc:
             _log.warning("zep graph backend construction failed (%s); falling back to null", exc)
             return NullGraphBackend()
