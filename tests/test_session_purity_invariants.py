@@ -53,7 +53,7 @@ class TestP9SessionPurityInvariants(unittest.TestCase):
                     os.environ["CORE_MEMORY_LIVE_SESSION_ALLOW_INDEX_FALLBACK"] = old
 
     def test_kickoff_doc_marks_step_progress(self):
-        p = Path(__file__).resolve().parents[1] / "docs" / "v2_p9_kickoff.md"
+        p = Path(__file__).resolve().parents[1] / "docs" / "archive" / "history" / "v2_p9_kickoff_phase9.md"
         payload = p.read_text(encoding="utf-8")
         self.assertIn("Step plan", payload)
         self.assertIn("Step 3 completion notes", payload)

@@ -70,5 +70,21 @@ def create_graph_backend(root: Path | None = None) -> GraphBackend:
             _log.warning("neo4j graph backend construction failed (%s); falling back to null", exc)
             return NullGraphBackend()
 
+    if name == "graphiti":
+        try:
+            from .graphiti_backend import GraphitiGraphBackend
+            return GraphitiGraphBackend.from_env(deployment="local")
+        except Exception as exc:
+            _log.warning("graphiti graph backend construction failed (%s); falling back to null", exc)
+            return NullGraphBackend()
+
+    if name == "zep":
+        try:
+            from .graphiti_backend import GraphitiGraphBackend
+            return GraphitiGraphBackend.from_env(deployment="hosted")
+        except Exception as exc:
+            _log.warning("zep graph backend construction failed (%s); falling back to null", exc)
+            return NullGraphBackend()
+
     _log.warning("unknown graph backend %r; falling back to null", name)
     return NullGraphBackend()

@@ -127,6 +127,18 @@ def enqueue_post_write_side_effects(
             idempotency_key=f"health:{session_id}:{flush_tx_id}",
         )
 
+    if "graphiti-sync" in enabled or "graphiti" in enabled:
+        out["enqueued"]["graphiti-sync"] = enqueue_side_effect_event(
+            root=root,
+            kind="graphiti-episode-add",
+            payload={
+                "session_id": str(session_id),
+                "flush_tx_id": str(flush_tx_id),
+                "bulk_sync": True,
+            },
+            idempotency_key=f"graphiti:{session_id}:{flush_tx_id}",
+        )
+
     return out
 
 

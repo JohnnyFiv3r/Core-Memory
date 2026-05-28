@@ -15,12 +15,12 @@ PRDs for all phases live in `docs/PRD/` and carry codebase-specific implementati
 
 **Goal:** Make regressions visible before touching anything.
 
-- [ ] Add `.github/workflows/test.yml` — runs `pytest tests/` on push/PR, fails on red,
+- [x] Add `.github/workflows/test.yml` — runs `pytest tests/` on push/PR, fails on red,
       installs only required (non-extra) deps so accidental hard-import-of-extra is caught
-- [ ] Add a second job in `test.yml` that installs `core-memory[all]` and runs the full suite
-- [ ] Add `pytest-cov` and publish coverage as a step artifact (no floor gate yet; just
+- [x] Add a second job in `test.yml` that installs `core-memory[all]` and runs the full suite
+- [x] Add `pytest-cov` and publish coverage as a step artifact (no floor gate yet; just
       establish baseline)
-- [ ] Tag integration tests that exercise the things Phases 4–5 touch:
+- [x] Tag integration tests that exercise the things Phases 4–5 touch:
       `pytest.mark.facade` for tests that import from `core_memory.graph.api`,
       `pytest.mark.mixin_assembly` for tests that instantiate `MemoryStore` end-to-end
 
@@ -193,11 +193,11 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 - [x] Loads beads/associations from `StorageBackend`, calls `gb.sync_from_storage(beads, assocs)`
 - [x] Returns exit code 2 when no graph backend is configured
 
-### Sub-phases 7e–7h (deferred)
+### Sub-phases 7e–7i (complete)
 
-- [ ] `GraphitiGraphBackend` — self-hosted (7e) + Zep-hosted alias (7f) + Mode A LLM (7g)
-- [ ] `ObsidianGraphBackend` — markdown vault write + Local REST search (7h)
-- [ ] Plugin API docs (7i)
+- [x] `GraphitiGraphBackend` — self-hosted (7e) + Zep-hosted alias (7f) + LLM client injection protocol (7g)
+- [x] `ObsidianSyncTarget` (BeadSyncTarget protocol) — markdown vault write + Local REST search (7h)
+- [x] Plugin API docs — `docs/graph_backend_plugin.md` (7i)
 
 **Risk:** Medium. Isolated to `persistence/graph/`. No changes to core recall path.
 
@@ -328,24 +328,24 @@ logic and human output format).
 
 **PRD:** `docs/PRD/10-documentation-consolidation.md`
 
-- [ ] **10a — Archive 11 stray `v2_p*` files** from `docs/` root to
+- [x] **10a — Archive 11 stray `v2_p*` files** from `docs/` root to
       `docs/archive/history/` (they belong there with the rest of the phase history)
-- [ ] **10b — Retire `docs/ARCHITECTURE.md`** — it references pre-v2 file names; merge
+- [x] **10b — Retire `docs/ARCHITECTURE.md`** — it references pre-v2 file names; merge
       any still-accurate content into `architecture_overview.md`, then archive it
-- [ ] **10c — Update `architecture_overview.md`** to reflect post-Phase-9 directory
+- [x] **10c — Update `architecture_overview.md`** to reflect post-Phase-9 directory
       structure (new runtime subdirs, cli/ package, integrations/openclaw/, capability
-      tiers, init wizard). Target: 100–150 lines, readable in 5 minutes.
-- [ ] **10d — Audit and classify all docs/ root files** (30+ files) as Current, Snapshot,
+      tiers, init wizard, graph backend tier). Target: 100–150 lines, readable in 5 minutes.
+- [x] **10d — Audit and classify all docs/ root files** (30+ files) as Current, Snapshot,
       or Superseded. Move Snapshot/Superseded files to `docs/reports/` or `docs/archive/`.
       Every Current file gets verified and listed in `docs/index.md`.
-- [ ] **10e — Create `docs/status.md`** — single tracked-state document merging
-      `demo/TODO.md`'s correctness items (#1–#7), the cleanup workstream (phases 0–9),
-      and current completion states. `demo/TODO.md` becomes a pointer to it.
-- [ ] **10f — Add `docs/PRD/README.md`** — index of all PRD files with one-line
+- [x] **10e — Create `docs/status.md`** — single tracked-state document merging
+      `demo/TODO.md`'s correctness items (#1–#9), the cleanup workstream (phases 0–10),
+      and current completion states.
+- [x] **10f — Add `docs/PRD/README.md`** — index of all PRD files with one-line
       descriptions and statuses.
-- [ ] **10g — Update `docs/index.md`** — fix broken links from Phase 9 file moves,
-      add PRD section, add open-workstreams section, fix Neo4j label, verify all eval/
-      links resolve after longitudinal_benchmark.py moved.
+- [x] **10g — Update `docs/index.md`** — fix broken links from Phase 9 file moves,
+      add PRD section, add open-workstreams section, fix Neo4j label, add Graphiti/
+      Obsidian entries, add `status.md` link.
 
 **Risk:** None functionally. Each sub-task is a docs-only PR.
 
