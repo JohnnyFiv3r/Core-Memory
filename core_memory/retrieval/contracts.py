@@ -174,6 +174,7 @@ class RecallResult:
     status: str = "empty"
     warnings: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    as_of: str | None = None
     raw: dict[str, Any] | None = None
     schema_version: str = RECALL_RESULT_SCHEMA_VERSION
     contract: str = "recall_result"

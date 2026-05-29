@@ -165,6 +165,7 @@ def main():
     recall_parser.add_argument("--effort", choices=["low", "medium", "high"], default="medium")
     recall_parser.add_argument("--speaker")
     recall_parser.add_argument("--k", type=int)
+    recall_parser.add_argument("--as-of", dest="as_of", metavar="TIMESTAMP", help="ISO 8601 timestamp; return only evidence visible before this point in time")
     recall_parser.add_argument("--json", action="store_true", help="Emit canonical RecallResult JSON")
     recall_sub = recall_parser.add_subparsers(dest="recall_cmd")
     recall_search = recall_sub.add_parser("search", help="Canonical memory search")

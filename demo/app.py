@@ -761,7 +761,6 @@ async def recall_endpoint(request: Request):
             return JSONResponse({"ok": False, "error": f"k must be an integer, got {k_raw!r}"}, status_code=400)
     else:
         k = None
-    # as_of accepted in body but not yet passed through — wired in 2.0 (#13)
     as_of = str(body.get("as_of") or "").strip() or None
 
     try:
@@ -770,10 +769,13 @@ async def recall_endpoint(request: Request):
             effort=effort,
             intent=intent,
             k=k,
+            as_of=as_of,
             root=MEMORY_ROOT,
             explain=True,
             include_raw=False,
         )
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     except Exception as exc:
         logger.exception("recall endpoint error for query=%r", query)
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)

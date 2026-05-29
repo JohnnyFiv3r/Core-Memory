@@ -297,6 +297,23 @@ def _normalize_request(
     return query, request
 
 
+def _filter_evidence_by_as_of(evidence: list[EvidenceItem], as_of_str: str) -> list[EvidenceItem]:
+    from core_memory.temporal import normalize_as_of as _norm
+    as_of_dt = _norm(as_of_str)
+    if as_of_dt is None:
+        return evidence
+    filtered = []
+    for item in evidence:
+        created = str((item.metadata or {}).get("created_at") or "").strip()
+        if not created:
+            filtered.append(item)
+            continue
+        item_dt = _norm(created)
+        if item_dt is None or item_dt <= as_of_dt:
+            filtered.append(item)
+    return filtered
+
+
 def recall(
     query_or_request: str | dict[str, Any],
     *,
@@ -304,6 +321,7 @@ def recall(
     intent: str | None = None,
     k: int | None = None,
     speaker: str | None = None,
+    as_of: str | None = None,
     root: str = ".",
     explain: bool = True,
     include_raw: bool = True,
@@ -319,6 +337,12 @@ def recall(
     if selected_effort == "dynamic":
         raise ValueError('effort="dynamic" is reserved for a future query-planning mode; use low, medium, or high')
 
+    if as_of is not None:
+        from core_memory.temporal import normalize_as_of as _norm
+        if _norm(as_of) is None:
+            raise ValueError(f"as_of must be a valid ISO 8601 timestamp, got {as_of!r}")
+        request_overrides = {**request_overrides, "as_of": as_of}
+
     query, request = _normalize_request(
         query_or_request,
         effort=selected_effort,
@@ -330,6 +354,10 @@ def recall(
     raw = memory_execute(request=request, root=root, explain=explain)
     result = recall_result_from_memory_execute(raw, query=query, effort=selected_effort, include_raw=include_raw)
     _enrich_recall_state(result, root=root, query=query)
+
+    if as_of is not None:
+        result.evidence = _filter_evidence_by_as_of(result.evidence, as_of)
+        result.metadata["as_of"] = as_of
     result.planning = RecallPlanning(
         selected_effort=selected_effort,
         reason=str(_EFFORT_DEFAULTS[selected_effort]["planning_reason"]),
