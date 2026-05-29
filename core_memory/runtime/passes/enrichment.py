@@ -7,12 +7,39 @@ is already persisted.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
+import uuid
+from copy import deepcopy
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+_STAGE_RESULTS_DEFAULTS: dict[str, dict[str, Any]] = {
+    "association_pass":     {"queued": 0, "skipped_existing": 0},
+    "claim_extraction":     {"extracted": 0, "skipped_duplicate": 0},
+    "preview_associations": {"queued": 0, "skipped_existing": 0},
+    "crawler_merge":        {"merged": 0, "quarantined": 0},
+    "decision_pass":        {"emitted": 0, "skipped_grounding": 0},
+    "claim_updates":        {"emitted": 0, "skipped_grounding": 0},
+    "memory_outcome":       {"written": False},
+    "goal_lifecycle":       {"transitioned": 0},
+    "quality_metric":       {"score": None},
+}
+
+
+def _enrichment_envelope_path(root: str, bead_id: str, run_id: str) -> Path:
+    safe_bead = str(bead_id or "unknown").replace("/", "-").replace("\\", "-")
+    return Path(root) / ".beads" / "events" / f"enrichment-{safe_bead}-{run_id[:8]}.jsonl"
+
+
+def _run_idempotency_token(bead_id: str, run_id: str) -> str:
+    raw = (str(bead_id or "") + str(run_id or "")).encode("utf-8")
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
 def _enrichment_queue_enabled() -> bool:
@@ -78,17 +105,46 @@ def enqueue_turn_enrichment(
     )
 
 
-def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]:
+def run_turn_enrichment(
+    *,
+    root: str,
+    payload: dict[str, Any],
+    enrichment_run_id: str | None = None,
+) -> dict[str, Any]:
     """Execute post-persist enrichment stages for a turn.
 
     Stages: association pass, claim extraction, preview associations,
-    crawler merge, decision pass, claim updates, memory outcome, quality metric.
+    crawler merge, decision pass, claim updates, memory outcome, goal lifecycle,
+    quality metric.
 
     Each stage is run independently — a failure in one does not block others.
+    Idempotent when the same `enrichment_run_id` is supplied on repeated calls.
     """
+    if not enrichment_run_id:
+        enrichment_run_id = uuid.uuid4().hex
+
     session_id = str(payload.get("session_id") or "")
     turn_id = str(payload.get("turn_id") or "")
     bead_id = str(payload.get("bead_id") or "")
+    triggered_at = datetime.now(timezone.utc).isoformat()
+
+    # Idempotency gate: return cached result if this run already completed.
+    envelope_path = _enrichment_envelope_path(root, bead_id, enrichment_run_id)
+    if envelope_path.exists():
+        try:
+            last_line = [ln for ln in envelope_path.read_text(encoding="utf-8").splitlines() if ln.strip()][-1]
+            cached = json.loads(last_line)
+            return {
+                "ok": True,
+                "idempotent": True,
+                "enrichment_run_id": enrichment_run_id,
+                "stage_results": cached.get("stage_results", {}),
+                "bead_id": bead_id,
+                "turn_id": turn_id,
+            }
+        except Exception:
+            pass  # corrupt envelope — proceed with full run
+
     enrichment_delta = payload.get("enrichment_delta") if isinstance(payload.get("enrichment_delta"), dict) else None
     reviewed_updates = dict(payload.get("reviewed_updates") or {})
     if isinstance(enrichment_delta, dict):
@@ -109,6 +165,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     )
 
     results: dict[str, Any] = {"stages_completed": [], "stages_failed": []}
+    stage_results: dict[str, Any] = deepcopy(_STAGE_RESULTS_DEFAULTS)
     if isinstance(enrichment_delta, dict):
         delta_diag = dict(enrichment_delta.get("diagnostics") or {})
         results["enrichment_delta"] = {
@@ -138,6 +195,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             "current_turn_bead_id": str(auto_apply.get("current_turn_bead_id") or ""),
         }
         results["auto_apply"] = auto_apply
+        stage_results["association_pass"]["queued"] = len(auto_apply.get("created_bead_ids") or [])
     except Exception as exc:
         logger.warning("enrichment: association pass failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("association")
@@ -155,6 +213,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             req_stub = {"session_id": session_id, "turn_id": turn_id, "user_query": payload.get("user_query", "")}
             claim_telemetry = extract_and_attach_claims(root, session_id, turn_id, created_bead_ids, req_stub) or {}
             results["stages_completed"].append("claims")
+            stage_results["claim_extraction"]["extracted"] = len(claim_telemetry.get("claims_batch") or [])
         except Exception as exc:
             logger.warning("enrichment: claim extraction failed for turn %s: %s", turn_id, exc)
             results["stages_failed"].append("claims")
@@ -163,16 +222,19 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
     try:
         preview_queued = _queue_preview_associations(root=root, session_id=session_id, visible_bead_ids=visible_ids)
         results["stages_completed"].append("preview_assoc")
+        stage_results["preview_associations"]["queued"] = int(preview_queued or 0)
     except Exception as exc:
         logger.warning("enrichment: preview associations failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("preview_assoc")
         preview_queued = 0
 
-    # Stage 4: crawler merge
+    # Stage 4: crawler merge — atomic (merge write + log clear share the same store_lock inside merge_crawler_updates)
     try:
         turn_merge = merge_crawler_updates(root=root, session_id=session_id)
         results["merge"] = turn_merge
         results["stages_completed"].append("crawler_merge")
+        stage_results["crawler_merge"]["merged"] = int(turn_merge.get("associations_appended") or 0)
+        stage_results["crawler_merge"]["quarantined"] = int(turn_merge.get("associations_quarantined") or 0)
     except Exception as exc:
         logger.warning("enrichment: crawler merge failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("crawler_merge")
@@ -188,6 +250,10 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
         )
         results["decision_pass"] = decision_pass
         results["stages_completed"].append("decision_pass")
+        stage_results["decision_pass"]["emitted"] = int(
+            len(list((decision_pass or {}).get("claim_updates") or []))
+            + len(list((decision_pass or {}).get("decisions") or []))
+        )
     except Exception as exc:
         logger.warning("enrichment: decision pass failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("decision_pass")
@@ -199,16 +265,18 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
             from core_memory.runtime.engine import emit_claim_updates
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             claims_batch = list(claim_telemetry.get("claims_batch") or [])
+            emitted_updates: list[dict] = []
             if canonical_bead_id and claims_batch:
                 claim_visible_ids = sorted(
                     set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])
                 )
-                emit_claim_updates(
+                emitted_updates = emit_claim_updates(
                     root, claims_batch, canonical_bead_id,
                     session_id=session_id, visible_bead_ids=claim_visible_ids,
                     reviewed_updates=reviewed_updates, decision_pass=decision_pass,
-                )
+                ) or []
             results["stages_completed"].append("claim_updates")
+            stage_results["claim_updates"]["emitted"] = len(emitted_updates)
         except Exception as exc:
             logger.warning("enrichment: claim updates failed for turn %s: %s", turn_id, exc)
             results["stages_failed"].append("claim_updates")
@@ -218,6 +286,7 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
         try:
             from core_memory.runtime.engine import classify_memory_outcome, write_memory_outcome_to_bead
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
+            memory_outcome_written = False
             if canonical_bead_id:
                 md = dict(payload.get("metadata") or {})
                 context_beads = list(
@@ -240,7 +309,9 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
                         interaction_role=outcome.get("interaction_role"),
                         memory_outcome=outcome.get("memory_outcome"),
                     )
+                    memory_outcome_written = True
             results["stages_completed"].append("memory_outcome")
+            stage_results["memory_outcome"]["written"] = memory_outcome_written
         except Exception as exc:
             logger.warning("enrichment: memory outcome failed for turn %s: %s", turn_id, exc)
             results["stages_failed"].append("memory_outcome")
@@ -261,6 +332,9 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
         )
         results["goal_lifecycle"] = goal_lifecycle
         results["stages_completed"].append("goal_lifecycle")
+        stage_results["goal_lifecycle"]["transitioned"] = int(
+            (goal_lifecycle or {}).get("transitioned") or (goal_lifecycle or {}).get("resolved") or 0
+        )
     except Exception as exc:
         logger.warning("enrichment: goal lifecycle failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("goal_lifecycle")
@@ -281,7 +355,29 @@ def run_turn_enrichment(*, root: str, payload: dict[str, Any]) -> dict[str, Any]
         logger.warning("enrichment: quality metric failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("quality_metric")
 
+    # Persist delta envelope — idempotency key for future gate checks.
+    try:
+        envelope = {
+            "schema": "session_enrichment_delta.v1",
+            "bead_id": bead_id,
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "enrichment_run_id": enrichment_run_id,
+            "triggered_at": triggered_at,
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "idempotency_token": _run_idempotency_token(bead_id, enrichment_run_id),
+            "stages_run": list(stage_results.keys()),
+            "stage_results": stage_results,
+        }
+        envelope_path.parent.mkdir(parents=True, exist_ok=True)
+        with envelope_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(envelope) + "\n")
+    except Exception as exc:
+        logger.warning("enrichment: failed to persist delta envelope for turn %s: %s", turn_id, exc)
+
     results["ok"] = len(results["stages_failed"]) == 0
     results["turn_id"] = turn_id
     results["bead_id"] = bead_id
+    results["enrichment_run_id"] = enrichment_run_id
+    results["stage_results"] = stage_results
     return results

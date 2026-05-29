@@ -266,7 +266,8 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
 
     if k == "turn-enrichment":
         from core_memory.runtime.passes.enrichment import run_turn_enrichment
-        out = run_turn_enrichment(root=str(root), payload=p)
+        enrichment_run_id = str(p.get("enrichment_run_id") or "").strip() or uuid.uuid4().hex
+        out = run_turn_enrichment(root=str(root), payload=p, enrichment_run_id=enrichment_run_id)
         return {
             "ok": bool(out.get("ok")),
             "kind": k,
