@@ -105,28 +105,93 @@ into `retrieval_planner.py`. Scores are computed and discarded.
 
 ### #10 — Multi-speaker attribution and identity persistence
 
-**Status:** Not started (research phase required first)  
+**Status:** Complete  
 **Blocks:** nothing; blocked by nothing  
 **Effort:** ~1 day research + ~3 days implementation  
-**Spec:** `docs/reports/capability-roadmap-prds.md` § #10
+**Spec:** `docs/reports/capability-roadmap-prds.md` § #10  
+**Research artifact:** `docs/plans/speaker-schema-research.md`
 
-`transcript_ingest.py` records `user_speaker`/`assistant_speaker` as opaque strings.
-No identity resolution exists. Causal chains break at participant boundaries — "we
-decided to drop Kubernetes" is unattributable when there is no mechanism to link
+`transcript_ingest.py` previously recorded `user_speaker`/`assistant_speaker` as opaque
+strings with no identity resolution. Causal chains broke at participant boundaries — "we
+decided to drop Kubernetes" was unattributable when there was no mechanism to link
 `johnnyfiv3r` (Discord), `johnny` (Slack), and `jf@company.com` (email) to a single
 entity across sessions.
 
-**Research phase (before any schema locks):** document Discord, Slack, Zoom/Otter, and
-GitHub label representations. Produce `docs/plans/speaker-schema-research.md`.
-
-**Missing implementation:**
+**Shipped:**
 - `entity/speaker_resolver.py` — `resolve_speaker(index, observed_label, source_system)`
-- Wire resolver into `transcript_ingest.py` before `process_turn_finalized()`
-- `SpeakerAttribution` dataclass: `speaker_observed`, `resolved_entity_id`,
-  `resolution_confidence`, `source_system`, `aliases`
-- `attributed_entity_id` + `resolution_confidence` on bead provenance
+  returning `SpeakerResolution`; confidence model (1.0 exact alias match, 0.9 new entity,
+  0.0 invalid label)
+- `transcript_ingest._resolve_envelope_speakers()` wires the resolver before
+  `ingest_turn_envelopes()`; attaches `speaker_attribution` to envelope metadata and
+  persists newly created entities via `save_entity_registry()`
+- `SpeakerAttribution` dataclass in `schema/models.py`
+- `store_add_bead_ops.py` promotes `attributed_entity_id` + `resolution_confidence` to
+  the bead top level when a resolved-speaker turn is written
 - `register_speaker_alias()` on `entity/registry.py`
 - `SPEAKER_RESOLUTION_CONFIDENCE_THRESHOLD` env var, default 0.75
+
+**Design note (role vs. identity):** role (`user`/`assistant`) is a *declared* structural
+channel — `_normalize_role()` is a pure dict lookup, never agent-judged — while speaker
+identity is the orthogonal axis #10 resolves. From zero context the system never infers
+who "the user" is; the adapter declares the role, and in a 1:1 agent chat `user` is the
+non-agent party by construction. When a turn carries no speaker label, no
+`attributed_entity_id` is written (attribution is opt-in on the presence of a real label).
+
+---
+
+### #10A — Multi-party transcript ingest (N-speaker gateway)
+
+**Status:** Not started  
+**Blocks:** the attribution queries #10 was built for ("what did Alice propose vs. what
+Bob approved?")  
+**Blocked by:** nothing (builds on #10)  
+**Effort:** ~2 days
+
+`normalize_transcript_payload()` is a **dyadic** front door: `_normalize_role()` requires
+every utterance map to `user`/`assistant`, and the pairing loop walks user→assistant. The
+runtime *below* it already supports N speakers (`runtime/state.py` carries
+`speakers: list[str]`; `engine.py` notes multi-speaker rows "can legitimately have no
+user/assistant role"). So a 5-person Slack thread or a meeting with `SPEAKER_00..04` is
+collapsed to user/assistant pairs at the gateway — discarding structure the runtime
+supports — *before* any identity logic runs. #10 resolves the identities correctly but
+this gateway still throws away the participant structure.
+
+**Missing:**
+- A group/N-speaker ingest mode in `normalize_transcript_payload()` that accepts
+  `participants` and per-utterance `speaker` without forcing the dyadic role collapse
+- Preserve per-row `speaker` into the canonical envelope `turns[]` (already partially
+  carried) so each participant resolves independently via `_resolve_envelope_speakers()`
+- Keep the dyadic path intact for 1:1 agent chats (no regression)
+
+---
+
+### #10B — Per-adapter `source_system` convention (MCP ingest adapters)
+
+**Status:** Not started  
+**Blocked by:** #10A (multi-party gateway should land first)  
+**Effort:** ~2 days per adapter; mechanical
+
+`resolve_speaker()` takes `source_system` as an explicit parameter by design — core must
+**not** sniff format. A Discord snowflake is just digits; Slack IDs, GitHub handles, and
+raw `@display name` labels all look like plausible "labels," and guessing wrong silently
+merges or splits identities (the worst failure mode for an identity layer). Per the adapter
+law, the thing that knows the source is the adapter, not core.
+
+**Policy:** *structured sources must use an adapter* — not *raw transcripts are banned*.
+Raw transcript ingest degrades gracefully (generic normalization, still merges identical
+labels); the only loss is ambiguous-case handling (`@user#1234` discriminator stripping,
+positional `SPEAKER_00` scoping). Historical-import use cases without an MCP server yet
+must remain possible.
+
+**Missing:**
+- Thin Slack / Discord / Zoom-Otter MCP adapters that emit the canonical envelope with
+  `metadata.source_system` set and `turns[].speaker` populated, then call the existing
+  ingest path unchanged
+- Diarization-scope handling: the Zoom/Otter adapter scopes `source_system` with a
+  recording id (e.g. `"zoom:rec-xyz"`) so `SPEAKER_00` from different recordings does not
+  falsely merge to one entity
+- No change to `transcript_ingest.py` internals — it already does the right thing given
+  well-formed input
 
 ---
 
@@ -279,7 +344,9 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 #13 (temporal recall)   — no dependencies
 #9B (enrichment delta)  — no dependencies
-#10 (multi-speaker)     — no dependencies
+#10 (multi-speaker)     — complete
+└── #10A (N-speaker ingest gateway)
+    └── #10B (per-adapter source_system / MCP adapters)
 #17 (eval layer)        — no dependencies
 ```
 
@@ -292,8 +359,10 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 | 3 | **#11** myelination | 2d | No deps; unblocks #14 and #12 |
 | 4 | **#9B** enrichment delta | 3d | No deps; makes re-runs safe |
 | 5 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
-| 6 | **#10** multi-speaker | 4d | Research first; foundational for multi-participant |
+| 6 | **#10** multi-speaker | 4d | Complete |
 | 7 | **#14** contradiction pressure | 3d | After #11 |
 | 8 | **#17** eval layer | 3d | Parallel to any of the above |
 | 9 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
 | 10 | **#12** dreamer themes | 3d | After #11 + #14 |
+| 11 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
+| 12 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
