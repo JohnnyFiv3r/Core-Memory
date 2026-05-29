@@ -297,6 +297,33 @@ def _normalize_request(
     return query, request
 
 
+def _read_myelination_manifest(root: str) -> dict[str, float]:
+    try:
+        p = Path(root) / ".beads" / "events" / "myelination-manifest.json"
+        if not p.exists():
+            return {}
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        return {
+            str(k): float(v)
+            for k, v in (payload.get("bonus_by_bead_id") or {}).items()
+            if abs(float(v)) > 1e-9
+        }
+    except Exception:
+        return {}
+
+
+def _apply_myelination_bonuses(result: RecallResult, bonus_by_bead_id: dict[str, float]) -> None:
+    if not bonus_by_bead_id:
+        return
+    for item in result.evidence:
+        bonus = float(bonus_by_bead_id.get(str(item.bead_id) or "", 0.0))
+        if abs(bonus) < 1e-9:
+            continue
+        base = float(item.score) if item.score is not None else 0.0
+        item.score = round(min(1.0, max(0.0, base + bonus)), 6)
+    result.evidence.sort(key=lambda e: float(e.score) if e.score is not None else 0.0, reverse=True)
+
+
 def _filter_evidence_by_as_of(evidence: list[EvidenceItem], as_of_str: str) -> list[EvidenceItem]:
     from core_memory.temporal import normalize_as_of as _norm
     as_of_dt = _norm(as_of_str)
@@ -352,8 +379,26 @@ def recall(
         request_overrides=request_overrides,
     )
     raw = memory_execute(request=request, root=root, explain=explain)
+
+    # Fire-and-forget retrieval telemetry — never let recording break recall.
+    try:
+        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+        record_retrieval_feedback(root, request=request, response=raw)
+    except Exception:
+        pass
+
     result = recall_result_from_memory_execute(raw, query=query, effort=selected_effort, include_raw=include_raw)
     _enrich_recall_state(result, root=root, query=query)
+
+    # Apply pre-computed myelination bonuses when enabled.
+    try:
+        from core_memory.runtime.observability.myelination import myelination_enabled
+        if myelination_enabled():
+            bonus_by_bead_id = _read_myelination_manifest(root)
+            if bonus_by_bead_id:
+                _apply_myelination_bonuses(result, bonus_by_bead_id)
+    except Exception:
+        pass
 
     if as_of is not None:
         result.evidence = _filter_evidence_by_as_of(result.evidence, as_of)

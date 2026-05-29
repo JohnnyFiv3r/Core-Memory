@@ -18,7 +18,7 @@ from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
 _SIDE_EFFECT_KINDS = {
     "dreamer-run", "neo4j-sync", "health-recompute",
-    "turn-enrichment", "graphiti-episode-add",
+    "turn-enrichment", "graphiti-episode-add", "myelination-update",
 }
 _CLAIM_LEASE_SECONDS = 120
 
@@ -307,6 +307,22 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
                 "kind": k,
                 "error": {"code": "graphiti_write_error", "detail": str(exc)},
             }
+
+    if k == "myelination-update":
+        from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
+        since = str(p.get("since") or "30d")
+        limit = int(p.get("limit") or 1000)
+        manifest = compute_myelination_bonus_map(root, since=since, limit=limit)
+        manifest_path = Path(root) / ".beads" / "events" / "myelination-manifest.json"
+        manifest_path.parent.mkdir(parents=True, exist_ok=True)
+        _write_json(manifest_path, manifest)
+        return {
+            "ok": True,
+            "kind": k,
+            "enabled": bool(manifest.get("enabled")),
+            "stats": dict(manifest.get("stats") or {}),
+            "manifest_path": str(manifest_path),
+        }
 
     return {
         "ok": False,
