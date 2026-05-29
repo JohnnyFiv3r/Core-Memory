@@ -272,9 +272,52 @@ def _conflicts_for_result(result: RecallResult, root: str, index: dict[str, Any]
             epistemic_conflict_score=score,
             conflict_since=conflict_since,
             chain_seq_gap=abs(seq_b - seq_a),
+            metadata={
+                # Lightweight claim snapshots so a review prompt can show values
+                # without re-reading the store.
+                "claim_a": {"id": _text(claim_a.get("id")), "value": claim_a.get("value"), "created_at": _text(claim_a.get("created_at"))},
+                "claim_b": {"id": _text(claim_b.get("id")), "value": claim_b.get("value"), "created_at": _text(claim_b.get("created_at"))},
+            },
         ))
 
     return items
+
+
+def _attach_conflict_reviews(result: RecallResult, root: str) -> None:
+    """Emit contradiction candidates and attach render-agnostic review prompts.
+
+    Only conflicts above the review threshold get an actionable prompt (with a
+    candidate_id the agent can resolve). Conflicts the user already deferred are
+    left without a prompt so the agent doesn't re-ask in-band.
+    """
+    if not result.conflicts:
+        return
+    from core_memory.runtime.dreamer.candidates import enqueue_contradiction_pressure_candidates
+    from core_memory.claim.conflict_review import build_conflict_review
+
+    res = enqueue_contradiction_pressure_candidates(root=root, conflicts=result.conflicts)
+    candidate_ids = dict(res.get("candidate_ids") or {})
+    deferred = set(res.get("deferred_keys") or [])
+
+    for conflict in result.conflicts:
+        slot_key = f"{conflict.subject}:{conflict.slot}"
+        if slot_key in deferred:
+            conflict.review_prompt = None
+            continue
+        cid = candidate_ids.get(slot_key)
+        if not cid:
+            continue  # below threshold → informational only, no actionable prompt
+        meta = conflict.metadata or {}
+        conflict.candidate_id = cid
+        conflict.review_prompt = build_conflict_review(
+            subject=conflict.subject,
+            slot=conflict.slot,
+            claim_a=dict(meta.get("claim_a") or {"id": conflict.claim_a_id}),
+            claim_b=dict(meta.get("claim_b") or {"id": conflict.claim_b_id}),
+            epistemic_conflict_score=conflict.epistemic_conflict_score,
+            conflict_since=conflict.conflict_since,
+            candidate_id=cid,
+        )
 
 
 def _enrich_recall_state(result: RecallResult, *, root: str, query: str) -> None:
@@ -448,11 +491,10 @@ def recall(
     result = recall_result_from_memory_execute(raw, query=query, effort=selected_effort, include_raw=include_raw)
     _enrich_recall_state(result, root=root, query=query)
 
-    # Fire-and-forget: emit dreamer candidates for high-pressure conflicts.
+    # Emit contradiction candidates and attach render-agnostic review prompts so
+    # the agent can surface high-pressure conflicts to the user in-band.
     try:
-        if result.conflicts:
-            from core_memory.runtime.dreamer.candidates import enqueue_contradiction_pressure_candidates
-            enqueue_contradiction_pressure_candidates(root=root, conflicts=result.conflicts)
+        _attach_conflict_reviews(result, root)
     except Exception:
         pass
 

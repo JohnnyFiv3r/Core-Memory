@@ -46,7 +46,11 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "apply_reviewed_proposal": {
-        "description": "Apply an accepted/rejected Dreamer proposal through canonical adjudication path.",
+        "description": (
+            "Apply an accepted/rejected Dreamer proposal through canonical adjudication path. "
+            "For a contradiction_pressure_candidate, pass `resolution` (prefer_a | prefer_b | "
+            "retract_both | defer) — the choice id from the conflict review prompt the user resolved."
+        ),
         "input": {
             "type": "object",
             "properties": {
@@ -55,6 +59,11 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "reviewer": {"type": "string"},
                 "notes": {"type": "string"},
                 "apply": {"type": "boolean", "default": True},
+                "resolution": {
+                    "type": "string",
+                    "enum": ["prefer_a", "prefer_b", "retract_both", "defer"],
+                    "description": "Contradiction resolution choice (contradiction_pressure_candidate only).",
+                },
             },
             "required": ["candidate_id", "decision"],
             "additionalProperties": False,
@@ -146,6 +155,7 @@ def apply_reviewed_proposal(
     reviewer: str = "",
     notes: str = "",
     apply: bool = True,
+    resolution: str = "",
 ) -> dict[str, Any]:
     out = decide_dreamer_candidate(
         root=root,
@@ -154,6 +164,7 @@ def apply_reviewed_proposal(
         reviewer=str(reviewer or ""),
         notes=str(notes or ""),
         apply=bool(apply),
+        resolution=str(resolution or "") or None,
     )
     if isinstance(out, dict):
         out = dict(out)

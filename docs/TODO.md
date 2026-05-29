@@ -217,6 +217,26 @@ must remain possible.
 - Fire-and-forget emission in `recall()` after `_enrich_recall_state`
 - 28 tests in `tests/test_epistemic_conflict.py`
 
+**Review UX (in-band conflict resolution):**
+- `claim/conflict_review.py` — `build_conflict_review()` produces a *render-agnostic*
+  prompt (both contested values, dates, a natural-language question, and resolution
+  choices `prefer_a | prefer_b | retract_both | defer`). No button/card UI required —
+  the agent speaks it, reads the user's free-text reply, and maps it to one choice.
+- `resolution_to_claim_updates()` — maps a choice to canonical claim-update rows
+  (`prefer_*` → supersede the loser; `retract_both` → retract both).
+- `store_claim_ops.resolve_current_state()` — a supersede/retract issued *after* a
+  conflict marker now clears it (so a resolution actually closes the conflict);
+  simultaneous markers stay live.
+- `decide_dreamer_candidate(resolution=...)` — `contradiction_pressure_candidate`
+  apply branch writes the resolution through `emit_claim_updates` (audit turn via
+  `process_turn_finalized`); `defer` records "not now" and writes nothing.
+- `retrieval.agent._attach_conflict_reviews()` — links `candidate_id` + `review_prompt`
+  onto above-threshold conflicts; suppresses prompts the user already deferred.
+- `ConflictItem.candidate_id` + `ConflictItem.review_prompt` on the recall contract.
+- `apply_reviewed_proposal` MCP surface gains `resolution`; agent guide documents the
+  surface-and-resolve flow (`core-memory-agent-guide.md`).
+- 22 tests in `tests/test_conflict_review.py`
+
 ---
 
 ### #12 — Dreamer: latent theme synthesis

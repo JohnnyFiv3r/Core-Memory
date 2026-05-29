@@ -19,6 +19,7 @@ from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .schema.turn import Turn
 from .retrieval.contracts import (
     ClaimSlotItem,
+    ConflictItem,
     EvidenceItem,
     RecallPlanning,
     RecallResult,
@@ -50,6 +51,7 @@ __all__ = [
     "Memory",
     "Turn",
     "ClaimSlotItem",
+    "ConflictItem",
     "EvidenceItem",
     "ResolvedGoalItem",
     "SourceItem",

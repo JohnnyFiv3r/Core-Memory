@@ -169,6 +169,8 @@ class ConflictItem:
     epistemic_conflict_score: float
     conflict_since: str = ""
     chain_seq_gap: int = 0
+    candidate_id: str = ""
+    review_prompt: dict[str, Any] | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

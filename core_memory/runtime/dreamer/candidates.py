@@ -388,6 +388,7 @@ def decide_dreamer_candidate(
     reviewer: str | None = None,
     notes: str | None = None,
     apply: bool = False,
+    resolution: str | None = None,
 ) -> dict[str, Any]:
     cid = str(candidate_id or "").strip()
     decision_n = str(decision or "").strip().lower()
@@ -406,6 +407,28 @@ def decide_dreamer_candidate(
     if target is None:
         return {"ok": False, "error": {"code": "candidate_not_found", "candidate_id": cid}}
 
+    resolution_n = str(resolution or "").strip().lower()
+
+    # A contradiction review can be "deferred" without accepting/rejecting the
+    # candidate — the user said "not now". Record that and write nothing.
+    if resolution_n == "defer":
+        target["status"] = "deferred"
+        target["review_state"] = "deferred"
+        target["decision"] = {
+            "decision": "defer",
+            "reviewer": str(reviewer or ""),
+            "notes": str(notes or ""),
+            "decided_at": _now(),
+        }
+        _write_candidates(root, rows)
+        return {
+            "ok": True,
+            "candidate_id": cid,
+            "status": target.get("status"),
+            "applied": {"ok": True, "application_mode": "deferred_no_write"},
+            "path": str(_candidates_path(root)),
+        }
+
     target["status"] = "accepted" if decision_n == "accept" else "rejected"
     target["decision"] = {
         "decision": decision_n,
@@ -413,10 +436,99 @@ def decide_dreamer_candidate(
         "notes": str(notes or ""),
         "decided_at": _now(),
     }
+    if resolution_n:
+        target["resolution"] = resolution_n
 
     applied = None
     if decision_n == "accept" and apply:
         hypothesis_type = str(target.get("hypothesis_type") or "").strip().lower()
+
+        if hypothesis_type == "contradiction_pressure_candidate":
+            from core_memory.claim.conflict_review import (
+                RESOLUTION_CHOICES,
+                resolution_to_claim_updates,
+            )
+            from core_memory.claim.update_policy import emit_claim_updates
+            from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
+            from core_memory.runtime.engine import process_turn_finalized
+            from core_memory.schema.turn import Turn
+
+            if resolution_n not in RESOLUTION_CHOICES:
+                _write_candidates(root, rows)
+                return {
+                    "ok": False,
+                    "error": {
+                        "code": "invalid_resolution",
+                        "resolution": resolution_n,
+                        "allowed": sorted(RESOLUTION_CHOICES),
+                    },
+                    "candidate_id": cid,
+                }
+
+            subject = str(target.get("subject") or "").strip()
+            slot = str(target.get("slot") or "").strip()
+            claim_a_id = str(target.get("claim_a_id") or "").strip()
+            claim_b_id = str(target.get("claim_b_id") or "").strip()
+            session_id = str(
+                (((target.get("run_metadata") or {}) if isinstance(target.get("run_metadata"), dict) else {}).get("session_id") or "")
+            ).strip() or "conflict-review"
+            turn_id = f"conflict-resolve-{cid}"
+
+            # Record the user's decision as an audit turn (canonical write boundary).
+            out = process_turn_finalized(
+                root=str(root),
+                session_id=session_id,
+                turn_id=turn_id,
+                turns=[
+                    Turn(speaker="user", role="user", content=f"Resolve {subject}:{slot} contradiction: {resolution_n}."),
+                    Turn(speaker="assistant", role="assistant", content=f"Applying reviewed claim resolution ({resolution_n}) for {subject}:{slot}."),
+                ],
+                metadata={"contradiction_resolution": {"subject": subject, "slot": slot, "resolution": resolution_n}},
+            )
+
+            # Resolve the canonical turn bead so the claim updates are grounded in a
+            # real bead, then persist them through emit_claim_updates (the audit turn
+            # itself authors no claims, so the turn-flow claim pass is skipped).
+            trigger_bead_id = find_canonical_turn_bead_id(str(root), session_id=session_id, turn_id=turn_id) or turn_id
+            claim_updates = resolution_to_claim_updates(
+                resolution=resolution_n,
+                subject=subject,
+                slot=slot,
+                claim_a_id=claim_a_id,
+                claim_b_id=claim_b_id,
+                trigger_bead_id=trigger_bead_id,
+                reason=str(notes or f"User resolved {subject}:{slot} contradiction as {resolution_n}"),
+            )
+            written = 0
+            if claim_updates:
+                emitted = emit_claim_updates(
+                    str(root), [], trigger_bead_id,
+                    session_id=session_id,
+                    reviewed_updates={"claim_updates": claim_updates},
+                ) or []
+                written = len(emitted)
+
+            applied = {
+                "ok": bool(out.get("ok")) and (written > 0 or not claim_updates),
+                "canonical_entry": "emit_claim_updates",
+                "application_mode": "claim_update_resolution" if written else "no_claim_update",
+                "resolution": resolution_n,
+                "turn_id": turn_id,
+                "trigger_bead_id": trigger_bead_id,
+                "session_id": session_id,
+                "claim_updates_written": written,
+            }
+            target["decision"]["applied_turn_id"] = turn_id
+            target["review_state"] = "resolved"
+
+            _write_candidates(root, rows)
+            return {
+                "ok": True,
+                "candidate_id": cid,
+                "status": target.get("status"),
+                "applied": applied,
+                "path": str(_candidates_path(root)),
+            }
 
         if hypothesis_type == "entity_merge_candidate":
             from core_memory.entity.merge_flow import apply_entity_merge_direct
@@ -699,12 +811,22 @@ def enqueue_contradiction_pressure_candidates(
     rows = _read_candidates(root)
     now = _now()
     run_meta = dict(run_metadata or {})
-    seen_keys = {_candidate_key(r) for r in rows if isinstance(r, dict)}
+    # Map existing candidate key → row so we can return ids for pre-existing
+    # candidates (recall needs the id to attach a review prompt, even on re-ask).
+    existing_by_key: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        if isinstance(r, dict):
+            existing_by_key.setdefault(_candidate_key(r), r)
 
     added = 0
+    candidate_ids: dict[str, str] = {}   # "subject:slot" → candidate_id (surfaceable)
+    deferred_keys: list[str] = []        # "subject:slot" the user already deferred
+
     for conflict in list(conflicts or []):
-        if hasattr(conflict, "__dict__"):
-            c = conflict.__dict__ if not hasattr(conflict, "to_dict") else conflict.to_dict()
+        if hasattr(conflict, "to_dict"):
+            c = conflict.to_dict()
+        elif hasattr(conflict, "__dict__"):
+            c = dict(conflict.__dict__)
         elif isinstance(conflict, dict):
             c = conflict
         else:
@@ -721,6 +843,7 @@ def enqueue_contradiction_pressure_candidates(
         if not subject or not slot:
             continue
 
+        slot_key = f"{subject}:{slot}"
         assoc: dict[str, Any] = {
             "source": claim_a_id,
             "target": claim_b_id,
@@ -760,10 +883,20 @@ def enqueue_contradiction_pressure_candidates(
         row["benchmark_tags"] = ["contradiction_update", "current_state_factual"]
 
         k = _candidate_key(row)
-        if k not in seen_keys:
-            rows.append(row)
-            seen_keys.add(k)
-            added += 1
+        existing = existing_by_key.get(k)
+        if existing is not None:
+            # Already queued. Respect a prior "defer" — don't re-surface a prompt.
+            state = str(existing.get("review_state") or existing.get("status") or "").strip().lower()
+            if state in {"deferred", "rejected", "accepted"}:
+                deferred_keys.append(slot_key)
+            else:
+                candidate_ids[slot_key] = str(existing.get("id") or "")
+            continue
+
+        rows.append(row)
+        existing_by_key[k] = row
+        candidate_ids[slot_key] = str(row.get("id") or "")
+        added += 1
 
     if added:
         _write_candidates(root, rows)
@@ -773,6 +906,8 @@ def enqueue_contradiction_pressure_candidates(
         "added": added,
         "queue_depth": len(rows),
         "threshold": effective_threshold,
+        "candidate_ids": candidate_ids,
+        "deferred_keys": deferred_keys,
         "path": str(_candidates_path(root)),
     }
 
