@@ -723,6 +723,45 @@ async def ingest_job_status_endpoint(job_id: str):
     return JSONResponse(_safe_ingest_job_payload(row))
 
 
+@app.post("/api/ingest/data-insight")
+async def ingest_data_insight_endpoint(request: Request):
+    """Ingest a single PipeHouse data insight as a data_insight bead (Mode B webhook).
+
+    Body fields (all required unless noted):
+      id               (str)   — PipeHouse record primary key
+      source_table     (str)   — originating table name
+      as_of_timestamp  (str)   — ISO 8601 timestamp when data was valid
+      entity_refs      (list)  — named entities present in this insight
+      attribute_tags   (list)  — PipeHouse-assigned attribute labels
+      title            (str)   — human-readable summary (max 120 chars)
+      content          (str)   — full insight description
+      session_id       (str, optional) — target session (default: env SATORID_PIPEHOUSE_SESSION_ID)
+      core_memory_unifying_id (str, optional) — cross-store join key
+      confidence       (float, optional) — default 0.9
+      because          (list, optional)  — reasons the insight was flagged
+      pipehouse_metadata (dict, optional) — PipeHouse-internal fields
+    """
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "request body must be valid JSON"}, status_code=400)
+    if not isinstance(body, dict):
+        return JSONResponse({"ok": False, "error": "request body must be a JSON object"}, status_code=400)
+
+    session_id = str(body.get("session_id") or os.getenv("SATORID_PIPEHOUSE_SESSION_ID") or "data-insights").strip()
+
+    try:
+        from core_memory.runtime.ingest.data_insight import ingest_data_insight_row
+        result = ingest_data_insight_row(MEMORY_ROOT, session_id, body)
+    except ValueError as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:
+        logger.exception("data-insight ingest error for id=%r", body.get("id"))
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+
+    return JSONResponse({"ok": True, "bead_id": result.get("bead_id"), "turn_id": result.get("turn_id")})
+
+
 @app.post("/api/recall")
 async def recall_endpoint(request: Request):
     """Grounded recall over the live memory store.

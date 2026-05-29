@@ -19,6 +19,7 @@ from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 _SIDE_EFFECT_KINDS = {
     "dreamer-run", "neo4j-sync", "health-recompute",
     "turn-enrichment", "graphiti-episode-add", "myelination-update",
+    "data-insight-poll",
 }
 _CLAIM_LEASE_SECONDS = 120
 
@@ -308,6 +309,79 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
                 "kind": k,
                 "error": {"code": "graphiti_write_error", "detail": str(exc)},
             }
+
+    if k == "data-insight-poll":
+        import os as _os
+        db_url = str(p.get("db_url") or _os.getenv("SATORID_PIPEHOUSE_DB_URL") or "").strip()
+        session_id = str(p.get("session_id") or _os.getenv("SATORID_PIPEHOUSE_SESSION_ID") or "data-insights").strip()
+        batch_size = max(1, int(p.get("batch_size") or 50))
+
+        if not db_url:
+            return {"ok": True, "kind": k, "skipped": True, "reason": "SATORID_PIPEHOUSE_DB_URL not configured"}
+
+        try:
+            import psycopg2  # type: ignore
+        except ImportError:
+            return {
+                "ok": True,
+                "kind": k,
+                "terminal_skipped": True,
+                "reason": "psycopg2 not installed; install core-memory[pipehouse] to enable polling",
+            }
+
+        from core_memory.runtime.ingest.data_insight import ingest_data_insight_row
+
+        try:
+            conn = psycopg2.connect(db_url)
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT id, source_table, as_of_timestamp, entity_refs, attribute_tags, "
+                        "title, content, because, confidence, core_memory_unifying_id, pipehouse_metadata "
+                        "FROM core_memory_insights WHERE ingested_at IS NULL "
+                        "ORDER BY as_of_timestamp ASC LIMIT %s",
+                        (batch_size,),
+                    )
+                    rows = cur.fetchall()
+                    columns = [desc[0] for desc in cur.description]
+
+                ingested = 0
+                failed = 0
+                bead_ids: list[str] = []
+                for raw_row in rows:
+                    row = dict(zip(columns, raw_row))
+                    try:
+                        result = ingest_data_insight_row(str(root), session_id, row)
+                        bead_id = str(result.get("bead_id") or "")
+                        with conn.cursor() as cur:
+                            cur.execute(
+                                "UPDATE core_memory_insights SET ingested_at = NOW(), core_memory_bead_id = %s WHERE id = %s",
+                                (bead_id or None, row["id"]),
+                            )
+                        conn.commit()
+                        ingested += 1
+                        if bead_id:
+                            bead_ids.append(bead_id)
+                    except Exception as row_exc:
+                        failed += 1
+                        import logging as _logging
+                        _logging.getLogger(__name__).warning("data-insight-poll: row %s failed: %s", row.get("id"), row_exc)
+            finally:
+                conn.close()
+        except Exception as conn_exc:
+            return {
+                "ok": False,
+                "kind": k,
+                "error": {"code": "db_connection_error", "detail": str(conn_exc)},
+            }
+
+        return {
+            "ok": True,
+            "kind": k,
+            "ingested": ingested,
+            "failed": failed,
+            "bead_ids": bead_ids,
+        }
 
     if k == "myelination-update":
         from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
