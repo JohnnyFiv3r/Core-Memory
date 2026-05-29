@@ -239,6 +239,105 @@ must remain possible.
 
 ---
 
+### #14A — `both_valid` resolution + `context_scope` claim discriminator
+
+**Status:** Not started  
+**Blocks:** nothing  
+**Blocked by:** #14 (complete)  
+**Effort:** ~2 days  
+
+Extends the conflict review UX from #14 with a fifth resolution choice: `both_valid`.
+The existing four choices (`prefer_a`, `prefer_b`, `retract_both`, `defer`) assume the
+conflict must eventually settle on one canonical value. `both_valid` handles the orthogonal
+case where two claims are *both* true but in different contexts — e.g. prod on AWS, staging
+on SQLite — and should coexist rather than compete.
+
+#### Design decisions
+
+- **`context_scope` defaults to `None` at write time.** Claims are born "global." Context
+  is never inferred at ingestion; it is assigned retroactively, only by a `both_valid`
+  resolution. Zero cost on the write path; existing claims and the extractor are untouched.
+- **Scope vocabulary is bounded by actual resolutions.** No scope registry, no value
+  normalization at claim-write time. Scope emerges from contradiction, which is precisely
+  when it is needed.
+- **`prefer_a`/`prefer_b` cover the synonym/canonicalization case.** "These are the same
+  thing — pick the canonical spelling" is `prefer_a` with an informative reason string. No
+  separate `canonicalize` resolution needed.
+- **"Both are just true, leave it" is a no-op, not a defer.** If the user asserts both
+  claims stand but refuses to name a scope, the agent does not call `apply_reviewed_proposal`
+  at all; the conflict stays live and re-surfaces on the next recall. Reserve `defer` for
+  explicit "not now / remind me later" intent; defer suppresses re-prompting, no-op does not.
+- **Two-message clarification loop.** `both_valid` requires two non-empty scope labels.
+  If the user names only one side's scope, the apply path returns `needs_clarification`
+  (no write) and the agent re-prompts once: *"And [other claim] — when does that still
+  hold?"* The complement default ("everywhere else / the default") maps to `context_scope=""`
+  and is offered explicitly so the user need not invent a name.
+- **Fork bead + single crawler pass.** A `both_valid` resolution writes a new fork-event
+  bead that records the contextual disambiguation decision. The association crawler runs one
+  pass on that fork bead immediately as part of the apply path, linking it to both origin
+  beads. This satisfies the agent-judged invariant: the crawler pass is a direct consequence
+  of the agent's explicit resolution decision, not auto-inference.
+
+#### Schema changes
+
+- `ClaimSchema` (and the persisted claim dict): add optional `context_scope: str | None`
+  (defaults `None`; persisted as absent key for legacy records).
+- `resolve_current_state()`: group by `(slot, context_scope or "")` instead of `slot`.
+  Claims with identical `(slot, context_scope)` continue to conflict; claims with different
+  `context_scope` values coexist. Legacy/global claims share the `""` bucket — fully
+  backward-compatible.
+- Epistemic scorer (`claim/epistemic.py`): skip cross-context pairs — different
+  `context_scope` values on the same slot are not a conflict; `conflict_score_for_pair()`
+  returns `0.0` when scopes differ.
+
+#### Resolution apply path
+
+When the agent maps the user's reply to `both_valid` and has both scope labels:
+
+1. Validate: both `scope_a` and `scope_b` are non-empty strings. Return
+   `needs_clarification` with an agent-readable `prompt` if either is missing.
+2. Write two new context-scoped claims that supersede the two originals:
+   - `{subject, slot, value: claim_a.value, context_scope: scope_a}` → supersedes `claim_a_id`
+   - `{subject, slot, value: claim_b.value, context_scope: scope_b}` → supersedes `claim_b_id`
+3. Emit a fork-event bead (turn text = the agent's resolution statement) via
+   `process_turn_finalized`.
+4. Call `emit_claim_updates` with the two supersede rows, using the fork bead as trigger.
+5. Run one association crawler pass on the fork bead to link it to both origin beads
+   (agent-judged: these links are a direct expression of the resolution decision).
+6. Return `application_mode="context_scope_fork"` with `scope_a`, `scope_b`,
+   `claim_updates_written: 2`, `fork_bead_id`.
+
+#### Surface changes
+
+- `resolution_to_claim_updates()` in `claim/conflict_review.py`: add `both_valid` branch.
+- `build_conflict_review()`: add `both_valid` to `resolutions[]` with an `effect` string
+  stating it requires two scope labels and describing the complement default.
+- `agent_instructions` in `build_conflict_review()`: add explicit guidance — if the user
+  picks `both_valid` but scopes only one side, ask once where the other still holds; offer
+  "default / everywhere else" as an explicit answer; do *not* call `apply_reviewed_proposal`
+  if the user refuses to scope either side.
+- `decide_dreamer_candidate()` in `candidates.py`: add `both_valid` apply branch.
+- `apply_reviewed_proposal` MCP tool: add `context_a: str | None` and `context_b: str | None`
+  params (required when `resolution="both_valid"`).
+- Agent guide (`core-memory-agent-guide.md`): document the two-message loop and complement
+  default.
+
+#### Tests
+
+- `resolve_current_state()` coexistence: two claims for same slot, different `context_scope`
+  → no conflict.
+- `resolve_current_state()` backward compat: `context_scope=None` claims resolve as before.
+- Epistemic scorer: cross-context pair returns `0.0`; same-context pair scores normally.
+- `resolution_to_claim_updates()` `both_valid` branch produces two supersede rows with
+  correct `context_scope` stamps.
+- Apply path `needs_clarification` on missing scope label.
+- Apply path full round-trip: conflict clears after `both_valid` resolution.
+- "Both are just true, leave it" → agent skips `apply_reviewed_proposal` → conflict still
+  live on next recall.
+- Complement default (`scope_b=""`) coexists with `scope_a="prod"` without conflict.
+
+---
+
 ### #12 — Dreamer: latent theme synthesis
 
 **Status:** Not started  
@@ -358,6 +457,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 #11 (myelination wiring)
 ├── #14 (contradiction pressure)
+│   ├── #14A (both_valid + context_scope)
 │   └── #12 (dreamer themes)
 └── #12 (dreamer themes)
 
@@ -382,9 +482,10 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 | 4 | **#9B** enrichment delta | 3d | No deps; makes re-runs safe |
 | 5 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
 | 6 | **#10** multi-speaker | 4d | Complete |
-| 7 | **#14** contradiction pressure | 3d | After #11 |
-| 8 | **#17** eval layer | 3d | Parallel to any of the above |
-| 9 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
-| 10 | **#12** dreamer themes | 3d | After #11 + #14 |
-| 11 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
-| 12 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
+| 7 | **#14** contradiction pressure | 3d | After #11; complete |
+| 8 | **#14A** both_valid + context_scope | 2d | After #14; extends resolution vocabulary |
+| 9 | **#17** eval layer | 3d | Parallel to any of the above |
+| 10 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
+| 11 | **#12** dreamer themes | 3d | After #11 + #14 |
+| 12 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
+| 13 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
