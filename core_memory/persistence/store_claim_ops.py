@@ -502,6 +502,10 @@ def resolve_current_state(root: str, subject: str, slot: str) -> dict:
     ]
     conflicts = [c for c in slot_claims if str(c.get("id") or "") in conflict_ids]
 
+    # Sort by chain_seq so the highest-sequence claim wins regardless of insertion order.
+    # Records without chain_seq (legacy) sort as 0 and degrade to list order.
+    active_claims.sort(key=lambda c: int(c.get("chain_seq") or 0))
+
     active_by_id = {str(c.get("id") or ""): c for c in active_claims}
     current = active_by_id.get(latest_replacement_id) if latest_replacement_id else None
     if current is None:
