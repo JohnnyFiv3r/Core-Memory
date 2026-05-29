@@ -159,6 +159,27 @@ class RecallPlanning:
 
 
 @dataclass
+class ConflictItem:
+    """One active subject+slot conflict surfaced by recall."""
+
+    subject: str
+    slot: str
+    claim_a_id: str
+    claim_b_id: str
+    epistemic_conflict_score: float
+    conflict_since: str = ""
+    chain_seq_gap: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "ConflictItem":
+        return cls(**_known_dataclass_kwargs(cls, data))
+
+
+@dataclass
 class RecallResult:
     """Stable recall response contract shared by package, HTTP, CLI, and demos."""
 
@@ -167,6 +188,7 @@ class RecallResult:
     evidence: list[EvidenceItem] = field(default_factory=list)
     resolved_goals: list[ResolvedGoalItem] = field(default_factory=list)
     claim_slots: dict[str, ClaimSlotItem] = field(default_factory=dict)
+    conflicts: list[ConflictItem] = field(default_factory=list)
     sources: list[SourceItem] = field(default_factory=list)
     tier_path: list[str] = field(default_factory=list)
     steps: list[RecallStep] = field(default_factory=list)
@@ -185,6 +207,7 @@ class RecallResult:
             "evidence": [e.to_dict() for e in self.evidence],
             "resolved_goals": [g.to_dict() for g in self.resolved_goals],
             "claim_slots": {str(k): v.to_dict() for k, v in (self.claim_slots or {}).items()},
+            "conflicts": [c.to_dict() for c in self.conflicts],
             "sources": [s.to_dict() for s in self.sources],
             "steps": [s.to_dict() for s in self.steps],
             "planning": self.planning.to_dict(),
@@ -201,6 +224,7 @@ class RecallResult:
             for k, v in dict(raw_slots or {}).items()
             if isinstance(v, dict)
         }
+        payload["conflicts"] = [ConflictItem.from_dict(x) for x in _clean_list(payload.get("conflicts")) if isinstance(x, dict)]
         payload["sources"] = [SourceItem.from_dict(x) for x in _clean_list(payload.get("sources")) if isinstance(x, dict)]
         payload["steps"] = [RecallStep.from_dict(x) for x in _clean_list(payload.get("steps")) if isinstance(x, dict)]
         planning = payload.get("planning")

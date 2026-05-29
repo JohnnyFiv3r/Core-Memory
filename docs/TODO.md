@@ -197,23 +197,25 @@ must remain possible.
 
 ### #14 — Contradiction pressure and epistemic uncertainty
 
-**Status:** Not started  
-**Blocks:** #12 (dreamer candidate type)  
-**Blocked by:** #11 (myelination job infra)  
+**Status:** Complete  
+**Blocks:** #12 (dreamer candidate type — now unblocked)  
 **Effort:** ~3 days  
 **Spec:** `docs/reports/capability-roadmap-prds.md` § #14
 
-`store_claim_ops.py` marks claims `status: conflict` when two claims share
-`(subject, slot)` with no supersede. That conflict state never propagates — not to
-associations, not to `recall()` results, not to the user. Ambiguity is silently
-swallowed.
-
-**Missing:**
-- `claim/epistemic.py` — `compute_epistemic_conflict_score()` → float [0.0, 1.0]
-- `ConflictItem` dataclass + `RecallResult.conflicts` in `retrieval/contracts.py`
-- Retrieval planner populates `conflicts` and `uncertainty_pressure` on associations
-- `dreamer_candidates.py` — `contradiction_pressure_candidate` type; emit when
-  score > `CORE_MEMORY_CONFLICT_REVIEW_THRESHOLD` (default 0.7)
+**Shipped:**
+- `claim/epistemic.py` — `compute_epistemic_conflict_score(claim_a, claim_b, chain_seq_gap, time_delta_days) → float [0.0, 1.0]`
+  and `conflict_score_for_pair()` convenience wrapper
+- `ConflictItem` dataclass in `retrieval/contracts.py` (`subject`, `slot`,
+  `claim_a_id`, `claim_b_id`, `epistemic_conflict_score`, `conflict_since`, `chain_seq_gap`)
+- `RecallResult.conflicts: list[ConflictItem]` — additive; conflicted claims remain
+  fully queryable; `conflicts` field is supplemental information
+- `retrieval/agent._conflicts_for_result()` — scans evidence bead (subject, slot) pairs,
+  calls `resolve_current_state()`, computes score, populates `result.conflicts`
+- `runtime/dreamer/candidates.enqueue_contradiction_pressure_candidates()` — emits
+  `contradiction_pressure_candidate` rows (score > threshold, strictly greater-than);
+  threshold from `CORE_MEMORY_CONFLICT_REVIEW_THRESHOLD` env var (default 0.7)
+- Fire-and-forget emission in `recall()` after `_enrich_recall_state`
+- 28 tests in `tests/test_epistemic_conflict.py`
 
 ---
 

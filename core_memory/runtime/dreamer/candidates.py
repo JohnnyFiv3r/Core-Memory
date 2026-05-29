@@ -679,8 +679,107 @@ def submit_entity_merge_candidate(
     }
 
 
+def enqueue_contradiction_pressure_candidates(
+    *,
+    root: str | Path,
+    conflicts: list[Any],
+    threshold: float | None = None,
+    run_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Emit contradiction_pressure_candidate rows for conflicts above threshold.
+
+    ``conflicts`` is a list of ConflictItem instances or dicts with the same fields.
+    The threshold defaults to the ``CORE_MEMORY_CONFLICT_REVIEW_THRESHOLD`` env var (0.7).
+    """
+    import os
+
+    env_threshold = float(os.environ.get("CORE_MEMORY_CONFLICT_REVIEW_THRESHOLD") or "0.7")
+    effective_threshold = float(threshold) if threshold is not None else env_threshold
+
+    rows = _read_candidates(root)
+    now = _now()
+    run_meta = dict(run_metadata or {})
+    seen_keys = {_candidate_key(r) for r in rows if isinstance(r, dict)}
+
+    added = 0
+    for conflict in list(conflicts or []):
+        if hasattr(conflict, "__dict__"):
+            c = conflict.__dict__ if not hasattr(conflict, "to_dict") else conflict.to_dict()
+        elif isinstance(conflict, dict):
+            c = conflict
+        else:
+            continue
+
+        score = float(c.get("epistemic_conflict_score") or 0.0)
+        if score <= effective_threshold:
+            continue
+
+        subject = str(c.get("subject") or "").strip()
+        slot = str(c.get("slot") or "").strip()
+        claim_a_id = str(c.get("claim_a_id") or "").strip()
+        claim_b_id = str(c.get("claim_b_id") or "").strip()
+        if not subject or not slot:
+            continue
+
+        assoc: dict[str, Any] = {
+            "source": claim_a_id,
+            "target": claim_b_id,
+            "relationship": "contradicts",
+            "novelty": 0.0,
+            "grounding": score,
+            "confidence": score,
+        }
+        row = _make_candidate_row(
+            now=now,
+            run_meta=run_meta,
+            association=assoc,
+            hypothesis_type="contradiction_pressure_candidate",
+            rationale=(
+                f"Claim conflict on {subject}:{slot} has epistemic pressure score {score:.3f} "
+                f"(chain_seq_gap={c.get('chain_seq_gap', 0)}, conflict_since={c.get('conflict_since', '')}). "
+                "Human review recommended."
+            ),
+            expected_decision_impact=(
+                f"Resolve conflicting claims on '{subject}' / '{slot}' to improve recall accuracy."
+            ),
+            extras={
+                "subject": subject,
+                "slot": slot,
+                "claim_a_id": claim_a_id,
+                "claim_b_id": claim_b_id,
+                "epistemic_conflict_score": score,
+                "conflict_since": str(c.get("conflict_since") or ""),
+                "chain_seq_gap": int(c.get("chain_seq_gap") or 0),
+                "conflict_threshold": effective_threshold,
+            },
+        )
+        # Override hypothesis_type — _make_candidate_row derives it from relationship,
+        # so we set it explicitly after construction.
+        row["hypothesis_type"] = "contradiction_pressure_candidate"
+        row["proposal_family"] = "contradiction"
+        row["benchmark_tags"] = ["contradiction_update", "current_state_factual"]
+
+        k = _candidate_key(row)
+        if k not in seen_keys:
+            rows.append(row)
+            seen_keys.add(k)
+            added += 1
+
+    if added:
+        _write_candidates(root, rows)
+
+    return {
+        "ok": True,
+        "added": added,
+        "queue_depth": len(rows),
+        "threshold": effective_threshold,
+        "path": str(_candidates_path(root)),
+    }
+
+
 __all__ = [
     "enqueue_dreamer_candidates",
+    "enqueue_contradiction_pressure_candidates",
     "list_dreamer_candidates",
     "decide_dreamer_candidate",
     "submit_entity_merge_candidate",

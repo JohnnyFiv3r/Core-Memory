@@ -7,6 +7,7 @@ from typing import Any
 
 from core_memory.retrieval.contracts import (
     ClaimSlotItem,
+    ConflictItem,
     RecallPlanning,
     RecallResult,
     RecallStep,
@@ -220,6 +221,62 @@ def _claim_slots_for_result(result: RecallResult, root: str, index: dict[str, An
     return slots
 
 
+def _conflicts_for_result(result: RecallResult, root: str, index: dict[str, Any]) -> list[ConflictItem]:
+    """Find active claim conflicts for all (subject, slot) pairs in evidence beads.
+
+    Scoped to direct evidence only (one pass); ignores slots without conflict status.
+    """
+    from core_memory.claim.epistemic import conflict_score_for_pair
+
+    evidence_ids = {str(e.bead_id) for e in result.evidence if str(e.bead_id)}
+    beads = index.get("beads") or {}
+    pairs: set[tuple[str, str]] = set()
+    for bid in evidence_ids:
+        row = beads.get(bid) if isinstance(beads, dict) else None
+        if not isinstance(row, dict):
+            continue
+        for claim in row.get("claims") or []:
+            if isinstance(claim, dict) and _text(claim.get("subject")) and _text(claim.get("slot")):
+                pairs.add((_text(claim.get("subject")), _text(claim.get("slot"))))
+        for update in row.get("claim_updates") or []:
+            if isinstance(update, dict) and _text(update.get("subject")) and _text(update.get("slot")):
+                pairs.add((_text(update.get("subject")), _text(update.get("slot"))))
+
+    if not pairs:
+        return []
+
+    items: list[ConflictItem] = []
+    for subject, slot in sorted(pairs):
+        state = resolve_current_state(root, subject, slot)
+        if str(state.get("status") or "") != "conflict":
+            continue
+        conflict_claims = state.get("conflicts") or []
+        if len(conflict_claims) < 2:
+            if len(conflict_claims) == 1:
+                current = state.get("current_claim")
+                if isinstance(current, dict) and current != conflict_claims[0]:
+                    conflict_claims = [conflict_claims[0], current]
+            if len(conflict_claims) < 2:
+                continue
+        claim_a = conflict_claims[0]
+        claim_b = conflict_claims[1]
+        score = conflict_score_for_pair(claim_a, claim_b)
+        conflict_since = str(claim_a.get("created_at") or claim_b.get("created_at") or "")
+        seq_a = int(claim_a.get("chain_seq") or 0) if str(claim_a.get("chain_seq") or "").isdigit() else 0
+        seq_b = int(claim_b.get("chain_seq") or 0) if str(claim_b.get("chain_seq") or "").isdigit() else 0
+        items.append(ConflictItem(
+            subject=subject,
+            slot=slot,
+            claim_a_id=_text(claim_a.get("id")),
+            claim_b_id=_text(claim_b.get("id")),
+            epistemic_conflict_score=score,
+            conflict_since=conflict_since,
+            chain_seq_gap=abs(seq_b - seq_a),
+        ))
+
+    return items
+
+
 def _enrich_recall_state(result: RecallResult, *, root: str, query: str) -> None:
     index = _read_index(root)
     if not index:
@@ -227,6 +284,7 @@ def _enrich_recall_state(result: RecallResult, *, root: str, query: str) -> None
     _add_evidence_grounding(result, index)
     result.resolved_goals = _resolved_goals_for_result(result, index, query)
     result.claim_slots = _claim_slots_for_result(result, root, index)
+    result.conflicts = _conflicts_for_result(result, root, index)
 
 
 def _expected_shape(query: str) -> dict[str, Any]:
@@ -389,6 +447,14 @@ def recall(
 
     result = recall_result_from_memory_execute(raw, query=query, effort=selected_effort, include_raw=include_raw)
     _enrich_recall_state(result, root=root, query=query)
+
+    # Fire-and-forget: emit dreamer candidates for high-pressure conflicts.
+    try:
+        if result.conflicts:
+            from core_memory.runtime.dreamer.candidates import enqueue_contradiction_pressure_candidates
+            enqueue_contradiction_pressure_candidates(root=root, conflicts=result.conflicts)
+    except Exception:
+        pass
 
     # Apply pre-computed myelination bonuses when enabled.
     try:
