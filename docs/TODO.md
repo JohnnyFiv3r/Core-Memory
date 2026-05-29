@@ -141,7 +141,7 @@ non-agent party by construction. When a turn carries no speaker label, no
 
 ### #10A — Multi-party transcript ingest (N-speaker gateway)
 
-**Status:** Not started  
+**Status:** Complete  
 **Blocks:** the attribution queries #10 was built for ("what did Alice propose vs. what
 Bob approved?")  
 **Blocked by:** nothing (builds on #10)  
@@ -167,7 +167,7 @@ this gateway still throws away the participant structure.
 
 ### #10B — Per-adapter `source_system` convention (MCP ingest adapters)
 
-**Status:** Not started  
+**Status:** Complete  
 **Blocked by:** #10A (multi-party gateway should land first)  
 **Effort:** ~2 days per adapter; mechanical
 
