@@ -291,6 +291,65 @@ def _associations_created_summary(root: str, bead_ids: list[str]) -> dict[str, A
     return {"count": len(rows), "by_type": dict(sorted(by_type.items())), "items": rows}
 
 
+def _resolve_envelope_speakers(
+    root: str,
+    envelopes: list[dict[str, Any]],
+    source_system: str = "",
+) -> list[dict[str, Any]]:
+    """Resolve speaker labels in envelopes to canonical entity IDs.
+
+    Loads the entity registry, resolves each unique speaker label, attaches
+    speaker_attribution to each envelope's metadata, and persists any newly
+    created entities back to the index.
+    """
+    unique_labels: set[str] = set()
+    for env in envelopes:
+        meta = (env or {}).get("metadata") or {}
+        for key in ("user_speaker", "assistant_speaker"):
+            label = str(meta.get(key) or "").strip()
+            if label:
+                unique_labels.add(label)
+
+    if not unique_labels:
+        return envelopes
+
+    try:
+        from core_memory.entity.registry import load_entity_registry, save_entity_registry
+        from core_memory.entity.speaker_resolver import resolve_speaker
+
+        index = load_entity_registry(root)
+        resolutions: dict[str, dict[str, Any]] = {}
+        any_new = False
+        for label in sorted(unique_labels):
+            res = resolve_speaker(index, label, source_system)
+            resolutions[label] = res.to_dict()
+            if res.resolved:
+                any_new = True
+
+        result: list[dict[str, Any]] = []
+        for env in envelopes:
+            env = dict(env)
+            meta = dict(env.get("metadata") or {})
+            attribution: list[dict[str, Any]] = []
+            for key, role in (("user_speaker", "user"), ("assistant_speaker", "assistant")):
+                label = str(meta.get(key) or "").strip()
+                if label and label in resolutions:
+                    entry = dict(resolutions[label])
+                    entry["role"] = role
+                    attribution.append(entry)
+            if attribution:
+                meta["speaker_attribution"] = attribution
+            env["metadata"] = meta
+            result.append(env)
+
+        if any_new:
+            save_entity_registry(root, index)
+
+        return result
+    except Exception:
+        return envelopes
+
+
 def ingest_transcript(
     *,
     root: str = ".",
@@ -313,9 +372,17 @@ def ingest_transcript(
         },
         max_turns=max_turns,
     )
+
+    source_system = str((metadata or {}).get("source_system") or "").strip().lower()
+    envelopes = _resolve_envelope_speakers(
+        root,
+        list(normalized.get("envelopes") or []),
+        source_system=source_system,
+    )
+
     out = ingest_turn_envelopes(
         root=root,
-        envelopes=list(normalized.get("envelopes") or []),
+        envelopes=envelopes,
         flush_policy=str(normalized.get("flush_policy") or flush_policy),
     )
     new_bead_ids = sorted(

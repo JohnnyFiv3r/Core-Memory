@@ -66,6 +66,16 @@ def add_bead_for_store(
         **kwargs,
     }
 
+    # Speaker attribution: promote key fields to bead top-level when present
+    if isinstance(bead.get("speaker_attribution"), dict):
+        attr = bead["speaker_attribution"]
+        eid = str(attr.get("resolved_entity_id") or "").strip()
+        conf = attr.get("resolution_confidence")
+        if eid:
+            bead.setdefault("attributed_entity_id", eid)
+        if conf is not None:
+            bead.setdefault("resolution_confidence", float(conf))
+
     bead = store._sanitize_bead_content(bead)
     bead = enforce_bead_hygiene_contract(bead)
 

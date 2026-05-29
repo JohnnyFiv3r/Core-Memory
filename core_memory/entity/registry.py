@@ -257,6 +257,37 @@ def sync_bead_entities_for_index(
     return {"ok": True, "linked": len(linked), "entity_ids": linked, "created": created}
 
 
+def register_speaker_alias(
+    index: dict[str, Any],
+    entity_id: str,
+    observed_label: str,
+    source_system: str = "",
+) -> dict[str, Any]:
+    """Register an observed speaker label as an alias for an existing entity.
+
+    Thin wrapper over upsert_canonical_entity that targets a specific entity_id
+    rather than looking up by label.
+    """
+    eid = str(entity_id or "").strip()
+    raw = str(observed_label or "").strip()
+    if not eid or not raw:
+        return {"ok": False, "error": "missing_required_fields"}
+
+    ensure_entity_registry_for_index(index)
+    row = (index.get("entities") or {}).get(eid)
+    if not isinstance(row, dict):
+        return {"ok": False, "error": "entity_not_found"}
+
+    label = str(row.get("label") or row.get("normalized_label") or eid)
+    return upsert_canonical_entity(
+        index,
+        label=label,
+        aliases=[raw],
+        confidence=float(row.get("confidence") or 0.7),
+        provenance={"kind": "speaker_label", "source": str(source_system or ""), "observed": raw},
+    )
+
+
 def load_entity_registry(root: str | Path) -> dict[str, Any]:
     p = Path(root) / ".beads" / "index.json"
     if not p.exists():
@@ -274,3 +305,28 @@ def load_entity_registry(root: str | Path) -> dict[str, Any]:
         }
     except Exception:
         return {"entities": {}, "entity_aliases": {}}
+
+
+def save_entity_registry(root: str | Path, index: dict[str, Any]) -> None:
+    """Persist entity registry fields back to the index file.
+
+    Merges entities and aliases into the existing index without clobbering
+    unrelated fields (beads, associations, stats).
+    """
+    import json
+
+    from core_memory.persistence.io_utils import atomic_write_json, store_lock
+
+    p = Path(root) / ".beads" / "index.json"
+    with store_lock(Path(root)):
+        full: dict[str, Any] = {}
+        if p.exists():
+            try:
+                full = json.loads(p.read_text(encoding="utf-8"))
+            except Exception:
+                full = {}
+        if not isinstance(full, dict):
+            full = {}
+        full["entities"] = dict(index.get("entities") or {})
+        full["entity_aliases"] = dict(index.get("entity_aliases") or {})
+        atomic_write_json(p, full)

@@ -425,6 +425,18 @@ def _normalize_claim_update_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 
 @dataclass
+class SpeakerAttribution:
+    """Observed speaker label resolved to a canonical entity."""
+
+    speaker_observed: str
+    resolved_entity_id: str | None
+    resolution_confidence: float
+    source_system: str
+    aliases: list = field(default_factory=list)
+    resolved: bool = False
+
+
+@dataclass
 class Claim:
     """A claim captures a discrete user-stated or agent-inferred fact."""
     id: str = ""
