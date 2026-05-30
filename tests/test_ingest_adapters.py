@@ -114,14 +114,15 @@ class TestDiscordParser(unittest.TestCase):
             },
         ]
 
-    def test_username_with_discriminator_as_speaker(self):
+    def test_stable_author_id_as_speaker(self):
         turns = _parse_discord_payload(self._messages())
-        self.assertEqual(turns[0]["speaker"], "johnnyfiv3r#1234")
+        # author_id is the canonical speaker label for stable identity resolution
+        self.assertEqual(turns[0]["speaker"], "discord:987654321")
 
-    def test_zero_discriminator_stripped(self):
+    def test_stable_author_id_regardless_of_discriminator(self):
         turns = _parse_discord_payload(self._messages())
-        # discriminator "0000" treated as new-style (no suffix)
-        self.assertEqual(turns[1]["speaker"], "alice")
+        # author_id wins even when discriminator is present or zero
+        self.assertEqual(turns[1]["speaker"], "discord:111222333")
 
     def test_content_preserved(self):
         turns = _parse_discord_payload(self._messages())
