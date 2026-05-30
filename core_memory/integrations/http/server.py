@@ -44,6 +44,16 @@ from core_memory.integrations.mcp.protocol_server import build_mcp_app
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
 TENANT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _is_loopback(host: str) -> bool:
+    return host.strip().lower() in _LOOPBACK_HOSTS
+
+
+def _is_hosted_mode() -> bool:
+    """True when bound to a non-loopback interface (server-authority / hosted mode)."""
+    return not _is_loopback(str(os.getenv("CORE_MEMORY_HTTP_HOST") or "127.0.0.1"))
 
 
 def _resolve_tenant(x_tenant_id: Optional[str]) -> Optional[str]:
@@ -279,7 +289,20 @@ def _check_auth(authorization: Optional[str], x_memory_token: Optional[str]) -> 
 
 
 def _resolve_root(root: Optional[str], tenant_id: Optional[str] = None) -> str:
-    base = Path(str(root or "."))
+    if _is_hosted_mode():
+        # Hosted mode: CORE_MEMORY_ROOT is the server authority.
+        # Caller-supplied root is denied unless it matches the server root
+        # or CORE_MEMORY_HTTP_ALLOW_ARBITRARY_ROOT=1 is set (dev escape hatch).
+        server_root = str(os.getenv("CORE_MEMORY_ROOT") or ".")
+        effective_root = server_root
+        if root and root != server_root:
+            allow = str(os.getenv("CORE_MEMORY_HTTP_ALLOW_ARBITRARY_ROOT", "")).lower() in {"1", "true", "yes"}
+            if not allow:
+                raise HTTPException(status_code=403, detail="arbitrary_root_denied_in_hosted_mode")
+            effective_root = root
+        base = Path(effective_root)
+    else:
+        base = Path(str(root or os.getenv("CORE_MEMORY_ROOT") or "."))
     tenant = _resolve_tenant(tenant_id)
     if not tenant:
         return str(base)
@@ -894,13 +917,6 @@ async def ops_dreamer_candidates_decide(
     if not out.get("ok"):
         return JSONResponse(status_code=400, content=out)
     return out
-
-
-_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
-
-
-def _is_loopback(host: str) -> bool:
-    return host.strip().lower() in _LOOPBACK_HOSTS
 
 
 def main() -> None:
