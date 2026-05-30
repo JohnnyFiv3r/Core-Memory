@@ -50,6 +50,7 @@ from .passes.agent_authored_contract import (
     validate_agent_authored_updates,
 )
 from .turn.turn_prep import normalize_turn_request as _normalize_turn_request, infer_semantic_bead_type as _infer_semantic_bead_type
+from ..policy.bead_typing import is_retrieval_turn
 from ..schema.turn import Turn, reject_legacy_turn_kwargs
 from .session.session_start_flow import process_session_start_impl
 from .turn.turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
@@ -153,10 +154,19 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
     user_query, assistant_final = _turn_judge_inputs(req)
     text = (user_query or assistant_final or "turn memory").strip()
     title = (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory"
+    summary = [text[:240] or "turn memory"]
+    # Durable, state-bearing turns are retrieval-eligible by default so that
+    # captured memory is findable by semantic recall without requiring an
+    # agent-crawler callable or CORE_MEMORY_BEAD_JUDGE_FALLBACK. Pure retrieval
+    # questions ("what did we decide?") are not themselves durable memory.
+    durable = bool(text) and not is_retrieval_turn(user_query)
+    tags = ["crawler_reviewed", "turn_finalized", tag]
+    if not durable:
+        tags.append("semantic_fallback_disabled")
     return {
         "type": _infer_semantic_bead_type(user_query, assistant_final),
         "title": title,
-        "summary": [text[:240] or "turn memory"],
+        "summary": summary,
         "because": [],
         "source_turn_ids": [str(req.get("turn_id") or "")],
         "source_turn_ref": dict(req.get("source_turn_ref") or {}),
@@ -166,13 +176,13 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
         "evidence_refs": [],
         "state_change": "",
         "validity": "",
-        "retrieval_eligible": False,
-        "retrieval_title": "",
-        "retrieval_facts": [],
+        "retrieval_eligible": durable,
+        "retrieval_title": title if durable else "",
+        "retrieval_facts": summary if durable else [],
         "effective_from": "",
         "effective_to": "",
         "observed_at": "",
-        "tags": ["crawler_reviewed", "turn_finalized", tag, "semantic_fallback_disabled"],
+        "tags": tags,
         "detail": (assistant_final or text)[:1200],
     }
 

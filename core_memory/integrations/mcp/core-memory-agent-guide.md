@@ -4,9 +4,19 @@ Status: canonical MCP agent guide
 
 Core Memory is the memory authority. MCP clients are adapter surfaces: they call tools, but they do not mutate `.beads`, `.turns`, rolling-window, archive, semantic index, claim, or association files directly.
 
-Use the public verbs deliberately:
-- `capture` writes observed conversation turns through the canonical runtime boundary.
+## Operating protocol — follow this on every turn
+
+Core Memory only works if you drive the loop. Treat these as standing instructions for the whole conversation, not optional tools to reach for occasionally:
+
+1. **Recall first.** Before answering anything that could depend on earlier context — prior decisions, the user's stated preferences, facts, commitments, or "what did we say about X" — call `recall` and ground your answer in the result. When in doubt, recall. A missed recall means you answer from a blank slate while the memory sits unused.
+2. **Capture after.** After any turn that contains durable state — a decision, fact, preference, commitment, condition, or relationship — call `capture` with the just-completed user+assistant exchange. Do this as a normal part of responding, not only when the user says "remember this."
+3. **Resolve conflicts when surfaced.** If `recall` returns a `review_prompt`, walk the user through it (see "Surfacing contradictions" below).
+4. **Sync at the end.** Before a long conversation ends or compacts, call `capture_session` (or `ingest`) to flush the full transcript so nothing durable is lost to a missed per-turn capture.
+
+The verbs:
 - `recall` reads memory through the single grounded recall verb with `effort="low|medium|high"`.
+- `capture` writes observed conversation turns through the canonical runtime boundary.
+- `capture_session` replays a whole conversation transcript through the canonical write path (end-of-session safety net).
 - `ingest` imports local transcript files when the MCP server process can read them.
 - `status` checks whether the server and store are alive.
 
@@ -49,6 +59,20 @@ The complement default: if one scope is "everywhere else / the default", pass `c
 
 A conflict with no `review_prompt` is informational only (below threshold, or already deferred) — mention it if relevant, but there is nothing to resolve. Never fabricate a `candidate_id`; only resolve conflicts that recall actually surfaced.
 <!-- surface:conflicts:end -->
+
+<!-- tool:capture_session:start -->
+## Tool: capture_session
+
+Use `capture_session` as an end-of-session safety net. Call it **once** before a long conversation ends or is compacted — pass the full conversation as a `turns` list (or `messages` list, or a file `path`). It replays the entire transcript through canonical capture semantics so any durable state that per-turn `capture` missed is recovered. Do not skip this in favour of trusting that every turn was captured individually; transcript compaction can silently drop turns that were never written to Core Memory.
+
+Accepted shapes — provide exactly one:
+- `turns`: list of `{role, content}` objects (or `{speaker, role, content}`)
+- `messages`: list of OpenAI-style message objects
+- `path`: absolute path to a transcript file readable by the MCP server process
+
+Optional: `session_id` to associate the transcript with a specific session; `flush_policy` to control whether the rolling window is updated (defaults to `"flush"`).
+
+<!-- tool:capture_session:end -->
 
 <!-- tool:ingest:start -->
 ## Tool: ingest

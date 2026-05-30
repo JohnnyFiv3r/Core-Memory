@@ -16,6 +16,7 @@ from typing import Any, Callable
 
 from core_memory.integrations.mcp.agent_guide import tool_description
 from core_memory.integrations.mcp.tools.capture import capture_handler
+from core_memory.integrations.mcp.tools.capture_session import capture_session_handler
 from core_memory.integrations.mcp.tools.ingest import ingest_handler
 from core_memory.integrations.mcp.tools.recall import recall_handler
 from core_memory.integrations.mcp.tools.status import status_handler
@@ -241,6 +242,37 @@ TOOLS: dict[str, MCPToolDefinition] = {
         input_schema=_schema_with_root(MCP_TYPED_WRITE_TOOL_SCHEMAS["submit_entity_merge_proposal"]["input"]),
         output_schema=_GENERIC_OBJECT_SCHEMA,
         handler=_typed_write_handler("submit_entity_merge_proposal"),
+    ),
+    "capture_session": MCPToolDefinition(
+        name="capture_session",
+        description=tool_description("capture_session"),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "turns": {"type": "array"},
+                "messages": {"type": "array"},
+                "path": {"type": "string"},
+                "from": {"enum": ["auto", "json", "jsonl", "markdown", "text"]},
+                "session_id": {"type": "string"},
+                "session_prefix": {"type": "string"},
+                "transcript_id": {"type": "string"},
+                "flush_policy": {"type": "string"},
+                "max_turns": {"type": "integer", "minimum": 1},
+                "metadata": {"type": "object"},
+                "root": {"type": "string"},
+            },
+            "additionalProperties": False,
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "session_id": {"type": "string"},
+                "turns_ingested": {"type": "integer"},
+                "bead_ids": {"type": "array", "items": {"type": "string"}},
+            },
+        },
+        handler=capture_session_handler,
     ),
     "status": MCPToolDefinition(
         name="status",
