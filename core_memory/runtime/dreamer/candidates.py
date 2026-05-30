@@ -534,7 +534,7 @@ def decide_dreamer_candidate(
                 sb = str(scope_b or "").strip()
                 if not sa or not sb:
                     # Needs clarification — don't update candidate status.
-                    target["status"] = "unreviewed"
+                    target["status"] = "pending"
                     target.pop("decision", None)
                     target.pop("resolution", None)
                     missing = "scope_a" if not sa else "scope_b"

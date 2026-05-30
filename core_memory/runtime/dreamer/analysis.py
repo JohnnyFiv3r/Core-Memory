@@ -553,7 +553,7 @@ def synthesize_themes(root: str | Path) -> list[dict[str, Any]]:
 
     qualifying = [
         c for c in candidates
-        if str(c.get("status") or "").lower() == "unreviewed"
+        if str(c.get("status") or "").lower() in {"pending", "unreviewed"}
         and str(c.get("hypothesis_type") or "").lower() not in _excluded_types
         and float(c.get("confidence") or c.get("score") or 0.0) >= 0.5
     ]
@@ -631,7 +631,7 @@ def synthesize_themes(root: str | Path) -> list[dict[str, Any]]:
             themes.append({
                 "id": f"dc-{uuid.uuid4().hex[:12]}",
                 "created_at": now,
-                "status": "unreviewed",
+                "status": "pending",
                 "hypothesis_type": "proposed_theme_candidate",
                 "proposal_family": "theme",
                 "benchmark_tags": ["causal_mechanism"],

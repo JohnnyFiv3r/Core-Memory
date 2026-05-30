@@ -30,7 +30,7 @@ def _parse_message(row: Any, index: int) -> dict[str, Any] | None:
         return None
     msg_type = str(row.get("type") or "Default").strip()
     # Skip system message types
-    if msg_type.lower() in {"call", "channelnamecalange", "channelpinnedmessage", "guildmemberjoin"}:
+    if msg_type.lower() in {"call", "channelnamechange", "channelpinnedmessage", "guildmemberjoin"}:
         return None
 
     author = row.get("author") or {}

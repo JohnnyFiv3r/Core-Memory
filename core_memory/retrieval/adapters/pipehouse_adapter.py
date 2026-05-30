@@ -68,7 +68,7 @@ def retrieve(
         record_id = str(record.get("record_id") or record.get("id") or "").strip()
         if not record_id:
             continue
-        raw_score = record.get("relevance_score") or record.get("score")
+        raw_score = record.get("relevance_score") if record.get("relevance_score") is not None else record.get("score")
         try:
             score: float | None = float(raw_score)
         except (TypeError, ValueError):
@@ -86,6 +86,8 @@ def retrieve(
                 "entity_refs": record.get("entity_refs") or [],
                 "attribute_tags": record.get("attribute_tags") or [],
                 "as_of_timestamp": str(record.get("as_of_timestamp") or "").strip(),
+                # Expose as created_at so _filter_evidence_by_as_of works correctly.
+                "created_at": str(record.get("as_of_timestamp") or "").strip() or None,
                 "source_table": str(record.get("source_table") or "").strip(),
             },
         ))

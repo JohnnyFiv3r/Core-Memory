@@ -327,6 +327,12 @@ def save_entity_registry(root: str | Path, index: dict[str, Any]) -> None:
                 full = {}
         if not isinstance(full, dict):
             full = {}
+        # Ensure required structural keys are present so callers that
+        # initialize the store after this call see a valid index schema.
+        full.setdefault("beads", {})
+        full.setdefault("associations", [])
+        full.setdefault("stats", {"total_beads": 0, "total_associations": 0})
+        full.setdefault("projection", {})
         full["entities"] = dict(index.get("entities") or {})
         full["entity_aliases"] = dict(index.get("entity_aliases") or {})
         atomic_write_json(p, full)

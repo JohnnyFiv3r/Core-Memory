@@ -228,7 +228,9 @@ def resolution_to_claim_updates(
         if b:
             rows.append(_retract(b))
         return rows
-    return []  # defer or unknown → no write
+    # both_valid and defer reach here. both_valid is handled upstream in candidates.py
+    # (the existing candidate is marked pending for re-review). defer means no write now.
+    return []
 
 
 __all__ = [

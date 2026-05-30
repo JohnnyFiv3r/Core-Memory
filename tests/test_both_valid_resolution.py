@@ -343,7 +343,7 @@ class TestDecideBothValid(unittest.TestCase):
             )
             rows = _read_candidates(td)
             candidate = next(r for r in rows if r["id"] == cid)
-        self.assertEqual("unreviewed", candidate.get("status"))
+        self.assertEqual("pending", candidate.get("status"))
 
     def test_accept_both_valid_calls_process_turn_finalized(self):
         from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate

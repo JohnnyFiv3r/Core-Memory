@@ -528,7 +528,8 @@ def recall(
                 pipehouse_cfg=_pipehouse_cfg,
             )
     except Exception:
-        pass
+        import logging
+        logging.getLogger(__name__).warning("fanout_recall failed", exc_info=True)
 
     if as_of is not None:
         result.evidence = _filter_evidence_by_as_of(result.evidence, as_of)

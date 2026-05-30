@@ -137,7 +137,10 @@ def fanout_recall(
 
     store_fn = {"ragie": _call_ragie, "pipehouse": _call_pipehouse}
 
-    with ThreadPoolExecutor(max_workers=len(tasks)) as executor:
+    # Use explicit shutdown(wait=False) so timed-out threads don't block recall().
+    # The `with` form calls shutdown(wait=True) on __exit__, defeating the timeout.
+    executor = ThreadPoolExecutor(max_workers=len(tasks))
+    try:
         futures = {
             store: executor.submit(store_fn[store], cfg)
             for store, cfg in tasks.items()
@@ -151,6 +154,8 @@ def fanout_recall(
             except Exception:
                 unavailable_stores.append(store)
                 external_items[store] = []
+    finally:
+        executor.shutdown(wait=False)
 
     weights = _parse_store_weights()
 

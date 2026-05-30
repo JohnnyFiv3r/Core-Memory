@@ -101,12 +101,16 @@ def _parse_otter(value: Any) -> list[dict[str, Any]]:
         # Otter start_time is a recording-relative offset in seconds — not an absolute
         # timestamp. Store it in metadata only; do not pass as ts.
         start = seg.get("start_time") or seg.get("start") or ""
+        try:
+            offset_s: float | None = float(start) if start else None
+        except (TypeError, ValueError):
+            offset_s = None
         out.append({
             "speaker": speaker,
             "role": "user",
             "content": content,
             "ts": None,
-            "metadata": {"vtt_offset_s": float(start)} if start else {},
+            "metadata": {"vtt_offset_s": offset_s} if offset_s is not None else {},
         })
     return out
 
