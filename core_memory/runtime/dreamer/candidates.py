@@ -52,6 +52,8 @@ def _hypothesis_type(relationship: str) -> str:
         return "abstraction_candidate"
     if rel == "structural_symmetry":
         return "precedent_candidate"
+    if rel == "proposed_theme":
+        return "proposed_theme_candidate"
     return "association_candidate"
 
 
@@ -63,6 +65,8 @@ def _proposal_family(hypothesis_type: str) -> str:
         return "entity_identity"
     if ht == "retrieval_value_candidate":
         return "retrieval_value"
+    if ht == "proposed_theme_candidate":
+        return "theme"
     return "association"
 
 
@@ -75,6 +79,8 @@ def _benchmark_tags_for_hypothesis(hypothesis_type: str) -> list[str]:
     if ht == "retrieval_value_candidate":
         return ["causal_mechanism", "current_state_factual", "entity_coreference"]
     if ht in {"transferable_lesson_candidate", "abstraction_candidate", "precedent_candidate"}:
+        return ["causal_mechanism"]
+    if ht == "proposed_theme_candidate":
         return ["causal_mechanism"]
     return ["causal_mechanism", "current_state_factual"]
 
@@ -130,9 +136,13 @@ def _entity_similarity(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, lis
 
 
 def _candidate_key(row: dict[str, Any]) -> str:
+    ht = str(row.get("hypothesis_type") or "")
+    if ht == "proposed_theme_candidate":
+        related = sorted(str(b) for b in (row.get("related_bead_ids") or []) if str(b))
+        return "|".join(["proposed_theme_candidate", str(row.get("relationship") or ""), *related])
     return "|".join(
         [
-            str(row.get("hypothesis_type") or ""),
+            ht,
             str(row.get("source_bead_id") or ""),
             str(row.get("target_bead_id") or ""),
             str(row.get("relationship") or ""),
@@ -356,6 +366,44 @@ def enqueue_dreamer_candidates(
     return {
         "ok": True,
         "added": added,
+        "queue_depth": len(rows),
+        "path": str(_candidates_path(root)),
+    }
+
+
+def enqueue_synthesized_themes(
+    root: str | Path,
+    themes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Write synthesized proposed_theme_candidates to the queue with deduplication and quarantine.
+
+    Quarantine rule: any theme with fewer than 3 entries in related_bead_ids is dropped
+    rather than written, since it has insufficient grounded evidence.
+    """
+    rows = _read_candidates(root)
+    seen_keys = {_candidate_key(r) for r in rows if isinstance(r, dict)}
+    added = 0
+    quarantined = 0
+    for t in list(themes or []):
+        if not isinstance(t, dict):
+            continue
+        related = list(t.get("related_bead_ids") or [])
+        if len(related) < 3:
+            quarantined += 1
+            continue
+        k = _candidate_key(t)
+        if k in seen_keys:
+            continue
+        rows.append(t)
+        seen_keys.add(k)
+        added += 1
+    if added:
+        _write_candidates(root, rows)
+    return {
+        "ok": True,
+        "added": added,
+        "quarantined": quarantined,
+        "total": len(themes),
         "queue_depth": len(rows),
         "path": str(_candidates_path(root)),
     }
@@ -594,6 +642,72 @@ def decide_dreamer_candidate(
                 "application_mode": "retrieval_value_override_apply" if bool(ov.get("ok")) else "retrieval_value_override_failed",
                 "result": ov,
             }
+            _write_candidates(root, rows)
+            return {
+                "ok": True,
+                "candidate_id": cid,
+                "status": target.get("status"),
+                "applied": applied,
+                "path": str(_candidates_path(root)),
+            }
+
+        if hypothesis_type == "proposed_theme_candidate":
+            from core_memory.runtime.engine import process_turn_finalized
+            from core_memory.schema.turn import Turn
+
+            related_bead_ids = list(target.get("related_bead_ids") or [])
+            if len(related_bead_ids) < 3:
+                applied = {
+                    "ok": False,
+                    "canonical_entry": "process_turn_finalized",
+                    "application_mode": "proposed_theme_quarantined",
+                    "error": "related_bead_ids must contain at least 3 grounded bead IDs",
+                }
+                _write_candidates(root, rows)
+                return {
+                    "ok": True,
+                    "candidate_id": cid,
+                    "status": target.get("status"),
+                    "applied": applied,
+                    "path": str(_candidates_path(root)),
+                }
+
+            session_id = str(((target.get("run_metadata") or {}) if isinstance(target.get("run_metadata"), dict) else {}).get("session_id") or "").strip() or "dreamer-theme"
+            turn_id = f"theme-apply-{cid}"
+            rationale = str(target.get("rationale") or f"Accepted theme across {len(related_bead_ids)} beads")
+
+            out = process_turn_finalized(
+                root=str(root),
+                session_id=session_id,
+                turn_id=turn_id,
+                turns=[
+                    Turn(speaker="user", role="user", content=f"Accept proposed theme: {rationale}"),
+                    Turn(speaker="assistant", role="assistant", content=f"Recording accepted theme. {rationale}"),
+                ],
+                metadata={
+                    "proposed_theme": {
+                        "type": "proposed_theme",
+                        "related_bead_ids": related_bead_ids,
+                        "confidence": float(target.get("confidence") or 0.0),
+                        "relationship": str(target.get("relationship") or ""),
+                        "generated_by": "dreamer",
+                        "source_candidates": list(target.get("source_candidates") or []),
+                        "status": "accepted",
+                        "because": rationale,
+                    }
+                },
+            )
+
+            applied = {
+                "ok": bool(out.get("ok")),
+                "canonical_entry": "process_turn_finalized",
+                "application_mode": "proposed_theme_bead_written",
+                "turn_id": turn_id,
+                "session_id": session_id,
+                "related_bead_ids": related_bead_ids,
+                "bead_type": "proposed_theme",
+            }
+            target["decision"]["applied_turn_id"] = turn_id
             _write_candidates(root, rows)
             return {
                 "ok": True,

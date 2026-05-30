@@ -348,27 +348,29 @@ When the agent maps the user's reply to `both_valid` and has both scope labels:
 
 ### #12 — Dreamer: latent theme synthesis
 
-**Status:** Not started  
-**Blocked by:** #11 (myelination signal), #14 (contradiction candidate type)  
+**Status:** Complete  
+**Blocked by:** nothing  
 **Effort:** ~3 days  
-**Spec:** `docs/reports/capability-roadmap-prds.md` § #12
 
-Dreamer runs pairwise structural analysis and produces association candidates.
-The synthesis layer — identifying recurring motifs and higher-order abstractions
-across the full memory graph — is missing. The system accumulates facts but does
-not form abstractions.
-
-**Critical constraint:** Dreamer never writes to the bead store directly. Every output
-is `status: unreviewed` until explicitly accepted via `decide_dreamer_candidate()`.
-This is non-negotiable and must be enforced structurally.
-
-**Missing:**
-- `synthesize_themes()` in `runtime/dreamer.py` — group candidates by shared bead
-  cluster; emit `proposed_theme` when ≥ 3 candidates share a structural signal type
-- `proposed_theme` bead type in schema
-- `decide_dreamer_candidate()` apply branch for `proposed_theme`
-- Quarantine: candidates with `len(related_bead_ids) < 3` rejected at enqueue
-- Myelination hook: prefer clusters with positive `bonus_by_bead_id` mean (soft signal)
+**Shipped:**
+- `synthesize_themes(root)` in `runtime/dreamer/analysis.py` — groups qualifying
+  candidates (unreviewed, confidence ≥ 0.5, non-meta types) by (relationship, shared
+  bead ID) via inverted index; emits `proposed_theme_candidate` for clusters of ≥ 3;
+  myelination boost used as soft sort signal
+- `proposed_theme` bead type in `schema/models.py` (`BeadType.PROPOSED_THEME`) and
+  `schema/normalization.py` (`CANONICAL_BEAD_TYPES`)
+- `enqueue_synthesized_themes(root, themes)` in `runtime/dreamer/candidates.py` —
+  quarantine gate (< 3 `related_bead_ids` → skip); dedup by candidate key
+- `_candidate_key()` extended: theme candidates key on `frozenset(related_bead_ids) +
+  relationship` rather than source/target pair
+- `decide_dreamer_candidate()` apply branch for `proposed_theme_candidate`: quarantine
+  check at decision time; on accept+apply calls `process_turn_finalized()` with
+  `metadata={"proposed_theme": {..., "type": "proposed_theme", "generated_by": "dreamer"}}`
+- `side_effect_queue.py` dreamer-run job wires `synthesize_themes` + `enqueue_synthesized_themes`
+  after `enqueue_dreamer_candidates()`; return dict includes `"theme_queue"`
+- `eval.py` theme metrics: `theme_candidates`, `theme_decided`, `theme_accepted` counts;
+  `theme_acceptance_rate` metric
+- `tests/test_dreamer_theme_synthesis.py` — 22 tests, all passing
 
 ---
 

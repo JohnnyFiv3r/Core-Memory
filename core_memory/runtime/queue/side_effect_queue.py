@@ -222,6 +222,18 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
                 "max_exposure": int(p.get("max_exposure", 10)),
             },
         )
+
+        # Synthesize themes from the updated candidate pool and enqueue them.
+        theme_queue_out: dict[str, Any] = {"ok": True, "added": 0, "quarantined": 0}
+        try:
+            from core_memory.runtime.dreamer.analysis import synthesize_themes
+            from core_memory.runtime.dreamer.candidates import enqueue_synthesized_themes
+            themes = synthesize_themes(root)
+            if themes:
+                theme_queue_out = enqueue_synthesized_themes(root, themes)
+        except Exception:
+            pass
+
         return {
             "ok": True,
             "kind": k,
@@ -229,6 +241,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "results": out,
             "result_count": len(out) if isinstance(out, list) else 0,
             "candidate_queue": queue_out,
+            "theme_queue": theme_queue_out,
         }
 
     if k == "neo4j-sync":

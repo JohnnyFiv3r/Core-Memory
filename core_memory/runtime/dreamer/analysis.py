@@ -524,3 +524,144 @@ Output format:
 
 Surface only insights where novelty >= 0.6 and grounding >= 0.7.
 """
+
+
+def synthesize_themes(root: str | Path) -> list[dict[str, Any]]:
+    """Identify recurring motifs across pending candidates and emit proposed_theme candidates.
+
+    Reads dreamer-candidates.json, groups qualifying candidates (unreviewed, confidence ≥ 0.5)
+    by (relationship_type, shared bead ID). Any bead that appears in ≥ 3 candidates of the same
+    relationship type seeds a theme cluster. Returns proposed_theme_candidate dicts to be
+    passed to enqueue_synthesized_themes() — does NOT write to the store directly.
+
+    Myelination bonus (from the manifest) is used as a soft ordering signal: clusters whose
+    beads have higher mean bonus are sorted first. Absent or stale manifests degrade to
+    equal priority.
+    """
+    from collections import defaultdict
+    from core_memory.runtime.dreamer.candidates import _read_candidates
+
+    candidates = _read_candidates(root)
+
+    # Non-associative and meta types are excluded from synthesis input
+    _excluded_types = {
+        "proposed_theme_candidate",
+        "entity_merge_candidate",
+        "retrieval_value_candidate",
+        "contradiction_pressure_candidate",
+    }
+
+    qualifying = [
+        c for c in candidates
+        if str(c.get("status") or "").lower() == "unreviewed"
+        and str(c.get("hypothesis_type") or "").lower() not in _excluded_types
+        and float(c.get("confidence") or c.get("score") or 0.0) >= 0.5
+    ]
+
+    if not qualifying:
+        return []
+
+    # Load myelination manifest for soft cluster prioritization (best-effort)
+    myelination_bonus: dict[str, float] = {}
+    try:
+        manifest_path = Path(root) / ".beads" / "events" / "myelination-manifest.json"
+        if manifest_path.exists():
+            payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+            myelination_bonus = {
+                str(k): float(v)
+                for k, v in (payload.get("bonus_by_bead_id") or {}).items()
+                if abs(float(v)) > 1e-9
+            }
+    except Exception:
+        pass
+
+    # Index: relationship → bead_id → list of candidates containing that bead
+    rel_bead_index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
+    for c in qualifying:
+        rel = str(c.get("relationship") or "similar_pattern")
+        for bead_id in filter(None, [
+            str(c.get("source_bead_id") or "").strip(),
+            str(c.get("target_bead_id") or "").strip(),
+        ]):
+            rel_bead_index[rel][bead_id].append(c)
+
+    now = datetime.now(timezone.utc).isoformat()
+    seen_cluster_keys: set[str] = set()
+    themes: list[dict[str, Any]] = []
+
+    for rel, bead_to_cands in rel_bead_index.items():
+        for seed_bead, cands in bead_to_cands.items():
+            if len(cands) < 3:
+                continue
+
+            # Collect all beads referenced by this cluster
+            cluster_bead_ids: set[str] = set()
+            source_candidate_ids: list[str] = []
+            scores: list[float] = []
+
+            for c in cands:
+                for bid in filter(None, [
+                    str(c.get("source_bead_id") or "").strip(),
+                    str(c.get("target_bead_id") or "").strip(),
+                ]):
+                    cluster_bead_ids.add(bid)
+                cid = str(c.get("id") or "").strip()
+                if cid:
+                    source_candidate_ids.append(cid)
+                scores.append(float(c.get("confidence") or c.get("score") or 0.0))
+
+            related_bead_ids = sorted(cluster_bead_ids)
+            if len(related_bead_ids) < 3:
+                continue
+
+            cluster_key = f"{rel}|{','.join(sorted(cluster_bead_ids))}"
+            if cluster_key in seen_cluster_keys:
+                continue
+            seen_cluster_keys.add(cluster_key)
+
+            mean_confidence = round(sum(scores) / len(scores), 4)
+            bead_bonuses = [myelination_bonus.get(b, 0.0) for b in related_bead_ids]
+            mean_myelination = round(sum(bead_bonuses) / len(bead_bonuses), 4)
+
+            n = len(cands)
+            rationale = (
+                f"{n} candidates share {rel} signal across {len(related_bead_ids)} beads"
+            )
+
+            themes.append({
+                "id": f"dc-{uuid.uuid4().hex[:12]}",
+                "created_at": now,
+                "status": "unreviewed",
+                "hypothesis_type": "proposed_theme_candidate",
+                "proposal_family": "theme",
+                "benchmark_tags": ["causal_mechanism"],
+                "related_bead_ids": related_bead_ids,
+                "source_candidates": source_candidate_ids,
+                "relationship": rel,
+                "confidence": mean_confidence,
+                "rationale": rationale,
+                "expected_decision_impact": (
+                    f"Theme across {len(related_bead_ids)} beads may reveal a recurring "
+                    f"pattern in agent decision-making."
+                ),
+                "source_bead_id": "",
+                "target_bead_id": "",
+                "myelination_boost": mean_myelination,
+                "run_metadata": {
+                    "run_id": "",
+                    "mode": "synthesize",
+                    "source": "synthesize_themes",
+                    "session_id": "",
+                },
+                "raw": {
+                    "cluster_bead_ids": related_bead_ids,
+                    "source_candidates": source_candidate_ids,
+                },
+            })
+
+    # Sort: higher myelination boost first, then higher confidence
+    themes.sort(
+        key=lambda t: (float(t.get("myelination_boost") or 0.0), float(t.get("confidence") or 0.0)),
+        reverse=True,
+    )
+    return themes

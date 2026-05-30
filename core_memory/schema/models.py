@@ -54,6 +54,7 @@ class BeadType(str, Enum):
     CONTEXT = "context"
     CORRECTION = "correction"
     DATA_INSIGHT = "data_insight"
+    PROPOSED_THEME = "proposed_theme"
 
 
 class Scope(str, Enum):
