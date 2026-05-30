@@ -41,17 +41,20 @@ def resolve_all_current_state(root: str, session_id: str | None = None, as_of: s
     all_claims, all_updates = _load_all_claims_and_updates(root)
     as_of_dt = normalize_as_of(as_of)
 
-    # Group claims by subject+slot
+    # Group claims by (subject, slot, context_scope).
+    # Global claims (context_scope=None or "") share the "subject:slot" bucket.
+    # Scoped claims use "subject:slot::scope" so they coexist without conflict.
     slot_claims: dict[str, list[dict]] = {}
     for claim in all_claims:
         subject = claim.get("subject", "")
         slot = claim.get("slot", "")
         if not subject or not slot:
             continue
-        key = f"{subject}:{slot}"
+        scope = str(claim.get("context_scope") or "").strip()
+        key = f"{subject}:{slot}" if not scope else f"{subject}:{slot}::{scope}"
         slot_claims.setdefault(key, []).append(claim)
 
-    # Group updates by subject+slot
+    # Group updates by subject+slot only (no scope — updates reference claim IDs).
     slot_updates: dict[str, list[dict]] = {}
     for update in all_updates:
         subject = update.get("subject", "")
@@ -66,7 +69,9 @@ def resolve_all_current_state(root: str, session_id: str | None = None, as_of: s
     conflict_count = 0
 
     for key, claims in slot_claims.items():
-        updates = slot_updates.get(key, [])
+        # For scoped buckets ("subject:slot::scope"), look up updates by base key.
+        base_key = key.split("::")[0] if "::" in key else key
+        updates = slot_updates.get(base_key, [])
 
         # Find current claims (not superseded or retracted)
         visible_claims = [c for c in claims if claim_visible_as_of(c, as_of_dt)]

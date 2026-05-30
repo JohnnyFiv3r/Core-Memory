@@ -53,6 +53,8 @@ class BeadType(str, Enum):
     DESIGN_PRINCIPLE = "design_principle"
     CONTEXT = "context"
     CORRECTION = "correction"
+    DATA_INSIGHT = "data_insight"
+    PROPOSED_THEME = "proposed_theme"
 
 
 class Scope(str, Enum):
@@ -424,6 +426,18 @@ def _normalize_claim_update_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 
 @dataclass
+class SpeakerAttribution:
+    """Observed speaker label resolved to a canonical entity."""
+
+    speaker_observed: str
+    resolved_entity_id: str | None
+    resolution_confidence: float
+    source_system: str
+    aliases: list = field(default_factory=list)
+    resolved: bool = False
+
+
+@dataclass
 class Claim:
     """A claim captures a discrete user-stated or agent-inferred fact."""
     id: str = ""
@@ -437,6 +451,7 @@ class Claim:
     recorded_at: str | None = None
     effective_from: str | None = None
     effective_to: str | None = None
+    context_scope: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

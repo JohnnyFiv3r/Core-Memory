@@ -66,6 +66,16 @@ def add_bead_for_store(
         **kwargs,
     }
 
+    # Speaker attribution: promote key fields to bead top-level when present
+    if isinstance(bead.get("speaker_attribution"), dict):
+        attr = bead["speaker_attribution"]
+        eid = str(attr.get("resolved_entity_id") or "").strip()
+        conf = attr.get("resolution_confidence")
+        if eid:
+            bead.setdefault("attributed_entity_id", eid)
+        if conf is not None:
+            bead.setdefault("resolution_confidence", float(conf))
+
     bead = store._sanitize_bead_content(bead)
     bead = enforce_bead_hygiene_contract(bead)
 
@@ -88,6 +98,9 @@ def add_bead_for_store(
     with store_lock(store.root):
         index_file = store.beads_dir / "index.json"
         index = store._read_json(index_file)
+        index.setdefault("beads", {})
+        index.setdefault("associations", [])
+        index.setdefault("stats", {"total_beads": 0, "total_associations": 0})
 
         try:
             dedup_window = max(1, int(os.environ.get("CORE_MEMORY_WRITE_DEDUP_WINDOW", "25")))

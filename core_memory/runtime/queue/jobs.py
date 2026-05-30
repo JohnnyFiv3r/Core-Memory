@@ -7,6 +7,7 @@ inspect background work state without coupling to queue implementation details.
 """
 
 import json
+import os
 import time
 from copy import deepcopy
 from pathlib import Path
@@ -166,6 +167,11 @@ def _normalize_job_kind(kind: str | None) -> str:
         "health": "health-recompute",
         "health-recompute": "health-recompute",
         "health-report": "health-recompute",
+        "myelination": "myelination-update",
+        "myelination-update": "myelination-update",
+        "data-insight-poll": "data-insight-poll",
+        "data_insight_poll": "data-insight-poll",
+        "pipehouse-poll": "data-insight-poll",
     }
     return aliases.get(k, k)
 
@@ -200,7 +206,27 @@ def enqueue_async_job(
             "status": compaction_queue_status(root_p),
         })
 
-    if k in {"dreamer-run", "neo4j-sync", "health-recompute"}:
+    if k == "data-insight-poll":
+        poll_payload = dict(event or {})
+        poll_payload.update({k2: v for k2, v in dict(ctx or {}).items() if k2 not in poll_payload})
+        db_url = str(poll_payload.get("db_url") or os.getenv("SATORID_PIPEHOUSE_DB_URL") or "").strip()
+        if not db_url:
+            return _with_schema({
+                "ok": True,
+                "kind": k,
+                "skipped": True,
+                "reason": "SATORID_PIPEHOUSE_DB_URL not configured",
+            })
+        idem = str(poll_payload.get("idempotency_key") or "").strip() or None
+        out = enqueue_side_effect_event(root=root_p, kind=k, payload=poll_payload, idempotency_key=idem)
+        return _with_schema({
+            "ok": bool(out.get("ok")),
+            "kind": k,
+            "queue": out,
+            "status": side_effect_queue_status(root_p),
+        })
+
+    if k in {"dreamer-run", "neo4j-sync", "health-recompute", "myelination-update"}:
         payload = dict(event or {})
         payload.update({k: v for k, v in dict(ctx or {}).items() if k not in payload})
         idem = str(payload.get("idempotency_key") or payload.get("idempotencyKey") or "").strip() or None
@@ -218,7 +244,7 @@ def enqueue_async_job(
             "unknown_kind",
             "Unknown async job kind",
             kind=str(kind),
-            allowed=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
+            allowed=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute", "myelination-update", "data-insight-poll"],
         ),
     })
 

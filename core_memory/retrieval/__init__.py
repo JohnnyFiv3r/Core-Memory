@@ -1,6 +1,7 @@
 from .hybrid import hybrid_lookup
 from .lexical import lexical_lookup
 from .contracts import (
+    ConflictItem,
     EvidenceItem,
     RecallPlanning,
     RecallResult,
@@ -27,6 +28,7 @@ __all__ = [
     "hybrid_lookup",
     "lexical_lookup",
     "recall",
+    "ConflictItem",
     "EvidenceItem",
     "SourceItem",
     "RecallPlanning",

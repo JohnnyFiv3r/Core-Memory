@@ -135,6 +135,10 @@ def dreamer_eval_report(root: str | Path, *, since: str = "30d") -> dict[str, An
     accepted = [c for c in scoped if str(c.get("status") or "").lower() == "accepted"]
     rejected = [c for c in scoped if str(c.get("status") or "").lower() == "rejected"]
 
+    theme_candidates = [c for c in scoped if str(c.get("hypothesis_type") or "").lower() == "proposed_theme_candidate"]
+    theme_decided = [c for c in theme_candidates if str(c.get("status") or "").lower() in {"accepted", "rejected"}]
+    theme_accepted = [c for c in theme_candidates if str(c.get("status") or "").lower() == "accepted"]
+
     applied = [
         c
         for c in accepted
@@ -185,6 +189,9 @@ def dreamer_eval_report(root: str | Path, *, since: str = "30d") -> dict[str, An
             "accepted": len(accepted),
             "rejected": len(rejected),
             "accepted_applied": len(applied),
+            "theme_candidates": len(theme_candidates),
+            "theme_decided": len(theme_decided),
+            "theme_accepted": len(theme_accepted),
         },
         "metrics": {
             "accepted_candidate_rate": _safe_rate(len(accepted), len(decided)),
@@ -197,6 +204,7 @@ def dreamer_eval_report(root: str | Path, *, since: str = "30d") -> dict[str, An
             "policy_reuse_lift_proxy": policy_accept_rate - accepted_rate,
             "policy_reuse_accept_rate": policy_accept_rate,
             "policy_reuse_downstream_use_rate": _safe_rate(len(policy_accepted_with_use), len(policy_accepted)),
+            "theme_acceptance_rate": _safe_rate(len(theme_accepted), len(theme_decided)),
         },
         "diagnostics": {
             "repeated_candidates": len(repeated_candidates),

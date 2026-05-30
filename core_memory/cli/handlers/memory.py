@@ -70,6 +70,7 @@ def handle_memory_command(
             effort=str(getattr(args, "effort", "medium") or "medium"),
             speaker=getattr(args, "speaker", None),
             k=getattr(args, "k", None),
+            as_of=getattr(args, "as_of", None) or None,
             include_raw=False,
         )
         if bool(getattr(args, "json", False)):

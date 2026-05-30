@@ -147,6 +147,21 @@ def claim_retrieval_boost_enabled() -> bool:
     return _env_bool("CORE_MEMORY_CLAIM_RETRIEVAL_BOOST", False)
 
 
+def satorid_ragie_api_key() -> str:
+    """SATORID_RAGIE_API_KEY — enables Ragie evidence fan-out in recall()."""
+    return os.environ.get("SATORID_RAGIE_API_KEY", "").strip()
+
+
+def satorid_pipehouse_url() -> str:
+    """SATORID_PIPEHOUSE_URL — enables PipeHouse evidence fan-out in recall()."""
+    return os.environ.get("SATORID_PIPEHOUSE_URL", "").strip()
+
+
+def satorid_store_weights() -> str:
+    """SATORID_STORE_WEIGHTS — comma-separated weights for core_memory,ragie,pipehouse (default 1.0,1.0,1.0)."""
+    return os.environ.get("SATORID_STORE_WEIGHTS", "").strip()
+
+
 def runtime_flags_snapshot() -> dict[str, object]:
     """Snapshot of all generic Core Memory flags.
 

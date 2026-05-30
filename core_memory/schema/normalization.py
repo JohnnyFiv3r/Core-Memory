@@ -35,6 +35,8 @@ CANONICAL_BEAD_TYPES = {
     "design_principle",
     "context",
     "correction",
+    "data_insight",
+    "proposed_theme",
 }
 
 # Boundary bead types are valid canonical records but are not part of the

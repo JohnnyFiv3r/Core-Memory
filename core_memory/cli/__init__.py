@@ -165,6 +165,7 @@ def main():
     recall_parser.add_argument("--effort", choices=["low", "medium", "high"], default="medium")
     recall_parser.add_argument("--speaker")
     recall_parser.add_argument("--k", type=int)
+    recall_parser.add_argument("--as-of", dest="as_of", metavar="TIMESTAMP", help="ISO 8601 timestamp; return only evidence visible before this point in time")
     recall_parser.add_argument("--json", action="store_true", help="Emit canonical RecallResult JSON")
     recall_sub = recall_parser.add_subparsers(dest="recall_cmd")
     recall_search = recall_sub.add_parser("search", help="Canonical memory search")
@@ -262,6 +263,14 @@ def main():
     mcp_uninstall.add_argument("--client", choices=["claude-code", "cursor", "windsurf", "open-webui"])
     mcp_uninstall.add_argument("--dry-run", action="store_true", help=argparse.SUPPRESS)
     mcp_sub.add_parser("version", help="Show MCP spec and SDK versions")
+
+    myelination_parser = subparsers.add_parser("myelination", help="Myelination learning loop diagnostics and job management")
+    myelination_sub = myelination_parser.add_subparsers(dest="myelination_cmd")
+    myelination_report_p = myelination_sub.add_parser("report", help="Show bonus map and stats computed from retrieval telemetry")
+    myelination_report_p.add_argument("--since", default="30d", help="Feedback lookback window (e.g. 30d, 7d, 24h) (default: 30d)")
+    myelination_report_p.add_argument("--limit", type=int, default=1000, help="Max feedback events to process (default: 1000)")
+    myelination_report_p.add_argument("--top", type=int, default=20, help="Top N items to show (default: 20)")
+    myelination_sub.add_parser("status", help="Show whether myelination is enabled and manifest freshness")
 
     dev_parser = subparsers.add_parser("dev", help="Advanced developer-facing command surfaces")
     dev_parser.add_argument(
@@ -403,6 +412,7 @@ def main():
             "ops": ops_parser,
             "semantic": semantic_parser,
             "mcp": mcp_parser,
+            "myelination": myelination_parser,
             "dev": dev_parser,
         },
     ):
@@ -471,6 +481,24 @@ def main():
         return
 
     if handle_semantic_command(args=args, root=args.root):
+        return
+
+    if args.command == "myelination":
+        from core_memory.runtime.observability.myelination import myelination_enabled, myelination_report
+        if getattr(args, "myelination_cmd", None) == "report":
+            out = myelination_report(args.root, since=args.since, limit=args.limit, top=args.top)
+            print(json.dumps(out, indent=2))
+        elif getattr(args, "myelination_cmd", None) == "status":
+            manifest_path = os.path.join(args.root, ".beads", "events", "myelination-manifest.json")
+            exists = os.path.exists(manifest_path)
+            print(json.dumps({
+                "ok": True,
+                "enabled": myelination_enabled(),
+                "manifest_exists": exists,
+                "manifest_path": manifest_path,
+            }, indent=2))
+        else:
+            myelination_parser.print_help()
         return
 
     if args.command == "mcp":

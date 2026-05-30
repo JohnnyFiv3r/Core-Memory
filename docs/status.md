@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-05-28
+**Last updated:** 2026-05-31
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -53,16 +53,29 @@ descriptions.
 | 6 | Monotonic sequencing for claim supersede chains | **Closed** — fully covered by `chain_seq` (verified) |
 | 7 | Automatic, durable, inspectable semantic indexing ergonomics | **Done** — auto-drain thread, `semantic backfill`, extended status/doctor |
 | 8 | LLM-judged entity extraction in live write path | **Closed** |
-| 9 | Unify session-window enrichment crawler | **Slice A done** — analysis artifact in `docs/PRD/session-enrichment-delta-analysis.md`; Slice B pending |
+| 9 | Unify session-window enrichment crawler | **Done** — Slice A (analysis) and Slice B (enrichment_run_id idempotency gate, Stage 4 atomicity, delta envelope) complete |
+
+---
+
+## Capability items
+
+| # | Item | Status |
+|---|---|---|
+| 10 | Multi-speaker attribution and identity persistence | **Done** |
+| 10A | Multi-party transcript ingest (N-speaker gateway) | **Done** |
+| 10B | Per-adapter `source_system` (Slack / Discord / Zoom-Otter MCP adapters) | **Done** — timestamp conversion bug fixed; real integration tests added |
+| 11 | Myelination wiring | **Done** |
+| 12 | Dreamer: latent theme synthesis | **Done** |
+| 13 | Temporal recall API (`as_of`) | **Done** |
+| 14 | Contradiction pressure and epistemic uncertainty | **Done** |
+| 14A | `both_valid` resolution + `context_scope` claim discriminator | **Done** |
+| 15 | Multi-store recall fan-out | **Done** — Ragie + PipeHouse adapters, ThreadPoolExecutor fan-out, score normalization, unifying ID grouping |
+| 16 | External data bead ingest contract | **Done** |
+| 17 | Eval and benchmark layer | **Done** — LoCoMo adapter in `benchmarks/locomo/` |
 
 ---
 
 ## Open workstreams
-
-### Myelination
-Causal edges harden by validity + retrieval frequency; decay when stale, superseded, or
-never retrieved. Replaces vibes-based pruning with schema-driven pruning.
-**Status:** In active development.
 
 ### SOUL.md
 Agent-authored identity that evolves over time. Informed by claims + dreamer +
@@ -71,8 +84,8 @@ myelination.
 
 ### Demo TODO alignment
 The paired adoption/API roadmap lives in `JohnnyFiv3r/Core-Memory-Demo` repo.
-Engine-correctness items #3, #5, #7 are now **Done** (branch `claude/validate-demo-todos-SCRSz`).
-TODO #9 Slice A (analysis artifact) is Done; Slice B (delta envelope implementation) is next.
+Engine-correctness items #3, #5, #7, #9 are all **Done**.
+Capability items #10–#14, #16–#17 are all closed. #15 is now **Done**.
 See `docs/PRD/execution-plan-search-quality-and-enrichment.md` for the full plan.
 
 ---

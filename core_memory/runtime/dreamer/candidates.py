@@ -52,6 +52,8 @@ def _hypothesis_type(relationship: str) -> str:
         return "abstraction_candidate"
     if rel == "structural_symmetry":
         return "precedent_candidate"
+    if rel == "proposed_theme":
+        return "proposed_theme_candidate"
     return "association_candidate"
 
 
@@ -63,6 +65,8 @@ def _proposal_family(hypothesis_type: str) -> str:
         return "entity_identity"
     if ht == "retrieval_value_candidate":
         return "retrieval_value"
+    if ht == "proposed_theme_candidate":
+        return "theme"
     return "association"
 
 
@@ -75,6 +79,8 @@ def _benchmark_tags_for_hypothesis(hypothesis_type: str) -> list[str]:
     if ht == "retrieval_value_candidate":
         return ["causal_mechanism", "current_state_factual", "entity_coreference"]
     if ht in {"transferable_lesson_candidate", "abstraction_candidate", "precedent_candidate"}:
+        return ["causal_mechanism"]
+    if ht == "proposed_theme_candidate":
         return ["causal_mechanism"]
     return ["causal_mechanism", "current_state_factual"]
 
@@ -130,9 +136,13 @@ def _entity_similarity(a: dict[str, Any], b: dict[str, Any]) -> tuple[float, lis
 
 
 def _candidate_key(row: dict[str, Any]) -> str:
+    ht = str(row.get("hypothesis_type") or "")
+    if ht == "proposed_theme_candidate":
+        related = sorted(str(b) for b in (row.get("related_bead_ids") or []) if str(b))
+        return "|".join(["proposed_theme_candidate", str(row.get("relationship") or ""), *related])
     return "|".join(
         [
-            str(row.get("hypothesis_type") or ""),
+            ht,
             str(row.get("source_bead_id") or ""),
             str(row.get("target_bead_id") or ""),
             str(row.get("relationship") or ""),
@@ -361,6 +371,44 @@ def enqueue_dreamer_candidates(
     }
 
 
+def enqueue_synthesized_themes(
+    root: str | Path,
+    themes: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Write synthesized proposed_theme_candidates to the queue with deduplication and quarantine.
+
+    Quarantine rule: any theme with fewer than 3 entries in related_bead_ids is dropped
+    rather than written, since it has insufficient grounded evidence.
+    """
+    rows = _read_candidates(root)
+    seen_keys = {_candidate_key(r) for r in rows if isinstance(r, dict)}
+    added = 0
+    quarantined = 0
+    for t in list(themes or []):
+        if not isinstance(t, dict):
+            continue
+        related = list(t.get("related_bead_ids") or [])
+        if len(related) < 3:
+            quarantined += 1
+            continue
+        k = _candidate_key(t)
+        if k in seen_keys:
+            continue
+        rows.append(t)
+        seen_keys.add(k)
+        added += 1
+    if added:
+        _write_candidates(root, rows)
+    return {
+        "ok": True,
+        "added": added,
+        "quarantined": quarantined,
+        "total": len(themes),
+        "queue_depth": len(rows),
+        "path": str(_candidates_path(root)),
+    }
+
+
 def list_dreamer_candidates(
     *,
     root: str | Path,
@@ -388,6 +436,9 @@ def decide_dreamer_candidate(
     reviewer: str | None = None,
     notes: str | None = None,
     apply: bool = False,
+    resolution: str | None = None,
+    scope_a: str | None = None,
+    scope_b: str | None = None,
 ) -> dict[str, Any]:
     cid = str(candidate_id or "").strip()
     decision_n = str(decision or "").strip().lower()
@@ -406,6 +457,28 @@ def decide_dreamer_candidate(
     if target is None:
         return {"ok": False, "error": {"code": "candidate_not_found", "candidate_id": cid}}
 
+    resolution_n = str(resolution or "").strip().lower()
+
+    # A contradiction review can be "deferred" without accepting/rejecting the
+    # candidate — the user said "not now". Record that and write nothing.
+    if resolution_n == "defer":
+        target["status"] = "deferred"
+        target["review_state"] = "deferred"
+        target["decision"] = {
+            "decision": "defer",
+            "reviewer": str(reviewer or ""),
+            "notes": str(notes or ""),
+            "decided_at": _now(),
+        }
+        _write_candidates(root, rows)
+        return {
+            "ok": True,
+            "candidate_id": cid,
+            "status": target.get("status"),
+            "applied": {"ok": True, "application_mode": "deferred_no_write"},
+            "path": str(_candidates_path(root)),
+        }
+
     target["status"] = "accepted" if decision_n == "accept" else "rejected"
     target["decision"] = {
         "decision": decision_n,
@@ -413,10 +486,249 @@ def decide_dreamer_candidate(
         "notes": str(notes or ""),
         "decided_at": _now(),
     }
+    if resolution_n:
+        target["resolution"] = resolution_n
 
     applied = None
     if decision_n == "accept" and apply:
         hypothesis_type = str(target.get("hypothesis_type") or "").strip().lower()
+
+        if hypothesis_type == "contradiction_pressure_candidate":
+            from core_memory.claim.conflict_review import (
+                RESOLUTION_BOTH_VALID,
+                RESOLUTION_CHOICES,
+                resolution_to_claim_updates,
+            )
+            from core_memory.claim.update_policy import emit_claim_updates
+            from core_memory.persistence.store_claim_ops import (
+                find_canonical_turn_bead_id,
+                read_all_claim_rows,
+                write_claims_to_bead,
+            )
+            from core_memory.runtime.engine import process_turn_finalized
+            from core_memory.schema.turn import Turn
+
+            if resolution_n not in RESOLUTION_CHOICES:
+                _write_candidates(root, rows)
+                return {
+                    "ok": False,
+                    "error": {
+                        "code": "invalid_resolution",
+                        "resolution": resolution_n,
+                        "allowed": sorted(RESOLUTION_CHOICES),
+                    },
+                    "candidate_id": cid,
+                }
+
+            subject = str(target.get("subject") or "").strip()
+            slot = str(target.get("slot") or "").strip()
+            claim_a_id = str(target.get("claim_a_id") or "").strip()
+            claim_b_id = str(target.get("claim_b_id") or "").strip()
+            session_id = str(
+                (((target.get("run_metadata") or {}) if isinstance(target.get("run_metadata"), dict) else {}).get("session_id") or "")
+            ).strip() or "conflict-review"
+
+            # --- both_valid: context-scoped fork --- #
+            if resolution_n == RESOLUTION_BOTH_VALID:
+                sa = str(scope_a or "").strip()
+                sb = str(scope_b or "").strip()
+                if not sa or not sb:
+                    # Needs clarification — don't update candidate status.
+                    target["status"] = "pending"
+                    target.pop("decision", None)
+                    target.pop("resolution", None)
+                    missing = "scope_a" if not sa else "scope_b"
+                    # Look up claim values for the prompt (best-effort).
+                    all_claims_for_prompt, _ = read_all_claim_rows(str(root))
+                    ca_dict = next((c for c in all_claims_for_prompt if str(c.get("id") or "") == claim_a_id), {})
+                    cb_dict = next((c for c in all_claims_for_prompt if str(c.get("id") or "") == claim_b_id), {})
+                    value_missing = str(cb_dict.get("value") or slot) if sa else str(ca_dict.get("value") or slot)
+                    _write_candidates(root, rows)
+                    return {
+                        "ok": False,
+                        "needs_clarification": True,
+                        "missing": missing,
+                        "prompt": (
+                            f"When is \"{value_missing}\" still true? "
+                            f"(Or say 'default / everywhere else' for the broader case.)"
+                        ),
+                        "candidate_id": cid,
+                    }
+
+                # Look up claim values.
+                all_claims_bv, _ = read_all_claim_rows(str(root))
+                ca_dict = next((c for c in all_claims_bv if str(c.get("id") or "") == claim_a_id), {})
+                cb_dict = next((c for c in all_claims_bv if str(c.get("id") or "") == claim_b_id), {})
+                value_a = str(ca_dict.get("value") or "")
+                value_b = str(cb_dict.get("value") or "")
+
+                # Write fork-event bead.
+                fork_turn_id = f"both-valid-{cid}"
+                fork_out = process_turn_finalized(
+                    root=str(root),
+                    session_id=session_id,
+                    turn_id=fork_turn_id,
+                    turns=[
+                        Turn(speaker="user", role="user", content=(
+                            f"Both values of {subject}:{slot} are true in different contexts: "
+                            f"'{value_a}' when {sa}, '{value_b}' when {sb}."
+                        )),
+                        Turn(speaker="assistant", role="assistant", content=(
+                            f"Recording context-scoped fork for {subject}:{slot}. "
+                            f"'{value_a}' scoped to '{sa}'; '{value_b}' scoped to '{sb}'."
+                        )),
+                    ],
+                    metadata={"context_scope_fork": {
+                        "subject": subject, "slot": slot, "scope_a": sa, "scope_b": sb,
+                    }},
+                )
+                fork_bead_id = find_canonical_turn_bead_id(str(root), session_id=session_id, turn_id=fork_turn_id) or fork_turn_id
+
+                # Write two new context-scoped claims to the fork bead.
+                import uuid as _uuid_bv
+                now_iso = _now()
+                new_a_id = str(_uuid_bv.uuid4())
+                new_b_id = str(_uuid_bv.uuid4())
+                write_claims_to_bead(str(root), fork_bead_id, [
+                    {
+                        "id": new_a_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "value": value_a,
+                        "context_scope": sa,
+                        "source_bead_id": fork_bead_id,
+                        "created_at": now_iso,
+                        "provenance": "both_valid_resolution",
+                    },
+                    {
+                        "id": new_b_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "value": value_b,
+                        "context_scope": sb,
+                        "source_bead_id": fork_bead_id,
+                        "created_at": now_iso,
+                        "provenance": "both_valid_resolution",
+                    },
+                ])
+
+                # Emit supersede updates: old global claims → new scoped claims.
+                supersede_rows: list[dict] = []
+                reason_text = str(notes or f"both_valid resolution: {subject}:{slot} context-scoped")
+                if claim_a_id:
+                    supersede_rows.append({
+                        "id": str(_uuid_bv.uuid4()),
+                        "decision": "supersede",
+                        "target_claim_id": claim_a_id,
+                        "replacement_claim_id": new_a_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "reason_text": reason_text,
+                        "trigger_bead_id": fork_bead_id,
+                        "provenance": "conflict_review_resolution",
+                    })
+                if claim_b_id:
+                    supersede_rows.append({
+                        "id": str(_uuid_bv.uuid4()),
+                        "decision": "supersede",
+                        "target_claim_id": claim_b_id,
+                        "replacement_claim_id": new_b_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "reason_text": reason_text,
+                        "trigger_bead_id": fork_bead_id,
+                        "provenance": "conflict_review_resolution",
+                    })
+
+                written = 0
+                if supersede_rows:
+                    emitted = emit_claim_updates(
+                        str(root), [], fork_bead_id,
+                        session_id=session_id,
+                        reviewed_updates={"claim_updates": supersede_rows},
+                    ) or []
+                    written = len(emitted)
+
+                applied = {
+                    "ok": bool(fork_out.get("ok")) and written > 0,
+                    "canonical_entry": "context_scope_fork",
+                    "application_mode": "context_scope_fork",
+                    "scope_a": sa,
+                    "scope_b": sb,
+                    "fork_bead_id": fork_bead_id,
+                    "claim_updates_written": written,
+                    "turn_id": fork_turn_id,
+                    "session_id": session_id,
+                }
+                target["decision"]["applied_turn_id"] = fork_turn_id
+                target["review_state"] = "resolved"
+                _write_candidates(root, rows)
+                return {
+                    "ok": True,
+                    "candidate_id": cid,
+                    "status": target.get("status"),
+                    "applied": applied,
+                    "path": str(_candidates_path(root)),
+                }
+
+            # --- prefer_a / prefer_b / retract_both path --- #
+            turn_id = f"conflict-resolve-{cid}"
+
+            # Record the user's decision as an audit turn (canonical write boundary).
+            out = process_turn_finalized(
+                root=str(root),
+                session_id=session_id,
+                turn_id=turn_id,
+                turns=[
+                    Turn(speaker="user", role="user", content=f"Resolve {subject}:{slot} contradiction: {resolution_n}."),
+                    Turn(speaker="assistant", role="assistant", content=f"Applying reviewed claim resolution ({resolution_n}) for {subject}:{slot}."),
+                ],
+                metadata={"contradiction_resolution": {"subject": subject, "slot": slot, "resolution": resolution_n}},
+            )
+
+            # Resolve the canonical turn bead so the claim updates are grounded in a
+            # real bead, then persist them through emit_claim_updates (the audit turn
+            # itself authors no claims, so the turn-flow claim pass is skipped).
+            trigger_bead_id = find_canonical_turn_bead_id(str(root), session_id=session_id, turn_id=turn_id) or turn_id
+            claim_updates = resolution_to_claim_updates(
+                resolution=resolution_n,
+                subject=subject,
+                slot=slot,
+                claim_a_id=claim_a_id,
+                claim_b_id=claim_b_id,
+                trigger_bead_id=trigger_bead_id,
+                reason=str(notes or f"User resolved {subject}:{slot} contradiction as {resolution_n}"),
+            )
+            written = 0
+            if claim_updates:
+                emitted = emit_claim_updates(
+                    str(root), [], trigger_bead_id,
+                    session_id=session_id,
+                    reviewed_updates={"claim_updates": claim_updates},
+                ) or []
+                written = len(emitted)
+
+            applied = {
+                "ok": bool(out.get("ok")) and (written > 0 or not claim_updates),
+                "canonical_entry": "emit_claim_updates",
+                "application_mode": "claim_update_resolution" if written else "no_claim_update",
+                "resolution": resolution_n,
+                "turn_id": turn_id,
+                "trigger_bead_id": trigger_bead_id,
+                "session_id": session_id,
+                "claim_updates_written": written,
+            }
+            target["decision"]["applied_turn_id"] = turn_id
+            target["review_state"] = "resolved"
+
+            _write_candidates(root, rows)
+            return {
+                "ok": True,
+                "candidate_id": cid,
+                "status": target.get("status"),
+                "applied": applied,
+                "path": str(_candidates_path(root)),
+            }
 
         if hypothesis_type == "entity_merge_candidate":
             from core_memory.entity.merge_flow import apply_entity_merge_direct
@@ -482,6 +794,72 @@ def decide_dreamer_candidate(
                 "application_mode": "retrieval_value_override_apply" if bool(ov.get("ok")) else "retrieval_value_override_failed",
                 "result": ov,
             }
+            _write_candidates(root, rows)
+            return {
+                "ok": True,
+                "candidate_id": cid,
+                "status": target.get("status"),
+                "applied": applied,
+                "path": str(_candidates_path(root)),
+            }
+
+        if hypothesis_type == "proposed_theme_candidate":
+            from core_memory.runtime.engine import process_turn_finalized
+            from core_memory.schema.turn import Turn
+
+            related_bead_ids = list(target.get("related_bead_ids") or [])
+            if len(related_bead_ids) < 3:
+                applied = {
+                    "ok": False,
+                    "canonical_entry": "process_turn_finalized",
+                    "application_mode": "proposed_theme_quarantined",
+                    "error": "related_bead_ids must contain at least 3 grounded bead IDs",
+                }
+                _write_candidates(root, rows)
+                return {
+                    "ok": True,
+                    "candidate_id": cid,
+                    "status": target.get("status"),
+                    "applied": applied,
+                    "path": str(_candidates_path(root)),
+                }
+
+            session_id = str(((target.get("run_metadata") or {}) if isinstance(target.get("run_metadata"), dict) else {}).get("session_id") or "").strip() or "dreamer-theme"
+            turn_id = f"theme-apply-{cid}"
+            rationale = str(target.get("rationale") or f"Accepted theme across {len(related_bead_ids)} beads")
+
+            out = process_turn_finalized(
+                root=str(root),
+                session_id=session_id,
+                turn_id=turn_id,
+                turns=[
+                    Turn(speaker="user", role="user", content=f"Accept proposed theme: {rationale}"),
+                    Turn(speaker="assistant", role="assistant", content=f"Recording accepted theme. {rationale}"),
+                ],
+                metadata={
+                    "proposed_theme": {
+                        "type": "proposed_theme",
+                        "related_bead_ids": related_bead_ids,
+                        "confidence": float(target.get("confidence") or 0.0),
+                        "relationship": str(target.get("relationship") or ""),
+                        "generated_by": "dreamer",
+                        "source_candidates": list(target.get("source_candidates") or []),
+                        "status": "accepted",
+                        "because": rationale,
+                    }
+                },
+            )
+
+            applied = {
+                "ok": bool(out.get("ok")),
+                "canonical_entry": "process_turn_finalized",
+                "application_mode": "proposed_theme_bead_written",
+                "turn_id": turn_id,
+                "session_id": session_id,
+                "related_bead_ids": related_bead_ids,
+                "bead_type": "proposed_theme",
+            }
+            target["decision"]["applied_turn_id"] = turn_id
             _write_candidates(root, rows)
             return {
                 "ok": True,
@@ -679,8 +1057,130 @@ def submit_entity_merge_candidate(
     }
 
 
+def enqueue_contradiction_pressure_candidates(
+    *,
+    root: str | Path,
+    conflicts: list[Any],
+    threshold: float | None = None,
+    run_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Emit contradiction_pressure_candidate rows for conflicts above threshold.
+
+    ``conflicts`` is a list of ConflictItem instances or dicts with the same fields.
+    The threshold defaults to the ``CORE_MEMORY_CONFLICT_REVIEW_THRESHOLD`` env var (0.7).
+    """
+    import os
+
+    env_threshold = float(os.environ.get("CORE_MEMORY_CONFLICT_REVIEW_THRESHOLD") or "0.7")
+    effective_threshold = float(threshold) if threshold is not None else env_threshold
+
+    rows = _read_candidates(root)
+    now = _now()
+    run_meta = dict(run_metadata or {})
+    # Map existing candidate key → row so we can return ids for pre-existing
+    # candidates (recall needs the id to attach a review prompt, even on re-ask).
+    existing_by_key: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        if isinstance(r, dict):
+            existing_by_key.setdefault(_candidate_key(r), r)
+
+    added = 0
+    candidate_ids: dict[str, str] = {}   # "subject:slot" → candidate_id (surfaceable)
+    deferred_keys: list[str] = []        # "subject:slot" the user already deferred
+
+    for conflict in list(conflicts or []):
+        if hasattr(conflict, "to_dict"):
+            c = conflict.to_dict()
+        elif hasattr(conflict, "__dict__"):
+            c = dict(conflict.__dict__)
+        elif isinstance(conflict, dict):
+            c = conflict
+        else:
+            continue
+
+        score = float(c.get("epistemic_conflict_score") or 0.0)
+        if score <= effective_threshold:
+            continue
+
+        subject = str(c.get("subject") or "").strip()
+        slot = str(c.get("slot") or "").strip()
+        claim_a_id = str(c.get("claim_a_id") or "").strip()
+        claim_b_id = str(c.get("claim_b_id") or "").strip()
+        if not subject or not slot:
+            continue
+
+        slot_key = f"{subject}:{slot}"
+        assoc: dict[str, Any] = {
+            "source": claim_a_id,
+            "target": claim_b_id,
+            "relationship": "contradicts",
+            "novelty": 0.0,
+            "grounding": score,
+            "confidence": score,
+        }
+        row = _make_candidate_row(
+            now=now,
+            run_meta=run_meta,
+            association=assoc,
+            hypothesis_type="contradiction_pressure_candidate",
+            rationale=(
+                f"Claim conflict on {subject}:{slot} has epistemic pressure score {score:.3f} "
+                f"(chain_seq_gap={c.get('chain_seq_gap', 0)}, conflict_since={c.get('conflict_since', '')}). "
+                "Human review recommended."
+            ),
+            expected_decision_impact=(
+                f"Resolve conflicting claims on '{subject}' / '{slot}' to improve recall accuracy."
+            ),
+            extras={
+                "subject": subject,
+                "slot": slot,
+                "claim_a_id": claim_a_id,
+                "claim_b_id": claim_b_id,
+                "epistemic_conflict_score": score,
+                "conflict_since": str(c.get("conflict_since") or ""),
+                "chain_seq_gap": int(c.get("chain_seq_gap") or 0),
+                "conflict_threshold": effective_threshold,
+            },
+        )
+        # Override hypothesis_type — _make_candidate_row derives it from relationship,
+        # so we set it explicitly after construction.
+        row["hypothesis_type"] = "contradiction_pressure_candidate"
+        row["proposal_family"] = "contradiction"
+        row["benchmark_tags"] = ["contradiction_update", "current_state_factual"]
+
+        k = _candidate_key(row)
+        existing = existing_by_key.get(k)
+        if existing is not None:
+            # Already queued. Respect a prior "defer" — don't re-surface a prompt.
+            state = str(existing.get("review_state") or existing.get("status") or "").strip().lower()
+            if state in {"deferred", "rejected", "accepted"}:
+                deferred_keys.append(slot_key)
+            else:
+                candidate_ids[slot_key] = str(existing.get("id") or "")
+            continue
+
+        rows.append(row)
+        existing_by_key[k] = row
+        candidate_ids[slot_key] = str(row.get("id") or "")
+        added += 1
+
+    if added:
+        _write_candidates(root, rows)
+
+    return {
+        "ok": True,
+        "added": added,
+        "queue_depth": len(rows),
+        "threshold": effective_threshold,
+        "candidate_ids": candidate_ids,
+        "deferred_keys": deferred_keys,
+        "path": str(_candidates_path(root)),
+    }
+
+
 __all__ = [
     "enqueue_dreamer_candidates",
+    "enqueue_contradiction_pressure_candidates",
     "list_dreamer_candidates",
     "decide_dreamer_candidate",
     "submit_entity_merge_candidate",
