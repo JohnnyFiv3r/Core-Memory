@@ -26,12 +26,14 @@ RESOLUTION_PREFER_A = "prefer_a"
 RESOLUTION_PREFER_B = "prefer_b"
 RESOLUTION_RETRACT_BOTH = "retract_both"
 RESOLUTION_DEFER = "defer"
+RESOLUTION_BOTH_VALID = "both_valid"
 
 RESOLUTION_CHOICES = {
     RESOLUTION_PREFER_A,
     RESOLUTION_PREFER_B,
     RESOLUTION_RETRACT_BOTH,
     RESOLUTION_DEFER,
+    RESOLUTION_BOTH_VALID,
 }
 
 
@@ -121,6 +123,16 @@ def build_conflict_review(
             "claim_id": "",
             "effect": "Leave it unresolved for now; don't change anything.",
         },
+        {
+            "choice": RESOLUTION_BOTH_VALID,
+            "value": None,
+            "claim_id": "",
+            "effect": (
+                f"Both \"{value_a}\" and \"{value_b}\" are true — but in different contexts. "
+                "Requires two non-empty scope labels: one for each value. "
+                "Offer 'default / everywhere else' as an explicit option for whichever scope is broader."
+            ),
+        },
     ]
 
     agent_instructions = (
@@ -129,8 +141,16 @@ def build_conflict_review(
         "Read the user's free-text reply and map it to exactly one resolution choice id "
         "from `resolutions`. If they clearly mean one value, use prefer_a/prefer_b; if "
         "they say both are wrong, retract_both; if they're unsure or say not now, defer. "
-        "Then call apply_reviewed_proposal with this candidate_id, decision=\"accept\", "
-        "and resolution=<the chosen choice id>."
+        "If they say both are true but in different contexts, use both_valid — but you MUST "
+        "then ask for a scope label for each side before calling apply_reviewed_proposal: "
+        "'When is \"" + value_a + "\" true?' and 'When is \"" + value_b + "\" true?' "
+        "If they name only one scope, ask once where the other still holds; "
+        "offer 'default / everywhere else' as an explicit option for the broader case. "
+        "Do NOT call apply_reviewed_proposal for both_valid until you have both scope labels. "
+        "Then call apply_reviewed_proposal with candidate_id, decision=\"accept\", "
+        "resolution=\"both_valid\", context_a=<scope for value_a>, context_b=<scope for value_b>. "
+        "For any other resolution, call apply_reviewed_proposal with this candidate_id, "
+        "decision=\"accept\", and resolution=<the chosen choice id>."
     )
 
     return {
@@ -216,6 +236,7 @@ __all__ = [
     "RESOLUTION_PREFER_B",
     "RESOLUTION_RETRACT_BOTH",
     "RESOLUTION_DEFER",
+    "RESOLUTION_BOTH_VALID",
     "RESOLUTION_CHOICES",
     "build_conflict_review",
     "resolution_to_claim_updates",

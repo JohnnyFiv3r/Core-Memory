@@ -44,7 +44,14 @@ def conflict_score_for_pair(claim_a: dict[str, Any], claim_b: dict[str, Any]) ->
     """Compute epistemic score directly from two claim dicts.
 
     Extracts chain_seq and created_at from the dicts; falls back to 0 / 0.0 if missing.
+    Returns 0.0 when the two claims have different context_scope values — different scopes
+    are not in conflict; they coexist.
     """
+    scope_a = str(claim_a.get("context_scope") or "").strip()
+    scope_b = str(claim_b.get("context_scope") or "").strip()
+    if scope_a != scope_b:
+        return 0.0
+
     ts_a = _parse_created_at(claim_a)
     ts_b = _parse_created_at(claim_b)
     if ts_a is not None and ts_b is not None:

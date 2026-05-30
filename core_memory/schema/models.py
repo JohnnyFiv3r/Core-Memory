@@ -451,6 +451,7 @@ class Claim:
     recorded_at: str | None = None
     effective_from: str | None = None
     effective_to: str | None = None
+    context_scope: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

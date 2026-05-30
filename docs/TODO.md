@@ -260,10 +260,40 @@ must remain possible.
 
 ### #14A — `both_valid` resolution + `context_scope` claim discriminator
 
-**Status:** Not started  
+**Status:** Complete  
 **Blocks:** nothing  
-**Blocked by:** #14 (complete)  
 **Effort:** ~2 days  
+
+**Shipped:**
+- `RESOLUTION_BOTH_VALID = "both_valid"` added to `RESOLUTION_CHOICES` in
+  `claim/conflict_review.py`; exported in `__all__`
+- `build_conflict_review()` — fifth resolution choice with scope-label effect text;
+  `agent_instructions` updated with two-message loop guidance and `context_a`/`context_b`
+  call signature
+- `conflict_score_for_pair()` in `claim/epistemic.py` — returns `0.0` when
+  `context_scope` values differ (cross-scope pairs are not conflicts)
+- `resolve_all_current_state()` in `claim/resolver.py` — groups claims by
+  `(subject, slot, context_scope or "")`: global claims (`scope=None/""`) key as
+  `"subject:slot"` (backward-compat); scoped claims key as `"subject:slot::scope"`.
+  Updates still looked up by base key so supersede rows reach both buckets.
+- `Claim` dataclass in `schema/models.py` — `context_scope: str | None = None` field
+  added; preserved through `from_dict`/`to_dict` serialization
+- `decide_dreamer_candidate()` in `runtime/dreamer/candidates.py` — `scope_a`/`scope_b`
+  params added; `both_valid` branch in `contradiction_pressure_candidate` section:
+  - Returns `needs_clarification` (no write, candidate stays `unreviewed`) if either
+    scope label is empty
+  - On accept+apply with both scopes: writes fork-event bead via `process_turn_finalized`,
+    writes two new context-scoped claims to fork bead via `write_claims_to_bead`,
+    emits two supersede update rows via `emit_claim_updates`, returns
+    `application_mode="context_scope_fork"` with `scope_a`, `scope_b`, `fork_bead_id`
+- `apply_reviewed_proposal()` in `integrations/mcp/typed_write.py` — `context_a`,
+  `context_b` params added; MCP schema updated with `context_a`/`context_b` properties
+  and `"both_valid"` added to `resolution` enum
+- Agent guide (`integrations/mcp/core-memory-agent-guide.md`) — `both_valid`
+  two-message loop documented with complement-default (`context_b=""`) guidance
+- 28 tests in `tests/test_both_valid_resolution.py`, all passing; pre-existing
+  `test_conflict_review.py::test_has_four_resolution_choices` renamed to
+  `test_has_five_resolution_choices`
 
 Extends the conflict review UX from #14 with a fifth resolution choice: `both_valid`.
 The existing four choices (`prefer_a`, `prefer_b`, `retract_both`, `defer`) assume the

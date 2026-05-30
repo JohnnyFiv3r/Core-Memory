@@ -437,6 +437,8 @@ def decide_dreamer_candidate(
     notes: str | None = None,
     apply: bool = False,
     resolution: str | None = None,
+    scope_a: str | None = None,
+    scope_b: str | None = None,
 ) -> dict[str, Any]:
     cid = str(candidate_id or "").strip()
     decision_n = str(decision or "").strip().lower()
@@ -493,11 +495,16 @@ def decide_dreamer_candidate(
 
         if hypothesis_type == "contradiction_pressure_candidate":
             from core_memory.claim.conflict_review import (
+                RESOLUTION_BOTH_VALID,
                 RESOLUTION_CHOICES,
                 resolution_to_claim_updates,
             )
             from core_memory.claim.update_policy import emit_claim_updates
-            from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
+            from core_memory.persistence.store_claim_ops import (
+                find_canonical_turn_bead_id,
+                read_all_claim_rows,
+                write_claims_to_bead,
+            )
             from core_memory.runtime.engine import process_turn_finalized
             from core_memory.schema.turn import Turn
 
@@ -520,6 +527,151 @@ def decide_dreamer_candidate(
             session_id = str(
                 (((target.get("run_metadata") or {}) if isinstance(target.get("run_metadata"), dict) else {}).get("session_id") or "")
             ).strip() or "conflict-review"
+
+            # --- both_valid: context-scoped fork --- #
+            if resolution_n == RESOLUTION_BOTH_VALID:
+                sa = str(scope_a or "").strip()
+                sb = str(scope_b or "").strip()
+                if not sa or not sb:
+                    # Needs clarification — don't update candidate status.
+                    target["status"] = "unreviewed"
+                    target.pop("decision", None)
+                    target.pop("resolution", None)
+                    missing = "scope_a" if not sa else "scope_b"
+                    # Look up claim values for the prompt (best-effort).
+                    all_claims_for_prompt, _ = read_all_claim_rows(str(root))
+                    ca_dict = next((c for c in all_claims_for_prompt if str(c.get("id") or "") == claim_a_id), {})
+                    cb_dict = next((c for c in all_claims_for_prompt if str(c.get("id") or "") == claim_b_id), {})
+                    value_missing = str(cb_dict.get("value") or slot) if sa else str(ca_dict.get("value") or slot)
+                    _write_candidates(root, rows)
+                    return {
+                        "ok": False,
+                        "needs_clarification": True,
+                        "missing": missing,
+                        "prompt": (
+                            f"When is \"{value_missing}\" still true? "
+                            f"(Or say 'default / everywhere else' for the broader case.)"
+                        ),
+                        "candidate_id": cid,
+                    }
+
+                # Look up claim values.
+                all_claims_bv, _ = read_all_claim_rows(str(root))
+                ca_dict = next((c for c in all_claims_bv if str(c.get("id") or "") == claim_a_id), {})
+                cb_dict = next((c for c in all_claims_bv if str(c.get("id") or "") == claim_b_id), {})
+                value_a = str(ca_dict.get("value") or "")
+                value_b = str(cb_dict.get("value") or "")
+
+                # Write fork-event bead.
+                fork_turn_id = f"both-valid-{cid}"
+                fork_out = process_turn_finalized(
+                    root=str(root),
+                    session_id=session_id,
+                    turn_id=fork_turn_id,
+                    turns=[
+                        Turn(speaker="user", role="user", content=(
+                            f"Both values of {subject}:{slot} are true in different contexts: "
+                            f"'{value_a}' when {sa}, '{value_b}' when {sb}."
+                        )),
+                        Turn(speaker="assistant", role="assistant", content=(
+                            f"Recording context-scoped fork for {subject}:{slot}. "
+                            f"'{value_a}' scoped to '{sa}'; '{value_b}' scoped to '{sb}'."
+                        )),
+                    ],
+                    metadata={"context_scope_fork": {
+                        "subject": subject, "slot": slot, "scope_a": sa, "scope_b": sb,
+                    }},
+                )
+                fork_bead_id = find_canonical_turn_bead_id(str(root), session_id=session_id, turn_id=fork_turn_id) or fork_turn_id
+
+                # Write two new context-scoped claims to the fork bead.
+                import uuid as _uuid_bv
+                now_iso = _now()
+                new_a_id = str(_uuid_bv.uuid4())
+                new_b_id = str(_uuid_bv.uuid4())
+                write_claims_to_bead(str(root), fork_bead_id, [
+                    {
+                        "id": new_a_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "value": value_a,
+                        "context_scope": sa,
+                        "source_bead_id": fork_bead_id,
+                        "created_at": now_iso,
+                        "provenance": "both_valid_resolution",
+                    },
+                    {
+                        "id": new_b_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "value": value_b,
+                        "context_scope": sb,
+                        "source_bead_id": fork_bead_id,
+                        "created_at": now_iso,
+                        "provenance": "both_valid_resolution",
+                    },
+                ])
+
+                # Emit supersede updates: old global claims → new scoped claims.
+                supersede_rows: list[dict] = []
+                reason_text = str(notes or f"both_valid resolution: {subject}:{slot} context-scoped")
+                if claim_a_id:
+                    supersede_rows.append({
+                        "id": str(_uuid_bv.uuid4()),
+                        "decision": "supersede",
+                        "target_claim_id": claim_a_id,
+                        "replacement_claim_id": new_a_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "reason_text": reason_text,
+                        "trigger_bead_id": fork_bead_id,
+                        "provenance": "conflict_review_resolution",
+                    })
+                if claim_b_id:
+                    supersede_rows.append({
+                        "id": str(_uuid_bv.uuid4()),
+                        "decision": "supersede",
+                        "target_claim_id": claim_b_id,
+                        "replacement_claim_id": new_b_id,
+                        "subject": subject,
+                        "slot": slot,
+                        "reason_text": reason_text,
+                        "trigger_bead_id": fork_bead_id,
+                        "provenance": "conflict_review_resolution",
+                    })
+
+                written = 0
+                if supersede_rows:
+                    emitted = emit_claim_updates(
+                        str(root), [], fork_bead_id,
+                        session_id=session_id,
+                        reviewed_updates={"claim_updates": supersede_rows},
+                    ) or []
+                    written = len(emitted)
+
+                applied = {
+                    "ok": bool(fork_out.get("ok")) and written > 0,
+                    "canonical_entry": "context_scope_fork",
+                    "application_mode": "context_scope_fork",
+                    "scope_a": sa,
+                    "scope_b": sb,
+                    "fork_bead_id": fork_bead_id,
+                    "claim_updates_written": written,
+                    "turn_id": fork_turn_id,
+                    "session_id": session_id,
+                }
+                target["decision"]["applied_turn_id"] = fork_turn_id
+                target["review_state"] = "resolved"
+                _write_candidates(root, rows)
+                return {
+                    "ok": True,
+                    "candidate_id": cid,
+                    "status": target.get("status"),
+                    "applied": applied,
+                    "path": str(_candidates_path(root)),
+                }
+
+            # --- prefer_a / prefer_b / retract_both path --- #
             turn_id = f"conflict-resolve-{cid}"
 
             # Record the user's decision as an audit turn (canonical write boundary).

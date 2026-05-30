@@ -66,10 +66,10 @@ class TestBuildConflictReview(unittest.TestCase):
         self.assertIn("db", p["question"])
         self.assertIn("engine", p["question"])
 
-    def test_has_four_resolution_choices(self):
+    def test_has_five_resolution_choices(self):
         p = self._build()
         choices = {r["choice"] for r in p["resolutions"]}
-        self.assertEqual(choices, {"prefer_a", "prefer_b", "retract_both", "defer"})
+        self.assertEqual(choices, {"prefer_a", "prefer_b", "retract_both", "defer", "both_valid"})
 
     def test_prefer_choices_carry_claim_ids(self):
         p = self._build()
