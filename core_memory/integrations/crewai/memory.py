@@ -26,18 +26,17 @@ class CoreMemoryShortTerm:
     def save(self, value: str, metadata: dict[str, Any] | None = None, agent: str = "") -> None:
         """Save a short-term memory via the canonical write path."""
         meta = metadata or {}
-        req = {
-            "session_id": self.session_id or "crewai-default",
-            "turn_id": str(uuid.uuid4()),
-            "user_query": "",
-            "assistant_response": value,
-            "metadata": {
+        process_turn_finalized(
+            root=self.root,
+            session_id=self.session_id or "crewai-default",
+            turn_id=str(uuid.uuid4()),
+            turns=[{"speaker": agent or "crewai", "role": "assistant", "content": value}],
+            metadata={
                 "type": meta.get("type", "context"),
                 "tags": meta.get("tags", []),
                 "source_turn_ids": meta.get("source_turn_ids", []),
             },
-        }
-        process_turn_finalized(req, root=self.root)
+        )
 
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search short-term memories (open/candidate beads)."""
@@ -53,7 +52,11 @@ class CoreMemoryShortTerm:
         return [
             {
                 "context": r.get("title", ""),
-                "summary": " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", "")),
+                "summary": (
+                    " ".join(r.get("summary") or [])
+                    if isinstance(r.get("summary"), list)
+                    else str(r.get("summary", ""))
+                ),
                 "score": r.get("score", 0.0),
                 "metadata": {"bead_id": r.get("bead_id") or r.get("id"), "type": r.get("type")},
             }
@@ -83,18 +86,17 @@ class CoreMemoryLongTerm:
         promotion lifecycle rather than being forced immediately.
         """
         meta = metadata or {}
-        req = {
-            "session_id": "crewai-long-term",
-            "turn_id": str(uuid.uuid4()),
-            "user_query": "",
-            "assistant_response": value,
-            "metadata": {
+        process_turn_finalized(
+            root=self.root,
+            session_id="crewai-long-term",
+            turn_id=str(uuid.uuid4()),
+            turns=[{"speaker": agent or "crewai", "role": "assistant", "content": value}],
+            metadata={
                 "type": meta.get("type", "lesson"),
                 "tags": meta.get("tags", []),
                 "source_turn_ids": meta.get("source_turn_ids", []),
             },
-        }
-        process_turn_finalized(req, root=self.root)
+        )
 
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search long-term memories (promoted/archived beads)."""
@@ -110,7 +112,11 @@ class CoreMemoryLongTerm:
         return [
             {
                 "context": r.get("title", ""),
-                "summary": " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", "")),
+                "summary": (
+                    " ".join(r.get("summary") or [])
+                    if isinstance(r.get("summary"), list)
+                    else str(r.get("summary", ""))
+                ),
                 "score": r.get("score", 0.0),
                 "metadata": {"bead_id": r.get("bead_id") or r.get("id"), "type": r.get("type")},
             }
@@ -136,18 +142,17 @@ class CoreMemoryEntity:
     def save(self, value: str, metadata: dict[str, Any] | None = None, agent: str = "") -> None:
         """Save an entity memory via the canonical write path."""
         meta = metadata or {}
-        req = {
-            "session_id": "crewai-entity",
-            "turn_id": str(uuid.uuid4()),
-            "user_query": "",
-            "assistant_response": value,
-            "metadata": {
+        process_turn_finalized(
+            root=self.root,
+            session_id="crewai-entity",
+            turn_id=str(uuid.uuid4()),
+            turns=[{"speaker": agent or "crewai", "role": "assistant", "content": value}],
+            metadata={
                 "type": "context",
                 "tags": meta.get("tags", []),
                 "source_turn_ids": meta.get("source_turn_ids", []),
             },
-        }
-        process_turn_finalized(req, root=self.root)
+        )
 
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search entity memories."""
