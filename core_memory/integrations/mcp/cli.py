@@ -198,7 +198,7 @@ def install_client_config(client: str, *, port: int, dry_run: bool = False) -> d
 
 
 def _systemd_unit_text(*, root: str, port: int) -> str:
-    exe = shutil.which("python3") or shutil.which("python") or sys.executable
+    exe = sys.executable or shutil.which("python3") or shutil.which("python")
     return f"""[Unit]
 Description=Core Memory MCP server
 After=network.target
@@ -216,7 +216,7 @@ WantedBy=default.target
 
 
 def _launchd_plist_text(*, root: str, port: int) -> str:
-    exe = shutil.which("python3") or shutil.which("python") or sys.executable
+    exe = sys.executable or shutil.which("python3") or shutil.which("python")
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">

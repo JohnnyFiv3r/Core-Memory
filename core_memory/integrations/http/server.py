@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -180,6 +181,9 @@ class MCPApplyReviewedProposalRequest(BaseModel):
     reviewer: str = ""
     notes: str = ""
     apply: bool = True
+    resolution: str = ""
+    context_a: str = ""
+    context_b: str = ""
 
 
 class MCPSubmitEntityMergeProposalRequest(BaseModel):
@@ -608,6 +612,9 @@ async def mcp_apply_reviewed_proposal_endpoint(
         reviewer=str(payload.reviewer or ""),
         notes=str(payload.notes or ""),
         apply=bool(payload.apply),
+        resolution=str(payload.resolution or ""),
+        context_a=str(payload.context_a),
+        context_b=str(payload.context_b),
     )
     if not out.get("ok"):
         return JSONResponse(status_code=400, content=out)
@@ -889,12 +896,30 @@ async def ops_dreamer_candidates_decide(
     return out
 
 
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _is_loopback(host: str) -> bool:
+    return host.strip().lower() in _LOOPBACK_HOSTS
+
+
 def main() -> None:
     """Run HTTP server via `python -m core_memory.integrations.http.server`."""
     import uvicorn
 
     host = str(os.getenv("CORE_MEMORY_HTTP_HOST") or "127.0.0.1")
     port = int(os.getenv("CORE_MEMORY_HTTP_PORT") or "8000")
+
+    if not _is_loopback(host) and not _auth_required():
+        print(
+            f"ERROR: CORE_MEMORY_HTTP_HOST is set to '{host}' (non-loopback) but "
+            "CORE_MEMORY_HTTP_TOKEN is not set. Refusing to start an unauthenticated "
+            "server on a non-loopback interface.\n"
+            "Set CORE_MEMORY_HTTP_TOKEN=<secret> or bind to 127.0.0.1.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     uvicorn.run("core_memory.integrations.http.server:app", host=host, port=port)
 
 

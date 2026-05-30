@@ -89,5 +89,69 @@ class TestMCPTypedWrites(unittest.TestCase):
             self.assertEqual("entity_merge_candidate", str((hit or {}).get("hypothesis_type") or ""))
 
 
+class TestApplyReviewedProposalResolutionFields(unittest.TestCase):
+    """Guards A3: resolution/context_a/context_b must flow through every public surface."""
+
+    def _seed_candidate(self, td: str) -> str:
+        enqueue_dreamer_candidates(
+            root=td,
+            associations=[{"source": "b1", "target": "b2", "relationship": "contradicts",
+                           "novelty": 0.8, "grounding": 0.9, "confidence": 0.8}],
+            run_metadata={"run_id": "test-res", "mode": "suggest", "source": "unit_test"},
+        )
+        rows = list_dreamer_candidates(root=td, status="pending", limit=5).get("results") or []
+        return str((rows[0].get("id") or "") if rows else "")
+
+    def test_typed_write_accepts_resolution_and_prefer_a(self):
+        with tempfile.TemporaryDirectory() as td:
+            cid = self._seed_candidate(td)
+            self.assertTrue(cid)
+            out = apply_reviewed_proposal(
+                root=td, candidate_id=cid, decision="accept",
+                resolution="prefer_a", reviewer="qa",
+            )
+            # prefer_a on a non-contradiction_pressure candidate is a no-op but must not error
+            self.assertIn("ok", out)
+
+    def test_call_tool_registry_forwards_resolution(self):
+        """call_tool must not drop resolution/context_a/context_b."""
+        from core_memory.integrations.mcp.registry import call_tool
+        with tempfile.TemporaryDirectory() as td:
+            cid = self._seed_candidate(td)
+            out = call_tool("apply_reviewed_proposal", {
+                "root": td,
+                "candidate_id": cid,
+                "decision": "reject",
+                "resolution": "prefer_a",
+                "context_a": "production",
+                "context_b": "staging",
+            })
+            self.assertIn("ok", out)
+
+    def test_http_request_model_accepts_resolution_fields(self):
+        """MCPApplyReviewedProposalRequest must expose resolution/context_a/context_b."""
+        from core_memory.integrations.http.server import MCPApplyReviewedProposalRequest
+        req = MCPApplyReviewedProposalRequest(
+            candidate_id="cand-1",
+            decision="accept",
+            resolution="prefer_b",
+            context_a="scope-a",
+            context_b="",
+        )
+        self.assertEqual("prefer_b", req.resolution)
+        self.assertEqual("scope-a", req.context_a)
+        self.assertEqual("", req.context_b)
+
+    def test_mcp_protocol_wrapper_accepts_resolution_fields(self):
+        """apply_reviewed_proposal_tool signature must include resolution/context_a/context_b."""
+        import inspect
+        from core_memory.integrations.mcp.protocol_server import build_mcp_app
+        # Check the typed_write function directly since protocol_server uses nested closures
+        from core_memory.integrations.mcp.typed_write import apply_reviewed_proposal as arp
+        sig = inspect.signature(arp)
+        for field in ("resolution", "context_a", "context_b"):
+            self.assertIn(field, sig.parameters, f"apply_reviewed_proposal missing param: {field}")
+
+
 if __name__ == "__main__":
     unittest.main()

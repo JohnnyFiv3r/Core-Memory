@@ -63,7 +63,7 @@ For Claude Code, add to your MCP config:
 }
 ```
 
-Start a new conversation. MCP-capable agents can capture and recall through the bundled Core Memory tools and agent guide.
+Start a new conversation. MCP exposes `recall`, `capture`, and `capture_session` as tools the model can call. Per-turn capture requires the model to follow the bundled agent guide; automatic capture for every turn requires a supported client adapter or lifecycle hook.
 
 Or install directly from PyPI for Python SDK use:
 
@@ -85,7 +85,7 @@ See the [full setup guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/maste
 
 **Transcript-native storage:** Built specifically for conversational data, each turn is normalized into a memory object rather than chunked and indexed alongside authored documents.
 
-**Captures every turn automatically:** The LLM applies causal labels from a fixed taxonomy rather than judging importance, so nothing is filtered before storage and no explicit "remember this" is required.
+**Per-turn capture via MCP tools:** The MCP server exposes `capture` and `capture_session` as tools. When a client adapter or lifecycle hook is configured, every turn is captured automatically. With stock MCP clients (Claude, ChatGPT), the model follows the bundled agent guide to call capture after state-bearing turns. Use `capture_session` at conversation end as a lossless safety net.
 
 **Rolling context injection on a budget:** Compacted memory objects carry only their title, type, and causal associations, fitting 10+ sessions of history into a fraction of the token cost of naive loading.
 
@@ -99,7 +99,7 @@ See the [full setup guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/maste
 
 **Depth on demand:** recall(query, effort="low" | "medium" | "high") scales from fast lookup to full causal traversal. The orchestrator decides what the question needs.
 
-**Self-hosted MCP:** Streamable-HTTP server at /mcp with a canonical agent guide that loads automatically at connection. No system prompt changes needed.
+**Self-hosted MCP:** Streamable-HTTP server at /mcp with a canonical agent guide that loads at connection. For stock MCP clients (Claude, ChatGPT), paste the operating-protocol block printed by `core-memory mcp install` into your custom instructions so the model calls recall/capture/capture_session on every turn.
 
 **Auto-detected embedding model:** Picks up OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY from your environment. Runs in degraded mode with one hint if none are set.
 
@@ -138,13 +138,13 @@ Use Core Memory as a memory backend directly within your agent harness:
 
 Core Memory separates retrieval from writes, connected through session-scoped storage. Each agent turn follows the same loop:
 
-**Capture:** Call capture() after each turn — or connect via MCP and it happens automatically. Each turn becomes a memory object typed as a decision, lesson, outcome, evidence, or context. An agent judge assigns typed causal associations (caused_by, contradicts, supports, and more), and claims are tracked and superseded when later turns update them. Nothing is filtered before storage — the LLM assigns structure, not importance.
+**Capture:** Call `capture()` after each turn, or let a client adapter do it automatically. With MCP, the model follows the bundled agent guide to call capture after state-bearing turns; use `capture_session` at the end of a conversation as a lossless safety net. Each turn becomes a memory object typed as a decision, lesson, outcome, evidence, or context. An agent judge assigns typed causal associations (caused_by, contradicts, supports, and more), and claims are tracked and superseded when later turns update them. Nothing is filtered before storage — the LLM assigns structure, not importance.
 
 **Recall:** recall(query, effort="low" | "medium" | "high") is the single read verb. Before each agent turn, a bounded context packet is built from the rolling window: promoted memory objects at full context, compacted ones as lightweight stubs. effort="low" runs lexical and semantic anchor search. effort="medium" adds temporal routing. effort="high" runs the full orchestration pipeline: causal traversal, multi-hop chains, goal resolution, and claim-slot enrichment. The orchestrator decides what the question needs.
 
 **Grounding:** Every recall() returns a RecallResult — not just the memory, but the source conversation it came from, the traversal path that found it, and a verifiable hash. The result carries per-memory evidence records and a planning trace showing exactly which retrieval surfaces fired. Retrieval is deterministic from indexed state.
 
-**Maintain:** Memory objects are either promoted (full context in the rolling window) or compacted to title, type, and associations only. Compacted objects remain queryable and their associations stay intact — the agent expands any on demand with a single tool call. Frequently-walked causal edges strengthen over time; rarely-accessed memory compacts naturally.
+**Maintain:** Memory objects are either promoted (full context in the rolling window) or compacted to title, type, and associations only. Compacted objects remain queryable and their associations stay intact — the agent expands any on demand with a single tool call. Myelination (edge strengthening over time) is available as an opt-in feature; rarely-accessed memory compacts naturally.
 
 
 **Core Concepts**
@@ -173,12 +173,36 @@ Hydration is explicit post-selection source recovery (turn/tools/adjacent) — n
 **RecallResult**
 Every `recall()` returns a typed `RecallResult` with `evidence[]` (memory objects with grounding hashes), `sources[]`, `steps[]` (which surfaces fired and in what order), `resolved_goals[]`, and `claim_slots{}`. Stable across MCP, REST, and Python SDK.
 
-**Semantic Mode**
+**Semantic Readiness**
+
+Core Memory auto-detects your embeddings provider from `OPENAI_API_KEY`, `GEMINI_API_KEY`, or `GOOGLE_API_KEY`. If none is set, it runs in degraded lexical mode — BM25 keyword recall, no semantic anchors.
+
+| Profile | How to get there |
+|---|---|
+| Minimal MCP (degraded) | No API key; set `CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed` to suppress the warning |
+| MCP + semantic recall | Set `OPENAI_API_KEY` (or Gemini/Google), then run `core-memory graph semantic-build` |
+| Production (Qdrant/pgvector) | Set `CORE_MEMORY_VECTOR_BACKEND=qdrant` or `pgvector`; see semantic backend docs |
+
+The `CORE_MEMORY_CANONICAL_SEMANTIC_MODE` env var controls failure behavior:
 
 | Mode | Behavior |
 |---|---|
 | `required` (default) | Fails closed when semantic backend is unavailable |
-| `degraded_allowed` | Lexical fallback with degraded markers |
+| `degraded_allowed` | Lexical fallback with degraded recall markers |
+
+First-run recall quality with no semantic backend: keyword matches only, no similarity-ranked anchors.
+
+**Multi-Store Fan-Out** *(experimental)*
+
+Core Memory can fan out recall queries to Ragie and PipeHouse in parallel and merge the evidence:
+
+| Env var | Purpose |
+|---|---|
+| `CORE_MEMORY_RAGIE_API_KEY` | Enables Ragie evidence retrieval |
+| `CORE_MEMORY_PIPEHOUSE_URL` | Enables PipeHouse evidence retrieval |
+| `CORE_MEMORY_STORE_WEIGHTS` | Comma-separated weights for `core_memory,ragie,pipehouse` (default `1.0,1.0,1.0`) |
+
+Fan-out is skipped when none of these are set. Results are normalized, weighted, and merged into the standard `RecallResult`.
 
 **Storage Backend**
 

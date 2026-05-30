@@ -145,7 +145,7 @@ def _normalize_links(v) -> list[dict]:
 
 
 def _relation_map_path() -> Path:
-    return Path(__file__).parent / "data" / "structural_relation_map.json"
+    return Path(__file__).parent.parent / "data" / "structural_relation_map.json"
 
 
 def _load_structural_relation_map() -> dict[str, str]:
