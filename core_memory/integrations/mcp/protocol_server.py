@@ -133,6 +133,37 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
             },
         )
 
+    @mcp.tool(name="capture_session", description=_tool_description("capture_session"), structured_output=True)
+    def capture_session_tool(
+        turns: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        path: str | None = None,
+        from_format: str | None = None,
+        session_id: str | None = None,
+        session_prefix: str | None = None,
+        transcript_id: str | None = None,
+        flush_policy: str | None = None,
+        max_turns: int | None = None,
+        metadata: dict[str, Any] | None = None,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "capture_session",
+            {
+                "turns": turns,
+                "messages": messages,
+                "path": path,
+                "from": from_format,
+                "session_id": session_id,
+                "session_prefix": session_prefix,
+                "transcript_id": transcript_id,
+                "flush_policy": flush_policy,
+                "max_turns": max_turns,
+                "metadata": metadata,
+                "root": root or kwargs.get("root") or default_root,
+            },
+        )
+
     @mcp.tool(name="ingest", description=_tool_description("ingest"), structured_output=True)
     def ingest_tool(
         path: str | None = None,

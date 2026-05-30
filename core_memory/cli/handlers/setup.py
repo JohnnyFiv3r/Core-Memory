@@ -337,19 +337,28 @@ def _storage_probe(root: str) -> dict[str, Any]:
 
 def _vector_probe(root: str) -> dict[str, Any]:
     try:
-        from core_memory.semantic.store import SemanticStore
-        ss = SemanticStore(root=root)
-        size = ss.index_size() if hasattr(ss, "index_size") else None
-        result: dict[str, Any] = {"status": "ok", "summary": "index available"}
-        if size is not None:
-            result["index_size"] = size
-        return result
-    except ImportError:
+        from core_memory.retrieval.semantic_index import semantic_doctor
+        diag = semantic_doctor(Path(root))
+        if diag.get("usable_backend"):
+            result: dict[str, Any] = {
+                "status": "ok",
+                "summary": f"index available ({diag.get('backend', 'unknown')})",
+                "index_size": diag.get("rows_count"),
+            }
+            return result
+        provider = diag.get("provider") or "unknown"
+        if provider in {"", "unknown"}:
+            return {
+                "status": "warning",
+                "summary": "not configured — no embedding provider detected",
+                "impact": "semantic recall will use BM25 keyword fallback",
+                "fix": 'Set OPENAI_API_KEY (or CORE_MEMORY_EMBEDDINGS_PROVIDER) then run: core-memory graph semantic-build',
+            }
         return {
             "status": "warning",
-            "summary": "not configured",
-            "impact": "semantic recall will use BM25 keyword fallback",
-            "fix": 'pip install "core-memory[faiss]" then core-memory config set vector_backend local-faiss',
+            "summary": f"provider detected ({provider}) but index not built",
+            "impact": "semantic recall will use BM25 keyword fallback until index is built",
+            "fix": "core-memory graph semantic-build",
         }
     except Exception as exc:
         return {
@@ -367,8 +376,7 @@ def _graph_probe(profile: str) -> dict[str, Any]:
     For production profiles, Neo4j is required.
     """
     try:
-        from core_memory.persistence.graph import create_graph_backend
-        from core_memory.persistence.graph.null_backend import NullGraphBackend
+        from core_memory.persistence.graph import create_graph_backend, NullGraphBackend
         gb = create_graph_backend()
         caps = gb.capabilities()
         backend_name = type(gb).__name__

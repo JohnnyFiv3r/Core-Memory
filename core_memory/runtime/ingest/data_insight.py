@@ -58,7 +58,8 @@ def ingest_data_insight_row(root: str, session_id: str, row: dict[str, Any]) -> 
         session_id=session_id,
         turn_id=turn_id,
         turns=[{
-            "role": "system",
+            "speaker": "pipehouse",
+            "role": "other",
             "content": str(row["content"]),
             "metadata": turn_metadata,
         }],

@@ -9,9 +9,9 @@ Design invariants:
     Python QA objects; they never touch the benchmark temp dir.
   - process_turn_finalized is used directly (not emit_turn_finalized) because
     the emission guard blocks synchronous writes outside runtime contexts.
-  - Temporal adjacency associations are synthesised between consecutive turns
-    within the same session. These are structural (speaker A then speaker B),
-    not gold-derived.
+  - Temporal adjacency associations are only synthesised when
+    shortcut_flags.synthetic_temporal_edges=True.  The default (False) skips
+    them so faithful eval runs carry no synthetic structure.
 """
 from __future__ import annotations
 
@@ -142,9 +142,11 @@ def ingest_conversation(
     if shortcut_flags is not None and not shortcut_flags.is_faithful():
         raise ValueError(f"ingest_conversation called with non-faithful shortcut flags: {shortcut_flags.to_dict()}")
 
+    inject_temporal_edges = shortcut_flags is not None and shortcut_flags.synthetic_temporal_edges
+
     session_id = conversation.session_id
     last_bead_by_session: dict[str, str] = {}
-    # session_index grouping for adjacency links
+    # session_index grouping for adjacency links (only used when inject_temporal_edges=True)
     session_of_turn: dict[str, int] = {
         t.turn_id: int(t.metadata.get("session_index") or 0)
         for t in conversation.turns
@@ -175,27 +177,28 @@ def ingest_conversation(
         )
 
         current_bead_id = _bead_id_for_turn(root, session_id=session_id, turn_id=turn_id)
-        prev_bead_id = last_bead_by_session_idx.get(session_idx, "")
 
-        if current_bead_id and prev_bead_id and current_bead_id != prev_bead_id:
-            run_association_pass(
-                root=root,
-                session_id=session_id,
-                updates={
-                    "associations": [
-                        {
-                            "source_bead_id": current_bead_id,
-                            "target_bead_id": prev_bead_id,
-                            "relationship": "follows",
-                            "confidence": 0.72,
-                            "reason_text": "locomo temporal adjacency",
-                            "provenance": "locomo_replay",
-                        }
-                    ]
-                },
-                visible_bead_ids=[prev_bead_id, current_bead_id],
-            )
-            merge_crawler_updates(root=root, session_id=session_id)
+        if inject_temporal_edges:
+            prev_bead_id = last_bead_by_session_idx.get(session_idx, "")
+            if current_bead_id and prev_bead_id and current_bead_id != prev_bead_id:
+                run_association_pass(
+                    root=root,
+                    session_id=session_id,
+                    updates={
+                        "associations": [
+                            {
+                                "source_bead_id": current_bead_id,
+                                "target_bead_id": prev_bead_id,
+                                "relationship": "follows",
+                                "confidence": 0.72,
+                                "reason_text": "locomo temporal adjacency",
+                                "provenance": "locomo_replay",
+                            }
+                        ]
+                    },
+                    visible_bead_ids=[prev_bead_id, current_bead_id],
+                )
+                merge_crawler_updates(root=root, session_id=session_id)
 
         if current_bead_id:
             last_bead_by_session_idx[session_idx] = current_bead_id

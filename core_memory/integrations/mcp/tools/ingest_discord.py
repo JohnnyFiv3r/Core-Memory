@@ -40,11 +40,12 @@ def _parse_message(row: Any, index: int) -> dict[str, Any] | None:
     discriminator = str(author.get("discriminator") or "").strip()
     author_id = str(author.get("id") or "").strip()
     nickname = str(author.get("nickname") or "").strip()
-    # Prefer username#discriminator for uniqueness (strip happens in resolver)
-    if username and discriminator and discriminator != "0" and discriminator != "0000":
-        speaker = f"{username}#{discriminator}"
+    # Use stable author_id as the canonical speaker label so renames don't
+    # create new entities. Fall back to username only when no id is present.
+    if author_id:
+        speaker = f"discord:{author_id}"
     else:
-        speaker = username or author_id or f"discord-user-{index}"
+        speaker = username or f"discord-user-{index}"
 
     ts = str(row.get("timestamp") or row.get("ts") or "").strip()
     return {
