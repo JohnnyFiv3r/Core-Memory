@@ -5,9 +5,10 @@ These classes can be used directly or passed to CrewAI's Crew configuration.
 """
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
-from core_memory.persistence.store import MemoryStore
+from core_memory import process_turn_finalized
 from core_memory.retrieval.tools import memory as memory_tools
 
 
@@ -21,19 +22,22 @@ class CoreMemoryShortTerm:
     def __init__(self, root: str = ".", session_id: str | None = None):
         self.root = root
         self.session_id = session_id
-        self._store = MemoryStore(root=root)
 
     def save(self, value: str, metadata: dict[str, Any] | None = None, agent: str = "") -> None:
-        """Save a short-term memory as an open bead."""
+        """Save a short-term memory via the canonical write path."""
         meta = metadata or {}
-        self._store.add_bead(
-            type=meta.get("type", "context"),
-            title=value[:120] if len(value) > 120 else value,
-            summary=[value],
-            tags=meta.get("tags", []),
-            session_id=self.session_id or "crewai-default",
-            source_turn_ids=meta.get("source_turn_ids", []),
-        )
+        req = {
+            "session_id": self.session_id or "crewai-default",
+            "turn_id": str(uuid.uuid4()),
+            "user_query": "",
+            "assistant_response": value,
+            "metadata": {
+                "type": meta.get("type", "context"),
+                "tags": meta.get("tags", []),
+                "source_turn_ids": meta.get("source_turn_ids", []),
+            },
+        }
+        process_turn_finalized(req, root=self.root)
 
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search short-term memories (open/candidate beads)."""
@@ -71,24 +75,26 @@ class CoreMemoryLongTerm:
 
     def __init__(self, root: str = "."):
         self.root = root
-        self._store = MemoryStore(root=root)
 
     def save(self, value: str, metadata: dict[str, Any] | None = None, agent: str = "") -> None:
-        """Save a long-term memory as a promoted bead."""
+        """Save a long-term memory via the canonical write path.
+
+        Promotion to "long-term" status happens via Core Memory's normal
+        promotion lifecycle rather than being forced immediately.
+        """
         meta = metadata or {}
-        bid = self._store.add_bead(
-            type=meta.get("type", "lesson"),
-            title=value[:120] if len(value) > 120 else value,
-            summary=[value],
-            tags=meta.get("tags", []),
-            session_id="crewai-long-term",
-            source_turn_ids=meta.get("source_turn_ids", []),
-        )
-        # Auto-promote since this is explicitly long-term
-        try:
-            self._store.promote_bead(bid)
-        except Exception:
-            pass  # Promotion may fail if bead doesn't meet criteria — that's ok
+        req = {
+            "session_id": "crewai-long-term",
+            "turn_id": str(uuid.uuid4()),
+            "user_query": "",
+            "assistant_response": value,
+            "metadata": {
+                "type": meta.get("type", "lesson"),
+                "tags": meta.get("tags", []),
+                "source_turn_ids": meta.get("source_turn_ids", []),
+            },
+        }
+        process_turn_finalized(req, root=self.root)
 
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search long-term memories (promoted/archived beads)."""
@@ -126,22 +132,22 @@ class CoreMemoryEntity:
 
     def __init__(self, root: str = "."):
         self.root = root
-        self._store = MemoryStore(root=root)
 
     def save(self, value: str, metadata: dict[str, Any] | None = None, agent: str = "") -> None:
-        """Save an entity memory."""
+        """Save an entity memory via the canonical write path."""
         meta = metadata or {}
-        entities = meta.get("entities", [])
-        if not entities and value:
-            entities = [value[:80]]
-        self._store.add_bead(
-            type="context",
-            title=f"Entity: {value[:100]}" if len(value) > 100 else f"Entity: {value}",
-            summary=[value],
-            tags=meta.get("tags", []),
-            session_id="crewai-entity",
-            source_turn_ids=meta.get("source_turn_ids", []),
-        )
+        req = {
+            "session_id": "crewai-entity",
+            "turn_id": str(uuid.uuid4()),
+            "user_query": "",
+            "assistant_response": value,
+            "metadata": {
+                "type": "context",
+                "tags": meta.get("tags", []),
+                "source_turn_ids": meta.get("source_turn_ids", []),
+            },
+        }
+        process_turn_finalized(req, root=self.root)
 
     def search(self, query: str, limit: int = 5, score_threshold: float = 0.0) -> list[dict[str, Any]]:
         """Search entity memories."""
