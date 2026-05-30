@@ -46,16 +46,27 @@ Confirmed closed in `docs/status.md` (2026-05-28).
 
 ### #9 Slice B — Session enrichment delta envelope
 
-**Status:** Slice A done; Slice B pending  
-**Blocks:** nothing; blocked by nothing  
+**Status:** Complete  
+**Blocks:** nothing  
 **Effort:** ~3 days  
-**Spec:** `docs/PRD/session-enrichment-delta-slice-b.md`
 
-Implements idempotent enrichment run tracking: `enrichment_run_id` threading through
-all 9 stages, atomic Stage 4 wrap, delta envelope persistence, and idempotency gate.
-The delivery vehicle for association type expansion, entity fold, claims fold, goal
-lifecycle fold, and semantic ergonomics — not new scope, just the envelope that makes
-re-runs safe.
+**Shipped:**
+- `enrichment_run_id: str | None` param on `run_turn_enrichment()`; auto-generates
+  UUID when caller omits it (`runtime/passes/enrichment.py`)
+- Idempotency gate at entry: checks `.beads/events/enrichment-{bead_id}-{run_id[:8]}.jsonl`;
+  if found reads last line and returns `{idempotent: True, stage_results: ...}` without
+  re-running any stage
+- `stage_results` dict (9 canonical keys) threaded through all stages; each stage
+  populates its slot from the function's return value
+- Delta envelope (`session_enrichment_delta.v1`) persisted after Stage 9 with `bead_id`,
+  `session_id`, `enrichment_run_id`, `triggered_at`, `completed_at`,
+  `idempotency_token` (SHA-256 of bead+run), and full `stage_results`
+- Stage 4 (crawler merge) atomicity confirmed: `merge_crawler_updates` already holds
+  `store_lock` across both the index write and log clear; documented in comment
+- `enrichment_run_id` threaded through the queued job path in `side_effect_queue.py`
+  so job replays are also idempotent
+- `_enrichment_envelope_path()` and `_run_idempotency_token()` helpers exported
+- 15 tests in `tests/test_enrichment_slice_b.py`, all passing
 
 ---
 
@@ -464,7 +475,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 └── #15 (multi-store fan-out)
 
 #13 (temporal recall)   — CLOSED
-#9B (enrichment delta)  — no dependencies
+#9B (enrichment delta)  — CLOSED
 #10 (multi-speaker)     — complete
 └── #10A (N-speaker ingest gateway)
     └── #10B (per-adapter source_system / MCP adapters)
@@ -475,12 +486,9 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 | Step | Item | Effort | Rationale |
 |------|------|--------|-----------|
-| 1 | **#12** dreamer themes | 3d | #11 complete; now unblocked |
-| 2 | **#9B** enrichment delta | 3d | No deps; makes re-runs safe |
-| 3 | **#14A** both_valid + context_scope | 2d | No deps; extends resolution vocabulary |
-| 4 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
-| 5 | **#17** eval layer | 3d | Parallel to any of the above |
-| 6 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
-| 7 | **#12** dreamer themes | 3d | After #11 |
-| 8 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
-| 9 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
+| 1 | **#14A** both_valid + context_scope | 2d | No deps; extends resolution vocabulary |
+| 2 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
+| 3 | **#17** eval layer | 3d | Parallel to any of the above |
+| 4 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
+| 5 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
+| 6 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
