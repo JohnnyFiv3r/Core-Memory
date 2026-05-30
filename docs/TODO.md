@@ -456,21 +456,30 @@ until #16 is complete.
 
 ### #16 — External data bead ingest contract
 
-**Status:** Spec complete; implementation not started  
+**Status:** Complete  
 **Blocks:** #15 (PipeHouse adapter)  
-**Effort:** ~2 days implementation  
-**Spec:** `docs/PRD/external-data-bead-ingest.md`  
-**PipeHouse table schema:** `docs/schema/pipehouse_insights_table.sql` (to be committed)
 
-Adds `"data_insight"` bead type, `runtime/ingest/data_insight.py`, Mode A polling
-job (`"data-insight-poll"`), and Mode B webhook (`POST /api/ingest/data-insight`).
-Full bead schema, DB table contract, unifying ID convention, and association
-eligibility are specified. Sends the SQL artifact to Chris as the build contract.
-
-Bead schema, DB table contract (for Chris), ingest path (polling + webhook), unifying
-ID convention (`core_memory_unifying_id` in `bead.links` and Ragie `document_metadata`),
-and association eligibility are all fully specified. Includes a committed SQL artifact
-at `docs/schema/pipehouse_insights_table.sql`.
+**Shipped:**
+- `BeadType.DATA_INSIGHT = "data_insight"` in `schema/models.py`; `"data_insight"` in
+  `CANONICAL_BEAD_TYPES` in `schema/normalization.py`; NOT in `CLASSIFIABLE_TYPES` —
+  always explicitly typed by the ingest path
+- `runtime/ingest/` subpackage with `data_insight.py`:
+  `ingest_data_insight_row(root, session_id, row)` validates required fields (raises
+  `ValueError` on missing), builds a turn envelope, calls `emit_turn_finalized()` —
+  never writes the bead store directly
+  Turn ID `data-insight-{source_record_id}` ensures idempotency via Core Memory's
+  existing turn deduplication
+  `bead.links["external_source_id"]` + optional `core_memory_unifying_id` in links
+- `"data-insight-poll"` job kind in `runtime/queue/side_effect_queue.py` and
+  `runtime/queue/jobs.py` — reads up to `batch_size` uningested rows from
+  `core_memory_insights`, calls `ingest_data_insight_row()` for each, sets
+  `ingested_at = NOW()` on success; `SATORID_PIPEHOUSE_DB_URL` env var gates the
+  DB connection (no-op when unset)
+- `POST /api/ingest/data-insight` endpoint in `demo/app.py` — validates body, calls
+  `ingest_data_insight_row()`, returns `bead_id` or error
+- `docs/schema/pipehouse_insights_table.sql` — SQL artifact for Chris (PipeHouse
+  integration partner) with full column annotations and two indexes
+- 17 tests in `tests/test_data_insight_ingest.py`, all passing
 
 ---
 
@@ -501,7 +510,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 │   └── #14A (both_valid + context_scope)
 └── #12 (dreamer themes)
 
-#16 (external bead ingest contract)
+#16 (external bead ingest contract) — CLOSED
 └── #15 (multi-store fan-out)
 
 #13 (temporal recall)   — CLOSED
@@ -516,9 +525,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 | Step | Item | Effort | Rationale |
 |------|------|--------|-----------|
-| 1 | **#14A** both_valid + context_scope | 2d | No deps; extends resolution vocabulary |
-| 2 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
-| 3 | **#17** eval layer | 3d | Parallel to any of the above |
-| 4 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
-| 5 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
-| 6 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
+| 1 | **#17** eval layer | 3d | No deps; CI smoke gate |
+| 2 | **#15** multi-store fan-out | 4d | #16 closed; Ragie adapter spec confirmed |
+| 3 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
+| 4 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
