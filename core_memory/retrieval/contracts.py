@@ -47,6 +47,9 @@ class EvidenceItem:
     score: float | None = None
     reason: str = ""
     grounding_hash: str | None = None
+    source_store: str = "core_memory"
+    source_ref: str = ""
+    unifying_id: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:

@@ -512,6 +512,24 @@ def recall(
     except Exception:
         pass
 
+    # Multi-store fan-out: only activate when at least one external adapter is configured.
+    try:
+        from core_memory.config.feature_flags import satorid_ragie_api_key, satorid_pipehouse_url
+        from core_memory.retrieval.fanout import fanout_recall
+        _ragie_key = satorid_ragie_api_key()
+        _pipehouse_url = satorid_pipehouse_url()
+        _ragie_cfg = {"api_key": _ragie_key} if _ragie_key else None
+        _pipehouse_cfg = {"base_url": _pipehouse_url} if _pipehouse_url else None
+        if _ragie_cfg or _pipehouse_cfg:
+            result = fanout_recall(
+                query,
+                core_memory_result=result,
+                ragie_cfg=_ragie_cfg,
+                pipehouse_cfg=_pipehouse_cfg,
+            )
+    except Exception:
+        pass
+
     if as_of is not None:
         result.evidence = _filter_evidence_by_as_of(result.evidence, as_of)
         result.as_of = as_of

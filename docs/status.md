@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-05-30
+**Last updated:** 2026-05-31
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -69,7 +69,7 @@ descriptions.
 | 13 | Temporal recall API (`as_of`) | **Done** |
 | 14 | Contradiction pressure and epistemic uncertainty | **Done** |
 | 14A | `both_valid` resolution + `context_scope` claim discriminator | **Done** |
-| 15 | Multi-store recall fan-out | **Open** — spec complete; implementation pending |
+| 15 | Multi-store recall fan-out | **Done** — Ragie + PipeHouse adapters, ThreadPoolExecutor fan-out, score normalization, unifying ID grouping |
 | 16 | External data bead ingest contract | **Done** |
 | 17 | Eval and benchmark layer | **Done** — LoCoMo adapter in `benchmarks/locomo/` |
 
@@ -85,6 +85,7 @@ myelination.
 ### Demo TODO alignment
 The paired adoption/API roadmap lives in `JohnnyFiv3r/Core-Memory-Demo` repo.
 Engine-correctness items #3, #5, #7, #9 are all **Done**.
+Capability items #10–#14, #16–#17 are all closed. #15 is now **Done**.
 See `docs/PRD/execution-plan-search-quality-and-enrichment.md` for the full plan.
 
 ---
