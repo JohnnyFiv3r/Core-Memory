@@ -1,10 +1,10 @@
 # Core Memory — Canonical TODO
 
-**Last updated:** 2026-05-29
+**Last updated:** 2026-05-30
 
 Single source of truth for open capability work. Engine-correctness items #1–#9 are
-closed — see `docs/status.md` for the record. This file covers the capability roadmap
-(#10–#14), session enrichment Slice B (#9), and new architectural items (#15–#17).
+closed — see `docs/status.md` for the record. Capability items #10–#14, #16–#17 are
+closed. Open: #15 (multi-store fan-out).
 
 Detailed PRDs for #10–#14: `docs/reports/capability-roadmap-prds.md`
 Validation snapshot (2026-05-15): `docs/reports/todo-validation-2026-05-15.md`
@@ -160,57 +160,35 @@ non-agent party by construction. When a turn carries no speaker label, no
 
 ### #10A — Multi-party transcript ingest (N-speaker gateway)
 
-**Status:** Complete  
-**Blocks:** the attribution queries #10 was built for ("what did Alice propose vs. what
-Bob approved?")  
-**Blocked by:** nothing (builds on #10)  
-**Effort:** ~2 days
+**Status:** CLOSED
 
-`normalize_transcript_payload()` is a **dyadic** front door: `_normalize_role()` requires
-every utterance map to `user`/`assistant`, and the pairing loop walks user→assistant. The
-runtime *below* it already supports N speakers (`runtime/state.py` carries
-`speakers: list[str]`; `engine.py` notes multi-speaker rows "can legitimately have no
-user/assistant role"). So a 5-person Slack thread or a meeting with `SPEAKER_00..04` is
-collapsed to user/assistant pairs at the gateway — discarding structure the runtime
-supports — *before* any identity logic runs. #10 resolves the identities correctly but
-this gateway still throws away the participant structure.
-
-**Missing:**
-- A group/N-speaker ingest mode in `normalize_transcript_payload()` that accepts
-  `participants` and per-utterance `speaker` without forcing the dyadic role collapse
-- Preserve per-row `speaker` into the canonical envelope `turns[]` (already partially
-  carried) so each participant resolves independently via `_resolve_envelope_speakers()`
-- Keep the dyadic path intact for 1:1 agent chats (no regression)
+**Shipped:**
+- `normalize_transcript_payload()` `mode="group"` path via `_group_envelopes()` — accepts
+  N-speaker turns with per-row `speaker` label; unknown roles map to `"other"` via
+  `_normalize_role_group()`; utterances windowed into envelopes without forcing
+  user/assistant pair collapse
+- Per-row `speaker` carried into canonical envelope `turns[]` for independent resolution
+  by `_resolve_envelope_speakers()`
+- Dyadic path (`mode="dyadic"`) unchanged — no regression for 1:1 agent chats
+- `_ALLOWED_MODES = {"dyadic", "group"}` enforced at entry
 
 ---
 
 ### #10B — Per-adapter `source_system` convention (MCP ingest adapters)
 
-**Status:** Complete  
-**Blocked by:** #10A (multi-party gateway should land first)  
-**Effort:** ~2 days per adapter; mechanical
+**Status:** CLOSED
 
-`resolve_speaker()` takes `source_system` as an explicit parameter by design — core must
-**not** sniff format. A Discord snowflake is just digits; Slack IDs, GitHub handles, and
-raw `@display name` labels all look like plausible "labels," and guessing wrong silently
-merges or splits identities (the worst failure mode for an identity layer). Per the adapter
-law, the thing that knows the source is the adapter, not core.
-
-**Policy:** *structured sources must use an adapter* — not *raw transcripts are banned*.
-Raw transcript ingest degrades gracefully (generic normalization, still merges identical
-labels); the only loss is ambiguous-case handling (`@user#1234` discriminator stripping,
-positional `SPEAKER_00` scoping). Historical-import use cases without an MCP server yet
-must remain possible.
-
-**Missing:**
-- Thin Slack / Discord / Zoom-Otter MCP adapters that emit the canonical envelope with
-  `metadata.source_system` set and `turns[].speaker` populated, then call the existing
-  ingest path unchanged
-- Diarization-scope handling: the Zoom/Otter adapter scopes `source_system` with a
-  recording id (e.g. `"zoom:rec-xyz"`) so `SPEAKER_00` from different recordings does not
-  falsely merge to one entity
-- No change to `transcript_ingest.py` internals — it already does the right thing given
-  well-formed input
+**Shipped:**
+- `integrations/mcp/tools/ingest_slack.py` — Slack workspace export and API
+  messages-list; `source_system="slack"`; stable user ID as speaker label; Unix epoch
+  timestamps converted to ISO 8601 via `_slack_ts_to_iso()`
+- `integrations/mcp/tools/ingest_discord.py` — DiscordChatExporter JSON; snowflake
+  IDs as speaker labels; `source_system="discord"`
+- `integrations/mcp/tools/ingest_zoom.py` — Zoom VTT + Otter.ai JSON; diarization
+  labels scoped to recording (`source_system="zoom:{recording_id}"`); VTT relative
+  timecodes are recording-relative offsets and not passed as absolute timestamps
+- Integration tests in `tests/test_ingest_adapters.py` cover full ingest path without
+  mocks: Slack Unix epoch timestamps, Zoom VTT relative timecodes, Discord ISO timestamps
 
 ---
 
@@ -507,25 +485,22 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 #11 (myelination wiring)  — CLOSED
 ├── #14 (contradiction pressure)  — CLOSED
-│   └── #14A (both_valid + context_scope)
-└── #12 (dreamer themes)
+│   └── #14A (both_valid + context_scope)  — CLOSED
+└── #12 (dreamer themes)  — CLOSED
 
 #16 (external bead ingest contract) — CLOSED
-└── #15 (multi-store fan-out)
+└── #15 (multi-store fan-out)  ← OPEN
 
 #13 (temporal recall)   — CLOSED
 #9B (enrichment delta)  — CLOSED
-#10 (multi-speaker)     — complete
-└── #10A (N-speaker ingest gateway)
-    └── #10B (per-adapter source_system / MCP adapters)
-#17 (eval layer)        — no dependencies
+#10 (multi-speaker)     — CLOSED
+└── #10A (N-speaker ingest gateway)  — CLOSED
+    └── #10B (per-adapter source_system / MCP adapters)  — CLOSED
+#17 (eval layer)        — CLOSED
 ```
 
-## Recommended build sequence
+## Open work
 
-| Step | Item | Effort | Rationale |
-|------|------|--------|-----------|
-| 1 | **#17** eval layer | 3d | No deps; CI smoke gate |
-| 2 | **#15** multi-store fan-out | 4d | #16 closed; Ragie adapter spec confirmed |
-| 3 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
-| 4 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
+| Item | Status | Effort | Notes |
+|------|--------|--------|-------|
+| **#15** multi-store fan-out | Spec complete; implementation not started | ~4d | #16 closed; Ragie adapter spec confirmed |

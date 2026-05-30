@@ -28,8 +28,10 @@ def _error(code: str, message: str, **extra: Any) -> dict[str, Any]:
 
 
 def _ts_to_iso(hours: str, minutes: str, seconds: str, ms: str) -> str:
-    total_s = int(hours) * 3600 + int(minutes) * 60 + int(seconds)
-    return f"PT{total_s}S"  # ISO 8601 duration as a proxy timestamp
+    # VTT timecodes are recording-relative offsets — they cannot be converted to
+    # absolute timestamps without knowing the recording start time. Return empty
+    # so transcript_ingest skips timestamp validation for these turns.
+    return ""
 
 
 def _parse_vtt(text: str) -> list[dict[str, Any]]:
@@ -96,12 +98,15 @@ def _parse_otter(value: Any) -> list[dict[str, Any]]:
         if not content:
             continue
         speaker = str(seg.get("speaker") or seg.get("speaker_label") or "SPEAKER").strip()
+        # Otter start_time is a recording-relative offset in seconds — not an absolute
+        # timestamp. Store it in metadata only; do not pass as ts.
         start = seg.get("start_time") or seg.get("start") or ""
         out.append({
             "speaker": speaker,
             "role": "user",
             "content": content,
-            "ts": str(start) if start else None,
+            "ts": None,
+            "metadata": {"vtt_offset_s": float(start)} if start else {},
         })
     return out
 

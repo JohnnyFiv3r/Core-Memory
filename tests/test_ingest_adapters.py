@@ -336,5 +336,110 @@ class TestGenericIngestHandlerGroupMode(unittest.TestCase):
         self.assertEqual(call_kwargs["metadata"]["source_system"], "discord")
 
 
+# ── Real end-to-end integration tests (no mocks) ────────────────────────────
+
+class TestSlackIntegration(unittest.TestCase):
+    """Full ingest path — no mock; exercises timestamp conversion bug fix."""
+
+    def test_slack_unix_epoch_timestamps_accepted(self):
+        import tempfile
+        from core_memory.integrations.mcp.tools.ingest_slack import ingest_slack_handler
+        with tempfile.TemporaryDirectory() as td:
+            result = ingest_slack_handler({
+                "root": td,
+                "session_id": "slack-integ",
+                "messages": [
+                    {"user": "U111AAA", "username": "alice", "text": "We should use Postgres", "ts": "1700000001.0"},
+                    {"user": "U222BBB", "username": "bob", "text": "Agreed", "ts": "1700000002.000000"},
+                ],
+            })
+        self.assertTrue(result.get("ok"), f"Expected ok=True, got: {result.get('error')}")
+
+    def test_slack_no_timestamps_accepted(self):
+        import tempfile
+        from core_memory.integrations.mcp.tools.ingest_slack import ingest_slack_handler
+        with tempfile.TemporaryDirectory() as td:
+            result = ingest_slack_handler({
+                "root": td,
+                "session_id": "slack-nots",
+                "messages": [
+                    {"user": "U111AAA", "text": "Message without timestamp"},
+                ],
+            })
+        self.assertTrue(result.get("ok"), f"Expected ok=True, got: {result.get('error')}")
+
+
+class TestZoomIntegration(unittest.TestCase):
+    """Full ingest path — no mock; exercises VTT relative-timecode handling."""
+
+    _VTT = """WEBVTT
+
+1
+00:00:01.000 --> 00:00:03.000
+Alice: We should use Postgres.
+
+2
+00:00:04.000 --> 00:00:06.000
+Bob: Agreed, better ACID guarantees.
+"""
+
+    def test_vtt_relative_timecodes_do_not_raise(self):
+        import tempfile
+        from core_memory.integrations.mcp.tools.ingest_zoom import ingest_zoom_handler
+        with tempfile.TemporaryDirectory() as td:
+            result = ingest_zoom_handler({
+                "root": td,
+                "text": self._VTT,
+                "format": "vtt",
+                "recording_id": "rec-001",
+            })
+        self.assertTrue(result.get("ok"), f"Expected ok=True, got: {result.get('error')}")
+
+    def test_otter_no_timestamps_do_not_raise(self):
+        import tempfile
+        from core_memory.integrations.mcp.tools.ingest_zoom import ingest_zoom_handler
+        with tempfile.TemporaryDirectory() as td:
+            result = ingest_zoom_handler({
+                "root": td,
+                "data": {
+                    "transcript": [
+                        {"speaker": "SPEAKER_00", "text": "Hello"},
+                        {"speaker": "SPEAKER_01", "text": "World"},
+                    ]
+                },
+                "format": "otter",
+                "recording_id": "otter-001",
+            })
+        self.assertTrue(result.get("ok"), f"Expected ok=True, got: {result.get('error')}")
+
+
+class TestDiscordIntegration(unittest.TestCase):
+    """Full ingest path — no mock; Discord uses ISO 8601 timestamps (already correct)."""
+
+    def test_discord_iso_timestamps_accepted(self):
+        import tempfile
+        from core_memory.integrations.mcp.tools.ingest_discord import ingest_discord_handler
+        with tempfile.TemporaryDirectory() as td:
+            result = ingest_discord_handler({
+                "root": td,
+                "session_id": "discord-integ",
+                "messages": [
+                    {
+                        "id": "1", "type": "Default",
+                        "content": "Hello everyone",
+                        "timestamp": "2023-11-15T10:30:00.000+00:00",
+                        "author": {"username": "alice", "id": "187198988139290624"},
+                    },
+                    {
+                        "id": "2", "type": "Default",
+                        "content": "Good morning",
+                        "timestamp": "2023-11-15T10:31:00.000+00:00",
+                        "author": {"username": "bob", "id": "987654321098765432"},
+                    },
+                ],
+            })
+        self.assertTrue(result.get("ok"), f"Expected ok=True, got: {result.get('error')}")
+
+
 if __name__ == "__main__":
     unittest.main()

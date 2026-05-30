@@ -12,6 +12,7 @@ Display names (``username``) are included as aliases when present.
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -20,6 +21,16 @@ from core_memory.transcript_ingest import ingest_transcript
 
 def _error(code: str, message: str, **extra: Any) -> dict[str, Any]:
     return {"ok": False, "error": {"code": code, "message": message, **extra}}
+
+
+def _slack_ts_to_iso(ts_raw: str) -> str:
+    """Convert Slack epoch string (e.g. '1700000001.000000') to ISO 8601 UTC."""
+    try:
+        secs = float(ts_raw)
+        dt = datetime.fromtimestamp(secs, tz=timezone.utc)
+        return dt.isoformat().replace("+00:00", "Z")
+    except (ValueError, OSError, OverflowError):
+        return ""
 
 
 def _parse_message(row: Any, index: int) -> dict[str, Any] | None:
@@ -35,12 +46,14 @@ def _parse_message(row: Any, index: int) -> dict[str, Any] | None:
     username = str(row.get("username") or row.get("name") or "").strip()
     # Prefer stable user ID; fall back to display name
     speaker = user_id or username or f"slack-user-{index}"
-    ts_raw = row.get("ts") or row.get("timestamp") or ""
+    ts_raw = str(row.get("ts") or row.get("timestamp") or "").strip()
+    # Slack timestamps are Unix epoch strings; convert to ISO 8601 for the ingest path.
+    ts_iso = _slack_ts_to_iso(ts_raw) if ts_raw else None
     return {
         "speaker": speaker,
         "role": "user",
         "content": content,
-        "ts": str(ts_raw) if ts_raw else None,
+        "ts": ts_iso or None,
         "metadata": {"slack_user_id": user_id, "slack_username": username} if user_id else {},
     }
 
