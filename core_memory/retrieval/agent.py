@@ -469,7 +469,11 @@ def recall(
         from core_memory.temporal import normalize_as_of as _norm
         if _norm(as_of) is None:
             raise ValueError(f"as_of must be a valid ISO 8601 timestamp, got {as_of!r}")
-        request_overrides = {**request_overrides, "as_of": as_of}
+        # Inflate k by 1.5x so the semantic tier fetches extra candidates before
+        # the post-filter discards beads created after as_of. Cap at 50.
+        _base_k = int(k if k is not None else _EFFORT_DEFAULTS[selected_effort]["k"])
+        _inflated_k = min(int(_base_k * 1.5 + 0.5), 50)
+        request_overrides = {**request_overrides, "as_of": as_of, "k": _inflated_k}
 
     query, request = _normalize_request(
         query_or_request,
@@ -510,6 +514,7 @@ def recall(
 
     if as_of is not None:
         result.evidence = _filter_evidence_by_as_of(result.evidence, as_of)
+        result.as_of = as_of
         result.metadata["as_of"] = as_of
     result.planning = RecallPlanning(
         selected_effort=selected_effort,

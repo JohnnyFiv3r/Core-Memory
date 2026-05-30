@@ -61,24 +61,25 @@ re-runs safe.
 
 ### #13 — Temporal recall API (`as_of`)
 
-**Status:** Not started (data model complete; surface work only)  
+**Status:** Complete  
 **Blocks:** nothing; blocked by nothing  
 **Effort:** ~2 days  
 **Spec:** `docs/reports/capability-roadmap-prds.md` § #13
 
-`resolve_all_current_state(root, session_id, as_of)` in `claim/resolver.py` already
-resolves claims as of any timestamp. `recall()` has no `as_of` parameter so
-"what did we believe about X on date Y?" is unanswerable through any public interface.
-
-**Missing surface:**
-- `as_of: str | None` parameter on `recall()` → retrieval planner → all tiers
-- `RecallResult.metadata["as_of"]` and `EvidenceItem.metadata["created_at"]`
-- CLI `core-memory recall --as-of`
-- `POST /api/recall` body field `as_of`
-- Input validation via `normalize_as_of()`; explicit error on bad input
-
-**Note:** Semantic tier has no time axis — post-filter by `bead.created_at <= as_of`
-after retrieval. Increase internal k by 1.5× when `as_of` is set to compensate.
+**Shipped:**
+- `recall()` accepts `as_of: str | None`; validates via `normalize_as_of()` and raises
+  `ValueError` with an ISO 8601 message on bad input (`retrieval/agent.py`)
+- `as_of` threaded through `request_overrides` into `memory_execute` and the canonical
+  pipeline (`retrieval/pipeline/canonical.py`), which passes it to `resolve_all_current_state()`
+- Post-filter: `_filter_evidence_by_as_of()` drops `EvidenceItem`s whose
+  `metadata["created_at"]` is after `as_of`; items with no `created_at` pass through
+- k×1.5 inflation: when `as_of` is set, the k sent to `memory_execute` is inflated by
+  1.5× (rounded, capped at 50) to compensate for post-filter shrinkage
+- `result.as_of` (dataclass field) and `result.metadata["as_of"]` both set on the result
+- CLI `core-memory recall --as-of TIMESTAMP` (`cli/__init__.py`, handler passes through)
+- `POST /api/recall` body field `as_of` accepted and applied (`demo/app.py`)
+- 15 tests in `tests/test_recall_as_of.py` covering filter logic, validation, result
+  field population, k inflation per effort level, cap, and no-as_of baseline
 
 ---
 
@@ -454,7 +455,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 #16 (external bead ingest contract)
 └── #15 (multi-store fan-out)
 
-#13 (temporal recall)   — no dependencies
+#13 (temporal recall)   — CLOSED
 #9B (enrichment delta)  — no dependencies
 #10 (multi-speaker)     — complete
 └── #10A (N-speaker ingest gateway)
@@ -466,15 +467,12 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 | Step | Item | Effort | Rationale |
 |------|------|--------|-----------|
-| 1 | **#13** temporal recall | 2d | No deps; high value, quick win |
-| 3 | **#11** myelination | 2d | No deps; unblocks #14 and #12 |
-| 4 | **#9B** enrichment delta | 3d | No deps; makes re-runs safe |
-| 5 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
-| 6 | **#10** multi-speaker | 4d | Complete |
-| 7 | **#14** contradiction pressure | 3d | After #11; complete |
-| 8 | **#14A** both_valid + context_scope | 2d | After #14; extends resolution vocabulary |
-| 9 | **#17** eval layer | 3d | Parallel to any of the above |
-| 10 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
-| 11 | **#12** dreamer themes | 3d | After #11 + #14 |
-| 12 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
-| 13 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
+| 1 | **#11** myelination | 2d | No deps; unblocks #12 |
+| 2 | **#9B** enrichment delta | 3d | No deps; makes re-runs safe |
+| 3 | **#14A** both_valid + context_scope | 2d | No deps; extends resolution vocabulary |
+| 4 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
+| 5 | **#17** eval layer | 3d | Parallel to any of the above |
+| 6 | **#15** multi-store fan-out | 4d | After #16; Ragie adapter spec confirmed |
+| 7 | **#12** dreamer themes | 3d | After #11 |
+| 8 | **#10A** N-speaker ingest gateway | 2d | Unlocks the attribution queries #10 was built for |
+| 9 | **#10B** per-adapter source_system / MCP adapters | 2d/adapter | After #10A; structured sources via adapter, raw ingest stays |
