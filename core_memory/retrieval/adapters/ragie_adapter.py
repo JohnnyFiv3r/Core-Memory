@@ -37,7 +37,7 @@ def retrieve(
     partition: str | None = None,
     filter: dict[str, Any] | None = None,
 ) -> list[EvidenceItem]:
-    """POST /retrievals with bearer auth. Returns empty list on any exception."""
+    """POST /retrievals with bearer auth. Raises on HTTP/network errors so fanout marks the store unavailable."""
     body: dict[str, Any] = {"query": query, "top_k": top_k, "rerank": rerank}
     if partition is not None:
         body["partition"] = partition
@@ -55,11 +55,8 @@ def retrieve(
         },
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return []
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
 
     chunks = payload.get("scored_chunks") if isinstance(payload, dict) else None
     if not isinstance(chunks, list):

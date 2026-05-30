@@ -92,6 +92,7 @@ def enqueue_turn_enrichment(
             "session_id": session_id,
             "turn_id": turn_id,
             "bead_id": bead_id,
+            "enrichment_run_id": hashlib.sha256(idempotency_key.encode()).hexdigest(),
             "user_query": str(req.get("user_query") or ""),
             "assistant_final": str(req.get("assistant_final") or ""),
             "reviewed_updates": projected_reviewed_updates,

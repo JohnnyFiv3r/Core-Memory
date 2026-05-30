@@ -1,7 +1,7 @@
 """PipeHouse read adapter for multi-store recall fan-out (#15).
 
 Uses urllib.request (stdlib). URL configured via SATORID_PIPEHOUSE_URL.
-Returns empty list on any exception; caller handles unavailability.
+Raises on HTTP/network errors so fanout_recall marks the store unavailable.
 """
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ def retrieve(
     top_k: int = 8,
     filters: dict[str, Any] | None = None,
 ) -> list[EvidenceItem]:
-    """Call PipeHouse read endpoint. Returns empty list on any exception."""
+    """Call PipeHouse read endpoint. Raises on HTTP/network errors."""
     body: dict[str, Any] = {"query": query, "top_k": top_k}
     if filters is not None:
         body["filters"] = filters
@@ -47,11 +47,8 @@ def retrieve(
         headers={"Content-Type": "application/json", "Accept": "application/json"},
         method="POST",
     )
-    try:
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            payload = json.loads(resp.read().decode("utf-8"))
-    except Exception:
-        return []
+    with urllib.request.urlopen(req, timeout=5) as resp:
+        payload = json.loads(resp.read().decode("utf-8"))
 
     records = None
     if isinstance(payload, dict):
