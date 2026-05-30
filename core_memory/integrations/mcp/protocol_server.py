@@ -345,6 +345,9 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         reviewer: str = "",
         notes: str = "",
         apply: bool = True,
+        resolution: str = "",
+        context_a: str = "",
+        context_b: str = "",
         root: str | None = None,
     ) -> dict[str, Any]:
         return call_tool(
@@ -356,6 +359,9 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
                 "reviewer": reviewer,
                 "notes": notes,
                 "apply": apply,
+                "resolution": resolution,
+                "context_a": context_a,
+                "context_b": context_b,
             },
         )
 

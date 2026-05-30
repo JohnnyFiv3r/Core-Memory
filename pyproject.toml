@@ -71,6 +71,7 @@ where = ["."]
 include = ["core_memory*"]
 
 [tool.setuptools.package-data]
+"core_memory" = ["data/*.json"]
 "core_memory.config.defaults" = ["*.yaml"]
 "core_memory.integrations.mcp" = ["*.md"]
 

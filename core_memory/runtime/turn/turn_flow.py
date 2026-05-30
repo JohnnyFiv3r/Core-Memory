@@ -476,6 +476,7 @@ def process_turn_finalized_impl(
         "authority_path": "canonical_in_process",
         "processed": 1,
         "failed": 0,
+        "bead_id": bead_id,
         "delta": delta,
         "emitted": emitted,
         "enrichment_queued": enrichment_queued,

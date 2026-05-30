@@ -148,18 +148,28 @@ def claim_retrieval_boost_enabled() -> bool:
 
 
 def satorid_ragie_api_key() -> str:
-    """SATORID_RAGIE_API_KEY — enables Ragie evidence fan-out in recall()."""
-    return os.environ.get("SATORID_RAGIE_API_KEY", "").strip()
+    """CORE_MEMORY_RAGIE_API_KEY (canonical) or SATORID_RAGIE_API_KEY (deprecated alias).
+
+    Enables Ragie evidence fan-out in recall(). Canonical name wins if both are set.
+    """
+    return (os.environ.get("CORE_MEMORY_RAGIE_API_KEY") or os.environ.get("SATORID_RAGIE_API_KEY") or "").strip()
 
 
 def satorid_pipehouse_url() -> str:
-    """SATORID_PIPEHOUSE_URL — enables PipeHouse evidence fan-out in recall()."""
-    return os.environ.get("SATORID_PIPEHOUSE_URL", "").strip()
+    """CORE_MEMORY_PIPEHOUSE_URL (canonical) or SATORID_PIPEHOUSE_URL (deprecated alias).
+
+    Enables PipeHouse evidence fan-out in recall(). Canonical name wins if both are set.
+    """
+    return (os.environ.get("CORE_MEMORY_PIPEHOUSE_URL") or os.environ.get("SATORID_PIPEHOUSE_URL") or "").strip()
 
 
 def satorid_store_weights() -> str:
-    """SATORID_STORE_WEIGHTS — comma-separated weights for core_memory,ragie,pipehouse (default 1.0,1.0,1.0)."""
-    return os.environ.get("SATORID_STORE_WEIGHTS", "").strip()
+    """CORE_MEMORY_STORE_WEIGHTS (canonical) or SATORID_STORE_WEIGHTS (deprecated alias).
+
+    Comma-separated weights for core_memory,ragie,pipehouse (default 1.0,1.0,1.0).
+    Canonical name wins if both are set.
+    """
+    return (os.environ.get("CORE_MEMORY_STORE_WEIGHTS") or os.environ.get("SATORID_STORE_WEIGHTS") or "").strip()
 
 
 def runtime_flags_snapshot() -> dict[str, object]:

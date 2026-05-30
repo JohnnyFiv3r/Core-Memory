@@ -11,7 +11,7 @@ class TestAdapterContractMarkers(unittest.TestCase):
         self.assertEqual("openclaw", getattr(openclaw_bridge, "ADAPTER_RUNTIME", ""))
 
     def test_springai_markers(self):
-        self.assertEqual("native", getattr(springai_bridge, "ADAPTER_KIND", ""))
+        self.assertEqual("http", getattr(springai_bridge, "ADAPTER_KIND", ""))
         self.assertEqual("springai", getattr(springai_bridge, "ADAPTER_RUNTIME", ""))
 
     def test_pydantic_markers(self):
