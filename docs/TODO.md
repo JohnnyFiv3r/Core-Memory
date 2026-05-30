@@ -366,30 +366,21 @@ This is non-negotiable and must be enforced structurally.
 
 ### #6 — Monotonic claim sequencing (`chain_seq`)
 
-**Status:** Partial — field exists and is populated; resolution sort is the remaining fix  
+**Status:** Complete  
 **Blocked by:** nothing (#0 is already closed)  
 **Effort:** ~0.5 days
 
 `chain_seq` is already defined on `ClaimUpdate` (`schema/models.py:468`) and populated
-at write time via `_slot_highwater()` (`store_claim_ops.py:288-302`). The remaining gap:
-`resolve_current_state()` selects `active_claims[-1]` by list order (`store_claim_ops.py:508`)
-without sorting by `chain_seq` first. Out-of-order async completions can produce
-non-deterministic resolution.
+at write time via `_slot_highwater()` (`store_claim_ops.py:288-302`). The sort landed
+as part of the #14 claim-resolution refactor.
 
-**Fix (surgical — ~3 lines):**
-
-In `resolve_current_state()`, before `active_claims[-1]`, sort by `chain_seq`:
-
-```python
-active_claims.sort(key=lambda c: int(c.get("chain_seq") or 0))
-current = active_claims[-1] if active_claims else None
-```
-
-Legacy records with `chain_seq: null` sort as 0 — they degrade to list order, matching
-current behavior. No schema changes required.
-
-**Test:** Two claim updates for the same `(subject, slot)` arrive out of insertion order;
-assert that `resolve_current_state()` returns the one with the higher `chain_seq`.
+**Shipped:**
+- `resolve_current_state()` sorts `active_claims` by `chain_seq` before selecting the
+  winner (`store_claim_ops.py:519`). Legacy records with `chain_seq: null` sort as 0 and
+  degrade to list order — fully backward-compatible.
+- `tests/test_store_claim_ops.py::TestStoreClaimOps::test_resolve_current_state_uses_chain_seq_for_supersede_winner`
+  — two supersede updates arrive out of insertion order; asserts the higher-`chain_seq`
+  claim wins.
 
 ---
 
@@ -452,8 +443,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 ```
 #0 (window merge)      — CLOSED
 #2 (goal lifecycle)    — CLOSED
-
-#6 (claim sequencing)  — partial; surgical fix, no blockers
+#6 (claim sequencing)  — CLOSED
 
 #11 (myelination wiring)
 ├── #14 (contradiction pressure)
@@ -476,8 +466,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 | Step | Item | Effort | Rationale |
 |------|------|--------|-----------|
-| 1 | **#6** chain_seq sort fix | 0.5d | Surgical; unblocks correct claim resolution |
-| 2 | **#13** temporal recall | 2d | No deps; high value, quick win |
+| 1 | **#13** temporal recall | 2d | No deps; high value, quick win |
 | 3 | **#11** myelination | 2d | No deps; unblocks #14 and #12 |
 | 4 | **#9B** enrichment delta | 3d | No deps; makes re-runs safe |
 | 5 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
