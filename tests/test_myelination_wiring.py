@@ -3,6 +3,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.retrieval.agent import _apply_myelination_bonuses, _read_myelination_manifest
 from core_memory.retrieval.contracts import EvidenceItem, RecallResult
@@ -117,6 +118,106 @@ class TestMyelinationJobKind(unittest.TestCase):
             result = enqueue_async_job(tmp, kind="myelination")
         self.assertTrue(result.get("ok"), f"Expected ok=True, got: {result}")
         self.assertEqual(result.get("kind"), "myelination-update")
+
+
+class TestApplyContradictionDecay(unittest.TestCase):
+    def _conflict_state(self, bead_id: str) -> dict:
+        return {
+            "slots": {
+                "subject:slot": {
+                    "status": "conflict",
+                    "conflicts": [{"source_bead_id": bead_id, "id": "c1", "value": "x"}],
+                }
+            },
+            "conflict_slots": 1,
+        }
+
+    def test_decay_reduces_positive_bonus(self):
+        from core_memory.runtime.observability.myelination import apply_contradiction_decay
+        bonus_map = {"bead-conflict": 0.10}
+        with patch(
+            "core_memory.claim.resolver.resolve_all_current_state",
+            return_value=self._conflict_state("bead-conflict"),
+        ):
+            apply_contradiction_decay("/tmp/fake", bonus_map)
+        # 0.10 - 0.08 (neg_cap) = 0.02
+        self.assertAlmostEqual(bonus_map["bead-conflict"], 0.02, places=5)
+
+    def test_decay_pushes_zero_bonus_negative(self):
+        from core_memory.runtime.observability.myelination import apply_contradiction_decay
+        bonus_map = {}
+        with patch(
+            "core_memory.claim.resolver.resolve_all_current_state",
+            return_value=self._conflict_state("bead-zero"),
+        ):
+            apply_contradiction_decay("/tmp/fake", bonus_map)
+        # 0.0 - 0.08 = -0.08 (clamped at -neg_cap)
+        self.assertAlmostEqual(bonus_map["bead-zero"], -0.08, places=5)
+
+    def test_decay_clamped_at_neg_cap(self):
+        from core_memory.runtime.observability.myelination import apply_contradiction_decay
+        bonus_map = {"bead-already-low": -0.07}
+        with patch(
+            "core_memory.claim.resolver.resolve_all_current_state",
+            return_value=self._conflict_state("bead-already-low"),
+        ):
+            apply_contradiction_decay("/tmp/fake", bonus_map)
+        # -0.07 - 0.08 = -0.15, clamped to -0.08
+        self.assertGreaterEqual(bonus_map["bead-already-low"], -0.08 - 1e-9)
+
+    def test_non_conflict_slots_untouched(self):
+        from core_memory.runtime.observability.myelination import apply_contradiction_decay
+        bonus_map = {"bead-clean": 0.05}
+        non_conflict_state = {
+            "slots": {"s:slot": {"status": "active", "conflicts": []}},
+            "conflict_slots": 0,
+        }
+        with patch(
+            "core_memory.claim.resolver.resolve_all_current_state",
+            return_value=non_conflict_state,
+        ):
+            apply_contradiction_decay("/tmp/fake", bonus_map)
+        self.assertAlmostEqual(bonus_map["bead-clean"], 0.05, places=5)
+
+    def test_claim_without_source_bead_id_skipped(self):
+        from core_memory.runtime.observability.myelination import apply_contradiction_decay
+        bonus_map = {}
+        state = {
+            "slots": {
+                "s:slot": {
+                    "status": "conflict",
+                    "conflicts": [{"id": "c1", "value": "x"}],  # no source_bead_id
+                }
+            }
+        }
+        with patch(
+            "core_memory.claim.resolver.resolve_all_current_state",
+            return_value=state,
+        ):
+            apply_contradiction_decay("/tmp/fake", bonus_map)
+        self.assertEqual(bonus_map, {})
+
+    def test_resolver_exception_returns_map_unchanged(self):
+        from core_memory.runtime.observability.myelination import apply_contradiction_decay
+        bonus_map = {"bead-x": 0.06}
+        with patch(
+            "core_memory.claim.resolver.resolve_all_current_state",
+            side_effect=RuntimeError("disk error"),
+        ):
+            result = apply_contradiction_decay("/tmp/fake", bonus_map)
+        self.assertAlmostEqual(result["bead-x"], 0.06, places=5)
+
+    def test_job_handler_calls_decay_when_enabled(self):
+        from core_memory.runtime.queue.side_effect_queue import process_side_effect_event
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / ".beads" / "events").mkdir(parents=True)
+            with patch(
+                "core_memory.claim.resolver.resolve_all_current_state",
+                return_value={"slots": {}, "conflict_slots": 0},
+            ), patch.dict("os.environ", {"CORE_MEMORY_MYELINATION_ENABLED": "1"}):
+                result = process_side_effect_event(root=tmp, kind="myelination-update", payload={})
+        self.assertTrue(result.get("ok"))
+        self.assertTrue(result.get("enabled"))
 
 
 if __name__ == "__main__":

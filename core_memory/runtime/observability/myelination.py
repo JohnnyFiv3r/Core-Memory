@@ -150,9 +150,46 @@ def compute_myelination_bonus_map(
     }
 
 
+def apply_contradiction_decay(root: str | Path, bonus_by_bead_id: dict[str, float]) -> dict[str, float]:
+    """Reduce bonuses for beads that carry conflicting claims.
+
+    Called from the myelination-update job after computing the bonus map.
+    For each bead whose claims are in conflict status, the bonus is reduced
+    by neg_cap and clamped to [-neg_cap, pos_cap]. Modifies bonus_by_bead_id
+    in place and returns it.
+    """
+    cap_neg = max(0.0, _float_env("CORE_MEMORY_MYELINATION_NEG_CAP", 0.08))
+    cap_pos = max(0.0, _float_env("CORE_MEMORY_MYELINATION_POS_CAP", 0.12))
+    if cap_neg < 1e-9:
+        return bonus_by_bead_id
+
+    try:
+        from core_memory.claim.resolver import resolve_all_current_state
+        state = resolve_all_current_state(str(root))
+        slots = dict(state.get("slots") or {})
+    except Exception:
+        return bonus_by_bead_id
+
+    for slot_state in slots.values():
+        if str(slot_state.get("status") or "") != "conflict":
+            continue
+        for conflict_claim in (slot_state.get("conflicts") or []):
+            if not isinstance(conflict_claim, dict):
+                continue
+            bead_id = str(conflict_claim.get("source_bead_id") or "").strip()
+            if not bead_id:
+                continue
+            current = float(bonus_by_bead_id.get(bead_id) or 0.0)
+            decayed = round(_clamp(current - cap_neg, -cap_neg, cap_pos), 6)
+            bonus_by_bead_id[bead_id] = decayed
+
+    return bonus_by_bead_id
+
+
 __all__ = [
     "myelination_enabled",
     "compute_myelination_bonus_map",
+    "apply_contradiction_decay",
 ]
 
 

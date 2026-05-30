@@ -384,10 +384,15 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         }
 
     if k == "myelination-update":
-        from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
+        from core_memory.runtime.observability.myelination import (
+            compute_myelination_bonus_map,
+            apply_contradiction_decay,
+        )
         since = str(p.get("since") or "30d")
         limit = int(p.get("limit") or 1000)
         manifest = compute_myelination_bonus_map(root, since=since, limit=limit)
+        if bool(manifest.get("enabled")):
+            apply_contradiction_decay(root, manifest.get("bonus_by_bead_id") or {})
         manifest_path = Path(root) / ".beads" / "events" / "myelination-manifest.json"
         manifest_path.parent.mkdir(parents=True, exist_ok=True)
         _write_json(manifest_path, manifest)

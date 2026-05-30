@@ -85,22 +85,29 @@ re-runs safe.
 
 ### #11 — Myelination wiring
 
-**Status:** Not started (primitives complete; wiring is the gap)  
-**Blocks:** #14 (job infra), #12 (myelination signal)  
+**Status:** Complete  
+**Blocks:** #12 (myelination signal now available)  
 **Effort:** ~2 days  
 **Spec:** `docs/reports/capability-roadmap-prds.md` § #11
 
-`myelination.py` computes `bonus_by_edge_key` and `bonus_by_bead_id` from retrieval
-telemetry. `retrieval_feedback.py` records every retrieval event. Neither is wired
-into `retrieval_planner.py`. Scores are computed and discarded.
-
-**Missing wiring:**
-- `record_retrieval_feedback()` called at end of every `recall()` in `agent.py`
-- `compute_myelination_bonus_map()` called in planner; bonuses applied to evidence
-  scores before ranking (`new_score = min(1.0, max(0.0, base_score + bonus))`)
-- Contradiction decay: `status: conflict` claim → decay signal on adjacent edges
-- `"myelination-update"` job kind in `jobs.py`; caches result to `myelination-manifest.json`
-- CLI `core-memory myelination report`
+**Shipped:**
+- `record_retrieval_feedback()` called fire-and-forget after every `recall()` in
+  `retrieval/agent.py`; records edges, outcome, and intent from the raw response
+- `_read_myelination_manifest()` + `_apply_myelination_bonuses()` in `agent.py` read
+  the pre-computed manifest and adjust evidence scores before return
+  (`new_score = min(1.0, max(0.0, base_score + bonus))`); sorted by adjusted score
+- `apply_contradiction_decay(root, bonus_by_bead_id)` in
+  `runtime/observability/myelination.py` — scans `resolve_all_current_state()` for
+  `status: conflict` slots; reduces source-bead bonus by `neg_cap` (clamped to
+  `[-neg_cap, pos_cap]`); exception-safe (returns map unchanged on resolver failure)
+- `"myelination-update"` job in `runtime/queue/side_effect_queue.py` — calls
+  `compute_myelination_bonus_map()` then `apply_contradiction_decay()`, writes manifest
+  to `.beads/events/myelination-manifest.json`; enqueue-able via `enqueue_async_job()`
+- CLI `core-memory myelination report` and `core-memory myelination status`
+  (`cli/__init__.py`)
+- 21 tests in `tests/test_myelination_wiring.py` covering bonus application, manifest
+  read/write, job enqueue, decay logic (positive/zero/clamped/non-conflict/no-bead-id),
+  and resolver exception handling
 
 ---
 
@@ -446,10 +453,9 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 #2 (goal lifecycle)    — CLOSED
 #6 (claim sequencing)  — CLOSED
 
-#11 (myelination wiring)
-├── #14 (contradiction pressure)
-│   ├── #14A (both_valid + context_scope)
-│   └── #12 (dreamer themes)
+#11 (myelination wiring)  — CLOSED
+├── #14 (contradiction pressure)  — CLOSED
+│   └── #14A (both_valid + context_scope)
 └── #12 (dreamer themes)
 
 #16 (external bead ingest contract)
@@ -467,7 +473,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 | Step | Item | Effort | Rationale |
 |------|------|--------|-----------|
-| 1 | **#11** myelination | 2d | No deps; unblocks #12 |
+| 1 | **#12** dreamer themes | 3d | #11 complete; now unblocked |
 | 2 | **#9B** enrichment delta | 3d | No deps; makes re-runs safe |
 | 3 | **#14A** both_valid + context_scope | 2d | No deps; extends resolution vocabulary |
 | 4 | **#16** ingest impl | 2d | Spec done; unblocks #15 PipeHouse adapter |
