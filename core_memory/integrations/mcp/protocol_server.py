@@ -147,22 +147,22 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         metadata: dict[str, Any] | None = None,
         root: str | None = None,
     ) -> dict[str, Any]:
-        return call_tool(
-            "capture_session",
-            {
-                "turns": turns,
-                "messages": messages,
-                "path": path,
-                "from": from_format,
-                "session_id": session_id,
-                "session_prefix": session_prefix,
-                "transcript_id": transcript_id,
-                "flush_policy": flush_policy,
-                "max_turns": max_turns,
-                "metadata": metadata,
-                "root": root or kwargs.get("root") or default_root,
-            },
-        )
+        _cs_payload = {
+            "turns": turns,
+            "messages": messages,
+            "path": path,
+            "from": from_format,
+            "session_id": session_id,
+            "session_prefix": session_prefix,
+            "transcript_id": transcript_id,
+            "flush_policy": flush_policy,
+            "max_turns": max_turns,
+            "metadata": metadata,
+            "root": root or kwargs.get("root") or default_root,
+        }
+        # Strip None values so capture_session_handler's setdefault() can apply
+        # its own defaults (session_prefix="session_sync", flush_policy="flush").
+        return call_tool("capture_session", {k: v for k, v in _cs_payload.items() if v is not None})
 
     @mcp.tool(name="ingest", description=_tool_description("ingest"), structured_output=True)
     def ingest_tool(

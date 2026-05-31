@@ -16,7 +16,7 @@ class MCPMountStaticTests(unittest.TestCase):
         self.assertIn("from core_memory.integrations.mcp.protocol_server import build_mcp_app", text)
         self.assertIn("return build_mcp_app()", text)
         self.assertIn("_mcp_app = _build_mcp_subapp()", text)
-        self.assertIn("app.mount(MCP_HTTP_PATH, _mcp_app)", text)
+        self.assertIn("app.mount(MCP_HTTP_PATH, _MCPAuthMiddleware(_mcp_app))", text)
         self.assertIn("mcp_session_manager", text)
         self.assertIn('@app.post("/v1/mcp/query-current-state")', text, "existing REST MCP endpoint should remain")
 

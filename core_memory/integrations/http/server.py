@@ -249,6 +249,39 @@ def _build_mcp_subapp() -> FastAPI:
 _mcp_app = _build_mcp_subapp()
 
 
+class _MCPAuthMiddleware:
+    """Pure ASGI auth gate for the mounted MCP sub-app.
+
+    BaseHTTPMiddleware breaks SSE streaming, so this wraps the sub-app at the
+    ASGI level. Token validation mirrors _check_auth() for REST endpoints.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] in ("http", "websocket"):
+            tok = _auth_required()
+            if tok:
+                headers = {k.lower(): v for k, v in scope.get("headers", [])}
+                auth = headers.get(b"authorization", b"").decode()
+                x_token = headers.get(b"x-memory-token", b"").decode()
+                bearer = ""
+                if auth:
+                    parts = auth.split(" ", 1)
+                    if len(parts) == 2 and parts[0].lower() == "bearer":
+                        bearer = parts[1].strip()
+                presented = (x_token or bearer or "").strip()
+                if presented != tok:
+                    if scope["type"] == "http":
+                        await send({"type": "http.response.start", "status": 401,
+                                    "headers": [[b"content-type", b"application/json"]]})
+                        await send({"type": "http.response.body",
+                                    "body": b'{"detail":"unauthorized"}', "more_body": False})
+                    return
+        await self._app(scope, receive, send)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     session_manager = getattr(getattr(_mcp_app, "state", None), "mcp_session_manager", None)
@@ -260,7 +293,7 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1", lifespan=_lifespan)
-app.mount(MCP_HTTP_PATH, _mcp_app)
+app.mount(MCP_HTTP_PATH, _MCPAuthMiddleware(_mcp_app))
 
 
 def _semantic_http_response(result: dict[str, Any]) -> JSONResponse | None:
