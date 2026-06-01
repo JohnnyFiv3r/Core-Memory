@@ -4,64 +4,17 @@ import json
 from pathlib import Path
 from typing import Any
 
+from core_memory.schema.bead_projection import build_retrieval_text
+
 VISIBLE_STATUSES = {"open", "candidate", "promoted", "archived"}
 
 
 def _semantic_text(bead: dict[str, Any]) -> str:
-    title = str(bead.get("retrieval_title") or bead.get("title") or "")
-    typ = str(bead.get("type") or "")
-    summary = " ".join(str(x) for x in (bead.get("summary") or []))
-    because = " ".join(str(x) for x in (bead.get("because") or []))
-    facts = " ".join(str(x) for x in (bead.get("retrieval_facts") or []))
-    tags = " ".join(str(x) for x in (bead.get("tags") or []))
-    incident_id = str(bead.get("incident_id") or "")
-    detail = str(bead.get("detail") or "")
-    status = str(bead.get("status") or "").lower()
-    detail_part = (detail[:400] if status != "archived" else "")
-    text_parts = [title, typ, summary, because, facts, tags, incident_id, detail_part]
-    # Append claim fields for semantic indexing.  Slot/kind/reason terms are
-    # often the actual query words (e.g. "timezone", "response format", "why"),
-    # while the value alone can be opaque ("America/Chicago", "bullet_lists").
-    if bead.get("claims"):
-        for claim in bead["claims"]:
-            subject = claim.get("subject", "")
-            slot = claim.get("slot", "")
-            claim_kind = claim.get("claim_kind", "")
-            value = claim.get("value", "")
-            reason = claim.get("reason_text", "")
-            if subject:
-                text_parts.append(subject)
-            if slot:
-                text_parts.append(str(slot).replace("_", " "))
-                text_parts.append(str(slot))
-            if claim_kind:
-                text_parts.append(str(claim_kind).replace("_", " "))
-            if value and len(value) < 200:
-                text_parts.append(value)
-            if reason and len(reason) < 240:
-                text_parts.append(reason)
-    return " | ".join(x for x in text_parts if x).strip()
+    return build_retrieval_text(bead)
 
 
 def _lexical_text(bead: dict[str, Any]) -> str:
-    claim_parts: list[str] = []
-    for claim in bead.get("claims") or []:
-        if not isinstance(claim, dict):
-            continue
-        for key in ("subject", "slot", "claim_kind", "value"):
-            value = str(claim.get(key) or "").strip()
-            if value:
-                claim_parts.append(value)
-                claim_parts.append(value.replace("_", " "))
-    return " ".join(
-        [
-            str(bead.get("title") or ""),
-            " ".join(str(x) for x in (bead.get("summary") or [])),
-            " ".join(str(x) for x in (bead.get("tags") or [])),
-            str(bead.get("incident_id") or ""),
-            " ".join(claim_parts),
-        ]
-    ).strip()
+    return build_retrieval_text(bead)
 
 
 def _is_system_row(bead: dict[str, Any]) -> bool:

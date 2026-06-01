@@ -15,9 +15,29 @@ FIELD_WEIGHTS = {
     "incident": 3.0,
     "summary": 1.2,
     "type": 1.0,
+    # association anchor fields — flat weight, lexical is a tertiary fallback
+    "entities": 1.0,
+    "topics": 1.0,
+    "keys": 1.0,
 }
 
 _CACHE_FILE = "lexical_cache.json"
+_CACHE_VERSION = 2  # bump when _field_tokens schema changes
+
+_LIST_ANCHOR_FIELDS = (
+    "entities",
+    "entity_ids",
+    "topics",
+    "decision_keys",
+    "goal_keys",
+    "action_keys",
+    "outcome_keys",
+    "time_keys",
+    "evidence_refs",
+    "cause_candidates",
+    "effect_candidates",
+    "supporting_facts",
+)
 
 
 def _tokenize(text: str) -> list[str]:
@@ -25,12 +45,20 @@ def _tokenize(text: str) -> list[str]:
 
 
 def _field_tokens(bead: dict) -> dict[str, list[str]]:
+    anchor_tokens: list[str] = []
+    for field in _LIST_ANCHOR_FIELDS:
+        items = bead.get(field) or []
+        if isinstance(items, list):
+            anchor_tokens.extend(_tokenize(" ".join(str(v) for v in items if v)))
     return {
         "type": _tokenize(str(bead.get("type") or "")),
         "title": _tokenize(str(bead.get("title") or "")),
         "summary": _tokenize(" ".join(bead.get("summary") or [])),
         "tags": _tokenize(" ".join(bead.get("tags") or [])),
         "incident": _tokenize(str(bead.get("incident_id") or "")),
+        "entities": _tokenize(" ".join(str(e) for e in (bead.get("entities") or []))),
+        "topics": _tokenize(" ".join(str(t) for t in (bead.get("topics") or []))),
+        "keys": anchor_tokens,
     }
 
 
@@ -55,6 +83,8 @@ class LexicalIndex:
             return False
         try:
             data = json.loads(self._cache_path.read_text(encoding="utf-8"))
+            if data.get("version") != _CACHE_VERSION:
+                return False
             self._docs = data.get("docs") or []
             self._df = Counter(data.get("df") or {})
             self._bead_ids = set(d["bead_id"] for d in self._docs)
@@ -69,6 +99,7 @@ class LexicalIndex:
         try:
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
+                "version": _CACHE_VERSION,
                 "docs": self._docs,
                 "df": dict(self._df),
             }

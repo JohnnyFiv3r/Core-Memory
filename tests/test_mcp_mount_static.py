@@ -14,7 +14,7 @@ class MCPMountStaticTests(unittest.TestCase):
         text = (ROOT / "core_memory/integrations/http/server.py").read_text()
         self.assertIn("from core_memory.integrations.mcp.constants import MCP_HTTP_PATH", text)
         self.assertIn("from core_memory.integrations.mcp.protocol_server import build_mcp_app", text)
-        self.assertIn("return build_mcp_app()", text)
+        self.assertIn("return build_mcp_app(root=server_root, lock_root=hosted)", text)
         self.assertIn("_mcp_app = _build_mcp_subapp()", text)
         self.assertIn("app.mount(MCP_HTTP_PATH, _MCPAuthMiddleware(_mcp_app))", text)
         self.assertIn("mcp_session_manager", text)

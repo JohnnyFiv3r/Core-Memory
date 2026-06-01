@@ -234,7 +234,9 @@ class DreamerCandidateDecideRequest(BaseModel):
 
 def _build_mcp_subapp() -> FastAPI:
     try:
-        return build_mcp_app()
+        hosted = _is_hosted_mode()
+        server_root = str(os.getenv("CORE_MEMORY_ROOT") or ".") if hosted else None
+        return build_mcp_app(root=server_root, lock_root=hosted)
     except RuntimeError as exc:
         error_message = str(exc)
         unavailable = FastAPI(title="Core Memory MCP Protocol Server (unavailable)")
