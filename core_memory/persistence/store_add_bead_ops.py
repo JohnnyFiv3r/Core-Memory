@@ -211,10 +211,8 @@ def add_bead_for_store(
 
 
 def _embed_text(bead: dict) -> str:
-    title = str(bead.get("title") or "")
-    summary = " ".join(str(s) for s in (bead.get("summary") or []))
-    facts = " ".join(str(f) for f in (bead.get("retrieval_facts") or []))
-    return f"{title}. {summary}. {facts}".strip(". ")
+    from core_memory.schema.bead_projection import build_retrieval_text
+    return build_retrieval_text(bead)
 
 
 def _bead_payload(bead: dict) -> dict:
