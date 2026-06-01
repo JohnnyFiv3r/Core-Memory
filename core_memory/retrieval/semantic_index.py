@@ -63,6 +63,20 @@ def _configured_vector_backend() -> str:
     return result
 
 
+def _qdrant_external_embeddings_enabled() -> bool:
+    """When True, embed Qdrant vectors with the configured external provider
+    (e.g. OpenAI text-embedding-3-large) instead of Qdrant's built-in FastEmbed.
+
+    FastEmbed's default model is small (~384-dim bge) and discriminates poorly on
+    conversational text, capping retrieval recall regardless of downstream graph
+    expansion. Opt in via CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS=1 with a provider
+    key (OPENAI_API_KEY / GEMINI_API_KEY) configured. Default off preserves the
+    zero-API-key FastEmbed behaviour.
+    """
+    val = str(os.environ.get("CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS") or "").strip().lower()
+    return val in {"1", "true", "yes", "on"}
+
+
 def _vector_collection_name(root: Path) -> str:
     import hashlib as _hashlib
 
@@ -968,7 +982,7 @@ def build_semantic_index(root: Path) -> dict:
         last_build_error = ""
         if vector_backend in _EXTERNAL_VECTOR_BACKENDS:
             try:
-                if vector_backend == VECTOR_BACKEND_QDRANT:
+                if vector_backend == VECTOR_BACKEND_QDRANT and not _qdrant_external_embeddings_enabled():
                     # Qdrant+FastEmbed generates embeddings natively — bypass _embed_vectors.
                     # Pass dimension=0 so QdrantBackend skips VectorParams collection creation;
                     # upsert_texts() uses client.add() which creates a fastembed-configured collection.
@@ -990,6 +1004,28 @@ def build_semantic_index(root: Path) -> dict:
                     # dim is managed by FastEmbed; use sentinel to skip external-dim validation
                     dim = 1
                     provider = "fastembed"  # Mark manifest so lookup uses native Qdrant query path
+                elif vector_backend == VECTOR_BACKEND_QDRANT:
+                    # Qdrant with EXTERNAL embeddings: embed with the provider (e.g.
+                    # OpenAI text-embedding-3-large) and upsert pre-computed vectors,
+                    # creating the collection with VectorParams(size=dim). The manifest
+                    # records the real provider so the query path embeds the query the
+                    # same way and searches by vector (not FastEmbed query_text).
+                    vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
+                    dim = _vector_dim(vecs, fallback=256 if texts else 0)
+                    vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+                    for row, c, emb in zip(rows, corpus, _vector_rows(vecs)):
+                        vb.upsert(
+                            bead_id=str(row.get("bead_id") or ""),
+                            embedding=emb,
+                            metadata={
+                                "status": c.get("status"),
+                                "session_id": c.get("session_id"),
+                                "source_surface": c.get("source_surface"),
+                                "created_at": c.get("created_at"),
+                                "retrieval_eligible": True,
+                                "topics": list(c.get("tags") or []),
+                            },
+                        )
                 else:
                     vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
                     dim = _vector_dim(vecs, fallback=256 if texts else 0)
