@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
+from core_memory.graph.traversal import causal_traverse_chains
 from core_memory.retrieval.pipeline import canonical
 from core_memory.retrieval.pipeline.canonical import trace_request
 
@@ -53,6 +54,29 @@ def test_traversal_seeds_beyond_top5_and_merges_chain_beads_into_topk(tmp_path: 
     assert gold in result_ids, f"gold bead not surfaced via traversal: {result_ids}"
     gold_row = next(r for r in out["results"] if r.get("bead_id") == gold)
     assert gold_row.get("anchor_reason") == "trace_chain"
+
+
+def test_python_traversal_honors_seed_counts_above_eight(tmp_path: Path, monkeypatch):
+    """Python graph fallback must traverse every configured seed anchor.
+
+    The retrieval pipeline now passes CORE_MEMORY_TRACE_SEED_ANCHORS anchors
+    (default 12).  The fallback graph traversal used to silently slice to eight,
+    which meant anchors ranked 9-12 could never expand.
+    """
+    monkeypatch.setenv("CORE_MEMORY_GRAPH_BACKEND", "none")
+    store = MemoryStore(root=str(tmp_path))
+    idx_path = tmp_path / ".beads" / "index.json"
+
+    anchors = [
+        _add(store, title=f"seed anchor {i}", summary=[f"seed anchor {i}"], dia=f"D1:{i}")
+        for i in range(12)
+    ]
+    gold = _add(store, title="gold outside first eight", summary=["gold reachable only from anchor eleven"], dia="D9:9")
+    _link(idx_path, anchors[10], gold, rel="supports")
+
+    out = causal_traverse_chains(tmp_path, anchor_ids=anchors, max_depth=2, max_chains=20)
+    chain_paths = [list(c.get("path") or []) for c in (out.get("chains") or [])]
+    assert any(gold in path for path in chain_paths), chain_paths
 
 
 def test_chain_merge_budget_exceeds_k(tmp_path: Path, monkeypatch):
