@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.store import DEFAULT_ROOT
-from core_memory.retrieval.lifecycle import enqueue_semantic_rebuild
+from core_memory.retrieval.lifecycle import enqueue_semantic_projection_upgrade_reconcile, enqueue_semantic_rebuild
 from core_memory.runtime.queue.compaction_queue import drain_compaction_queue, enqueue_compaction_event
 from core_memory.runtime.queue.side_effect_queue import (
     drain_side_effect_queue,
@@ -259,6 +259,12 @@ def run_async_jobs(
     """Drain processable async work in a bounded, operator-invoked pass."""
     root_p = Path(root)
 
+    projection_upgrade = enqueue_semantic_projection_upgrade_reconcile(root_p) if run_semantic else {
+        "ok": True,
+        "queued": False,
+        "reason": "semantic_run_disabled",
+    }
+
     sem_before = semantic_rebuild_queue_status(root_p)
     sem_run: dict[str, Any] = {
         "attempted": bool(run_semantic),
@@ -339,6 +345,7 @@ def run_async_jobs(
     return _with_schema({
         "ok": ok,
         "root": str(root_p),
+        "semantic_projection_upgrade": projection_upgrade,
         "semantic_before": sem_before,
         "semantic_run": sem_run,
         "compaction_run": comp_run,

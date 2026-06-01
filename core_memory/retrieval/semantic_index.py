@@ -935,6 +935,8 @@ def _release_build_lock(path: Path) -> None:
 
 def build_semantic_index(root: Path) -> dict:
     _check_semantic_mode_startup()
+    from core_memory.schema.bead_projection import RETRIEVAL_TEXT_PROJECTION_VERSION
+
     manifest_file, faiss_file, rows_file, build_lock, _queue_file = _paths(root)
 
     acquired, lock_meta = _acquire_build_lock(build_lock)
@@ -1090,6 +1092,7 @@ def build_semantic_index(root: Path) -> dict:
                 "last_build_error_code": str(last_build_error_code or "semantic_build_invalid_state"),
                 "last_build_error": str(last_build_error or ""),
                 "backend_version": "v9-s2",
+                "projection_version": RETRIEVAL_TEXT_PROJECTION_VERSION,
                 "corpus_fingerprint": fp,
                 "built_at": _now(),
                 "row_count": len(rows),
@@ -1137,6 +1140,7 @@ def build_semantic_index(root: Path) -> dict:
             "last_build_error_code": str(last_build_error_code or ""),
             "last_build_error": str(last_build_error or ""),
             "backend_version": "v9-s2",
+            "projection_version": RETRIEVAL_TEXT_PROJECTION_VERSION,
             "corpus_fingerprint": fp,
             "built_at": _now(),
             "row_count": len(rows),
@@ -1174,6 +1178,8 @@ def apply_semantic_delta(root: Path) -> dict[str, Any]:
 
     Contract: write-path mutation updates only, no retrieval-path index mutation.
     """
+    from core_memory.schema.bead_projection import RETRIEVAL_TEXT_PROJECTION_VERSION
+
     manifest_file, faiss_file, rows_file, build_lock, queue_file = _paths(root)
     q = _read_queue(queue_file)
     if not bool(q.get("queued")):
@@ -1303,6 +1309,7 @@ def apply_semantic_delta(root: Path) -> dict[str, Any]:
             "backend": vector_backend,
             "vector_backend": vector_backend,
             "backend_version": "v10-delta",
+            "projection_version": RETRIEVAL_TEXT_PROJECTION_VERSION,
             "corpus_fingerprint": fp,
             "built_at": str(manifest.get("built_at") or _now()),
             "last_delta_at": _now(),

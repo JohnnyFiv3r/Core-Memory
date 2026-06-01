@@ -10,6 +10,9 @@ from __future__ import annotations
 from typing import Any
 
 
+RETRIEVAL_TEXT_PROJECTION_VERSION = "bead_projection.v2.association_anchors"
+
+
 _LIST_FIELDS = (
     # summary / rationale tier
     "summary",

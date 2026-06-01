@@ -108,6 +108,51 @@ def enqueue_semantic_rebuild(root: str | Path, *, mode: str = "delta") -> dict[s
     }
 
 
+def enqueue_semantic_projection_upgrade_reconcile(root: str | Path) -> dict[str, Any]:
+    """Queue a full semantic rebuild when persisted rows use an old text projection.
+
+    Projection changes alter every existing row's embedding text.  Delta mode can
+    only compare persisted row hashes to the current visible corpus and may use a
+    backend-specific update path; existing indexes need the full reconcile path so
+    Qdrant/FastEmbed and local rows are rebuilt from the new projection together.
+    """
+    from core_memory.schema.bead_projection import RETRIEVAL_TEXT_PROJECTION_VERSION
+
+    root_p = Path(root)
+    manifest_path = _manifest_path(root_p)
+    rows_path = root_p / ".beads" / "semantic" / "rows.jsonl"
+    faiss_path = root_p / ".beads" / "semantic" / "index.faiss"
+    qdrant_path = root_p / ".beads" / "qdrant"
+    if not manifest_path.exists():
+        return {"ok": True, "queued": False, "reason": "no_persisted_semantic_index"}
+
+    manifest = _read_json(manifest_path, {})
+    if not isinstance(manifest, dict):
+        manifest = {}
+    has_persisted_index = (
+        rows_path.exists()
+        or faiss_path.exists()
+        or qdrant_path.exists()
+        or int(manifest.get("row_count") or 0) > 0
+    )
+    if not has_persisted_index:
+        return {"ok": True, "queued": False, "reason": "no_persisted_semantic_index"}
+    current = str(RETRIEVAL_TEXT_PROJECTION_VERSION)
+    existing = str(manifest.get("projection_version") or "")
+    if existing == current:
+        return {"ok": True, "queued": False, "reason": "projection_current", "projection_version": current}
+
+    queued = enqueue_semantic_rebuild(root_p, mode="reconcile")
+    return {
+        "ok": bool(queued.get("ok")),
+        "queued": bool(queued.get("queued")),
+        "reason": "projection_upgrade_reconcile_required",
+        "previous_projection_version": existing or None,
+        "projection_version": current,
+        "queue": queued,
+    }
+
+
 def mark_semantic_dirty(root: str | Path, *, reason: str, enqueue: bool = True) -> dict[str, Any]:
     root_p = Path(root)
     m_path = _manifest_path(root_p)
