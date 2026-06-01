@@ -22,6 +22,7 @@ FIELD_WEIGHTS = {
 }
 
 _CACHE_FILE = "lexical_cache.json"
+_CACHE_VERSION = 2  # bump when _field_tokens schema changes
 
 _LIST_ANCHOR_FIELDS = (
     "entities",
@@ -82,6 +83,8 @@ class LexicalIndex:
             return False
         try:
             data = json.loads(self._cache_path.read_text(encoding="utf-8"))
+            if data.get("version") != _CACHE_VERSION:
+                return False
             self._docs = data.get("docs") or []
             self._df = Counter(data.get("df") or {})
             self._bead_ids = set(d["bead_id"] for d in self._docs)
@@ -96,6 +99,7 @@ class LexicalIndex:
         try:
             self._cache_path.parent.mkdir(parents=True, exist_ok=True)
             payload = {
+                "version": _CACHE_VERSION,
                 "docs": self._docs,
                 "df": dict(self._df),
             }
