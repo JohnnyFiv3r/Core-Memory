@@ -4,9 +4,10 @@ import json
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
+from core_memory import recall
 from core_memory.graph.traversal import causal_traverse_chains
 from core_memory.retrieval.pipeline import canonical
-from core_memory.retrieval.pipeline.canonical import trace_request
+from core_memory.retrieval.pipeline.canonical import _metadata_constraints, trace_request
 
 
 def _add(store, *, title, summary, dia, type="evidence"):
@@ -101,6 +102,34 @@ def test_chain_merge_budget_exceeds_k(tmp_path: Path, monkeypatch):
     # The merge budget (k=8 + bonus=4) leaves room for the chain bead beyond the
     # 8 semantic anchors.
     assert chained in result_ids
+
+
+def test_structural_hints_are_control_constraints_not_metadata_filters():
+    assert "structural_hint_relations" not in _metadata_constraints(
+        {"structural_hint_relations": ["caused_by", "led_to", "supports"]}
+    )
+
+
+def test_recall_causal_query_does_not_filter_anchors_by_structural_hint_metadata(tmp_path: Path, monkeypatch):
+    """recall() adds structural_hint_relations for causal wording.
+
+    Those hints are control facets for traversal ordering only. If forwarded as
+    corpus metadata filters, normal beads (which lack such metadata) disappear
+    before traversal and the chain target is lost.
+    """
+    monkeypatch.setenv("CORE_MEMORY_GRAPH_BACKEND", "none")
+    store = MemoryStore(root=str(tmp_path))
+    idx_path = tmp_path / ".beads" / "index.json"
+    anchor = _add(store, title="redis outage", summary=["redis outage during deploy"], dia="D1:1", type="evidence")
+    cause = _add(store, title="connection pool exhausted", summary=["connection pool exhaustion caused the outage"], dia="D1:2", type="decision")
+    _link(idx_path, anchor, cause, rel="caused_by")
+
+    out = recall("why did redis outage happen", root=str(tmp_path), effort="high", k=8, include_raw=True)
+    result_ids = [r.bead_id for r in out.evidence]
+    assert anchor in result_ids
+    assert cause in result_ids
+    raw_request = dict((out.raw or {}).get("request") or {})
+    assert raw_request.get("facets", {}).get("structural_hint_relations") == ["caused_by", "led_to", "supports"]
 
 
 def test_seed_count_and_merge_bonus_are_env_tunable(monkeypatch):

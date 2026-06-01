@@ -82,6 +82,10 @@ CONTROL_CONSTRAINT_KEYS = {
     "recall_scope",
     "selected_answer_effort",
     "retrieval_efforts",
+    # Execution-only traversal hint. This must never become a hard corpus
+    # metadata constraint; causal wording in recall() should reorder chains,
+    # not filter anchors before traversal.
+    "structural_hint_relations",
 }
 
 
