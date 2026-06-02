@@ -13,37 +13,58 @@ class TestSchemaModelsNormalizationSlice51B(unittest.TestCase):
                 "type": "PROMOTED_LESSON",
                 "title": "Normalization",
                 "scope": "FUTURE_SCOPE",
-                "authority": "FUTURE_AUTHORITY",
                 "status": "future_status",
-                "impact_level": "MEGA",
                 "summary": "single",
                 "tags": "schema",
-                "links": "not_dict",
                 "confidence": "1.7",
-                "uncertainty": "-0.2",
                 "recall_count": "-5",
-                "retrieval_eligible": True,
-                "retrieval_title": "",
-                "retrieval_facts": [],
             }
         )
 
         self.assertEqual("lesson", bead.type)
         self.assertEqual("FUTURE_SCOPE", bead.scope)
-        self.assertEqual("FUTURE_AUTHORITY", bead.authority)
         self.assertEqual("future_status", bead.status)
-        self.assertEqual("MEGA", bead.impact_level)
 
         self.assertEqual(["single"], bead.summary)
         self.assertEqual(["schema"], bead.tags)
-        self.assertEqual({}, bead.links)
 
         self.assertEqual(1.0, bead.confidence)
-        self.assertEqual(0.0, bead.uncertainty)
         self.assertEqual(0, bead.recall_count)
 
-        # Existing invariant: eligibility is dropped when quality is insufficient.
-        self.assertFalse(bead.retrieval_eligible)
+    def test_bead_from_dict_folds_topics_into_entities(self):
+        bead = Bead.from_dict(
+            {
+                "id": "b1",
+                "type": "context",
+                "title": "Topics fold",
+                "entities": ["Alice"],
+                "topics": ["planning", "budget"],
+            }
+        )
+        self.assertEqual(["Alice", "planning", "budget"], bead.entities)
+        self.assertFalse(hasattr(bead, "topics"))
+
+    def test_bead_from_dict_drops_removed_fields(self):
+        bead = Bead.from_dict(
+            {
+                "id": "b1",
+                "type": "context",
+                "title": "Dropped fields",
+                "authority": "agent_inferred",
+                "impact_level": "high",
+                "retrieval_eligible": True,
+                "retrieval_title": "x",
+                "retrieval_facts": ["f"],
+                "links": {"k": "v"},
+                "decision_keys": ["d"],
+                "cause_candidates": ["c"],
+            }
+        )
+        for removed in (
+            "authority", "impact_level", "retrieval_eligible", "retrieval_title",
+            "retrieval_facts", "links", "decision_keys", "cause_candidates",
+        ):
+            self.assertNotIn(removed, bead.to_dict(), f"{removed} should be dropped")
 
     def test_association_from_dict_preserves_noncanonical_relationship_string(self):
         assoc = Association.from_dict(

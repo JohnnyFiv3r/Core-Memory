@@ -176,8 +176,6 @@ def extract_constraints(text: str) -> list[str]:
     return out[:8]
 
 
-# === Retrieval-richness hygiene contract ===
-
 GENERIC_TITLE_PATTERNS = [
     r"^turn memory$",
     r"^reply$",
@@ -220,24 +218,6 @@ def is_runtime_meta_chatter(user_query: str = "", assistant_final: str = "") -> 
     return any(re.search(p, txt, re.IGNORECASE) for p in RUNTIME_META_PATTERNS)
 
 
-def extract_entities(text: str) -> list[str]:
-    txt = (text or "")
-    # deterministic lightweight extraction from canonical-ish tokens
-    cands = set(re.findall(r"\b[A-Za-z][A-Za-z0-9_.:/-]{2,}\b", txt))
-    stop = {
-        "the", "and", "with", "from", "this", "that", "these", "those", "there", "here",
-        "what", "when", "where", "which", "who", "why", "how",
-    }
-    out = []
-    for c in sorted(cands):
-        if c.lower() in stop:
-            continue
-        if c.startswith("bead-"):
-            continue
-        out.append(c)
-    return out[:20]
-
-
 def extract_state_change(text: str) -> Optional[dict]:
     t = (text or "")
     m = re.search(r"(?:changed|switched|migrated|replaced)\s+from\s+(.+?)\s+to\s+(.+?)(?:[\.;\n]|$)", t, re.IGNORECASE)
@@ -264,80 +244,11 @@ def extract_validity(text: str) -> Optional[str]:
     return None
 
 
-def _information_signals(bead: dict) -> dict:
-    title = str(bead.get("title") or "")
-    summary = " ".join(bead.get("summary") or [])
-    detail = str(bead.get("detail") or "")
-    because = bead.get("because") or []
-    supporting = bead.get("supporting_facts") or []
-    evidence_refs = bead.get("evidence_refs") or []
-    state_change = bead.get("state_change") or extract_state_change(f"{title} {summary} {detail}")
-    entities = bead.get("entities") or extract_entities(f"{title} {summary} {detail}")
-    validity = bead.get("validity") or extract_validity(f"{title} {summary} {detail}")
-
-    return {
-        "has_entities": bool(entities),
-        "has_state_change": bool(state_change),
-        "has_because": bool(because),
-        "has_supporting": bool(supporting),
-        "has_evidence_refs": bool(evidence_refs),
-        "has_validity": bool(validity),
-        "is_runtime_meta": is_runtime_meta_chatter(str(bead.get("user_query") or ""), f"{title} {summary} {detail}"),
-        "is_generic_title": is_generic_title(title),
-    }
-
-
-def classify_bead_richness(bead: dict) -> str:
-    """Classify write richness as LOW or NORMAL.
-
-    LOW: temporal continuity bead (usually non-retrieval).
-    NORMAL: retrieval-rich bead candidate.
-    """
-    s = _information_signals(bead)
-    positives = sum(1 for k in ["has_entities", "has_state_change", "has_because", "has_supporting", "has_evidence_refs", "has_validity"] if s.get(k))
-    if s.get("is_runtime_meta"):
-        return "LOW"
-    if positives >= 2 and not s.get("is_generic_title"):
-        return "NORMAL"
-    return "LOW"
-
-
-def can_be_retrieval_eligible(bead: dict) -> bool:
-    title_ok = not is_generic_title(str(bead.get("title") or ""))
-    retrieval_title_ok = bool(str(bead.get("retrieval_title") or "").strip())
-    facts_ok = bool(bead.get("retrieval_facts"))
-    quality_signal = any([
-        bool(bead.get("because")),
-        bool(bead.get("supporting_facts")),
-        bool(bead.get("state_change")),
-        bool(bead.get("evidence_refs")),
-        bool(bead.get("supersedes")),
-        bool(bead.get("superseded_by")),
-    ])
-    return bool(title_ok and retrieval_title_ok and facts_ok and quality_signal)
-
-
 def enforce_bead_hygiene_contract(bead: dict) -> dict:
-    """Normalize bead to thin/rich hygiene contract without rejecting thin beads."""
+    """Normalize bead: clean title, ensure summary list, surface temporal fields."""
     out = dict(bead or {})
     out["title"] = rewrite_generic_title(str(out.get("title") or ""))
-
-    # summary is optional by contract
     out.setdefault("summary", [])
-
-    # ensure temporal minimum surface
     out.setdefault("session_id", out.get("session_id"))
     out.setdefault("source_turn_ids", out.get("source_turn_ids") or [])
-    if out.get("prev_bead_id") is None:
-        out["prev_bead_id"] = out.get("prev_bead_id")
-
-    richness = classify_bead_richness(out)
-    out["bead_richness"] = richness
-
-    if richness == "LOW":
-        out["retrieval_eligible"] = False
-        return out
-
-    # NORMAL path: allow eligibility only when payload quality passes.
-    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", True)) and can_be_retrieval_eligible(out)
     return out

@@ -82,8 +82,7 @@ def _infer_bead_domain_tags(bead: dict, domain_tags: dict[str, list[str]]) -> se
     text = " ".join([
         str(bead.get("title") or ""),
         " ".join(bead.get("summary") or []),
-        " ".join(bead.get("retrieval_facts") or []),
-        " ".join(bead.get("topics") or []),
+        " ".join(bead.get("supporting_facts") or []),
         " ".join(bead.get("entities") or []),
         " ".join(bead.get("entity_ids") or []),
     ])
@@ -95,7 +94,7 @@ def _bridge_pattern_bonus(query: str, bead: dict) -> tuple[float, str]:
     btxt = " ".join([
         str(bead.get("title") or ""),
         " ".join(bead.get("summary") or []),
-        " ".join(bead.get("retrieval_facts") or []),
+        " ".join(bead.get("supporting_facts") or []),
     ]).lower()
 
     # setup -> ready -> response

@@ -28,7 +28,6 @@ def bead_to_node(
     """Map a Core Memory bead into Neo4j node payload (projection-only)."""
     typ = str(bead.get("type") or "unknown").strip()
     type_label = _to_type_label(typ)
-    authority = str(bead.get("authority") or bead.get("continuity_authority") or "").strip()
     props = {
         "bead_id": str(bead.get("id") or ""),
         "type": typ,
@@ -36,21 +35,16 @@ def bead_to_node(
         "status": str(bead.get("status") or ""),
         "session_id": str(bead.get("session_id") or ""),
         "scope": str(bead.get("scope") or ""),
-        "authority": authority,
         "created_at": str(bead.get("created_at") or ""),
         "updated_at": str(bead.get("updated_at") or ""),
-        "retrieval_eligible": bool(bead.get("retrieval_eligible", False)),
         "promotion_marked": bool(bead.get("promotion_marked", False)),
         "confidence": float(bead.get("confidence") or 0.0),
         "tags": _as_list(bead.get("tags")),
-        "topics": _as_list(bead.get("topics")),
         "entities": _as_list(bead.get("entities")),
         "source_turn_ids": _as_list(bead.get("source_turn_ids")),
         "summary": _as_list(bead.get("summary")),
         "detail": str(bead.get("detail") or ""),
         "because": _as_list(bead.get("because")),
-        "retrieval_title": str(bead.get("retrieval_title") or ""),
-        "retrieval_facts": _as_list(bead.get("retrieval_facts")),
         "incident_id": str(bead.get("incident_id") or ""),
         "validity": str(bead.get("validity") or ""),
         "effective_from": str(bead.get("effective_from") or ""),

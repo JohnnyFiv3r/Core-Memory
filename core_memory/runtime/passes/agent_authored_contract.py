@@ -14,7 +14,6 @@ ERROR_AGENT_UPDATES_MISSING = "agent_updates_missing"
 ERROR_AGENT_UPDATES_INVALID = "agent_updates_invalid"
 ERROR_AGENT_ASSOCIATIONS_MISSING = "agent_associations_missing"
 ERROR_AGENT_BEAD_FIELDS_MISSING = "agent_bead_fields_missing"
-ERROR_AGENT_RETRIEVAL_FIELDS_MISSING = "agent_retrieval_fields_missing"
 ERROR_AGENT_INVOCATION_EXHAUSTED = "agent_invocation_exhausted"
 ERROR_AGENT_CALLABLE_MISSING = "agent_callable_missing"
 ERROR_AGENT_SEMANTIC_COVERAGE_MISSING = "agent_semantic_coverage_missing"
@@ -28,11 +27,7 @@ SEMANTIC_BEAD_FIELDS = (
     "summary",
     "detail",
     "because",
-    "retrieval_eligible",
-    "retrieval_title",
-    "retrieval_facts",
     "entities",
-    "topics",
     "supporting_facts",
     "evidence_refs",
     "state_change",
@@ -46,11 +41,7 @@ AGENT_AUTHORED_REQUIRED_BEAD_FIELDS = (
     "type",
     "title",
     "summary",
-    "retrieval_eligible",
-    "retrieval_title",
-    "retrieval_facts",
     "entities",
-    "topics",
 )
 
 AGENT_AUTHORED_REQUIRED_ASSOC_FIELDS = (
@@ -117,19 +108,13 @@ def validate_agent_authored_updates(updates: dict[str, Any], *, max_create_per_t
             "max_create_per_turn": int(max_create_per_turn),
         }
 
-    retrieval_eligible_count = 0
     for row_index, row in enumerate(rows):
         if not isinstance(row, dict):
             return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {"reason": "bead_row_not_object", "row_index": row_index}
 
         missing_bead = []
         for key in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS:
-            if key in {"retrieval_title", "retrieval_facts"}:
-                continue
-            if key == "summary":
-                if not _list_text_present(row.get(key)):
-                    missing_bead.append(key)
-            elif key in {"entities", "topics"}:
+            if key in {"summary", "entities"}:
                 if not _list_text_present(row.get(key)):
                     missing_bead.append(key)
             else:
@@ -146,18 +131,6 @@ def validate_agent_authored_updates(updates: dict[str, Any], *, max_create_per_t
                 "missing_bead_fields": ["because"],
                 "causal_types_require_because": sorted(CAUSAL_BEAD_TYPES),
             }
-
-        retrieval_eligible = _truthy_bool(row.get("retrieval_eligible"))
-        if retrieval_eligible:
-            retrieval_eligible_count += 1
-        missing_retrieval = []
-        if retrieval_eligible:
-            if not _text_present(row.get("retrieval_title")):
-                missing_retrieval.append("retrieval_title")
-            if not _list_text_present(row.get("retrieval_facts")):
-                missing_retrieval.append("retrieval_facts")
-        if missing_retrieval:
-            return False, ERROR_AGENT_RETRIEVAL_FIELDS_MISSING, {"row_index": row_index, "missing_retrieval_fields": missing_retrieval}
 
     assocs = updates.get("associations")
     if assocs is None:
@@ -197,7 +170,6 @@ def validate_agent_authored_updates(updates: dict[str, Any], *, max_create_per_t
     return True, None, {
         "beads_create_count": len(rows),
         "associations_count": len(assocs),
-        "retrieval_eligible_count": retrieval_eligible_count,
     }
 
 
@@ -208,7 +180,6 @@ def contract_snapshot() -> dict[str, object]:
             ERROR_AGENT_UPDATES_INVALID,
             ERROR_AGENT_ASSOCIATIONS_MISSING,
             ERROR_AGENT_BEAD_FIELDS_MISSING,
-            ERROR_AGENT_RETRIEVAL_FIELDS_MISSING,
             ERROR_AGENT_INVOCATION_EXHAUSTED,
             ERROR_AGENT_CALLABLE_MISSING,
             ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
@@ -217,16 +188,8 @@ def contract_snapshot() -> dict[str, object]:
         "semantic_bead_fields": list(SEMANTIC_BEAD_FIELDS),
         "required_bead_fields": list(AGENT_AUTHORED_REQUIRED_BEAD_FIELDS),
         "required_association_fields": list(AGENT_AUTHORED_REQUIRED_ASSOC_FIELDS),
-        "retrieval_fields_required_when_retrieval_eligible": ["retrieval_title", "retrieval_facts"],
         "causal_types_require_because": sorted(CAUSAL_BEAD_TYPES),
         "summary_shape": "list[str]",
-        "required_semantic_fields_slice_1": [
-            "retrieval_eligible",
-            "retrieval_title",
-            "retrieval_facts",
-            "entities",
-            "topics",
-        ],
         "beads_create_exactly_one": False,
         "beads_create_min": 1,
         "beads_create_max_policy": "SidecarPolicy.max_create_per_turn",

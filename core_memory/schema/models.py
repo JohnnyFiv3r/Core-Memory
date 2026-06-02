@@ -80,13 +80,6 @@ class Status(str, Enum):
     TRANSIENT = "transient"
 
 
-class Authority(str, Enum):
-    """How a bead was created/confirmed."""
-    AGENT_INFERRED = "agent_inferred"
-    USER_CONFIRMED = "user_confirmed"
-    SYSTEM = "system"
-
-
 class RelationshipType(str, Enum):
     """Canonical relation values (aligned to core_memory.schema)."""
     CAUSED_BY = "caused_by"
@@ -119,14 +112,6 @@ class RelationshipType(str, Enum):
     RESOLVES = "resolves"
     FOLLOWS = "follows"
     PRECEDES = "precedes"
-
-
-class ImpactLevel(str, Enum):
-    """Impact level of a bead."""
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-    EXISTENTIAL = "existential"
 
 
 class ClaimKind(str, Enum):
@@ -276,12 +261,6 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         default=Scope.PROJECT.value,
         preserve_unknown=True,
     )
-    out["authority"] = _normalize_choice(
-        out.get("authority"),
-        allowed={x.value for x in Authority},
-        default=Authority.AGENT_INFERRED.value,
-        preserve_unknown=True,
-    )
     # F-S1: migrate validity → status if status is still default and validity is set
     _validity = str(out.get("validity") or "").strip().lower()
     _status_raw = str(out.get("status") or "").strip().lower()
@@ -300,37 +279,25 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         default=Status.OPEN.value,
         preserve_unknown=True,
     )
-    out["impact_level"] = _normalize_choice(
-        out.get("impact_level"),
-        allowed={x.value for x in ImpactLevel},
-        allow_none=True,
-        preserve_unknown=True,
-    )
-
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
-    out["uncertainty"] = _coerce_float_01(out.get("uncertainty"), default=0.5)
     out["recall_count"] = max(0, _coerce_int(out.get("recall_count"), default=0))
-    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", False))
+
+    # Legacy migration: fold any `topics` into `entities` (topics collapsed into
+    # entities — they were treated identically by every reader).
+    if out.get("topics"):
+        merged = list(out.get("entities") or []) + list(_coerce_list(out.get("topics")))
+        out["entities"] = list(dict.fromkeys(str(x) for x in merged if x))
+    out.pop("topics", None)
 
     list_fields = [
         "summary",
         "tags",
         "source_turn_ids",
-        "retrieval_facts",
         "entities",
         "entity_ids",
-        "topics",
-        "incident_keys",
-        "decision_keys",
-        "goal_keys",
-        "action_keys",
-        "outcome_keys",
-        "time_keys",
         "because",
         "supporting_facts",
         "evidence_refs",
-        "cause_candidates",
-        "effect_candidates",
         "supersedes",
         "superseded_by",
     ]
@@ -338,8 +305,6 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         if key in out:
             out[key] = _coerce_list(out.get(key))
 
-    if "links" in out:
-        out["links"] = _coerce_dict(out.get("links"))
     if "state_change" in out and out.get("state_change") is not None:
         out["state_change"] = _coerce_dict(out.get("state_change"))
 
@@ -496,8 +461,9 @@ class ClaimUpdate:
 class Bead:
     """A bead is the canonical record for one turn.
 
-    Thin vs rich is determined by field completeness and retrieval_eligible,
-    not by bead type.
+    A bead is event normalization, not a retrieval candidate: every bead is
+    written and indexed. Quality is handled at ranking time, not by a write
+    gate.
     """
     id: str
     type: str  # BeadType as string for JSON compatibility
@@ -507,10 +473,8 @@ class Bead:
     summary: list = field(default_factory=list)  # optional by contract
     detail: str = ""
     scope: str = "project"  # Scope as string
-    authority: str = "agent_inferred"  # Authority as string
     confidence: float = 0.8
     tags: list = field(default_factory=list)
-    links: dict = field(default_factory=dict)
     status: str = "open"  # Status as string
     recall_count: int = 0
     last_recalled: Optional[str] = None
@@ -521,26 +485,14 @@ class Bead:
     prev_bead_id: Optional[str] = None
     next_bead_id: Optional[str] = None
 
-    # Retrieval richness contract
-    retrieval_eligible: bool = False
-    retrieval_title: Optional[str] = None
-    retrieval_facts: list = field(default_factory=list)
+    # Entities / retrieval facets
     entities: list = field(default_factory=list)
     entity_ids: list = field(default_factory=list)
-    topics: list = field(default_factory=list)
-    incident_keys: list = field(default_factory=list)
-    decision_keys: list = field(default_factory=list)
-    goal_keys: list = field(default_factory=list)
-    action_keys: list = field(default_factory=list)
-    outcome_keys: list = field(default_factory=list)
-    time_keys: list = field(default_factory=list)
 
     # Reasoning/evidence payload
     because: list = field(default_factory=list)
     supporting_facts: list = field(default_factory=list)
     evidence_refs: list = field(default_factory=list)
-    cause_candidates: list = field(default_factory=list)
-    effect_candidates: list = field(default_factory=list)
     state_change: Optional[dict] = None
 
     # Temporal validity / supersession
@@ -552,17 +504,6 @@ class Bead:
     supersedes: list = field(default_factory=list)
     superseded_by: list = field(default_factory=list)
 
-    # Optional enhanced fields
-    mechanism: Optional[str] = None
-    impact_level: Optional[str] = None
-    uncertainty: float = 0.5
-
-    # Contrast fields
-    what_almost_happened: Optional[str] = None
-    what_was_rejected: Optional[str] = None
-    what_felt_risky: Optional[str] = None
-    assumption: Optional[str] = None
-
     # Claim layer fields
     claims: list = field(default_factory=list)
     claim_updates: list = field(default_factory=list)
@@ -572,37 +513,11 @@ class Bead:
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return _dataclass_to_dict(self)
-    
-    def is_retrieval_rich(self) -> bool:
-        """True when structured retrieval payload is meaningfully populated."""
-        return bool((self.retrieval_title or "").strip()) and bool(self.retrieval_facts)
-
-    def validate_retrieval_eligibility(self) -> bool:
-        """Normalize eligibility to match payload quality.
-
-        Thin beads are valid even without summary/associations.
-        """
-        if not bool(self.retrieval_eligible):
-            return True
-        quality_signals = any([
-            bool(self.because),
-            bool(self.supporting_facts),
-            bool(self.state_change),
-            bool(self.evidence_refs),
-            bool(self.supersedes),
-            bool(self.superseded_by),
-        ])
-        ok = self.is_retrieval_rich() and quality_signals
-        if not ok:
-            self.retrieval_eligible = False
-        return ok
 
     @classmethod
     def from_dict(cls, data: dict) -> "Bead":
         """Create from dictionary, ignoring unknown keys."""
-        obj = _dataclass_from_dict(cls, _normalize_bead_payload(data))
-        obj.validate_retrieval_eligibility()
-        return obj
+        return _dataclass_from_dict(cls, _normalize_bead_payload(data))
 
 
 @dataclass

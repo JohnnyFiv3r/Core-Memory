@@ -14,20 +14,11 @@ _LIST_FIELDS = (
     # summary / rationale tier
     "summary",
     "because",
-    "retrieval_facts",
     "supporting_facts",
-    # association anchor tier — the main gap vs. the old projection
+    # entity / evidence tier
     "entities",
     "entity_ids",
-    "topics",
-    "decision_keys",
-    "goal_keys",
-    "action_keys",
-    "outcome_keys",
-    "time_keys",
     "evidence_refs",
-    "cause_candidates",
-    "effect_candidates",
     # existing context
     "tags",
 )
@@ -36,14 +27,14 @@ _LIST_FIELDS = (
 def build_retrieval_text(bead: dict[str, Any]) -> str:
     """Return the canonical embedding/retrieval text for a bead.
 
-    Covers identity, rationale, and association-anchor tiers so the vector
-    index reflects the bead's full semantic content, not just its readable
-    summary.
+    Composes identity (title/type), rationale (summary/because/facts),
+    entities, evidence, detail, and claims so the vector index reflects the
+    bead's full semantic content, not just its readable summary.
     """
     parts: list[str] = []
 
     # Identity
-    title = str(bead.get("retrieval_title") or bead.get("title") or "")
+    title = str(bead.get("title") or "")
     if title:
         parts.append(title)
     btype = str(bead.get("type") or "")
@@ -61,6 +52,16 @@ def build_retrieval_text(bead: dict[str, Any]) -> str:
                 spaced = raw.replace("_", " ")
                 if spaced != raw:
                     parts.append(spaced)
+
+    # Legacy back-compat: pre-upgrade beads may only have retrieval_facts.
+    # Include the content when supporting_facts is absent so their retrieval
+    # text is preserved without re-writing the store.
+    if not (bead.get("supporting_facts")) and bead.get("retrieval_facts"):
+        legacy_facts = bead.get("retrieval_facts") or []
+        if isinstance(legacy_facts, list):
+            raw = " ".join(str(v) for v in legacy_facts if v)
+            if raw:
+                parts.append(raw)
 
     # incident_id: sparse but high-signal for exact recall
     incident = str(bead.get("incident_id") or "")

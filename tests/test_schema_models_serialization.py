@@ -24,10 +24,7 @@ class TestSchemaModelSerializationSlice51B(unittest.TestCase):
             "title": "Input aliasing",
             "summary": ["first"],
             "tags": ["schema"],
-            "links": {"k": "v"},
-            "retrieval_eligible": True,
-            "retrieval_title": "aliasing",
-            "retrieval_facts": ["fact"],
+            "entities": ["Alice"],
             "because": ["reason"],
             "unknown_field": "should_be_dropped",
         }
@@ -39,11 +36,11 @@ class TestSchemaModelSerializationSlice51B(unittest.TestCase):
         # Mutating the source payload should not mutate the bead instance.
         payload["summary"].append("mutated")
         payload["tags"].append("mutated")
-        payload["links"]["k2"] = "v2"
+        payload["entities"].append("Bob")
 
         self.assertEqual(["first"], bead.summary)
         self.assertEqual(["schema"], bead.tags)
-        self.assertEqual({"k": "v"}, bead.links)
+        self.assertEqual(["Alice"], bead.entities)
 
     def test_to_dict_returns_detached_mutable_values(self):
         bead = Bead(id="b3", type="context", title="detached")

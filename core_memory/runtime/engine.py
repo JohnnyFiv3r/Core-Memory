@@ -50,7 +50,6 @@ from .passes.agent_authored_contract import (
     validate_agent_authored_updates,
 )
 from .turn.turn_prep import normalize_turn_request as _normalize_turn_request, infer_semantic_bead_type as _infer_semantic_bead_type
-from ..policy.bead_typing import is_retrieval_turn
 from ..schema.turn import Turn, reject_legacy_turn_kwargs
 from .session.session_start_flow import process_session_start_impl
 from .turn.turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
@@ -64,11 +63,7 @@ SEMANTIC_FIELDS = (
     "summary",
     "detail",
     "because",
-    "retrieval_eligible",
-    "retrieval_title",
-    "retrieval_facts",
     "entities",
-    "topics",
     "supporting_facts",
     "evidence_refs",
     "state_change",
@@ -155,14 +150,7 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
     text = (user_query or assistant_final or "turn memory").strip()
     title = (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory"
     summary = [text[:240] or "turn memory"]
-    # Durable, state-bearing turns are retrieval-eligible by default so that
-    # captured memory is findable by semantic recall without requiring an
-    # agent-crawler callable or CORE_MEMORY_BEAD_JUDGE_FALLBACK. Pure retrieval
-    # questions ("what did we decide?") are not themselves durable memory.
-    durable = bool(text) and not is_retrieval_turn(user_query)
     tags = ["crawler_reviewed", "turn_finalized", tag]
-    if not durable:
-        tags.append("semantic_fallback_disabled")
     return {
         "type": _infer_semantic_bead_type(user_query, assistant_final),
         "title": title,
@@ -171,14 +159,10 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
         "source_turn_ids": [str(req.get("turn_id") or "")],
         "source_turn_ref": dict(req.get("source_turn_ref") or {}),
         "entities": _default_entities_from_text(user_query, assistant_final),
-        "topics": [],
         "supporting_facts": [],
         "evidence_refs": [],
         "state_change": "",
         "validity": "",
-        "retrieval_eligible": durable,
-        "retrieval_title": title if durable else "",
-        "retrieval_facts": summary if durable else [],
         "effective_from": "",
         "effective_to": "",
         "observed_at": "",
@@ -198,14 +182,10 @@ def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
         "source_turn_ids": [str(req.get("turn_id") or "")],
         "source_turn_ref": dict(req.get("source_turn_ref") or {}),
         "entities": list(judged.get("entities") or []),
-        "topics": list(judged.get("topics") or []),
         "supporting_facts": list(judged.get("supporting_facts") or []),
         "evidence_refs": list(judged.get("evidence_refs") or []),
         "state_change": judged.get("state_change"),
         "validity": judged.get("validity"),
-        "retrieval_eligible": bool(judged.get("retrieval_eligible", False)),
-        "retrieval_title": judged.get("retrieval_title"),
-        "retrieval_facts": list(judged.get("retrieval_facts") or []),
         "effective_from": judged.get("effective_from"),
         "effective_to": judged.get("effective_to"),
         "observed_at": judged.get("observed_at"),
@@ -308,9 +288,10 @@ def _resolve_reviewed_updates(
                     gate["source"] = "default_fallback"
                     gate["used_fallback"] = True
                     fallback = _default_crawler_updates(req)
-                    for key in ("beads_create", "creations", "associations"):
-                        if isinstance(reviewed.get(key), list):
-                            fallback[key] = list(reviewed.get(key) or [])
+                    # Preserve agent-authored associations even when bead validation
+                    # fails; do not copy beads_create (use judge-fallback authorship).
+                    if isinstance(reviewed.get("associations"), list):
+                        fallback["associations"] = list(reviewed.get("associations") or [])
                     return fallback, gate
                 gate["blocked"] = True
                 return None, gate
