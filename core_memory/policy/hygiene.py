@@ -334,10 +334,7 @@ def enforce_bead_hygiene_contract(bead: dict) -> dict:
     richness = classify_bead_richness(out)
     out["bead_richness"] = richness
 
-    if richness == "LOW":
-        out["retrieval_eligible"] = False
-        return out
-
-    # NORMAL path: allow eligibility only when payload quality passes.
-    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", True)) and can_be_retrieval_eligible(out)
+    # Richness is advisory metadata for ranking only — not an eligibility gate.
+    # retrieval_eligible is derived from typeability at the write chokepoint.
+    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", True))
     return out

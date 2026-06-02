@@ -10,6 +10,7 @@ from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.runtime.session_surface import read_session_surface
+from core_memory.schema.normalization import CANONICAL_BEAD_TYPES
 
 
 def add_bead_for_store(
@@ -65,6 +66,9 @@ def add_bead_for_store(
         "last_recalled": None,
         **kwargs,
     }
+
+    # Global rule: beads are records, eligible unless type is unrecognized.
+    bead["retrieval_eligible"] = str(bead.get("type") or "").strip().lower() in CANONICAL_BEAD_TYPES
 
     bead = store._sanitize_bead_content(bead)
     bead = enforce_bead_hygiene_contract(bead)
