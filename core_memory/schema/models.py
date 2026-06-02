@@ -15,6 +15,7 @@ from typing import Any, Optional
 logger = logging.getLogger(__name__)
 
 from .normalization import (
+    CANONICAL_BEAD_TYPES,
     CANONICAL_CLAIM_KINDS,
     CLAIM_UPDATE_DECISIONS,
     HYPOTHESIS_STATUSES,
@@ -339,7 +340,7 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
     out["uncertainty"] = _coerce_float_01(out.get("uncertainty"), default=0.5)
     out["recall_count"] = max(0, _coerce_int(out.get("recall_count"), default=0))
-    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", False))
+    out["retrieval_eligible"] = str(out.get("type") or "").strip().lower() in CANONICAL_BEAD_TYPES
 
     list_fields = [
         "summary",
@@ -706,24 +707,10 @@ class Bead:
         return bool((self.retrieval_title or "").strip()) and bool(self.retrieval_facts)
 
     def validate_retrieval_eligibility(self) -> bool:
-        """Normalize eligibility to match payload quality.
-
-        Thin beads are valid even without summary/associations.
-        """
-        if not bool(self.retrieval_eligible):
-            return True
-        quality_signals = any([
-            bool(self.because),
-            bool(self.supporting_facts),
-            bool(self.state_change),
-            bool(self.evidence_refs),
-            bool(self.supersedes),
-            bool(self.superseded_by),
-        ])
-        ok = self.is_retrieval_rich() and quality_signals
-        if not ok:
-            self.retrieval_eligible = False
-        return ok
+        """Normalize eligibility: eligible iff the bead type is recognized."""
+        eligible = str(self.type or "").strip().lower() in CANONICAL_BEAD_TYPES
+        self.retrieval_eligible = eligible
+        return eligible
 
     @classmethod
     def from_dict(cls, data: dict) -> "Bead":

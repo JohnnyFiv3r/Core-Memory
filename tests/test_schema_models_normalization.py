@@ -42,8 +42,8 @@ class TestSchemaModelsNormalizationSlice51B(unittest.TestCase):
         self.assertEqual(0.0, bead.uncertainty)
         self.assertEqual(0, bead.recall_count)
 
-        # Existing invariant: eligibility is dropped when quality is insufficient.
-        self.assertFalse(bead.retrieval_eligible)
+        # Typed beads are retrieval-eligible by default; richness is advisory only.
+        self.assertTrue(bead.retrieval_eligible)
 
     def test_association_from_dict_preserves_noncanonical_relationship_string(self):
         assoc = Association.from_dict(

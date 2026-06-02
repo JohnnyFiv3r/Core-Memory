@@ -40,4 +40,6 @@ promoted-context.md
 # Demo runtime store
 demo/memory_store/
 .DS_Store
+
+# Claude Code session scratch
 .claude/

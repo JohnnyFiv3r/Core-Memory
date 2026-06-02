@@ -151,7 +151,7 @@ class TestRationaleExtraction(unittest.TestCase):
             self.assertEqual("context", bead.get("type"))
             self.assertNotEqual("precedent", bead.get("type"))
             self.assertEqual([], bead.get("because"))
-            self.assertFalse(bool(bead.get("retrieval_eligible")))
+            self.assertTrue(bool(bead.get("retrieval_eligible")))
 
     def test_default_turn_write_keeps_empty_because_without_causal_reason(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
