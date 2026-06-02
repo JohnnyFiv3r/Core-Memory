@@ -1,9 +1,17 @@
+import importlib
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+import pytest
+
+pytestmark = pytest.mark.pydanticai
+
+if importlib.util.find_spec("pydantic_ai") is None:
+    pytest.skip("pydantic-ai extra not installed", allow_module_level=True)
 
 from core_memory.integrations.pydanticai.memory_tools import (
     continuity_prompt,

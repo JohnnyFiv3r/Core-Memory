@@ -53,11 +53,16 @@ def _transport_security_settings() -> Any:
     )
 
 
-def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
+def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs: Any) -> Any:
     """Build the MCP sub-application mounted under `/mcp`.
 
     The app exposes `/mcp/healthz` plus the SDK-backed streamable-HTTP MCP
     endpoint at `/mcp/` when mounted by the HTTP server.
+
+    When ``lock_root=True`` (set automatically in hosted mode) every tool
+    ignores any caller-supplied ``root`` argument and always uses
+    ``default_root``, preventing MCP clients from reading/writing arbitrary
+    filesystem paths.
     """
 
     try:
@@ -67,6 +72,12 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         raise RuntimeError("MCP HTTP server requires `core-memory[mcp]`.") from exc
 
     default_root = root or os.getenv("CORE_MEMORY_ROOT") or str(Path("~/.core-memory/store").expanduser())
+
+    def _root(caller_root: str | None) -> str:
+        """Return the effective root, honouring lock_root policy."""
+        if lock_root:
+            return default_root
+        return caller_root or kwargs.get("root") or default_root
     mcp = FastMCP(
         "Core Memory",
         instructions=load_agent_guide(),
@@ -112,7 +123,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
             "as_assistant": as_assistant,
             "session_id": session_id,
             "turn_id": turn_id,
-            "root": root or kwargs.get("root") or default_root,
+            "root": _root(root),
         }
         return call_tool("capture", {k: v for k, v in payload.items() if v is not None})
 
@@ -129,9 +140,40 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
                 "query": query,
                 "effort": effort,
                 "speaker": speaker,
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
             },
         )
+
+    @mcp.tool(name="capture_session", description=_tool_description("capture_session"), structured_output=True)
+    def capture_session_tool(
+        turns: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        path: str | None = None,
+        from_format: str | None = None,
+        session_id: str | None = None,
+        session_prefix: str | None = None,
+        transcript_id: str | None = None,
+        flush_policy: str | None = None,
+        max_turns: int | None = None,
+        metadata: dict[str, Any] | None = None,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        _cs_payload = {
+            "turns": turns,
+            "messages": messages,
+            "path": path,
+            "from": from_format,
+            "session_id": session_id,
+            "session_prefix": session_prefix,
+            "transcript_id": transcript_id,
+            "flush_policy": flush_policy,
+            "max_turns": max_turns,
+            "metadata": metadata,
+            "root": _root(root),
+        }
+        # Strip None values so capture_session_handler's setdefault() can apply
+        # its own defaults (session_prefix="session_sync", flush_policy="flush").
+        return call_tool("capture_session", {k: v for k, v in _cs_payload.items() if v is not None})
 
     @mcp.tool(name="ingest", description=_tool_description("ingest"), structured_output=True)
     def ingest_tool(
@@ -162,13 +204,13 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
                 "metadata": metadata,
                 "flush_policy": flush_policy,
                 "max_turns": max_turns,
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
             },
         )
 
     @mcp.tool(name="status", description=_tool_description("status"), structured_output=True)
     def status_tool(root: str | None = None) -> dict[str, Any]:
-        return call_tool("status", {"root": root or kwargs.get("root") or default_root})
+        return call_tool("status", {"root": _root(root)})
 
     @mcp.tool(name="query_current_state", description=_tool_description("query_current_state"), structured_output=True)
     def query_current_state_tool(
@@ -184,7 +226,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         return call_tool(
             "query_current_state",
             {
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
                 "subject": subject,
                 "slot": slot,
                 "slot_key": slot_key,
@@ -211,7 +253,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         return call_tool(
             "query_temporal_window",
             {
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
                 "query": query,
                 "window_start": window_start,
                 "window_end": window_end,
@@ -231,7 +273,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         return call_tool(
             "query_causal_chain",
             {
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
                 "query": query,
                 "anchor_ids": anchor_ids or [],
                 "k": k,
@@ -256,7 +298,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         return call_tool(
             "query_contradictions",
             {
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
                 "subject": subject,
                 "slot": slot,
                 "slot_key": slot_key,
@@ -288,7 +330,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         return call_tool(
             "write_turn_finalized",
             {
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
                 "session_id": session_id,
                 "turn_id": turn_id,
                 "turns": turns,
@@ -314,17 +356,23 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         reviewer: str = "",
         notes: str = "",
         apply: bool = True,
+        resolution: str = "",
+        context_a: str = "",
+        context_b: str = "",
         root: str | None = None,
     ) -> dict[str, Any]:
         return call_tool(
             "apply_reviewed_proposal",
             {
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
                 "candidate_id": candidate_id,
                 "decision": decision,
                 "reviewer": reviewer,
                 "notes": notes,
                 "apply": apply,
+                "resolution": resolution,
+                "context_a": context_a,
+                "context_b": context_b,
             },
         )
 
@@ -348,7 +396,7 @@ def build_mcp_app(*, root: str | None = None, **kwargs: Any) -> Any:
         return call_tool(
             "submit_entity_merge_proposal",
             {
-                "root": root or kwargs.get("root") or default_root,
+                "root": _root(root),
                 "source_entity_id": source_entity_id,
                 "target_entity_id": target_entity_id,
                 "source_bead_id": source_bead_id,

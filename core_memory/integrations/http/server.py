@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -21,8 +22,8 @@ from core_memory.integrations.api import (
     list_turn_summaries,
 )
 from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, list_dreamer_candidates
-from core_memory.runtime.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
+from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
@@ -43,6 +44,16 @@ from core_memory.integrations.mcp.protocol_server import build_mcp_app
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
 TENANT_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$")
+_LOOPBACK_HOSTS = {"127.0.0.1", "::1", "localhost"}
+
+
+def _is_loopback(host: str) -> bool:
+    return host.strip().lower() in _LOOPBACK_HOSTS
+
+
+def _is_hosted_mode() -> bool:
+    """True when bound to a non-loopback interface (server-authority / hosted mode)."""
+    return not _is_loopback(str(os.getenv("CORE_MEMORY_HTTP_HOST") or "127.0.0.1"))
 
 
 def _resolve_tenant(x_tenant_id: Optional[str]) -> Optional[str]:
@@ -180,6 +191,9 @@ class MCPApplyReviewedProposalRequest(BaseModel):
     reviewer: str = ""
     notes: str = ""
     apply: bool = True
+    resolution: str = ""
+    context_a: str = ""
+    context_b: str = ""
 
 
 class MCPSubmitEntityMergeProposalRequest(BaseModel):
@@ -220,7 +234,9 @@ class DreamerCandidateDecideRequest(BaseModel):
 
 def _build_mcp_subapp() -> FastAPI:
     try:
-        return build_mcp_app()
+        hosted = _is_hosted_mode()
+        server_root = str(os.getenv("CORE_MEMORY_ROOT") or ".") if hosted else None
+        return build_mcp_app(root=server_root, lock_root=hosted)
     except RuntimeError as exc:
         error_message = str(exc)
         unavailable = FastAPI(title="Core Memory MCP Protocol Server (unavailable)")
@@ -235,6 +251,39 @@ def _build_mcp_subapp() -> FastAPI:
 _mcp_app = _build_mcp_subapp()
 
 
+class _MCPAuthMiddleware:
+    """Pure ASGI auth gate for the mounted MCP sub-app.
+
+    BaseHTTPMiddleware breaks SSE streaming, so this wraps the sub-app at the
+    ASGI level. Token validation mirrors _check_auth() for REST endpoints.
+    """
+
+    def __init__(self, app: Any) -> None:
+        self._app = app
+
+    async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        if scope["type"] in ("http", "websocket"):
+            tok = _auth_required()
+            if tok:
+                headers = {k.lower(): v for k, v in scope.get("headers", [])}
+                auth = headers.get(b"authorization", b"").decode()
+                x_token = headers.get(b"x-memory-token", b"").decode()
+                bearer = ""
+                if auth:
+                    parts = auth.split(" ", 1)
+                    if len(parts) == 2 and parts[0].lower() == "bearer":
+                        bearer = parts[1].strip()
+                presented = (x_token or bearer or "").strip()
+                if presented != tok:
+                    if scope["type"] == "http":
+                        await send({"type": "http.response.start", "status": 401,
+                                    "headers": [[b"content-type", b"application/json"]]})
+                        await send({"type": "http.response.body",
+                                    "body": b'{"detail":"unauthorized"}', "more_body": False})
+                    return
+        await self._app(scope, receive, send)
+
+
 @asynccontextmanager
 async def _lifespan(app: FastAPI):
     session_manager = getattr(getattr(_mcp_app, "state", None), "mcp_session_manager", None)
@@ -246,7 +295,7 @@ async def _lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Core Memory SpringAI Bridge Ingress (HTTP-Compatible)", version="1.1", lifespan=_lifespan)
-app.mount(MCP_HTTP_PATH, _mcp_app)
+app.mount(MCP_HTTP_PATH, _MCPAuthMiddleware(_mcp_app))
 
 
 def _semantic_http_response(result: dict[str, Any]) -> JSONResponse | None:
@@ -275,7 +324,20 @@ def _check_auth(authorization: Optional[str], x_memory_token: Optional[str]) -> 
 
 
 def _resolve_root(root: Optional[str], tenant_id: Optional[str] = None) -> str:
-    base = Path(str(root or "."))
+    if _is_hosted_mode():
+        # Hosted mode: CORE_MEMORY_ROOT is the server authority.
+        # Caller-supplied root is denied unless it matches the server root
+        # or CORE_MEMORY_HTTP_ALLOW_ARBITRARY_ROOT=1 is set (dev escape hatch).
+        server_root = str(os.getenv("CORE_MEMORY_ROOT") or ".")
+        effective_root = server_root
+        if root and root != server_root:
+            allow = str(os.getenv("CORE_MEMORY_HTTP_ALLOW_ARBITRARY_ROOT", "")).lower() in {"1", "true", "yes"}
+            if not allow:
+                raise HTTPException(status_code=403, detail="arbitrary_root_denied_in_hosted_mode")
+            effective_root = root
+        base = Path(effective_root)
+    else:
+        base = Path(str(root or os.getenv("CORE_MEMORY_ROOT") or "."))
     tenant = _resolve_tenant(tenant_id)
     if not tenant:
         return str(base)
@@ -608,6 +670,9 @@ async def mcp_apply_reviewed_proposal_endpoint(
         reviewer=str(payload.reviewer or ""),
         notes=str(payload.notes or ""),
         apply=bool(payload.apply),
+        resolution=str(payload.resolution or ""),
+        context_a=str(payload.context_a),
+        context_b=str(payload.context_b),
     )
     if not out.get("ok"):
         return JSONResponse(status_code=400, content=out)
@@ -797,7 +862,7 @@ async def metrics(
     x_memory_token: Optional[str] = Header(default=None),
 ):
     _check_auth(authorization, x_memory_token)
-    from core_memory.runtime.observability import get_metrics
+    from core_memory.runtime.observability.observability import get_metrics
     return get_metrics()
 
 
@@ -895,6 +960,17 @@ def main() -> None:
 
     host = str(os.getenv("CORE_MEMORY_HTTP_HOST") or "127.0.0.1")
     port = int(os.getenv("CORE_MEMORY_HTTP_PORT") or "8000")
+
+    if not _is_loopback(host) and not _auth_required():
+        print(
+            f"ERROR: CORE_MEMORY_HTTP_HOST is set to '{host}' (non-loopback) but "
+            "CORE_MEMORY_HTTP_TOKEN is not set. Refusing to start an unauthenticated "
+            "server on a non-loopback interface.\n"
+            "Set CORE_MEMORY_HTTP_TOKEN=<secret> or bind to 127.0.0.1.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
     uvicorn.run("core_memory.integrations.http.server:app", host=host, port=port)
 
 

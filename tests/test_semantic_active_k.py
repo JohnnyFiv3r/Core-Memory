@@ -2,7 +2,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.graph.api import add_semantic_edge, build_graph
+import pytest
+
+pytestmark = pytest.mark.facade
+
+from core_memory.graph.semantic import add_semantic_edge
+from core_memory.graph.core import build_graph
 from core_memory.persistence.store import MemoryStore
 
 

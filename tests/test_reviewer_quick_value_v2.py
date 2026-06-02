@@ -3,8 +3,8 @@ from __future__ import annotations
 import tempfile
 import unittest
 
-import core_memory.runtime.reviewer_quick_value as rqv
-from core_memory.runtime.reviewer_quick_value import reviewer_quick_value_v2
+import core_memory.runtime.observability.reviewer_quick_value as rqv
+from core_memory.runtime.observability.reviewer_quick_value import reviewer_quick_value_v2
 
 
 class TestReviewerQuickValueV2Slice66A(unittest.TestCase):
@@ -29,6 +29,11 @@ class TestReviewerQuickValueV2Slice66A(unittest.TestCase):
 
     def test_dreamer_seed_path_avoids_direct_store_add_bead_writes(self):
         self.assertFalse(hasattr(rqv, "MemoryStore"))
+
+    def test_seeded_crawler_updates_use_beads_create(self):
+        source = rqv.Path(rqv.__file__).read_text(encoding="utf-8")
+        self.assertIn('"beads_create"', source)
+        self.assertNotIn('"creations"', source)
 
 
 if __name__ == "__main__":

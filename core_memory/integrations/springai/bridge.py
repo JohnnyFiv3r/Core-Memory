@@ -1,12 +1,12 @@
 """SpringAI bridge app loader.
 
-Primary framing: SpringAI native HTTP integration surface.
-Compatibility: reuses canonical HTTP ingress implementation.
+Wraps the canonical Core Memory HTTP app for SpringAI deployments.
+This is an HTTP bridge — there is no native SpringAI runtime extension.
 """
 
-ADAPTER_KIND = "native"
+ADAPTER_KIND = "http"
 ADAPTER_RUNTIME = "springai"
-ADAPTER_STATUS = "production_ready"
+ADAPTER_STATUS = "beta"
 
 from core_memory.integrations.http import get_app as get_http_app
 

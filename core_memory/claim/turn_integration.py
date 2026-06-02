@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from core_memory.claim.extraction import extract_claims
 from core_memory.claim.validation import dedup_claims, validate_claims_batch
-from core_memory.integrations.openclaw_flags import claim_extraction_mode, claim_layer_enabled
+from core_memory.config.feature_flags import claim_extraction_mode, claim_layer_enabled
 from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id, write_claims_to_bead
 
 

@@ -168,8 +168,8 @@ class TestAdapterParityMatrixContract(unittest.TestCase):
             self.assertIn(re.status_code, (200, 503))
 
     def test_openclaw_adapter_parity(self):
-        from core_memory.integrations.openclaw_agent_end_bridge import process_agent_end_event
-        from core_memory.integrations.openclaw_read_bridge import dispatch
+        from core_memory.integrations.openclaw.agent_end_bridge import process_agent_end_event
+        from core_memory.integrations.openclaw.read_bridge import dispatch
 
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,

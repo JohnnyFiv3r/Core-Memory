@@ -2,12 +2,13 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.graph.api import (
-    add_structural_edge,
-    build_graph,
-    backfill_structural_edges,
-    update_semantic_edge,
-)
+import pytest
+
+pytestmark = pytest.mark.facade
+
+from core_memory.graph.structural import add_structural_edge, backfill_structural_edges
+from core_memory.graph.semantic import update_semantic_edge
+from core_memory.graph.core import build_graph
 from core_memory.persistence.store import MemoryStore
 
 

@@ -234,12 +234,27 @@ def ingest_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         else:
             return _error("cm.parser_format_unsupported", "unsupported ingest format", field="from", received=fmt)
 
-    has_user = any(t.get("role") == "user" for t in turns)
-    has_assistant = any(t.get("role") == "assistant" for t in turns)
-    if not turns or not (has_user and has_assistant):
+    mode = str(payload.get("mode") or "dyadic").strip().lower()
+    source_system = str(payload.get("source_system") or "").strip()
+    meta = dict(payload.get("metadata") or {}) if isinstance(payload.get("metadata"), dict) else {}
+    if source_system:
+        meta["source_system"] = source_system
+
+    if mode == "dyadic":
+        has_user = any(t.get("role") == "user" for t in turns)
+        has_assistant = any(t.get("role") == "assistant" for t in turns)
+        if not turns or not (has_user and has_assistant):
+            return _error(
+                "cm.parser_aborted",
+                "transcript lacks usable user/assistant turn structure",
+                field="turns" if path is None else "path",
+                received=raw_path or type(turns).__name__,
+                malformed=malformed,
+            )
+    elif not turns:
         return _error(
             "cm.parser_aborted",
-            "transcript lacks usable user/assistant turn structure",
+            "transcript contains no usable turns",
             field="turns" if path is None else "path",
             received=raw_path or type(turns).__name__,
             malformed=malformed,
@@ -255,8 +270,10 @@ def ingest_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
             session_id=session_id,
             turns=turns,
             flush_policy=str(payload.get("flush_policy") or "none"),
-            metadata=payload.get("metadata") if isinstance(payload.get("metadata"), dict) else None,
+            metadata=meta or None,
             max_turns=int(payload.get("max_turns") or 500),
+            mode=mode,
+            window_size=int(payload.get("window_size") or 10),
         )
     except ValueError as exc:
         return _error("cm.parser_aborted", str(exc), field="turns", received=raw_path or "inline", malformed=malformed)

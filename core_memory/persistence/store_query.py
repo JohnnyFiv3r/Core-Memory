@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from core_memory.runtime.session_surface import read_session_surface
+from core_memory.runtime.session.session_surface import read_session_surface
 
 
 def query_for_store(

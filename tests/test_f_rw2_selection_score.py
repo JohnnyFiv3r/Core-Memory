@@ -133,12 +133,14 @@ class TestForcedLatestSubstantive(unittest.TestCase):
         self.assertEqual(result["id"], "l1")
 
     def test_skips_empty_context(self):
+        # Empty context beads are no longer treated as lifecycle beads;
+        # _forced_latest_substantive returns the first non-lifecycle bead (c1 here).
         beads = [
             {"id": "c1", "type": "context", "summary": []},
             {"id": "d1", "type": "decision", "summary": ["chose X"]},
         ]
         result = _forced_latest_substantive(beads)
-        self.assertEqual(result["id"], "d1")
+        self.assertEqual(result["id"], "c1")
 
     def test_returns_none_when_all_lifecycle(self):
         beads = [

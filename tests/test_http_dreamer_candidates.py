@@ -4,7 +4,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates
+from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
 
 class TestHttpDreamerCandidatesSlice62A(unittest.TestCase):

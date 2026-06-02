@@ -18,6 +18,10 @@ def fallback_tool_description(tool_name: str) -> str:
     descriptions = {
         "capture": "Capture completed conversation turns into Core Memory using the canonical write boundary.",
         "recall": "Recall grounded memory with effort='low', 'medium', or 'high' depending on latency and depth needs.",
+        "capture_session": (
+            "End-of-session safety net: replay the full conversation transcript through canonical capture semantics. "
+            "Call this once before the conversation ends or compacts to ensure no durable state is lost."
+        ),
         "ingest": "Ingest a local transcript file into Core Memory when the file is readable by the MCP server.",
         "status": "Report Core Memory MCP server and store health.",
     }
@@ -46,7 +50,7 @@ def tool_descriptions() -> dict[str, str]:
         body = match.group("body").strip()
         body = re.sub(r"^## Tool: .+?$", "", body, count=1, flags=re.M).strip()
         descriptions[name] = re.sub(r"\s+", " ", body).strip()
-    for name in ("capture", "recall", "ingest", "status"):
+    for name in ("capture", "recall", "capture_session", "ingest", "status"):
         descriptions.setdefault(name, fallback_tool_description(name))
     return descriptions
 

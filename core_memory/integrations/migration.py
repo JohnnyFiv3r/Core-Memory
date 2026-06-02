@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.turn_archive import find_turn_record, rebuild_all_indexes
+from core_memory.runtime.turn.turn_archive import find_turn_record, rebuild_all_indexes
 
 
 def rebuild_turn_indexes(*, root: str) -> dict[str, Any]:

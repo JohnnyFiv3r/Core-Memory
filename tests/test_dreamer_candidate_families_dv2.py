@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.tools import memory as memory_tools
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, enqueue_dreamer_candidates, list_dreamer_candidates
 
 
 class TestDreamerCandidateFamiliesDV2(unittest.TestCase):

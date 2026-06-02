@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.runtime.dreamer_candidates import enqueue_dreamer_candidates, list_dreamer_candidates
+from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates, list_dreamer_candidates
 
 
 def _run_cli(args: list[str], cwd: Path) -> subprocess.CompletedProcess[str]:

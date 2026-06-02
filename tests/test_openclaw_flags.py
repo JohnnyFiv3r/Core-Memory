@@ -3,8 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 from core_memory.integrations.api import get_turn, hydrate_bead_sources
-from core_memory.integrations.openclaw_flags import agent_authored_mode, resolved_agent_authored_gate, runtime_flags_snapshot
-from core_memory.integrations.openclaw_onboard import run_openclaw_onboard
+from core_memory.integrations.openclaw.flags import agent_authored_mode, resolved_agent_authored_gate, runtime_flags_snapshot
+from core_memory.integrations.openclaw.onboard import run_openclaw_onboard
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
 
 
@@ -54,10 +54,16 @@ def test_agent_authored_mode_explicit_and_derived(monkeypatch):
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_MODE", "warn")
     assert agent_authored_mode() == "warn"
     gate = resolved_agent_authored_gate()
-    assert gate["required"] is True
+    assert gate["required"] is False  # warn: gate does not block; logs/metrics only
     assert gate["fail_open"] is True
 
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_MODE", "")
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_REQUIRED", "1")
     monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN", "0")
-    assert agent_authored_mode() == "enforce"
+    assert agent_authored_mode() == "hard"
+    gate = resolved_agent_authored_gate()
+    assert gate["required"] is True
+    assert gate["fail_open"] is False
+
+    monkeypatch.setenv("CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN", "1")
+    assert agent_authored_mode() == "hard"

@@ -4,6 +4,10 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import pytest
+
+pytestmark = pytest.mark.mixin_assembly
+
 from core_memory.persistence.store import MemoryStore
 
 

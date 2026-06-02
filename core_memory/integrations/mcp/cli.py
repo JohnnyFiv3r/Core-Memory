@@ -27,7 +27,17 @@ SEMANTIC_INSTALL_WARNING = (
     "Warning: no embedding provider detected. Set OPENAI_API_KEY for full semantic recall,\n"
     "or export CORE_MEMORY_CANONICAL_SEMANTIC_MODE=degraded_allowed to suppress this warning."
 )
-SUPPORTED_CLIENTS = {"claude-code", "cursor", "windsurf", "open-webui"}
+SUPPORTED_CLIENTS = {"claude-code", "claude-desktop", "chatgpt", "cursor", "windsurf", "open-webui"}
+
+# Pasteable operating-protocol block for clients that don't support server-side
+# instruction injection (ChatGPT custom instructions, Claude Projects instructions).
+OPERATING_PROTOCOL_BLOCK = """\
+Core Memory operating protocol — paste this into your system prompt / custom instructions:
+
+Before answering anything that could depend on earlier context, call recall.
+After any turn containing a decision, fact, preference, commitment, or relationship, call capture.
+At the end of the conversation (or before compaction), call capture_session with the full transcript.
+""".strip()
 
 
 def sdk_version() -> str:
@@ -82,6 +92,19 @@ def client_config_candidates(client: str) -> list[Path]:
     home = _home()
     if client == "claude-code":
         return [home / ".claude.json", home / ".claude" / "mcp.json"]
+    if client == "claude-desktop":
+        system = platform.system().lower()
+        if system == "darwin":
+            return [home / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"]
+        if system == "windows":
+            appdata = Path(os.environ.get("APPDATA") or home / "AppData" / "Roaming")
+            return [appdata / "Claude" / "claude_desktop_config.json"]
+        return [home / ".config" / "Claude" / "claude_desktop_config.json"]
+    if client == "chatgpt":
+        system = platform.system().lower()
+        if system == "darwin":
+            return [home / "Library" / "Application Support" / "ChatGPT" / "mcp.json"]
+        return [home / ".config" / "openai" / "chatgpt" / "mcp.json"]
     if client == "cursor":
         return [home / ".cursor" / "mcp.json"]
     if client == "windsurf":
@@ -175,7 +198,7 @@ def install_client_config(client: str, *, port: int, dry_run: bool = False) -> d
 
 
 def _systemd_unit_text(*, root: str, port: int) -> str:
-    exe = shutil.which("python3") or shutil.which("python") or sys.executable
+    exe = sys.executable or shutil.which("python3") or shutil.which("python")
     return f"""[Unit]
 Description=Core Memory MCP server
 After=network.target
@@ -193,7 +216,7 @@ WantedBy=default.target
 
 
 def _launchd_plist_text(*, root: str, port: int) -> str:
-    exe = shutil.which("python3") or shutil.which("python") or sys.executable
+    exe = sys.executable or shutil.which("python3") or shutil.which("python")
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -278,7 +301,8 @@ def install_payload(
         if ok and not no_start and not dry_run
         else {"ok": False, "skipped": True}
     )
-    return {
+    needs_manual_protocol = any(c in {"chatgpt", "claude-desktop"} for c in clients)
+    out: dict[str, Any] = {
         "ok": ok,
         "clients": results,
         "service": service,
@@ -287,6 +311,17 @@ def install_payload(
         "root": chosen_root,
         "url": mcp_url(port),
     }
+    if needs_manual_protocol:
+        out["operating_protocol"] = OPERATING_PROTOCOL_BLOCK
+        print(
+            "\n--- Core Memory operating protocol ---\n"
+            "Paste the block below into your ChatGPT custom instructions or Claude Projects instructions\n"
+            "so the model knows to call recall/capture/capture_session on every turn:\n\n"
+            f"{OPERATING_PROTOCOL_BLOCK}\n"
+            "--------------------------------------\n",
+            file=sys.stderr,
+        )
+    return out
 
 
 def uninstall_payload(*, client: str | None = None, dry_run: bool = False) -> dict[str, Any]:

@@ -31,7 +31,7 @@ class TestStoreIndexHeadsOpsDelegationSlice85A(unittest.TestCase):
                 out2 = store._update_heads_for_bead({"topics": {}, "goals": {}}, {"id": "b", "topic_id": "t"})
             self.assertIn("topics", out2)
             self.assertEqual(1, stub_update.call_count)
-            self.assertIs(stub_update.call_args[0][0], store)
+            self.assertIsInstance(stub_update.call_args[0][0], dict)
 
     def test_update_index_delegates(self):
         with tempfile.TemporaryDirectory(prefix="cm-store-heads-deleg-") as td:

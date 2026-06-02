@@ -12,11 +12,4 @@ def close_store_for_store(store: Any) -> None:
             pass
 
 
-def safe_del_for_store(store: Any) -> None:
-    try:
-        close_store_for_store(store)
-    except Exception:
-        pass
-
-
-__all__ = ["close_store_for_store", "safe_del_for_store"]
+__all__ = ["close_store_for_store"]

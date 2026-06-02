@@ -5,11 +5,14 @@ import threading
 import time
 import unittest
 
-import uvicorn
-from mcp import ClientSession
-from mcp.client.streamable_http import streamable_http_client
+import pytest
 
-from core_memory.integrations.mcp.protocol_server import build_mcp_app
+uvicorn = pytest.importorskip("uvicorn", reason="uvicorn not installed; skipping MCP client smoke tests")
+mcp_mod = pytest.importorskip("mcp", reason="mcp not installed; skipping MCP client smoke tests")
+from mcp import ClientSession  # noqa: E402
+from mcp.client.streamable_http import streamable_http_client  # noqa: E402
+
+from core_memory.integrations.mcp.protocol_server import build_mcp_app  # noqa: E402
 
 
 class MCPProtocolClientSmokeTests(unittest.TestCase):

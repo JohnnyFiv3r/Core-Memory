@@ -21,7 +21,7 @@ class TestV2P21StoreIntegrity(unittest.TestCase):
             s = MemoryStore(td)
             # highest overlap candidate
             s.add_bead(
-                type="failed_hypothesis",
+                type="hypothesis",
                 title="high overlap",
                 summary=["x"],
                 tags=["alpha", "beta"],
@@ -30,7 +30,7 @@ class TestV2P21StoreIntegrity(unittest.TestCase):
             )
             # lower overlap
             s.add_bead(
-                type="failed_hypothesis",
+                type="hypothesis",
                 title="low overlap",
                 summary=["x"],
                 tags=["alpha"],
@@ -39,7 +39,7 @@ class TestV2P21StoreIntegrity(unittest.TestCase):
             )
             # zero overlap but newer insertion
             s.add_bead(
-                type="failed_hypothesis",
+                type="hypothesis",
                 title="zero overlap newer",
                 summary=["x"],
                 tags=["zzz"],

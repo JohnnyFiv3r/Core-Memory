@@ -1,9 +1,17 @@
 import asyncio
+import importlib
 import json
 import os
 import tempfile
 import unittest
 from pathlib import Path
+
+import pytest
+
+pytestmark = pytest.mark.pydanticai
+
+if importlib.util.find_spec("pydantic_ai") is None:
+    pytest.skip("pydantic-ai extra not installed", allow_module_level=True)
 
 import core_memory.integrations.pydanticai.run as pyd_run
 from core_memory.integrations.pydanticai import run_with_memory, run_with_memory_sync

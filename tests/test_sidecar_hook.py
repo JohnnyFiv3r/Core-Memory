@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.runtime.state import mark_memory_pass
-from core_memory.runtime.ingress import maybe_emit_finalize_memory_event, should_emit_memory_event
+from core_memory.runtime.turn.ingress import maybe_emit_finalize_memory_event, should_emit_memory_event
 
 
 class TestSidecarHook(unittest.TestCase):

@@ -10,14 +10,14 @@ from typing import Any, Optional
 from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.entity.merge_flow import list_entity_merge_proposals
 from core_memory.entity.registry import load_entity_registry
-from core_memory.runtime.ingress import maybe_emit_finalize_memory_event
-from core_memory.runtime.jobs import async_jobs_status
-from core_memory.runtime.turn_archive import find_turn_record, get_turn_tools as _get_turn_tools, get_adjacent_turns as _get_adjacent_turns
+from core_memory.runtime.turn.ingress import maybe_emit_finalize_memory_event
+from core_memory.runtime.queue.jobs import async_jobs_status
+from core_memory.runtime.turn.turn_archive import find_turn_record, get_turn_tools as _get_turn_tools, get_adjacent_turns as _get_adjacent_turns
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
-from core_memory.integrations.openclaw_flags import transcript_hydration_enabled, default_hydrate_tools_enabled, default_adjacent_turns
+from core_memory.config.feature_flags import transcript_hydration_enabled, default_hydrate_tools_enabled, default_adjacent_turns
 from core_memory.persistence.store import DEFAULT_ROOT
-from core_memory.schema.turn import normalize_turns, serialize_turns, user_content, assistant_content, turn_speakers, reject_legacy_turn_kwargs
+from core_memory.schema.turn import Turn, normalize_turns, serialize_turns, user_content, assistant_content, turn_speakers, reject_legacy_turn_kwargs
 
 
 @dataclass

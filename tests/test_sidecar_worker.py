@@ -4,7 +4,7 @@ import shutil
 import tempfile
 import unittest
 
-from core_memory.runtime.worker import process_memory_event, SidecarPolicy
+from core_memory.runtime.queue.worker import process_memory_event, SidecarPolicy
 from core_memory.persistence.store import MemoryStore
 
 
@@ -48,7 +48,10 @@ class TestSidecarWorker(unittest.TestCase):
         self.assertEqual(0, len(delta.get("creation_candidates") or []))
         self.assertEqual(0, len(delta["promoted"]))
         self.assertEqual(0, len(delta.get("promotion_candidates") or []))
-        self.assertEqual("mechanical_only", (delta.get("metrics") or {}).get("mode"))
+        metrics = delta.get("metrics") or {}
+        self.assertEqual("mechanical_only", metrics.get("mode"))
+        self.assertEqual("mechanical_noop", metrics.get("result"))
+        self.assertEqual(1, ((metrics.get("policy") or {}).get("max_create_per_turn")))
 
 
 if __name__ == "__main__":

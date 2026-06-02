@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from core_memory.runtime.dreamer_eval import dreamer_eval_report
+from core_memory.runtime.dreamer.eval import dreamer_eval_report
 
 
 def main() -> int:

@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.runtime.decision_pass import run_session_decision_pass
+from core_memory.runtime.passes.decision_pass import run_session_decision_pass
 from core_memory.persistence.store import MemoryStore
 
 

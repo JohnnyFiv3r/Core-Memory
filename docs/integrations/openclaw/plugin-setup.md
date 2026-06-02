@@ -13,7 +13,7 @@ This is required if you want Core Memory event/bead pipelines active in a live O
 ### Memory search priority
 
 `memory_search` hook registration is **on by default**. When registered, the bridge intercepts
-OpenClaw's memory search lifecycle and routes it through `core_memory.integrations.openclaw_read_bridge`
+OpenClaw's memory search lifecycle and routes it through `core_memory.integrations.openclaw.read_bridge`
 (`action=execute`), so Core Memory's semantic retrieval takes priority over OpenClaw's built-in
 `memory-core` search.
 
@@ -102,7 +102,7 @@ Use runtime signals instead:
 
 ## Notes
 - Bridge shell-outs to Python modules:
-  - `core_memory.integrations.openclaw_agent_end_bridge`
-  - `core_memory.integrations.openclaw_compaction_bridge`
+  - `core_memory.integrations.openclaw.agent_end_bridge`
+  - `core_memory.integrations.openclaw.compaction_bridge`
 - `CORE_MEMORY_ROOT` controls where Core Memory durable artifacts are written.
 - `CORE_MEMORY_ENABLED=0` cleanly no-ops bridge turn ingest/flush paths (safe rollback switch).

@@ -4,12 +4,12 @@ import os
 import unittest
 from unittest.mock import patch
 
-from core_memory.integrations.openclaw_flags import (
+from core_memory.integrations.openclaw.flags import (
     agent_authored_fail_open_enabled,
     agent_authored_required_enabled,
     runtime_flags_snapshot,
 )
-from core_memory.runtime.agent_authored_contract import contract_snapshot
+from core_memory.runtime.passes.agent_authored_contract import contract_snapshot
 
 
 class TestAgentAuthoredContractSlice0(unittest.TestCase):
@@ -46,7 +46,17 @@ class TestAgentAuthoredContractSlice0(unittest.TestCase):
         self.assertIn("agent_bead_fields_missing", errs)
 
         bead_required = set(snap.get("required_bead_fields") or [])
-        self.assertTrue({"type", "title", "summary"}.issubset(bead_required))
+        self.assertTrue({"type", "title", "summary", "entities"}.issubset(bead_required))
+        # Stale retrieval gate fields must not appear in required fields
+        self.assertNotIn("retrieval_eligible", bead_required)
+        self.assertNotIn("topics", bead_required)
+        self.assertNotIn("retrieval_facts", bead_required)
+        self.assertIsNone(snap.get("retrieval_fields_required_when_retrieval_eligible"))
+        self.assertIn("agent_causal_rationale_missing", errs)
+        self.assertIn("decision", snap.get("causal_types_require_because") or [])
+        self.assertEqual("list[str]", snap.get("summary_shape"))
+        self.assertFalse(snap.get("beads_create_exactly_one"))
+        self.assertEqual(1, snap.get("beads_create_min"))
 
 
 if __name__ == "__main__":

@@ -9,8 +9,21 @@ from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
-from core_memory.runtime.session_surface import read_session_surface
+from core_memory.runtime.session.session_surface import read_session_surface
 from core_memory.schema.normalization import CANONICAL_BEAD_TYPES
+
+
+def _find_last_session_bead(index: dict, session_id: str) -> str | None:
+    """Return the bead_id of the most-recently created bead in the session, or None."""
+    candidates = [
+        (str((b or {}).get("created_at") or ""), str(bid))
+        for bid, b in (index.get("beads") or {}).items()
+        if str((b or {}).get("session_id") or "") == str(session_id)
+    ]
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
 
 
 def add_bead_for_store(
@@ -41,6 +54,25 @@ def add_bead_for_store(
     if bad_override:
         raise ValueError(f"reserved_overrides_not_allowed:{','.join(bad_override)}")
 
+    # Known extra fields — all others are accepted but logged
+    _KNOWN_EXTRA_FIELDS = {
+        "confidence", "linked_bead_id", "result", "goal_id", "success_criteria",
+        "condition", "action", "tested_by", "hypothesis_status", "reflection_type",
+        "tool", "capability", "tool_result_status", "tool_output_id", "tool_output_ids",
+        "supports_bead_ids", "blocked_by_description", "blocking_bead_id",
+        "incident_id", "severity", "resolved_at", "constraints", "state_change",
+        "observed_at", "recorded_at", "effective_from", "effective_to",
+        "supersedes", "superseded_by", "claims", "claim_updates", "interaction_role",
+        "memory_outcome", "context_tags", "revises_bead_id", "revision_type",
+        "entity_ids", "evidence_refs", "speaker_attribution",
+        "attributed_entity_id", "resolution_confidence", "prev_bead_id",
+        "next_bead_id", "turn_index", "session_id", "promoted", "promotion_candidate",
+        "promotion_locked", "promoted_at", "promotion_score", "promotion_threshold",
+        "promotion_reason", "failure_signature", "decision_conflict_with",
+        "unjustified_flip", "validation_warnings", "type_log", "type_coerced_from",
+        "anchor_reason", "semantic_score", "retrieval_score",
+    }
+
     bead_id = store._generate_id()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -67,6 +99,20 @@ def add_bead_for_store(
         **kwargs,
     }
 
+    # Speaker attribution: promote key fields to bead top-level when present
+    if isinstance(bead.get("speaker_attribution"), dict):
+        attr = bead["speaker_attribution"]
+        eid = str(attr.get("resolved_entity_id") or "").strip()
+        conf = attr.get("resolution_confidence")
+        if eid:
+            bead.setdefault("attributed_entity_id", eid)
+        if conf is not None:
+            bead.setdefault("resolution_confidence", float(conf))
+
+    now_iso = bead.get("created_at") or datetime.now(timezone.utc).isoformat()
+    if not bead.get("type_log"):
+        bead["type_log"] = [{"type": bead.get("type", ""), "set_at": now_iso, "reason": "initial_write"}]
+
     # Global rule: beads are records, eligible unless type is unrecognized.
     bead["retrieval_eligible"] = str(bead.get("type") or "").strip().lower() in CANONICAL_BEAD_TYPES
 
@@ -79,7 +125,7 @@ def add_bead_for_store(
         if extracted:
             bead["constraints"] = extracted
 
-    if bead.get("type") == "failed_hypothesis":
+    if bead.get("type") == "hypothesis":
         basis = " ".join(bead.get("summary", [])) or bead.get("title", "") or bead.get("detail", "")
         bead["failure_signature"] = store.compute_failure_signature(basis)
 
@@ -92,6 +138,9 @@ def add_bead_for_store(
     with store_lock(store.root):
         index_file = store.beads_dir / "index.json"
         index = store._read_json(index_file)
+        index.setdefault("beads", {})
+        index.setdefault("associations", [])
+        index.setdefault("stats", {"total_beads": 0, "total_associations": 0})
 
         try:
             dedup_window = max(1, int(os.environ.get("CORE_MEMORY_WRITE_DEDUP_WINDOW", "25")))
@@ -101,13 +150,21 @@ def add_bead_for_store(
         if dup_id:
             return dup_id
 
+        if resolved_session_id and not bead.get("prev_bead_id"):
+            prev = _find_last_session_bead(index, resolved_session_id)
+            if prev:
+                bead["prev_bead_id"] = prev
+                # Append next_bead_id to the previous bead in the same lock window
+                if prev in index["beads"] and not index["beads"][prev].get("next_bead_id"):
+                    index["beads"][prev]["next_bead_id"] = bead_id
+
         if resolved_session_id:
             bead_file = store.beads_dir / f"session-{resolved_session_id}.jsonl"
         else:
             bead_file = store.beads_dir / "global.jsonl"
         append_jsonl(bead_file, bead)
 
-        if bead.get("type") == "failed_hypothesis" and bead.get("failure_signature"):
+        if bead.get("type") == "hypothesis" and bead.get("failure_signature"):
             sig = bead.get("failure_signature")
             repeat_failure = any(b.get("failure_signature") == sig for b in index.get("beads", {}).values())
 
@@ -121,37 +178,6 @@ def add_bead_for_store(
 
         index["beads"][bead["id"]] = bead
         index["stats"]["total_beads"] = len(index["beads"])
-
-        candidates = []
-        if store.associate_on_add and store.assoc_top_k > 0:
-            assoc_index = dict(index)
-            assoc_beads = dict(index.get("beads") or {})
-            if resolved_session_id:
-                for row in read_session_surface(store.root, resolved_session_id):
-                    rid = str((row or {}).get("id") or "")
-                    if rid:
-                        assoc_beads[rid] = row
-            assoc_index["beads"] = assoc_beads
-            candidates = store._quick_association_candidates(
-                assoc_index,
-                bead,
-                max_lookback=store.assoc_lookback,
-                top_k=store.assoc_top_k,
-            )
-
-        bead["association_preview"] = [
-            {
-                "bead_id": c["other_id"],
-                "relationship": c["relationship"],
-                "score": c["score"],
-                "reason_code": c.get("reason_code"),
-                "reason_text": c.get("reason_text"),
-                "authoritative": False,
-                "source": "store_quick_preview",
-            }
-            for c in candidates
-        ]
-        index["beads"][bead["id"]] = bead
 
         index["associations"] = sorted(
             index.get("associations", []),
@@ -196,7 +222,88 @@ def add_bead_for_store(
     store.track_bead_created(1)
     mark_semantic_dirty(store.root, reason="add_bead")
 
+    _mirror_bead_to_backends(store.root, bead)
+
     return bead_id
+
+
+def _embed_text(bead: dict) -> str:
+    from core_memory.schema.bead_projection import build_retrieval_text
+    return build_retrieval_text(bead)
+
+
+def _bead_payload(bead: dict) -> dict:
+    return {
+        "bead_id": str(bead.get("id") or ""),
+        "type": str(bead.get("type") or ""),
+        "session_id": str(bead.get("session_id") or ""),
+        "created_at": str(bead.get("created_at") or ""),
+        "retrieval_eligible": bool(bead.get("retrieval_eligible", True)),
+        "status": str(bead.get("status") or "open"),
+        "topics": [str(t) for t in (bead.get("tags") or [])],
+        "entities": [str(e) for e in (bead.get("entities") or [])],
+        "title": str(bead.get("title") or ""),
+        "promoted": bool(bead.get("promotion_state") == "promoted"),
+    }
+
+
+def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
+    """Best-effort mirror to Qdrant and Kuzu. Failures log warnings, never raise."""
+    import logging
+    _log = logging.getLogger(__name__)
+    from pathlib import Path
+    root_path = Path(root)
+
+    from core_memory.retrieval.semantic_index import _configured_vector_backend, VECTOR_BACKEND_QDRANT
+    if _configured_vector_backend() == VECTOR_BACKEND_QDRANT and bead.get("retrieval_eligible", True):
+        try:
+            from core_memory.retrieval.semantic_index import _create_external_backend, _paths
+            import json
+            manifest_file, *_ = _paths(root_path)
+            dimension = 1536
+            try:
+                manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+                dimension = int(manifest.get("dimension") or 1536)
+            except Exception:
+                pass
+            vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=dimension)
+            payload = _bead_payload(bead)
+            text = _embed_text(bead)
+            bead_id = str(bead.get("id") or "")
+            vec_backend.upsert_texts(bead_ids=[bead_id], texts=[text], metadatas=[payload])
+        except Exception as exc:
+            _log.warning("qdrant upsert failed for bead %s: %s", bead.get("id"), exc)
+
+    from core_memory.persistence.graph.factory import create_graph_backend
+    import os
+    if os.environ.get("CORE_MEMORY_GRAPH_BACKEND", "kuzu").strip().lower() not in ("none", ""):
+        try:
+            graph = create_graph_backend(root_path)
+            graph.on_bead_written(bead)
+        except Exception as exc:
+            _log.warning("graph on_bead_written failed for bead %s: %s", bead.get("id"), exc)
+
+    for st in _create_sync_targets():
+        try:
+            st.on_bead_written(bead)
+        except Exception as exc:
+            _log.warning("sync target %s on_bead_written failed: %s", getattr(st, "name", "?"), exc)
+
+
+def _create_sync_targets() -> list:
+    """Instantiate configured sync targets from CORE_MEMORY_SYNC_TARGETS env var."""
+    targets_env = (os.environ.get("CORE_MEMORY_SYNC_TARGETS") or "").strip().lower()
+    if not targets_env or targets_env == "none":
+        return []
+    targets = []
+    for name in [t.strip() for t in targets_env.split(",") if t.strip()]:
+        if name == "obsidian":
+            try:
+                from core_memory.integrations.obsidian import ObsidianSyncTarget
+                targets.append(ObsidianSyncTarget.from_env())
+            except Exception as exc:
+                _log.warning("obsidian sync target init failed: %s", exc)
+    return targets
 
 
 __all__ = ["add_bead_for_store"]

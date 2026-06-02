@@ -5,8 +5,8 @@ OpenClaw is a production bridge adapter that listens to OpenClaw lifecycle event
 Implementation references:
 
 - `plugins/openclaw-core-memory-bridge/index.js`
-- `core_memory/integrations/openclaw_agent_end_bridge.py`
-- `core_memory/integrations/openclaw_runtime.py`
+- `core_memory/integrations/openclaw/agent_end_bridge.py`
+- `core_memory/integrations/openclaw/runtime.py`
 - Deep implementation docs: `docs/integrations/openclaw/`
 
 ## Setup
@@ -28,8 +28,8 @@ The plugin also declares the `core-memory` skill and injects `docs/integrations/
 |---|---|---|---|
 | Gateway/plugin registration | prompt/context setup | `registerMemoryPromptSupplement` | Loads Core Memory skill instructions into the agent path. |
 | `agent_end` | `on_turn_end` | `process_turn_finalized` via `finalize_and_process_turn` | Extracts last user/assistant messages, creates stable ids, dedupes, then writes through canonical runtime. |
-| `memory_search` | retrieval surface | `memory.execute` via `openclaw_read_bridge` | Read path, not one of the three write lifecycle hooks. |
-| `after_compaction` when enabled | `on_session_end` enqueue | `openclaw_compaction_queue` | Queues flush work; drain happens asynchronously from `agent_end`. |
+| `memory_search` | retrieval surface | `memory.execute` via `openclaw.read_bridge` | Read path, not one of the three write lifecycle hooks. |
+| `after_compaction` when enabled | `on_session_end` enqueue | `openclaw.compaction_queue` | Queues flush work; drain happens asynchronously from `agent_end`. |
 | Compaction queue drain | `on_session_end` | `process_flush` | Thin Python bridge owns queue mechanics; runtime owns compaction semantics. |
 
 OpenClaw does not currently expose a dedicated `on_session_start` bridge event in this plugin. Session start semantics are covered by runtime write processing and continuity paths where applicable; this is a known adapter-contract divergence to keep visible.

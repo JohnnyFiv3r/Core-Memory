@@ -229,7 +229,7 @@ def causal_traverse_chains(
     facade.
     """
 
-    from . import _api_impl
+    from . import core as _api_impl
 
     return _api_impl.causal_traverse(
         root,

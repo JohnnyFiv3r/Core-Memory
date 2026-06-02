@@ -81,6 +81,9 @@ def _chars_per_token() -> float:
         except ValueError:
             pass
 
+    if os.environ.get("CORE_MEMORY_TOKENIZER", "").strip().lower() == "chars":
+        return _CHARS_PER_TOKEN_DEFAULTS["default"]
+
     provider = os.environ.get("CORE_MEMORY_EMBEDDINGS_PROVIDER", "").strip().lower()
     return _CHARS_PER_TOKEN_DEFAULTS.get(provider, _CHARS_PER_TOKEN_DEFAULTS["default"])
 

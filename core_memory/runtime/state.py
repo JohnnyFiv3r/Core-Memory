@@ -14,8 +14,9 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..persistence.io_utils import append_jsonl, store_lock
-from ..integrations.openclaw_flags import transcript_archive_enabled
-from .turn_archive import append_turn_record
+from ..config.feature_flags import transcript_archive_enabled
+from .turn.turn_archive import append_turn_record
+from .event_schemas import TURN_ENVELOPE, MEMORY_EVENT
 
 
 def _iso_now() -> str:
@@ -50,7 +51,7 @@ def sha256_hex(text: str) -> str:
 
 @dataclass
 class TurnEnvelope:
-    schema: str = "openclaw.memory.turn_envelope.v1"
+    schema: str = TURN_ENVELOPE
     session_id: str = ""
     turn_id: str = ""
     transaction_id: str = ""
@@ -72,6 +73,16 @@ class TurnEnvelope:
     metadata: dict = field(default_factory=dict)
 
     def finalize_hashes(self, full_text_override: Optional[str] = None) -> None:
+        if self.assistant_final is None and self.turns:
+            for t in reversed(self.turns):
+                if isinstance(t, dict) and str(t.get("role") or t.get("speaker") or "").lower() == "assistant":
+                    self.assistant_final = str(t.get("content") or "")
+                    break
+        if not self.user_query and self.turns:
+            for t in self.turns:
+                if isinstance(t, dict) and str(t.get("role") or t.get("speaker") or "").lower() == "user":
+                    self.user_query = str(t.get("content") or "")
+                    break
         final = full_text_override if full_text_override is not None else (self.assistant_final or "")
         self.assistant_final_hash = sha256_hex(final)
         envelope_basis = {
@@ -96,7 +107,7 @@ class TurnEnvelope:
 
 @dataclass
 class MemoryEvent:
-    schema: str = "openclaw.memory.event.v1"
+    schema: str = MEMORY_EVENT
     event_id: str = ""
     session_id: str = ""
     turn_id: str = ""

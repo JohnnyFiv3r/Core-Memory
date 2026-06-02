@@ -18,6 +18,14 @@ from .normalization import (
     CANONICAL_BEAD_TYPES,
     CANONICAL_CLAIM_KINDS,
     CLAIM_UPDATE_DECISIONS,
+    HYPOTHESIS_STATUSES,
+    INCIDENT_SEVERITIES,
+    LEGACY_BEAD_TYPE_MIGRATIONS,
+    OUTCOME_RESULTS,
+    REFLECTION_TYPES,
+    REVISION_TYPES,
+    TESTED_BY_VALUES,
+    TOOL_RESULT_STATUSES,
     is_allowed_bead_type,
     normalize_bead_type,
     normalize_claim_kind,
@@ -45,15 +53,13 @@ class BeadType(str, Enum):
     LESSON = "lesson"
     CHECKPOINT = "checkpoint"
     PRECEDENT = "precedent"
-    FAILED_HYPOTHESIS = "failed_hypothesis"
-    REVERSAL = "reversal"
-    MISJUDGMENT = "misjudgment"
-    OVERFITTED_PATTERN = "overfitted_pattern"
-    ABANDONED_PATH = "abandoned_path"
+    HYPOTHESIS = "hypothesis"
     REFLECTION = "reflection"
     DESIGN_PRINCIPLE = "design_principle"
     CONTEXT = "context"
-    CORRECTION = "correction"
+    DATA_INSIGHT = "data_insight"
+    BLOCKED = "blocked"
+    INCIDENT = "incident"
 
 
 class Scope(str, Enum):
@@ -69,10 +75,12 @@ class Status(str, Enum):
     F-S1: `validity` field is collapsed into `status`. The `transient` value
     absorbs validity=transient. validity=closed maps to ARCHIVED.
     validity=superseded already maps to SUPERSEDED.
+
+    Note: promoted and candidate are now boolean flags (promoted, promotion_candidate)
+    on the bead, not status values. Legacy beads with status=promoted/candidate are
+    still readable via current_promotion_state() in promotion_contract.py.
     """
     OPEN = "open"
-    CANDIDATE = "candidate"
-    PROMOTED = "promoted"
     COMPACTED = "compacted"
     SUPERSEDED = "superseded"
     ARCHIVED = "archived"
@@ -261,13 +269,33 @@ def _coerce_dict(value: Any) -> dict:
 def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data or {})
 
+    # Apply legacy type migrations BEFORE the existing type normalization
+    raw_type_str = str(out.get("type") or "").strip().lower()
+    if raw_type_str in LEGACY_BEAD_TYPE_MIGRATIONS:
+        migration = LEGACY_BEAD_TYPE_MIGRATIONS[raw_type_str]
+        out["type"] = migration["type"]
+        for k, v in migration.items():
+            if k != "type" and not out.get(k):
+                out[k] = v
+
     raw_type = out.get("type")
     bead_type = normalize_bead_type(raw_type)
     if is_allowed_bead_type(bead_type):
         out["type"] = bead_type
-    else:
-        raw = str(raw_type).strip() if raw_type is not None else ""
-        out["type"] = raw if raw else BeadType.CONTEXT.value
+    elif bead_type:  # non-empty but not canonical
+        out["type_coerced_from"] = str(out.get("type") or "")
+        out["type"] = BeadType.CONTEXT.value
+        existing_warnings = list(out.get("validation_warnings") or [])
+        if "type:unknown_coerced_to_context" not in existing_warnings:
+            existing_warnings.append("type:unknown_coerced_to_context")
+        out["validation_warnings"] = existing_warnings
+    else:  # empty type
+        out["type_coerced_from"] = ""
+        out["type"] = BeadType.CONTEXT.value
+        existing_warnings = list(out.get("validation_warnings") or [])
+        if "type:missing_coerced_to_context" not in existing_warnings:
+            existing_warnings.append("type:missing_coerced_to_context")
+        out["validation_warnings"] = existing_warnings
 
     out["scope"] = _normalize_choice(
         out.get("scope"),
@@ -306,6 +334,9 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         preserve_unknown=True,
     )
 
+    # Remove validity from output (migration complete)
+    out.pop("validity", None)
+
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
     out["uncertainty"] = _coerce_float_01(out.get("uncertainty"), default=0.5)
     out["recall_count"] = max(0, _coerce_int(out.get("recall_count"), default=0))
@@ -332,6 +363,8 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         "effect_candidates",
         "supersedes",
         "superseded_by",
+        "tool_output_ids",
+        "supports_bead_ids",
     ]
     for key in list_fields:
         if key in out:
@@ -349,6 +382,29 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     out["interaction_role"] = str(raw_role) if raw_role is not None else None
     raw_outcome = out.get("memory_outcome")
     out["memory_outcome"] = _coerce_dict(raw_outcome) if raw_outcome is not None else None
+
+    # Normalize new enum fields
+    if out.get("hypothesis_status"):
+        v = str(out["hypothesis_status"]).strip().lower()
+        out["hypothesis_status"] = v if v in HYPOTHESIS_STATUSES else None
+    if out.get("reflection_type"):
+        v = str(out["reflection_type"]).strip().lower()
+        out["reflection_type"] = v if v in REFLECTION_TYPES else None
+    if out.get("result"):
+        v = str(out["result"]).strip().lower()
+        out["result"] = v if v in OUTCOME_RESULTS else None
+    if out.get("revision_type"):
+        v = str(out["revision_type"]).strip().lower()
+        out["revision_type"] = v if v in REVISION_TYPES else None
+    if out.get("severity"):
+        v = str(out["severity"]).strip().lower()
+        out["severity"] = v if v in INCIDENT_SEVERITIES else None
+    if out.get("tool_result_status"):
+        v = str(out["tool_result_status"]).strip().lower()
+        out["tool_result_status"] = v if v in TOOL_RESULT_STATUSES else None
+    if out.get("tested_by"):
+        v = str(out["tested_by"]).strip().lower()
+        out["tested_by"] = v if v in TESTED_BY_VALUES else None
 
     return out
 
@@ -425,6 +481,18 @@ def _normalize_claim_update_payload(data: dict[str, Any]) -> dict[str, Any]:
 
 
 @dataclass
+class SpeakerAttribution:
+    """Observed speaker label resolved to a canonical entity."""
+
+    speaker_observed: str
+    resolved_entity_id: str | None
+    resolution_confidence: float
+    source_system: str
+    aliases: list = field(default_factory=list)
+    resolved: bool = False
+
+
+@dataclass
 class Claim:
     """A claim captures a discrete user-stated or agent-inferred fact."""
     id: str = ""
@@ -438,6 +506,7 @@ class Claim:
     recorded_at: str | None = None
     effective_from: str | None = None
     effective_to: str | None = None
+    context_scope: str | None = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
@@ -507,6 +576,10 @@ class Bead:
     prev_bead_id: Optional[str] = None
     next_bead_id: Optional[str] = None
 
+    # Type progression (append-only post-write)
+    type_log: list = field(default_factory=list)
+    type_coerced_from: Optional[str] = None
+
     # Retrieval richness contract
     retrieval_eligible: bool = False
     retrieval_title: Optional[str] = None
@@ -538,6 +611,15 @@ class Bead:
     supersedes: list = field(default_factory=list)
     superseded_by: list = field(default_factory=list)
 
+    # Promotion flags (monotonically true once set — never removed)
+    promoted: bool = False
+    promotion_candidate: bool = False
+    promoted_at: Optional[str] = None
+    promotion_locked: bool = False
+    promotion_score: Optional[float] = None
+    promotion_threshold: Optional[float] = None
+    promotion_reason: Optional[str] = None
+
     # Optional enhanced fields
     mechanism: Optional[str] = None
     impact_level: Optional[str] = None
@@ -554,6 +636,67 @@ class Bead:
     claim_updates: list = field(default_factory=list)
     interaction_role: Optional[str] = None
     memory_outcome: Optional[dict] = None
+
+    # Cross-bead incident linking
+    incident_id: Optional[str] = None
+
+    # Revision modifier (any non-system type)
+    revises_bead_id: Optional[str] = None
+    revision_type: Optional[str] = None   # reversal | correction
+
+    # Write-path diagnostics
+    validation_warnings: list = field(default_factory=list)
+    decision_conflict_with: list = field(default_factory=list)
+    unjustified_flip: bool = False
+
+    # Speaker attribution
+    speaker_attribution: Optional[dict] = None
+    attributed_entity_id: Optional[str] = None
+    resolution_confidence: Optional[float] = None
+
+    # Misc
+    context_tags: list = field(default_factory=list)
+
+    # goal
+    goal_id: Optional[str] = None
+    success_criteria: Optional[str] = None
+
+    # outcome
+    result: Optional[str] = None
+    linked_bead_id: Optional[str] = None
+
+    # evidence
+    supports_bead_ids: list = field(default_factory=list)
+
+    # precedent
+    condition: Optional[str] = None
+    action: Optional[str] = None
+
+    # hypothesis
+    hypothesis_status: Optional[str] = None
+    tested_by: Optional[str] = None
+    failure_signature: Optional[str] = None
+
+    # reflection
+    reflection_type: Optional[str] = None
+
+    # tool_call
+    tool: Optional[str] = None
+    capability: Optional[str] = None
+    tool_result_status: Optional[str] = None
+    tool_output_id: Optional[str] = None
+    tool_output_ids: list = field(default_factory=list)
+
+    # decision / design_principle / goal (write-path computed)
+    constraints: list = field(default_factory=list)
+
+    # blocked
+    blocked_by_description: Optional[str] = None
+    blocking_bead_id: Optional[str] = None
+
+    # incident
+    severity: Optional[str] = None
+    resolved_at: Optional[str] = None
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""

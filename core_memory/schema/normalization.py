@@ -26,15 +26,13 @@ CANONICAL_BEAD_TYPES = {
     "lesson",
     "checkpoint",
     "precedent",
-    "failed_hypothesis",
-    "reversal",
-    "misjudgment",
-    "overfitted_pattern",
-    "abandoned_path",
+    "hypothesis",
     "reflection",
     "design_principle",
     "context",
-    "correction",
+    "data_insight",
+    "blocked",
+    "incident",
 }
 
 # Boundary bead types are valid canonical records but are not part of the
@@ -52,7 +50,34 @@ PUBLIC_CATALOG_BEAD_TYPES = {
 LEGACY_BEAD_TYPE_ALIASES = {
     "promoted_lesson": "lesson",
     "promoted_decision": "decision",
+    "failed_hypothesis": "hypothesis",
+    "reversal": "decision",
+    "correction": "context",
+    "misjudgment": "reflection",
+    "overfitted_pattern": "reflection",
+    "abandoned_path": "outcome",
+    "proposed_theme": "reflection",
 }
+
+# Legacy bead type migrations — also set modifier fields when a legacy type is encountered
+LEGACY_BEAD_TYPE_MIGRATIONS: dict[str, dict] = {
+    "failed_hypothesis": {"type": "hypothesis", "hypothesis_status": "falsified"},
+    "reversal":          {"type": "decision",   "revision_type": "reversal"},
+    "correction":        {"type": "context",    "revision_type": "correction"},
+    "misjudgment":       {"type": "reflection", "reflection_type": "misjudgment"},
+    "overfitted_pattern":{"type": "reflection", "reflection_type": "overfitted_pattern"},
+    "abandoned_path":    {"type": "outcome",    "result": "abandoned"},
+    "proposed_theme":    {"type": "reflection", "reflection_type": "meta_analysis"},
+}
+
+# New enum constant sets
+HYPOTHESIS_STATUSES = {"pending", "validated", "falsified"}
+REFLECTION_TYPES = {"misjudgment", "overfitted_pattern", "meta_analysis", "pattern_recognition"}
+OUTCOME_RESULTS = {"resolved", "failed", "partial", "confirmed", "abandoned"}
+REVISION_TYPES = {"reversal", "correction"}
+INCIDENT_SEVERITIES = {"low", "medium", "high", "critical"}
+TOOL_RESULT_STATUSES = {"success", "failure"}
+TESTED_BY_VALUES = {"tool", "reasoning", "observation"}
 
 # Canonical structural/semantic relation types
 CANONICAL_RELATION_TYPES = {
@@ -139,25 +164,27 @@ INFERENCE_CANONICAL_RELATION_TYPES = {
 }
 
 # Operational statuses (system state, not bead type)
+# Note: candidate and promoted are now boolean flags on beads, not status values.
+# Legacy beads with status=promoted/candidate are handled via current_promotion_state().
 CANONICAL_BEAD_STATUSES = {
     "open",
-    "candidate",
-    "promoted",
-    "archived",
     "compacted",
     "superseded",
+    "archived",
+    "transient",
 }
 
 
 def normalize_bead_type(value: str | None) -> str:
     v = str(value or "").strip().lower()
     if not v:
-        return "context"
+        return ""
     return LEGACY_BEAD_TYPE_ALIASES.get(v, v)
 
 
 def is_allowed_bead_type(value: str | None) -> bool:
-    return normalize_bead_type(value) in CANONICAL_BEAD_TYPES
+    v = normalize_bead_type(value)
+    return bool(v) and v in CANONICAL_BEAD_TYPES
 
 
 def normalize_relation_type(value: str | None) -> str:

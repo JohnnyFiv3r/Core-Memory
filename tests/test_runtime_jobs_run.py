@@ -3,14 +3,14 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
-from core_memory.runtime.jobs import run_async_jobs
+from core_memory.runtime.queue.jobs import run_async_jobs
 
 
 class TestRuntimeJobsRunSlice52A(unittest.TestCase):
-    @patch("core_memory.runtime.jobs.async_jobs_status")
-    @patch("core_memory.runtime.jobs.drain_side_effect_queue")
-    @patch("core_memory.runtime.jobs.drain_compaction_queue")
-    @patch("core_memory.runtime.jobs.semantic_rebuild_queue_status")
+    @patch("core_memory.runtime.queue.jobs.async_jobs_status")
+    @patch("core_memory.runtime.queue.jobs.drain_side_effect_queue")
+    @patch("core_memory.runtime.queue.jobs.drain_compaction_queue")
+    @patch("core_memory.runtime.queue.jobs.semantic_rebuild_queue_status")
     def test_run_skips_semantic_when_not_queued(self, sem_status, drain_compaction, drain_side_effects, jobs_status):
         sem_status.return_value = {"ok": True, "queued": False, "pending": 0}
         drain_compaction.return_value = {"ok": True, "processed": 0, "failed": 0, "queue_depth": 0}
@@ -26,13 +26,13 @@ class TestRuntimeJobsRunSlice52A(unittest.TestCase):
         drain_compaction.assert_called_once()
         drain_side_effects.assert_called_once()
 
-    @patch("core_memory.runtime.jobs.async_jobs_status")
-    @patch("core_memory.runtime.jobs.drain_side_effect_queue")
-    @patch("core_memory.runtime.jobs.drain_compaction_queue")
-    @patch("core_memory.runtime.jobs.build_semantic_index")
-    @patch("core_memory.runtime.jobs.semantic_rebuild_queue_status")
+    @patch("core_memory.runtime.queue.jobs.async_jobs_status")
+    @patch("core_memory.runtime.queue.jobs.drain_side_effect_queue")
+    @patch("core_memory.runtime.queue.jobs.drain_compaction_queue")
+    @patch("core_memory.runtime.queue.jobs.build_semantic_index")
+    @patch("core_memory.runtime.queue.jobs.semantic_rebuild_queue_status")
     def test_run_executes_semantic_when_queued(self, sem_status, build_semantic, drain_compaction, drain_side_effects, jobs_status):
-        sem_status.return_value = {"ok": True, "queued": True, "pending": 1}
+        sem_status.return_value = {"ok": True, "queued": True, "pending": 1, "mode": "reconcile"}
         build_semantic.return_value = {"ok": True, "backend": "lexical"}
         drain_compaction.return_value = {"ok": True, "processed": 1, "failed": 0, "queue_depth": 0}
         drain_side_effects.return_value = {"ok": True, "processed": 0, "failed": 0, "queue_depth": 0}
@@ -45,13 +45,13 @@ class TestRuntimeJobsRunSlice52A(unittest.TestCase):
         self.assertTrue((out.get("semantic_run") or {}).get("ok"))
         build_semantic.assert_called_once()
 
-    @patch("core_memory.runtime.jobs.async_jobs_status")
-    @patch("core_memory.runtime.jobs.drain_side_effect_queue")
-    @patch("core_memory.runtime.jobs.drain_compaction_queue")
-    @patch("core_memory.runtime.jobs.build_semantic_index")
-    @patch("core_memory.runtime.jobs.semantic_rebuild_queue_status")
+    @patch("core_memory.runtime.queue.jobs.async_jobs_status")
+    @patch("core_memory.runtime.queue.jobs.drain_side_effect_queue")
+    @patch("core_memory.runtime.queue.jobs.drain_compaction_queue")
+    @patch("core_memory.runtime.queue.jobs.build_semantic_index")
+    @patch("core_memory.runtime.queue.jobs.semantic_rebuild_queue_status")
     def test_run_returns_not_ok_when_substep_fails(self, sem_status, build_semantic, drain_compaction, drain_side_effects, jobs_status):
-        sem_status.return_value = {"ok": True, "queued": True, "pending": 1}
+        sem_status.return_value = {"ok": True, "queued": True, "pending": 1, "mode": "reconcile"}
         build_semantic.return_value = {"ok": False, "error": "build_failed"}
         drain_compaction.return_value = {"ok": True, "processed": 0, "failed": 0, "queue_depth": 0}
         drain_side_effects.return_value = {"ok": True, "processed": 0, "failed": 0, "queue_depth": 0}

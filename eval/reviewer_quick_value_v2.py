@@ -6,7 +6,7 @@ import argparse
 import json
 from pathlib import Path
 
-from core_memory.runtime.reviewer_quick_value import reviewer_quick_value_v2
+from core_memory.runtime.observability.reviewer_quick_value import reviewer_quick_value_v2
 
 
 def main() -> int:

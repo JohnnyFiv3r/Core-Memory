@@ -54,28 +54,17 @@ the demo TODO tracks adoption surfaces, endpoints, packaging, and benchmark repo
 
 ## 2. Goal lifecycle — resolution mechanism
 
-**Current behavior:** Goals classify correctly and stay as `candidate` indefinitely. There is no way to resolve or close a goal.
+**Status: Resolved.** `core_memory/runtime/session/goal_lifecycle.py` now implements goal resolution detection, association linking from outcome to goal bead, and status transition logic. Tests live in `tests/test_goal_lifecycle.py`.
 
-**Problem:** When a later turn says "we finished the OAuth2 migration", nothing links that outcome to the original goal bead or transitions the goal to a resolved state.
-
-**Fix:** Build a goal resolution pass that:
-- Detects when a new `outcome` bead relates to an open `goal` bead
-- Creates an association linking the outcome to the goal
-- Transitions the goal status (e.g. `candidate` → `promoted` or a new `resolved` state)
-
-This could be LLM-assisted (ask "does this turn resolve any open goals?") or heuristic (keyword/semantic matching between outcomes and goals).
-
-**Files:** `core_memory/runtime/engine.py`, `core_memory/policy/promotion_contract.py`
+**Files:** `core_memory/runtime/session/goal_lifecycle.py`, `tests/test_goal_lifecycle.py`
 
 ## 3. Association relationship types
 
-**Current behavior:** All associations created from `association_preview` have relationship type `shared_tag`. This is the store's quick-match heuristic.
+**Status:** Partially resolved. The `association_preview` path now assigns canonical relationship types (`caused_by`, `led_to`, `reinforces`, `transferable_lesson`, etc.) using `core_memory/association/preview.py`. The runtime explicitly treats `shared_tag` as a non-canonical heuristic match (see `engine.py` around `_queue_preview_associations`).
 
-**Problem:** The relationship types should be more descriptive — `caused_by`, `led_to`, `reinforces`, etc. The schema supports 28 relationship types but only `shared_tag` is used in practice through the PydanticAI path.
+**Remaining gap:** The PydanticAI adapter path still defaults to `shared_tag` when no relationship type is specified by the agent. To fully close this, either have the agent provide explicit relationship types, or run the preview classifier on agent-proposed associations before committing them.
 
-**Fix:** Either use the LLM to classify the relationship type when queuing associations, or improve the store's preview logic to infer richer relationship types from bead content.
-
-**Files:** `core_memory/runtime/engine.py` (`_queue_preview_associations`), `core_memory/persistence/store.py` (association preview logic)
+**Files:** `core_memory/association/preview.py`, `core_memory/runtime/engine.py` (`_queue_preview_associations`), `core_memory/integrations/pydantic_ai/`
 
 ## 4. Bead type classifier — questions misclassified as precedent
 
@@ -140,6 +129,7 @@ Revalidation with the same grounding hash should return the same verdict or expl
 
 **Files:** `core_memory/retrieval/lifecycle.py`, `core_memory/retrieval/semantic_index.py`, `core_memory/runtime/jobs.py`, CLI semantic command modules
 
+
 ## 8. LLM-judged entity extraction and canonicalization in the live write path
 
 **Status:** Closed in code on 2026-05-13. The bead-field judge already authors
@@ -163,6 +153,7 @@ fallback, not the policy authority.
 **Files:** `core_memory/entity/registry.py`, `core_memory/policy/bead_judge.py`,
 `AGENT_INSTRUCTIONS.md`, `docs/integrations/openclaw/canonical_contract.md`,
 `plugins/openclaw-core-memory-bridge/skills/core-memory/SKILL.md`, `tests/test_entity_registry.py`
+
 
 ## 9. Unify session-window enrichment crawler for associations, claims, entities, and promotion
 
@@ -304,3 +295,4 @@ idempotency boundaries precisely. That artifact should include:
 `core_memory/runtime/decision_pass.py`, `core_memory/runtime/session_surface.py`,
 `core_memory/persistence/store_claim_ops.py`, promotion persistence modules, tests covering
 queued and inline enrichment parity.
+

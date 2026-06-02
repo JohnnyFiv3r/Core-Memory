@@ -1,6 +1,6 @@
 import unittest
 
-from core_memory.integrations.openclaw_runtime import resolve_core_session_id
+from core_memory.integrations.openclaw.runtime import resolve_core_session_id
 
 
 class TestSidecarSyncSessionSemantics(unittest.TestCase):

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.runtime.retrieval_feedback import record_retrieval_feedback
+from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
 
 
 def _run_cli(args: list[str], cwd: Path, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:

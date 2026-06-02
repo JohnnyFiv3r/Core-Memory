@@ -1,6 +1,7 @@
 from .hybrid import hybrid_lookup
 from .lexical import lexical_lookup
 from .contracts import (
+    ConflictItem,
     EvidenceItem,
     RecallPlanning,
     RecallResult,
@@ -12,6 +13,10 @@ from .contracts import (
 
 
 def __getattr__(name: str):
+    # `recall` is lazy to break the cycle:
+    # retrieval.agent → retrieval.tools.memory → retrieval.pipeline → integrations.api → runtime
+    # Loading agent.py eagerly during retrieval/__init__.py init would trigger that whole chain
+    # before this package is fully initialized.
     if name == "recall":
         from .agent import recall
 
@@ -23,6 +28,7 @@ __all__ = [
     "hybrid_lookup",
     "lexical_lookup",
     "recall",
+    "ConflictItem",
     "EvidenceItem",
     "SourceItem",
     "RecallPlanning",

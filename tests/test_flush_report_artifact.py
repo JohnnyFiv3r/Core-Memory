@@ -4,6 +4,7 @@ import unittest
 from pathlib import Path
 
 from core_memory.runtime.engine import process_turn_finalized, process_flush
+from core_memory.runtime.event_schemas import FLUSH_REPORT, FLUSH_REPORT_LEGACY
 
 
 class TestFlushReportArtifact(unittest.TestCase):
@@ -30,7 +31,7 @@ class TestFlushReportArtifact(unittest.TestCase):
                     continue
                 rows.append(json.loads(line))
 
-            report_rows = [r for r in rows if str(r.get("schema") or "") == "openclaw.memory.flush_report.v1"]
+            report_rows = [r for r in rows if str(r.get("schema") or "") in (FLUSH_REPORT, FLUSH_REPORT_LEGACY)]
             stages = [str(r.get("stage") or "") for r in report_rows]
             self.assertIn("committed", stages)
             self.assertIn("skipped", stages)

@@ -3,11 +3,21 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+import core_memory.retrieval.semantic_index as _sem_idx
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.tools import memory as memory_tools
 
 
 class TestSemanticRequiredModeContract(unittest.TestCase):
+    def setUp(self):
+        # Save and reset the run-once startup flag so each test evaluates fresh env vars.
+        self._saved_startup_check_done = _sem_idx._startup_check_done
+        _sem_idx._startup_check_done = False
+
+    def tearDown(self):
+        # Restore original flag state so other test files are not affected.
+        _sem_idx._startup_check_done = self._saved_startup_check_done
+
     def test_search_required_mode_fails_closed_when_semantic_unavailable(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
@@ -15,6 +25,7 @@ class TestSemanticRequiredModeContract(unittest.TestCase):
                 "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
                 "CORE_MEMORY_EMBEDDINGS_PROVIDER": "openai",
                 "OPENAI_API_KEY": "",
+                "CORE_MEMORY_VECTOR_BACKEND": "local-faiss",
             },
             clear=False,
         ):
@@ -36,6 +47,7 @@ class TestSemanticRequiredModeContract(unittest.TestCase):
                 "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
                 "CORE_MEMORY_EMBEDDINGS_PROVIDER": "openai",
                 "OPENAI_API_KEY": "",
+                "CORE_MEMORY_VECTOR_BACKEND": "local-faiss",
             },
             clear=False,
         ):
@@ -52,6 +64,7 @@ class TestSemanticRequiredModeContract(unittest.TestCase):
                 "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
                 "CORE_MEMORY_EMBEDDINGS_PROVIDER": "openai",
                 "OPENAI_API_KEY": "",
+                "CORE_MEMORY_VECTOR_BACKEND": "local-faiss",
             },
             clear=False,
         ):

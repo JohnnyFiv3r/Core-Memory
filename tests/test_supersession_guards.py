@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from core_memory.integrations.openclaw_agent_end_bridge import process_agent_end_event
-from core_memory.integrations.openclaw_compaction_bridge import process_compaction_event
+from core_memory.integrations.openclaw.agent_end_bridge import process_agent_end_event
+from core_memory.integrations.openclaw.compaction_bridge import process_compaction_event
 
 
 def test_agent_end_bridge_skips_when_core_memory_disabled(monkeypatch):

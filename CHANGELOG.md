@@ -2,6 +2,22 @@
 
 ## [Unreleased]
 
+### Changed
+- **Phase 9h (complete):** Deleted all 52 backward-compat shims created during Phase 9
+  structural moves and migrated every callsite to canonical paths:
+  - 31 `runtime/` root shims (9e dreamer + 9f subpackage) → `runtime/{turn,flush,session,passes,queue,observability,dreamer}/`
+  - 7 `integrations/openclaw_*.py` shims (9c) → `integrations/openclaw/`
+  - 14 `core_memory/cli_*.py` shims (9d) → `core_memory/cli/`
+  - 90+ import callsites in tests, eval, benchmarks, and source files updated.
+  - `scripts/openclaw_bridge_ci_smoke.sh` updated to canonical module path.
+  - `runtime/` root now contains only `engine.py`, `state.py`, `event_schemas.py`, `__init__.py`.
+- Updated `docs/contributor_map.md` to reference canonical subpackage paths.
+- **Phase 9g:** Fixed layering violation — `retrieval/pipeline/canonical.py` top-level
+  import of `hydrate_bead_sources` from `integrations/api` converted to lazy function-level
+  imports, breaking the `retrieval → integrations → runtime → retrieval` cycle risk.
+  `hydrate_bead_sources` added to `core_memory.__init__` public API.
+  `retrieval/__init__.py` `__getattr__` guard documented accurately.
+
 ## [1.1.0] - 2026-05-09
 
 ### Added

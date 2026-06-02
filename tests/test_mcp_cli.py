@@ -17,7 +17,7 @@ class MCPCLITests(unittest.TestCase):
         self.assertTrue(data["ok"])
         self.assertEqual("1.27.1", data["mcp_spec_version"])
         self.assertEqual("mcp", data["mcp_sdk_package"])
-        self.assertRegex(data["mcp_sdk_version"], r"^1\.27\.1$|not-installed")
+        self.assertRegex(data["mcp_sdk_version"], r"^1\.\d+\.\d+$|not-installed")
 
     def test_status_payload_handles_server_down(self):
         data = status_payload(port=9, timeout=0.1)

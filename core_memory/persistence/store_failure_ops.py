@@ -9,7 +9,7 @@ from core_memory.retrieval.failure_patterns import (
 )
 
 
-def compute_failure_signature_for_store(store: Any, plan: str) -> str:
+def compute_failure_signature_for_store(plan: str) -> str:
     return compute_failure_signature(plan)
 
 
@@ -31,13 +31,13 @@ def find_failure_signature_matches_for_store(
     tags_n = [str(t).strip().lower() for t in (tags or []) if str(t).strip()]
     plan_n = str(plan or "").strip()
 
-    # Legacy ranking behavior: when only tags are provided, rank failed_hypothesis
-    # by tag overlap first, then recency.
+    # Legacy ranking behavior: when only tags are provided, rank hypothesis
+    # (and legacy failed_hypothesis) beads by tag overlap first, then recency.
     if not plan_n and tags_n:
         req = set(tags_n)
         rows = []
         for b in (index.get("beads") or {}).values():
-            if str(b.get("type") or "").strip().lower() != "failed_hypothesis":
+            if str(b.get("type") or "").strip().lower() not in {"hypothesis", "failed_hypothesis"}:
                 continue
             bt = set(str(t).strip().lower() for t in (b.get("tags") or []) if str(t).strip())
             ov = len(req.intersection(bt))

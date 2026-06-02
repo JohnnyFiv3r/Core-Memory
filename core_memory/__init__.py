@@ -19,6 +19,7 @@ from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .schema.turn import Turn
 from .retrieval.contracts import (
     ClaimSlotItem,
+    ConflictItem,
     EvidenceItem,
     RecallPlanning,
     RecallResult,
@@ -28,6 +29,7 @@ from .retrieval.contracts import (
     recall_result_from_memory_execute,
     validate_recall_effort,
 )
+from .integrations.api import hydrate_bead_sources
 from ._version import VERSION, __version__
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
@@ -49,6 +51,7 @@ __all__ = [
     "Memory",
     "Turn",
     "ClaimSlotItem",
+    "ConflictItem",
     "EvidenceItem",
     "ResolvedGoalItem",
     "SourceItem",
@@ -80,6 +83,7 @@ __all__ = [
     "JsonFileBackend",
     "SqliteBackend",
     "create_backend",
+    "hydrate_bead_sources",
     "Bead",
     "BeadType",
     "Scope",

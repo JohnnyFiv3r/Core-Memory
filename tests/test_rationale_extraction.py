@@ -7,7 +7,7 @@ from core_memory.policy.bead_judge import judge_bead_fields
 from core_memory.policy.rationale import extract_causal_because, sanitize_because_for_turn
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.engine import process_turn_finalized
-from core_memory.runtime.worker import SidecarPolicy
+from core_memory.runtime.queue.worker import SidecarPolicy
 
 
 class TestRationaleExtraction(unittest.TestCase):

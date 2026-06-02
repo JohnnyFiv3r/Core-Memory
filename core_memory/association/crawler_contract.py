@@ -8,7 +8,8 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.runtime.session_surface import read_session_surface
+from core_memory.runtime.event_schemas import CRAWLER_UPDATE
+from core_memory.runtime.session.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 from core_memory.association.quarantine import write_quarantine
 from core_memory.policy.association_contract import assoc_dedupe_key
@@ -310,6 +311,18 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 if not src or not tgt or not rel:
                     continue
 
+                if rel == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+                    write_quarantine(
+                        Path(root),
+                        row,
+                        reasons=["noncanonical_relationship:precedes"],
+                        warnings=["noncanonical_relationship:precedes"],
+                        original_payload=row,
+                        session_id=str(session_id),
+                    )
+                    quarantined += 1
+                    continue
+
                 validated = validate_and_normalize_inference_payload(
                     {
                         "source_bead": src,
@@ -480,6 +493,68 @@ def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any
     return out
 
 
+_TEMPORAL_RELATIONS = {"follows", "precedes"}
+
+
+def _maybe_upgrade_context_to_reflection(*, root: Any, session_id: str, associations: list[dict], store: Any = None) -> None:
+    """Upgrade context beads to reflection when ≥1 backward non-temporal causal edge lands."""
+    if not associations:
+        return
+    from pathlib import Path
+    from core_memory.persistence.io_utils import atomic_write_json
+
+    root_path = Path(root)
+    index_file = root_path / ".beads" / "index.json"
+    if not index_file.exists():
+        return
+
+    candidates: dict[str, int] = {}  # bead_id -> causal edge count
+    for assoc in associations:
+        rel = str(assoc.get("relationship") or "").strip().lower()
+        if rel in _TEMPORAL_RELATIONS:
+            continue
+        target = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "").strip()
+        if target:
+            candidates[target] = candidates.get(target, 0) + 1
+
+    if not candidates:
+        return
+
+    with store_lock(root_path):
+        import json as _json
+        from datetime import datetime, timezone as _tz
+        try:
+            index = _json.loads(index_file.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        beads = index.get("beads") or {}
+        changed = False
+        now_iso = datetime.now(_tz.utc).isoformat()
+        for bead_id, edge_count in candidates.items():
+            bead = beads.get(bead_id)
+            if not isinstance(bead, dict):
+                continue
+            if str(bead.get("type") or "") != "context":
+                continue
+            # Upgrade to reflection
+            bead["type"] = "reflection"
+            if not bead.get("reflection_type"):
+                bead["reflection_type"] = "meta_analysis"
+            tlog = list(bead.get("type_log") or [])
+            tlog.append({
+                "type": "reflection",
+                "set_at": now_iso,
+                "reason": "causal_crawler",
+                "edge_count": edge_count,
+            })
+            bead["type_log"] = tlog
+            beads[bead_id] = bead
+            changed = True
+        if changed:
+            index["beads"] = beads
+            atomic_write_json(index_file, index)
+
+
 def apply_crawler_updates(
     root: str,
     session_id: str,
@@ -590,7 +665,7 @@ def apply_crawler_updates(
             append_jsonl(
                 log_path,
                 {
-                    "schema": "openclaw.memory.crawler_update.v1",
+                    "schema": CRAWLER_UPDATE,
                     "kind": "promotion_mark",
                     "session_id": str(session_id),
                     "bead_id": str(bid),
@@ -601,10 +676,38 @@ def apply_crawler_updates(
             promoted += 1
 
         appended = 0
+        accepted_assocs: list[dict] = []
         lifecycle_queued = 0
         lifecycle_rejected = 0
         for row in assoc_rows:
             if not isinstance(row, dict):
+                continue
+            # Fill missing relationship using preview classifier as fallback.
+            # Never overrides an agent-supplied value; only fires when the field is absent.
+            # Note: _normalize_review_rows defaults provenance to "model_inferred", so we
+            # must set provenance unconditionally here when the classifier provides the relationship.
+            if not str(row.get("relationship") or "").strip():
+                src0 = str(row.get("source_bead") or "")
+                tgt0 = str(row.get("target_bead") or "")
+                sb0 = beads.get(src0)
+                tb0 = beads.get(tgt0)
+                if sb0 and tb0:
+                    from core_memory.association.preview import infer_relationship
+                    row = dict(row)
+                    row["relationship"], _rc = infer_relationship(sb0, tb0)
+                    if not str(row.get("reason_code") or "").strip():
+                        row["reason_code"] = _rc
+                    row["provenance"] = "preview_classifier"
+            if str(row.get("relationship") or "").strip().lower() == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+                write_quarantine(
+                    Path(root),
+                    row,
+                    reasons=["noncanonical_relationship:precedes"],
+                    warnings=["noncanonical_relationship:precedes"],
+                    original_payload=row,
+                    session_id=str(session_id),
+                )
+                quarantined += 1
                 continue
             validated = validate_and_normalize_inference_payload(row, mode=inference_mode)
             row_n = validated.record
@@ -645,7 +748,7 @@ def apply_crawler_updates(
             append_jsonl(
                 log_path,
                 {
-                    "schema": "openclaw.memory.crawler_update.v1",
+                    "schema": CRAWLER_UPDATE,
                     "kind": "association_append",
                     "session_id": str(session_id),
                     "id": f"assoc-{uuid.uuid4().hex[:12].upper()}",
@@ -675,6 +778,7 @@ def apply_crawler_updates(
             )
             queued_assoc_keys.add(dedupe_key)
             appended += 1
+            accepted_assocs.append({"target_bead": tgt, "source_bead": src, "relationship": rel_n})
 
         for row in lifecycle_rows:
             aid = str(row.get("association_id") or "").strip()
@@ -724,7 +828,7 @@ def apply_crawler_updates(
             append_jsonl(
                 log_path,
                 {
-                    "schema": "openclaw.memory.crawler_update.v1",
+                    "schema": CRAWLER_UPDATE,
                     "kind": "association_lifecycle",
                     "session_id": str(session_id),
                     "association_id": aid,
@@ -737,6 +841,15 @@ def apply_crawler_updates(
                 },
             )
             lifecycle_queued += 1
+
+    # Type upgrade pass: context → reflection when causal backward edges land.
+    # Use only associations that were actually accepted and appended — not the raw
+    # input which may include quarantined, rejected, or de-duped rows.
+    _maybe_upgrade_context_to_reflection(
+        root=root,
+        session_id=session_id,
+        associations=accepted_assocs,
+    )
 
     return {
         "ok": True,

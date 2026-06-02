@@ -185,7 +185,7 @@ def _chain_features(beads: dict, center_id: str, adj: dict[str, set[str]]) -> di
     one_hop = [center_id] + nbrs + sorted(list(two_hop))
     types = [str((beads.get(i) or {}).get("type") or "") for i in one_hop]
 
-    has_decision = 1 if any(t in {"decision", "precedent"} for t in types) else 0
+    has_decision = 1 if any(t in {"decision", "precedent", "design_principle"} for t in types) else 0
     has_evidence = 1 if any(t in {"evidence", "lesson"} for t in types) else 0
     has_outcome = 1 if any(t == "outcome" for t in types) else 0
 

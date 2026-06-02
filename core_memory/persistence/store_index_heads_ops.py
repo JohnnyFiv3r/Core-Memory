@@ -16,7 +16,7 @@ def write_heads_for_store(store: Any, heads: dict) -> None:
     store._write_json(store.beads_dir / "heads.json", heads)
 
 
-def update_heads_for_bead_for_store(store: Any, heads: dict, bead: dict) -> dict:
+def update_heads_for_bead_for_store(heads: dict, bead: dict) -> dict:
     topic_id = (bead.get("topic_id") or "").strip() if isinstance(bead.get("topic_id"), str) else ""
     goal_id = (bead.get("goal_id") or "").strip() if isinstance(bead.get("goal_id"), str) else ""
     bead_id = bead.get("id")

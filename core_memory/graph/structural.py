@@ -7,7 +7,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from . import _api_impl
+from . import core as _api_impl
 
 
 def add_structural_edge(

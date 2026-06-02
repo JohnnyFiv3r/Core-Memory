@@ -5,7 +5,7 @@ from typing import Any
 
 from core_memory.identifiers import validate_archive_id
 from core_memory.runtime.engine import process_turn_finalized
-from core_memory.runtime.dreamer_candidates import decide_dreamer_candidate, submit_entity_merge_candidate
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, submit_entity_merge_candidate
 from core_memory.schema.turn import reject_legacy_turn_kwargs
 
 
@@ -46,7 +46,13 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "apply_reviewed_proposal": {
-        "description": "Apply an accepted/rejected Dreamer proposal through canonical adjudication path.",
+        "description": (
+            "Apply an accepted/rejected Dreamer proposal through canonical adjudication path. "
+            "For a contradiction_pressure_candidate, pass `resolution` (prefer_a | prefer_b | "
+            "retract_both | defer | both_valid) — the choice id from the conflict review prompt. "
+            "For both_valid, also pass context_a (scope label for value_a) and context_b (scope "
+            "label for value_b). Both must be non-empty strings; use '' for 'default / everywhere else'."
+        ),
         "input": {
             "type": "object",
             "properties": {
@@ -55,6 +61,19 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "reviewer": {"type": "string"},
                 "notes": {"type": "string"},
                 "apply": {"type": "boolean", "default": True},
+                "resolution": {
+                    "type": "string",
+                    "enum": ["prefer_a", "prefer_b", "retract_both", "defer", "both_valid"],
+                    "description": "Contradiction resolution choice (contradiction_pressure_candidate only).",
+                },
+                "context_a": {
+                    "type": "string",
+                    "description": "Scope label for value_a when resolution='both_valid'. Use empty string for 'default / everywhere else'.",
+                },
+                "context_b": {
+                    "type": "string",
+                    "description": "Scope label for value_b when resolution='both_valid'. Use empty string for 'default / everywhere else'.",
+                },
             },
             "required": ["candidate_id", "decision"],
             "additionalProperties": False,
@@ -146,6 +165,9 @@ def apply_reviewed_proposal(
     reviewer: str = "",
     notes: str = "",
     apply: bool = True,
+    resolution: str = "",
+    context_a: str | None = None,
+    context_b: str | None = None,
 ) -> dict[str, Any]:
     out = decide_dreamer_candidate(
         root=root,
@@ -154,6 +176,9 @@ def apply_reviewed_proposal(
         reviewer=str(reviewer or ""),
         notes=str(notes or ""),
         apply=bool(apply),
+        resolution=str(resolution or "") or None,
+        scope_a=str(context_a) if context_a is not None else None,
+        scope_b=str(context_b) if context_b is not None else None,
     )
     if isinstance(out, dict):
         out = dict(out)

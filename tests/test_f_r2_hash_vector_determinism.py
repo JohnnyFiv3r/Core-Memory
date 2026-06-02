@@ -149,13 +149,21 @@ class TestStartupCheckRequired(unittest.TestCase):
     @patch.dict(os.environ, {
         "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
     }, clear=False)
-    def test_required_no_provider_raises(self):
+    def test_required_no_provider_raises_when_no_qdrant(self):
+        # Qdrant+FastEmbed is the new default and provides its own embeddings.
+        # Only raises if the user explicitly switches to FAISS/local with no other provider.
         env_clear = {
             "OPENAI_API_KEY": "",
             "ANTHROPIC_API_KEY": "",
             "GEMINI_API_KEY": "",
             "GOOGLE_API_KEY": "",
-            "CORE_MEMORY_VECTOR_BACKEND": "",
+            "CORE_MEMORY_VECTOR_BACKEND": "local-faiss",
+            "CORE_MEMORY_EMBEDDINGS_PROVIDER": "",
+            "CORE_MEMORY_EMBEDDING_PROVIDER": "",
+            "CORE_MEMORY_EMBEDDINGS_API_KEY": "",
+            "CORE_MEMORY_EMBEDDING_API_KEY": "",
+            "CORE_MEMORY_EMBEDDINGS_BASE_URL": "",
+            "CORE_MEMORY_EMBEDDING_BASE_URL": "",
         }
         with patch.dict(os.environ, env_clear):
             with self.assertRaises(RuntimeError) as ctx:
@@ -167,9 +175,38 @@ class TestStartupCheckRequired(unittest.TestCase):
 
     @patch.dict(os.environ, {
         "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
+    }, clear=False)
+    def test_required_qdrant_default_does_not_raise(self):
+        # Qdrant+FastEmbed provides its own embeddings — no external API key required.
+        env_clear = {
+            "OPENAI_API_KEY": "",
+            "GEMINI_API_KEY": "",
+            "GOOGLE_API_KEY": "",
+            "CORE_MEMORY_VECTOR_BACKEND": "qdrant",
+        }
+        with patch.dict(os.environ, env_clear):
+            _check_semantic_mode_startup()  # must not raise
+            self.assertTrue(sem_mod._startup_check_done)
+
+    @patch.dict(os.environ, {
+        "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
         "OPENAI_API_KEY": "sk-test-key",
     }, clear=False)
     def test_required_with_provider_does_not_raise(self):
+        _check_semantic_mode_startup()
+        self.assertTrue(sem_mod._startup_check_done)
+
+    @patch.dict(os.environ, {
+        "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
+        "CORE_MEMORY_EMBEDDINGS_BASE_URL": "http://localhost:1234/v1",
+        "CORE_MEMORY_EMBEDDINGS_PROVIDER": "",
+        "CORE_MEMORY_EMBEDDINGS_API_KEY": "",
+        "OPENAI_API_KEY": "",
+        "GEMINI_API_KEY": "",
+        "GOOGLE_API_KEY": "",
+        "CORE_MEMORY_VECTOR_BACKEND": "",
+    }, clear=False)
+    def test_required_with_base_url_provider_does_not_raise(self):
         _check_semantic_mode_startup()
         self.assertTrue(sem_mod._startup_check_done)
 

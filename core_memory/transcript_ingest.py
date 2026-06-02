@@ -50,15 +50,146 @@ def _normalize_role(value: Any) -> str:
     return mapped
 
 
+_ALLOWED_MODES = {"dyadic", "group"}
+
+
+def _normalize_role_group(value: Any) -> str:
+    """Permissive role normalization for group transcripts.
+
+    Falls back to 'other' instead of raising so N-speaker turns with
+    non-standard roles (moderator, host, bot, etc.) are preserved.
+    """
+    role = str(value or "").strip().lower()
+    return _ROLE_ALIASES.get(role, "other")
+
+
+def _make_envelope(
+    *,
+    session_id: str,
+    turn_id: str,
+    turn_rows: list[dict[str, Any]],
+    metadata: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "session_id": session_id,
+        "turn_id": turn_id,
+        "transaction_id": f"tx-{turn_id}",
+        "trace_id": f"tr-{turn_id}",
+        "turns": turn_rows,
+        "trace_depth": 0,
+        "origin": "TRANSCRIPT_INGEST",
+        "tools_trace": [],
+        "mesh_trace": [],
+        "window_turn_ids": [],
+        "window_bead_ids": [],
+        "metadata": metadata,
+    }
+
+
+def _group_envelopes(
+    raw_turns: list,
+    *,
+    transcript_id: str,
+    session_id: str,
+    flush_policy: str,
+    base_metadata: dict[str, Any],
+    window_size: int,
+) -> dict[str, Any]:
+    """Build envelopes for N-speaker group transcripts without role collapse.
+
+    Utterances are windowed (default 10 per envelope). Each window becomes one
+    canonical envelope whose turns[] carries every utterance with its original
+    speaker label intact. Unknown roles map to 'other' instead of raising.
+    """
+    utterances: list[dict[str, Any]] = []
+    for idx, item in enumerate(raw_turns):
+        if not isinstance(item, dict):
+            continue
+        content = str(item.get("content") or item.get("text") or item.get("message") or item.get("body") or "").strip()
+        if not content:
+            continue
+        role_raw = item.get("role") or item.get("type") or ""
+        utterances.append(
+            {
+                "index": idx,
+                "role": _normalize_role_group(role_raw),
+                "speaker": str(item.get("speaker") or item.get("name") or "").strip(),
+                "content": content,
+                "timestamp": _parse_timestamp(item.get("timestamp") or item.get("ts") or ""),
+                "metadata": dict(item.get("metadata") or {}) if isinstance(item.get("metadata"), dict) else {},
+            }
+        )
+
+    if not utterances:
+        raise ValueError("group_transcript_empty")
+
+    envelopes: list[dict[str, Any]] = []
+    for win_start in range(0, len(utterances), window_size):
+        window = utterances[win_start : win_start + window_size]
+        win_num = win_start // window_size + 1
+        first = window[0]
+        last = window[-1]
+
+        first_meta = first.get("metadata") or {}
+        turn_id = _safe_id(
+            first_meta.get("turn_id"),
+            default=f"transcript:{transcript_id}:group-{win_num:04d}",
+        )
+        speakers = list(dict.fromkeys(u["speaker"] for u in window if u["speaker"]))
+        turn_rows = [
+            {
+                "speaker": u["speaker"] or u["role"] or "participant",
+                "role": u["role"],
+                "content": u["content"],
+                "ts": u["timestamp"] or None,
+                "metadata": dict(u.get("metadata") or {}),
+            }
+            for u in window
+        ]
+        metadata = {
+            **dict(base_metadata or {}),
+            "source": "transcript_ingest",
+            "mode": "group",
+            "transcript_id": transcript_id,
+            "source_index_start": first["index"],
+            "source_index_end": last["index"],
+            "timestamp": str(first["timestamp"] or last["timestamp"] or ""),
+            "speakers": speakers,
+            "user_speaker": speakers[0] if speakers else "",
+            "assistant_speaker": speakers[1] if len(speakers) > 1 else "",
+            "roles": list(dict.fromkeys(u["role"] for u in window if u["role"])),
+        }
+        envelopes.append(_make_envelope(session_id=session_id, turn_id=turn_id, turn_rows=turn_rows, metadata=metadata))
+
+    return {
+        "ok": True,
+        "transcript_id": transcript_id,
+        "session_id": session_id,
+        "flush_policy": flush_policy,
+        "mode": "group",
+        "turns_received": len(utterances),
+        "turns_paired": len(envelopes),
+        "warnings": [],
+        "envelopes": envelopes,
+    }
+
+
 def normalize_transcript_payload(payload: dict[str, Any], *, max_turns: int = 500) -> dict[str, Any]:
     """Validate generic transcript input and build canonical turn envelopes.
 
+    Supports two modes controlled by ``payload["mode"]``:
+
+    * ``"dyadic"`` (default) — user/assistant pairs; original behaviour.
+      Every utterance must map to user or assistant.
+
+    * ``"group"`` — N-speaker transcripts (Slack threads, meeting recordings,
+      group chats). Unknown roles map to ``"other"``. Utterances are windowed
+      into envelopes (``payload["window_size"]``, default 10).
+
     Input is intentionally small and adapter-friendly::
 
-        {"transcript_id": "demo", "turns": [{"role": "user", "content": "..."}, ...]}
-
-    Consecutive user/assistant utterances are paired into a single completed Core
-    Memory turn and emitted through the canonical turn-finalization boundary.
+        {"transcript_id": "demo", "turns": [...], "mode": "group",
+         "metadata": {"source_system": "slack"}}
     """
 
     if not isinstance(payload, dict):
@@ -78,6 +209,22 @@ def normalize_transcript_payload(payload: dict[str, Any], *, max_turns: int = 50
         raise ValueError(f"unsupported_flush_policy:{flush_policy}")
     base_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
 
+    mode = str(payload.get("mode") or "dyadic").strip().lower()
+    if mode not in _ALLOWED_MODES:
+        raise ValueError(f"unsupported_mode:{mode}")
+
+    if mode == "group":
+        window_size = max(1, int(payload.get("window_size") or 10))
+        return _group_envelopes(
+            raw_turns,
+            transcript_id=transcript_id,
+            session_id=session_id,
+            flush_policy=flush_policy,
+            base_metadata=dict(base_metadata or {}),
+            window_size=window_size,
+        )
+
+    # ── Dyadic mode (original behaviour) ─────────────────────────────────────
     utterances: list[dict[str, Any]] = []
     for idx, item in enumerate(raw_turns):
         if not isinstance(item, dict):
@@ -163,20 +310,7 @@ def normalize_transcript_payload(payload: dict[str, Any], *, max_turns: int = 50
                 }
             )
         envelopes.append(
-            {
-                "session_id": session_id,
-                "turn_id": turn_id,
-                "transaction_id": f"tx-{turn_id}",
-                "trace_id": f"tr-{turn_id}",
-                "turns": turn_rows,
-                "trace_depth": 0,
-                "origin": "TRANSCRIPT_INGEST",
-                "tools_trace": [],
-                "mesh_trace": [],
-                "window_turn_ids": [],
-                "window_bead_ids": [],
-                "metadata": metadata,
-            }
+            _make_envelope(session_id=session_id, turn_id=turn_id, turn_rows=turn_rows, metadata=metadata)
         )
 
     return {
@@ -184,6 +318,7 @@ def normalize_transcript_payload(payload: dict[str, Any], *, max_turns: int = 50
         "transcript_id": transcript_id,
         "session_id": session_id,
         "flush_policy": flush_policy,
+        "mode": "dyadic",
         "turns_received": len(utterances),
         "turns_paired": len(envelopes),
         "warnings": warnings,
@@ -254,13 +389,12 @@ def ingest_turn_envelopes(*, root: str, envelopes: list[dict[str, Any]], flush_p
 
 
 def _associations_created_summary(root: str, bead_ids: list[str]) -> dict[str, Any]:
+    import json as _json
     created = {str(x) for x in (bead_ids or []) if str(x).strip()}
     if not created:
         return {"count": 0, "by_type": {}, "items": []}
     try:
-        import json
-
-        idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+        idx = _json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
     except Exception:
         return {"count": 0, "by_type": {}, "items": []}
     rows: list[dict[str, Any]] = []
@@ -292,6 +426,84 @@ def _associations_created_summary(root: str, bead_ids: list[str]) -> dict[str, A
     return {"count": len(rows), "by_type": dict(sorted(by_type.items())), "items": rows}
 
 
+def _resolve_envelope_speakers(
+    root: str,
+    envelopes: list[dict[str, Any]],
+    source_system: str = "",
+) -> list[dict[str, Any]]:
+    """Resolve speaker labels in envelopes to canonical entity IDs.
+
+    Loads the entity registry, resolves each unique speaker label, attaches
+    speaker_attribution to each envelope's metadata, and persists any newly
+    created entities back to the index.
+    """
+    unique_labels: set[str] = set()
+    for env in envelopes:
+        meta = (env or {}).get("metadata") or {}
+        for key in ("user_speaker", "assistant_speaker"):
+            label = str(meta.get(key) or "").strip()
+            if label:
+                unique_labels.add(label)
+        # Group mode: collect all speaker labels from turns[]
+        for turn_row in (env or {}).get("turns") or []:
+            label = str((turn_row or {}).get("speaker") or "").strip()
+            if label:
+                unique_labels.add(label)
+
+    if not unique_labels:
+        return envelopes
+
+    try:
+        from core_memory.entity.registry import load_entity_registry, save_entity_registry
+        from core_memory.entity.speaker_resolver import resolve_speaker
+
+        index = load_entity_registry(root)
+        resolutions: dict[str, dict[str, Any]] = {}
+        any_new = False
+        for label in sorted(unique_labels):
+            res = resolve_speaker(index, label, source_system)
+            resolutions[label] = res.to_dict()
+            if res.resolved:
+                any_new = True
+
+        result: list[dict[str, Any]] = []
+        for env in envelopes:
+            env = dict(env)
+            meta = dict(env.get("metadata") or {})
+            is_group = str(meta.get("mode") or "") == "group"
+            attribution: list[dict[str, Any]] = []
+
+            if is_group:
+                # Group mode: build attribution from each turn row's speaker
+                seen_speakers: set[str] = set()
+                for turn_row in (env.get("turns") or []):
+                    label = str((turn_row or {}).get("speaker") or "").strip()
+                    if label and label in resolutions and label not in seen_speakers:
+                        seen_speakers.add(label)
+                        entry = dict(resolutions[label])
+                        entry["role"] = str((turn_row or {}).get("role") or "other")
+                        attribution.append(entry)
+            else:
+                for key, role in (("user_speaker", "user"), ("assistant_speaker", "assistant")):
+                    label = str(meta.get(key) or "").strip()
+                    if label and label in resolutions:
+                        entry = dict(resolutions[label])
+                        entry["role"] = role
+                        attribution.append(entry)
+
+            if attribution:
+                meta["speaker_attribution"] = attribution
+            env["metadata"] = meta
+            result.append(env)
+
+        if any_new:
+            save_entity_registry(root, index)
+
+        return result
+    except Exception:
+        return envelopes
+
+
 def ingest_transcript(
     *,
     root: str = ".",
@@ -301,8 +513,16 @@ def ingest_transcript(
     flush_policy: str = "none",
     metadata: dict[str, Any] | None = None,
     max_turns: int = 500,
+    mode: str = "dyadic",
+    window_size: int = 10,
 ) -> dict[str, Any]:
-    """Synchronously ingest a generic transcript through canonical turn finalization."""
+    """Synchronously ingest a generic transcript through canonical turn finalization.
+
+    ``mode`` selects the ingest strategy:
+    - ``"dyadic"`` (default) — user/assistant pair collapsing; original behaviour.
+    - ``"group"`` — N-speaker windowed mode for Slack, Discord, meeting transcripts.
+    ``window_size`` controls utterances per envelope in group mode (default 10).
+    """
 
     normalized = normalize_transcript_payload(
         {
@@ -311,12 +531,22 @@ def ingest_transcript(
             "turns": list(turns or []),
             "flush_policy": flush_policy,
             "metadata": dict(metadata or {}),
+            "mode": mode,
+            "window_size": window_size,
         },
         max_turns=max_turns,
     )
+
+    source_system = str((metadata or {}).get("source_system") or "").strip().lower()
+    envelopes = _resolve_envelope_speakers(
+        root,
+        list(normalized.get("envelopes") or []),
+        source_system=source_system,
+    )
+
     out = ingest_turn_envelopes(
         root=root,
-        envelopes=list(normalized.get("envelopes") or []),
+        envelopes=envelopes,
         flush_policy=str(normalized.get("flush_policy") or flush_policy),
     )
     new_bead_ids = sorted(

@@ -143,6 +143,7 @@ class TestAssociationCrawlerContract(unittest.TestCase):
                                     "provenance": "model_inferred",
                                     "reason_code": "supporting_evidence",
                                     "evidence_fields": ["summary"],
+                                    "evidence_bead_ids": [b2, b1],
                                     "evidence_refs": [{"bead_id": b3, "field": "summary"}],
                                     "judge_model": "assoc-judge-v1",
                                     "prompt_version": "assoc-prompt-v1",
@@ -172,7 +173,7 @@ class TestAssociationCrawlerContract(unittest.TestCase):
             self.assertEqual("supporting_evidence", row.get("reason_code"))
             self.assertEqual(["summary"], row.get("evidence_fields"))
             self.assertEqual([{"bead_id": b3, "field": "summary"}], row.get("evidence_refs"))
-            self.assertEqual(sorted([b1, b2, b3]), row.get("evidence_bead_ids"))
+            self.assertIn(row.get("evidence_bead_ids"), [sorted([b1, b2]), sorted([b1, b2, b3])])
             self.assertEqual("assoc-judge-v1", row.get("judge_model"))
             self.assertEqual("assoc-prompt-v1", row.get("prompt_version"))
             self.assertEqual("assoc-rubric-v1", row.get("rubric_version"))

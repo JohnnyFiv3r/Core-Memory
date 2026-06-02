@@ -140,7 +140,7 @@ def emit_claim_updates(
         return []
 
     emitted: list[dict] = []
-    dedupe: set[tuple[str, str, str, str]] = set()
+    dedupe: set[tuple[str, str, str, str, str]] = set()
 
     explicit_rows: list[dict] = []
     if isinstance(reviewed_updates, dict):

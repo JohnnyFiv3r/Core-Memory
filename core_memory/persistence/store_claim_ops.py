@@ -13,11 +13,14 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import store_lock
 from core_memory.schema.models import Claim, ClaimUpdate
+
+_log = logging.getLogger(__name__)
 
 
 DEFAULT_CLAIM_JUDGE_MODEL = "current-runtime"
@@ -312,6 +315,15 @@ def _append_claim_update_rows(index: dict, existing: list[dict], incoming: list[
     for row in incoming:
         key = _claim_update_dedupe_key(row)
         if key in seen:
+            gh = str(row.get("grounding_hash") or "").strip()
+            if gh:
+                _log.warning(
+                    "duplicate_grounding: skipping ClaimUpdate for (%s, %s, %s) grounding_hash=%s",
+                    str(row.get("subject") or ""),
+                    str(row.get("slot") or ""),
+                    str(row.get("decision") or ""),
+                    gh,
+                )
             continue
         subject = str(row.get("subject") or "")
         slot = str(row.get("slot") or "")
@@ -468,27 +480,43 @@ def resolve_current_state(root: str, subject: str, slot: str) -> dict:
     conflict_ids = set()
     latest_replacement_id = ""
 
-    for update in slot_updates:
+    # Track ordering (slot_updates is already chain_seq-sorted) so a supersede or
+    # retract issued *after* a conflict marker is recognized as resolving it.
+    last_conflict_order = -1
+    last_resolution_order = -1
+
+    for order, update in enumerate(slot_updates):
         decision = str(update.get("decision") or "")
         target_id = str(update.get("target_claim_id") or "")
         if not target_id:
             continue
         if decision == "retract":
             retracted_ids.add(target_id)
+            last_resolution_order = order
         elif decision == "supersede":
             superseded_ids.add(target_id)
+            last_resolution_order = order
             replacement_id = str(update.get("replacement_claim_id") or "")
             if replacement_id:
                 latest_replacement_id = replacement_id
         elif decision == "conflict":
             conflict_ids.add(target_id)
+            last_conflict_order = order
 
     active_claims = [
         c for c in slot_claims
         if str(c.get("id") or "") not in retracted_ids
         and str(c.get("id") or "") not in superseded_ids
     ]
-    conflicts = [c for c in slot_claims if str(c.get("id") or "") in conflict_ids]
+    # A conflict marker is cleared when a supersede/retract decision is issued
+    # *after* it (e.g. a user resolving the contradiction). Simultaneous markers
+    # (no later resolution) remain a live conflict.
+    conflict_resolved = last_conflict_order >= 0 and last_resolution_order > last_conflict_order
+    conflicts = [] if conflict_resolved else [c for c in slot_claims if str(c.get("id") or "") in conflict_ids]
+
+    # Sort by chain_seq so the highest-sequence claim wins regardless of insertion order.
+    # Records without chain_seq (legacy) sort as 0 and degrade to list order.
+    active_claims.sort(key=lambda c: int(c.get("chain_seq") or 0))
 
     active_by_id = {str(c.get("id") or ""): c for c in active_claims}
     current = active_by_id.get(latest_replacement_id) if latest_replacement_id else None

@@ -29,6 +29,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             )
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_callable_missing", out.get("error_code"))
+            self.assertEqual("agent_callable_missing", (out.get("agent_contract_error") or {}).get("code"))
             gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
             self.assertTrue(gate.get("required"))
             self.assertTrue(gate.get("blocked"))
@@ -54,8 +55,9 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             )
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_bead_fields_missing", out.get("error_code"))
+            self.assertEqual("agent_bead_fields_missing", (out.get("agent_contract_error") or {}).get("code"))
 
-    def test_strict_mode_fail_open_uses_default_fallback(self):
+    def test_required_flag_rejects_even_when_legacy_fail_open_is_set(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
@@ -71,10 +73,11 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "decision text"}],
                 metadata={},
             )
-            self.assertTrue(out.get("ok"))
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("agent_callable_missing", out.get("error_code"))
             gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
-            self.assertTrue(gate.get("used_fallback"))
-            self.assertEqual("default_fallback", gate.get("source"))
+            self.assertFalse(gate.get("used_fallback"))
+            self.assertTrue(gate.get("blocked"))
 
     def test_strict_mode_accepts_valid_agent_updates(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
@@ -101,6 +104,12 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "type": "decision",
                                 "title": "Agent decided",
                                 "summary": ["summary"],
+                                "because": ["agent-provided rationale"],
+                                "retrieval_title": "Agent decided",
+                                "retrieval_facts": ["summary"],
+                                "retrieval_eligible": True,
+                                "entities": ["Agent"],
+                                "topics": ["decision"],
                                 "source_turn_ids": ["t1"],
                             }
                         ],
@@ -121,7 +130,32 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertEqual("metadata.crawler_updates", gate.get("source"))
             self.assertFalse(gate.get("used_fallback"))
 
-    def test_strict_mode_blocks_when_associations_missing(self):
+    def test_strict_mode_blocks_when_bead_fields_missing(self):
+        # Zero associations is now valid; hard mode blocks on missing required bead fields.
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
+                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
+            },
+            clear=False,
+        ):
+            out = process_turn_finalized(
+                root=td,
+                session_id="s1",
+                turn_id="t1",
+                turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
+                metadata={
+                    "crawler_updates": {
+                        # Missing required "title" field
+                        "beads_create": [{"type": "decision", "summary": ["summary"]}]
+                    }
+                },
+            )
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("agent_bead_fields_missing", out.get("error_code"))
+
+    def test_strict_mode_allows_missing_associations_on_first_turn(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
@@ -142,13 +176,20 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "type": "decision",
                                 "title": "Agent decided",
                                 "summary": ["summary"],
+                                "because": ["agent-provided rationale"],
+                                "retrieval_title": "Agent decided",
+                                "retrieval_facts": ["summary"],
+                                "retrieval_eligible": True,
+                                "entities": ["Agent"],
+                                "topics": ["decision"],
                             }
                         ]
                     }
                 },
             )
-            self.assertFalse(out.get("ok"))
-            self.assertEqual("agent_associations_missing", out.get("error_code"))
+            self.assertTrue(out.get("ok"))
+            gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
+            self.assertFalse(gate.get("used_fallback"))
 
     def test_strict_mode_accepts_agent_callable_updates(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
@@ -169,6 +210,12 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                         "type": "decision",
                         "title": "Agent callable row",
                         "summary": ["summary"],
+                        "because": ["agent-provided rationale"],
+                        "retrieval_title": "Agent callable row",
+                        "retrieval_facts": ["summary"],
+                        "retrieval_eligible": True,
+                        "entities": ["Agent"],
+                        "topics": ["decision"],
                         "source_turn_ids": ["t1"],
                     }
                 ],
@@ -248,6 +295,12 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "type": "decision",
                                 "title": "Agent decided",
                                 "summary": ["summary"],
+                                "because": ["agent-provided rationale"],
+                                "retrieval_title": "Agent decided",
+                                "retrieval_facts": ["summary"],
+                                "retrieval_eligible": True,
+                                "entities": ["Agent"],
+                                "topics": ["decision"],
                                 "source_turn_ids": ["t1"],
                             }
                         ],
@@ -265,6 +318,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             )
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_semantic_coverage_missing", out.get("error_code"))
+            self.assertEqual("agent_semantic_coverage_missing", (out.get("agent_contract_error") or {}).get("code"))
 
     def test_mode_observe_overrides_strict_flags(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
