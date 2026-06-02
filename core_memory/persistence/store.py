@@ -375,6 +375,7 @@ class MemoryStore:
         session_id: Optional[str] = None,
         scope: str = "project",
         tags: Optional[list] = None,
+        links: Optional[dict] = None,
         **kwargs,
     ) -> str:
         """Create a new bead."""
@@ -391,6 +392,7 @@ class MemoryStore:
             session_id=session_id,
             scope=scope,
             tags=tags,
+            links=links,
             **kwargs,
         )
 

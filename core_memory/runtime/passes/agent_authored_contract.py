@@ -14,12 +14,13 @@ ERROR_AGENT_UPDATES_MISSING = "agent_updates_missing"
 ERROR_AGENT_UPDATES_INVALID = "agent_updates_invalid"
 ERROR_AGENT_ASSOCIATIONS_MISSING = "agent_associations_missing"
 ERROR_AGENT_BEAD_FIELDS_MISSING = "agent_bead_fields_missing"
+ERROR_AGENT_RETRIEVAL_FIELDS_MISSING = "agent_retrieval_fields_missing"
 ERROR_AGENT_INVOCATION_EXHAUSTED = "agent_invocation_exhausted"
 ERROR_AGENT_CALLABLE_MISSING = "agent_callable_missing"
 ERROR_AGENT_SEMANTIC_COVERAGE_MISSING = "agent_semantic_coverage_missing"
 ERROR_AGENT_CAUSAL_RATIONALE_MISSING = "agent_causal_rationale_missing"
 
-CAUSAL_BEAD_TYPES = {"decision", "outcome", "correction", "reversal", "precedent"}
+CAUSAL_BEAD_TYPES = {"decision", "outcome", "precedent", "design_principle", "lesson"}
 
 SEMANTIC_BEAD_FIELDS = (
     "type",
@@ -31,7 +32,6 @@ SEMANTIC_BEAD_FIELDS = (
     "supporting_facts",
     "evidence_refs",
     "state_change",
-    "validity",
     "effective_from",
     "effective_to",
     "observed_at",
@@ -114,7 +114,10 @@ def validate_agent_authored_updates(updates: dict[str, Any], *, max_create_per_t
 
         missing_bead = []
         for key in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS:
-            if key in {"summary", "entities"}:
+            if key == "summary":
+                if not _list_text_present(row.get(key)):
+                    missing_bead.append(key)
+            elif key == "entities":
                 if not _list_text_present(row.get(key)):
                     missing_bead.append(key)
             else:
@@ -180,6 +183,7 @@ def contract_snapshot() -> dict[str, object]:
             ERROR_AGENT_UPDATES_INVALID,
             ERROR_AGENT_ASSOCIATIONS_MISSING,
             ERROR_AGENT_BEAD_FIELDS_MISSING,
+            ERROR_AGENT_RETRIEVAL_FIELDS_MISSING,
             ERROR_AGENT_INVOCATION_EXHAUSTED,
             ERROR_AGENT_CALLABLE_MISSING,
             ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,

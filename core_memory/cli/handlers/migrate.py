@@ -56,7 +56,9 @@ def _bead_payload(bead: dict) -> dict:
         "type": str(bead.get("type") or ""),
         "session_id": str(bead.get("session_id") or ""),
         "created_at": str(bead.get("created_at") or ""),
+        "retrieval_eligible": bool(bead.get("retrieval_eligible", True)),
         "status": str(bead.get("status") or "open"),
+        "topics": [str(t) for t in (bead.get("tags") or [])],
         "entities": [str(e) for e in (bead.get("entities") or [])],
         "title": str(bead.get("title") or ""),
         "promoted": bool(bead.get("promotion_state") == "promoted"),
@@ -94,6 +96,8 @@ def handle_migrate(args: Any) -> int:
                 pass
             vec_backend = _create_external_backend(root=root, backend=VECTOR_BACKEND_QDRANT, dimension=dimension)
             for bead in beads:
+                if not bead.get("retrieval_eligible", True):
+                    continue
                 if bead.get("status") in ("retracted",):
                     continue
                 if dry_run:

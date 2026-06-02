@@ -82,7 +82,7 @@ class CoreMemoryRetriever(BaseRetriever):
         documents = []
         for item in enriched:
             # Build document content from bead fields
-            title = item.get("title") or ""
+            title = item.get("title") or item.get("retrieval_title") or ""
             summary = item.get("summary") or []
             if isinstance(summary, list):
                 summary_text = " ".join(str(s) for s in summary)

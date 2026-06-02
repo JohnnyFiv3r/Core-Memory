@@ -22,7 +22,7 @@ def _tokens(row: dict[str, Any]) -> set[str]:
             str(row.get("title") or ""),
             " ".join(str(x) for x in (row.get("summary") or [])),
             str(row.get("detail") or ""),
-            " ".join(str(x) for x in (row.get("supporting_facts") or [])),
+            " ".join(str(x) for x in (row.get("retrieval_facts") or [])),
             " ".join(str(x) for x in (row.get("success_criteria") or [])),
         ]
     )

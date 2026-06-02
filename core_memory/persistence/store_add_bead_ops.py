@@ -37,6 +37,7 @@ def add_bead_for_store(
     session_id: Optional[str] = None,
     scope: str = "project",
     tags: Optional[list] = None,
+    links: Optional[dict] = None,
     **kwargs,
 ) -> str:
     from core_memory.schema.models import BeadType, Scope
@@ -51,6 +52,25 @@ def add_bead_for_store(
     bad_override = sorted(set(str(k) for k in kwargs.keys()).intersection(reserved_overrides))
     if bad_override:
         raise ValueError(f"reserved_overrides_not_allowed:{','.join(bad_override)}")
+
+    # Known extra fields — all others are accepted but logged
+    _KNOWN_EXTRA_FIELDS = {
+        "confidence", "linked_bead_id", "result", "goal_id", "success_criteria",
+        "condition", "action", "tested_by", "hypothesis_status", "reflection_type",
+        "tool", "capability", "tool_result_status", "tool_output_id", "tool_output_ids",
+        "supports_bead_ids", "blocked_by_description", "blocking_bead_id",
+        "incident_id", "severity", "resolved_at", "constraints", "state_change",
+        "observed_at", "recorded_at", "effective_from", "effective_to",
+        "supersedes", "superseded_by", "claims", "claim_updates", "interaction_role",
+        "memory_outcome", "context_tags", "revises_bead_id", "revision_type",
+        "entity_ids", "evidence_refs", "speaker_attribution",
+        "attributed_entity_id", "resolution_confidence", "prev_bead_id",
+        "next_bead_id", "turn_index", "session_id", "promoted", "promotion_candidate",
+        "promotion_locked", "promoted_at", "promotion_score", "promotion_threshold",
+        "promotion_reason", "failure_signature", "decision_conflict_with",
+        "unjustified_flip", "validation_warnings", "type_log", "type_coerced_from",
+        "anchor_reason", "semantic_score", "retrieval_score",
+    }
 
     bead_id = store._generate_id()
     now = datetime.now(timezone.utc).isoformat()
@@ -68,8 +88,10 @@ def add_bead_for_store(
         "source_turn_ids": source_turn_ids or [],
         "detail": detail,
         "scope": scope_value,
+        "authority": "agent_inferred",
         "confidence": 0.8,
         "tags": tags or [],
+        "links": store._normalize_links(links),
         "status": "open",
         "recall_count": 0,
         "last_recalled": None,
@@ -86,6 +108,10 @@ def add_bead_for_store(
         if conf is not None:
             bead.setdefault("resolution_confidence", float(conf))
 
+    now_iso = bead.get("created_at") or datetime.now(timezone.utc).isoformat()
+    if not bead.get("type_log"):
+        bead["type_log"] = [{"type": bead.get("type", ""), "set_at": now_iso, "reason": "initial_write"}]
+
     bead = store._sanitize_bead_content(bead)
     bead = enforce_bead_hygiene_contract(bead)
 
@@ -95,7 +121,7 @@ def add_bead_for_store(
         if extracted:
             bead["constraints"] = extracted
 
-    if bead.get("type") == "failed_hypothesis":
+    if bead.get("type") == "hypothesis":
         basis = " ".join(bead.get("summary", [])) or bead.get("title", "") or bead.get("detail", "")
         bead["failure_signature"] = store.compute_failure_signature(basis)
 
@@ -124,6 +150,9 @@ def add_bead_for_store(
             prev = _find_last_session_bead(index, resolved_session_id)
             if prev:
                 bead["prev_bead_id"] = prev
+                # Append next_bead_id to the previous bead in the same lock window
+                if prev in index["beads"] and not index["beads"][prev].get("next_bead_id"):
+                    index["beads"][prev]["next_bead_id"] = bead_id
 
         if resolved_session_id:
             bead_file = store.beads_dir / f"session-{resolved_session_id}.jsonl"
@@ -131,7 +160,7 @@ def add_bead_for_store(
             bead_file = store.beads_dir / "global.jsonl"
         append_jsonl(bead_file, bead)
 
-        if bead.get("type") == "failed_hypothesis" and bead.get("failure_signature"):
+        if bead.get("type") == "hypothesis" and bead.get("failure_signature"):
             sig = bead.get("failure_signature")
             repeat_failure = any(b.get("failure_signature") == sig for b in index.get("beads", {}).values())
 
@@ -145,37 +174,6 @@ def add_bead_for_store(
 
         index["beads"][bead["id"]] = bead
         index["stats"]["total_beads"] = len(index["beads"])
-
-        candidates = []
-        if store.associate_on_add and store.assoc_top_k > 0:
-            assoc_index = dict(index)
-            assoc_beads = dict(index.get("beads") or {})
-            if resolved_session_id:
-                for row in read_session_surface(store.root, resolved_session_id):
-                    rid = str((row or {}).get("id") or "")
-                    if rid:
-                        assoc_beads[rid] = row
-            assoc_index["beads"] = assoc_beads
-            candidates = store._quick_association_candidates(
-                assoc_index,
-                bead,
-                max_lookback=store.assoc_lookback,
-                top_k=store.assoc_top_k,
-            )
-
-        bead["association_preview"] = [
-            {
-                "bead_id": c["other_id"],
-                "relationship": c["relationship"],
-                "score": c["score"],
-                "reason_code": c.get("reason_code"),
-                "reason_text": c.get("reason_text"),
-                "authoritative": False,
-                "source": "store_quick_preview",
-            }
-            for c in candidates
-        ]
-        index["beads"][bead["id"]] = bead
 
         index["associations"] = sorted(
             index.get("associations", []),
@@ -236,6 +234,7 @@ def _bead_payload(bead: dict) -> dict:
         "type": str(bead.get("type") or ""),
         "session_id": str(bead.get("session_id") or ""),
         "created_at": str(bead.get("created_at") or ""),
+        "retrieval_eligible": bool(bead.get("retrieval_eligible", True)),
         "status": str(bead.get("status") or "open"),
         "topics": [str(t) for t in (bead.get("tags") or [])],
         "entities": [str(e) for e in (bead.get("entities") or [])],
@@ -252,7 +251,7 @@ def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
     root_path = Path(root)
 
     from core_memory.retrieval.semantic_index import _configured_vector_backend, VECTOR_BACKEND_QDRANT
-    if _configured_vector_backend() == VECTOR_BACKEND_QDRANT:
+    if _configured_vector_backend() == VECTOR_BACKEND_QDRANT and bead.get("retrieval_eligible", True):
         try:
             from core_memory.retrieval.semantic_index import _create_external_backend, _paths
             import json

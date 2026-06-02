@@ -36,6 +36,41 @@ from .catalog import build_catalog
 
 
 NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
+
+
+def _env_int(name: str, default: int) -> int:
+    """Read a positive int tunable from the environment, falling back to default."""
+    try:
+        v = int(os.getenv(name, "") or default)
+        return v if v > 0 else default
+    except (TypeError, ValueError):
+        return default
+
+
+# Causal traversal tunables. Defaults preserve prior behaviour; the env knobs let
+# the seed breadth, depth, and chain-merge budget be tuned without a redeploy.
+#   _TRACE_SEED_ANCHORS:   how many top semantic anchors seed graph traversal
+#                          (was a hardcoded 5 — too few when the gold-adjacent
+#                          bead ranks just outside the top 5).
+#   _TRACE_MAX_DEPTH:      max traversal hops from each seed.
+#   _TRACE_MAX_CHAINS:     max chains returned by traversal.
+#   _TRACE_CHAIN_MERGE_BONUS: extra result slots reserved for chain beads beyond
+#                          k, so traversal evidence is not crowded out by the k
+#                          semantic anchors before it can enter the scored top-k.
+def _trace_seed_anchors() -> int:
+    return _env_int("CORE_MEMORY_TRACE_SEED_ANCHORS", 12)
+
+
+def _trace_max_depth() -> int:
+    return _env_int("CORE_MEMORY_TRACE_MAX_DEPTH", 3)
+
+
+def _trace_max_chains() -> int:
+    return _env_int("CORE_MEMORY_TRACE_MAX_CHAINS", 12)
+
+
+def _trace_chain_merge_bonus() -> int:
+    return _env_int("CORE_MEMORY_TRACE_CHAIN_MERGE_BONUS", 8)
 PUBLIC_HYDRATION_TURN_SOURCES = {"cited_turns", "cited_turns_plus_adjacent"}
 CONTROL_CONSTRAINT_KEYS = {
     # Request/benchmark orchestration metadata, not corpus facets.  Treating
@@ -47,6 +82,10 @@ CONTROL_CONSTRAINT_KEYS = {
     "recall_scope",
     "selected_answer_effort",
     "retrieval_efforts",
+    # Execution-only traversal hint. This must never become a hard corpus
+    # metadata constraint; causal wording in recall() should reorder chains,
+    # not filter anchors before traversal.
+    "structural_hint_relations",
 }
 
 
@@ -1051,25 +1090,44 @@ def trace_request(
         )
 
     anchors = anchors_out.get("anchors") or []
-    a_ids = [str(a.get("bead_id") or "") for a in anchors[:5] if str(a.get("bead_id") or "")]
+    # Seed traversal from the top-N semantic anchors (configurable). The prior
+    # hardcoded top-5 starved traversal whenever the gold-adjacent bead ranked
+    # just outside the top 5 — common on conversational corpora where the answer
+    # lives a turn or two away from the best lexical/semantic match.
+    _seed_n = _trace_seed_anchors()
+    _max_depth = _trace_max_depth()
+    _max_chains = _trace_max_chains()
+    a_ids = [str(a.get("bead_id") or "") for a in anchors[:_seed_n] if str(a.get("bead_id") or "")]
     if _caps.graph_traversal:
         _graph = create_graph_backend(Path(root))
         if isinstance(_graph, NullGraphBackend):
             # Configured backend unavailable (e.g. kuzu not installed); fall back to Python traversal.
-            trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
+            trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
         else:
-            _chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=3, max_chains=5)
+            _chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=_max_depth, max_chains=_max_chains)
             trav = {"ok": True, "chains": _chains, "backend": _graph.name}
     else:
-        trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) if a_ids else {"ok": True, "chains": []}
+        trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
     chains = list(trav.get("chains") or [])
     relation_filter = {normalize_relation_type(str(x).strip()) for x in ((submission or {}).get("relation_types") or []) if str(x).strip()}
     if relation_filter:
+        # Hard filter: caller explicitly constrained relation types.
         chains = [
             c
             for c in chains
             if {normalize_relation_type(str((e or {}).get("rel") or "").strip()) for e in (c.get("edges") or [])}.intersection(relation_filter)
         ]
+    else:
+        # Soft structural hints (e.g. parsed from the query): prefer chains whose
+        # edges match the hinted relations by sorting them first, but never drop
+        # the others — a wrong parse must not destroy recall.
+        hint_rels = {normalize_relation_type(str(x).strip()) for x in ((submission or {}).get("structural_hint_relations") or []) if str(x).strip()}
+        if hint_rels and chains:
+            def _chain_hint_rank(c: dict[str, Any]) -> tuple[int, float]:
+                edge_rels = {normalize_relation_type(str((e or {}).get("rel") or "").strip()) for e in (c.get("edges") or [])}
+                matched = bool(edge_rels.intersection(hint_rels))
+                return (0 if matched else 1, -float(c.get("score") or 0.0))
+            chains = sorted(chains, key=_chain_hint_rank)
 
     # Grounding levels:
     # - full: chains include at least one non-temporal structural relation
@@ -1111,6 +1169,12 @@ def trace_request(
     results = list(anchors)
     seen_result_ids = {str(a.get("bead_id") or "") for a in results if str(a.get("bead_id") or "")}
     if chains:
+        # Give chain beads a merge budget BEYOND k so traversal evidence is not
+        # crowded out by the k semantic anchors. Previously the cap was a flat k,
+        # so with k semantic anchors already filling the budget, traversal added
+        # ~nothing to the scored top-k. The merged result list is over-filled
+        # here; downstream callers still score/trim to their own k.
+        _merge_cap = max(1, int(k)) + _trace_chain_merge_bonus()
         corpus = build_visible_corpus(Path(root))
         by_id = {str(r.get("bead_id") or ""): r for r in corpus}
         for chain in chains:
@@ -1132,9 +1196,9 @@ def trace_request(
                     )
                 )
                 seen_result_ids.add(bid)
-                if len(results) >= max(1, int(k)):
+                if len(results) >= _merge_cap:
                     break
-            if len(results) >= max(1, int(k)):
+            if len(results) >= _merge_cap:
                 break
 
     out = {
@@ -1219,6 +1283,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "topic_keys": list(facets.get("topic_keys") or []),
             "bead_types": list(facets.get("bead_types") or []),
             "relation_types": list(facets.get("relation_types") or []),
+            "structural_hint_relations": list(facets.get("structural_hint_relations") or []),
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),
@@ -1255,6 +1320,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "topic_keys": list(facets.get("topic_keys") or []),
             "bead_types": list(facets.get("bead_types") or []),
             "relation_types": list(facets.get("relation_types") or []),
+            "structural_hint_relations": list(facets.get("structural_hint_relations") or []),
             "must_terms": list(facets.get("must_terms") or []),
             "avoid_terms": list(facets.get("avoid_terms") or []),
             "time_range": dict(facets.get("time_range") or {}),

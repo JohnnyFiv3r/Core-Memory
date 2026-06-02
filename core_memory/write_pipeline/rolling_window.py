@@ -76,8 +76,6 @@ def _is_lifecycle_bead(bead: dict[str, Any]) -> bool:
     btype = str(bead.get("type") or "").lower()
     if btype in {"session_start", "session_end", "checkpoint"}:
         return True
-    if btype == "context" and not " ".join(bead.get("summary") or []).strip():
-        return True
     return False
 
 

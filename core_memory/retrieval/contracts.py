@@ -250,7 +250,7 @@ def evidence_from_result_row(row: dict[str, Any]) -> EvidenceItem:
     r = dict(row or {})
     bead_id = _text(r.get("bead_id") or r.get("id"))
     score = _float_or_none(r.get("score") or r.get("rank_score") or r.get("semantic_score") or r.get("fused_score"))
-    facts = r.get("supporting_facts") or r.get("summary") or []
+    facts = r.get("retrieval_facts") or r.get("supporting_facts") or r.get("summary") or []
     if isinstance(facts, list):
         excerpt = " ".join(_text(x) for x in facts if _text(x))
     else:
@@ -260,12 +260,12 @@ def evidence_from_result_row(row: dict[str, Any]) -> EvidenceItem:
     return EvidenceItem(
         bead_id=bead_id,
         type=_text(r.get("type") or r.get("bead_type") or r.get("source_surface")),
-        title=_text(r.get("title")),
+        title=_text(r.get("title") or r.get("retrieval_title")),
         content_excerpt=excerpt[:600],
         score=score,
         reason=_text(r.get("reason") or r.get("anchor_reason") or r.get("recommendation")),
         grounding_hash=_text(r.get("grounding_hash")) or None,
-        metadata={k: v for k, v in r.items() if k not in {"detail", "text", "summary", "supporting_facts"}},
+        metadata={k: v for k, v in r.items() if k not in {"detail", "text", "summary", "retrieval_facts", "supporting_facts"}},
     )
 
 

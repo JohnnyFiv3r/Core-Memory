@@ -44,6 +44,10 @@ _VOLATILE_BEAD_FIELDS = {
     "association_preview",
     "entity_ids",
     "prev_bead_id",
+    "next_bead_id",
+    "type_log",
+    "type_coerced_from",
+    "validation_warnings",
 }
 
 _VOLATILE_ASSOC_FIELDS = {

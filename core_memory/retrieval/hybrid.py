@@ -26,14 +26,32 @@ def _normalize(scores: list[float]) -> tuple[list[float], str]:
 
 
 def _qdrant_hybrid_rows(root: Path, retrieval_query: str, k: int) -> list[dict[str, Any]]:
-    """One Qdrant hybrid (sparse+dense) query replacing FAISS + lexical.py."""
-    from core_memory.retrieval.semantic_index import _create_external_backend, _paths, _vector_collection_name
+    """One Qdrant query replacing FAISS + lexical.py.
+
+    Two modes, keyed off the index manifest's provider:
+      - "fastembed": Qdrant manages embeddings; use the native sparse+dense
+        hybrid query (query_text).
+      - external (e.g. "openai"): the collection holds provider-embedded vectors,
+        so embed the query the same way and search by vector. FastEmbed's small
+        default model discriminates poorly on conversational text; this path lets
+        the demo use high-quality OpenAI/Gemini embeddings.
+    """
+    from core_memory.retrieval.semantic_index import (
+        _create_external_backend,
+        _paths,
+        _embed_vectors,
+        _vector_rows,
+    )
     try:
         manifest_file, *_ = _paths(root)
         dimension = 1536
+        provider = "fastembed"
+        model = ""
         try:
             manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
             dimension = int(manifest.get("dimension") or 1536)
+            provider = str(manifest.get("provider") or "fastembed").strip().lower() or "fastembed"
+            model = str(manifest.get("model") or "").strip()
         except Exception:
             pass
         backend = _create_external_backend(
@@ -41,14 +59,25 @@ def _qdrant_hybrid_rows(root: Path, retrieval_query: str, k: int) -> list[dict[s
             backend=VECTOR_BACKEND_QDRANT,
             dimension=dimension,
         )
-        rows = backend.hybrid_search(
+        if provider and provider != "fastembed":
+            # External-embedding mode: embed the query with the same provider/model
+            # the corpus was embedded with, then vector-search.
+            from core_memory.retrieval.semantic_index import _default_embedding_model
+            vecs = _embed_vectors(texts=[retrieval_query], provider=provider, model=(model or _default_embedding_model(provider)), hash_dim=dimension)
+            query_vec = list(_vector_rows(vecs))[0]
+            return backend.search(
+                query_embedding=list(query_vec),
+                k=k,
+                filters={"retrieval_eligible": True},
+            )
+        return backend.hybrid_search(
             query=retrieval_query,
             k=k,
+            filters={"retrieval_eligible": True},
         )
-        return rows
     except Exception as exc:
         import logging
-        logging.getLogger(__name__).debug("qdrant hybrid_search failed, falling back: %s", exc)
+        logging.getLogger(__name__).debug("qdrant query failed, falling back: %s", exc)
         return []
 
 
@@ -74,6 +103,8 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
                 iid = str(meta.get("incident_id") or "")
                 if iid and iid in incident_matches and fused_score >= INCIDENT_FLOOR:
                     fused_score += 0.12 * incident_match_strength(query, iid, root)
+                if topic_matches and set(meta.get("topics") or []).intersection(topic_matches):
+                    fused_score += 0.08
                 out.append({
                     "bead_id": bid,
                     "score": fused_score,
