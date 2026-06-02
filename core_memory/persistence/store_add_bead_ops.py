@@ -10,7 +10,7 @@ from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.runtime.session.session_surface import read_session_surface
-from core_memory.schema.normalization import CANONICAL_BEAD_TYPES
+from core_memory.schema.normalization import CANONICAL_BEAD_TYPES, normalize_bead_type
 
 
 def _find_last_session_bead(index: dict, session_id: str) -> str | None:
@@ -114,7 +114,9 @@ def add_bead_for_store(
         bead["type_log"] = [{"type": bead.get("type", ""), "set_at": now_iso, "reason": "initial_write"}]
 
     # Global rule: beads are records, eligible unless type is unrecognized.
-    bead["retrieval_eligible"] = str(bead.get("type") or "").strip().lower() in CANONICAL_BEAD_TYPES
+    # normalize_bead_type resolves legacy aliases (e.g. promoted_lesson → lesson)
+    # before the canonical membership check so legacy callers aren't penalized.
+    bead["retrieval_eligible"] = normalize_bead_type(str(bead.get("type") or "")) in CANONICAL_BEAD_TYPES
 
     bead = store._sanitize_bead_content(bead)
     bead = enforce_bead_hygiene_contract(bead)
