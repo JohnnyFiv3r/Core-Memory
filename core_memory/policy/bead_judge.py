@@ -29,12 +29,8 @@ Return JSON only with this shape:
   "supporting_facts": ["facts from the turn supporting the bead"],
   "evidence_refs": ["stable ids only if explicitly present"],
   "entities": ["named entities / project terms"],
-  "topics": ["short topical labels"],
   "state_change": "optional state transition text or empty",
   "validity": "current|deprecated|uncertain|",
-  "retrieval_eligible": true,
-  "retrieval_title": "search-optimized title or empty",
-  "retrieval_facts": ["search-optimized durable facts"],
   "effective_from": "ISO/date text only if stated or empty",
   "effective_to": "ISO/date text only if stated or empty",
   "observed_at": "ISO/date text only if stated or empty"
@@ -50,7 +46,7 @@ Rules:
 - For questions/retrieval turns, use type `context` and empty `because` unless the turn also states a durable fact with rationale.
 - Speculation without a grounded reason gets empty `because`.
 - Never invent evidence refs or dates. If no stable id/date appears, return []/empty.
-- `retrieval_eligible` should be true only for durable semantic memory worth later recall.
+- Every bead is indexed. Write `entities` and `supporting_facts` for durable recall; omit for thin turns.
 - Keep arrays short and deduplicated.
 
 USER: {user_query}
@@ -121,32 +117,12 @@ def _heuristic_entities(*texts: str, limit: int = 16) -> list[str]:
     return out
 
 
-def _heuristic_topics(*texts: str, limit: int = 8) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    stop = {
-        "about", "after", "again", "assistant", "because", "before", "could", "decision",
-        "from", "have", "memory", "should", "that", "their", "there", "these", "this",
-        "those", "turn", "user", "what", "when", "where", "which", "with", "would",
-    }
-    for raw in texts:
-        for token in re.findall(r"\b[a-zA-Z][a-zA-Z0-9_-]{3,}\b", str(raw or "").lower()):
-            if token in stop or token in seen:
-                continue
-            seen.add(token)
-            out.append(token)
-            if len(out) >= max(1, int(limit)):
-                return out
-    return out
-
-
 def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, Any]:
     uq = str(user_query or "").strip()
     af = str(assistant_final or "").strip()
     text = uq or af or "turn memory"
     title = (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory"
     summary = [_clean_text(text, limit=240) or "turn memory"]
-    durable = bool(text.strip()) and not is_retrieval_turn(uq)
     return {
         "type": classify_bead_type(user_query=uq, assistant_final=af),
         "title": title,
@@ -156,16 +132,12 @@ def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[st
         "supporting_facts": [],
         "evidence_refs": [],
         "entities": _heuristic_entities(uq, af),
-        "topics": _heuristic_topics(uq, af),
         "state_change": "",
         "validity": "",
-        "retrieval_eligible": durable,
-        "retrieval_title": title if durable else "",
-        "retrieval_facts": summary if durable else [],
         "effective_from": "",
         "effective_to": "",
         "observed_at": "",
-        "judge": {"mode": "fallback", "retrieval_authored_by": "heuristic"},
+        "judge": {"mode": "fallback"},
     }
 
 
@@ -280,12 +252,8 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
         "supporting_facts": _clean_list(obj.get("supporting_facts"), limit=6),
         "evidence_refs": _clean_list(obj.get("evidence_refs"), limit=6, item_limit=120),
         "entities": _clean_list(obj.get("entities"), limit=16, item_limit=120),
-        "topics": _clean_list(obj.get("topics"), limit=8, item_limit=80),
         "state_change": _clean_text(obj.get("state_change"), limit=240),
         "validity": _clean_text(obj.get("validity"), limit=80),
-        "retrieval_eligible": False if forced_context else bool(obj.get("retrieval_eligible", False)),
-        "retrieval_title": _clean_text(obj.get("retrieval_title"), limit=160),
-        "retrieval_facts": _clean_list(obj.get("retrieval_facts"), limit=6),
         "effective_from": _clean_text(obj.get("effective_from"), limit=80),
         "effective_to": _clean_text(obj.get("effective_to"), limit=80),
         "observed_at": _clean_text(obj.get("observed_at"), limit=80),

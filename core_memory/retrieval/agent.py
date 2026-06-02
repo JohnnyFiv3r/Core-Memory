@@ -394,17 +394,6 @@ def _normalize_request(
         metadata.setdefault("speaker", speaker)
         facets["metadata"] = metadata
         request.setdefault("facets", facets)
-    # Soft structural hints parsed from the query (e.g. "what caused X" implies
-    # caused_by/led_to edges). These only re-rank traversal chains, never filter,
-    # so a wrong parse cannot hurt recall. Skipped for low effort (no traversal)
-    # and never overrides hints a caller passed explicitly.
-    if effort != "low":
-        shape = _expected_shape(query)
-        hint_relations = list(shape.get("relations") or [])
-        if hint_relations:
-            facets = dict(request.get("facets") or {})
-            facets.setdefault("structural_hint_relations", hint_relations)
-            request["facets"] = facets
     request.update(request_overrides)
     return query, request
 

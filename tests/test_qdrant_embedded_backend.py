@@ -27,12 +27,11 @@ class TestQdrantEmbeddedBackend(unittest.TestCase):
     def tearDown(self):
         self._td.cleanup()
 
-    def _point(self, bead_id: str, eligible: bool = True, status: str = "open") -> dict:
+    def _point(self, bead_id: str, status: str = "open") -> dict:
         return {
             "bead_id": bead_id,
             "embedding": [0.1, 0.2, 0.3, 0.4],
             "metadata": {
-                "retrieval_eligible": eligible,
                 "status": status,
                 "type": "lesson",
                 "title": f"Bead {bead_id}",
@@ -53,15 +52,19 @@ class TestQdrantEmbeddedBackend(unittest.TestCase):
         self.backend.upsert(bead_id=p["bead_id"], embedding=p["embedding"], metadata=p["metadata"])
         self.assertEqual(self.backend.count(), 1)
 
-    def test_filtered_search_excludes_ineligible(self):
-        eligible = self._point("e1", eligible=True)
-        ineligible = self._point("e2", eligible=False)
-        self.backend.upsert(**{k: v for k, v in eligible.items() if k != "bead_id"}, bead_id=eligible["bead_id"])
-        self.backend.upsert(**{k: v for k, v in ineligible.items() if k != "bead_id"}, bead_id=ineligible["bead_id"])
+    def test_filtered_search_by_type(self):
+        lesson = self._point("e1")
+        decision_pt = {
+            "bead_id": "e2",
+            "embedding": [0.1, 0.2, 0.3, 0.4],
+            "metadata": {"status": "open", "type": "decision", "title": "Bead e2"},
+        }
+        self.backend.upsert(**{k: v for k, v in lesson.items() if k != "bead_id"}, bead_id=lesson["bead_id"])
+        self.backend.upsert(**{k: v for k, v in decision_pt.items() if k != "bead_id"}, bead_id=decision_pt["bead_id"])
         results = self.backend.search(
             query_embedding=[0.1, 0.2, 0.3, 0.4],
             k=10,
-            filters={"retrieval_eligible": True},
+            filters={"type": "lesson"},
         )
         ids = [r["bead_id"] for r in results]
         self.assertIn("e1", ids)

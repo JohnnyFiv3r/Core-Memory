@@ -207,12 +207,10 @@ def _structural_signal_pack(bead1: dict, bead2: dict) -> tuple[float, list[dict[
     type2 = str(bead2.get("type") or "")
     types = {type1, type2}
 
-    tags1 = _norm_set(bead1, "tags", "topics", "entities", "entity_ids")
-    tags2 = _norm_set(bead2, "tags", "topics", "entities", "entity_ids")
-    key1 = _norm_set(bead1, "incident_keys", "decision_keys", "goal_keys", "action_keys", "outcome_keys", "time_keys")
-    key2 = _norm_set(bead2, "incident_keys", "decision_keys", "goal_keys", "action_keys", "outcome_keys", "time_keys")
+    tags1 = _norm_set(bead1, "tags", "entities", "entity_ids")
+    tags2 = _norm_set(bead2, "tags", "entities", "entity_ids")
     shared_tags = tags1.intersection(tags2)
-    shared_keys = key1.intersection(key2)
+    shared_keys = shared_tags
 
     session_cross = str(bead1.get("session_id") or "") != str(bead2.get("session_id") or "")
     scope_cross = str(bead1.get("scope") or "") != str(bead2.get("scope") or "")
@@ -244,7 +242,9 @@ def _structural_signal_pack(bead1: dict, bead2: dict) -> tuple[float, list[dict[
             detail="shared structure across different sessions",
         )
 
-    if session_cross and bool(_norm_set(bead1, "incident_keys").intersection(_norm_set(bead2, "incident_keys"))):
+    iid1 = str(bead1.get("incident_id") or "")
+    iid2 = str(bead2.get("incident_id") or "")
+    if session_cross and iid1 and iid1 == iid2:
         _add_signal(signals, name="repeated_incident", weight=0.16, detail="incident recurrence across sessions")
 
     if scope_cross and (shared_keys or shared_tags):

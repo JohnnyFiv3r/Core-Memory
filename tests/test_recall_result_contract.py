@@ -99,7 +99,7 @@ class TestRecallResultContract(unittest.TestCase):
                     "bead_id": "b1",
                     "type": "decision",
                     "title": "Use pgvector",
-                    "retrieval_facts": ["pgvector was chosen for deploy parity"],
+                    "supporting_facts": ["pgvector was chosen for deploy parity"],
                     "semantic_score": 0.83,
                     "anchor_reason": "retrieved",
                     "source_turn_ids": ["t1", "t2"],

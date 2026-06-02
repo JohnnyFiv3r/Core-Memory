@@ -14,15 +14,11 @@ turn contains memory-worthy semantic content. Core Memory owns structural fields
 (ids, timestamps, source refs, persistence, indexing); the agent/adapter owns the
 meaning-bearing fields.
 
-Required semantic fields for a rich/retrieval-eligible bead:
+Required semantic fields:
 - type: decision|goal|lesson|outcome|evidence|context|precedent|design_principle|reflection|correction|reversal
 - title: short factual title, not a raw transcript prefix
 - summary: 1-3 concise factual bullets
-- retrieval_eligible: true only for durable memory worth indexing; false for thin beads
-- retrieval_title: search-optimized title, required when retrieval_eligible=true
-- retrieval_facts: concrete durable facts useful for later recall, required when retrieval_eligible=true
 - entities: named people/projects/places/terms grounded in the turn
-- topics: normalized topical labels grounded in the turn
 
 Optional but encouraged fields:
 - detail
@@ -33,10 +29,9 @@ Optional but encouraged fields:
 - associations to visible prior beads when justified by evidence
 
 Quality rules:
+- Every bead is indexed. Write entities and supporting_facts for durable recall.
 - Do not invent facts, evidence refs, dates, or associations.
-- Prefer a thin non-retrieval bead over inflated weak memory.
-- Set retrieval_eligible=true only when retrieval_title and retrieval_facts are useful.
-- For thin beads, make retrieval_eligible=false and keep retrieval fields empty.
+- For thin turns, keep semantic fields minimal but still author title and summary.
 """
 
 

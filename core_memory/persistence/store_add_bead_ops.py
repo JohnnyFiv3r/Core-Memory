@@ -12,6 +12,19 @@ from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.runtime.session.session_surface import read_session_surface
 
 
+def _find_last_session_bead(index: dict, session_id: str) -> str | None:
+    """Return the bead_id of the most-recently created bead in the session, or None."""
+    candidates = [
+        (str((b or {}).get("created_at") or ""), str(bid))
+        for bid, b in (index.get("beads") or {}).items()
+        if str((b or {}).get("session_id") or "") == str(session_id)
+    ]
+    if not candidates:
+        return None
+    candidates.sort(reverse=True)
+    return candidates[0][1]
+
+
 def add_bead_for_store(
     store: Any,
     *,
@@ -24,7 +37,6 @@ def add_bead_for_store(
     session_id: Optional[str] = None,
     scope: str = "project",
     tags: Optional[list] = None,
-    links: Optional[dict] = None,
     **kwargs,
 ) -> str:
     from core_memory.schema.models import BeadType, Scope
@@ -56,10 +68,8 @@ def add_bead_for_store(
         "source_turn_ids": source_turn_ids or [],
         "detail": detail,
         "scope": scope_value,
-        "authority": "agent_inferred",
         "confidence": 0.8,
         "tags": tags or [],
-        "links": store._normalize_links(links),
         "status": "open",
         "recall_count": 0,
         "last_recalled": None,
@@ -109,6 +119,11 @@ def add_bead_for_store(
         dup_id = store._find_recent_duplicate_bead_id(index, bead, session_id=resolved_session_id, window=dedup_window)
         if dup_id:
             return dup_id
+
+        if resolved_session_id and not bead.get("prev_bead_id"):
+            prev = _find_last_session_bead(index, resolved_session_id)
+            if prev:
+                bead["prev_bead_id"] = prev
 
         if resolved_session_id:
             bead_file = store.beads_dir / f"session-{resolved_session_id}.jsonl"
@@ -221,7 +236,6 @@ def _bead_payload(bead: dict) -> dict:
         "type": str(bead.get("type") or ""),
         "session_id": str(bead.get("session_id") or ""),
         "created_at": str(bead.get("created_at") or ""),
-        "retrieval_eligible": bool(bead.get("retrieval_eligible", True)),
         "status": str(bead.get("status") or "open"),
         "topics": [str(t) for t in (bead.get("tags") or [])],
         "entities": [str(e) for e in (bead.get("entities") or [])],
@@ -238,7 +252,7 @@ def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
     root_path = Path(root)
 
     from core_memory.retrieval.semantic_index import _configured_vector_backend, VECTOR_BACKEND_QDRANT
-    if _configured_vector_backend() == VECTOR_BACKEND_QDRANT and bead.get("retrieval_eligible", True):
+    if _configured_vector_backend() == VECTOR_BACKEND_QDRANT:
         try:
             from core_memory.retrieval.semantic_index import _create_external_backend, _paths
             import json

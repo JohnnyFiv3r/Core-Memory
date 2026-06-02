@@ -46,7 +46,6 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
     created_at = str(bead.get("created_at") or "").strip()
     because = bead.get("because") or []
     detail = (bead.get("detail") or "").strip()
-    links = bead.get("links") or []
 
     if not t:
         issues.append("missing:type")
@@ -82,7 +81,7 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
         result = str(bead.get("result") or "").strip().lower()
         if result not in {"resolved", "failed", "partial", "confirmed"}:
             issues.append("outcome:invalid_result")
-        linked = str(bead.get("linked_bead_id") or "").strip() or bool(links)
+        linked = str(bead.get("linked_bead_id") or "").strip()
         if not (linked or has_ev):
             issues.append("outcome:need_link_or_evidence")
     elif t == "evidence":

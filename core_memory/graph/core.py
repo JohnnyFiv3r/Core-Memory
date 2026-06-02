@@ -956,7 +956,7 @@ def causal_traverse(
 
                 stack.append((dst, p2, depth + 1, s2, gains + [step], coh_hist2, low_gain_hits2, neg_coh_hits2, pending_single2))
 
-    for a in anchor_ids:
+    for a in anchor_ids[:8]:
         expand_from(str(a), [])
 
     def grounded(c):
@@ -968,7 +968,7 @@ def causal_traverse(
     # semantic expansion only if insufficient grounding
     if not grounded_chains and semantic_expansion_hops > 0:
         sem_anchors = []
-        for a in anchor_ids:
+        for a in anchor_ids[:8]:
             for eid in sem_adj.get(str(a), []):
                 e = edge_head.get(eid) or {}
                 if float(e.get("w") or 0.0) < semantic_w_min:
