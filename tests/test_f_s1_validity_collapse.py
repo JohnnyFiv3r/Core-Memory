@@ -22,7 +22,8 @@ class TestStatusEnumHasTransient(unittest.TestCase):
 
     def test_all_expected_values(self):
         values = {s.value for s in Status}
-        for expected in ["open", "candidate", "promoted", "compacted", "superseded", "archived", "transient"]:
+        # candidate and promoted are now boolean flags, not status values
+        for expected in ["open", "compacted", "superseded", "archived", "transient"]:
             self.assertIn(expected, values)
 
 
@@ -71,8 +72,7 @@ class TestValidityFieldDeprecated(unittest.TestCase):
             "validity": "transient",
         }
         out = _normalize_bead_payload(raw)
-        # Field is preserved for backward compat
-        self.assertEqual(out.get("validity"), "transient")
+        # validity field is removed from output after migration (migration complete)
         # Status should be set via migration
         self.assertEqual(out["status"], "transient")
 

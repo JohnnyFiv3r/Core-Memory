@@ -31,6 +31,8 @@ def _admit(bead: dict[str, Any], include_system: bool = False) -> bool:
         return False
     if status not in VISIBLE_STATUSES:
         return False
+    # Canonical retrieval keeps visible statuses searchable immediately.
+    # retrieval_eligible remains advisory for future stricter gating phases.
     if not include_system and _is_system_row(bead):
         return False
     return True

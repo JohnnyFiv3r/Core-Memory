@@ -39,7 +39,9 @@ from .schema.models import (
     BeadType,
     Scope,
     Status,
+    Authority,
     RelationshipType,
+    ImpactLevel,
     Association,
     Event,
 )
@@ -86,7 +88,9 @@ __all__ = [
     "BeadType",
     "Scope",
     "Status",
+    "Authority",
     "RelationshipType",
+    "ImpactLevel",
     "Association",
     "Event",
 ]

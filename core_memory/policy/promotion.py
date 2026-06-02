@@ -9,6 +9,8 @@ import math
 from datetime import datetime, timezone
 from typing import Optional
 
+from core_memory.policy.promotion_contract import current_promotion_state
+
 # Type-prior scores for promotion
 BEAD_TYPE_PRIORS = {
     "design_principle": 0.72,
@@ -18,6 +20,11 @@ BEAD_TYPE_PRIORS = {
     "outcome": 0.6,
     "evidence": 0.58,
     "goal": 0.56,
+    "reflection": 0.58,
+    "hypothesis": 0.55,
+    "data_insight": 0.55,
+    "blocked": 0.50,
+    "incident": 0.65,
     "context": 0.35,
     "checkpoint": 0.35,
 }
@@ -166,7 +173,7 @@ def compute_adaptive_threshold(index: dict) -> float:
     if not beads:
         return DEFAULT_THRESHOLD
     
-    promoted = sum(1 for b in beads if str(b.get("status") or "") == "promoted")
+    promoted = sum(1 for b in beads if bool(b.get("promoted")) or str(b.get("status") or "") == "promoted")
     ratio = promoted / max(1, len(beads))
     
     thr = DEFAULT_THRESHOLD
@@ -217,7 +224,8 @@ def get_recommendation_rows(
 
     rows = []
     for bead in beads:
-        if str(bead.get("status") or "") != "candidate":
+        pstate = current_promotion_state(bead)
+        if pstate not in {"candidate", "null"}:
             continue
         
         score, factors = compute_promotion_score(index, bead)
@@ -280,6 +288,10 @@ TYPE_DURABILITY_MULTIPLIERS: dict[str, float] = {
     "evidence": 1.5,
     "goal": 1.5,
     "reflection": 1.5,
+    "hypothesis": 1.5,
+    "data_insight": 1.5,
+    "incident": 2.0,
+    "blocked": 1.0,
     "context": 1.0,
     "checkpoint": 1.0,
 }

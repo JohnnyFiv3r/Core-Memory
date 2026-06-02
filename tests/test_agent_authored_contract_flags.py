@@ -47,11 +47,11 @@ class TestAgentAuthoredContractSlice0(unittest.TestCase):
 
         bead_required = set(snap.get("required_bead_fields") or [])
         self.assertTrue({"type", "title", "summary", "entities"}.issubset(bead_required))
+        # Stale retrieval gate fields must not appear in required fields
         self.assertNotIn("retrieval_eligible", bead_required)
-        self.assertNotIn("retrieval_title", bead_required)
-        self.assertNotIn("retrieval_facts", bead_required)
         self.assertNotIn("topics", bead_required)
-        self.assertNotIn("agent_retrieval_fields_missing", errs)
+        self.assertNotIn("retrieval_facts", bead_required)
+        self.assertIsNone(snap.get("retrieval_fields_required_when_retrieval_eligible"))
         self.assertIn("agent_causal_rationale_missing", errs)
         self.assertIn("decision", snap.get("causal_types_require_because") or [])
         self.assertEqual("list[str]", snap.get("summary_shape"))

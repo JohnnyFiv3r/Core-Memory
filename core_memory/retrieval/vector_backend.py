@@ -99,12 +99,41 @@ class QdrantBackend:
         # creates a fastembed-configured collection — pre-creating with VectorParams
         # would produce an incompatible collection type.
         if int(dimensions) > 0:
+            expected_dim = int(dimensions)
             collections = [c.name for c in self._client.get_collections().collections]
-            if collection_name not in collections:
+            collection_exists = collection_name in collections
+            if collection_exists:
+                existing_dim = self._collection_vector_size(collection_name)
+                # Qdrant collections have fixed vector params. If this collection
+                # was created by FastEmbed/client.add(), or by a different external
+                # model dimension, recreate it before upserting provider vectors so
+                # mode/model switches do not fail until a manual collection drop.
+                if existing_dim != expected_dim:
+                    logger.warning(
+                        "core-memory: recreating incompatible Qdrant collection %s (existing_dim=%s, expected_dim=%s)",
+                        collection_name,
+                        existing_dim,
+                        expected_dim,
+                    )
+                    self._client.delete_collection(collection_name=collection_name)
+                    collection_exists = False
+            if not collection_exists:
                 self._client.create_collection(
                     collection_name=collection_name,
-                    vectors_config=VectorParams(size=int(dimensions), distance=Distance.COSINE),
+                    vectors_config=VectorParams(size=expected_dim, distance=Distance.COSINE),
                 )
+
+    def _collection_vector_size(self, collection_name: str) -> int | None:
+        try:
+            info = self._client.get_collection(collection_name)
+            vectors = getattr(getattr(getattr(info, "config", None), "params", None), "vectors", None)
+            if isinstance(vectors, dict):
+                sizes = [int(getattr(v, "size", 0) or 0) for v in vectors.values()]
+                return sizes[0] if len(sizes) == 1 and sizes[0] > 0 else None
+            size = int(getattr(vectors, "size", 0) or 0)
+            return size if size > 0 else None
+        except Exception:
+            return None
 
     def upsert(self, bead_id: str, embedding: list[float], metadata: dict[str, Any]) -> None:
         from qdrant_client.models import PointStruct
@@ -144,6 +173,8 @@ class QdrantBackend:
                 conditions.append(FieldCondition(key="status", match=MatchValue(value=filters["status"])))
             if "session_id" in filters:
                 conditions.append(FieldCondition(key="session_id", match=MatchValue(value=filters["session_id"])))
+            if "retrieval_eligible" in filters:
+                conditions.append(FieldCondition(key="retrieval_eligible", match=MatchValue(value=bool(filters["retrieval_eligible"]))))
             if "created_after" in filters:
                 conditions.append(FieldCondition(key="created_at", range=Range(gte=filters["created_after"])))
             if "created_before" in filters:

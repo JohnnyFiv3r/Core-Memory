@@ -18,7 +18,7 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
-from core_memory.policy.hygiene import enforce_bead_hygiene_contract, rewrite_generic_title
+from core_memory.policy.hygiene import enforce_bead_hygiene_contract, can_be_retrieval_eligible, rewrite_generic_title
 
 
 def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -141,17 +141,6 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
             summary = []
         summary = [str(x).strip() for x in summary if str(x).strip()][:5]
 
-        # Fold legacy topics into entities (schema migration: topics removed in Phase 1).
-        raw_entities = [str(x) for x in (r.get("entities") or []) if str(x)]
-        raw_topics = [str(x) for x in (r.get("topics") or []) if str(x)]
-        seen_e: set[str] = set()
-        merged_entities: list[str] = []
-        for e in raw_entities + raw_topics:
-            key = e.lower()
-            if key not in seen_e:
-                seen_e.add(key)
-                merged_entities.append(e)
-
         row = {
             "type": typ,
             "title": title,
@@ -163,7 +152,11 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
             "session_id": str(r.get("session_id") or "") or None,
             "turn_index": r.get("turn_index"),
             "prev_bead_id": str(r.get("prev_bead_id") or "") or None,
-            "entities": merged_entities[:20],
+            "retrieval_eligible": bool(r.get("retrieval_eligible", False)),
+            "retrieval_title": str(r.get("retrieval_title") or "")[:200] or None,
+            "retrieval_facts": [str(x) for x in (r.get("retrieval_facts") or []) if str(x)][:12],
+            "entities": [str(x) for x in (r.get("entities") or []) if str(x)][:20],
+            "topics": [str(x) for x in (r.get("topics") or []) if str(x)][:20],
             "validity": str(r.get("validity") or "")[:40] or None,
             "because": [str(x) for x in (r.get("because") or []) if str(x)][:8],
             "supporting_facts": [str(x) for x in (r.get("supporting_facts") or []) if str(x)][:12],
@@ -175,6 +168,10 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
             "supersedes": [str(x) for x in (r.get("supersedes") or []) if str(x)][:8],
             "superseded_by": [str(x) for x in (r.get("superseded_by") or []) if str(x)][:8],
         }
+
+        # Retrieval eligibility is payload-gated; downgrade rather than reject row.
+        if row.get("retrieval_eligible") and not can_be_retrieval_eligible(row):
+            row["retrieval_eligible"] = False
 
         row = enforce_bead_hygiene_contract(row)
 
@@ -199,7 +196,7 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
         "visible_bead_ids": visible_set,
         "writing_contract": [
             "A bead is the canonical record for a turn; every turn must produce one bead.",
-            "Every bead is indexed and retrievable; quality is handled at ranking time, not at write time.",
+            "Thin beads preserve temporal continuity; rich beads carry structured retrieval payload.",
             "Summary is optional; do not invent prose when structured fields are stronger.",
             "Initial write requires temporal grounding only (session/turn order/prev bead).",
             "Every non-initial turn should preserve temporal baseline continuity with at least one temporal association such as follows/precedes to the immediately adjacent session bead when that adjacency is visible.",
@@ -211,8 +208,12 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "Prefer specific semantic links like supports, refines, caused_by, enables, diagnoses, resolves, supersedes, or contradicts over generic or purely temporal links when the turn meaningfully updates prior memory.",
             "If no non-temporal semantic link is strongly or highly plausibly supported, omit it rather than fabricating one.",
         ],
+        "retrieval_contract": [
+            "retrieval_eligible=true requires structured payload (retrieval_title + retrieval_facts + quality signals).",
+            "If payload is weak, downgrade to retrieval_eligible=false rather than failing creation.",
+        ],
         "allowed_updates": {
-            "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,entities?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
+            "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,retrieval_eligible?,retrieval_title?,retrieval_facts?,entities?,topics?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
             "reviewed_beads": "list[{bead_id,promotion_state,reason?,associations?}]",
             "associations": "list[{source_bead_id,target_bead_id,relationship,reason_text,confidence,provenance?,reason_code?,evidence_fields?,relationship_raw?,rationale?}]",
         },
@@ -492,6 +493,68 @@ def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any
     return out
 
 
+_TEMPORAL_RELATIONS = {"follows", "precedes"}
+
+
+def _maybe_upgrade_context_to_reflection(*, root: Any, session_id: str, associations: list[dict], store: Any = None) -> None:
+    """Upgrade context beads to reflection when ≥1 backward non-temporal causal edge lands."""
+    if not associations:
+        return
+    from pathlib import Path
+    from core_memory.persistence.io_utils import atomic_write_json
+
+    root_path = Path(root)
+    index_file = root_path / ".beads" / "index.json"
+    if not index_file.exists():
+        return
+
+    candidates: dict[str, int] = {}  # bead_id -> causal edge count
+    for assoc in associations:
+        rel = str(assoc.get("relationship") or "").strip().lower()
+        if rel in _TEMPORAL_RELATIONS:
+            continue
+        target = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "").strip()
+        if target:
+            candidates[target] = candidates.get(target, 0) + 1
+
+    if not candidates:
+        return
+
+    with store_lock(root_path):
+        import json as _json
+        from datetime import datetime, timezone as _tz
+        try:
+            index = _json.loads(index_file.read_text(encoding="utf-8"))
+        except Exception:
+            return
+        beads = index.get("beads") or {}
+        changed = False
+        now_iso = datetime.now(_tz.utc).isoformat()
+        for bead_id, edge_count in candidates.items():
+            bead = beads.get(bead_id)
+            if not isinstance(bead, dict):
+                continue
+            if str(bead.get("type") or "") != "context":
+                continue
+            # Upgrade to reflection
+            bead["type"] = "reflection"
+            if not bead.get("reflection_type"):
+                bead["reflection_type"] = "meta_analysis"
+            tlog = list(bead.get("type_log") or [])
+            tlog.append({
+                "type": "reflection",
+                "set_at": now_iso,
+                "reason": "causal_crawler",
+                "edge_count": edge_count,
+            })
+            bead["type_log"] = tlog
+            beads[bead_id] = bead
+            changed = True
+        if changed:
+            index["beads"] = beads
+            atomic_write_json(index_file, index)
+
+
 def apply_crawler_updates(
     root: str,
     session_id: str,
@@ -522,7 +585,11 @@ def apply_crawler_updates(
                 source_turn_ref=row.get("source_turn_ref"),
                 tags=list(row.get("tags") or []),
                 detail=str(row.get("detail") or "") or None,
+                retrieval_eligible=bool(row.get("retrieval_eligible", False)),
+                retrieval_title=row.get("retrieval_title"),
+                retrieval_facts=list(row.get("retrieval_facts") or []),
                 entities=list(row.get("entities") or []),
+                topics=list(row.get("topics") or []),
                 validity=row.get("validity"),
                 because=list(row.get("because") or []),
                 supporting_facts=list(row.get("supporting_facts") or []),
@@ -609,6 +676,7 @@ def apply_crawler_updates(
             promoted += 1
 
         appended = 0
+        accepted_assocs: list[dict] = []
         lifecycle_queued = 0
         lifecycle_rejected = 0
         for row in assoc_rows:
@@ -710,6 +778,7 @@ def apply_crawler_updates(
             )
             queued_assoc_keys.add(dedupe_key)
             appended += 1
+            accepted_assocs.append({"target_bead": tgt, "source_bead": src, "relationship": rel_n})
 
         for row in lifecycle_rows:
             aid = str(row.get("association_id") or "").strip()
@@ -772,6 +841,15 @@ def apply_crawler_updates(
                 },
             )
             lifecycle_queued += 1
+
+    # Type upgrade pass: context → reflection when causal backward edges land.
+    # Use only associations that were actually accepted and appended — not the raw
+    # input which may include quarantined, rejected, or de-duped rows.
+    _maybe_upgrade_context_to_reflection(
+        root=root,
+        session_id=session_id,
+        associations=accepted_assocs,
+    )
 
     return {
         "ok": True,

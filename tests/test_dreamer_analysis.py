@@ -102,7 +102,7 @@ class TestDreamerAnalysisSlice62A(unittest.TestCase):
     def test_failure_recovery_signal_present(self):
         b1 = {
             "id": "b1",
-            "type": "failed_hypothesis",
+            "type": "hypothesis",
             "session_id": "s1",
             "summary": ["this assumption failed badly"],
         }

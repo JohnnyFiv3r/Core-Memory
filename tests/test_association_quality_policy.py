@@ -38,6 +38,7 @@ class TestAssociationQualityPolicySlice4(unittest.TestCase):
             self.assertEqual(0, queued)
 
     def test_preview_promotion_preserves_canonical_reason_metadata(self):
+        # association_preview has been removed; _queue_preview_associations always returns 0.
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
@@ -51,12 +52,7 @@ class TestAssociationQualityPolicySlice4(unittest.TestCase):
             b2 = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"], tags=["tag-a"])
 
             queued = _queue_preview_associations(td, "s1", [b1, b2])
-            self.assertEqual(1, queued)
-            rows = [json.loads(line) for line in _crawler_updates_log_path(td, "s1").read_text(encoding="utf-8").splitlines() if line.strip()]
-            assoc = [r for r in rows if r.get("kind") == "association_append"][0]
-            self.assertEqual("associated_with", assoc.get("relationship"))
-            self.assertEqual("shared_tag_overlap", assoc.get("reason_code"))
-            self.assertNotEqual("shared_tag", assoc.get("relationship"))
+            self.assertEqual(0, queued)
 
     def test_non_temporal_semantic_count_excludes_generic_but_counts_causal(self):
         out = _non_temporal_semantic_association_count(

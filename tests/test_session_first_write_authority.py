@@ -6,6 +6,8 @@ from core_memory.persistence.store import MemoryStore
 
 class TestSessionFirstWriteAuthority(unittest.TestCase):
     def test_association_pass_uses_session_surface_not_only_index(self):
+        # association_preview has been removed; beads are written without it.
+        # This test now verifies that b2 is successfully written and prev_bead_id is set.
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             b1 = s.add_bead(
@@ -32,8 +34,10 @@ class TestSessionFirstWriteAuthority(unittest.TestCase):
             )
 
             idx2 = s._read_json(s.beads_dir / "index.json")
-            preview = (idx2.get("beads", {}).get(b2) or {}).get("association_preview") or []
-            self.assertGreaterEqual(len(preview), 1)
+            bead2 = (idx2.get("beads", {}).get(b2) or {})
+            # association_preview is removed — verify bead was written successfully
+            self.assertTrue(bool(bead2.get("id")))
+            self.assertNotIn("association_preview", bead2)
 
 
 if __name__ == "__main__":

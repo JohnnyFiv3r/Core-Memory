@@ -38,7 +38,7 @@ def compact_for_store(
 
             bead_status = str(bead.get("status") or "").lower()
             bead_pstate = str(bead.get("promotion_state") or "").lower()
-            is_promoted = bead_pstate == "promoted" or bead_status == "promoted"
+            is_promoted = bool(bead.get("promoted")) or bead_pstate == "promoted" or bead_status == "promoted"
 
             if promote and store.auto_promote_on_compact and not is_promoted:
                 btype = str(bead.get("type") or "").lower()
@@ -48,7 +48,7 @@ def compact_for_store(
                 has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
                 allow_promote = False
                 score_meta = None
-                if bead_pstate == "candidate" or bead_status == "candidate":
+                if bead_pstate == "candidate" or bead_status == "candidate" or bool(bead.get("promotion_candidate")):
                     quality_gate = False
                     if btype == "decision":
                         quality_gate = bool(because and (has_evidence or detail_now or has_link))
@@ -61,14 +61,16 @@ def compact_for_store(
                         )
                     elif btype == "precedent":
                         quality_gate = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
-                    elif btype in {"evidence", "design_principle", "failed_hypothesis"}:
+                    elif btype in {"evidence", "design_principle", "hypothesis", "data_insight"}:
                         quality_gate = bool(has_evidence or detail_now or has_link)
 
                     if quality_gate:
                         allow_promote, score_meta = store._candidate_promotable(index, bead)
 
                 if allow_promote:
-                    bead["status"] = "promoted"
+                    bead["promoted"] = True
+                    bead["promotion_candidate"] = True  # was candidate before
+                    bead["status"] = "open"  # status no longer encodes promotion
                     bead["promotion_state"] = "promoted"
                     bead["promotion_locked"] = True
                     bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
@@ -85,9 +87,9 @@ def compact_for_store(
             bead_status = str(bead.get("status", "")).lower()
             bead_pstate = str(bead.get("promotion_state") or "").lower()
             is_session_boundary = bead_type in {"session_start", "session_end"}
-            is_promoted = bead_pstate == "promoted" or bead_status == "promoted"
+            is_promoted = bool(bead.get("promoted")) or bead_pstate == "promoted" or bead_status == "promoted"
 
-            if (not force_archive_all) and (bead_pstate == "candidate" or bead_status == "candidate"):
+            if (not force_archive_all) and (bool(bead.get("promotion_candidate")) or bead_pstate == "candidate" or bead_status == "candidate"):
                 index["beads"][bead_id] = bead
                 continue
 
