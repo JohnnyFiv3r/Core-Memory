@@ -22,6 +22,7 @@ class TestSemanticRequiredModeProviderRegression(unittest.TestCase):
                      "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "required",
                      "CORE_MEMORY_EMBEDDINGS_PROVIDER": "openai",
                      "CORE_MEMORY_EMBEDDINGS_MODEL": "text-embedding-3-small",
+                     "CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS": "1",
                  }, clear=False):
                 out = build_semantic_index(root)
 
