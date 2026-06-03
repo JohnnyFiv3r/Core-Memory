@@ -109,7 +109,7 @@ def _create_external_backend(*, root: Path, backend: str, dimension: int):
             collection_name=collection,
             url=url,
             path=None if url else path,
-            dimensions=int(max(1, dimension)),
+            dimensions=int(max(0, dimension)),
         )
     if backend == VECTOR_BACKEND_PGVECTOR:
         table_name = str(os.environ.get("CORE_MEMORY_PGVECTOR_TABLE") or collection).replace("-", "_")
