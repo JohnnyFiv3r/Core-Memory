@@ -61,6 +61,30 @@ class TestReqJudgeDirective(unittest.TestCase):
         self.assertEqual("heuristic", kwargs.get("mode"))
         self.assertIn("Alice", out.get("entities") or [])
 
+    def test_judged_turn_bead_forwards_req_mode_to_judge(self):
+        # _judged_turn_bead must forward _req_judge_directive(req) so that a
+        # per-request directive isn't silently discarded in favour of the process-
+        # global CORE_MEMORY_BEAD_FIELD_JUDGE_MODE env var.
+        req = {
+            "_bead_judge": "heuristic",
+            "turn_id": "t1",
+            "user_query": "q",
+            "assistant_final": "a",
+        }
+        with patch("core_memory.runtime.engine.judge_bead_fields", return_value={
+            "type": "context", "title": "T", "summary": ["S"], "entities": [],
+            "topics": [], "because": [], "supporting_facts": [], "evidence_refs": [],
+            "state_change": "", "validity": "", "retrieval_eligible": True,
+            "effective_from": "", "effective_to": "", "observed_at": "",
+            "judge": {"mode": "heuristic"},
+        }) as mock_judge, \
+             patch.dict("os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm"}, clear=False):
+            from core_memory.runtime.engine import _judged_turn_bead
+            _judged_turn_bead(req)
+        mock_judge.assert_called_once()
+        _, kwargs = mock_judge.call_args
+        self.assertEqual("heuristic", kwargs.get("mode"))
+
     def test_judge_bead_fields_mode_kwarg_overrides_env(self):
         with patch("core_memory.policy.bead_judge._llm_judge_provider_neutral", return_value=None), \
              patch("core_memory.policy.bead_judge._llm_judge_anthropic", return_value=None), \
