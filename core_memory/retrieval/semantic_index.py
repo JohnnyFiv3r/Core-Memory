@@ -1523,7 +1523,9 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
             manifest_provider = str(manifest.get("provider") or req_provider)
             if backend_n == VECTOR_BACKEND_QDRANT and manifest_provider == "fastembed":
                 # FastEmbed index: use Qdrant's native query_text path — no external API key required.
-                vb = _create_external_backend(root=root, backend=backend_n, dimension=1)
+                # dimension=0 preserves the FastEmbed sentinel so QdrantBackend skips VectorParams
+                # and does not recreate (or wipe) the existing FastEmbed collection.
+                vb = _create_external_backend(root=root, backend=backend_n, dimension=0)
                 raw = vb.hybrid_search(query, k=max(1, int(k)))
             else:
                 qv = _embed_vectors(

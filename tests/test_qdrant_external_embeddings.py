@@ -103,9 +103,12 @@ def test_qdrant_backend_recreates_incompatible_existing_collection(monkeypatch):
 
 def test_query_path_fastembed_manifest_uses_hybrid_search(tmp_path: Path):
     # Manifest provider=fastembed -> native hybrid_search (query_text).
+    # dimension=0 (FastEmbed sentinel) must be forwarded so QdrantBackend skips
+    # VectorParams creation and does not delete/recreate the existing collection.
     beads = tmp_path / ".beads" / "semantic"
     beads.mkdir(parents=True)
     calls = {"hybrid": 0, "search": 0}
+    captured_dim = {}
 
     class FakeBackend:
         def hybrid_search(self, query, k, filters):
@@ -116,13 +119,20 @@ def test_query_path_fastembed_manifest_uses_hybrid_search(tmp_path: Path):
             calls["search"] += 1
             return []
 
+    def fake_create_external_backend(*, root, backend, dimension):
+        captured_dim["dimension"] = dimension
+        return FakeBackend()
+
     with patch("core_memory.retrieval.semantic_index._paths", return_value=(beads / "manifest.json",)), \
-         patch("core_memory.retrieval.semantic_index._create_external_backend", return_value=FakeBackend()):
-        (beads / "manifest.json").write_text(json.dumps({"provider": "fastembed", "dimension": 384}), encoding="utf-8")
+         patch("core_memory.retrieval.semantic_index._create_external_backend", side_effect=fake_create_external_backend):
+        (beads / "manifest.json").write_text(json.dumps({"provider": "fastembed", "dimension": 1}), encoding="utf-8")
         rows = hybrid._qdrant_hybrid_rows(tmp_path, "when did melanie paint", k=8)
 
     assert calls == {"hybrid": 1, "search": 0}
     assert rows and rows[0]["bead_id"] == "b1"
+    # Sentinel must be 0 — not the manifest's dim=1 — so the FastEmbed collection
+    # is never wiped by a VectorParams(size=1) recreation.
+    assert captured_dim["dimension"] == 0, f"expected dimension=0, got {captured_dim['dimension']}"
 
 
 def test_query_path_external_manifest_embeds_query_and_vector_searches(tmp_path: Path):
