@@ -18,7 +18,7 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
-from core_memory.policy.hygiene import enforce_bead_hygiene_contract, can_be_retrieval_eligible, rewrite_generic_title
+from core_memory.policy.hygiene import enforce_bead_hygiene_contract, rewrite_generic_title
 
 
 def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -153,8 +153,6 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
             "turn_index": r.get("turn_index"),
             "prev_bead_id": str(r.get("prev_bead_id") or "") or None,
             "retrieval_eligible": bool(r.get("retrieval_eligible", False)),
-            "retrieval_title": str(r.get("retrieval_title") or "")[:200] or None,
-            "retrieval_facts": [str(x) for x in (r.get("retrieval_facts") or []) if str(x)][:12],
             "entities": [str(x) for x in (r.get("entities") or []) if str(x)][:20],
             "topics": [str(x) for x in (r.get("topics") or []) if str(x)][:20],
             "validity": str(r.get("validity") or "")[:40] or None,
@@ -168,10 +166,6 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
             "supersedes": [str(x) for x in (r.get("supersedes") or []) if str(x)][:8],
             "superseded_by": [str(x) for x in (r.get("superseded_by") or []) if str(x)][:8],
         }
-
-        # Retrieval eligibility is payload-gated; downgrade rather than reject row.
-        if row.get("retrieval_eligible") and not can_be_retrieval_eligible(row):
-            row["retrieval_eligible"] = False
 
         row = enforce_bead_hygiene_contract(row)
 
@@ -209,11 +203,10 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "If no non-temporal semantic link is strongly or highly plausibly supported, omit it rather than fabricating one.",
         ],
         "retrieval_contract": [
-            "retrieval_eligible=true requires structured payload (retrieval_title + retrieval_facts + quality signals).",
-            "If payload is weak, downgrade to retrieval_eligible=false rather than failing creation.",
+            "retrieval_eligible=true is set automatically when type is canonical and title is non-generic.",
         ],
         "allowed_updates": {
-            "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,retrieval_eligible?,retrieval_title?,retrieval_facts?,entities?,topics?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
+            "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,retrieval_eligible?,entities?,topics?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
             "reviewed_beads": "list[{bead_id,promotion_state,reason?,associations?}]",
             "associations": "list[{source_bead_id,target_bead_id,relationship,reason_text,confidence,provenance?,reason_code?,evidence_fields?,relationship_raw?,rationale?}]",
         },
@@ -586,8 +579,6 @@ def apply_crawler_updates(
                 tags=list(row.get("tags") or []),
                 detail=str(row.get("detail") or "") or None,
                 retrieval_eligible=bool(row.get("retrieval_eligible", False)),
-                retrieval_title=row.get("retrieval_title"),
-                retrieval_facts=list(row.get("retrieval_facts") or []),
                 entities=list(row.get("entities") or []),
                 topics=list(row.get("topics") or []),
                 validity=row.get("validity"),

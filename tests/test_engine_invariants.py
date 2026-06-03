@@ -73,8 +73,6 @@ class TestEngineStructuralInvariantsPhase3B(unittest.TestCase):
         self.assertEqual("context", out.get("type"))
         self.assertEqual("Agent title", out.get("title"))
         self.assertEqual(["Agent summary"], out.get("summary"))
-        self.assertEqual("Judge retrieval", out.get("retrieval_title"))
-        self.assertEqual(["Judge fact"], out.get("retrieval_facts"))
         self.assertEqual(["Redis"], out.get("entities"))
         self.assertIn("llm_judged", out.get("tags") or [])
 

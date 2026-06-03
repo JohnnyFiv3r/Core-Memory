@@ -54,8 +54,6 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual("decision_recorded", out["state_change"])
         self.assertEqual("current", out["validity"])
         self.assertTrue(out["retrieval_eligible"])
-        self.assertEqual("Redis cache invalidation decision", out["retrieval_title"])
-        self.assertEqual(["Redis is the selected coordination point for cache invalidation."], out["retrieval_facts"])
         self.assertEqual({"mode": "llm"}, out["judge"])
 
     def test_heuristic_fallback_authors_retrievable_durable_fields(self):
@@ -66,8 +64,8 @@ class TestBeadFieldJudge(unittest.TestCase):
         ):
             out = judge_bead_fields("Remember Alice adopted Pixel.", "Recorded Alice adopted Pixel.")
         self.assertTrue(out.get("retrieval_eligible"))
-        self.assertTrue(out.get("retrieval_title"))
-        self.assertTrue(out.get("retrieval_facts"))
+        self.assertTrue(out.get("title"))
+        self.assertTrue(out.get("summary"))
         self.assertEqual("heuristic", (out.get("judge") or {}).get("mode"))
         self.assertEqual("heuristic", (out.get("judge") or {}).get("retrieval_authored_by"))
 
@@ -136,8 +134,6 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual(["Redis"], bead.get("entities"))
         self.assertEqual(["cache"], bead.get("topics"))
         self.assertTrue(bead.get("retrieval_eligible"))
-        self.assertEqual("Use Redis for cache invalidation", bead.get("retrieval_title"))
-        self.assertEqual(["Use Redis for cache invalidation."], bead.get("retrieval_facts"))
         self.assertIn("llm_judged", bead.get("tags") or [])
 
     def test_locomo_replay_preserves_request_scoped_crawler_fields_without_llm_judge(self):
@@ -194,7 +190,6 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual("Alice adopted a rescue dog named Pixel.", bead.get("title"))
         self.assertEqual(["Alice adopted Pixel."], bead.get("summary"))
         self.assertEqual(["Alice", "Pixel"], bead.get("entities"))
-        self.assertEqual("Alice adopted Pixel", bead.get("retrieval_title"))
         self.assertIn("locomo_replay", bead.get("tags") or [])
         self.assertNotIn("llm_judged", bead.get("tags") or [])
 
