@@ -37,7 +37,10 @@ Return JSON only with this shape:
   "retrieval_facts": ["search-optimized durable facts"],
   "effective_from": "ISO/date text only if stated or empty",
   "effective_to": "ISO/date text only if stated or empty",
-  "observed_at": "ISO/date text only if stated or empty"
+  "observed_at": "ISO/date text only if stated or empty",
+  "claims": [
+    {"claim_kind": "preference|identity|policy|commitment|condition|location|relationship|custom", "subject": "user or named entity", "slot": "specific attribute name", "value": "the claimed value", "reason_text": "brief evidence from the turn", "confidence": 0.0}
+  ]
 }
 
 Rules:
@@ -52,6 +55,7 @@ Rules:
 - Never invent evidence refs or dates. If no stable id/date appears, return []/empty.
 - `retrieval_eligible` should be true only for durable semantic memory worth later recall.
 - Keep arrays short and deduplicated.
+- `claims` captures durable user profile facts explicitly stated or clearly implied: preferences, identity, location, policies, commitments, conditions. Use "user" as subject for user-attributed facts. Each claim needs a distinct slot. Set confidence proportional to how directly the fact is stated (0.9+ explicit, 0.6–0.8 inferred). Omit `claims` or return [] if the turn contains none.
 
 USER: {user_query}
 ASSISTANT: {assistant_final}
@@ -140,6 +144,47 @@ def _heuristic_topics(*texts: str, limit: int = 8) -> list[str]:
     return out
 
 
+_ALLOWED_CLAIM_KINDS = {
+    "preference", "identity", "policy", "commitment",
+    "condition", "location", "relationship", "custom",
+}
+
+
+def _normalize_judged_claims(raw: Any) -> list[dict[str, Any]]:
+    """Validate and normalize LLM-produced claims to the canonical claim schema."""
+    import uuid
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("claim_kind") or "").strip().lower()
+        if kind not in _ALLOWED_CLAIM_KINDS:
+            kind = "custom"
+        subject = _clean_text(item.get("subject"), limit=120)
+        slot = _clean_text(item.get("slot"), limit=120)
+        value = _clean_text(item.get("value"), limit=200)
+        reason_text = _clean_text(item.get("reason_text"), limit=240)
+        if not subject or not slot or not value or not reason_text:
+            continue
+        try:
+            confidence = float(item.get("confidence") or 0.0)
+            confidence = round(max(0.0, min(1.0, confidence)), 4)
+        except (TypeError, ValueError):
+            confidence = 0.7
+        out.append({
+            "id": str(uuid.uuid4()),
+            "claim_kind": kind,
+            "subject": subject,
+            "slot": slot,
+            "value": value,
+            "reason_text": reason_text,
+            "confidence": confidence,
+        })
+    return out
+
+
 def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, Any]:
     uq = str(user_query or "").strip()
     af = str(assistant_final or "").strip()
@@ -165,6 +210,7 @@ def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[st
         "effective_from": "",
         "effective_to": "",
         "observed_at": "",
+        "claims": [],
         "judge": {"mode": "fallback", "retrieval_authored_by": "heuristic"},
     }
 
@@ -192,7 +238,7 @@ def _llm_judge_provider_neutral(user_query: str, assistant_final: str) -> dict[s
         text = chat_complete(
             _prompt_template().format(user_query=user_query, assistant_final=assistant_final),
             config=cfg,
-            max_tokens=700,
+            max_tokens=1100,
             temperature=0,
         )
         return _parse_json(text)
@@ -211,7 +257,7 @@ def _llm_judge_anthropic(user_query: str, assistant_final: str) -> dict[str, Any
         model = os.getenv("CORE_MEMORY_BEAD_FIELD_MODEL") or os.getenv("CORE_MEMORY_BECAUSE_MODEL") or os.getenv("CORE_MEMORY_BEAD_TYPE_MODEL") or "claude-haiku-4-5-20251001"
         resp = client.messages.create(
             model=model,
-            max_tokens=700,
+            max_tokens=1100,
             temperature=0,
             messages=[{"role": "user", "content": _prompt_template().format(user_query=user_query, assistant_final=assistant_final)}],
         )
@@ -232,7 +278,7 @@ def _llm_judge_openai(user_query: str, assistant_final: str) -> dict[str, Any] |
         resp = client.chat.completions.create(
             model=model,
             temperature=0,
-            max_tokens=700,
+            max_tokens=1100,
             messages=[{"role": "user", "content": _prompt_template().format(user_query=user_query, assistant_final=assistant_final)}],
         )
         return _parse_json(resp.choices[0].message.content or "")
@@ -289,6 +335,7 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
         "effective_from": _clean_text(obj.get("effective_from"), limit=80),
         "effective_to": _clean_text(obj.get("effective_to"), limit=80),
         "observed_at": _clean_text(obj.get("observed_at"), limit=80),
+        "claims": _normalize_judged_claims(obj.get("claims")),
         "judge": {"mode": mode},
     }
 

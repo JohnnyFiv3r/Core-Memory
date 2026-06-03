@@ -190,6 +190,7 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
 def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
     user_query, assistant_final = _turn_judge_inputs(req)
     judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
+    req["_judged_claims"] = list(judged.get("claims") or [])
     return {
         "type": str(judged.get("type") or "context"),
         "title": str(judged.get("title") or "Turn memory"),
