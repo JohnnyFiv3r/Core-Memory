@@ -54,10 +54,14 @@ def _qdrant_hybrid_rows(root: Path, retrieval_query: str, k: int) -> list[dict[s
             model = str(manifest.get("model") or "").strip()
         except Exception:
             pass
+        # FastEmbed collections have no fixed VectorParams — pass dimension=0 so
+        # QdrantBackend skips VectorParams creation and does not wipe the existing
+        # FastEmbed collection. External-embedding collections need the real dim.
+        qdrant_dim = 0 if provider == "fastembed" else dimension
         backend = _create_external_backend(
             root=root,
             backend=VECTOR_BACKEND_QDRANT,
-            dimension=dimension,
+            dimension=qdrant_dim,
         )
         if provider and provider != "fastembed":
             # External-embedding mode: embed the query with the same provider/model
