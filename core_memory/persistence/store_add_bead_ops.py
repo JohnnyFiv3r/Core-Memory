@@ -259,20 +259,30 @@ def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
     from core_memory.retrieval.semantic_index import _configured_vector_backend, VECTOR_BACKEND_QDRANT
     if _configured_vector_backend() == VECTOR_BACKEND_QDRANT and bead.get("retrieval_eligible", True):
         try:
-            from core_memory.retrieval.semantic_index import _create_external_backend, _paths
-            import json
-            manifest_file, *_ = _paths(root_path)
-            dimension = 1536
-            try:
-                manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-                dimension = int(manifest.get("dimension") or 1536)
-            except Exception:
-                pass
-            vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=dimension)
+            from core_memory.retrieval.semantic_index import (
+                _create_external_backend, _qdrant_external_embeddings_enabled,
+                _embed_vectors, _vector_rows, _vector_dim,
+                _auto_configure_embedding_provider_from_keys, _default_embedding_model,
+            )
             payload = _bead_payload(bead)
             text = _embed_text(bead)
             bead_id = str(bead.get("id") or "")
-            vec_backend.upsert_texts(bead_ids=[bead_id], texts=[text], metadatas=[payload])
+            if _qdrant_external_embeddings_enabled():
+                # External provider (e.g. OpenAI 3072-dim): embed with the same provider
+                # the batch build used so vector dimensions are compatible.
+                provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
+                model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(provider)).strip()
+                vecs = _embed_vectors(texts=[text], provider=provider, model=model, hash_dim=256)
+                dim = _vector_dim(vecs, fallback=256)
+                vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=dim)
+                embs = _vector_rows(vecs)
+                if embs:
+                    vec_backend.upsert(bead_id=bead_id, embedding=embs[0], metadata=payload)
+            else:
+                # FastEmbed mode: dimension=0 lets QdrantBackend skip VectorParams creation;
+                # upsert_texts uses client.add() which is FastEmbed-native.
+                vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=0)
+                vec_backend.upsert_texts(bead_ids=[bead_id], texts=[text], metadatas=[payload])
         except Exception as exc:
             _log.warning("qdrant upsert failed for bead %s: %s", bead.get("id"), exc)
 
