@@ -334,15 +334,19 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
     }
 
 
-def judge_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, Any]:
+def judge_bead_fields(user_query: str, assistant_final: str = "", *, mode: str | None = None) -> dict[str, Any]:
     """LLM-first semantic bead-field judge with deterministic fallback.
 
     The normal write path should use this to author every semantic field. The
     fallback exists for offline/test deployments, not as the preferred policy.
+
+    Pass ``mode`` to override the ``CORE_MEMORY_BEAD_FIELD_JUDGE_MODE`` env var
+    for a single call (e.g. per-request directive from ``metadata["bead_judge"]``).
     """
     uq = str(user_query or "")
     af = str(assistant_final or "")
-    mode = str(os.getenv("CORE_MEMORY_BEAD_FIELD_JUDGE_MODE") or "auto").strip().lower()
+    if mode is None:
+        mode = str(os.getenv("CORE_MEMORY_BEAD_FIELD_JUDGE_MODE") or "auto").strip().lower()
     if mode not in {"auto", "llm", "heuristic", "off"}:
         mode = "auto"
     if mode in {"auto", "llm"}:

@@ -79,7 +79,17 @@ SEMANTIC_FIELDS = (
 _ALLOWED_BEAD_TYPES = set(CLASSIFIABLE_TYPES)
 
 
-def _judge_fallback_enabled() -> bool:
+def _req_judge_directive(req: dict[str, Any] | None) -> str | None:
+    """Return per-request judge directive, or None to fall back to env."""
+    md = dict((req or {}).get("metadata") or {})
+    val = str((req or {}).get("_bead_judge") or md.get("bead_judge") or "").strip().lower()
+    return val or None  # "llm" | "heuristic" | "off" | None
+
+
+def _judge_fallback_enabled(req: dict[str, Any] | None = None) -> bool:
+    d = _req_judge_directive(req)
+    if d is not None:
+        return d in {"llm", "heuristic", "1", "true", "on"}
     return str(os.getenv("CORE_MEMORY_BEAD_JUDGE_FALLBACK", "0")).strip().lower() in {"1", "true", "yes", "on"}
 
 
@@ -96,11 +106,11 @@ def _field_present(row: dict[str, Any], field: str) -> bool:
     return bool(str(value).strip())
 
 
-def _maybe_apply_judge_fallback(row: dict[str, Any], user_query: str, assistant_final: str) -> dict[str, Any]:
-    if not _judge_fallback_enabled():
+def _maybe_apply_judge_fallback(row: dict[str, Any], user_query: str, assistant_final: str, *, req: dict[str, Any] | None = None) -> dict[str, Any]:
+    if not _judge_fallback_enabled(req):
         return row
     out = dict(row)
-    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
+    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final, mode=_req_judge_directive(req))
     for field in SEMANTIC_FIELDS:
         if not _field_present(out, field) and judged.get(field) is not None:
             out[field] = judged.get(field)
@@ -185,7 +195,7 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
 
 def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
     user_query, assistant_final = _turn_judge_inputs(req)
-    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
+    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final, mode=_req_judge_directive(req))
     req["_judged_claims"] = list(judged.get("claims") or [])
     return {
         "type": str(judged.get("type") or "context"),
@@ -209,7 +219,7 @@ def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
 
 
 def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
-    bead = _judged_turn_bead(req) if _judge_fallback_enabled() else _structural_turn_bead(req)
+    bead = _judged_turn_bead(req) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
     return {"beads_create": [bead]}
 
 
@@ -369,13 +379,13 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
             continue
         rows[i] = _enforce_structural_invariants(root, req, row)
         user_query, assistant_final = _turn_judge_inputs(req)
-        rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final)
+        rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final, req=req)
         src = [str(x) for x in (rows[i].get("source_turn_ids") or []) if str(x)]
         if turn_id and turn_id in src:
             has_turn = True
 
     if not has_turn:
-        bead = _judged_turn_bead(req) if _judge_fallback_enabled() else _structural_turn_bead(req)
+        bead = _judged_turn_bead(req) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
         bead["source_turn_ids"] = [turn_id]
         bead["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
         rows.append(bead)
