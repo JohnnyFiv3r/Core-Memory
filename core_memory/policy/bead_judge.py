@@ -325,7 +325,7 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
         "topics": _clean_list(obj.get("topics"), limit=8, item_limit=80),
         "state_change": _clean_text(obj.get("state_change"), limit=240),
         "validity": _clean_text(obj.get("validity"), limit=80),
-        "retrieval_eligible": False if forced_context else bool(obj.get("retrieval_eligible", False)),
+        "retrieval_eligible": False if forced_context else bool(obj.get("retrieval_eligible", True)),
         "effective_from": _clean_text(obj.get("effective_from"), limit=80),
         "effective_to": _clean_text(obj.get("effective_to"), limit=80),
         "observed_at": _clean_text(obj.get("observed_at"), limit=80),
