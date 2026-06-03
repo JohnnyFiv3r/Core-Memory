@@ -95,6 +95,7 @@ def enqueue_turn_enrichment(
             "enrichment_run_id": hashlib.sha256(idempotency_key.encode()).hexdigest(),
             "user_query": str(req.get("user_query") or ""),
             "assistant_final": str(req.get("assistant_final") or ""),
+            "judged_claims": list(req.get("_judged_claims") or []),
             "reviewed_updates": projected_reviewed_updates,
             "enrichment_delta": enrichment_delta,
             "delta_quarantine": quarantine_result,
@@ -211,7 +212,7 @@ def run_turn_enrichment(
         try:
             from core_memory.runtime.engine import extract_and_attach_claims
             created_bead_ids = list((results.get("association") or {}).get("created_bead_ids") or [])
-            req_stub = {"session_id": session_id, "turn_id": turn_id, "user_query": payload.get("user_query", "")}
+            req_stub = {"session_id": session_id, "turn_id": turn_id, "user_query": payload.get("user_query", ""), "_judged_claims": list(payload.get("judged_claims") or [])}
             claim_telemetry = extract_and_attach_claims(root, session_id, turn_id, created_bead_ids, req_stub) or {}
             results["stages_completed"].append("claims")
             stage_results["claim_extraction"]["extracted"] = len(claim_telemetry.get("claims_batch") or [])

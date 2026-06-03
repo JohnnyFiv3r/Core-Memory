@@ -303,18 +303,11 @@ def classify_bead_richness(bead: dict) -> str:
 
 
 def can_be_retrieval_eligible(bead: dict) -> bool:
+    """Bead is eligible when it has a meaningful title and a recognized canonical type."""
+    from core_memory.schema.normalization import CANONICAL_BEAD_TYPES, normalize_bead_type
     title_ok = not is_generic_title(str(bead.get("title") or ""))
-    retrieval_title_ok = bool(str(bead.get("retrieval_title") or "").strip())
-    facts_ok = bool(bead.get("retrieval_facts"))
-    quality_signal = any([
-        bool(bead.get("because")),
-        bool(bead.get("supporting_facts")),
-        bool(bead.get("state_change")),
-        bool(bead.get("evidence_refs")),
-        bool(bead.get("supersedes")),
-        bool(bead.get("superseded_by")),
-    ])
-    return bool(title_ok and retrieval_title_ok and facts_ok and quality_signal)
+    type_ok = normalize_bead_type(str(bead.get("type") or "")) in CANONICAL_BEAD_TYPES
+    return title_ok and type_ok
 
 
 def enforce_bead_hygiene_contract(bead: dict) -> dict:

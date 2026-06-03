@@ -59,7 +59,12 @@ def extract_and_attach_claims(
     assistant_final = req.get("assistant_final", "") or req.get("assistant_response", "") or ""
     context_beads = req.get("context_beads", [])
 
-    raw_claims = extract_claims(user_query, assistant_final, context_beads)
+    judged_claims = list(req.get("_judged_claims") or [])
+    if judged_claims:
+        # LLM already extracted claims during bead judge — validate only, skip heuristic.
+        raw_claims = judged_claims
+    else:
+        raw_claims = extract_claims(user_query, assistant_final, context_beads)
     valid_claims = validate_claims_batch(raw_claims)
     unique_claims = dedup_claims(valid_claims)
 

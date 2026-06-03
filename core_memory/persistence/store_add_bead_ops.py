@@ -7,7 +7,7 @@ from typing import Any, Optional
 from core_memory.persistence import events
 from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.policy.hygiene import enforce_bead_hygiene_contract
+from core_memory.policy.hygiene import enforce_bead_hygiene_contract, is_generic_title
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.runtime.session.session_surface import read_session_surface
 from core_memory.schema.normalization import CANONICAL_BEAD_TYPES, normalize_bead_type
@@ -116,7 +116,10 @@ def add_bead_for_store(
     # Global rule: beads are records, eligible unless type is unrecognized.
     # normalize_bead_type resolves legacy aliases (e.g. promoted_lesson → lesson)
     # before the canonical membership check so legacy callers aren't penalized.
-    bead["retrieval_eligible"] = normalize_bead_type(str(bead.get("type") or "")) in CANONICAL_BEAD_TYPES
+    bead["retrieval_eligible"] = (
+        normalize_bead_type(str(bead.get("type") or "")) in CANONICAL_BEAD_TYPES
+        and not is_generic_title(str(bead.get("title") or ""))
+    )
 
     bead = store._sanitize_bead_content(bead)
     bead = enforce_bead_hygiene_contract(bead)

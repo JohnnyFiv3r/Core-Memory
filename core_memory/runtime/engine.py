@@ -65,8 +65,6 @@ SEMANTIC_FIELDS = (
     "detail",
     "because",
     "retrieval_eligible",
-    "retrieval_title",
-    "retrieval_facts",
     "entities",
     "topics",
     "supporting_facts",
@@ -177,8 +175,6 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
         "state_change": "",
         "validity": "",
         "retrieval_eligible": durable,
-        "retrieval_title": title if durable else "",
-        "retrieval_facts": summary if durable else [],
         "effective_from": "",
         "effective_to": "",
         "observed_at": "",
@@ -190,6 +186,7 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
 def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
     user_query, assistant_final = _turn_judge_inputs(req)
     judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final)
+    req["_judged_claims"] = list(judged.get("claims") or [])
     return {
         "type": str(judged.get("type") or "context"),
         "title": str(judged.get("title") or "Turn memory"),
@@ -203,9 +200,6 @@ def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
         "evidence_refs": list(judged.get("evidence_refs") or []),
         "state_change": judged.get("state_change"),
         "validity": judged.get("validity"),
-        "retrieval_eligible": bool(judged.get("retrieval_eligible", False)),
-        "retrieval_title": judged.get("retrieval_title"),
-        "retrieval_facts": list(judged.get("retrieval_facts") or []),
         "effective_from": judged.get("effective_from"),
         "effective_to": judged.get("effective_to"),
         "observed_at": judged.get("observed_at"),
