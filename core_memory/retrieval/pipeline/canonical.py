@@ -62,7 +62,7 @@ def _trace_seed_anchors() -> int:
 
 
 def _trace_max_depth() -> int:
-    return _env_int("CORE_MEMORY_TRACE_MAX_DEPTH", 3)
+    return _env_int("CORE_MEMORY_TRACE_MAX_DEPTH", 6)
 
 
 def _trace_max_chains() -> int:
@@ -1066,6 +1066,8 @@ def trace_request(
     intent: str = "causal",
     hydration: dict[str, Any] | None = None,
     submission: dict[str, Any] | None = None,
+    max_depth: int | None = None,
+    max_chains: int | None = None,
 ) -> dict[str, Any]:
     _caps = get_backend_capabilities(Path(root) / ".beads")
     anchors_out: dict[str, Any]
@@ -1095,8 +1097,18 @@ def trace_request(
     # just outside the top 5 — common on conversational corpora where the answer
     # lives a turn or two away from the best lexical/semantic match.
     _seed_n = _trace_seed_anchors()
-    _max_depth = _trace_max_depth()
-    _max_chains = _trace_max_chains()
+    requested_max_depth = max_depth if max_depth is not None else (submission or {}).get("max_depth")
+    try:
+        _max_depth = int(requested_max_depth) if requested_max_depth is not None else _trace_max_depth()
+    except (TypeError, ValueError):
+        _max_depth = _trace_max_depth()
+    _max_depth = max(1, _max_depth)
+    requested_max_chains = max_chains if max_chains is not None else (submission or {}).get("max_chains")
+    try:
+        _max_chains = int(requested_max_chains) if requested_max_chains is not None else _trace_max_chains()
+    except (TypeError, ValueError):
+        _max_chains = _trace_max_chains()
+    _max_chains = max(1, _max_chains)
     a_ids = [str(a.get("bead_id") or "") for a in anchors[:_seed_n] if str(a.get("bead_id") or "")]
     if _caps.graph_traversal:
         _graph = create_graph_backend(Path(root))
@@ -1227,7 +1239,15 @@ def trace_request(
         "warnings": list(anchors_out.get("warnings") or []),
         "snapped": anchors_out.get("snapped") or {"raw_query": query, "intent": intent, "k": int(k)},
         "hydration": {"status": "not_requested", "warnings": []},
-        "trace_diagnostics": dict(trav.get("assoc_diag") or {}),
+        "trace_diagnostics": {
+            **dict(trav.get("assoc_diag") or {}),
+            "seed_anchor_count": int(len(a_ids)),
+            "requested_max_depth": None if requested_max_depth is None else str(requested_max_depth),
+            "max_depth": int(_max_depth),
+            "requested_max_chains": None if requested_max_chains is None else str(requested_max_chains),
+            "max_chains": int(_max_chains),
+            "backend": str(trav.get("backend") or ("python" if a_ids else "none")),
+        },
     }
 
     hyd_req = dict(hydration or {})
@@ -1335,6 +1355,8 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             intent=intent,
             hydration=req.get("hydration") or None,
             submission=submission,
+            max_depth=req.get("max_depth") or req.get("trace_max_depth") or None,
+            max_chains=req.get("max_chains") or req.get("trace_max_chains") or None,
         )
         if not out.get("ok"):
             out.setdefault("request", {

@@ -35,8 +35,10 @@ def trace(
     k: int = 8,
     anchor_ids: list[str] | None = None,
     hydration: dict | None = None,
+    max_depth: int | None = None,
+    max_chains: int | None = None,
 ) -> dict:
-    out = memory_trace(root=root, query=query, anchor_ids=anchor_ids, k=int(k), hydration=hydration)
+    out = memory_trace(root=root, query=query, anchor_ids=anchor_ids, k=int(k), hydration=hydration, max_depth=max_depth, max_chains=max_chains)
     out.setdefault("schema_version", EXECUTE_RESULT_SCHEMA_VERSION)
     out.setdefault("contract", "memory_trace")
     return out
