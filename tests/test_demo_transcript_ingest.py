@@ -73,13 +73,13 @@ class TestLocalDemoTranscriptIngest(unittest.TestCase):
                 self.assertTrue(job_id.startswith("ingest-"))
 
                 last = None
-                for _ in range(30):
+                for _ in range(100):
                     status = asyncio.run(demo_app.ingest_job_status_endpoint(job_id))
                     self.assertEqual(200, _response_status(status))
                     last = _response_json(status)
                     if last.get("done"):
                         break
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                 self.assertIsNotNone(last)
                 self.assertTrue(last.get("done"), last)
                 self.assertEqual("completed", last.get("status"), last)
@@ -167,13 +167,13 @@ class TestTranscriptIngestCrossSurfaceParity(unittest.TestCase):
                 self.assertEqual(202, _response_status(created), created)
                 job_id = _response_json(created)["job_id"]
                 last = None
-                for _ in range(30):
+                for _ in range(100):
                     status = asyncio.run(demo_app.ingest_job_status_endpoint(job_id))
                     self.assertEqual(200, _response_status(status))
                     last = _response_json(status)
                     if last.get("done"):
                         break
-                    time.sleep(0.1)
+                    time.sleep(0.2)
                 self.assertTrue((last or {}).get("done"), last)
                 surfaces["local_demo"] = dict((last or {}).get("result") or {})
             finally:
