@@ -6,7 +6,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from core_memory.retrieval.agent import _EFFORT_DEFAULTS, _expand_via_association_hops
+from core_memory.retrieval.agent import (
+    _EFFORT_DEFAULTS,
+    _HOP_DECAY,
+    _RELATIONSHIP_HOP_WEIGHT,
+    _expand_via_association_hops,
+)
 from core_memory.retrieval.contracts import EvidenceItem
 
 
@@ -191,6 +196,161 @@ class TestExpandViaAssociationHops(unittest.TestCase):
             out = _expand_via_association_hops(str(root), ev, hops=1, max_expansion=5)
 
             self.assertEqual(1 + 5, len(out))
+
+
+class TestHopScoring(unittest.TestCase):
+    """Scoring semantics for association-hop expansion (Ask 1 & 2 in #185 spec)."""
+
+    def _write_index(self, root: Path, beads: dict, associations: list) -> None:
+        index = {"beads": beads, "associations": associations}
+        beads_dir = root / ".beads"
+        beads_dir.mkdir(parents=True, exist_ok=True)
+        (beads_dir / "index.json").write_text(json.dumps(index), encoding="utf-8")
+
+    def _bead(self, **kwargs) -> dict:
+        return {"type": "event", "retrieval_eligible": True, **kwargs}
+
+    def test_score_derived_from_seed_score_and_edge_weight(self):
+        """hop_score ≈ seed_score × rel_weight × confidence × HOP_DECAY."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads = {"b1": self._bead(title="b1"), "b2": self._bead(title="b2")}
+            assocs = [{"source_bead": "b1", "target_bead": "b2",
+                       "relationship": "caused_by", "confidence": 1.0}]
+            self._write_index(root, beads, assocs)
+
+            seed_score = 0.80
+            ev = [_make_evidence("b1", score=seed_score)]
+            out = _expand_via_association_hops(str(root), ev, hops=1)
+
+            hop_item = next(e for e in out if e.bead_id == "b2")
+            expected = round(seed_score * _RELATIONSHIP_HOP_WEIGHT["caused_by"] * 1.0 * _HOP_DECAY, 4)
+            self.assertAlmostEqual(hop_item.score, expected, places=3)
+
+    def test_causal_edge_outranks_temporal_edge(self):
+        """A caused_by neighbour should score higher than a follows neighbour."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads = {
+                "seed": self._bead(title="seed"),
+                "causal_nb": self._bead(title="causal"),
+                "temporal_nb": self._bead(title="temporal"),
+            }
+            assocs = [
+                {"source_bead": "seed", "target_bead": "causal_nb",
+                 "relationship": "caused_by", "confidence": 0.9},
+                {"source_bead": "seed", "target_bead": "temporal_nb",
+                 "relationship": "follows", "confidence": 0.9},
+            ]
+            self._write_index(root, beads, assocs)
+
+            ev = [_make_evidence("seed", score=0.8)]
+            out = _expand_via_association_hops(str(root), ev, hops=1)
+
+            causal_score = next(e.score for e in out if e.bead_id == "causal_nb")
+            temporal_score = next(e.score for e in out if e.bead_id == "temporal_nb")
+            self.assertGreater(causal_score, temporal_score)
+
+    def test_strong_causal_hop_can_displace_weak_vector_match(self):
+        """A strong-seed causal 1-hop should rank above a weak vector match."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads = {
+                "strong_seed": self._bead(title="strong"),
+                "causal_nb": self._bead(title="causal_nb"),
+                "weak_vector": self._bead(title="weak_vector"),
+            }
+            assocs = [{"source_bead": "strong_seed", "target_bead": "causal_nb",
+                       "relationship": "caused_by", "confidence": 0.95}]
+            self._write_index(root, beads, assocs)
+
+            strong_seed_score = 0.90
+            weak_vector_score = 0.42
+            ev = [
+                _make_evidence("strong_seed", score=strong_seed_score),
+                _make_evidence("weak_vector", score=weak_vector_score),
+            ]
+            out = _expand_via_association_hops(str(root), ev, hops=1)
+
+            causal_score = next(e.score for e in out if e.bead_id == "causal_nb")
+            # causal hop score ≈ 0.90 × 0.90 × 0.95 × 0.80 ≈ 0.617 > 0.42
+            self.assertGreater(causal_score, weak_vector_score,
+                               f"causal hop {causal_score:.3f} should beat weak vector {weak_vector_score:.3f}")
+
+    def test_two_hop_score_is_lower_than_one_hop(self):
+        """2-hop items score lower than 1-hop items due to decay compounding."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads = {
+                "b1": self._bead(title="b1"),
+                "b2": self._bead(title="b2"),
+                "b3": self._bead(title="b3"),
+            }
+            assocs = [
+                {"source_bead": "b1", "target_bead": "b2",
+                 "relationship": "caused_by", "confidence": 1.0},
+                {"source_bead": "b2", "target_bead": "b3",
+                 "relationship": "caused_by", "confidence": 1.0},
+            ]
+            self._write_index(root, beads, assocs)
+
+            ev = [_make_evidence("b1", score=0.9)]
+            out = _expand_via_association_hops(str(root), ev, hops=2)
+
+            hop1_score = next(e.score for e in out if e.bead_id == "b2")
+            hop2_score = next(e.score for e in out if e.bead_id == "b3")
+            self.assertGreater(hop1_score, hop2_score)
+
+    def test_hop_items_sorted_by_score_descending(self):
+        """When max_expansion < discovered, highest-scored hops are kept."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads: dict = {"b0": self._bead(title="b0")}
+            assocs = []
+            # Create one strong causal neighbour and several weak temporal neighbours
+            beads["causal"] = self._bead(title="causal")
+            assocs.append({"source_bead": "b0", "target_bead": "causal",
+                            "relationship": "caused_by", "confidence": 0.95})
+            for i in range(5):
+                bid = f"temporal_{i}"
+                beads[bid] = self._bead(title=bid)
+                assocs.append({"source_bead": "b0", "target_bead": bid,
+                                "relationship": "follows", "confidence": 0.8})
+            self._write_index(root, beads, assocs)
+
+            ev = [_make_evidence("b0", score=0.8)]
+            # max_expansion=3: should keep causal + 2 temporal (not lose causal)
+            out = _expand_via_association_hops(str(root), ev, hops=1, max_expansion=3)
+
+            added_ids = {e.bead_id for e in out} - {"b0"}
+            self.assertIn("causal", added_ids,
+                          "highest-scored causal hop must be within max_expansion window")
+            self.assertEqual(3, len(added_ids))
+
+    def test_confidence_zero_edge_excluded_in_practice(self):
+        """An edge with confidence=0 produces score≈0 and should not appear."""
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads = {"b1": self._bead(title="b1"), "b2": self._bead(title="b2")}
+            assocs = [{"source_bead": "b1", "target_bead": "b2",
+                       "relationship": "caused_by", "confidence": 0.0}]
+            self._write_index(root, beads, assocs)
+
+            ev = [_make_evidence("b1", score=0.8)]
+            out = _expand_via_association_hops(str(root), ev, hops=1)
+
+            hop_item = next((e for e in out if e.bead_id == "b2"), None)
+            if hop_item is not None:
+                self.assertEqual(0.0, hop_item.score)
+
+    def test_relationship_weight_constants(self):
+        """Causal > semantic > generic > temporal in the weight table."""
+        self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["caused_by"],
+                           _RELATIONSHIP_HOP_WEIGHT["supports"])
+        self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["supports"],
+                           _RELATIONSHIP_HOP_WEIGHT["associated_with"])
+        self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["associated_with"],
+                           _RELATIONSHIP_HOP_WEIGHT["follows"])
 
 
 if __name__ == "__main__":

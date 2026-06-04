@@ -413,6 +413,25 @@ def _normalize_request(
     return query, request
 
 
+# Per-relationship-type base weights for hop scoring.
+# Causal/semantic edges carry topical signal; temporal/entity edges do not.
+_RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
+    # Causal — strongest signal for multi-hop retrieval
+    "caused_by": 0.90, "causes": 0.90, "enables": 0.90, "results_in": 0.90,
+    "resolves": 0.88, "diagnoses": 0.88,
+    # Semantic — strong topical signal
+    "supports": 0.85, "refines": 0.85, "supersedes": 0.85,
+    "contradicts": 0.82, "validates": 0.82, "informed_by": 0.80,
+    # Weak / generic
+    "associated_with": 0.60, "related_to": 0.60, "shared_entity": 0.55,
+    # Temporal — low signal (adjacency, not topical relevance)
+    "follows": 0.35, "precedes": 0.35, "sequential_turn": 0.35,
+    "continues": 0.45, "next_turn": 0.35, "prev_turn": 0.35,
+}
+_DEFAULT_HOP_WEIGHT = 0.70  # unknown / generic relationship
+_HOP_DECAY = 0.80           # multiplicative per-hop decay
+
+
 def _expand_via_association_hops(
     root: str,
     evidence: list["EvidenceItem"],
@@ -421,12 +440,16 @@ def _expand_via_association_hops(
 ) -> list["EvidenceItem"]:
     """Widen the candidate set by walking association edges from vector seeds.
 
-    low  → hops=0 (no expansion)
+    low    → hops=0 (no expansion)
     medium → hops=1 (direct neighbours)
     high   → hops=2 (neighbours-of-neighbours)
 
-    New items score just below the minimum evidence score so they don't
-    displace grounded results — they fill gaps in multi-hop evidence chains.
+    Scoring: each hop item receives
+        score = seed_score × edge_weight × confidence × HOP_DECAY (per hop)
+
+    where edge_weight is keyed by relationship type so causal/semantic edges
+    rank higher than temporal or entity-overlap edges.  Strong 1-hop causal
+    neighbours can therefore displace weak vector matches.
     """
     if hops <= 0 or not evidence:
         return evidence
@@ -442,39 +465,60 @@ def _expand_via_association_hops(
     assoc_list = index.get("associations") or []
     beads_map = index.get("beads") or {}
 
-    adj: dict[str, set[str]] = {}
+    # Build weighted adjacency: node → [(neighbor, edge_score)]
+    # edge_score = rel_weight × confidence (bidirectional)
+    adj: dict[str, list[tuple[str, float]]] = {}
     for assoc in assoc_list:
         src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "").strip()
         tgt = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "").strip()
-        if src and tgt:
-            adj.setdefault(src, set()).add(tgt)
-            adj.setdefault(tgt, set()).add(src)
+        if not src or not tgt:
+            continue
+        rel = str(assoc.get("relationship") or "").strip().lower()
+        rel_weight = _RELATIONSHIP_HOP_WEIGHT.get(rel, _DEFAULT_HOP_WEIGHT)
+        raw_conf = assoc.get("confidence")
+        conf = max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else 0.85
+        edge_score = rel_weight * conf
+        adj.setdefault(src, []).append((tgt, edge_score))
+        adj.setdefault(tgt, []).append((src, edge_score))
 
+    # BFS with best-path score propagation.
+    # frontier maps bead_id → best score reaching it so far.
     known: set[str] = {str(e.bead_id) for e in evidence}
-    frontier: set[str] = set(known)
-    discovered: list[str] = []
+    frontier: dict[str, float] = {
+        str(e.bead_id): float(e.score if e.score is not None else 0.1)
+        for e in evidence
+    }
+    # best_score tracks the score to assign when appending a discovered item.
+    best_discovered: dict[str, float] = {}
 
     for _ in range(hops):
-        next_frontier: set[str] = set()
-        for bid in frontier:
-            for neighbor in adj.get(bid, set()):
-                if neighbor not in known:
-                    next_frontier.add(neighbor)
+        next_frontier: dict[str, float] = {}
+        for seed_id, seed_score in frontier.items():
+            for neighbor_id, edge_score in adj.get(seed_id, []):
+                if neighbor_id in known:
+                    continue
+                candidate = seed_score * edge_score * _HOP_DECAY
+                if candidate > next_frontier.get(neighbor_id, -1.0):
+                    next_frontier[neighbor_id] = candidate
         if not next_frontier:
             break
-        for nid in sorted(next_frontier):
-            discovered.append(nid)
-        known |= next_frontier
+        for nid, nscore in next_frontier.items():
+            if nscore > best_discovered.get(nid, -1.0):
+                best_discovered[nid] = nscore
+        known |= set(next_frontier.keys())
         frontier = next_frontier
 
-    if not discovered:
+    if not best_discovered:
         return evidence
 
-    min_score = min((float(e.score or 0.0) for e in evidence if e.score is not None), default=0.1)
-    hop_score = round(max(0.0, min_score - 0.05), 4)
+    # Sort discovered items by score descending so we add the strongest first.
+    ranked = sorted(best_discovered.items(), key=lambda kv: -kv[1])
 
     out = list(evidence)
-    for bid in discovered[:max_expansion]:
+    added = 0
+    for bid, score in ranked:
+        if added >= max_expansion:
+            break
         bead = beads_map.get(bid)
         if not isinstance(bead, dict):
             continue
@@ -487,9 +531,10 @@ def _expand_via_association_hops(
             type=str(bead.get("type") or ""),
             title=str(bead.get("title") or ""),
             content_excerpt=excerpt,
-            score=hop_score,
+            score=round(score, 4),
             reason="association_hop",
         ))
+        added += 1
     return out
 
 
