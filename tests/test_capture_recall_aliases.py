@@ -86,7 +86,7 @@ class TestRecallWrapper(unittest.TestCase):
             {
                 "raw_query": "redis timeouts",
                 "intent": "remember",
-                "k": 10,
+                "k": 12,
                 "effort": "medium",
                 "grounding_mode": "prefer_grounded",
                 "hydration": {"turn_sources": True, "max_beads": 8, "adjacent_before": 1, "adjacent_after": 1},
