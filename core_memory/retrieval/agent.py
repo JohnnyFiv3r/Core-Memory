@@ -535,6 +535,9 @@ def _expand_via_association_hops(
             reason="association_hop",
         ))
         added += 1
+    # Re-sort the full list so hop items with competitive scores rank above
+    # weak vector matches rather than always landing after them in the list.
+    out.sort(key=lambda e: -(e.score if e.score is not None else 0.0))
     return out
 
 

@@ -352,6 +352,37 @@ class TestHopScoring(unittest.TestCase):
         self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["associated_with"],
                            _RELATIONSHIP_HOP_WEIGHT["follows"])
 
+    def test_competitive_hop_ranked_before_weak_vector_in_output(self):
+        """A causal hop with score > weak_vector must appear before it in out list.
+
+        Regression guard: previously hop items were appended after all vector
+        items regardless of score, so recall@5 could not benefit even when the
+        hop score was competitive.
+        """
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads = {
+                "strong_seed": self._bead(title="strong_seed"),
+                "causal_nb":   self._bead(title="causal_nb"),
+                "weak_vector": self._bead(title="weak_vector"),
+            }
+            assocs = [{"source_bead": "strong_seed", "target_bead": "causal_nb",
+                       "relationship": "caused_by", "confidence": 0.95}]
+            self._write_index(root, beads, assocs)
+
+            ev = [
+                _make_evidence("strong_seed", score=0.90),
+                _make_evidence("weak_vector", score=0.30),
+            ]
+            out = _expand_via_association_hops(str(root), ev, hops=1)
+
+            ids_in_order = [e.bead_id for e in out]
+            causal_rank = ids_in_order.index("causal_nb")
+            weak_rank   = ids_in_order.index("weak_vector")
+            self.assertLess(causal_rank, weak_rank,
+                            f"causal_nb at rank {causal_rank} should precede "
+                            f"weak_vector at rank {weak_rank}")
+
 
 if __name__ == "__main__":
     unittest.main()
