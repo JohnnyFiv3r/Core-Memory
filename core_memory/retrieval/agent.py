@@ -8,6 +8,7 @@ from typing import Any
 from core_memory.retrieval.contracts import (
     ClaimSlotItem,
     ConflictItem,
+    EvidenceItem,
     RecallPlanning,
     RecallResult,
     RecallStep,
@@ -47,20 +48,23 @@ _EFFORT_DEFAULTS: dict[str, dict[str, Any]] = {
     "low": {
         "k": 8,
         "grounding_mode": "search_only",
+        "association_hops": 0,
         "hydration": {},
         "planning_reason": "low effort uses direct lookup for low-latency recall",
     },
     "medium": {
-        "k": 10,
+        "k": 12,
         "grounding_mode": "prefer_grounded",
+        "association_hops": 1,
         "hydration": {"turn_sources": True, "max_beads": 8, "adjacent_before": 1, "adjacent_after": 1},
-        "planning_reason": "medium effort uses default grounded recall with modest source hydration",
+        "planning_reason": "medium effort: vector top-k + 1-hop association expansion",
     },
     "high": {
         "k": 20,
         "grounding_mode": "prefer_grounded",
+        "association_hops": 2,
         "hydration": {"turn_sources": True, "max_beads": 16, "adjacent_before": 2, "adjacent_after": 2},
-        "planning_reason": "high effort uses broader grounded recall for multi-hop, temporal, or audit queries",
+        "planning_reason": "high effort: vector top-k + 2-hop association/claim graph expansion for multi-hop evidence",
     },
 }
 
@@ -409,6 +413,86 @@ def _normalize_request(
     return query, request
 
 
+def _expand_via_association_hops(
+    root: str,
+    evidence: list["EvidenceItem"],
+    hops: int,
+    max_expansion: int = 16,
+) -> list["EvidenceItem"]:
+    """Widen the candidate set by walking association edges from vector seeds.
+
+    low  → hops=0 (no expansion)
+    medium → hops=1 (direct neighbours)
+    high   → hops=2 (neighbours-of-neighbours)
+
+    New items score just below the minimum evidence score so they don't
+    displace grounded results — they fill gaps in multi-hop evidence chains.
+    """
+    if hops <= 0 or not evidence:
+        return evidence
+    import json as _json
+    from pathlib import Path as _Path
+
+    index_file = _Path(root) / ".beads" / "index.json"
+    try:
+        index = _json.loads(index_file.read_text(encoding="utf-8"))
+    except Exception:
+        return evidence
+
+    assoc_list = index.get("associations") or []
+    beads_map = index.get("beads") or {}
+
+    adj: dict[str, set[str]] = {}
+    for assoc in assoc_list:
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "").strip()
+        tgt = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "").strip()
+        if src and tgt:
+            adj.setdefault(src, set()).add(tgt)
+            adj.setdefault(tgt, set()).add(src)
+
+    known: set[str] = {str(e.bead_id) for e in evidence}
+    frontier: set[str] = set(known)
+    discovered: list[str] = []
+
+    for _ in range(hops):
+        next_frontier: set[str] = set()
+        for bid in frontier:
+            for neighbor in adj.get(bid, set()):
+                if neighbor not in known:
+                    next_frontier.add(neighbor)
+        if not next_frontier:
+            break
+        for nid in sorted(next_frontier):
+            discovered.append(nid)
+        known |= next_frontier
+        frontier = next_frontier
+
+    if not discovered:
+        return evidence
+
+    min_score = min((float(e.score or 0.0) for e in evidence if e.score is not None), default=0.1)
+    hop_score = round(max(0.0, min_score - 0.05), 4)
+
+    out = list(evidence)
+    for bid in discovered[:max_expansion]:
+        bead = beads_map.get(bid)
+        if not isinstance(bead, dict):
+            continue
+        if not bead.get("retrieval_eligible", True):
+            continue
+        summary = bead.get("summary") or []
+        excerpt = str(summary[0] if summary else (bead.get("detail") or ""))[:240]
+        out.append(EvidenceItem(
+            bead_id=bid,
+            type=str(bead.get("type") or ""),
+            title=str(bead.get("title") or ""),
+            content_excerpt=excerpt,
+            score=hop_score,
+            reason="association_hop",
+        ))
+    return out
+
+
 def _read_myelination_manifest(root: str) -> dict[str, float]:
     try:
         p = Path(root) / ".beads" / "events" / "myelination-manifest.json"
@@ -504,6 +588,17 @@ def recall(
         pass
 
     result = recall_result_from_memory_execute(raw, query=query, effort=selected_effort, include_raw=include_raw)
+
+    # Effort-gated association-hop expansion: medium adds 1-hop neighbours,
+    # high adds 2-hop — so candidate sets grow monotonically with effort.
+    # Runs after vector recall so it augments rather than replaces grounded results.
+    _hops = int(_EFFORT_DEFAULTS[selected_effort].get("association_hops") or 0)
+    if _hops > 0 and result.evidence:
+        try:
+            result.evidence = _expand_via_association_hops(root, result.evidence, hops=_hops)
+        except Exception:
+            pass
+
     _enrich_recall_state(result, root=root, query=query)
 
     # Emit contradiction candidates and attach render-agnostic review prompts so

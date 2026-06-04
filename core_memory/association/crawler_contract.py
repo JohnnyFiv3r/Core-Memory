@@ -833,14 +833,10 @@ def apply_crawler_updates(
             )
             lifecycle_queued += 1
 
-    # Type upgrade pass: context → reflection when causal backward edges land.
-    # Use only associations that were actually accepted and appended — not the raw
-    # input which may include quarantined, rejected, or de-duped rows.
-    _maybe_upgrade_context_to_reflection(
-        root=root,
-        session_id=session_id,
-        associations=accepted_assocs,
-    )
+    # Type upgrade intentionally removed: re-typing every bead with a causal edge
+    # to reflection/meta_analysis produced implausible classification (91/92 beads
+    # in LoCoMo conv-26 were re-typed). Beads keep their authored/inferred type;
+    # the judge assigns the correct type in judge mode.
 
     return {
         "ok": True,
