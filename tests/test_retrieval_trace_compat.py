@@ -22,6 +22,8 @@ class TestRetrievalTraceCompat(unittest.TestCase):
             intent="causal",
             hydration=None,
             submission=None,
+            max_depth=None,
+            max_chains=None,
         )
 
 

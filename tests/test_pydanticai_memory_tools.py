@@ -190,6 +190,24 @@ class TestMemoryTraceTool(unittest.TestCase):
             parsed = json.loads(result)
             self.assertIsInstance(parsed, dict)
 
+    def test_trace_forwards_optional_max_depth(self):
+        with patch("core_memory.integrations.pydanticai.memory_tools.memory_trace", return_value={"ok": True, "trace_diagnostics": {"max_depth": 6}}) as trace:
+            tool = memory_trace_tool(root="/tmp/nonexistent")
+            parsed = json.loads(tool("why did we choose X?", k=5, max_depth=6))
+            self.assertTrue(parsed["ok"])
+            trace.assert_called_once()
+            self.assertEqual(5, trace.call_args.kwargs["k"])
+            self.assertEqual(6, trace.call_args.kwargs["max_depth"])
+
+    def test_trace_omitted_max_depth_preserves_config_default(self):
+        with patch("core_memory.integrations.pydanticai.memory_tools.memory_trace", return_value={"ok": True}) as trace:
+            tool = memory_trace_tool(root="/tmp/nonexistent")
+            parsed = json.loads(tool("why did we choose X?", k=5))
+            self.assertTrue(parsed["ok"])
+            trace.assert_called_once()
+            self.assertEqual(5, trace.call_args.kwargs["k"])
+            self.assertIsNone(trace.call_args.kwargs["max_depth"])
+
 
 class TestMemoryExecuteTool(unittest.TestCase):
     def test_returns_callable(self):

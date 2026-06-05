@@ -15,6 +15,8 @@ def trace_request(
     intent: str = "causal",
     hydration: dict[str, Any] | None = None,
     submission: dict[str, Any] | None = None,
+    max_depth: int | None = None,
+    max_chains: int | None = None,
 ) -> dict[str, Any]:
     """Compatibility wrapper for causal trace retrieval.
 
@@ -31,4 +33,6 @@ def trace_request(
         intent=intent,
         hydration=hydration,
         submission=submission,
+        max_depth=max_depth,
+        max_chains=max_chains,
     )

@@ -165,5 +165,22 @@ def memory_execute(root: str, request: dict, explain: bool = True) -> dict:
     return out
 
 
-def memory_trace(root: str, query: str = "", anchor_ids: list[str] | None = None, k: int = 8, hydration: dict | None = None) -> dict:
-    return _trace_request(root=root, query=query, anchor_ids=anchor_ids, k=int(k), intent="causal", hydration=hydration)
+def memory_trace(
+    root: str,
+    query: str = "",
+    anchor_ids: list[str] | None = None,
+    k: int = 8,
+    hydration: dict | None = None,
+    max_depth: int | None = None,
+    max_chains: int | None = None,
+) -> dict:
+    return _trace_request(
+        root=root,
+        query=query,
+        anchor_ids=anchor_ids,
+        k=int(k),
+        intent="causal",
+        hydration=hydration,
+        max_depth=max_depth,
+        max_chains=max_chains,
+    )
