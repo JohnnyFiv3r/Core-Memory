@@ -10,7 +10,7 @@ from typing import Any, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from core_memory.identifiers import validate_archive_id
 from core_memory.integrations.api import (
@@ -22,6 +22,12 @@ from core_memory.integrations.api import (
     list_turn_summaries,
 )
 from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
+from core_memory.runtime.ingest.external_evidence import (
+    ingest_document_reference,
+    ingest_external_evidence,
+    ingest_state_assertion,
+    ingest_structured_observation,
+)
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
 from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.retrieval.tools import memory as memory_tools
@@ -119,6 +125,20 @@ class SessionStartRequest(BaseModel):
     session_id: str
     source: str = "http"
     max_items: int = 80
+
+
+class ExternalEvidenceRequest(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    root: Optional[str] = None
+    session_id: str = "external"
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+    def evidence_payload(self) -> dict[str, Any]:
+        data = dict(getattr(self, "model_extra", None) or {})
+        data.update(dict(self.payload or {}))
+        data.setdefault("session_id", self.session_id)
+        return data
 
 
 class MemoryTraceRequest(BaseModel):
@@ -477,6 +497,78 @@ async def session_flush(
         max_beads=int(payload.max_beads),
     )
     return out
+
+
+@app.post("/v1/memory/external-evidence")
+async def memory_external_evidence(
+    payload: ExternalEvidenceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    try:
+        return ingest_external_evidence(
+            root=_resolve_root(payload.root, x_tenant_id),
+            payload=payload.evidence_payload(),
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.external_evidence.v1"})
+
+
+@app.post("/v1/memory/structured-observation")
+async def memory_structured_observation(
+    payload: ExternalEvidenceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    try:
+        return ingest_structured_observation(
+            root=_resolve_root(payload.root, x_tenant_id),
+            payload=payload.evidence_payload(),
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.structured_observation.v1"})
+
+
+@app.post("/v1/memory/document-reference")
+async def memory_document_reference(
+    payload: ExternalEvidenceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    try:
+        return ingest_document_reference(
+            root=_resolve_root(payload.root, x_tenant_id),
+            payload=payload.evidence_payload(),
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.document_reference.v1"})
+
+
+@app.post("/v1/memory/state-assertion")
+async def memory_state_assertion(
+    payload: ExternalEvidenceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    try:
+        return ingest_state_assertion(
+            root=_resolve_root(payload.root, x_tenant_id),
+            payload=payload.evidence_payload(),
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.state_assertion.v1"})
 
 
 @app.post("/v1/memory/search")

@@ -16,6 +16,7 @@ from .retrieval.tools.memory import search as memory_search, trace as memory_tra
 from .retrieval.agent import recall
 from .memory import Memory, capture
 from .transcript_ingest import ingest_transcript, normalize_transcript_payload
+from .runtime.ingest import ingest_document_reference, ingest_external_evidence, ingest_state_assertion, ingest_structured_observation
 from .schema.turn import Turn
 from .retrieval.contracts import (
     ClaimSlotItem,
@@ -61,6 +62,10 @@ __all__ = [
     "capture",
     "ingest_transcript",
     "normalize_transcript_payload",
+    "ingest_external_evidence",
+    "ingest_state_assertion",
+    "ingest_structured_observation",
+    "ingest_document_reference",
     "recall",
     "recall_result_from_memory_execute",
     "validate_recall_effort",

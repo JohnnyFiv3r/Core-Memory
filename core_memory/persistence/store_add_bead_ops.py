@@ -71,6 +71,19 @@ def add_bead_for_store(
         "promotion_reason", "failure_signature", "decision_conflict_with",
         "unjustified_flip", "validation_warnings", "type_log", "type_coerced_from",
         "anchor_reason", "semantic_score", "retrieval_score",
+        "data_type_flag", "source_id", "source_event_id", "source_system",
+        "source_kind", "source_ref", "source_refs", "source_attribution",
+        "core_memory_unifying_id", "hydration_ref", "transcript_id",
+        "conversation_id", "source_thread_id", "source_session_id",
+        "message_refs", "speaker_refs", "document_id", "raw_source_object_id",
+        "ragie_document_id", "document_name", "mime_type", "document_kind",
+        "document_date", "author_or_owner", "section_refs", "source_table",
+        "source_record_id", "record_action", "record_grain",
+        "business_object_type", "business_object_id", "metric_name",
+        "metric_value", "metric_unit", "change_pct", "currency",
+        "as_of_timestamp", "entity_refs", "attribute_tags",
+        "derived_from", "derived_from_bead_ids", "assertion_kind",
+        "assertion_subject", "assertion_predicate", "assertion_value",
     }
 
     bead_id = store._generate_id()

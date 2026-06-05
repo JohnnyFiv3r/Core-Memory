@@ -26,6 +26,10 @@ A surface is canonical only if it is both:
 - `core_memory.runtime.engine.process_session_start(...)` — canonical session-start lifecycle boundary
 - `core_memory.runtime.engine.process_flush(...)` — canonical session-end flush boundary
 - `core_memory.integrations.api.emit_turn_finalized(...)` — ingress helper used by adapters that defer in-process turn handling
+- `core_memory.ingest_external_evidence(...)` — experimental typed external source write boundary for Satorid-style transcript/document/media/relational anchors
+- `core_memory.ingest_structured_observation(...)` — experimental relational/metric observation write helper
+- `core_memory.ingest_document_reference(...)` — experimental document/media artifact anchor write helper
+- `core_memory.ingest_state_assertion(...)` — experimental derived business-state/document-claim write helper
 
 ## Retrieval/runtime tool surface
 - `core_memory.retrieval.tools.memory.search(request: dict, root='.', explain=False)` — canonical anchor retrieval.
@@ -129,6 +133,12 @@ HTTP inspect read surfaces:
 - `GET /v1/memory/inspect/beads/{bead_id}/hydrate`
 - `GET /v1/memory/inspect/claim-slots/{subject}/{slot}`
 - `GET /v1/memory/inspect/turns`
+
+HTTP external evidence write surfaces:
+- `POST /v1/memory/external-evidence`
+- `POST /v1/memory/structured-observation`
+- `POST /v1/memory/document-reference`
+- `POST /v1/memory/state-assertion`
 
 HTTP MCP typed read surfaces:
 - `POST /v1/mcp/query-current-state`

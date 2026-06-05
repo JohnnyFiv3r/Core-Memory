@@ -42,6 +42,17 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
     summary = bead.get("summary") or []
     session_id = str(bead.get("session_id") or "").strip()
     source_turn_ids = bead.get("source_turn_ids") or []
+    source_anchor_present = bool(
+        source_turn_ids
+        or (bead.get("source_refs") or [])
+        or (bead.get("derived_from") or [])
+        or (bead.get("derived_from_bead_ids") or [])
+        or str(bead.get("source_id") or "").strip()
+        or str(bead.get("source_event_id") or "").strip()
+        or str(bead.get("source_ref") or "").strip()
+        or str(bead.get("core_memory_unifying_id") or "").strip()
+        or (bead.get("hydration_ref") or {})
+    )
     status = str(bead.get("status") or "").strip()
     created_at = str(bead.get("created_at") or "").strip()
     because = bead.get("because") or []
@@ -55,8 +66,8 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
         issues.append("missing:summary")
     if not session_id:
         issues.append("missing:session_id")
-    if not isinstance(source_turn_ids, list) or len(source_turn_ids) == 0:
-        issues.append("missing:source_turn_ids")
+    if not source_anchor_present:
+        issues.append("missing:source_anchor")
     if not status:
         issues.append("missing:status")
     if not created_at:
@@ -85,6 +96,32 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
             issues.append("data_insight:missing_entities")
         if not (bead.get("detail") or "").strip():
             issues.append("data_insight:missing_detail")
+    elif t == "structured_observation":
+        if not (bead.get("entities") or bead.get("entity_refs") or []):
+            issues.append("structured_observation:missing_entities")
+        if not str(bead.get("source_table") or "").strip():
+            issues.append("structured_observation:missing_source_table")
+        if not str(bead.get("source_record_id") or "").strip():
+            issues.append("structured_observation:missing_source_record_id")
+        if not str(bead.get("as_of_timestamp") or bead.get("observed_at") or "").strip():
+            issues.append("structured_observation:missing_as_of_timestamp")
+        if not (bead.get("hydration_ref") or {}):
+            issues.append("structured_observation:missing_hydration_ref")
+    elif t == "document_reference":
+        if not str(bead.get("document_id") or bead.get("ragie_document_id") or "").strip():
+            issues.append("document_reference:missing_document_id")
+        if not str(bead.get("document_name") or bead.get("title") or "").strip():
+            issues.append("document_reference:missing_document_name")
+        if not (bead.get("hydration_ref") or {}):
+            issues.append("document_reference:missing_hydration_ref")
+    elif t == "state_assertion":
+        if not (bead.get("derived_from") or bead.get("derived_from_bead_ids") or bead.get("evidence_refs") or bead.get("supporting_facts")):
+            issues.append("state_assertion:missing_derivation")
+        if not str(bead.get("effective_from") or bead.get("observed_at") or "").strip():
+            issues.append("state_assertion:missing_effective_from")
+    elif t == "transcript":
+        if not (source_turn_ids or bead.get("message_refs") or []):
+            issues.append("transcript:missing_message_refs")
     elif t == "lesson":
         if not (bead.get("because") or []):
             issues.append("lesson:missing_because")

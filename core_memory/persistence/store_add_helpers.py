@@ -133,6 +133,12 @@ def find_recent_duplicate_bead_id_for_store(
     for prior in beads:
         if str(prior.get("type") or "") != str(bead.get("type") or ""):
             continue
+        a_source_event = str(bead.get("source_event_id") or "").strip()
+        p_source_event = str(prior.get("source_event_id") or "").strip()
+        if a_source_event or p_source_event:
+            if a_source_event and p_source_event and a_source_event == p_source_event:
+                return str(prior.get("id") or "") or None
+            continue
         a_turns = {str(x) for x in (bead.get("source_turn_ids") or []) if str(x)}
         p_turns = {str(x) for x in (prior.get("source_turn_ids") or []) if str(x)}
         if a_turns and p_turns and a_turns.intersection(p_turns):
