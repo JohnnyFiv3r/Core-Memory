@@ -107,6 +107,80 @@ class TestHttpIngress(unittest.TestCase):
             self.assertTrue(data.get("results"))
             self.assertIn("grounding", data)
 
+    def test_http_external_evidence_writes_structured_observation(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            c = TestClient(app)
+            r = c.post(
+                "/v1/memory/external-evidence",
+                json={
+                    "root": root,
+                    "session_id": "satorid",
+                    "data_type_flag": "relational",
+                    "title": "COGS increased 38% over baseline",
+                    "summary": ["COGS was $12,450 for the measured window."],
+                    "source_id": "src_quickbooks",
+                    "source_event_id": "evt_structured_http",
+                    "source_system": "quickbooks",
+                    "source_table": "qbo_expenses",
+                    "source_record_id": "QB-98231",
+                    "metric_name": "COGS",
+                    "entities": ["COGS"],
+                    "as_of_timestamp": "2026-05-04T15:00:00Z",
+                    "core_memory_unifying_id": "cogs_spike_http",
+                    "hydration_ref": {"store": "supabase", "ref": "qbo_expenses:QB-98231"},
+                },
+            )
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertTrue(data.get("ok"))
+            self.assertEqual("structured_observation", data.get("type"))
+            self.assertEqual(1, data.get("created_count"))
+
+            idx_file = Path(root) / ".beads" / "index.json"
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            bead = idx["beads"][data["bead_id"]]
+            self.assertEqual("structured_observation", bead["type"])
+            self.assertEqual("evt_structured_http", bead["source_event_id"])
+
+    def test_http_state_assertion_writes_derived_bead(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+
+        with tempfile.TemporaryDirectory() as td:
+            root = str(Path(td) / "memory")
+            c = TestClient(app)
+            r = c.post(
+                "/v1/memory/state-assertion",
+                json={
+                    "root": root,
+                    "session_id": "satorid",
+                    "title": "Fresh Produce LLC became the primary COGS driver",
+                    "summary": ["Fresh Produce LLC accounted for 61% of the COGS increase."],
+                    "derived_from": ["structured_observation:cogs_spike_2026_05_04"],
+                    "assertion_kind": "business_state",
+                    "assertion_subject": "Fresh Produce LLC",
+                    "assertion_predicate": "became_primary_driver_of",
+                    "assertion_value": "COGS increase",
+                    "effective_from": "2026-05-04T00:00:00Z",
+                    "confidence": 0.82,
+                    "authority": "derived_analysis",
+                },
+            )
+            self.assertEqual(200, r.status_code)
+            data = r.json()
+            self.assertTrue(data.get("ok"))
+            self.assertEqual("state_assertion", data.get("type"))
+
+            idx_file = Path(root) / ".beads" / "index.json"
+            idx = json.loads(idx_file.read_text(encoding="utf-8"))
+            bead = idx["beads"][data["bead_id"]]
+            self.assertEqual("state_assertion", bead["type"])
+            self.assertEqual(["structured_observation:cogs_spike_2026_05_04"], bead["derived_from"])
+
     def test_http_trace_endpoint(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http.server import app

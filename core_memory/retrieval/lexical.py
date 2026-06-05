@@ -27,6 +27,7 @@ _CACHE_VERSION = 2  # bump when _field_tokens schema changes
 _LIST_ANCHOR_FIELDS = (
     "entities",
     "entity_ids",
+    "entity_refs",
     "topics",
     "decision_keys",
     "goal_keys",
@@ -34,9 +35,44 @@ _LIST_ANCHOR_FIELDS = (
     "outcome_keys",
     "time_keys",
     "evidence_refs",
+    "source_refs",
+    "attribute_tags",
+    "message_refs",
+    "speaker_refs",
+    "derived_from",
+    "derived_from_bead_ids",
     "cause_candidates",
     "effect_candidates",
     "supporting_facts",
+)
+
+_SCALAR_ANCHOR_FIELDS = (
+    "data_type_flag",
+    "source_id",
+    "source_event_id",
+    "source_system",
+    "source_kind",
+    "source_ref",
+    "core_memory_unifying_id",
+    "transcript_id",
+    "conversation_id",
+    "document_id",
+    "raw_source_object_id",
+    "ragie_document_id",
+    "document_name",
+    "mime_type",
+    "document_kind",
+    "source_table",
+    "source_record_id",
+    "business_object_type",
+    "business_object_id",
+    "metric_name",
+    "currency",
+    "as_of_timestamp",
+    "assertion_kind",
+    "assertion_subject",
+    "assertion_predicate",
+    "assertion_value",
 )
 
 
@@ -50,6 +86,8 @@ def _field_tokens(bead: dict) -> dict[str, list[str]]:
         items = bead.get(field) or []
         if isinstance(items, list):
             anchor_tokens.extend(_tokenize(" ".join(str(v) for v in items if v)))
+    for field in _SCALAR_ANCHOR_FIELDS:
+        anchor_tokens.extend(_tokenize(str(bead.get(field) or "")))
     return {
         "type": _tokenize(str(bead.get("type") or "")),
         "title": _tokenize(str(bead.get("title") or "")),

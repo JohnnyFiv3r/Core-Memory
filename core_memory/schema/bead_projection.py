@@ -16,6 +16,13 @@ _LIST_FIELDS = (
     "because",
     "retrieval_facts",
     "supporting_facts",
+    "source_refs",
+    "entity_refs",
+    "attribute_tags",
+    "message_refs",
+    "speaker_refs",
+    "derived_from",
+    "derived_from_bead_ids",
     # association anchor tier — the main gap vs. the old projection
     "entities",
     "entity_ids",
@@ -30,6 +37,42 @@ _LIST_FIELDS = (
     "effect_candidates",
     # existing context
     "tags",
+)
+
+_SCALAR_FIELDS = (
+    "data_type_flag",
+    "source_id",
+    "source_event_id",
+    "source_system",
+    "source_kind",
+    "source_ref",
+    "core_memory_unifying_id",
+    "transcript_id",
+    "conversation_id",
+    "source_thread_id",
+    "source_session_id",
+    "document_id",
+    "raw_source_object_id",
+    "ragie_document_id",
+    "document_name",
+    "mime_type",
+    "document_kind",
+    "document_date",
+    "author_or_owner",
+    "source_table",
+    "source_record_id",
+    "record_action",
+    "record_grain",
+    "business_object_type",
+    "business_object_id",
+    "metric_name",
+    "metric_unit",
+    "currency",
+    "as_of_timestamp",
+    "assertion_kind",
+    "assertion_subject",
+    "assertion_predicate",
+    "assertion_value",
 )
 
 
@@ -49,6 +92,14 @@ def build_retrieval_text(bead: dict[str, Any]) -> str:
     btype = str(bead.get("type") or "")
     if btype:
         parts.append(btype)
+
+    for field in _SCALAR_FIELDS:
+        value = str(bead.get(field) or "").strip()
+        if value:
+            parts.append(value)
+            spaced = value.replace("_", " ")
+            if spaced != value:
+                parts.append(spaced)
 
     # All list-valued fields; add underscore→space variant so queries like
     # "approve budget" match stored keys like "approve_budget".

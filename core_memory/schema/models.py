@@ -57,6 +57,10 @@ class BeadType(str, Enum):
     REFLECTION = "reflection"
     DESIGN_PRINCIPLE = "design_principle"
     CONTEXT = "context"
+    TRANSCRIPT = "transcript"
+    DOCUMENT_REFERENCE = "document_reference"
+    STRUCTURED_OBSERVATION = "structured_observation"
+    STATE_ASSERTION = "state_assertion"
     DATA_INSIGHT = "data_insight"
     BLOCKED = "blocked"
     INCIDENT = "incident"
@@ -359,6 +363,14 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
         "because",
         "supporting_facts",
         "evidence_refs",
+        "source_refs",
+        "section_refs",
+        "entity_refs",
+        "attribute_tags",
+        "message_refs",
+        "speaker_refs",
+        "derived_from",
+        "derived_from_bead_ids",
         "cause_candidates",
         "effect_candidates",
         "supersedes",
@@ -372,6 +384,10 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
 
     if "links" in out:
         out["links"] = _coerce_dict(out.get("links"))
+    if "source_attribution" in out and out.get("source_attribution") is not None:
+        out["source_attribution"] = _coerce_dict(out.get("source_attribution"))
+    if "hydration_ref" in out and out.get("hydration_ref") is not None:
+        out["hydration_ref"] = _coerce_dict(out.get("hydration_ref"))
     if "state_change" in out and out.get("state_change") is not None:
         out["state_change"] = _coerce_dict(out.get("state_change"))
 
@@ -602,6 +618,21 @@ class Bead:
     effect_candidates: list = field(default_factory=list)
     state_change: Optional[dict] = None
 
+    # External source attribution / hydration handles.
+    # These are semantic pointers, not raw source replicas.
+    data_type_flag: Optional[str] = None
+    source_id: Optional[str] = None
+    source_event_id: Optional[str] = None
+    source_system: Optional[str] = None
+    source_kind: Optional[str] = None
+    source_ref: Optional[str] = None
+    source_refs: list = field(default_factory=list)
+    source_attribution: Optional[dict] = None
+    core_memory_unifying_id: Optional[str] = None
+    hydration_ref: Optional[dict] = None
+    derived_from: list = field(default_factory=list)
+    derived_from_bead_ids: list = field(default_factory=list)
+
     # Temporal validity / supersession
     observed_at: Optional[str] = None
     recorded_at: Optional[str] = None
@@ -667,6 +698,47 @@ class Bead:
 
     # evidence
     supports_bead_ids: list = field(default_factory=list)
+
+    # transcript/reference family
+    transcript_id: Optional[str] = None
+    conversation_id: Optional[str] = None
+    source_thread_id: Optional[str] = None
+    source_session_id: Optional[str] = None
+    message_refs: list = field(default_factory=list)
+    speaker_refs: list = field(default_factory=list)
+
+    # document/media family
+    document_id: Optional[str] = None
+    raw_source_object_id: Optional[str] = None
+    ragie_document_id: Optional[str] = None
+    document_name: Optional[str] = None
+    mime_type: Optional[str] = None
+    document_kind: Optional[str] = None
+    document_date: Optional[str] = None
+    author_or_owner: Optional[str] = None
+    section_refs: list = field(default_factory=list)
+
+    # relational/structured family
+    source_table: Optional[str] = None
+    source_record_id: Optional[str] = None
+    record_action: Optional[str] = None
+    record_grain: Optional[str] = None
+    business_object_type: Optional[str] = None
+    business_object_id: Optional[str] = None
+    metric_name: Optional[str] = None
+    metric_value: Optional[float] = None
+    metric_unit: Optional[str] = None
+    change_pct: Optional[float] = None
+    currency: Optional[str] = None
+    as_of_timestamp: Optional[str] = None
+    entity_refs: list = field(default_factory=list)
+    attribute_tags: list = field(default_factory=list)
+
+    # interpreted/derived state family
+    assertion_kind: Optional[str] = None
+    assertion_subject: Optional[str] = None
+    assertion_predicate: Optional[str] = None
+    assertion_value: Optional[str] = None
 
     # precedent
     condition: Optional[str] = None
