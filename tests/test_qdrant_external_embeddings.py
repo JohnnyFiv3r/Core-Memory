@@ -18,6 +18,66 @@ from core_memory.retrieval import semantic_index as si
 from core_memory.retrieval import hybrid
 
 
+def test_add_bead_external_qdrant_mirror_uses_module_os_scope(tmp_path: Path, monkeypatch, caplog):
+    """Delta bead writes must upsert external-Qdrant vectors without os scoping errors.
+
+    A late ``import os`` inside the mirror helper made Python treat ``os`` as a
+    local variable, so the earlier CORE_MEMORY_EMBEDDINGS_MODEL lookup raised
+    ``UnboundLocalError`` only on the external-Qdrant write path and was swallowed
+    as a best-effort warning. This regression keeps that path live.
+    """
+    from core_memory.persistence import store_add_bead_ops as add_ops
+
+    monkeypatch.setenv("CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS", "1")
+    monkeypatch.setenv("CORE_MEMORY_EMBEDDINGS_MODEL", "text-embedding-3-large")
+    monkeypatch.setenv("CORE_MEMORY_GRAPH_BACKEND", "none")
+    monkeypatch.setenv("CORE_MEMORY_SYNC_TARGETS", "none")
+
+    upserts = []
+
+    class FakeBackend:
+        def upsert(self, *, bead_id, embedding, metadata):
+            upserts.append({"bead_id": bead_id, "embedding": embedding, "metadata": metadata})
+
+    monkeypatch.setattr(si, "_configured_vector_backend", lambda: si.VECTOR_BACKEND_QDRANT)
+    monkeypatch.setattr(si, "_qdrant_external_embeddings_enabled", lambda: True)
+    monkeypatch.setattr(si, "_auto_configure_embedding_provider_from_keys", lambda: "openai")
+    monkeypatch.setattr(si, "_embed_vectors", lambda *, texts, provider, model, hash_dim: [[0.1, 0.2, 0.3]])
+    monkeypatch.setattr(si, "_vector_dim", lambda vecs, fallback=256: 3)
+    monkeypatch.setattr(si, "_vector_rows", lambda vecs: vecs)
+    monkeypatch.setattr(si, "_create_external_backend", lambda *, root, backend, dimension: FakeBackend())
+
+    bead = {
+        "id": "bead-test",
+        "type": "fact",
+        "title": "Test bead",
+        "summary": ["A concise test summary"],
+        "retrieval_eligible": True,
+    }
+    with caplog.at_level("WARNING"):
+        add_ops._mirror_bead_to_backends(tmp_path, bead)
+
+    assert upserts == [
+        {
+            "bead_id": "bead-test",
+            "embedding": [0.1, 0.2, 0.3],
+            "metadata": {
+                "bead_id": "bead-test",
+                "type": "fact",
+                "session_id": "",
+                "created_at": "",
+                "retrieval_eligible": True,
+                "status": "open",
+                "topics": [],
+                "entities": [],
+                "title": "Test bead",
+                "promoted": False,
+            },
+        }
+    ]
+    assert "qdrant upsert failed" not in caplog.text
+
+
 def test_flag_default_off_and_env_on(monkeypatch):
     monkeypatch.delenv("CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS", raising=False)
     assert si._qdrant_external_embeddings_enabled() is False

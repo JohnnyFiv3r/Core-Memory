@@ -290,7 +290,6 @@ def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
             _log.warning("qdrant upsert failed for bead %s: %s", bead.get("id"), exc)
 
     from core_memory.persistence.graph.factory import create_graph_backend
-    import os
     if os.environ.get("CORE_MEMORY_GRAPH_BACKEND", "kuzu").strip().lower() not in ("none", ""):
         try:
             graph = create_graph_backend(root_path)
