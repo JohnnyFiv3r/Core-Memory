@@ -45,6 +45,7 @@ def recall_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
         speaker=_speaker_arg(payload.get("speaker")),
         root=str(payload.get("root") or "."),
         include_raw=bool(payload.get("include_raw", False)),
+        hints=dict(payload.get("hints") or {}),
     )
     out = result.to_dict()
     out["ok"] = result.status not in {"failed"}

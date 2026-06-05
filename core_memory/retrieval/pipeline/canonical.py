@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 
 from core_memory.graph.traversal import causal_traverse_chains as causal_traverse
+from core_memory.graph.root_cause import normalize_causal_hints
 from core_memory.persistence.backend import get_backend_capabilities
 from core_memory.persistence.graph.factory import create_graph_backend
 from core_memory.persistence.graph.protocol import NullGraphBackend
@@ -448,6 +449,8 @@ def _relation_summary_from_index(index_payload: dict[str, Any]) -> dict[str, dic
 
         out.setdefault(src, {"supersedes_count": 0, "superseded_by_count": 0, "contradicts_count": 0})
         out.setdefault(dst, {"supersedes_count": 0, "superseded_by_count": 0, "contradicts_count": 0})
+        out[src][rel] = int(out[src].get(rel) or 0) + 1
+        out[dst][rel] = int(out[dst].get(rel) or 0) + 1
 
         if rel == "supersedes":
             out[src]["supersedes_count"] += 1
@@ -612,6 +615,8 @@ def _to_anchor(res: dict[str, Any], by_id: dict[str, dict[str, Any]]) -> dict[st
         "claim_id": str(res.get("claim_id") or ""),
         "claim_value": res.get("claim_value"),
         "claim_status": str(res.get("claim_status") or ""),
+        "hint_boost": float(res.get("hint_boost") or 0.0),
+        "hint_matches": list(res.get("hint_matches") or []),
         "dia_ids": dia_ids,
         "locomo_dia_ids": dia_ids,
     }
@@ -772,6 +777,117 @@ def _apply_typed_filters(
         out.append(r)
 
     return out, warnings
+
+
+def _hint_text_blob(row: dict[str, Any], bead: dict[str, Any]) -> str:
+    parts = [
+        str(bead.get("title") or ""),
+        " ".join(str(x) for x in (bead.get("summary") or [])),
+        str(bead.get("detail") or ""),
+        " ".join(str(x) for x in (bead.get("entities") or [])),
+        " ".join(str(x) for x in (bead.get("entity_refs") or [])),
+        " ".join(str(x) for x in (bead.get("tags") or [])),
+        " ".join(str(x) for x in (bead.get("topics") or [])),
+        str(bead.get("source_id") or ""),
+        str(bead.get("source_ref") or ""),
+        str(bead.get("source_system") or ""),
+        str(row.get("semantic_text") or ""),
+        str(row.get("lexical_text") or ""),
+    ]
+    return " ".join(x for x in parts if x).lower()
+
+
+def _relation_family_for_hint(rel: str) -> str:
+    r = normalize_relation_type(str(rel or ""))
+    if r in {"caused_by", "causes", "led_to"}:
+        return "causal"
+    if r in {"enabled", "enables", "blocked_by", "blocks_unblocks", "unblocks"}:
+        return "influence"
+    if r in {"supports", "derived_from", "documented_by", "informed_by", "resolves", "diagnoses"}:
+        return "evidence"
+    if r in {"contradicts", "invalidates"}:
+        return "conflict"
+    return "related"
+
+
+def _apply_hint_boosts(
+    rows: list[dict[str, Any]],
+    by_id: dict[str, dict[str, Any]],
+    hints_payload: dict[str, Any] | None,
+    relation_summary: dict[str, dict[str, int]],
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    hints = normalize_causal_hints(hints_payload)
+    if not any([hints.get("bead_types"), hints.get("keywords"), hints.get("entities"), hints.get("causal_labels"), hints.get("relation_families"), hints.get("anchor_ids")]):
+        return rows, {"applied": False, "boosted_count": 0, "pinned_count": 0}
+
+    hint_terms = [str(x).lower() for x in list(hints.get("keywords") or []) + list(hints.get("entities") or []) if str(x).strip()]
+    hinted_types = set(hints.get("bead_types") or set())
+    hinted_rels = set(hints.get("causal_labels") or set())
+    hinted_families = set(hints.get("relation_families") or set())
+    pinned_ids = [str(x) for x in (hints.get("anchor_ids") or []) if str(x)]
+
+    seen = {str(r.get("bead_id") or "") for r in rows}
+    pinned_added = 0
+    for bid in pinned_ids:
+        if bid in seen or bid not in by_id:
+            continue
+        rows.append({"bead_id": bid, "score": 1.0, "semantic_score": 1.0, "anchor_reason": "pinned_hint", "source_surface": str((by_id.get(bid) or {}).get("source_surface") or "projection")})
+        seen.add(bid)
+        pinned_added += 1
+
+    boosted = 0
+    for row in rows:
+        bid = str(row.get("bead_id") or "")
+        bead = (by_id.get(bid) or {}).get("bead") or {}
+        if not isinstance(bead, dict):
+            continue
+        boost = 0.0
+        matches: list[str] = []
+        bead_type = normalize_bead_type(str(bead.get("type") or ""))
+        if bead_type in hinted_types:
+            boost += 0.08
+            matches.append(f"bead_type:{bead_type}")
+        blob = _hint_text_blob(row, bead)
+        for term in hint_terms[:12]:
+            if term and term in blob:
+                boost += 0.025
+                matches.append(f"term:{term}")
+        rel_counts = relation_summary.get(bid) or {}
+        for rel, count in rel_counts.items():
+            if str(rel).endswith("_count"):
+                continue
+            if int(count or 0) <= 0:
+                continue
+            rel_n = normalize_relation_type(str(rel))
+            if rel_n in hinted_rels:
+                boost += 0.04
+                matches.append(f"relation:{rel_n}")
+            family = _relation_family_for_hint(rel_n)
+            if family in hinted_families:
+                boost += 0.03
+                matches.append(f"relation_family:{family}")
+        if bid in pinned_ids:
+            boost += 0.25
+            matches.append("pinned_anchor")
+            row["anchor_reason"] = "pinned_hint"
+        if boost <= 0:
+            continue
+        boost = min(0.30, boost)
+        row["hint_boost"] = round(boost, 6)
+        row["hint_matches"] = sorted(set(matches))[:12]
+        row["score"] = float(row.get("score") or 0.0) + boost
+        row["context_bias_score"] = float(row.get("context_bias_score") or 0.0) + min(0.12, boost)
+        boosted += 1
+
+    return rows, {
+        "applied": True,
+        "boosted_count": boosted,
+        "pinned_count": pinned_added,
+        "hint_terms": hint_terms[:12],
+        "bead_types": sorted(hinted_types),
+        "relation_families": sorted(hinted_families),
+        "causal_labels": sorted(hinted_rels),
+    }
 
 
 def search_request(
@@ -965,6 +1081,8 @@ def search_request(
                 sem_rows.append(rr)
 
     sem_rows, filter_warnings = _apply_typed_filters(sem_rows, by_id, projection_created_at, submission)
+    hint_diag: dict[str, Any] = {"applied": False, "boosted_count": 0, "pinned_count": 0}
+    sem_rows, hint_diag = _apply_hint_boosts(sem_rows, by_id, sub.get("hints") or ((sub.get("facets") or {}).get("hints") if isinstance(sub.get("facets"), dict) else None), relation_summary)
 
     if claim_retrieval_boost_enabled() and claim_state:
         sem_rows = boost_claim_results(sem_rows, claim_state)
@@ -1029,6 +1147,7 @@ def search_request(
             "hybrid_seed_count": int(((conv.get("stages") or {}).get("hybrid_candidates") or 0)),
             "hybrid_rerank_count": int(((conv.get("stages") or {}).get("rerank_candidates") or 0)),
             "post_filter_count": int(len(sem_rows)),
+            "hint_boosts": hint_diag,
         },
         "snapped": {
             "raw_query": query,
@@ -1037,7 +1156,7 @@ def search_request(
             **{
                 key: value
                 for key, value in dict(submission or {}).items()
-                if key in {"incident_id", "scope", "topic_keys", "bead_types", "relation_types", "must_terms", "avoid_terms", "time_range", "require_structural"}
+                if key in {"incident_id", "scope", "topic_keys", "bead_types", "relation_types", "must_terms", "avoid_terms", "time_range", "require_structural", "hints"}
             },
         },
         "claim_context": {
@@ -1309,6 +1428,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "time_range": dict(facets.get("time_range") or {}),
             "metadata": {**dict(facets.get("metadata") or {}), **_metadata_constraints(constraints)},
             "require_structural": bool(constraints.get("require_structural", False)),
+            "hints": dict(req.get("hints") or facets.get("hints") or {}),
         }
         out = search_request(root=rp, query=query, k=k, intent=intent, submission=submission)
         if not out.get("ok"):
@@ -1346,6 +1466,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
             "time_range": dict(facets.get("time_range") or {}),
             "metadata": {**dict(facets.get("metadata") or {}), **_metadata_constraints(constraints)},
             "require_structural": bool(constraints.get("require_structural", False)),
+            "hints": dict(req.get("hints") or facets.get("hints") or {}),
         }
         out = trace_request(
             root=rp,

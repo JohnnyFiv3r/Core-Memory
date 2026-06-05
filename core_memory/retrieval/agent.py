@@ -17,6 +17,7 @@ from core_memory.retrieval.contracts import (
     validate_recall_effort,
 )
 from core_memory.persistence.store_claim_ops import read_all_claim_rows, resolve_current_state
+from core_memory.retrieval.causal_recall import attach_causal_recall_pipeline, normalize_recall_hints, should_run_causal_pipeline
 from core_memory.retrieval.tools.memory import execute as memory_execute
 
 _CAUSAL_HINTS = {
@@ -389,6 +390,9 @@ def _normalize_request(
     request.setdefault("k", int(defaults["k"] if k is None else k))
     request.setdefault("effort", effort)
     request.setdefault("grounding_mode", defaults["grounding_mode"])
+    hints = dict(request.get("hints") or request_overrides.get("hints") or {})
+    if hints:
+        request["hints"] = normalize_recall_hints(hints)
     if defaults.get("hydration") and not request.get("hydration"):
         request["hydration"] = dict(defaults["hydration"])
     if speaker is not None:
@@ -409,7 +413,16 @@ def _normalize_request(
             facets = dict(request.get("facets") or {})
             facets.setdefault("structural_hint_relations", hint_relations)
             request["facets"] = facets
+    if request.get("hints"):
+        facets = dict(request.get("facets") or {})
+        facets.setdefault("hints", request["hints"])
+        request["facets"] = facets
     request.update(request_overrides)
+    if request.get("hints"):
+        request["hints"] = normalize_recall_hints(dict(request.get("hints") or {}))
+        facets = dict(request.get("facets") or {})
+        facets["hints"] = request["hints"]
+        request["facets"] = facets
     return query, request
 
 
@@ -668,10 +681,10 @@ def recall(
 
     # Multi-store fan-out: only activate when at least one external adapter is configured.
     try:
-        from core_memory.config.feature_flags import satorid_ragie_api_key, satorid_pipehouse_url
+        from core_memory.config.feature_flags import external_pipehouse_url, external_ragie_api_key
         from core_memory.retrieval.fanout import fanout_recall
-        _ragie_key = satorid_ragie_api_key()
-        _pipehouse_url = satorid_pipehouse_url()
+        _ragie_key = external_ragie_api_key()
+        _pipehouse_url = external_pipehouse_url()
         _ragie_cfg = {"api_key": _ragie_key} if _ragie_key else None
         _pipehouse_cfg = {"base_url": _pipehouse_url} if _pipehouse_url else None
         if _ragie_cfg or _pipehouse_cfg:
@@ -689,6 +702,19 @@ def recall(
         result.evidence = _filter_evidence_by_as_of(result.evidence, as_of)
         result.as_of = as_of
         result.metadata["as_of"] = as_of
+    req_intent = str(request.get("intent") or intent or "")
+    if should_run_causal_pipeline(query, selected_effort, req_intent):
+        try:
+            result = attach_causal_recall_pipeline(
+                result,
+                root=root,
+                query=query,
+                hints=dict(request.get("hints") or {}),
+                max_depth=int(request.get("trace_max_depth") or request.get("max_depth") or 6),
+                max_paths=int(request.get("trace_max_paths") or request.get("max_paths") or 20),
+            )
+        except Exception:
+            result.warnings.append("causal_recall_pipeline_error")
     result.planning = RecallPlanning(
         selected_effort=selected_effort,
         reason=str(_EFFORT_DEFAULTS[selected_effort]["planning_reason"]),

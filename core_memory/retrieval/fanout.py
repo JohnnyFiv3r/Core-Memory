@@ -28,8 +28,8 @@ def _normalize_scores(items: list[EvidenceItem]) -> list[EvidenceItem]:
 
 
 def _parse_store_weights() -> dict[str, float]:
-    from core_memory.config.feature_flags import satorid_store_weights
-    raw = satorid_store_weights()
+    from core_memory.config.feature_flags import external_store_weights
+    raw = external_store_weights()
     defaults: dict[str, float] = {"core_memory": 1.0, "ragie": 1.0, "pipehouse": 1.0}
     if not raw:
         return defaults

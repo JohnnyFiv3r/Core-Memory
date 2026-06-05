@@ -26,7 +26,7 @@ A surface is canonical only if it is both:
 - `core_memory.runtime.engine.process_session_start(...)` — canonical session-start lifecycle boundary
 - `core_memory.runtime.engine.process_flush(...)` — canonical session-end flush boundary
 - `core_memory.integrations.api.emit_turn_finalized(...)` — ingress helper used by adapters that defer in-process turn handling
-- `core_memory.ingest_external_evidence(...)` — experimental typed external source write boundary for Satorid-style transcript/document/media/relational anchors
+- `core_memory.ingest_external_evidence(...)` — experimental typed external source write boundary for transcript/document/media/relational anchors
 - `core_memory.ingest_structured_observation(...)` — experimental relational/metric observation write helper
 - `core_memory.ingest_document_reference(...)` — experimental document/media artifact anchor write helper
 - `core_memory.ingest_state_assertion(...)` — experimental derived business-state/document-claim write helper

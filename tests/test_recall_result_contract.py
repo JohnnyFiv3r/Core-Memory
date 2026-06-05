@@ -44,6 +44,11 @@ class TestRecallResultContract(unittest.TestCase):
                 )
             },
             sources=[SourceItem(turn_id="t1", session_id="s1", speaker="assistant", bead_id="b1")],
+            root_cause_attribution={"schema_version": "core_memory.root_cause_attribution.v1"},
+            trace_package={"schema_version": "core_memory.trace_package.v1"},
+            state_packet={"schema_version": "core_memory.state_packet.v1"},
+            execute_decision={"schema_version": "core_memory.execute_decision.v1"},
+            source_citations=[{"citation_id": "src_1", "bead_id": "b1"}],
             tier_path=["semantic", "source"],
             steps=[RecallStep(tier="semantic", query="vector backend", status="ok", result_count=1)],
             planning=RecallPlanning(
@@ -64,6 +69,8 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertEqual("sha256:e", data["evidence"][0]["grounding_hash"])
         self.assertEqual("g1", data["resolved_goals"][0]["bead_id"])
         self.assertEqual("pgvector", data["claim_slots"]["Postgres:backend"]["current_value"])
+        self.assertEqual("core_memory.state_packet.v1", data["state_packet"]["schema_version"])
+        self.assertEqual("src_1", data["source_citations"][0]["citation_id"])
         self.assertEqual(["decision"], data["planning"]["expected_shape"]["bead_types"])
         self.assertEqual("test", data["metadata"]["surface"])
 
@@ -134,9 +141,9 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertEqual("answered", result.status)
         self.assertEqual("Retries caused the timeout cascade.", result.answer)
         self.assertEqual("Current claim slot matched.", result.why)
-        self.assertEqual(["semantic", "causal"], result.tier_path)
+        self.assertEqual(["semantic", "trace"], result.tier_path)
         self.assertEqual("semantic", result.steps[0].tier)
-        self.assertEqual("causal", result.steps[1].tier)
+        self.assertEqual("trace", result.steps[1].tier)
         self.assertEqual(1, result.steps[1].result_count)
         self.assertEqual("high", result.planning.selected_effort)
 

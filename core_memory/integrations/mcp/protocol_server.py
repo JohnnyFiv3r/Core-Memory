@@ -132,6 +132,7 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
         query: str,
         effort: str = "medium",
         speaker: str | list[str] | None = None,
+        hints: dict[str, Any] | None = None,
         root: str | None = None,
     ) -> dict[str, Any]:
         return call_tool(
@@ -140,6 +141,7 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
                 "query": query,
                 "effort": effort,
                 "speaker": speaker,
+                "hints": hints or {},
                 "root": _root(root),
             },
         )

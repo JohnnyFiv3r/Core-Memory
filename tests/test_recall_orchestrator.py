@@ -64,7 +64,7 @@ class TestRecallOrchestrator(unittest.TestCase):
             request["hydration"],
         )
         self.assertEqual("relative", result.planning.expected_shape["time_range_hint"])
-        self.assertIn("causal", result.tier_path)
+        self.assertIn("trace", result.tier_path)
 
     def test_request_overrides_win(self):
         with patch("core_memory.retrieval.agent.memory_execute", return_value={"ok": True, "results": []}) as spy:

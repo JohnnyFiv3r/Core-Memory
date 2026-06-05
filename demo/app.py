@@ -735,7 +735,7 @@ async def ingest_data_insight_endpoint(request: Request):
       attribute_tags   (list)  — PipeHouse-assigned attribute labels
       title            (str)   — human-readable summary (max 120 chars)
       content          (str)   — full insight description
-      session_id       (str, optional) — target session (default: env SATORID_PIPEHOUSE_SESSION_ID)
+      session_id       (str, optional) — target session (default: env CORE_MEMORY_PIPEHOUSE_SESSION_ID)
       core_memory_unifying_id (str, optional) — cross-store join key
       confidence       (float, optional) — default 0.9
       because          (list, optional)  — reasons the insight was flagged
@@ -748,7 +748,7 @@ async def ingest_data_insight_endpoint(request: Request):
     if not isinstance(body, dict):
         return JSONResponse({"ok": False, "error": "request body must be a JSON object"}, status_code=400)
 
-    session_id = str(body.get("session_id") or os.getenv("SATORID_PIPEHOUSE_SESSION_ID") or "data-insights").strip()
+    session_id = str(body.get("session_id") or os.getenv("CORE_MEMORY_PIPEHOUSE_SESSION_ID") or "data-insights").strip()
 
     try:
         from core_memory.runtime.ingest.data_insight import ingest_data_insight_row

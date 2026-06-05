@@ -26,6 +26,8 @@ class MCPProtocolScaffoldTests(unittest.TestCase):
         for name in ["capture", "recall", "ingest", "status"]:
             self.assertIn(f'"{name}": MCPToolDefinition', self.registry_text)
         self.assertIn('"effort": {"enum": ["low", "medium", "high"]}', self.registry_text)
+        self.assertIn('"hints": {', self.registry_text)
+        self.assertIn('"causal_labels"', self.registry_text)
         self.assertNotIn('"budget"', self.registry_text)
 
     def test_error_codes_use_effort_naming(self):

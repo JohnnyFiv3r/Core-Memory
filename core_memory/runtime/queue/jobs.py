@@ -209,13 +209,13 @@ def enqueue_async_job(
     if k == "data-insight-poll":
         poll_payload = dict(event or {})
         poll_payload.update({k2: v for k2, v in dict(ctx or {}).items() if k2 not in poll_payload})
-        db_url = str(poll_payload.get("db_url") or os.getenv("SATORID_PIPEHOUSE_DB_URL") or "").strip()
+        db_url = str(poll_payload.get("db_url") or os.getenv("CORE_MEMORY_PIPEHOUSE_DB_URL") or "").strip()
         if not db_url:
             return _with_schema({
                 "ok": True,
                 "kind": k,
                 "skipped": True,
-                "reason": "SATORID_PIPEHOUSE_DB_URL not configured",
+                "reason": "CORE_MEMORY_PIPEHOUSE_DB_URL not configured",
             })
         idem = str(poll_payload.get("idempotency_key") or "").strip() or None
         out = enqueue_side_effect_event(root=root_p, kind=k, payload=poll_payload, idempotency_key=idem)
