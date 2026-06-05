@@ -8,7 +8,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
 from core_memory.schema.normalization import normalize_relation_type
 
 
@@ -565,6 +564,7 @@ def root_cause_trace(
     *,
     query: str,
     hints: dict | None = None,
+    myelination_bonus: dict[str, float] | None = None,
     max_depth: int = 6,
     max_paths: int = 20,
     max_causes: int = 8,
@@ -583,12 +583,7 @@ def root_cause_trace(
     query_tokens = _tokens(query)
     hint_tokens = _tokens(" ".join(normalized_hints.get("keywords") or []) + " " + " ".join(normalized_hints.get("entities") or []))
     edges = _build_edges(root, index)
-    myelination: dict[str, float] = {}
-    try:
-        payload = compute_myelination_bonus_map(root)
-        myelination = dict(payload.get("bonus_by_edge_key") or {}) if payload.get("enabled") else {}
-    except Exception:
-        myelination = {}
+    myelination = dict(myelination_bonus or {})
 
     anchors = [a for a in [*_clean_list(anchor_ids), *normalized_hints.get("anchor_ids", [])] if _text(a) in beads]
     anchors = list(dict.fromkeys(_text(a) for a in anchors if _text(a)))

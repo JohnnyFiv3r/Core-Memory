@@ -58,6 +58,16 @@ def normalize_recall_hints(hints: dict[str, Any] | None) -> dict[str, Any]:
     return _json_safe_hints(hints)
 
 
+def _myelination_bonus_map(root: str | Path) -> dict[str, float]:
+    try:
+        from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
+
+        payload = compute_myelination_bonus_map(Path(root))
+        return dict(payload.get("bonus_by_edge_key") or {}) if payload.get("enabled") else {}
+    except Exception:
+        return {}
+
+
 def _url_from_value(value: Any) -> str:
     if isinstance(value, str):
         m = re.search(r"https?://[^\s)>\"]+", value)
@@ -384,9 +394,9 @@ def execute_state_packet(*, state_packet: dict[str, Any], trace_package: dict[st
 
 
 def _ordered_tier_path(existing: list[str], *, include_source: bool) -> list[str]:
-    wanted = ["semantic", "trace", "state", "execute"] + (["source"] if include_source else [])
+    wanted = ["semantic", "causal", "trace", "state", "execute"] + (["source"] if include_source else [])
     present = set(existing or [])
-    present.update({"semantic", "trace", "state", "execute"})
+    present.update({"semantic", "causal", "trace", "state", "execute"})
     if include_source:
         present.add("source")
     return [tier for tier in wanted if tier in present]
@@ -402,7 +412,14 @@ def should_run_causal_pipeline(query: str, effort: str, intent: str | None = Non
     intent_l = _text(intent).lower()
     if intent_l == "causal":
         return True
-    return bool(re.search(r"\b(why|cause|caused|because|root cause|what changed|led to|driver|drove|impact)\b", query.lower()))
+    if str(effort or "").lower() != "high":
+        return False
+    return bool(
+        re.search(
+            r"\b(why|because|root[- ]cause|what caused|what causes|what changed|caused by|cause of|led to|drivers? of)\b",
+            query.lower(),
+        )
+    )
 
 
 def attach_causal_recall_pipeline(
@@ -427,6 +444,7 @@ def attach_causal_recall_pipeline(
         anchor_ids=anchor_ids[:12],
         query=query,
         hints=normalized_hints,
+        myelination_bonus=_myelination_bonus_map(root),
         max_depth=max_depth,
         max_paths=max_paths,
         max_causes=8,
@@ -442,8 +460,9 @@ def attach_causal_recall_pipeline(
     decision = execute_state_packet(state_packet=state_packet, trace_package=result.trace_package)
     result.execute_decision = decision
 
+    causal_paths = [p for p in _clean_list(attribution.get("causal_paths")) if isinstance(p, dict)]
     explanation = _text(decision.get("selected_explanation"))
-    if explanation:
+    if causal_paths and explanation:
         result.answer = explanation
         result.why = "execute_decision"
         if result.status != "failed":
@@ -457,7 +476,9 @@ def attach_causal_recall_pipeline(
             if kind and kind not in result.warnings:
                 result.warnings.append(kind)
 
-    _append_step(result, "trace", query, len(attribution.get("causal_paths") or []), "root-cause trace package assembled")
+    _append_step(result, "causal", query, len(causal_paths), "compatibility alias for root-cause trace package")
+    result.steps[-1].metadata = {"alias_for": "trace"}
+    _append_step(result, "trace", query, len(causal_paths), "root-cause trace package assembled")
     _append_step(result, "state", query, len(state_packet.get("trace_ids") or []), "state packet assembled")
     _append_step(result, "execute", query, 1, "execute decision completed")
     result.tier_path = _ordered_tier_path(result.tier_path, include_source=bool(result.sources or result.source_citations))

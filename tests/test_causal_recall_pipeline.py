@@ -5,7 +5,7 @@ from unittest.mock import patch
 from core_memory.provider_config import ProviderConfig
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.agent import recall
-from core_memory.retrieval.causal_recall import extract_source_citations, normalize_recall_hints
+from core_memory.retrieval.causal_recall import extract_source_citations, normalize_recall_hints, should_run_causal_pipeline
 from core_memory.retrieval.pipeline import memory_search_request
 
 
@@ -38,6 +38,7 @@ class TestCausalRecallPipeline(unittest.TestCase):
                 result = recall("Why did COGS spike?", effort="high", root=td, include_raw=False)
 
         self.assertEqual("answered", result.status)
+        self.assertIn("causal", result.tier_path)
         self.assertIn("trace", result.tier_path)
         self.assertIn("state", result.tier_path)
         self.assertIn("execute", result.tier_path)
@@ -46,6 +47,29 @@ class TestCausalRecallPipeline(unittest.TestCase):
         self.assertEqual("core_memory.execute_decision.v1", result.execute_decision["schema_version"])
         self.assertIn("execute_llm_unavailable", result.warnings)
         self.assertIn("Vendor price increase", result.answer)
+
+    def test_recall_does_not_promote_fallback_answer_without_causal_paths(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            outcome = store.add_bead(type="outcome", title="COGS spike", summary=["COGS increased."])
+            raw = {"ok": True, "results": [{"bead_id": outcome, "title": "COGS spike", "summary": ["COGS increased."], "type": "outcome"}]}
+
+            with patch("core_memory.retrieval.agent.memory_execute", return_value=raw), patch(
+                "core_memory.retrieval.causal_recall.resolve_chat_config",
+                return_value=ProviderConfig("chat", provider="", model="", source=""),
+            ):
+                result = recall("Why did COGS spike?", effort="high", root=td, include_raw=False)
+
+        self.assertEqual("partial", result.status)
+        self.assertIsNone(result.answer)
+        self.assertEqual([], result.root_cause_attribution["causal_paths"])
+        self.assertIn("execute_llm_unavailable", result.warnings)
+
+    def test_causal_pipeline_trigger_is_narrow_for_implicit_queries(self):
+        self.assertFalse(should_run_causal_pipeline("What changed in the onboarding notes?", "medium", None))
+        self.assertFalse(should_run_causal_pipeline("What was the impact of onboarding?", "high", None))
+        self.assertTrue(should_run_causal_pipeline("What caused the onboarding regression?", "high", None))
+        self.assertTrue(should_run_causal_pipeline("Summarize onboarding", "medium", "causal"))
 
     def test_pinned_hint_anchor_is_included_without_hard_filtering_others(self):
         with tempfile.TemporaryDirectory() as td:

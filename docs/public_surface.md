@@ -77,6 +77,7 @@ CLI operators map to these runtime ops:
 - `search`: anchor retrieval
 - `trace`: causal traversal/grounding after anchor identification
 - `execute`: unified orchestration entrypoint
+- `RecallResult.tier_path` may include both `causal` and `trace` for causal traversal. `causal` is retained as the legacy compatibility tier; `trace` is the canonical tier name for the newer search → trace → state → execute recall pipeline.
 
 Compatibility note:
 - `form_submission` is accepted as an alias for `request` in compatibility callers, but forward docs and adapter contracts should use `request`.

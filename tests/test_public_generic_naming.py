@@ -18,3 +18,12 @@ def test_public_repo_has_no_deployment_specific_memory_runtime_name():
             if banned.lower() in text.lower():
                 hits.append(str(path))
     assert hits == []
+
+
+def test_graph_layer_does_not_import_runtime_modules():
+    hits = []
+    for path in Path("core_memory/graph").rglob("*.py"):
+        text = path.read_text(encoding="utf-8")
+        if "core_memory.runtime" in text:
+            hits.append(str(path))
+    assert hits == []

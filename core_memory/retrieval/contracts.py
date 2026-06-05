@@ -296,6 +296,11 @@ def sources_from_result_row(row: dict[str, Any]) -> list[SourceItem]:
     ]
 
 
+def _append_tier(tier_path: list[str], tier: str) -> None:
+    if tier not in tier_path:
+        tier_path.append(tier)
+
+
 def recall_result_from_memory_execute(
     raw: dict[str, Any],
     *,
@@ -324,20 +329,21 @@ def recall_result_from_memory_execute(
     chains = _clean_list(payload.get("chains"))
     tier_path: list[str] = []
     if rows:
-        tier_path.append("semantic")
+        _append_tier(tier_path, "semantic")
     if chains:
-        tier_path.append("trace")
+        _append_tier(tier_path, "causal")
+        _append_tier(tier_path, "trace")
     if payload.get("root_cause_attribution") or payload.get("trace_package"):
-        if "trace" not in tier_path:
-            tier_path.append("trace")
+        _append_tier(tier_path, "causal")
+        _append_tier(tier_path, "trace")
     if payload.get("state_packet"):
-        tier_path.append("state")
+        _append_tier(tier_path, "state")
     if payload.get("execute_decision"):
-        tier_path.append("execute")
+        _append_tier(tier_path, "execute")
     if payload.get("hydration_data") or any(sources):
-        tier_path.append("source")
+        _append_tier(tier_path, "source")
     if not tier_path:
-        tier_path.append("semantic")
+        _append_tier(tier_path, "semantic")
 
     steps = [
         RecallStep(
@@ -349,10 +355,12 @@ def recall_result_from_memory_execute(
         )
     ]
     if chains:
+        steps.append(RecallStep(tier="causal", query=steps[0].query, status="ok", result_count=len(chains), why="causal chains available", metadata={"alias_for": "trace"}))
         steps.append(RecallStep(tier="trace", query=steps[0].query, status="ok", result_count=len(chains), why="causal chains available"))
     if payload.get("root_cause_attribution") or payload.get("trace_package"):
         package = payload.get("trace_package") if isinstance(payload.get("trace_package"), dict) else {}
         traces = _clean_list(package.get("candidate_traces") if isinstance(package, dict) else [])
+        steps.append(RecallStep(tier="causal", query=steps[0].query, status="ok", result_count=len(traces), why="root-cause trace package available", metadata={"alias_for": "trace"}))
         steps.append(RecallStep(tier="trace", query=steps[0].query, status="ok", result_count=len(traces), why="root-cause trace package available"))
     if payload.get("state_packet"):
         packet = payload.get("state_packet") if isinstance(payload.get("state_packet"), dict) else {}

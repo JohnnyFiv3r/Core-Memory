@@ -141,10 +141,12 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertEqual("answered", result.status)
         self.assertEqual("Retries caused the timeout cascade.", result.answer)
         self.assertEqual("Current claim slot matched.", result.why)
-        self.assertEqual(["semantic", "trace"], result.tier_path)
+        self.assertEqual(["semantic", "causal", "trace"], result.tier_path)
         self.assertEqual("semantic", result.steps[0].tier)
-        self.assertEqual("trace", result.steps[1].tier)
+        self.assertEqual("causal", result.steps[1].tier)
         self.assertEqual(1, result.steps[1].result_count)
+        self.assertEqual("trace", result.steps[1].metadata["alias_for"])
+        self.assertEqual("trace", result.steps[2].tier)
         self.assertEqual("high", result.planning.selected_effort)
 
     def test_failed_legacy_result_preserves_warnings_and_status(self):
