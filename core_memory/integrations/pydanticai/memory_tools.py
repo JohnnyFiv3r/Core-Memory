@@ -203,14 +203,16 @@ def memory_trace_tool(root: Optional[str] = None) -> Callable[..., str]:
     """
     root_final = _resolve_root(root)
 
-    def trace_memory(query: str, k: int = 8, max_depth: int = 6) -> str:
+    def trace_memory(query: str, k: int = 8, max_depth: Optional[int] = None) -> str:
         """Trace a causal question using canonical memory traversal.
 
         Args:
             query: A causal question about prior decisions or outcomes.
             k: Anchor count.
-            max_depth: Optional causal traversal hop cap. Defaults to 6 for
-                deeper adaptive tracing; pass 0 to use the configured default.
+            max_depth: Optional positive causal traversal hop cap. Leave unset
+                to use the configured default (for example
+                CORE_MEMORY_TRACE_MAX_DEPTH). Pass 0 to use the configured
+                default explicitly.
         """
         try:
             depth = int(max_depth or 0)
