@@ -325,12 +325,12 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
 
     if k == "data-insight-poll":
         import os as _os
-        db_url = str(p.get("db_url") or _os.getenv("SATORID_PIPEHOUSE_DB_URL") or "").strip()
-        session_id = str(p.get("session_id") or _os.getenv("SATORID_PIPEHOUSE_SESSION_ID") or "data-insights").strip()
+        db_url = str(p.get("db_url") or _os.getenv("CORE_MEMORY_PIPEHOUSE_DB_URL") or "").strip()
+        session_id = str(p.get("session_id") or _os.getenv("CORE_MEMORY_PIPEHOUSE_SESSION_ID") or "data-insights").strip()
         batch_size = max(1, int(p.get("batch_size") or 50))
 
         if not db_url:
-            return {"ok": True, "kind": k, "skipped": True, "reason": "SATORID_PIPEHOUSE_DB_URL not configured"}
+            return {"ok": True, "kind": k, "skipped": True, "reason": "CORE_MEMORY_PIPEHOUSE_DB_URL not configured"}
 
         try:
             import psycopg2  # type: ignore

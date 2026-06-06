@@ -1,8 +1,8 @@
-"""Typed external memory ingest for Satorid-style source evidence.
+"""Typed external memory ingest for source-attributed evidence.
 
 This path writes semantic memory anchors, not raw source replicas. Source bodies,
-document chunks, relational rows, and binary media remain in Satorid-owned stores,
-Ragie, Snowflake, Supabase, or another hydration backend.
+document chunks, relational rows, and binary media remain in caller-owned stores
+such as Ragie, Snowflake, Supabase, or another hydration backend.
 """
 from __future__ import annotations
 
@@ -313,7 +313,7 @@ def _bead_payload(payload: dict[str, Any], *, bead_type: str, source_kind: str, 
     topics = _coerce_str_list(payload.get("topics"))
     attribute_tags = _coerce_str_list(payload.get("attribute_tags"))
     tags = _coerce_str_list(payload.get("tags"))
-    for tag in ("satorid_external", source_kind, bead_type, _clean_str(payload.get("source_system"))):
+    for tag in ("external_evidence", source_kind, bead_type, _clean_str(payload.get("source_system"))):
         if tag and tag not in tags:
             tags.append(tag)
     for tag in attribute_tags:
@@ -358,7 +358,7 @@ def _bead_payload(payload: dict[str, Any], *, bead_type: str, source_kind: str, 
 
 
 def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
-    """Write a typed external source bead and return a Satorid-ready receipt."""
+    """Write a typed external source bead and return an ingest receipt."""
     if not isinstance(payload, dict):
         raise ValueError("external_evidence: payload must be an object")
 

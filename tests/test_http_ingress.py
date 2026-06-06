@@ -118,7 +118,7 @@ class TestHttpIngress(unittest.TestCase):
                 "/v1/memory/external-evidence",
                 json={
                     "root": root,
-                    "session_id": "satorid",
+                    "session_id": "external-source",
                     "data_type_flag": "relational",
                     "title": "COGS increased 38% over baseline",
                     "summary": ["COGS was $12,450 for the measured window."],
@@ -157,7 +157,7 @@ class TestHttpIngress(unittest.TestCase):
                 "/v1/memory/state-assertion",
                 json={
                     "root": root,
-                    "session_id": "satorid",
+                    "session_id": "external-source",
                     "title": "Fresh Produce LLC became the primary COGS driver",
                     "summary": ["Fresh Produce LLC accounted for 61% of the COGS increase."],
                     "derived_from": ["structured_observation:cogs_spike_2026_05_04"],

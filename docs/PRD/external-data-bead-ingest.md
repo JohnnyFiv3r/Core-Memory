@@ -13,7 +13,7 @@ There is no defined contract for how relational data insights from an external s
 (PipeHouse) enter Core Memory's write pipeline. The agreed model — PipeHouse normalizes
 data, writes insights to a table, Core Memory reads and generates a bead — has no schema,
 no ingest path, and no specified bead type. PipeHouse has nothing concrete to build
-against. The causal edges drawn in the Satorid architecture diagram (`data supports
+against. The causal edges drawn in the External Memory Runtime architecture diagram (`data supports
 decision`, `data led_to investigation`) have no data to anchor to.
 
 ---
@@ -207,8 +207,8 @@ Add a `"data-insight-poll"` job kind:
     "kind": "data-insight-poll",
     "interval_seconds": 60,
     "batch_size": 50,
-    "db_url_env": "SATORID_PIPEHOUSE_DB_URL",
-    "session_id_env": "SATORID_PIPEHOUSE_SESSION_ID",
+    "db_url_env": "CORE_MEMORY_PIPEHOUSE_DB_URL",
+    "session_id_env": "CORE_MEMORY_PIPEHOUSE_SESSION_ID",
 }
 ```
 
@@ -218,7 +218,7 @@ The job:
 3. On success, sets `ingested_at = NOW()` on the source row
 4. On failure, logs the error and skips the row (retried next poll)
 
-Configured via `SATORID_PIPEHOUSE_DB_URL` env var. If unset, job is a no-op.
+Configured via `CORE_MEMORY_PIPEHOUSE_DB_URL` env var. If unset, job is a no-op.
 
 ---
 
@@ -280,7 +280,7 @@ The ID format is caller-determined; Core Memory treats it as an opaque string.
    fields so callers get explicit errors, not silent empty beads.
 
 4. **`runtime/jobs.py`** — Add `"data-insight-poll"` job kind. Read
-   `SATORID_PIPEHOUSE_DB_URL` from env. If unset, register the job as a no-op (do not
+   `CORE_MEMORY_PIPEHOUSE_DB_URL` from env. If unset, register the job as a no-op (do not
    error on startup).
 
 5. **`demo/app.py`** — Add `POST /api/ingest/data-insight` handler. Validate body,
@@ -300,7 +300,7 @@ The ID format is caller-determined; Core Memory treats it as an opaque string.
 ## Dependencies / risks
 
 - **`emit_turn_finalized` session coupling:** The ingest path requires a `session_id`.
-  For Mode A (polling), a dedicated `SATORID_PIPEHOUSE_SESSION_ID` is configured as a
+  For Mode A (polling), a dedicated `CORE_MEMORY_PIPEHOUSE_SESSION_ID` is configured as a
   long-lived data session ID. For Mode B (webhook), the caller supplies it. Both are
   valid — data beads accumulate in a persistent data session, not an ephemeral agent
   session.

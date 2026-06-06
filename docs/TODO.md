@@ -415,7 +415,7 @@ as part of the #14 claim-resolution refactor.
 
 ## New architectural items
 
-### #15 — Multi-store recall fan-out (Satorid)
+### #15 — Multi-store recall fan-out (External Memory Runtime)
 
 **Status:** Spec complete; implementation not started  
 **Blocks:** nothing  
@@ -451,7 +451,7 @@ until #16 is complete.
 - `"data-insight-poll"` job kind in `runtime/queue/side_effect_queue.py` and
   `runtime/queue/jobs.py` — reads up to `batch_size` uningested rows from
   `core_memory_insights`, calls `ingest_data_insight_row()` for each, sets
-  `ingested_at = NOW()` on success; `SATORID_PIPEHOUSE_DB_URL` env var gates the
+  `ingested_at = NOW()` on success; `CORE_MEMORY_PIPEHOUSE_DB_URL` env var gates the
   DB connection (no-op when unset)
 - `POST /api/ingest/data-insight` endpoint in `demo/app.py` — validates body, calls
   `ingest_data_insight_row()`, returns `bead_id` or error

@@ -98,8 +98,8 @@ def _state_assertion_payload(**overrides):
     return payload
 
 
-class TestSatoridSchema(unittest.TestCase):
-    def test_new_satorid_bead_types_are_canonical(self):
+class TestExternalEvidenceSchema(unittest.TestCase):
+    def test_new_external_evidence_bead_types_are_canonical(self):
         self.assertEqual(BeadType.TRANSCRIPT.value, "transcript")
         self.assertEqual(BeadType.DOCUMENT_REFERENCE.value, "document_reference")
         self.assertEqual(BeadType.STRUCTURED_OBSERVATION.value, "structured_observation")
@@ -134,7 +134,7 @@ class TestSatoridSchema(unittest.TestCase):
         self.assertEqual(["cogs"], out["attribute_tags"])
 
 
-class TestSatoridExternalEvidenceIngest(unittest.TestCase):
+class TestExternalEvidenceIngest(unittest.TestCase):
     def test_flag_routes_to_specific_bead_type(self):
         self.assertEqual("structured_observation", resolve_external_bead_type({"data_type_flag": "relational"}))
         self.assertEqual("document_reference", resolve_external_bead_type({"data_type_flag": "document.media"}))
@@ -143,7 +143,7 @@ class TestSatoridExternalEvidenceIngest(unittest.TestCase):
 
     def test_structured_observation_writes_typed_source_attributed_bead(self):
         with tempfile.TemporaryDirectory() as td:
-            receipt = ingest_structured_observation(td, _structured_payload(), session_id="satorid")
+            receipt = ingest_structured_observation(td, _structured_payload(), session_id="external-source")
             self.assertTrue(receipt["ok"])
             self.assertEqual("accepted", receipt["status"])
             self.assertEqual("structured_observation", receipt["type"])
@@ -164,7 +164,7 @@ class TestSatoridExternalEvidenceIngest(unittest.TestCase):
 
     def test_document_reference_writes_artifact_anchor(self):
         with tempfile.TemporaryDirectory() as td:
-            receipt = ingest_document_reference(td, _document_payload(), session_id="satorid")
+            receipt = ingest_document_reference(td, _document_payload(), session_id="external-source")
             idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
             bead = idx["beads"][receipt["bead_id"]]
             self.assertEqual("document_reference", bead["type"])
@@ -176,7 +176,7 @@ class TestSatoridExternalEvidenceIngest(unittest.TestCase):
 
     def test_state_assertion_writes_derived_business_state(self):
         with tempfile.TemporaryDirectory() as td:
-            receipt = ingest_state_assertion(td, _state_assertion_payload(), session_id="satorid")
+            receipt = ingest_state_assertion(td, _state_assertion_payload(), session_id="external-source")
             self.assertTrue(receipt["ok"])
             self.assertEqual("state_assertion", receipt["type"])
             idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
@@ -192,8 +192,8 @@ class TestSatoridExternalEvidenceIngest(unittest.TestCase):
 
     def test_external_evidence_dedupes_by_source_event_id(self):
         with tempfile.TemporaryDirectory() as td:
-            first = ingest_external_evidence(td, _structured_payload(), session_id="satorid")
-            second = ingest_external_evidence(td, _structured_payload(title="COGS spike duplicate title"), session_id="satorid")
+            first = ingest_external_evidence(td, _structured_payload(), session_id="external-source")
+            second = ingest_external_evidence(td, _structured_payload(title="COGS spike duplicate title"), session_id="external-source")
             self.assertEqual(first["bead_id"], second["bead_id"])
             self.assertEqual("already_exists", second["status"])
             idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
@@ -203,7 +203,7 @@ class TestSatoridExternalEvidenceIngest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             payload = _structured_payload(source_event_id="")
             with self.assertRaises(ValueError) as ctx:
-                ingest_structured_observation(td, payload, session_id="satorid")
+                ingest_structured_observation(td, payload, session_id="external-source")
             self.assertIn("source_event_id", str(ctx.exception))
             self.assertFalse((Path(td) / ".beads" / "index.json").exists())
 
@@ -211,12 +211,12 @@ class TestSatoridExternalEvidenceIngest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             payload = _state_assertion_payload(derived_from=[])
             with self.assertRaises(ValueError) as ctx:
-                ingest_state_assertion(td, payload, session_id="satorid")
+                ingest_state_assertion(td, payload, session_id="external-source")
             self.assertIn("derived_from", str(ctx.exception))
 
     def test_structured_observation_is_retrievable_by_metric_terms(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False):
-            receipt = ingest_structured_observation(td, _structured_payload(), session_id="satorid")
+            receipt = ingest_structured_observation(td, _structured_payload(), session_id="external-source")
             out = memory_search_request(
                 root=td,
                 request={

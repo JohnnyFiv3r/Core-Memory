@@ -1,4 +1,4 @@
-# PRD: Multi-Store Recall Fan-out (Satorid)
+# PRD: Multi-Store Recall Fan-out (External Memory Runtime)
 
 **Status:** Spec only — no implementation exists  
 **Effort:** ~1 day spec review + ~4 days implementation  
@@ -81,7 +81,7 @@ transcript bead that shares a unifying ID with a Ragie chunk — see Unifying ID
 5. Score normalization is applied before merging: all three stores' scores are
    independently rescaled to [0.0, 1.0] before the combined list is ranked.
 6. Fan-out is only activated when at least one external adapter is configured
-   (`SATORID_RAGIE_API_KEY` or `SATORID_PIPEHOUSE_URL` env var is set). Without
+   (`CORE_MEMORY_RAGIE_API_KEY` or `CORE_MEMORY_PIPEHOUSE_URL` env var is set). Without
    configuration, `recall()` behaves identically to today.
 
 ---
@@ -184,7 +184,7 @@ def retrieve(
 
 ## PipeHouse adapter (`retrieval/adapters/pipehouse_adapter.py`)
 
-PipeHouse exposes a read endpoint (URL configured via `SATORID_PIPEHOUSE_URL`) that
+PipeHouse exposes a read endpoint (URL configured via `CORE_MEMORY_PIPEHOUSE_URL`) that
 accepts a semantic query and returns matched data insight records. The adapter maps
 each record to an `EvidenceItem`:
 
@@ -235,7 +235,7 @@ def _normalize_scores(items: list[EvidenceItem]) -> list[EvidenceItem]:
 
 After per-store normalization, all items are merged into a single list and sorted
 by `score` descending. No cross-store weighting is applied in the first cut — equal
-treatment across stores. A `SATORID_STORE_WEIGHTS` env var (comma-separated floats
+treatment across stores. A `CORE_MEMORY_STORE_WEIGHTS` env var (comma-separated floats
 for `core_memory,ragie,pipehouse`, defaulting to `1.0,1.0,1.0`) provides a
 post-normalization multiplier if the user wants to tune.
 
@@ -307,8 +307,8 @@ exception → store appended to `unavailable_stores`, empty result list used.
    check for configured adapters. If present, call `fanout_recall()` and return the
    augmented result. If no adapters configured, return Core Memory result unchanged.
 
-7. **`config/feature_flags.py`** — Add `SATORID_RAGIE_API_KEY`, `SATORID_PIPEHOUSE_URL`,
-   `SATORID_STORE_WEIGHTS` env var reads. Document them alongside existing flags.
+7. **`config/feature_flags.py`** — Add `CORE_MEMORY_RAGIE_API_KEY`, `CORE_MEMORY_PIPEHOUSE_URL`,
+   `CORE_MEMORY_STORE_WEIGHTS` env var reads. Document them alongside existing flags.
 
 8. **Tests** — Three fixtures:
    - Fan-out with both adapters returning results → merged, normalized evidence list

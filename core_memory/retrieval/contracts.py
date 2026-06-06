@@ -195,6 +195,11 @@ class RecallResult:
     claim_slots: dict[str, ClaimSlotItem] = field(default_factory=dict)
     conflicts: list[ConflictItem] = field(default_factory=list)
     sources: list[SourceItem] = field(default_factory=list)
+    root_cause_attribution: dict[str, Any] = field(default_factory=dict)
+    trace_package: dict[str, Any] = field(default_factory=dict)
+    state_packet: dict[str, Any] = field(default_factory=dict)
+    execute_decision: dict[str, Any] = field(default_factory=dict)
+    source_citations: list[dict[str, Any]] = field(default_factory=list)
     tier_path: list[str] = field(default_factory=list)
     steps: list[RecallStep] = field(default_factory=list)
     planning: RecallPlanning = field(default_factory=RecallPlanning)
@@ -214,6 +219,7 @@ class RecallResult:
             "claim_slots": {str(k): v.to_dict() for k, v in (self.claim_slots or {}).items()},
             "conflicts": [c.to_dict() for c in self.conflicts],
             "sources": [s.to_dict() for s in self.sources],
+            "source_citations": [dict(c) for c in (self.source_citations or []) if isinstance(c, dict)],
             "steps": [s.to_dict() for s in self.steps],
             "planning": self.planning.to_dict(),
         }
@@ -231,6 +237,7 @@ class RecallResult:
         }
         payload["conflicts"] = [ConflictItem.from_dict(x) for x in _clean_list(payload.get("conflicts")) if isinstance(x, dict)]
         payload["sources"] = [SourceItem.from_dict(x) for x in _clean_list(payload.get("sources")) if isinstance(x, dict)]
+        payload["source_citations"] = [dict(x) for x in _clean_list(payload.get("source_citations")) if isinstance(x, dict)]
         payload["steps"] = [RecallStep.from_dict(x) for x in _clean_list(payload.get("steps")) if isinstance(x, dict)]
         planning = payload.get("planning")
         payload["planning"] = RecallPlanning.from_dict(planning if isinstance(planning, dict) else {})
@@ -289,6 +296,11 @@ def sources_from_result_row(row: dict[str, Any]) -> list[SourceItem]:
     ]
 
 
+def _append_tier(tier_path: list[str], tier: str) -> None:
+    if tier not in tier_path:
+        tier_path.append(tier)
+
+
 def recall_result_from_memory_execute(
     raw: dict[str, Any],
     *,
@@ -317,13 +329,21 @@ def recall_result_from_memory_execute(
     chains = _clean_list(payload.get("chains"))
     tier_path: list[str] = []
     if rows:
-        tier_path.append("semantic")
+        _append_tier(tier_path, "semantic")
     if chains:
-        tier_path.append("causal")
+        _append_tier(tier_path, "causal")
+        _append_tier(tier_path, "trace")
+    if payload.get("root_cause_attribution") or payload.get("trace_package"):
+        _append_tier(tier_path, "causal")
+        _append_tier(tier_path, "trace")
+    if payload.get("state_packet"):
+        _append_tier(tier_path, "state")
+    if payload.get("execute_decision"):
+        _append_tier(tier_path, "execute")
     if payload.get("hydration_data") or any(sources):
-        tier_path.append("source")
+        _append_tier(tier_path, "source")
     if not tier_path:
-        tier_path.append("semantic")
+        _append_tier(tier_path, "semantic")
 
     steps = [
         RecallStep(
@@ -335,7 +355,19 @@ def recall_result_from_memory_execute(
         )
     ]
     if chains:
-        steps.append(RecallStep(tier="causal", query=steps[0].query, status="ok", result_count=len(chains), why="causal chains available"))
+        steps.append(RecallStep(tier="causal", query=steps[0].query, status="ok", result_count=len(chains), why="causal chains available", metadata={"alias_for": "trace"}))
+        steps.append(RecallStep(tier="trace", query=steps[0].query, status="ok", result_count=len(chains), why="causal chains available"))
+    if payload.get("root_cause_attribution") or payload.get("trace_package"):
+        package = payload.get("trace_package") if isinstance(payload.get("trace_package"), dict) else {}
+        traces = _clean_list(package.get("candidate_traces") if isinstance(package, dict) else [])
+        steps.append(RecallStep(tier="causal", query=steps[0].query, status="ok", result_count=len(traces), why="root-cause trace package available", metadata={"alias_for": "trace"}))
+        steps.append(RecallStep(tier="trace", query=steps[0].query, status="ok", result_count=len(traces), why="root-cause trace package available"))
+    if payload.get("state_packet"):
+        packet = payload.get("state_packet") if isinstance(payload.get("state_packet"), dict) else {}
+        steps.append(RecallStep(tier="state", query=steps[0].query, status="ok", result_count=len(_clean_list(packet.get("trace_ids"))), why="state packet assembled"))
+    if payload.get("execute_decision"):
+        decision = payload.get("execute_decision") if isinstance(payload.get("execute_decision"), dict) else {}
+        steps.append(RecallStep(tier="execute", query=steps[0].query, status="ok", result_count=1, why=_text(decision.get("confidence") or "execute decision available")))
 
     candidate = payload.get("answer_candidate") if isinstance(payload.get("answer_candidate"), dict) else {}
     answer = _text(candidate.get("answer") or candidate.get("value") or payload.get("answer")) or None
@@ -352,6 +384,11 @@ def recall_result_from_memory_execute(
         why=why,
         evidence=evidence,
         sources=sources,
+        root_cause_attribution=dict(payload.get("root_cause_attribution") or {}) if isinstance(payload.get("root_cause_attribution"), dict) else {},
+        trace_package=dict(payload.get("trace_package") or {}) if isinstance(payload.get("trace_package"), dict) else {},
+        state_packet=dict(payload.get("state_packet") or {}) if isinstance(payload.get("state_packet"), dict) else {},
+        execute_decision=dict(payload.get("execute_decision") or {}) if isinstance(payload.get("execute_decision"), dict) else {},
+        source_citations=[dict(x) for x in _clean_list(payload.get("source_citations")) if isinstance(x, dict)],
         tier_path=tier_path,
         steps=steps,
         planning=RecallPlanning(selected_effort=selected_effort),

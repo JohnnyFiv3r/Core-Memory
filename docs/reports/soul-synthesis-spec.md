@@ -199,7 +199,7 @@ soul-synthesis job:
       Surface to user for review
       On acceptance: apply diff
 
-    In Satorid:
+    In External Memory Runtime:
       Auto-apply entries where soul_score > SOUL_AUTO_THRESHOLD (default: 0.85)
         AND confidence > 0.85
         AND no active contradiction pressure

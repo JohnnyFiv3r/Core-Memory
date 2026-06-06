@@ -42,6 +42,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
     must_terms = list(req.get("must_terms") or facets.get("must_terms") or [])
     avoid_terms = list(req.get("avoid_terms") or facets.get("avoid_terms") or [])
     time_range = dict(req.get("time_range") or facets.get("time_range") or {})
+    hints = dict(req.get("hints") or facets.get("hints") or {})
 
     require_structural = bool(req.get("require_structural", constraints.get("require_structural", False)))
 
@@ -59,6 +60,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
         "avoid_terms": avoid_terms,
         "time_range": time_range,
         "require_structural": require_structural,
+        "hints": hints,
     }
     normalization = {
         "query_source": (

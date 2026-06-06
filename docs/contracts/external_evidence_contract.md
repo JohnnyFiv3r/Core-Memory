@@ -1,8 +1,8 @@
-# Satorid External Evidence Contract
+# External Evidence Contract
 
 Status: Experimental P0
 
-This contract lets product orchestrators such as Satorid write typed, source-attributed memory anchors without copying raw source bodies into Core Memory.
+This contract lets product orchestrators write typed, source-attributed memory anchors without copying raw source bodies into Core Memory.
 
 ## Write Surfaces
 
@@ -37,12 +37,12 @@ POST /v1/memory/state-assertion
 {
   "title": "Short memory title",
   "summary": ["One to three compact factual bullets"],
-  "source_id": "Satorid source UUID",
-  "source_event_id": "Satorid source event UUID",
+  "source_id": "Source UUID",
+  "source_event_id": "Source event UUID",
   "source_system": "quickbooks | upload | ragie | slack | snowflake | supabase",
   "core_memory_unifying_id": "Stable cross-store join key",
   "hydration_ref": {
-    "store": "satorid | ragie | supabase | snowflake",
+    "store": "ragie | supabase | snowflake | custom",
     "ref": "Store-native ID or URI"
   }
 }

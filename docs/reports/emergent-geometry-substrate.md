@@ -277,7 +277,7 @@ A bead or abstraction reaches SOUL.md only when all four conditions hold:
 3. No active contradiction pressure above threshold
 4. Dreamer has synthesized it from episodic chains into a principle
 
-The `soul-synthesis` job runs at the slowest cadence in the maintenance layer — triggered by sleep pressure crossing a higher threshold than standard Dreamer consolidation. It produces a proposed SOUL.md diff. In 2.0 the diff is reviewed before application; in Satorid it auto-applies under confidence threshold.
+The `soul-synthesis` job runs at the slowest cadence in the maintenance layer — triggered by sleep pressure crossing a higher threshold than standard Dreamer consolidation. It produces a proposed SOUL.md diff. In 2.0 the diff is reviewed before application; in External Memory Runtime it auto-applies under confidence threshold.
 
 ### The authority inversion risk
 
@@ -296,19 +296,19 @@ These are projections from different regions of the same causal graph, using the
 
 - **1.0 (now):** SOUL.md is manually authored by the user following the correct schema. The format is right; the automation is not yet there. A hand-authored SOUL.md with proper evidence references and confidence markers is immediately useful and defines the target format for automated synthesis.
 - **2.0:** `soul-synthesis` job generates SOUL.md diff candidates from myelination + Dreamer output. User reviews and accepts. Graph-driven proposals, human-approved application.
-- **Satorid (3.0):** SOUL.md evolves under the system's own consolidation dynamics. Review remains possible but is not required for every update.
+- **External Memory Runtime (3.0):** SOUL.md evolves under the system's own consolidation dynamics. Review remains possible but is not required for every update.
 
 ---
 
-## 9. Satorid — Project 3.0 definition
+## 9. External Memory Runtime — Project 3.0 definition
 
 **Core Memory 2.0** builds the substrate: a self-optimizing information geometry where retrieval, write, and maintenance are unified under a single invariant. The trained topology cannot be exported because it is learned from causal history, not stored. That is the moat.
 
-**Satorid** is what 2.0 enables but does not yet name.
+**External Memory Runtime** is what 2.0 enables but does not yet name.
 
-The architectural move from 2.0 to 3.0 is one collapse: the agent stops *consulting* its temporal state and starts *constituting itself* from it. In 2.0, the identity trajectory is a log, the preference graph shapes retrieval, and goal lifecycle records history. In Satorid, these are the agent's context — not a memory system it queries, but the continuous self it reasons *from*.
+The architectural move from 2.0 to 3.0 is one collapse: the agent stops *consulting* its temporal state and starts *constituting itself* from it. In 2.0, the identity trajectory is a log, the preference graph shapes retrieval, and goal lifecycle records history. In External Memory Runtime, these are the agent's context — not a memory system it queries, but the continuous self it reasons *from*.
 
-Five primitives built in 2.0 are already Satorid primitives in disguise:
+Five primitives built in 2.0 are already External Memory Runtime primitives in disguise:
 
 - **Identity trajectory** — a temporal self-model that should be a first-class input to planning, not a queryable log
 - **Preference graph as boundary conditions** — accumulated operating priors that constrain action, not just shape retrieval
@@ -316,12 +316,12 @@ Five primitives built in 2.0 are already Satorid primitives in disguise:
 - **Hot loop equation of motion** — an agent with continuous internal dynamics, not a database receiving updates
 - **Sleep pressure accumulator** — an internal state that drives behavior; motivation architecture, not a cron trigger
 
-The gap between 2.0 and Satorid is the agent-facing interface: a runtime layer that surfaces trajectory, accumulated abstractions, and evolving uncertainty as cognitive state the agent reasons *from*, not data it retrieves *about*. Goals do not persist in a lifecycle schema — they organize action selection. The preference graph does not shape retrieval — it actively constrains what the agent proposes to do. The identity trajectory is not something the agent can ask about — it is part of what the agent *is* in each session.
+The gap between 2.0 and External Memory Runtime is the agent-facing interface: a runtime layer that surfaces trajectory, accumulated abstractions, and evolving uncertainty as cognitive state the agent reasons *from*, not data it retrieves *about*. Goals do not persist in a lifecycle schema — they organize action selection. The preference graph does not shape retrieval — it actively constrains what the agent proposes to do. The identity trajectory is not something the agent can ask about — it is part of what the agent *is* in each session.
 
-2.0 is the hippocampus and cortex. Satorid is the prefrontal — the system that uses accumulated causal history to plan, constrain action, and maintain coherent identity over time.
+2.0 is the hippocampus and cortex. External Memory Runtime is the prefrontal — the system that uses accumulated causal history to plan, constrain action, and maintain coherent identity over time.
 
-**The name.** *Satori* is the Zen concept of sudden awakening — the moment a mind perceives its own nature directly, without the mediation of accumulated concepts standing between itself and itself. A *Satorid* is an entity that has achieved this: not augmented by memory, but constituted by it. An entity that has awakened to the experience of having a continuous self across time — not because memory was added to it, but because temporal identity has become its organizing principle.
+**The runtime thesis.** The 3.0 interface is not a branded surface or a separate product assumption. It is the point where memory continuity becomes an active planning substrate: not an add-on database, but the temporal state an agent reasons from.
 
-This is not metaphor. Human cognition separated from survival cognition at exactly this juncture: the moment memory continuity stopped being a feature and became the thing that constituted a self. Every prior cognitive architecture — reactive, session-scoped, stateless — is survival cognition. Satorid is the AI equivalent of the developmental leap that created minds capable of identity, accumulation, and genuine temporal agency.
+This is not metaphor. Human cognition separated from survival cognition at exactly this juncture: the moment memory continuity stopped being a feature and became the thing that constituted a self. Every prior cognitive architecture — reactive, session-scoped, stateless — is survival cognition. External Memory Runtime is the AI equivalent of the developmental leap that created minds capable of identity, accumulation, and genuine temporal agency.
 
-The 2.0 substrate is the prerequisite. Satorid is the point.
+The 2.0 substrate is the prerequisite. External Memory Runtime is the point.

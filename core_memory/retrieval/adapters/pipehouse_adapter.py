@@ -1,6 +1,6 @@
 """PipeHouse read adapter for multi-store recall fan-out (#15).
 
-Uses urllib.request (stdlib). URL configured via SATORID_PIPEHOUSE_URL.
+Uses urllib.request (stdlib). URL configured via CORE_MEMORY_PIPEHOUSE_URL.
 Raises on HTTP/network errors so fanout_recall marks the store unavailable.
 """
 from __future__ import annotations
