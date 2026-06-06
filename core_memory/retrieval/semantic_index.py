@@ -612,7 +612,29 @@ def _semantic_backend_requires_real_index(*, mode: str, provider: str, vector_ba
     return True
 
 
-def _invalid_semantic_state_detail(*, provider: str, model: str, backend: str, vector_backend: str, dim: int, cause: str | None = None) -> dict[str, Any]:
+def _exception_message(exc: Exception) -> str:
+    msg = str(exc or "").strip()
+    if msg:
+        return msg
+    cause = getattr(exc, "__cause__", None) or getattr(exc, "__context__", None)
+    if isinstance(cause, Exception):
+        cause_msg = _exception_message(cause)
+        if cause_msg:
+            return f"{exc.__class__.__name__}: caused_by={cause_msg}"
+    return repr(exc)
+
+
+def _invalid_semantic_state_detail(
+    *,
+    provider: str,
+    model: str,
+    backend: str,
+    vector_backend: str,
+    dim: int,
+    cause: str | None = None,
+    last_build_error: str | None = None,
+    last_build_error_type: str | None = None,
+) -> dict[str, Any]:
     out = {
         "provider": str(provider or ""),
         "model": str(model or ""),
@@ -622,6 +644,10 @@ def _invalid_semantic_state_detail(*, provider: str, model: str, backend: str, v
     }
     if cause:
         out["cause"] = str(cause)
+    if last_build_error:
+        out["last_build_error"] = str(last_build_error)
+    if last_build_error_type:
+        out["last_build_error_type"] = str(last_build_error_type)
     return out
 
 
@@ -1000,6 +1026,7 @@ def build_semantic_index(root: Path) -> dict:
         semantic_ready = False
         last_build_error_code = ""
         last_build_error = ""
+        last_build_error_type = ""
         if vector_backend in _EXTERNAL_VECTOR_BACKENDS:
             try:
                 if vector_backend == VECTOR_BACKEND_QDRANT and not _qdrant_external_embeddings_enabled():
@@ -1071,7 +1098,8 @@ def build_semantic_index(root: Path) -> dict:
                         pass
             except Exception as exc:
                 last_build_error_code = _embedding_error_token(exc)
-                last_build_error = str(exc)
+                last_build_error = _exception_message(exc)
+                last_build_error_type = exc.__class__.__name__
                 logger.warning(
                     "core-memory: external vector backend '%s' unavailable (%s). Falling back to lexical.",
                     vector_backend,
@@ -1101,6 +1129,7 @@ def build_semantic_index(root: Path) -> dict:
                 global _faiss_warning_emitted
                 last_build_error_code = "faiss_import_error"
                 last_build_error = "faiss-cpu and/or numpy not installed"
+                last_build_error_type = "ImportError"
                 if not _faiss_warning_emitted:
                     mode = _normalize_semantic_mode(os.environ.get("CORE_MEMORY_CANONICAL_SEMANTIC_MODE"))
                     mode_hint = (
@@ -1119,7 +1148,8 @@ def build_semantic_index(root: Path) -> dict:
                 semantic_ready = False
             except Exception as exc:
                 last_build_error_code = _embedding_error_token(exc)
-                last_build_error = str(exc)
+                last_build_error = _exception_message(exc)
+                last_build_error_type = exc.__class__.__name__
                 logger.warning(
                     "core-memory: local-faiss semantic build failed (%s). Falling back to lexical.",
                     exc,
@@ -1165,6 +1195,8 @@ def build_semantic_index(root: Path) -> dict:
                 vector_backend=vector_backend,
                 dim=int(dim or 0),
                 cause=last_build_error_code or "semantic_build_invalid_state",
+                last_build_error=last_build_error,
+                last_build_error_type=last_build_error_type,
             )
             return {
                 "ok": False,
