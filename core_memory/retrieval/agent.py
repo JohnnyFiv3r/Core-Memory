@@ -455,6 +455,26 @@ _RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
 _DEFAULT_HOP_WEIGHT = 0.70  # unknown / generic relationship
 _HOP_DECAY = 0.80           # multiplicative per-hop decay
 
+# Provenance multipliers: how much to trust each edge source.
+# agent_judged edges were reviewed by the agent and carry full weight.
+# preview_classifier edges were produced by token-overlap heuristics.
+_PROVENANCE_FACTOR: dict[str, float] = {
+    "agent_judged": 1.00,
+    "model_inferred": 0.85,  # LLM output, not explicitly reviewed
+    "preview_classifier": 0.60,  # heuristic token-overlap fallback
+    "heuristic": 0.65,
+}
+_DEFAULT_PROVENANCE_FACTOR = 0.75
+
+# Directed relationships: the edge has a natural source→target direction.
+# Traversing against that direction penalises the score rather than blocking it
+# entirely, preserving discoverability while honouring causal asymmetry.
+_DIRECTIONAL_RELS: frozenset[str] = frozenset({
+    "caused_by", "causes", "enables", "results_in", "led_to",
+    "derived_from", "refines", "supersedes", "resolves", "diagnoses",
+})
+_REVERSE_DIRECTION_FACTOR = 0.65
+
 
 def _expand_via_association_hops(
     root: str,
@@ -490,7 +510,9 @@ def _expand_via_association_hops(
     beads_map = index.get("beads") or {}
 
     # Build weighted adjacency: node → [(neighbor, edge_score)]
-    # edge_score = rel_weight × confidence (bidirectional)
+    # edge_score = rel_weight × confidence × prov_factor
+    # Directed relationships apply a reverse-direction penalty rather than
+    # blocking reverse traversal entirely, preserving discoverability.
     adj: dict[str, list[tuple[str, float]]] = {}
     for assoc in assoc_list:
         src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "").strip()
@@ -501,9 +523,16 @@ def _expand_via_association_hops(
         rel_weight = _RELATIONSHIP_HOP_WEIGHT.get(rel, _DEFAULT_HOP_WEIGHT)
         raw_conf = assoc.get("confidence")
         conf = max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else 0.85
-        edge_score = rel_weight * conf
+        edge_class = str(assoc.get("edge_class") or "").strip().lower()
+        provenance = str(assoc.get("provenance") or "model_inferred").strip().lower()
+        prov_key = edge_class if edge_class in _PROVENANCE_FACTOR else provenance
+        prov_factor = _PROVENANCE_FACTOR.get(prov_key, _DEFAULT_PROVENANCE_FACTOR)
+        edge_score = rel_weight * conf * prov_factor
         adj.setdefault(src, []).append((tgt, edge_score))
-        adj.setdefault(tgt, []).append((src, edge_score))
+        if rel in _DIRECTIONAL_RELS:
+            adj.setdefault(tgt, []).append((src, edge_score * _REVERSE_DIRECTION_FACTOR))
+        else:
+            adj.setdefault(tgt, []).append((src, edge_score))
 
     # BFS with best-path score propagation.
     # frontier maps bead_id → best score reaching it so far.

@@ -564,7 +564,6 @@ def root_cause_trace(
     *,
     query: str,
     hints: dict | None = None,
-    myelination_bonus: dict[str, float] | None = None,
     max_depth: int = 6,
     max_paths: int = 20,
     max_causes: int = 8,
