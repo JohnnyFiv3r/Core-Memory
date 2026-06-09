@@ -6,7 +6,6 @@ from typing import Any, Optional
 
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import store_lock
-from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
 
 
 def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] = None) -> bool:
@@ -49,6 +48,7 @@ def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] 
         store._write_json(store.beads_dir / "index.json", index)
 
         events.event_bead_promoted(store.root, bead_id, use_lock=False)
+        from core_memory.retrieval.lifecycle import mark_semantic_dirty  # noqa: PLC0415
         mark_semantic_dirty(store.root, reason="promote")
 
         return True
@@ -84,6 +84,7 @@ def link_for_store(
         store._write_json(store.beads_dir / "index.json", index)
 
         events.event_association_created(store.root, assoc, use_lock=False)
+        from core_memory.retrieval.lifecycle import mark_trace_dirty  # noqa: PLC0415
         mark_trace_dirty(store.root, reason="link")
 
     _mirror_association_to_graph(store.root, assoc)

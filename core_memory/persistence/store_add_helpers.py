@@ -3,9 +3,6 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from core_memory.runtime.turn.turn_archive import find_turn_record
-
-
 def resolve_bead_session_id_for_store(
     store: Any,
     *,
@@ -26,6 +23,7 @@ def resolve_bead_session_id_for_store(
             t = str(tid or "").strip()
             if not t:
                 continue
+            from core_memory.runtime.turn.turn_archive import find_turn_record  # noqa: PLC0415
             row = find_turn_record(root=store.root, turn_id=t, session_id=None)
             if isinstance(row, dict):
                 inferred = str(row.get("session_id") or "").strip()

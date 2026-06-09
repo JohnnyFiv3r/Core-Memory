@@ -2,9 +2,6 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from core_memory.runtime.session.session_surface import read_session_surface
-
-
 def query_for_store(
     store: Any,
     *,
@@ -25,6 +22,7 @@ def query_for_store(
     results = []
 
     if session_id:
+        from core_memory.runtime.session.session_surface import read_session_surface  # noqa: PLC0415
         source_rows = list(read_session_surface(store.root, session_id))
         if not source_rows:
             index = store._read_json(store.beads_dir / "index.json")

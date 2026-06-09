@@ -11,7 +11,6 @@ from typing import Any, Callable
 from core_memory.persistence.io_utils import store_lock
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.semantic_index import semantic_doctor
-from core_memory.integrations.neo4j.sync import sync_to_neo4j
 from core_memory.runtime.dreamer import analysis as dreamer
 from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
@@ -245,6 +244,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         }
 
     if k == "neo4j-sync":
+        from core_memory.integrations.neo4j.sync import sync_to_neo4j  # noqa: PLC0415
         out = sync_to_neo4j(
             root=str(root),
             session_id=(str(p.get("session_id")) if p.get("session_id") is not None else None),

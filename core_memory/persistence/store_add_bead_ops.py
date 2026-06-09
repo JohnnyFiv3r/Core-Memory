@@ -5,11 +5,8 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from core_memory.persistence import events
-from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract
-from core_memory.retrieval.lifecycle import mark_semantic_dirty
-from core_memory.runtime.session.session_surface import read_session_surface
 
 
 def add_bead_for_store(
@@ -126,6 +123,7 @@ def add_bead_for_store(
             bead["unjustified_flip"] = bool(unjustified_flips)
 
         # ER-1 canonical entity registry sync (bead-resident + index registry)
+        from core_memory.entity.registry import sync_bead_entities_for_index  # noqa: PLC0415
         sync_bead_entities_for_index(index, bead, source="add_bead")
 
         index["beads"][bead["id"]] = bead
@@ -136,6 +134,7 @@ def add_bead_for_store(
             assoc_index = dict(index)
             assoc_beads = dict(index.get("beads") or {})
             if resolved_session_id:
+                from core_memory.runtime.session.session_surface import read_session_surface  # noqa: PLC0415
                 for row in read_session_surface(store.root, resolved_session_id):
                     rid = str((row or {}).get("id") or "")
                     if rid:
@@ -203,6 +202,7 @@ def add_bead_for_store(
         )
 
     store.track_bead_created(1)
+    from core_memory.retrieval.lifecycle import mark_semantic_dirty  # noqa: PLC0415
     mark_semantic_dirty(store.root, reason="add_bead")
 
     _mirror_bead_to_backends(store.root, bead)

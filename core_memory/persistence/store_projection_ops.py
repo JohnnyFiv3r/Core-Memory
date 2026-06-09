@@ -5,9 +5,6 @@ from datetime import datetime, timezone
 from typing import Any
 
 from core_memory.persistence.io_utils import store_lock
-from core_memory.runtime.session.session_surface import read_session_surface
-
-
 def rebuild_index_projection_from_sessions_for_store(store: Any) -> dict:
     """Rebuild index projection from session/global JSONL surfaces.
 
@@ -20,6 +17,7 @@ def rebuild_index_projection_from_sessions_for_store(store: Any) -> dict:
         associations = list(existing.get("associations") or [])
 
         beads = {}
+        from core_memory.runtime.session.session_surface import read_session_surface  # noqa: PLC0415
         for p in sorted(store.beads_dir.glob("session-*.jsonl")):
             for row in read_session_surface(store.root, p.stem.replace("session-", "")):
                 bid = str((row or {}).get("id") or "")

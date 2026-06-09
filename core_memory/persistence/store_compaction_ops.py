@@ -8,9 +8,6 @@ from typing import Any, Optional
 from core_memory.persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from core_memory.persistence.io_utils import store_lock
 from core_memory.policy.promotion import summary_truncation_limit
-from core_memory.retrieval.lifecycle import mark_semantic_dirty
-
-
 def compact_for_store(
     store: Any,
     *,
@@ -116,6 +113,7 @@ def compact_for_store(
             index["beads"][bead_id] = bead
 
         store._write_json(store.beads_dir / "index.json", index)
+        from core_memory.retrieval.lifecycle import mark_semantic_dirty  # noqa: PLC0415
         mark_semantic_dirty(store.root, reason="compact")
         return {
             "ok": True,
@@ -177,6 +175,7 @@ def uncompact_for_store(store: Any, bead_id: str) -> dict:
             index["beads"][bead_id] = bead
 
         store._write_json(store.beads_dir / "index.json", index)
+        from core_memory.retrieval.lifecycle import mark_semantic_dirty  # noqa: PLC0415
         mark_semantic_dirty(store.root, reason="uncompact")
         return {"ok": True, "id": bead_id, "revision_id": found.get("revision_id")}
 
