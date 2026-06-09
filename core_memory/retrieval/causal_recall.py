@@ -8,6 +8,7 @@ from typing import Any
 from core_memory.graph.root_cause import normalize_causal_hints, root_cause_trace
 from core_memory.provider_config import resolve_chat_config
 from core_memory.retrieval.contracts import RecallResult, RecallStep
+from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
 
 
 def _text(value: Any) -> str:
@@ -439,6 +440,13 @@ def attach_causal_recall_pipeline(
         result.warnings.append("causal_recall_no_anchors")
         return result
 
+    myelination: dict[str, float] = {}
+    try:
+        payload = compute_myelination_bonus_map(Path(root))
+        myelination = dict(payload.get("bonus_by_edge_key") or {}) if payload.get("enabled") else {}
+    except Exception:
+        pass
+
     attribution = root_cause_trace(
         Path(root),
         anchor_ids=anchor_ids[:12],
@@ -451,6 +459,7 @@ def attach_causal_recall_pipeline(
         beam_width=8,
         temporal_frame=normalized_hints.get("temporal_frame") or "auto",
         include_flow=True,
+        myelination_bonus=myelination,
     )
     result.root_cause_attribution = {k: v for k, v in attribution.items() if k != "trace_package"}
     result.trace_package = dict(attribution.get("trace_package") or {})
