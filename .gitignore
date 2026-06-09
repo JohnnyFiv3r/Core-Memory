@@ -4,6 +4,7 @@ bin/
 core-memory/
 .openclaw/
 .env
+.claude/
 
 demo/memory_store/
 
