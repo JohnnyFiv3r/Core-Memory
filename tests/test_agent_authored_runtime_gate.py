@@ -269,7 +269,9 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_invocation_exhausted", out.get("error_code"))
 
-    def test_strict_mode_blocks_when_only_temporal_associations_after_first_turn(self):
+    def test_temporal_only_associations_warn_and_write_stub_with_coverage_flag(self):
+        # Never-forget: semantic coverage violations no longer hard-block.
+        # The bead is written, gate warns, and the coverage gap is flagged.
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
@@ -316,9 +318,14 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                     }
                 },
             )
-            self.assertFalse(out.get("ok"))
-            self.assertEqual("agent_semantic_coverage_missing", out.get("error_code"))
-            self.assertEqual("agent_semantic_coverage_missing", (out.get("agent_contract_error") or {}).get("code"))
+            # Bead is written despite coverage gap (never-forget)
+            self.assertTrue(out.get("ok"))
+            self.assertFalse(out.get("gate_blocked"))
+            self.assertFalse(out.get("error_code"))  # no top-level block error
+            # Gate records the warning and coverage error code for diagnosis
+            gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
+            self.assertTrue(gate.get("warned"))
+            self.assertEqual("agent_semantic_coverage_missing", gate.get("error_code"))
 
     def test_mode_observe_overrides_strict_flags(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(

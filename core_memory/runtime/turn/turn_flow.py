@@ -275,22 +275,14 @@ def process_turn_finalized_impl(
             error_code=str(gate.get("error_code") or error_agent_updates_missing),
         )
         contract_error = {"code": str(gate.get("error_code") or error_agent_updates_missing), "details": dict(gate.get("validation") or {})}
-        return {
-            "ok": False,
-            "mode": "turn",
-            "authority_path": "canonical_in_process",
-            "processed": 0,
-            "failed": 1,
-            "error_code": str(gate.get("error_code") or error_agent_updates_missing),
-            "error": "agent-authored crawler updates required",
-            "agent_contract_error": contract_error,
-            "emitted": emitted,
-            "crawler_handoff": {
-                "required": True,
-                "agent_authored_gate": gate,
-            },
-            "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-        }
+        # Never-forget: rather than returning with no bead, fall through with a
+        # minimal fallback bead so the turn is preserved in memory.  Callers see
+        # ok=False + gate_blocked=True and can prompt the agent to fix the
+        # contract; the enrichment crawler can backfill associations later.
+        reviewed_updates = default_crawler_updates(req)
+        gate["blocked_wrote_stub"] = True
+    else:
+        contract_error = None
 
     _structural_coverage_missing = False
     if not isinstance(reviewed_updates, dict):
@@ -311,42 +303,19 @@ def process_turn_finalized_impl(
             "semantic_assoc_count": semantic_count,
         }
         if len(prior_beads) >= 1 and semantic_count < min_required:
+            # Never-forget: semantic coverage violations always use warn/flag mode —
+            # never block with no bead written. The flag lands on the bead (F-W2)
+            # and the agent can backfill associations. Hard-block mode is removed
+            # because amnesia is worse than a coverage gap.
+            _structural_coverage_missing = True
+            gate["warned"] = True
             if not bool(gate.get("fail_open")):
-                gate["blocked"] = True
-                gate["error_code"] = error_agent_semantic_coverage_missing
-                emit_agent_turn_quality_metric(
-                    root=root,
-                    req=req,
-                    gate=gate,
-                    updates=reviewed_updates,
-                    result="blocked",
-                    error_code=error_agent_semantic_coverage_missing,
-                )
-                contract_error = {"code": error_agent_semantic_coverage_missing, "details": dict(gate.get("semantic_policy") or {})}
-                return {
-                    "ok": False,
-                    "mode": "turn",
-                    "authority_path": "canonical_in_process",
-                    "processed": 0,
-                    "failed": 1,
-                    "error_code": error_agent_semantic_coverage_missing,
-                    "error": "insufficient non-temporal semantic associations for non-initial turn",
-                    "agent_contract_error": contract_error,
-                    "emitted": emitted,
-                    "crawler_handoff": {
-                        "required": True,
-                        "agent_authored_gate": gate,
-                    },
-                    "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-                }
-            else:
-                _structural_coverage_missing = True
-                gate["warned"] = True
-                logger.warning(
-                    "agent-authored gate: structural coverage missing (warn mode), "
-                    "session=%s turn=%s semantic_count=%d min_required=%d",
-                    req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
-                )
+                gate["error_code"] = gate.get("error_code") or error_agent_semantic_coverage_missing
+            logger.warning(
+                "agent-authored gate: structural coverage missing, "
+                "session=%s turn=%s semantic_count=%d min_required=%d",
+                req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
+            )
 
     # F-W2: flag the bead in warn mode if coverage was insufficient
     if _structural_coverage_missing:
@@ -470,13 +439,15 @@ def process_turn_finalized_impl(
             result="success",
         )
 
+    _gate_blocked = bool(gate.get("blocked_wrote_stub"))
     out: dict[str, Any] = {
-        "ok": True,
+        "ok": not _gate_blocked,
         "mode": "turn",
         "authority_path": "canonical_in_process",
         "processed": 1,
-        "failed": 0,
+        "failed": int(_gate_blocked),
         "bead_id": bead_id,
+        "gate_blocked": _gate_blocked,
         "delta": delta,
         "emitted": emitted,
         "enrichment_queued": enrichment_queued,
@@ -494,4 +465,8 @@ def process_turn_finalized_impl(
         "goal_lifecycle": goal_lifecycle,
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
+    if _gate_blocked and contract_error:
+        out["error_code"] = contract_error.get("code")
+        out["error"] = "agent-authored crawler updates required; stub bead written for backfill"
+        out["agent_contract_error"] = contract_error
     return out
