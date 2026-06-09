@@ -348,23 +348,13 @@ def process_turn_finalized_impl(
                     req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
                 )
 
-    # F-W2: flag the bead in warn mode if coverage was insufficient
-    if _structural_coverage_missing:
-        bead_id = str((delta or {}).get("bead_id") or "")
-        if bead_id:
-            from core_memory.persistence.store import MemoryStore
-            store = MemoryStore(root)
-            idx = store._read_json(store.beads_dir / "index.json")
-            bead = (idx.get("beads") or {}).get(bead_id)
-            if bead:
-                bead["structural_coverage_missing"] = True
-                store._write_json(store.beads_dir / "index.json", idx)
-
     # F-W1: enqueue enrichment stages instead of running them inline.
-    # The bead is already persisted — enrichment is post-commit.
+    # NOTE: the bead is NOT yet persisted here — it is created inside run_association_pass
+    # below. The enrichment worker re-derives the bead_id from created_bead_ids after it
+    # calls run_association_pass itself, so passing bead_id="" is intentional here.
     from core_memory.runtime.passes.enrichment import enqueue_turn_enrichment, _enrichment_queue_enabled
 
-    bead_id = str((delta or {}).get("bead_id") or "")
+    bead_id = ""
     enrichment_queued = False
 
     if _enrichment_queue_enabled():
@@ -376,6 +366,7 @@ def process_turn_finalized_impl(
             req=req,
             reviewed_updates=reviewed_updates,
             crawler_ctx=crawler_ctx,
+            structural_coverage_missing=_structural_coverage_missing,
         )
         enrichment_queued = bool(enqueue_result and enqueue_result.get("ok"))
 
@@ -419,6 +410,19 @@ def process_turn_finalized_impl(
         )
 
         canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
+        _created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
+        bead_id = canonical_turn_bead_id or (str(_created_bead_ids[0]) if _created_bead_ids else "")
+
+        # F-W2: flag structural coverage gap on the actual bead now that we have its ID
+        if _structural_coverage_missing and bead_id:
+            from core_memory.persistence.store import MemoryStore as _MS
+            _store = _MS(root)
+            _idx = _store._read_json(_store.beads_dir / "index.json")
+            _bead = (_idx.get("beads") or {}).get(bead_id)
+            if _bead:
+                _bead["structural_coverage_missing"] = True
+                _store._write_json(_store.beads_dir / "index.json", _idx)
+
         claims_batch = list(claim_telemetry.get("claims_batch") or [])
         if emit_claim_updates_fn is not None and canonical_turn_bead_id and claims_batch:
             claim_visible_ids = sorted(

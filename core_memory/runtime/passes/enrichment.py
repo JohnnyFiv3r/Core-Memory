@@ -55,6 +55,7 @@ def enqueue_turn_enrichment(
     req: dict[str, Any],
     reviewed_updates: dict[str, Any] | None = None,
     crawler_ctx: dict[str, Any] | None = None,
+    structural_coverage_missing: bool = False,
 ) -> dict[str, Any] | None:
     """Enqueue post-persist enrichment stages for a turn.
 
@@ -101,6 +102,7 @@ def enqueue_turn_enrichment(
             "crawler_visible_bead_ids": list((crawler_ctx or {}).get("visible_bead_ids") or []),
             "metadata": dict(req.get("metadata") or {}),
             "window_bead_ids": list(req.get("window_bead_ids") or []),
+            "structural_coverage_missing": bool(structural_coverage_missing),
         },
         idempotency_key=idempotency_key,
     )
@@ -218,6 +220,22 @@ def run_turn_enrichment(
         except Exception as exc:
             logger.warning("enrichment: claim extraction failed for turn %s: %s", turn_id, exc)
             results["stages_failed"].append("claims")
+
+    # F-W2: write structural_coverage_missing flag onto the bead now that it exists
+    if payload.get("structural_coverage_missing"):
+        _created = list((results.get("association") or {}).get("created_bead_ids") or [])
+        _fw2_bead_id = str(claim_telemetry.get("canonical_bead_id") or "") or (_created[0] if _created else "")
+        if _fw2_bead_id:
+            try:
+                from core_memory.persistence.store import MemoryStore as _MS  # noqa: PLC0415
+                _st = _MS(root)
+                _ix = _st._read_json(_st.beads_dir / "index.json")
+                _b = (_ix.get("beads") or {}).get(_fw2_bead_id)
+                if _b:
+                    _b["structural_coverage_missing"] = True
+                    _st._write_json(_st.beads_dir / "index.json", _ix)
+            except Exception as exc:
+                logger.warning("enrichment: F-W2 flag write failed for turn %s: %s", turn_id, exc)
 
     # Stage 3: preview associations
     try:
@@ -376,9 +394,14 @@ def run_turn_enrichment(
     except Exception as exc:
         logger.warning("enrichment: failed to persist delta envelope for turn %s: %s", turn_id, exc)
 
+    resolved_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id or "")
+    if not resolved_bead_id:
+        _cb = list((results.get("association") or {}).get("created_bead_ids") or [])
+        resolved_bead_id = str(_cb[0]) if _cb else ""
+
     results["ok"] = len(results["stages_failed"]) == 0
     results["turn_id"] = turn_id
-    results["bead_id"] = bead_id
+    results["bead_id"] = resolved_bead_id
     results["enrichment_run_id"] = enrichment_run_id
     results["stage_results"] = stage_results
     return results
