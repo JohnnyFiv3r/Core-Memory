@@ -534,6 +534,38 @@ def _expand_via_association_hops(
         else:
             adj.setdefault(tgt, []).append((src, edge_score))
 
+    # Materialise implicit edges from bead-resident notation fields.
+    # These are NOT persistent associations — they extend the traversal graph
+    # at read time so that agent-authored causal rationale becomes retrievable.
+    #
+    # evidence_bead_ids: agent-provided structured evidence references
+    #   → treated as derived_from (0.80) with model_inferred provenance (0.85)
+    # because / supporting_facts text: may contain inline bead-ID references
+    #   matching the canonical bead-XXXXXXXXXXXX pattern
+    #   → treated as caused_by (0.75×) with heuristic provenance (0.65)
+    import re as _re
+    _BEAD_ID_RE = _re.compile(r"\bbead-[A-F0-9]{12}\b")
+    _EVIDENCE_EDGE_SCORE = 0.80 * _PROVENANCE_FACTOR["model_inferred"]   # 0.68
+    _BECAUSE_EDGE_SCORE  = 0.75 * _PROVENANCE_FACTOR["heuristic"]        # 0.4875
+
+    for bid, bead in beads_map.items():
+        if not isinstance(bead, dict):
+            continue
+        # evidence_bead_ids → derived_from (directional: penalty on reverse)
+        for evid in (bead.get("evidence_bead_ids") or []):
+            tgt = str(evid or "").strip()
+            if tgt and tgt != bid and tgt in beads_map:
+                adj.setdefault(bid, []).append((tgt, _EVIDENCE_EDGE_SCORE))
+                adj.setdefault(tgt, []).append((bid, _EVIDENCE_EDGE_SCORE * _REVERSE_DIRECTION_FACTOR))
+        # because + supporting_facts text → caused_by (directional)
+        text_fields = list(bead.get("because") or []) + list(bead.get("supporting_facts") or [])
+        for text in text_fields:
+            for m in _BEAD_ID_RE.finditer(str(text)):
+                tgt = m.group(0)
+                if tgt != bid and tgt in beads_map:
+                    adj.setdefault(bid, []).append((tgt, _BECAUSE_EDGE_SCORE))
+                    adj.setdefault(tgt, []).append((bid, _BECAUSE_EDGE_SCORE * _REVERSE_DIRECTION_FACTOR))
+
     # BFS with best-path score propagation.
     # frontier maps bead_id → best score reaching it so far.
     known: set[str] = {str(e.bead_id) for e in evidence}
