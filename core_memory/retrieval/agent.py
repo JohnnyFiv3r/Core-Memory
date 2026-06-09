@@ -437,43 +437,18 @@ def _normalize_request(
     return query, request
 
 
-# Per-relationship-type base weights for hop scoring.
-# Causal/semantic edges carry topical signal; temporal/entity edges do not.
-_RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
-    # Causal — strongest signal for multi-hop retrieval
-    "caused_by": 0.90, "causes": 0.90, "enables": 0.90, "results_in": 0.90,
-    "resolves": 0.88, "diagnoses": 0.88,
-    # Semantic — strong topical signal
-    "supports": 0.85, "refines": 0.85, "supersedes": 0.85,
-    "contradicts": 0.82, "validates": 0.82, "informed_by": 0.80,
-    # Weak / generic
-    "associated_with": 0.60, "related_to": 0.60, "shared_entity": 0.55,
-    # Temporal — low signal (adjacency, not topical relevance)
-    "follows": 0.35, "precedes": 0.35, "sequential_turn": 0.35,
-    "continues": 0.45, "next_turn": 0.35, "prev_turn": 0.35,
-}
-_DEFAULT_HOP_WEIGHT = 0.70  # unknown / generic relationship
-_HOP_DECAY = 0.80           # multiplicative per-hop decay
-
-# Provenance multipliers: how much to trust each edge source.
-# agent_judged edges were reviewed by the agent and carry full weight.
-# preview_classifier edges were produced by token-overlap heuristics.
-_PROVENANCE_FACTOR: dict[str, float] = {
-    "agent_judged": 1.00,
-    "model_inferred": 0.85,  # LLM output, not explicitly reviewed
-    "preview_classifier": 0.60,  # heuristic token-overlap fallback
-    "heuristic": 0.65,
-}
-_DEFAULT_PROVENANCE_FACTOR = 0.75
-
-# Directed relationships: the edge has a natural source→target direction.
-# Traversing against that direction penalises the score rather than blocking it
-# entirely, preserving discoverability while honouring causal asymmetry.
-_DIRECTIONAL_RELS: frozenset[str] = frozenset({
-    "caused_by", "causes", "enables", "results_in", "led_to",
-    "derived_from", "refines", "supersedes", "resolves", "diagnoses",
-})
-_REVERSE_DIRECTION_FACTOR = 0.65
+# Edge-scoring constants are canonical in graph/edge_weights.py (domain logic
+# layer) so all traversal paths share one authoritative source.  The underscore
+# aliases below preserve the existing public names that tests and call-sites use.
+from core_memory.graph.edge_weights import (  # noqa: E402
+    RELATIONSHIP_HOP_WEIGHT as _RELATIONSHIP_HOP_WEIGHT,
+    DEFAULT_HOP_WEIGHT as _DEFAULT_HOP_WEIGHT,
+    HOP_DECAY as _HOP_DECAY,
+    PROVENANCE_FACTOR as _PROVENANCE_FACTOR,
+    DEFAULT_PROVENANCE_FACTOR as _DEFAULT_PROVENANCE_FACTOR,
+    DIRECTIONAL_RELS as _DIRECTIONAL_RELS,
+    REVERSE_DIRECTION_FACTOR as _REVERSE_DIRECTION_FACTOR,
+)
 
 # Multi-source seed scores.  All values are set below typical vector scores
 # (0.70+) so extra seeds never displace strong semantic matches; they only

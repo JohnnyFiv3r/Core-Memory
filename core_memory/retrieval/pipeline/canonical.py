@@ -1259,7 +1259,13 @@ def trace_request(
             # Configured backend unavailable (e.g. kuzu not installed); fall back to Python traversal.
             trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
         else:
-            _chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=_max_depth, max_chains=_max_chains)
+            _raw_chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=_max_depth, max_chains=_max_chains)
+            # Normalise backend chains to the canonical format expected by
+            # trace_request's downstream consumers: adds "path" (ordered bead IDs
+            # from "nodes"), normalises "tgt"→"dst", and computes a "score" using
+            # the shared edge-weight table so all backends rank consistently.
+            from core_memory.graph.edge_weights import normalize_backend_chain as _norm_chain
+            _chains = [_norm_chain(c) for c in _raw_chains]
             trav = {"ok": True, "chains": _chains, "backend": _graph.name}
     else:
         trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
