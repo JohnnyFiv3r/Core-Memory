@@ -242,9 +242,19 @@ def process_flush_impl(
         source=str(source or "flush_hook"),
     )
 
+    # Edge lifecycle: fold recall-time edge-usage events into association
+    # reinforcement fields. Session flush is the maintenance boundary — the
+    # read path only logs, the write side applies.
+    try:
+        from core_memory.association.edge_lifecycle import fold_edge_usage
+        edge_lifecycle_out = fold_edge_usage(root)
+    except Exception:
+        edge_lifecycle_out = {"ok": False, "error": "edge_lifecycle_fold_failed"}
+
     flush_ok = {
         "ok": True,
         "authority_path": "canonical_in_process",
+        "edge_lifecycle": edge_lifecycle_out,
         "flush_tx_id": flush_id_final,
         "latest_turn_id": str(latest_turn or ""),
         "latest_done_turn_id": str(flush_anchor_turn or ""),

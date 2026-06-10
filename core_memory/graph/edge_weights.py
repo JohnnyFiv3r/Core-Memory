@@ -9,6 +9,8 @@ retrieval/ code and graph/ code to import without violating the layering law.
 """
 from __future__ import annotations
 
+import math
+from datetime import datetime, timezone
 from typing import Any
 
 # Per-relationship base weights.  Causal/semantic edges carry topical signal;
@@ -53,6 +55,56 @@ CAUSAL_RELS: frozenset[str] = frozenset({
     "caused_by", "causes", "enables", "results_in", "led_to",
     "resolves", "diagnoses",
 })
+
+# Edge lifecycle (reinforce / decay / supersede) scoring parameters.
+# Reinforcement is bounded and logarithmic: heavily-used edges gain at most
+# +15%, so usage tunes ranking without letting popularity swamp relevance.
+REINFORCEMENT_MAX_BONUS: float = 0.15
+REINFORCEMENT_LOG_SCALE: float = 0.05
+# Unreinforced edges decay toward a floor, never to zero — an old edge that
+# was correct when judged stays retrievable, it just stops outranking
+# recently-confirmed structure.
+DECAY_HALF_LIFE_DAYS: float = 90.0
+DECAY_FLOOR: float = 0.70
+# Edges through superseded beads point at stale truth.
+SUPERSEDED_ENDPOINT_FACTOR: float = 0.60
+
+
+def _parse_ts(value: Any) -> datetime | None:
+    s = str(value or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        dt = datetime.fromisoformat(s)
+        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+
+
+def effective_edge_multiplier(assoc: dict[str, Any], *, now: datetime | None = None) -> float:
+    """Lifecycle multiplier for one association: reinforcement × recency decay.
+
+    - ``reinforcement_count`` adds a bounded logarithmic bonus
+      (≤ ``1 + REINFORCEMENT_MAX_BONUS``).
+    - Time since ``last_reinforced_at`` (falling back to ``created_at``)
+      decays the edge with half-life ``DECAY_HALF_LIFE_DAYS``, clamped at
+      ``DECAY_FLOOR``. Edges with no timestamp do not decay.
+
+    Range: [DECAY_FLOOR, 1 + REINFORCEMENT_MAX_BONUS].
+    """
+    count = max(0, int(assoc.get("reinforcement_count") or 0))
+    bonus = 1.0 + min(REINFORCEMENT_MAX_BONUS, REINFORCEMENT_LOG_SCALE * math.log1p(count))
+
+    ts = _parse_ts(assoc.get("last_reinforced_at")) or _parse_ts(assoc.get("created_at"))
+    decay = 1.0
+    if ts is not None:
+        now_dt = now or datetime.now(timezone.utc)
+        age_days = max(0.0, (now_dt - ts).total_seconds() / 86400.0)
+        decay = max(DECAY_FLOOR, 2.0 ** (-age_days / DECAY_HALF_LIFE_DAYS))
+
+    return bonus * decay
 
 
 def score_edge(
