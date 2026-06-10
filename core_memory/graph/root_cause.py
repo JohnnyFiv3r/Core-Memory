@@ -564,13 +564,13 @@ def root_cause_trace(
     *,
     query: str,
     hints: dict | None = None,
+    myelination_bonus: dict[str, float] | None = None,
     max_depth: int = 6,
     max_paths: int = 20,
     max_causes: int = 8,
     beam_width: int = 8,
     temporal_frame: str = "auto",
     include_flow: bool = True,
-    myelination_bonus: dict[str, float] | None = None,
 ) -> dict:
     root = Path(root)
     index = _read_index(root)
@@ -583,7 +583,7 @@ def root_cause_trace(
     query_tokens = _tokens(query)
     hint_tokens = _tokens(" ".join(normalized_hints.get("keywords") or []) + " " + " ".join(normalized_hints.get("entities") or []))
     edges = _build_edges(root, index)
-    myelination: dict[str, float] = dict(myelination_bonus or {})
+    myelination = dict(myelination_bonus or {})
 
     anchors = [a for a in [*_clean_list(anchor_ids), *normalized_hints.get("anchor_ids", [])] if _text(a) in beads]
     anchors = list(dict.fromkeys(_text(a) for a in anchors if _text(a)))
