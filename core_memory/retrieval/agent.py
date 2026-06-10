@@ -635,9 +635,18 @@ def _expand_via_association_hops(
     beads_map = index.get("beads") or {}
 
     # Build weighted adjacency: node → [(neighbor, edge_score)]
-    # edge_score = rel_weight × confidence × prov_factor
+    # edge_score = rel_weight × confidence × prov_factor × lifecycle × status
     # Directed relationships apply a reverse-direction penalty rather than
     # blocking reverse traversal entirely, preserving discoverability.
+    from core_memory.graph.edge_weights import (
+        effective_edge_multiplier as _edge_lifecycle,
+        SUPERSEDED_ENDPOINT_FACTOR as _superseded_factor,
+    )
+
+    def _endpoint_superseded(bead_id: str) -> bool:
+        bead = beads_map.get(bead_id)
+        return isinstance(bead, dict) and str(bead.get("status") or "").strip().lower() == "superseded"
+
     adj: dict[str, list[tuple[str, float]]] = {}
     for assoc in assoc_list:
         src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "").strip()
@@ -653,6 +662,11 @@ def _expand_via_association_hops(
         prov_key = edge_class if edge_class in _PROVENANCE_FACTOR else provenance
         prov_factor = _PROVENANCE_FACTOR.get(prov_key, _DEFAULT_PROVENANCE_FACTOR)
         edge_score = rel_weight * conf * prov_factor
+        # Lifecycle: reinforced edges rank higher, unused edges decay toward a
+        # floor; edges through superseded beads point at stale truth.
+        edge_score *= _edge_lifecycle(assoc)
+        if _endpoint_superseded(src) or _endpoint_superseded(tgt):
+            edge_score *= _superseded_factor
         adj.setdefault(src, []).append((tgt, edge_score))
         if rel in _DIRECTIONAL_RELS:
             adj.setdefault(tgt, []).append((src, edge_score * _REVERSE_DIRECTION_FACTOR))
@@ -930,6 +944,20 @@ def recall(
                 "type": type(exc).__name__,
                 "message": str(exc)[:240],
             }
+    # Edge lifecycle: log which edges contributed to this recall (pairs among
+    # delivered evidence + attribution-path edges). Fire-and-forget — the read
+    # path records usage, the flush-time fold applies reinforcement.
+    try:
+        from core_memory.association.edge_lifecycle import collect_used_edge_pairs, record_edge_usage
+        _delivered_k = int(k if k is not None else _EFFORT_DEFAULTS[selected_effort]["k"])
+        _delivered = [e.bead_id for e in result.evidence[: max(1, _delivered_k)] if e.bead_id]
+        _paths = [p for p in ((result.root_cause_attribution or {}).get("causal_paths") or []) if isinstance(p, dict)]
+        _pairs = collect_used_edge_pairs(root, _delivered, _paths)
+        if _pairs:
+            record_edge_usage(root, pairs=_pairs, source="recall", query=query)
+    except Exception:
+        pass
+
     result.planning = RecallPlanning(
         selected_effort=selected_effort,
         reason=str(_EFFORT_DEFAULTS[selected_effort]["planning_reason"]),
