@@ -48,6 +48,14 @@ DIRECTIONAL_RELS: frozenset[str] = frozenset({
 })
 REVERSE_DIRECTION_FACTOR: float = 0.65
 
+# Causal-class relationships: edges that assert cause/effect rather than
+# topical similarity or temporal adjacency. Used to detect causal structure
+# in a retrieved candidate set (structural trigger for the causal pipeline).
+CAUSAL_RELS: frozenset[str] = frozenset({
+    "caused_by", "causes", "enables", "results_in", "led_to",
+    "resolves", "diagnoses",
+})
+
 # Edge lifecycle (reinforce / decay / supersede) scoring parameters.
 # Reinforcement is bounded and logarithmic: heavily-used edges gain at most
 # +15%, so usage tunes ranking without letting popularity swamp relevance.
