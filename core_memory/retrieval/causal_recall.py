@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from pathlib import Path
 from typing import Any
 
+from core_memory.graph.edge_weights import CAUSAL_RELS
 from core_memory.graph.root_cause import normalize_causal_hints, root_cause_trace
 from core_memory.provider_config import resolve_chat_config
 from core_memory.retrieval.contracts import RecallResult, RecallStep
@@ -420,6 +422,57 @@ def should_run_causal_pipeline(query: str, effort: str, intent: str | None = Non
             query.lower(),
         )
     )
+
+
+def _causal_trigger_min_edges() -> int:
+    try:
+        return max(1, int(os.environ.get("CORE_MEMORY_CAUSAL_TRIGGER_MIN_EDGES", "2")))
+    except (TypeError, ValueError):
+        return 2
+
+
+def causal_edge_pressure(root: str | Path, bead_ids: list[str]) -> int:
+    """Count active causal-class edges connecting beads within a candidate set.
+
+    This is the structural trigger for the causal pipeline: when the retrieved
+    evidence is itself densely connected by cause/effect edges, the memory has
+    causal structure to offer regardless of how the query was phrased — the
+    graph decides, not the query regex.
+    """
+    ids = {str(b) for b in bead_ids if str(b or "").strip()}
+    if len(ids) < 2:
+        return 0
+    index = _read_index(root)
+    count = 0
+    for assoc in (index.get("associations") or []):
+        if not isinstance(assoc, dict):
+            continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
+            continue
+        rel = str(assoc.get("relationship") or "").strip().lower()
+        if rel not in CAUSAL_RELS:
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
+        tgt = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")
+        if src in ids and tgt in ids and src != tgt:
+            count += 1
+    return count
+
+
+def structural_causal_trigger(root: str | Path, evidence_bead_ids: list[str], *, effort: str) -> dict[str, Any] | None:
+    """Decide whether causal structure in the evidence warrants the pipeline.
+
+    Returns a trigger-diagnostics dict when the pipeline should run, else None.
+    Low effort never triggers (latency contract).
+    """
+    if str(effort or "").lower() == "low":
+        return None
+    pressure = causal_edge_pressure(root, evidence_bead_ids)
+    threshold = _causal_trigger_min_edges()
+    if pressure >= threshold:
+        return {"kind": "structural", "causal_edges": int(pressure), "threshold": int(threshold)}
+    return None
 
 
 def attach_causal_recall_pipeline(
