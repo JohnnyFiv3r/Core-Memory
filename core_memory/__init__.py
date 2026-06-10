@@ -31,6 +31,7 @@ from .retrieval.contracts import (
     validate_recall_effort,
 )
 from .integrations.api import hydrate_bead_sources
+from .graph.worldlines import derive_worldlines, worldline_membership
 from ._version import VERSION, __version__
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
@@ -89,6 +90,8 @@ __all__ = [
     "SqliteBackend",
     "create_backend",
     "hydrate_bead_sources",
+    "derive_worldlines",
+    "worldline_membership",
     "Bead",
     "BeadType",
     "Scope",

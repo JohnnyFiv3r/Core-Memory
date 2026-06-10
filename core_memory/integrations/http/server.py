@@ -832,6 +832,31 @@ async def mcp_submit_entity_merge_proposal_endpoint(
     return out
 
 
+@app.get("/v1/memory/projection/worldlines")
+async def memory_projection_worldlines(
+    root: Optional[str] = None,
+    kinds: Optional[str] = None,
+    min_length: int = 1,
+    include_membership: bool = False,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Derived worldline projection (claim chains, entity threads, goal threads).
+
+    Read-side perspective over the canonical index — nothing is stored.
+    ``kinds`` is a comma-separated subset of claim,entity,goal.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory.graph.worldlines import derive_worldlines, worldline_membership
+    resolved = _resolve_root(root, x_tenant_id)
+    kind_list = [k.strip() for k in str(kinds or "").split(",") if k.strip()] or None
+    out = derive_worldlines(resolved, kinds=kind_list, min_length=int(min_length))
+    if include_membership:
+        out["membership"] = worldline_membership(resolved, kinds=kind_list)
+    return out
+
+
 @app.get("/v1/memory/continuity")
 async def memory_continuity(
     root: Optional[str] = None,
