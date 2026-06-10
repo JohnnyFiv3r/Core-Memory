@@ -1260,6 +1260,12 @@ def trace_request(
             trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
         else:
             _raw_chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=_max_depth, max_chains=_max_chains)
+            # Active-association view first: the canonical index owns association
+            # status and the backend can lag it (retraction edits index.json
+            # without a backend resync), so truncate chains at the first edge
+            # with no active association before scoring.
+            from core_memory.graph.traversal import filter_chains_to_active_edges as _active_filter
+            _raw_chains = _active_filter(Path(root), list(_raw_chains or []))
             # Normalise backend chains to the canonical format expected by
             # trace_request's downstream consumers: adds "path" (ordered bead IDs
             # from "nodes"), normalises "tgt"→"dst", and computes a "score" using

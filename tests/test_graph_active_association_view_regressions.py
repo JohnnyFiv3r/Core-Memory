@@ -106,6 +106,46 @@ class TestGraphActiveAssociationViewRegressions(unittest.TestCase):
             self.assertTrue(reason_out.get("ok"))
             self.assertFalse(self._chains_have_edge(reason_out.get("chains") or [], a, b, "supports"))
 
+    def test_backend_chains_apply_active_association_view(self):
+        # Graph backends (kuzu/neo4j) keep their own edge copies and can lag a
+        # retraction that only edits index.json. The canonical trace consumer
+        # must truncate backend chains at the first non-active edge — the index
+        # is the source of truth for association status.
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"},
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            a = s.add_bead(type="decision", title="alpha decision", summary=["alpha"], tags=["alpha"], session_id="s1", source_turn_ids=["t1"])
+            b = s.add_bead(type="evidence", title="beta evidence", summary=["beta"], tags=["beta"], session_id="s1", source_turn_ids=["t2"])
+            assoc_id = s.link(source_id=a, target_id=b, relationship="supports", explanation="link")
+            self._retract_association(Path(td), assoc_id)
+
+            class _StaleGraphBackend:
+                # Simulates a backend whose edge store still holds the
+                # retracted association (the kuzu/neo4j CI failure mode).
+                name = "stale-fake"
+
+                def traverse(self, *, seed_ids, edge_types, max_hops, max_chains=16):
+                    return [
+                        {
+                            "nodes": [
+                                {"id": a, "type": "decision", "title": "alpha decision"},
+                                {"id": b, "type": "evidence", "title": "beta evidence"},
+                            ],
+                            "edges": [{"rel": "supports", "src": a, "tgt": b, "confidence": 0.9}],
+                        }
+                    ]
+
+            with patch(
+                "core_memory.retrieval.pipeline.canonical.create_graph_backend",
+                return_value=_StaleGraphBackend(),
+            ):
+                trace_out = memory_tools.trace(query="", anchor_ids=[a], root=td, k=5)
+            self.assertTrue(trace_out.get("ok"))
+            self.assertFalse(self._chains_have_edge(trace_out.get("chains") or [], a, b, "supports"))
+
     def test_structural_sync_removes_stale_association_sync_links(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
