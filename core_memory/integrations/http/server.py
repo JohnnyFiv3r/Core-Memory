@@ -149,6 +149,18 @@ class MemoryTraceRequest(BaseModel):
     hydration: dict[str, Any] = Field(default_factory=dict)
 
 
+class MemoryRecallRequest(BaseModel):
+    root: Optional[str] = None
+    query: str
+    effort: str = "medium"
+    intent: Optional[str] = None
+    k: Optional[int] = None
+    speaker: Optional[Any] = None  # str or list[str]
+    as_of: Optional[str] = None
+    include_raw: bool = False
+    hints: dict[str, Any] = Field(default_factory=dict)
+
+
 class MCPQueryCurrentStateRequest(BaseModel):
     root: Optional[str] = None
     subject: str = "user"
@@ -622,6 +634,30 @@ async def memory_trace(
         hydration=dict(payload.hydration or {}),
     )
     maybe = _semantic_http_response(out if isinstance(out, dict) else {})
+    return maybe or out
+
+
+@app.post("/v1/memory/recall")
+async def memory_recall(
+    payload: MemoryRecallRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Full recall orchestrator over HTTP — parity with the MCP recall tool.
+
+    Unlike /v1/memory/{search,execute,trace}, this runs the complete recall()
+    pipeline: effort tiers, association-hop expansion, the causal pipeline,
+    conflict reviews, myelination, fanout, and retrieval-feedback telemetry.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory.integrations.recall_payload import run_recall_payload
+    body = payload.model_dump()
+    body["root"] = _resolve_root(payload.root, x_tenant_id)
+    out = run_recall_payload(body, surface="http.recall")
+    if not out.get("ok") and str(((out.get("error") or {}).get("code") or "")) == "cm.invalid_request":
+        return JSONResponse(status_code=400, content=out)
+    maybe = _semantic_http_response(out)
     return maybe or out
 
 
