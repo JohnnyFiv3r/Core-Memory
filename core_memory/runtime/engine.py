@@ -508,6 +508,17 @@ def process_turn_finalized(
                         handoff["decision_pass"] = enriched.get("decision_pass")
                     if enriched.get("goal_lifecycle") is not None:
                         result["goal_lifecycle"] = enriched.get("goal_lifecycle")
+                    assoc = enriched.get("association") if isinstance(enriched.get("association"), dict) else {}
+                    if not result.get("bead_id"):
+                        result["bead_id"] = str(assoc.get("current_turn_bead_id") or "")
+            # On the queued path the canonical bead is created during the drain,
+            # so the contract's bead_id is resolvable only now.
+            if not result.get("bead_id"):
+                try:
+                    from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id as _find_bid
+                    result["bead_id"] = str(_find_bid(root, session_id=session_id, turn_id=turn_id, preferred_bead_ids=[]) or "")
+                except Exception:
+                    pass
             if claim_layer_enabled():
                 try:
                     from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id

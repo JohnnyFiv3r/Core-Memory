@@ -55,6 +55,7 @@ def enqueue_turn_enrichment(
     req: dict[str, Any],
     reviewed_updates: dict[str, Any] | None = None,
     crawler_ctx: dict[str, Any] | None = None,
+    structural_coverage_missing: bool = False,
 ) -> dict[str, Any] | None:
     """Enqueue post-persist enrichment stages for a turn.
 
@@ -102,6 +103,7 @@ def enqueue_turn_enrichment(
             "crawler_visible_bead_ids": list((crawler_ctx or {}).get("visible_bead_ids") or []),
             "metadata": dict(req.get("metadata") or {}),
             "window_bead_ids": list(req.get("window_bead_ids") or []),
+            "structural_coverage_missing": bool(structural_coverage_missing),
         },
         idempotency_key=idempotency_key,
     )
@@ -201,6 +203,24 @@ def run_turn_enrichment(
     except Exception as exc:
         logger.warning("enrichment: association pass failed for turn %s: %s", turn_id, exc)
         results["stages_failed"].append("association")
+
+    # F-W2: flag the canonical bead when the gate recorded a coverage gap.
+    # The bead exists only after the association pass above, so the flag is
+    # applied here on the queued path (turn_flow handles the inline path).
+    if bool(payload.get("structural_coverage_missing")):
+        try:
+            from core_memory.runtime.turn.turn_flow import flag_structural_coverage_missing
+            _flag_bid = str((results.get("association") or {}).get("current_turn_bead_id") or "")
+            if not _flag_bid:
+                _created = [str(x) for x in ((results.get("association") or {}).get("created_bead_ids") or []) if str(x)]
+                _flag_bid = _created[0] if _created else ""
+            if not _flag_bid:
+                from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
+                _flag_bid = str(find_canonical_turn_bead_id(root, session_id=session_id, turn_id=turn_id, preferred_bead_ids=[]) or "")
+            if flag_structural_coverage_missing(root, _flag_bid):
+                results["structural_coverage_flagged"] = _flag_bid
+        except Exception as exc:
+            logger.warning("enrichment: coverage flag failed for turn %s: %s", turn_id, exc)
 
     # Refresh visible IDs after association pass
     session_visible = _session_visible_bead_ids(root=root, session_id=session_id)

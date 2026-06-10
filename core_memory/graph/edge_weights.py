@@ -16,9 +16,9 @@ from typing import Any
 RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
     # Causal — strongest signal for multi-hop retrieval
     "caused_by": 0.90, "causes": 0.90, "enables": 0.90, "results_in": 0.90,
-    "resolves": 0.88, "diagnoses": 0.88,
+    "led_to": 0.90, "resolves": 0.88, "diagnoses": 0.88,
     # Semantic — strong topical signal
-    "supports": 0.85, "refines": 0.85, "supersedes": 0.85,
+    "supports": 0.85, "refines": 0.85, "supersedes": 0.85, "derived_from": 0.80,
     "contradicts": 0.82, "validates": 0.82, "informed_by": 0.80,
     # Weak / generic
     "associated_with": 0.60, "related_to": 0.60, "shared_entity": 0.55,

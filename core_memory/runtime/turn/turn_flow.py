@@ -1,10 +1,27 @@
 from __future__ import annotations
 
-import importlib
 import json
-import os
 from pathlib import Path
 from typing import Any, Callable
+
+
+def flag_structural_coverage_missing(root: str, bead_id: str) -> bool:
+    """Mark a persisted bead as lacking required non-temporal associations (F-W2).
+
+    Returns True when the flag landed on an existing bead.
+    """
+    if not str(bead_id or "").strip():
+        return False
+    from core_memory.persistence.store import MemoryStore
+
+    store = MemoryStore(root)
+    idx = store._read_json(store.beads_dir / "index.json")
+    bead = (idx.get("beads") or {}).get(str(bead_id))
+    if not bead:
+        return False
+    bead["structural_coverage_missing"] = True
+    store._write_json(store.beads_dir / "index.json", idx)
+    return True
 
 
 def process_turn_finalized_impl(
@@ -65,72 +82,12 @@ def process_turn_finalized_impl(
         metadata=metadata,
     )
 
-    # Hard agent-authored failures should be side-effect-free: validate metadata
-    # / missing-callable cases before semantic checkpoints, event writes, or store init.
-    md_preflight = req.get("metadata") if isinstance(req.get("metadata"), dict) else {}
-    reviewed_preflight = (md_preflight or {}).get("crawler_updates") if isinstance(md_preflight, dict) else None
-    invocation_preflight: dict[str, Any] | None = None
-    defer_preflight_to_contextual_agent = False
-    source_preflight: str | None = "metadata.crawler_updates" if isinstance(reviewed_preflight, dict) and reviewed_preflight else None
-    if not source_preflight:
-        callable_path = str(os.environ.get("CORE_MEMORY_AGENT_CRAWLER_CALLABLE") or "").strip()
-        if callable_path:
-            try:
-                if ":" not in callable_path:
-                    raise ValueError("CORE_MEMORY_AGENT_CRAWLER_CALLABLE must be module:function")
-                mod_name, fn_name = callable_path.split(":", 1)
-                fn = getattr(importlib.import_module(mod_name.strip()), fn_name.strip(), None)
-                if not callable(fn):
-                    raise ValueError(f"callable not found: {callable_path}")
-            except Exception as exc:
-                invocation_preflight = {
-                    "attempted": True,
-                    "ok": False,
-                    "source": "agent_callable",
-                    "attempts": 0,
-                    "error_code": "agent_callable_missing",
-                    "reason": "invalid_CORE_MEMORY_AGENT_CRAWLER_CALLABLE",
-                    "error": str(exc),
-                    "callable": callable_path,
-                }
-            else:
-                # A valid callable may require crawler_context; let the normal
-                # post-checkpoint path invoke it with full context rather than
-                # calling it here with an empty one.
-                defer_preflight_to_contextual_agent = True
-        else:
-            invoked_preflight, invocation_preflight = invoke_turn_crawler_agent(root=root, req=req, crawler_context={})
-            if isinstance(invoked_preflight, dict) and invoked_preflight:
-                md_copy = dict(req.get("metadata") or {})
-                md_copy["crawler_updates"] = dict(invoked_preflight)
-                md_copy["_crawler_updates_source"] = "agent_callable"
-                req["metadata"] = md_copy
-                source_preflight = "agent_callable"
-    if not defer_preflight_to_contextual_agent:
-        reviewed_probe, gate_probe = resolve_reviewed_updates(
-            req,
-            source_override=source_preflight,
-            invocation_diag=invocation_preflight,
-            max_create_per_turn=getattr(policy, "max_create_per_turn", None),
-        )
-        if gate_probe.get("blocked"):
-            contract_error = {"code": str(gate_probe.get("error_code") or error_agent_updates_missing), "details": dict(gate_probe.get("validation") or {})}
-            return {
-                "ok": False,
-                "mode": "turn",
-                "authority_path": "canonical_in_process",
-                "processed": 0,
-                "failed": 1,
-                "error_code": str(gate_probe.get("error_code") or error_agent_updates_missing),
-                "error": "agent-authored crawler updates required",
-                "agent_contract_error": contract_error,
-                "crawler_handoff": {
-                    "required": True,
-                    "agent_authored_gate": gate_probe,
-                },
-                "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
-            }
-
+    # Never-forget: contract enforcement happens exactly once, after the
+    # canonical turn event is written. The old preflight probe returned early
+    # to keep hard agent-authored failures side-effect-free, which silently
+    # dropped the turn — amnesia is the worse side effect. A blocked gate now
+    # always reaches the post-checkpoint fallback, which writes a stub bead and
+    # surfaces ok=False + gate_blocked for the adapter to retry enrichment.
     mark_turn_checkpoint(root, turn_id=req["turn_id"])
 
     emitted = maybe_emit_finalize_memory_event(
@@ -317,26 +274,26 @@ def process_turn_finalized_impl(
                 req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
             )
 
-    # F-W2: flag the bead in warn mode if coverage was insufficient
-    if _structural_coverage_missing:
-        bead_id = str((delta or {}).get("bead_id") or "")
-        if bead_id:
-            from core_memory.persistence.store import MemoryStore
-            store = MemoryStore(root)
-            idx = store._read_json(store.beads_dir / "index.json")
-            bead = (idx.get("beads") or {}).get(bead_id)
-            if bead:
-                bead["structural_coverage_missing"] = True
-                store._write_json(store.beads_dir / "index.json", idx)
+    # F-W2: the coverage flag is written after the association pass — the
+    # canonical turn bead does not exist yet at this point (it is created by
+    # apply_crawler_updates, not process_memory_event), so flagging from
+    # `delta` here was dead code that never landed on any bead.
 
     # F-W1: enqueue enrichment stages instead of running them inline.
-    # The bead is already persisted — enrichment is post-commit.
     from core_memory.runtime.passes.enrichment import enqueue_turn_enrichment, _enrichment_queue_enabled
 
-    bead_id = str((delta or {}).get("bead_id") or "")
+    # process_memory_event is mechanical-only and never returns a bead_id; the
+    # canonical turn bead is created by the association pass (inline below, or
+    # inside the queued enrichment job — in which case the engine fills the id
+    # in after draining).
+    bead_id = ""
     enrichment_queued = False
 
-    if _enrichment_queue_enabled():
+    # Gate-blocked turns must persist their stub bead synchronously: the engine
+    # only drains the enrichment queue for ok=True results, so queueing here
+    # would defer the bead write indefinitely — exactly the amnesia never-forget
+    # exists to prevent.
+    if _enrichment_queue_enabled() and not gate.get("blocked_wrote_stub"):
         enqueue_result = enqueue_turn_enrichment(
             root=root,
             session_id=req["session_id"],
@@ -345,6 +302,7 @@ def process_turn_finalized_impl(
             req=req,
             reviewed_updates=reviewed_updates,
             crawler_ctx=crawler_ctx,
+            structural_coverage_missing=_structural_coverage_missing,
         )
         enrichment_queued = bool(enqueue_result and enqueue_result.get("ok"))
 
@@ -369,6 +327,18 @@ def process_turn_finalized_impl(
             updates=reviewed_updates,
             visible_bead_ids=visible_ids,
         )
+
+        bead_id = str(auto_apply.get("current_turn_bead_id") or "")
+        if not bead_id:
+            created_ids = [str(x) for x in (auto_apply.get("created_bead_ids") or []) if str(x)]
+            bead_id = created_ids[0] if created_ids else ""
+        if not bead_id:
+            from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
+            bead_id = str(find_canonical_turn_bead_id(root, session_id=req["session_id"], turn_id=req["turn_id"], preferred_bead_ids=[]) or "")
+
+        # F-W2: flag the canonical bead now that it exists.
+        if _structural_coverage_missing and bead_id:
+            flag_structural_coverage_missing(root, bead_id)
 
         session_visible_after = session_visible_bead_ids(root=root, session_id=req["session_id"])
         visible_ids = sorted(set(crawler_visible + session_visible_after))

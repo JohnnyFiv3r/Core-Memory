@@ -34,8 +34,12 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertTrue(gate.get("required"))
             self.assertTrue(gate.get("blocked"))
 
-            idx = Path(td) / ".beads" / "index.json"
-            self.assertFalse(idx.exists())
+            # Never-forget: the blocked gate surfaces the contract error but a
+            # stub bead is still persisted so the turn is recoverable.
+            self.assertTrue(out.get("gate_blocked"))
+            self.assertTrue(out.get("bead_id"), "blocked gate must write a stub bead")
+            idx = MemoryStore(td)._read_json(Path(td) / ".beads" / "index.json")
+            self.assertIn(str(out.get("bead_id")), (idx.get("beads") or {}))
 
     def test_strict_mode_blocks_when_updates_invalid(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
@@ -268,6 +272,12 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             )
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_invocation_exhausted", out.get("error_code"))
+            # Never-forget: a blocked gate must still persist a stub bead — the
+            # turn is preserved for later enrichment, never dropped.
+            self.assertTrue(out.get("gate_blocked"))
+            self.assertTrue(out.get("bead_id"), "blocked gate must write a stub bead")
+            idx = MemoryStore(td)._read_json(Path(td) / ".beads" / "index.json")
+            self.assertIn(str(out.get("bead_id")), (idx.get("beads") or {}))
 
     def test_temporal_only_associations_warn_and_write_stub_with_coverage_flag(self):
         # Never-forget: semantic coverage violations no longer hard-block.
@@ -326,6 +336,14 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             gate = (out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}
             self.assertTrue(gate.get("warned"))
             self.assertEqual("agent_semantic_coverage_missing", gate.get("error_code"))
+            # F-W2: the coverage flag must actually land on the canonical bead.
+            self.assertTrue(out.get("bead_id"), "canonical turn bead id must be resolved")
+            idx = MemoryStore(td)._read_json(Path(td) / ".beads" / "index.json")
+            flagged_bead = (idx.get("beads") or {}).get(str(out.get("bead_id"))) or {}
+            self.assertTrue(
+                flagged_bead.get("structural_coverage_missing"),
+                "structural_coverage_missing flag must be written to the bead index",
+            )
 
     def test_mode_observe_overrides_strict_flags(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
