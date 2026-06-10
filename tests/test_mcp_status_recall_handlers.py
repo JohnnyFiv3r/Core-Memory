@@ -20,12 +20,17 @@ class MCPStatusRecallHandlerStaticTests(unittest.TestCase):
             self.assertIn(key, text)
 
     def test_recall_handler_uses_effort_not_budget(self):
-        text = (ROOT / "core_memory/integrations/mcp/tools/recall.py").read_text()
-        self.assertIn("def recall_handler", text)
-        self.assertIn("validate_recall_effort", text)
-        self.assertIn("effort=effort", text)
-        self.assertIn("effort='dynamic' is reserved", text)
-        self.assertNotIn("budget", text.lower())
+        # The payload/effort logic lives in the shared wire-surface module
+        # (core_memory/integrations/recall_payload.py); the MCP tool delegates.
+        tool_text = (ROOT / "core_memory/integrations/mcp/tools/recall.py").read_text()
+        self.assertIn("def recall_handler", tool_text)
+        self.assertIn("run_recall_payload", tool_text)
+        self.assertNotIn("budget", tool_text.lower())
+        shared_text = (ROOT / "core_memory/integrations/recall_payload.py").read_text()
+        self.assertIn("validate_recall_effort", shared_text)
+        self.assertIn("effort=effort", shared_text)
+        self.assertIn("effort='dynamic' is reserved", shared_text)
+        self.assertNotIn("budget", shared_text.lower())
 
     def test_registry_wires_status_and_recall_handlers(self):
         text = (ROOT / "core_memory/integrations/mcp/registry.py").read_text()
