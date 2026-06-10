@@ -46,9 +46,9 @@ _EFFORT_DEFAULTS: dict[str, dict[str, Any]] = {
     "low": {
         "k": 8,
         "grounding_mode": "search_only",
-        "association_hops": 0,
+        "association_hops": 1,
         "hydration": {},
-        "planning_reason": "low effort uses direct lookup for low-latency recall",
+        "planning_reason": "low effort: direct lookup + 1-hop causal-graph expansion",
     },
     "medium": {
         "k": 12,
@@ -609,7 +609,7 @@ def _expand_via_association_hops(
 ) -> list["EvidenceItem"]:
     """Widen the candidate set by walking association edges from vector seeds.
 
-    low    → hops=0 (no expansion)
+    low    → hops=1 (direct neighbours — the causal graph is consulted on every recall)
     medium → hops=1 (direct neighbours)
     high   → hops=2 (neighbours-of-neighbours)
 
@@ -852,12 +852,14 @@ def recall(
     # high adds 2-hop — so candidate sets grow monotonically with effort.
     # Runs after vector recall so it augments rather than replaces grounded results.
     _hops = int(_EFFORT_DEFAULTS[selected_effort].get("association_hops") or 0)
-    if _hops > 0:
+    if _hops > 0 and selected_effort != "low":
         # Multi-source seeding: augment the vector-search frontier with entity-
         # resolved, claim-slot, and recent-session seeds before BFS expansion.
         # This makes hop traversal robust when semantic search misses the gold-
         # adjacent bead — the causal graph is always consulted even if the vector
-        # index doesn't have a high-similarity entry point.
+        # index doesn't have a high-similarity entry point. Low effort keeps its
+        # latency contract: 1-hop expansion runs, but the full-index entity and
+        # claim scans are reserved for medium/high.
         try:
             _session_id = str(request.get("session_id") or "").strip() or None
             _extra = _collect_extra_seeds(root, query, result.evidence, session_id=_session_id)
@@ -913,8 +915,33 @@ def recall(
         result.evidence = _filter_evidence_by_as_of(result.evidence, as_of)
         result.as_of = as_of
         result.metadata["as_of"] = as_of
-    req_intent = explicit_intent if explicit_intent else ""
-    if should_run_causal_pipeline(query, selected_effort, req_intent):
+    # The pipeline gate sees the system's own intent verdict, not only the
+    # caller-declared one: execute_request classifies undeclared intents via
+    # classify_intent and echoes the result on request.intent.
+    classified_intent = str(((raw.get("request") or {}).get("intent")) or "") if isinstance(raw, dict) else ""
+    req_intent = explicit_intent if explicit_intent else classified_intent
+    _run_causal = should_run_causal_pipeline(query, selected_effort, req_intent)
+    if _run_causal:
+        result.metadata["causal_pipeline_trigger"] = {
+            "kind": "intent" if (req_intent or "").lower() == "causal" else "query_pattern",
+            "intent": req_intent or None,
+        }
+    elif result.evidence:
+        # Structural trigger: when the retrieved evidence is itself connected
+        # by causal-class edges, the graph has causal structure to offer even
+        # if the query never used causal phrasing. The graph decides, not the
+        # query regex.
+        try:
+            from core_memory.retrieval.causal_recall import structural_causal_trigger
+            _trigger = structural_causal_trigger(
+                root, [e.bead_id for e in result.evidence if e.bead_id], effort=selected_effort
+            )
+            if _trigger:
+                _run_causal = True
+                result.metadata["causal_pipeline_trigger"] = _trigger
+        except Exception:
+            pass
+    if _run_causal:
         try:
             result = attach_causal_recall_pipeline(
                 result,

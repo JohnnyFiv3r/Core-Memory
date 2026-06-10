@@ -28,8 +28,20 @@ class TestEffortTierDefaults(unittest.TestCase):
         for tier in ("low", "medium", "high"):
             self.assertIn("association_hops", _EFFORT_DEFAULTS[tier])
 
-    def test_low_has_zero_hops(self):
-        self.assertEqual(0, _EFFORT_DEFAULTS["low"]["association_hops"])
+    def test_low_has_one_hop(self):
+        # The causal graph is consulted on every recall — low effort gets
+        # 1-hop expansion (no full-index seed scans, which stay medium+).
+        self.assertEqual(1, _EFFORT_DEFAULTS["low"]["association_hops"])
+
+    def test_hops_grow_monotonically_with_effort(self):
+        self.assertLessEqual(
+            _EFFORT_DEFAULTS["low"]["association_hops"],
+            _EFFORT_DEFAULTS["medium"]["association_hops"],
+        )
+        self.assertLessEqual(
+            _EFFORT_DEFAULTS["medium"]["association_hops"],
+            _EFFORT_DEFAULTS["high"]["association_hops"],
+        )
 
     def test_medium_has_one_hop(self):
         self.assertEqual(1, _EFFORT_DEFAULTS["medium"]["association_hops"])
