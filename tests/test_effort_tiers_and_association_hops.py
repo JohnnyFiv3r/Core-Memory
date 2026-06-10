@@ -9,6 +9,7 @@ from pathlib import Path
 from core_memory.retrieval.agent import (
     _EFFORT_DEFAULTS,
     _HOP_DECAY,
+    _PROVENANCE_FACTOR,
     _RELATIONSHIP_HOP_WEIGHT,
     _expand_via_association_hops,
 )
@@ -224,7 +225,11 @@ class TestHopScoring(unittest.TestCase):
             out = _expand_via_association_hops(str(root), ev, hops=1)
 
             hop_item = next(e for e in out if e.bead_id == "b2")
-            expected = round(seed_score * _RELATIONSHIP_HOP_WEIGHT["caused_by"] * 1.0 * _HOP_DECAY, 4)
+            # Association has no provenance/edge_class → defaults to model_inferred (0.85×)
+            expected = round(
+                seed_score * _RELATIONSHIP_HOP_WEIGHT["caused_by"] * 1.0
+                * _PROVENANCE_FACTOR["model_inferred"] * _HOP_DECAY, 4
+            )
             self.assertAlmostEqual(hop_item.score, expected, places=3)
 
     def test_causal_edge_outranks_temporal_edge(self):

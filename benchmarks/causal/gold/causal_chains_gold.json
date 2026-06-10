@@ -1,0 +1,39 @@
+{
+  "cases": [
+    {
+      "id": "linear_chain_basic",
+      "gold_root_cause_key": "root",
+      "gold_chain_keys": ["outcome", "mid", "root"],
+      "expected_grounding": "full",
+      "bucket_labels": ["linear_chain"]
+    },
+    {
+      "id": "deep_chain_revenue",
+      "gold_root_cause_key": "root",
+      "gold_chain_keys": ["outcome", "h2", "h1", "root"],
+      "expected_grounding": "full",
+      "bucket_labels": ["deep_chain"]
+    },
+    {
+      "id": "adversarial_distractor",
+      "gold_root_cause_key": "root",
+      "gold_chain_keys": ["outcome", "mid", "root"],
+      "expected_grounding": "full",
+      "bucket_labels": ["adversarial"]
+    },
+    {
+      "id": "multi_distractor_search",
+      "gold_root_cause_key": "root",
+      "gold_chain_keys": ["outcome", "mid", "root"],
+      "expected_grounding": "full",
+      "bucket_labels": ["adversarial", "multi_distractor"]
+    },
+    {
+      "id": "no_distractor_control",
+      "gold_root_cause_key": "root",
+      "gold_chain_keys": ["outcome", "mid", "root"],
+      "expected_grounding": "full",
+      "bucket_labels": ["control", "linear_chain"]
+    }
+  ]
+}

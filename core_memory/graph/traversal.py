@@ -103,6 +103,67 @@ def _build_adjacency(beads: dict[str, Any], associations: list[dict]) -> tuple[d
     return dict(forward), dict(reverse)
 
 
+def filter_chains_to_active_edges(root: Path, chains: list[dict]) -> list[dict]:
+    """Apply the active-association view to graph-backend traversal chains.
+
+    The canonical index is the source of truth for association status; graph
+    backends can lag behind it (e.g. a retraction edits ``index.json`` without
+    a backend resync). Each chain is truncated at its first edge whose
+    (src, dst) pair has no active association in the index — mirroring how the
+    Python traversal would never have walked past it — and chains left with no
+    edges are dropped. Edges are matched in both orientations because
+    traversal may walk an association in reverse.
+    """
+    if not chains:
+        return []
+    try:
+        index = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+    except Exception:
+        return list(chains)
+
+    active_pairs: set[tuple[str, str]] = set()
+    for assoc in (index.get("associations") or []):
+        if not isinstance(assoc, dict):
+            continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in {"retracted", "superseded", "inactive"}:
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
+        tgt = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")
+        if src and tgt:
+            active_pairs.add((src, tgt))
+            active_pairs.add((tgt, src))
+
+    filtered: list[dict] = []
+    for chain in chains:
+        if not isinstance(chain, dict):
+            continue
+        edges = list(chain.get("edges") or [])
+        keep = 0
+        for e in edges:
+            src = str((e or {}).get("src") or "")
+            dst = str((e or {}).get("dst") or (e or {}).get("tgt") or "")
+            if not src or not dst or (src, dst) not in active_pairs:
+                break
+            keep += 1
+        if keep == 0:
+            continue
+        if keep == len(edges):
+            filtered.append(chain)
+            continue
+        truncated = dict(chain)
+        truncated["edges"] = edges[:keep]
+        for seq_key in ("nodes", "beads"):
+            seq = list(truncated.get(seq_key) or [])
+            if len(seq) > keep + 1:
+                truncated[seq_key] = seq[: keep + 1]
+        path = list(truncated.get("path") or [])
+        if len(path) > keep + 1:
+            truncated["path"] = path[: keep + 1]
+        filtered.append(truncated)
+    return filtered
+
+
 def causal_traverse(
     root: Path,
     *,

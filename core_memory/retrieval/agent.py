@@ -437,23 +437,168 @@ def _normalize_request(
     return query, request
 
 
-# Per-relationship-type base weights for hop scoring.
-# Causal/semantic edges carry topical signal; temporal/entity edges do not.
-_RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
-    # Causal — strongest signal for multi-hop retrieval
-    "caused_by": 0.90, "causes": 0.90, "enables": 0.90, "results_in": 0.90,
-    "resolves": 0.88, "diagnoses": 0.88,
-    # Semantic — strong topical signal
-    "supports": 0.85, "refines": 0.85, "supersedes": 0.85,
-    "contradicts": 0.82, "validates": 0.82, "informed_by": 0.80,
-    # Weak / generic
-    "associated_with": 0.60, "related_to": 0.60, "shared_entity": 0.55,
-    # Temporal — low signal (adjacency, not topical relevance)
-    "follows": 0.35, "precedes": 0.35, "sequential_turn": 0.35,
-    "continues": 0.45, "next_turn": 0.35, "prev_turn": 0.35,
-}
-_DEFAULT_HOP_WEIGHT = 0.70  # unknown / generic relationship
-_HOP_DECAY = 0.80           # multiplicative per-hop decay
+# Edge-scoring constants are canonical in graph/edge_weights.py (domain logic
+# layer) so all traversal paths share one authoritative source.  The underscore
+# aliases below preserve the existing public names that tests and call-sites use.
+from core_memory.graph.edge_weights import (  # noqa: E402
+    RELATIONSHIP_HOP_WEIGHT as _RELATIONSHIP_HOP_WEIGHT,
+    DEFAULT_HOP_WEIGHT as _DEFAULT_HOP_WEIGHT,
+    HOP_DECAY as _HOP_DECAY,
+    PROVENANCE_FACTOR as _PROVENANCE_FACTOR,
+    DEFAULT_PROVENANCE_FACTOR as _DEFAULT_PROVENANCE_FACTOR,
+    DIRECTIONAL_RELS as _DIRECTIONAL_RELS,
+    REVERSE_DIRECTION_FACTOR as _REVERSE_DIRECTION_FACTOR,
+)
+
+# Multi-source seed scores.  All values are set below typical vector scores
+# (0.70+) so extra seeds never displace strong semantic matches; they only
+# contribute their BFS neighbourhood when the vector search was incomplete.
+_ENTITY_SEED_FACTOR = 0.65   # entity-matched seeds
+_CLAIM_SEED_FACTOR  = 0.62   # claim-slot token-overlap seeds
+_SESSION_SEED_FACTOR = 0.55  # most-recent session bead; decays with _HOP_DECAY
+_MAX_ENTITY_SEEDS  = 6
+_MAX_CLAIM_SEEDS   = 4
+_MAX_SESSION_SEEDS = 4
+
+
+def _collect_extra_seeds(
+    root: str,
+    query: str,
+    existing_evidence: list["EvidenceItem"],
+    session_id: str | None = None,
+) -> list["EvidenceItem"]:
+    """Return entity-resolved, claim-slot, and recent-session seed candidates.
+
+    These seeds augment the vector-search frontier before BFS expansion so
+    causal traversal is robust to semantic search failure — even if vector
+    search ranks the gold-adjacent bead below the cutoff, entity matches and
+    canonical claim beads still provide alternative starting points.
+
+    Each returned item carries a `reason` tag: entity_seed, claim_seed, or
+    session_seed.  Scores are intentionally below typical vector recall scores
+    so extra seeds don't crowd out well-matched results.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+
+    existing_ids: set[str] = {str(e.bead_id) for e in existing_evidence}
+    extra: list[EvidenceItem] = []
+
+    try:
+        index = _json.loads((_Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+    except Exception:
+        return extra
+
+    beads_map: dict[str, Any] = dict(index.get("beads") or {})
+
+    # 1. Entity-resolved seeds — beads sharing named entities with the query.
+    try:
+        from core_memory.entity.registry import load_entity_registry as _load_reg
+        from core_memory.entity.retrieval import (
+            infer_query_entity_context as _infer_ctx,
+            bead_entity_match_score as _ems,
+        )
+        entity_ctx = _infer_ctx(query, _load_reg(root))
+        if entity_ctx.get("resolved_entity_ids"):
+            scored: list[tuple[float, str]] = []
+            for bid, bead in beads_map.items():
+                if bid in existing_ids or not isinstance(bead, dict):
+                    continue
+                if not bead.get("retrieval_eligible", True):
+                    continue
+                sc, _ = _ems(bead, entity_ctx)
+                if sc > 0.0:
+                    scored.append((sc * _ENTITY_SEED_FACTOR, bid))
+            scored.sort(reverse=True)
+            for sc, bid in scored[:_MAX_ENTITY_SEEDS]:
+                bead = beads_map[bid]
+                summary = bead.get("summary") or []
+                excerpt = str(summary[0] if summary else (bead.get("detail") or ""))[:240]
+                extra.append(EvidenceItem(
+                    bead_id=bid,
+                    type=str(bead.get("type") or ""),
+                    title=str(bead.get("title") or ""),
+                    content_excerpt=excerpt,
+                    score=round(sc, 4),
+                    reason="entity_seed",
+                ))
+                existing_ids.add(bid)
+    except Exception:
+        pass
+
+    # 2. Claim-slot seeds — beads whose canonical claim text overlaps query tokens.
+    try:
+        from core_memory.persistence.store_claim_ops import read_all_claim_rows as _read_claims
+        q_toks = _tokens(query)
+        if q_toks:
+            all_claims, _ = _read_claims(root)
+            claim_bead_score: dict[str, float] = {}
+            for claim in all_claims:
+                bid = str(claim.get("source_bead_id") or "").strip()
+                if not bid or bid in existing_ids:
+                    continue
+                slot_text = " ".join(filter(None, [
+                    str(claim.get("slot") or ""),
+                    str(claim.get("subject") or ""),
+                    str(claim.get("value") or ""),
+                    str(claim.get("claim_text") or ""),
+                ]))
+                overlap = q_toks & _tokens(slot_text)
+                if not overlap:
+                    continue
+                sc = _CLAIM_SEED_FACTOR * min(1.0, len(overlap) / max(1, len(q_toks)))
+                if sc > claim_bead_score.get(bid, 0.0):
+                    claim_bead_score[bid] = sc
+            for bid, sc in sorted(claim_bead_score.items(), key=lambda kv: -kv[1])[:_MAX_CLAIM_SEEDS]:
+                bead = beads_map.get(bid)
+                if not isinstance(bead, dict) or not bead.get("retrieval_eligible", True):
+                    continue
+                summary = bead.get("summary") or []
+                excerpt = str(summary[0] if summary else (bead.get("detail") or ""))[:240]
+                extra.append(EvidenceItem(
+                    bead_id=bid,
+                    type=str(bead.get("type") or ""),
+                    title=str(bead.get("title") or ""),
+                    content_excerpt=excerpt,
+                    score=round(sc, 4),
+                    reason="claim_seed",
+                ))
+                existing_ids.add(bid)
+    except Exception:
+        pass
+
+    # 3. Recent-session seeds — last N beads from the current session.
+    # These ground the BFS in current conversational context even when the
+    # query semantically diverges from the session vocabulary.
+    if session_id:
+        try:
+            session_beads: list[tuple[str, dict]] = [
+                (bid, bead) for bid, bead in beads_map.items()
+                if isinstance(bead, dict)
+                and str(bead.get("session_id") or "") == session_id
+                and bid not in existing_ids
+                and bead.get("retrieval_eligible", True)
+            ]
+            # Bead IDs are time-prefixed hex strings, so lexicographic descending
+            # approximates recency without requiring a parsed timestamp.
+            session_beads.sort(key=lambda x: x[0], reverse=True)
+            for i, (bid, bead) in enumerate(session_beads[:_MAX_SESSION_SEEDS]):
+                sc = round(_SESSION_SEED_FACTOR * (_HOP_DECAY ** i), 4)
+                summary = bead.get("summary") or []
+                excerpt = str(summary[0] if summary else (bead.get("detail") or ""))[:240]
+                extra.append(EvidenceItem(
+                    bead_id=bid,
+                    type=str(bead.get("type") or ""),
+                    title=str(bead.get("title") or ""),
+                    content_excerpt=excerpt,
+                    score=sc,
+                    reason="session_seed",
+                ))
+                existing_ids.add(bid)
+        except Exception:
+            pass
+
+    return extra
 
 
 def _expand_via_association_hops(
@@ -490,7 +635,9 @@ def _expand_via_association_hops(
     beads_map = index.get("beads") or {}
 
     # Build weighted adjacency: node → [(neighbor, edge_score)]
-    # edge_score = rel_weight × confidence (bidirectional)
+    # edge_score = rel_weight × confidence × prov_factor
+    # Directed relationships apply a reverse-direction penalty rather than
+    # blocking reverse traversal entirely, preserving discoverability.
     adj: dict[str, list[tuple[str, float]]] = {}
     for assoc in assoc_list:
         src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "").strip()
@@ -501,9 +648,48 @@ def _expand_via_association_hops(
         rel_weight = _RELATIONSHIP_HOP_WEIGHT.get(rel, _DEFAULT_HOP_WEIGHT)
         raw_conf = assoc.get("confidence")
         conf = max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else 0.85
-        edge_score = rel_weight * conf
+        edge_class = str(assoc.get("edge_class") or "").strip().lower()
+        provenance = str(assoc.get("provenance") or "model_inferred").strip().lower()
+        prov_key = edge_class if edge_class in _PROVENANCE_FACTOR else provenance
+        prov_factor = _PROVENANCE_FACTOR.get(prov_key, _DEFAULT_PROVENANCE_FACTOR)
+        edge_score = rel_weight * conf * prov_factor
         adj.setdefault(src, []).append((tgt, edge_score))
-        adj.setdefault(tgt, []).append((src, edge_score))
+        if rel in _DIRECTIONAL_RELS:
+            adj.setdefault(tgt, []).append((src, edge_score * _REVERSE_DIRECTION_FACTOR))
+        else:
+            adj.setdefault(tgt, []).append((src, edge_score))
+
+    # Materialise implicit edges from bead-resident notation fields.
+    # These are NOT persistent associations — they extend the traversal graph
+    # at read time so that agent-authored causal rationale becomes retrievable.
+    #
+    # evidence_bead_ids: agent-provided structured evidence references
+    #   → treated as derived_from (0.80) with model_inferred provenance (0.85)
+    # because / supporting_facts text: may contain inline bead-ID references
+    #   matching the canonical bead-XXXXXXXXXXXX pattern
+    #   → treated as caused_by (0.75×) with heuristic provenance (0.65)
+    import re as _re
+    _BEAD_ID_RE = _re.compile(r"\bbead-[A-F0-9]{12}\b")
+    _EVIDENCE_EDGE_SCORE = 0.80 * _PROVENANCE_FACTOR["model_inferred"]   # 0.68
+    _BECAUSE_EDGE_SCORE  = 0.75 * _PROVENANCE_FACTOR["heuristic"]        # 0.4875
+
+    for bid, bead in beads_map.items():
+        if not isinstance(bead, dict):
+            continue
+        # evidence_bead_ids → derived_from (directional: penalty on reverse)
+        for evid in (bead.get("evidence_bead_ids") or []):
+            tgt = str(evid or "").strip()
+            if tgt and tgt != bid and tgt in beads_map:
+                adj.setdefault(bid, []).append((tgt, _EVIDENCE_EDGE_SCORE))
+                adj.setdefault(tgt, []).append((bid, _EVIDENCE_EDGE_SCORE * _REVERSE_DIRECTION_FACTOR))
+        # because + supporting_facts text → caused_by (directional)
+        text_fields = list(bead.get("because") or []) + list(bead.get("supporting_facts") or [])
+        for text in text_fields:
+            for m in _BEAD_ID_RE.finditer(str(text)):
+                tgt = m.group(0)
+                if tgt != bid and tgt in beads_map:
+                    adj.setdefault(bid, []).append((tgt, _BECAUSE_EDGE_SCORE))
+                    adj.setdefault(tgt, []).append((bid, _BECAUSE_EDGE_SCORE * _REVERSE_DIRECTION_FACTOR))
 
     # BFS with best-path score propagation.
     # frontier maps bead_id → best score reaching it so far.
@@ -666,6 +852,19 @@ def recall(
     # high adds 2-hop — so candidate sets grow monotonically with effort.
     # Runs after vector recall so it augments rather than replaces grounded results.
     _hops = int(_EFFORT_DEFAULTS[selected_effort].get("association_hops") or 0)
+    if _hops > 0:
+        # Multi-source seeding: augment the vector-search frontier with entity-
+        # resolved, claim-slot, and recent-session seeds before BFS expansion.
+        # This makes hop traversal robust when semantic search misses the gold-
+        # adjacent bead — the causal graph is always consulted even if the vector
+        # index doesn't have a high-similarity entry point.
+        try:
+            _session_id = str(request.get("session_id") or "").strip() or None
+            _extra = _collect_extra_seeds(root, query, result.evidence, session_id=_session_id)
+            if _extra:
+                result.evidence = result.evidence + _extra
+        except Exception:
+            pass
     if _hops > 0 and result.evidence:
         try:
             result.evidence = _expand_via_association_hops(root, result.evidence, hops=_hops)

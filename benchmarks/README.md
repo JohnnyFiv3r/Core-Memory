@@ -6,7 +6,9 @@ This package contains in-repo benchmark tooling for long-conversation memory qua
 
 ## Current harness
 
-- `locomo_like/` — LOCOMO-shaped local harness and fixture pack
+- `locomo_like/` — LOCOMO-shaped local harness and fixture pack (semantic QA)
+- `causal/` — causal-chain reconstruction harness with adversarial distractors
+  (edge precision/recall, grounding, root-cause accuracy, distractor survival)
 
 ## Quick start
 
@@ -26,6 +28,12 @@ Emit report to file:
 
 ```bash
 python -m benchmarks.locomo_like.runner --subset local --out benchmarks/reports/local.json
+```
+
+Run the causal-chain reconstruction benchmark:
+
+```bash
+python -m benchmarks.causal.runner --subset full
 ```
 
 ## Design notes
