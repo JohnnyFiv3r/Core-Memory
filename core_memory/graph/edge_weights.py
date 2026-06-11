@@ -40,6 +40,27 @@ PROVENANCE_FACTOR: dict[str, float] = {
 }
 DEFAULT_PROVENANCE_FACTOR: float = 0.75
 
+# Provenances that always win over the channel marker: the crawler stamps
+# every appended edge edge_class="agent_judged" (the *channel* was
+# agent-reviewed), but when the relationship label itself came from the
+# preview classifier or another heuristic, the low-trust discount must apply
+# regardless of channel.
+LOW_TRUST_PROVENANCES: frozenset[str] = frozenset({"preview_classifier", "heuristic"})
+
+
+def resolve_provenance_factor(edge_class: str, provenance: str) -> float:
+    """Single source of truth for the provenance multiplier.
+
+    Low-trust provenances override the channel ``edge_class``; otherwise the
+    channel marker wins when it is a known provenance key.
+    """
+    ec = str(edge_class or "").strip().lower()
+    pv = str(provenance or "model_inferred").strip().lower()
+    if pv in LOW_TRUST_PROVENANCES:
+        return PROVENANCE_FACTOR[pv]
+    key = ec if ec in PROVENANCE_FACTOR else pv
+    return PROVENANCE_FACTOR.get(key, DEFAULT_PROVENANCE_FACTOR)
+
 # Directed relationships: the edge has a natural source→target direction.
 # Reverse traversal is penalised but not blocked.
 DIRECTIONAL_RELS: frozenset[str] = frozenset({
@@ -120,10 +141,7 @@ def score_edge(
     """
     r = str(rel or "").strip().lower()
     rel_weight = RELATIONSHIP_HOP_WEIGHT.get(r, DEFAULT_HOP_WEIGHT)
-    ec = str(edge_class or "").strip().lower()
-    pv = str(provenance or "model_inferred").strip().lower()
-    prov_key = ec if ec in PROVENANCE_FACTOR else pv
-    prov_factor = PROVENANCE_FACTOR.get(prov_key, DEFAULT_PROVENANCE_FACTOR)
+    prov_factor = resolve_provenance_factor(edge_class, provenance)
     conf = max(0.0, min(1.0, float(confidence)))
     return rel_weight * conf * prov_factor
 

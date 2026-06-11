@@ -449,9 +449,17 @@ def get_backend_capabilities(beads_dir: Path) -> BackendCapabilities:
     vector = (os.environ.get("CORE_MEMORY_VECTOR_BACKEND") or "qdrant").strip().lower()
     graph = (os.environ.get("CORE_MEMORY_GRAPH_BACKEND") or "kuzu").strip().lower()
 
+    # vector_search/full_text_search gate the hybrid (sparse+dense) lookup,
+    # which is only implemented for qdrant; other vector backends use the
+    # standard semantic path.
     vector_search = vector in ("qdrant",)
     full_text_search = vector in ("qdrant",)
-    graph_traversal = graph in ("kuzu", "neo4j")
+    # Any configured graph provider (kuzu, neo4j, graphiti, zep, or a plugin
+    # registered via register_graph_backend) advertises traversal; the
+    # consumer falls back to Python traversal when the factory returns
+    # NullGraphBackend (unknown provider or construction failure). A
+    # hardcoded whitelist here silently bypassed graphiti/zep/plugins.
+    graph_traversal = graph not in ("", "none", "null")
 
     return BackendCapabilities(
         vector_search=vector_search,

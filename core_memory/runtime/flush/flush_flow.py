@@ -96,9 +96,19 @@ def process_flush_impl(
     state = read_flush_state(root)
     sess_state = ((state.get("sessions") or {}).get(str(session_id)) or {}) if isinstance(state, dict) else {}
     if flush_anchor_turn and str(sess_state.get("last_flushed_turn_id") or "") == str(flush_anchor_turn):
+        # Even when consolidation is skipped, recall traffic since the last
+        # flush has accumulated edge-usage signal — fold it so reinforcement
+        # keeps up with read activity on otherwise idle sessions. The fold is
+        # store-locked and idempotent.
+        try:
+            from core_memory.association.edge_lifecycle import fold_edge_usage
+            edge_lifecycle_out = fold_edge_usage(root)
+        except Exception:
+            edge_lifecycle_out = {"ok": False, "error": "edge_lifecycle_fold_failed"}
         skipped_out = {
             "ok": True,
             "skipped": True,
+            "edge_lifecycle": edge_lifecycle_out,
             "reason": "already_flushed_for_latest_done_turn",
             "latest_turn_id": str(latest_turn or ""),
             "latest_done_turn_id": str(flush_anchor_turn),

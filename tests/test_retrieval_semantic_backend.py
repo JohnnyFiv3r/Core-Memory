@@ -48,6 +48,10 @@ def test_build_writes_manifest_and_rows(tmp_path: Path, monkeypatch):
 
 def test_stale_serving_warns_and_keeps_results(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CORE_MEMORY_EMBEDDINGS_PROVIDER", "hash")
+    # Self-contained: the hash provider exercises the local backend; without
+    # this the test only passed when another test leaked the env var
+    # (default backend is qdrant).
+    monkeypatch.setenv("CORE_MEMORY_VECTOR_BACKEND", "local-faiss")
     s = MemoryStore(root=str(tmp_path))
     b = s.add_bead(type="decision", title="Redis fix", summary=["Raised pool size"], session_id="s1", source_turn_ids=["t1"])
     _set_retrieval_eligible(tmp_path, b, status="open")
@@ -63,6 +67,7 @@ def test_stale_serving_warns_and_keeps_results(tmp_path: Path, monkeypatch):
 
 def test_cold_start_lookup_builds_index(tmp_path: Path, monkeypatch):
     monkeypatch.setenv("CORE_MEMORY_EMBEDDINGS_PROVIDER", "hash")
+    monkeypatch.setenv("CORE_MEMORY_VECTOR_BACKEND", "local-faiss")
     s = MemoryStore(root=str(tmp_path))
     b = s.add_bead(type="decision", title="Latency", summary=["cut p95"], session_id="s1", source_turn_ids=["t1"])
     _set_retrieval_eligible(tmp_path, b, status="open")

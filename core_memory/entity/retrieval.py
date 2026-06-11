@@ -119,3 +119,37 @@ def bead_entity_match_score(bead: dict[str, Any], context: dict[str, Any] | None
         return (0.72, overlap)
 
     return (0.0, [])
+
+
+def entity_seed_bead_ids(
+    query: str,
+    registry: dict[str, Any] | None,
+    beads_map: dict[str, Any],
+    *,
+    exclude: set[str] | None = None,
+    limit: int = 6,
+) -> list[tuple[float, str]]:
+    """Score retrieval-eligible beads by entity match against a query.
+
+    Shared seed source for causal traversal (trace_request) and hop-expansion
+    seeding (recall): entity matches provide graph entry points that do not
+    depend on embedding similarity. Returns (score, bead_id) descending,
+    capped at ``limit``. Scores are raw match scores — callers apply their own
+    seed factors.
+    """
+    context = infer_query_entity_context(query, registry)
+    if not context.get("resolved_entity_ids"):
+        return []
+    excluded = exclude or set()
+    scored: list[tuple[float, str]] = []
+    for bead_id, bead in (beads_map or {}).items():
+        bid = str(bead_id)
+        if bid in excluded or not isinstance(bead, dict):
+            continue
+        if not bead.get("retrieval_eligible", True):
+            continue
+        score, _ = bead_entity_match_score(bead, context)
+        if score > 0.0:
+            scored.append((score, bid))
+    scored.sort(reverse=True)
+    return scored[: max(0, int(limit))]

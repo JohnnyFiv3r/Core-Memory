@@ -127,6 +127,10 @@ class TestGraphActiveAssociationViewRegressions(unittest.TestCase):
                 # retracted association (the kuzu/neo4j CI failure mode).
                 name = "stale-fake"
 
+                def capabilities(self):
+                    from core_memory.persistence.backend import BackendCapabilities
+                    return BackendCapabilities(graph_traversal=True)
+
                 def traverse(self, *, seed_ids, edge_types, max_hops, max_chains=16):
                     return [
                         {
@@ -145,6 +149,45 @@ class TestGraphActiveAssociationViewRegressions(unittest.TestCase):
                 trace_out = memory_tools.trace(query="", anchor_ids=[a], root=td, k=5)
             self.assertTrue(trace_out.get("ok"))
             self.assertFalse(self._chains_have_edge(trace_out.get("chains") or [], a, b, "supports"))
+
+    def test_search_hit_backend_falls_back_to_python_traversal(self):
+        # Graphiti/zep traverse() returns edge-less fact search hits — not bead
+        # chains. The trace consumer must not serve those (the active-edge
+        # filter would drop them all) and must fall back to the Python causal
+        # traversal over the canonical index instead.
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"},
+            clear=False,
+        ):
+            s = MemoryStore(td)
+            a = s.add_bead(type="decision", title="alpha decision", summary=["alpha"], tags=["alpha"], session_id="s1", source_turn_ids=["t1"])
+            b = s.add_bead(type="evidence", title="beta evidence", summary=["beta"], tags=["beta"], session_id="s1", source_turn_ids=["t2"])
+            s.link(source_id=a, target_id=b, relationship="supports", explanation="link")
+
+            class _SearchHitBackend:
+                # graphiti-shaped: edge-less chains, non-bead node ids; honestly
+                # declares it cannot serve canonical traversal.
+                name = "search-hit-fake"
+
+                def capabilities(self):
+                    from core_memory.persistence.backend import BackendCapabilities
+                    return BackendCapabilities(graph_traversal=False, vector_search=True)
+
+                def traverse(self, *, seed_ids, edge_types, max_hops, max_chains=16):
+                    return [{"nodes": [{"id": "fact-uuid-1", "type": "graphiti_fact", "title": "a fact"}], "edges": []}]
+
+            with patch(
+                "core_memory.retrieval.pipeline.canonical.create_graph_backend",
+                return_value=_SearchHitBackend(),
+            ):
+                trace_out = memory_tools.trace(query="", anchor_ids=[a], root=td, k=5)
+            self.assertTrue(trace_out.get("ok"))
+            # The active association must be reachable via the Python fallback.
+            self.assertTrue(
+                self._chains_have_edge(trace_out.get("chains") or [], a, b, "supports"),
+                "python traversal fallback must surface the active edge",
+            )
 
     def test_structural_sync_removes_stale_association_sync_links(self):
         with tempfile.TemporaryDirectory() as td:

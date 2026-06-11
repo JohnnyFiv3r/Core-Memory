@@ -142,7 +142,11 @@ class GraphitiGraphBackend:
             self._health_checked_at = time.monotonic()
         if not self._healthy:
             return BackendCapabilities()
-        return BackendCapabilities(graph_traversal=True, vector_search=True)
+        # graph_traversal stays False: traverse() returns graphiti-fact search
+        # hits (edge-less, fact-UUID nodes), not bead chains — it cannot serve
+        # the canonical trace contract, and advertising it would route
+        # trace_request away from the Python causal traversal that does.
+        return BackendCapabilities(graph_traversal=False, vector_search=True)
 
     def health(self) -> dict:
         try:

@@ -1235,30 +1235,35 @@ def trace_request(
     # depending on embedding similarity.
     if query:
         try:
-            from core_memory.entity.retrieval import bead_entity_match_score as _bems
-            _ent_ctx = infer_query_entity_context(query, load_entity_registry(str(root)))
-            if _ent_ctx.get("resolved_entity_ids"):
-                _idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
-                _seeded = set(a_ids)
-                _ent_scored: list[tuple[float, str]] = []
-                for _bid, _bead in (_idx.get("beads") or {}).items():
-                    if _bid in _seeded or not isinstance(_bead, dict):
-                        continue
-                    if not _bead.get("retrieval_eligible", True):
-                        continue
-                    _sc, _ = _bems(_bead, _ent_ctx)
-                    if _sc > 0.0:
-                        _ent_scored.append((_sc, _bid))
-                _ent_scored.sort(reverse=True)
-                a_ids = a_ids + [_bid for _, _bid in _ent_scored[:6]]
+            from core_memory.entity.retrieval import entity_seed_bead_ids as _entity_seeds
+            _idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            _seeds = _entity_seeds(
+                query,
+                load_entity_registry(str(root)),
+                dict(_idx.get("beads") or {}),
+                exclude=set(a_ids),
+                limit=6,
+            )
+            a_ids = a_ids + [_bid for _, _bid in _seeds]
         except Exception:
             pass
+    def _python_traverse() -> dict[str, Any]:
+        return causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
+
+    trav: dict[str, Any] | None = None
     if _caps.graph_traversal:
         _graph = create_graph_backend(Path(root))
-        if isinstance(_graph, NullGraphBackend):
-            # Configured backend unavailable (e.g. kuzu not installed); fall back to Python traversal.
-            trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
-        else:
+        # The backend's own capability declaration is authoritative: the env
+        # var says a provider is configured, but only the backend knows
+        # whether its traverse() produces canonical bead chains (graphiti/zep
+        # return fact search hits and must not serve the trace contract).
+        _backend_can_traverse = False
+        if not isinstance(_graph, NullGraphBackend):
+            try:
+                _backend_can_traverse = bool(_graph.capabilities().graph_traversal)
+            except Exception:
+                _backend_can_traverse = False
+        if _backend_can_traverse:
             _raw_chains = _graph.traverse(seed_ids=a_ids, edge_types=None, max_hops=_max_depth, max_chains=_max_chains)
             # Active-association view first: the canonical index owns association
             # status and the backend can lag it (retraction edits index.json
@@ -1266,15 +1271,20 @@ def trace_request(
             # with no active association before scoring.
             from core_memory.graph.traversal import filter_chains_to_active_edges as _active_filter
             _raw_chains = _active_filter(Path(root), list(_raw_chains or []))
-            # Normalise backend chains to the canonical format expected by
-            # trace_request's downstream consumers: adds "path" (ordered bead IDs
-            # from "nodes"), normalises "tgt"→"dst", and computes a "score" using
-            # the shared edge-weight table so all backends rank consistently.
-            from core_memory.graph.edge_weights import normalize_backend_chain as _norm_chain
-            _chains = [_norm_chain(c) for c in _raw_chains]
-            trav = {"ok": True, "chains": _chains, "backend": _graph.name}
-    else:
-        trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=_max_depth, max_chains=_max_chains) if a_ids else {"ok": True, "chains": []}
+            if _raw_chains or not a_ids:
+                # Normalise backend chains to the canonical format expected by
+                # trace_request's downstream consumers: adds "path" (ordered bead
+                # IDs from "nodes"), normalises "tgt"→"dst", and computes a
+                # "score" using the shared edge-weight table so all backends rank
+                # consistently.
+                from core_memory.graph.edge_weights import normalize_backend_chain as _norm_chain
+                _chains = [_norm_chain(c) for c in _raw_chains]
+                trav = {"ok": True, "chains": _chains, "backend": _graph.name}
+            # else: every backend chain was filtered/empty while seeds exist —
+            # fall through to the Python walk over the canonical index, which
+            # is never worse than an empty backend result.
+    if trav is None:
+        trav = _python_traverse()
     chains = list(trav.get("chains") or [])
     relation_filter = {normalize_relation_type(str(x).strip()) for x in ((submission or {}).get("relation_types") or []) if str(x).strip()}
     if relation_filter:
