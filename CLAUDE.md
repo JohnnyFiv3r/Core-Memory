@@ -71,11 +71,19 @@ public API.
 
 ### 6. No new flat files at `core_memory/` root or `runtime/` root
 
-`core_memory/` root and `runtime/` root are now clean (Phase 9 complete). Do not
-re-introduce flat `.py` files. CLI code goes in `core_memory/cli/` (handlers,
-parsers, compat). Runtime concerns go in the relevant `runtime/` subpackage
-(`turn/`, `flush/`, `session/`, `passes/`, `queue/`, `observability/`,
-`dreamer/`). OpenClaw integration code goes in `integrations/openclaw/`.
+Do not add flat `.py` files beyond the sanctioned sets below. CLI code goes in
+`core_memory/cli/` (handlers, parsers, compat). Runtime concerns go in the
+relevant `runtime/` subpackage (`turn/`, `flush/`, `session/`, `passes/`,
+`queue/`, `observability/`, `dreamer/`, `ingest/`). OpenClaw integration code
+goes in `integrations/openclaw/`.
+
+Sanctioned at `core_memory/` root: `__init__.py`, `_version.py`, `memory.py`,
+`transcript_ingest.py`, `identifiers.py`, `llm_client.py`, `provider_config.py`.
+Sanctioned at `runtime/` root: `__init__.py`, `engine.py`, `state.py`,
+`event_schemas.py`. Known relocation debt (do not add to it):
+`cli_handlers_semantic.py`, `runtime/goal_lifecycle.py`,
+`runtime/session_enrichment_delta.py` — see
+`docs/reports/architecture-validation-2026-06-09.md`.
 
 ---
 

@@ -144,7 +144,7 @@ Files to classify (conduct per-file read + decision):
 | `bead_required_fields.md` | Current | Core schema reference; verify against models.py |
 | `canonical_contract.md` | Current | Verify still accurate; link from index |
 | `canonical_paths.md` | Current | Verify paths match post-Phase-9 layout |
-| `canonical_surfaces.md` | Current | Keep |
+| `public_surface.md` | Current | Keep |
 | `claim_layer.md` | Current | Keep |
 | `contributor_map.md` | Stale-but-useful | May reference old contributor patterns |
 | `core_adapters_architecture.md` | Current or Superseded | Compare with `integrations/shared/` |

@@ -20,3 +20,16 @@ See `docs/status.md` for current completion state.
 | `09-structural-consolidation.md` | 9 | Structural consolidation (runtime/, cli/, openclaw/) | Done |
 | `10-documentation-consolidation.md` | 10 | Documentation consolidation | Done |
 | `execution-plan-phases-0-7-10.md` | 0, 7e–7i, 10 | One-pass execution plan (Graphiti, Obsidian, docs) | Done |
+
+## Capability PRDs
+
+| File | Topic | Status |
+|---|---|---|
+| `external-data-bead-ingest.md` | External data bead ingest contract | Done |
+| `multi-store-recall-fanout.md` | Multi-store recall fan-out (Ragie/PipeHouse) | Done |
+| `eval-benchmark-layer.md` | Eval and benchmark layer (LoCoMo) | Done |
+| `session-enrichment-delta-analysis.md` | Session enrichment delta — analysis | Done |
+| `session-enrichment-delta-slice-b.md` | Session enrichment delta — slice B | Done |
+| `execution-plan-search-quality-and-enrichment.md` | Search quality + enrichment plan | Done |
+| `myelination-v2-continuity-strength.md` | Unified edge strength + continuity-depth manifest + geometry projections | **Proposed** |
+| `dreamer-v2-continuity-observer.md` | Dreamer as observer over worldline convergence / attractors / narratives | **Proposed** |

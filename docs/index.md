@@ -7,13 +7,13 @@ Use this page as the authoritative map of current docs.
 ## Start here
 - [`../README.md`](../README.md)
 - [`reviewers/start-here.md`](reviewers/start-here.md)
-- [`canonical_surfaces.md`](canonical_surfaces.md)
 - [`public_surface.md`](public_surface.md)
 
 ## Concepts
 - [`concepts/why-core-memory.md`](concepts/why-core-memory.md)
 - [`memory_surfaces_spec.md`](memory_surfaces_spec.md)
 - [`semantic_backend_modes.md`](semantic_backend_modes.md)
+- [`edge_lifecycle.md`](edge_lifecycle.md)
 - [`dreamer_contract.md`](dreamer_contract.md)
 - [`truth_hierarchy.md`](truth_hierarchy.md)
 - [`truth_hierarchy_policy.md`](truth_hierarchy_policy.md)

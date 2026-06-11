@@ -59,11 +59,17 @@ These do not replace semantic authorship.
 
 Rollout control (slice 7):
 - `CORE_MEMORY_AGENT_AUTHORED_MODE`
-  - `observe` -> no blocking, fallback allowed
+  - `observe` -> no gate, fallback allowed
   - `warn` -> strict validation with fallback allowed
-  - `enforce` -> strict validation with fail-closed behavior
+  - `enforce` -> strict validation; a blocked gate surfaces the contract error
 
 If mode is unset, runtime derives mode from legacy flags for backward compatibility.
+
+**Never-forget guarantee:** no mode drops the turn. When the gate blocks in
+enforce mode, the runtime writes a minimal stub bead from the default creation
+update and returns `ok=False` + `gate_blocked=True` + the contract `error_code`
+— the turn is preserved for later enrichment backfill, the adapter is told to
+fix the contract. Amnesia is never the failure mode.
 
 Slice 1 introduces runtime gating and strict/fail-open behavior.
 Slice 2 hardens strict payload shape validation.
@@ -91,6 +97,9 @@ Deterministic invocation errors:
 - In strict agent-authored mode, non-initial turns require minimum non-temporal semantic association coverage:
   - `CORE_MEMORY_AGENT_MIN_SEMANTIC_ASSOC_AFTER_FIRST` (default `1`)
   - violation code: `agent_semantic_coverage_missing`
+  - Coverage violations never block the bead write: the gate records
+    `warned=True` + the violation code, and the persisted bead is flagged
+    `structural_coverage_missing` in the index so enrichment can backfill.
 
 ## Association lifecycle overlay + recovery (slice 5)
 
@@ -131,9 +140,11 @@ Primary gate dimensions:
 ## Rollout playbook (slice 7)
 
 Recommended progression:
-1. **observe**: collect quality telemetry without blocking turns.
+1. **observe**: collect quality telemetry without gating.
 2. **warn**: enforce strict schema checks but allow fail-open fallback.
-3. **enforce**: fail-closed when agent-authored payloads are missing/invalid.
+3. **enforce**: surface contract errors when agent-authored payloads are
+   missing/invalid. The turn still persists as a stub bead (never-forget);
+   `ok=False` + `gate_blocked` tells the adapter to retry enrichment.
 
 Operational check:
 - `core-memory graph association-slo-check --strict`

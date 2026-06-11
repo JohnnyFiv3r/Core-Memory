@@ -12,7 +12,7 @@ Status: Canonical landing page
 ## Legacy/current source docs
 - `../shared/README.md`
 - `../../core_adapters_architecture.md`
-- `../../canonical_surfaces.md`
+- `../../public_surface.md`
 
 ## Notes
 PydanticAI uses the in-process Python integration path. This folder is now the canonical location for its v1 integration docs.

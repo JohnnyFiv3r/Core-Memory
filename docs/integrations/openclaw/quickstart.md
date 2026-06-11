@@ -14,7 +14,7 @@ Run Core Memory as the primary memory/runtime system inside OpenClaw.
 Use the repository root as the working workspace for the main agent.
 
 ## 2) Verify canonical surfaces
-- `docs/canonical_surfaces.md`
+- `docs/public_surface.md`
 - `docs/contracts/http_api.v1.json`
 
 ## 3) Use current memory surfaces

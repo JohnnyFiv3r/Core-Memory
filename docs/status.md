@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-05-31
+**Last updated:** 2026-06-11
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -72,15 +72,24 @@ descriptions.
 | 15 | Multi-store recall fan-out | **Done** — Ragie + PipeHouse adapters, ThreadPoolExecutor fan-out, score normalization, unifying ID grouping |
 | 16 | External data bead ingest contract | **Done** |
 | 17 | Eval and benchmark layer | **Done** — LoCoMo adapter in `benchmarks/locomo/` |
+| 18 | Causal recall pipeline + retrieval quality (multi-source seeding, provenance/directional edge weights, because→edges, never-forget write path, causal benchmark) | **Done** — PR #191 |
+| 19 | Ungated causal scoring (classified-intent + structural triggers; graph consulted at every effort tier) | **Done** — PR #192 |
+| 20 | Edge lifecycle (usage reinforcement, decay floor, supersession penalty) | **Done** — PR #193, `docs/edge_lifecycle.md` |
+| 21 | HTTP `/v1/memory/recall` parity with MCP/Python | **Done** — PR #194 |
+| 22 | Worldline derivation (claim/entity/goal threads + membership projection) | **Done** — PR #195 |
+| 23 | Myelination v2: unified continuity strength + geometry projections | **Proposed** — `docs/PRD/myelination-v2-continuity-strength.md` |
+| 24 | Dreamer v2: continuity observer (convergence/attractor/narrative observations) | **Proposed** — `docs/PRD/dreamer-v2-continuity-observer.md` |
 
 ---
 
 ## Open workstreams
 
-### SOUL.md
-Agent-authored identity that evolves over time. Informed by claims + dreamer +
-myelination.
-**Status:** Future / emerging concept.
+### SOUL.md / self-model
+Identity synthesis lives **outside** the graph (product-layer boundary
+decision, 2026-06-10): Core Memory supplies projections (worldlines,
+continuity depth, accepted dreamer observations); the external self-model
+consumes them. Engine-side prerequisites are tracked as items 23–24.
+**Status:** External consumer; engine projections in progress.
 
 ### Demo TODO alignment
 The paired adoption/API roadmap lives in `JohnnyFiv3r/Core-Memory-Demo` repo.

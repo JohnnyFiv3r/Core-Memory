@@ -74,12 +74,15 @@ If behavior changes, these owners must be updated first.
 ---
 
 ### A5. Flush/consolidate (session cycle)
-**Concept:** archive → compact → rolling-window maintenance.
+**Concept:** archive → compact → rolling-window maintenance → edge-usage fold.
 
 - `core_memory.runtime.engine.process_flush(...)`  ← canonical owner
 - `core_memory.association.crawler_contract.merge_crawler_updates_for_flush(...)`
 - `core_memory.write_pipeline.orchestrate.run_consolidate_pipeline(...)`
 - `core_memory.write_pipeline.consolidate.run_session_consolidation(...)`
+- `core_memory.association.edge_lifecycle.fold_edge_usage(...)` — folds
+  recall-time edge usage into association reinforcement (see
+  `docs/edge_lifecycle.md`); stats on the flush result as `edge_lifecycle`
 
 **Invariant:**
 - once-per-cycle guard (`already_flushed_for_latest_turn`)
@@ -96,8 +99,10 @@ If behavior changes, these owners must be updated first.
 - `core_memory.runtime.engine.process_flush(...)`
 - `core_memory.persistence.io_utils.append_jsonl(...)`
 - Artifact path: `.beads/events/flush-checkpoints.jsonl`
-  - `openclaw.memory.flush_checkpoint.v1`
-  - `openclaw.memory.flush_report.v1`
+  - `core-memory.flush_checkpoint.v1`
+  - `core-memory.flush_report.v1`
+  - (legacy rows may carry the pre-Phase-9 `openclaw.memory.*` schema names;
+    readers accept both — see `runtime/event_schemas.py`)
 
 ---
 

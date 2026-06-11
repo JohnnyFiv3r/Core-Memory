@@ -21,6 +21,6 @@ LangChain is documented as two related but distinct surfaces:
 This is not write-only. LangChain integration supports both writeback and retrieval.
 
 ## Related canonical docs
-- `../../canonical_surfaces.md`
+- `../../public_surface.md`
 - `../../core_adapters_architecture.md`
 - `../../integration_contract.md`

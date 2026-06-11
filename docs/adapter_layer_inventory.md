@@ -4,7 +4,7 @@ Status: Canonical clarification note
 Purpose: distinguish thin adapter surfaces from canonical behavior/skill semantics.
 
 Labeling reminder:
-- canonical: listed in `canonical_surfaces.md`
+- canonical: listed in `public_surface.md`
 - compatibility/historical: archived or non-forward-only references
 - experimental: useful but not yet hard contract
 

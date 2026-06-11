@@ -15,7 +15,7 @@ Status: Canonical landing page
 - `troubleshooting.md`
 - `agent_end_bridge.md`
 - `api-reference.md`
-- `../../canonical_surfaces.md`
+- `../../public_surface.md`
 - repository root `README.md`
 
 ## Runtime prompt source

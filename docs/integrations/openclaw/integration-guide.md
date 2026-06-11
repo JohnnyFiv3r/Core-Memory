@@ -99,5 +99,5 @@ Operational policy:
 - SOUL.md remains the durable preference/identity surface and is not superseded by episodic Core Memory storage.
 
 ## Current docs to consult
-- `../../canonical_surfaces.md`
+- `../../public_surface.md`
 - `../../core_adapters_architecture.md`

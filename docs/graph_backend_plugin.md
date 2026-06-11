@@ -228,6 +228,18 @@ core-memory graph backend-sync [--dry-run]
 
 This bulk-loads all beads and associations from storage into the configured graph backend.
 
+### Staleness and the active-association view
+
+Backends keep their own edge copies and can lag the canonical index (e.g. a
+retraction edits `index.json` between syncs). This is a **freshness** concern,
+never a correctness one: the canonical trace consumer applies the
+active-association view to all backend chains
+(`graph.traversal.filter_chains_to_active_edges`), truncating each chain at
+the first edge with no active association in the index. A lagging backend can
+therefore never surface retracted/superseded edges through retrieval — but
+schedule `backend-sync` after bulk ingests if a visualization reads the
+backend directly.
+
 ---
 
 ## Environment variables

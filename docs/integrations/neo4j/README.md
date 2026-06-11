@@ -17,7 +17,7 @@ Neo4j support in Core Memory is projection-only:
 Core Memory local state remains authoritative.
 
 ## Related canonical docs
-- `../../canonical_surfaces.md`
+- `../../public_surface.md`
 - `../../integration_contract.md`
 - `../../core_adapters_architecture.md`
 - `../../../core_memory/integrations/neo4j/SHADOW_SCOPE.md`

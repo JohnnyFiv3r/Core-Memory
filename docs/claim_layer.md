@@ -155,13 +155,31 @@ The claim layer informs retrieval in two ways:
 - **temporal_first**: Recent beads for time-sensitive queries
 - **mixed**: General balanced approach
 
+## Supersede Chains, Grounding, and Conflict Semantics
+
+- **`chain_seq`** — claim updates carry a monotonic per-slot sequence number;
+  resolution orders supersede chains by `chain_seq`, never by write order.
+  A slot's chain is also surfaced as a **claim worldline** by
+  `core_memory.derive_worldlines` (the chain *is* the fact's thread through time).
+- **`grounding_hash`** — every claim row carries a deterministic grounding
+  hash (`compute_claim_grounding_hash`); per-slot dedup in the update path
+  rejects re-emission of the same grounded assertion (WARNING telemetry).
+- **`both_valid` + `context_scope`** — when two conflicting claims are both
+  true in different contexts, conflict review resolves with
+  `resolution="both_valid"` and labels each claim with a `context_scope`.
+  Claims with different scopes never count as contradictions
+  (`claim/epistemic.py`); contradiction pressure is computed only within a
+  scope.
+
 ## Feature Flags
 
-Control claim layer behavior via environment variables:
+Control claim layer behavior via environment variables
+(`core_memory/config/feature_flags.py`):
 
-- `CORE_MEMORY_CLAIM_LAYER` = `true` | `false` — Enable/disable entire claim layer
-- `CORE_MEMORY_CLAIM_EXTRACTION_MODE` = `heuristic` | `llm` | `off` — Claim extraction strategy
-- `CORE_MEMORY_CLAIM_UPDATE_POLICY` = `auto` | `manual` | `off` — Update emission mode
+- `CORE_MEMORY_CLAIM_LAYER` — enable/disable the entire claim layer (default off)
+- `CORE_MEMORY_CLAIM_EXTRACTION_MODE` = `off` | `heuristic` | `llm` — extraction strategy (default `off`)
+- `CORE_MEMORY_CLAIM_RESOLUTION` — enable resolver surfaces (default off)
+- `CORE_MEMORY_CLAIM_RETRIEVAL_BOOST` — boost claim-anchored rows in retrieval (default off)
 
 Set via environment or in code:
 
@@ -186,12 +204,18 @@ Core claim layer files:
 | `core_memory/claim/answer_policy.py` | Decide answer outcome from claim state |
 | `core_memory/claim/answer_signals.py` | Compute signals (anchor confidence, evidence, etc.) |
 | `core_memory/claim/retrieval_planner.py` | Plan retrieval mode based on claims and query |
+| `core_memory/claim/conflict_review.py` | Agent-reviewed conflict resolution (incl. `both_valid` + `context_scope`) |
+| `core_memory/claim/epistemic.py` | Contradiction pressure / epistemic uncertainty (scope-aware) |
+| `core_memory/claim/outcomes.py` | Memory-outcome classification written back to beads |
 | `core_memory/persistence/store_claim_ops.py` | Low-level I/O: read/write claims and updates |
 
 ## Architectural Notes
 
 - **Append-only store**: Claims are never deleted, only superseded. All changes are recorded as updates.
-- **Bead-resident**: Claims live in bead directories as `claims.json` and `claim_updates.json`.
+- **Bead-resident**: Claims live as `claims` and `claim_updates` arrays on the
+  bead rows inside `.beads/index.json`. Per-bead sidecar files
+  (`<bead_id>/claims.json`, `<bead_id>/claim_updates.json`) are a read-only
+  legacy fallback — nothing writes them canonically.
 - **Session-scoped**: Claim extraction can be filtered by session (reserved for future).
 - **Confidence grades**: All claims carry 0.0-1.0 confidence; policy layer uses this to decide answer strategy.
 - **Conflict detection**: Multiple non-reconciled claims for the same slot trigger conflict status.

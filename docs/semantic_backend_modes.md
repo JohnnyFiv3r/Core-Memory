@@ -9,27 +9,29 @@ Purpose: make production safety explicit for semantic retrieval deployments.
 | Backend mode | Intended use | Multi-worker write safety | Recommendation |
 |---|---|---:|---|
 | `lexical` (no semantic backend built) | base install / fallback | ✅ | acceptable for non-strict setups; not strict semantic guarantees |
-| `faiss-*` local index | development, local single-process | ⚠️ single-process/single-writer only | use for dev or controlled single-worker deployments |
-| `qdrant` | production semantic retrieval | ✅ | recommended production path |
+| `qdrant` | production semantic retrieval | ✅ | **default**; recommended production path |
 | `pgvector` | production semantic retrieval | ✅ | recommended production path |
+| `faiss-*` local index | legacy local single-process | ⚠️ single-process/single-writer only | **deprecated** — emits a warning, scheduled for removal in the next major version |
 
 ## Practical rule
 
-- If you run a **single local worker** and want fast setup, FAISS/local can be fine.
-- If you run **multi-worker** or shared production traffic, use a distributed-safe backend (`qdrant` or `pgvector`).
+- The default (`qdrant`) is embedded/zero-ops and safe for both local and
+  multi-worker deployments.
+- FAISS remains available behind an explicit opt-in for existing local
+  setups, but is deprecated.
 
 ## Explicit backend selection (SEM-2)
 
 Set backend mode explicitly:
 
 ```bash
-export CORE_MEMORY_VECTOR_BACKEND=local-faiss   # default
-# or
-export CORE_MEMORY_VECTOR_BACKEND=qdrant
+export CORE_MEMORY_VECTOR_BACKEND=qdrant        # default
 # or
 export CORE_MEMORY_VECTOR_BACKEND=pgvector
 # or
 export CORE_MEMORY_VECTOR_BACKEND=chromadb
+# or
+export CORE_MEMORY_VECTOR_BACKEND=local-faiss   # deprecated opt-back
 ```
 
 The retrieval layer routes through a backend interface and records the selected backend in semantic manifest metadata.
