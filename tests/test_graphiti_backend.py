@@ -81,7 +81,9 @@ class TestGraphitiGraphBackend(unittest.TestCase):
 
     def test_capabilities_traversal_and_vector_when_healthy(self):
         caps = self.backend.capabilities()
-        self.assertTrue(caps.graph_traversal)
+        # graphiti's traverse() returns fact search hits, not bead chains —
+        # it must not advertise canonical graph traversal.
+        self.assertFalse(caps.graph_traversal)
         self.assertTrue(caps.vector_search)
 
     # health
