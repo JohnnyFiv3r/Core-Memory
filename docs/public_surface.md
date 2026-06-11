@@ -6,7 +6,12 @@ This page defines what external integrators should call.
 
 ## Plain-English contract (quick read)
 
-- **Required:** `process_turn_finalized(...)` for writes and `memory.search/trace/execute` for reads.
+- **Required:** `process_turn_finalized(...)` for writes and `core_memory.recall(...)` for reads.
+- `recall` is the single-verb grounded orchestrator (effort tiers, hop
+  expansion, causal pipeline, conflict reviews, fanout, telemetry).
+  `memory.search/trace/execute` remain as low-level/inspection reads — they do
+  not feed retrieval telemetry or edge reinforcement, so agents should prefer
+  `recall`.
 - **Recommended:** install semantic extras for strict semantic retrieval behavior.
 - **Compatibility:** `MemoryStore` and helper ingress APIs remain supported for migration/advanced workflows.
 - **Experimental:** optional adapter/eval surfaces that are not listed under canonical runtime surfaces.
@@ -32,9 +37,23 @@ A surface is canonical only if it is both:
 - `core_memory.ingest_state_assertion(...)` — experimental derived business-state/document-claim write helper
 
 ## Retrieval/runtime tool surface
-- `core_memory.retrieval.tools.memory.search(request: dict, root='.', explain=False)` — canonical anchor retrieval.
-- `core_memory.retrieval.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)` — canonical causal traversal after anchor identification.
-- `core_memory.retrieval.tools.memory.execute(request: dict, root='.', explain=False)` — unified memory request entrypoint.
+- `core_memory.recall(query, effort='low|medium|high', intent=..., k=..., speaker=..., as_of=..., root='.')` —
+  **primary read surface.** Returns `RecallResult`. Runs the full pipeline:
+  semantic/hybrid anchors, effort-gated association-hop expansion (the causal
+  graph is consulted at every effort tier; low = 1 hop), causal attribution
+  when triggered by declared intent, classified intent, or causal structure in
+  the evidence (`result.metadata.causal_pipeline_trigger`), conflict reviews,
+  myelination bonuses, multi-store fanout, and retrieval-feedback/edge-usage
+  telemetry.
+- `core_memory.retrieval.tools.memory.search(request: dict, root='.', explain=False)` — low-level anchor retrieval.
+- `core_memory.retrieval.tools.memory.trace(query='', anchor_ids=[...], root='.', k=..., hydration=...)` — low-level causal traversal after anchor identification.
+- `core_memory.retrieval.tools.memory.execute(request: dict, root='.', explain=False)` — low-level unified request entrypoint.
+
+## Projection read family (canonical)
+- `core_memory.derive_worldlines(root, kinds=['claim','entity','goal'], min_length=1)` —
+  derived continuity threads (claim supersede chains, alias-merged entity
+  threads, goal lifecycles). Read-side only; nothing stored.
+- `core_memory.worldline_membership(root)` — per-bead worldline participation counts.
 
 ## Inspect/observability read family (canonical)
 
@@ -127,6 +146,13 @@ HTTP async ops surfaces (operator tooling):
 - `POST /v1/ops/async-jobs/run`
 - `GET /v1/ops/dreamer/candidates`
 - `POST /v1/ops/dreamer/candidates/decide`
+
+HTTP memory read surfaces:
+- `POST /v1/memory/recall` — full recall orchestrator (parity with the MCP
+  `recall` tool; identical `RecallResult` contract and `cm.invalid_request`
+  error envelope)
+- `POST /v1/memory/search` / `POST /v1/memory/execute` / `POST /v1/memory/trace` — low-level reads
+- `GET /v1/memory/projection/worldlines?kinds=&min_length=&include_membership=` — worldline projection
 
 HTTP inspect read surfaces:
 - `GET /v1/memory/inspect/state`

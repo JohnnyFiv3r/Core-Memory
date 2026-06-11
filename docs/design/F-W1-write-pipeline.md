@@ -135,9 +135,18 @@ Stages that need idempotency review before implementation:
 
 ## Interaction with Agent-Authored Gate (F-W2)
 
-The gate check runs **on the critical path** (before persist), not in the queue. In `warn` mode, the bead is flagged `structural_coverage_missing=true` and persisted. The queued crawler stage will later enrich the bead — if it succeeds, the flag could be cleared. If it fails, the flag stays as a quality signal.
+The gate check runs **on the critical path**, after the canonical turn event is
+written. Semantic-coverage violations always use flag mode: the bead is
+persisted and flagged `structural_coverage_missing=true` in the index (the
+flag is written after the association pass creates the canonical bead — on the
+inline path by `turn_flow`, on the queued path by `run_turn_enrichment`).
 
-In `hard` mode, the gate blocks before persist — no bead is created, so nothing enters the queue.
+A blocked agent-authored contract (missing/invalid `crawler_updates`,
+exhausted agent invocation) never drops the turn: a stub bead is written from
+the default creation update, the result carries `ok=False` +
+`gate_blocked=True` + the contract `error_code`, and gate-blocked turns run
+enrichment inline (the engine only drains the queue for `ok=True` results, so
+queueing would defer the stub indefinitely).
 
 In `off` mode, no gate check runs and the bead is persisted directly.
 
@@ -145,7 +154,7 @@ In `off` mode, no gate check runs and the bead is persisted directly.
 
 If the enrichment queue causes unexpected issues after deployment:
 
-1. **Disable the queue:** Set `CORE_MEMORY_ENRICHMENT_QUEUE=off` (env var, not yet implemented) to run all stages synchronously on the critical path, restoring pre-F-W1 behavior.
+1. **Disable the queue:** Set `CORE_MEMORY_ENRICHMENT_QUEUE=off` to run all stages synchronously on the critical path, restoring pre-F-W1 behavior.
 2. **Clear the queue:** Delete `.beads/events/side-effects-queue.json` — all pending enrichments are lost, but beads are already persisted.
 3. **Revert the PR:** Since beads are persisted on the critical path, reverting enrichment to synchronous loses no data.
 

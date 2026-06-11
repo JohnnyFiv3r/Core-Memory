@@ -30,6 +30,8 @@ No second authority store is introduced.
 
 - maps `normalized_alias -> entity_id`
 - used for fast deterministic alias resolution
+- consumed by the worldline projection (`core_memory.derive_worldlines`) to
+  alias-merge entity threads across label variants
 
 ## Normalization
 

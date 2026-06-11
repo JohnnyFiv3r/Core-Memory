@@ -40,7 +40,7 @@ PYTHONPATH=. python3 -m eval.longitudinal_benchmark_v2 --root ./memory --since 3
 - `README.md`
 - `docs/contributor_map.md`
 - `docs/public_surface.md`
-- `docs/canonical_surfaces.md`
+- `docs/public_surface.md`
 - `docs/architecture_overview.md`
 - `docs/canonical_paths.md`
 

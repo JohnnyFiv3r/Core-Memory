@@ -77,8 +77,10 @@ core-memory --root <root> graph association-slo-check \
 ```
 
 ## Incident response
-If enforce mode causes unacceptable turn blocking:
+If enforce mode produces a high gate-blocked rate (`ok=False` +
+`gate_blocked=True`; turns persist as stub beads, so no memory is lost):
 1. Temporarily switch to `warn`
 2. Inspect `agent_turn_quality` metrics + `error_code`
 3. Fix callable/payload formatting
 4. Re-run SLO check and return to enforce
+5. Backfill enrichment for stub beads written during the incident

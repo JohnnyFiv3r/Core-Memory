@@ -19,11 +19,14 @@ class TestSemanticBackendDocsSlice57A(unittest.TestCase):
         self.assertIn("multi-worker", text)
 
     def test_public_surfaces_reference_semantic_backend_guidance(self):
+        # canonical_surfaces.md was a near-duplicate of public_surface.md and
+        # was deleted in the docs accuracy pass; public_surface.md is the
+        # single surface reference now.
         readme = (self.repo / "README.md").read_text(encoding="utf-8").lower()
         pub = (self.repo / "docs" / "public_surface.md").read_text(encoding="utf-8").lower()
-        canon = (self.repo / "docs" / "canonical_surfaces.md").read_text(encoding="utf-8").lower()
+        self.assertFalse((self.repo / "docs" / "canonical_surfaces.md").exists())
 
-        for text in [readme, pub, canon]:
+        for text in [readme, pub]:
             self.assertIn("qdrant", text)
             self.assertIn("pgvector", text)
             self.assertIn("faiss", text)

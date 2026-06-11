@@ -4,7 +4,7 @@ Status: Canonical
 
 See also:
 - `docs/index.md`
-- `docs/canonical_surfaces.md`
+- `docs/public_surface.md`
 - `docs/contracts/http_api.v1.json`
 
 ## Invariant

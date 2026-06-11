@@ -6,11 +6,13 @@ Core Memory retrieval uses three layers:
    - `archive.jsonl` + `archive_index.json`
    - revision pointer -> byte offset seek/read
 2. **Single graph model**
-   - `events/edges.jsonl` event log
+   - `events/graph-edges.jsonl` event log
    - structural edges (immutable)
    - semantic edges (mutable via update/deactivate)
 3. **Semantic + causal reasoning**
-   - `bead_index_meta.json` (+ optional `bead_index.faiss`)
+   - `semantic/manifest.json` (legacy installs: `bead_index_meta.json` +
+     optional `bead_index.faiss` — FAISS is deprecated, see
+     `semantic_backend_modes.md`)
    - semantic lookup for anchors
    - structural-first causal traversal
    - semantic expansion only when structural grounding is insufficient

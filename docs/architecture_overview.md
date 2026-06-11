@@ -69,10 +69,17 @@ companion that issues retrieval calls and shapes search forms.
 - **Retrieval tiers (cheapest first):**
   1. Rolling window / current session lookup — the starting tier, always consulted
   2. Semantic candidate retrieval (entity registry + semantic index)
-  3. Causal reasoning — walk causal edges from candidate seeds
+  3. Causal reasoning — association-hop expansion runs at **every** effort
+     tier (low = 1 hop); full causal attribution runs when triggered by
+     declared intent, classified intent, or causal structure in the evidence
   4. Full transcript hydration — recover the cited turns for source-grounded answers
 - **Outcome:** An answer grounded in causal memory. Tier depth varies per query; the
   rolling window check is always tier 1, not a bypass condition.
+- **Telemetry naming:** `RecallResult.tier_path` records the walked tiers with
+  the canonical labels `semantic` / `causal` / `trace` / `state` / `execute` /
+  `source` — the conceptual 4-tier list above maps onto those labels (1 is
+  implicit in corpus construction; 3 covers `causal`+`trace`+`state`+`execute`;
+  4 is `source`).
 
 ### 3. Agent end (write-side, per turn)
 - **Trigger:** agent finishes a turn (canonical entry: `emit_turn_finalized` →
@@ -103,9 +110,9 @@ companion that issues retrieval calls and shapes search forms.
 | Schema | `schema/`, `temporal/` | Bead/turn/association data shapes; temporal resolution |
 | Persistence | `persistence/` | Store, projection cache, pluggable storage backends |
 | Graph tier | `persistence/graph/` | Pluggable causal graph backends; `GraphBackend` protocol + factory |
-| Domain logic | `claim/`, `entity/`, `association/`, `graph/` | Claim extraction & resolution, entity registry, association inference, causal graph operations |
+| Domain logic | `claim/`, `entity/`, `association/`, `graph/`, `policy/` | Claim extraction & resolution, entity registry, association inference + edge lifecycle, causal graph operations + worldline projection, promotion/hygiene policy |
 | Retrieval | `retrieval/` | Tiered recall pipeline (rolling window → semantic → causal → hydration) |
-| Runtime | `runtime/{turn,flush,session,passes,queue,observability,dreamer}/` | Turn orchestration, write flow, side-effect queue, dreamer, observability |
+| Runtime | `runtime/{turn,flush,session,passes,queue,observability,dreamer,ingest}/`, `write_pipeline/` | Turn orchestration, write flow, consolidation, side-effect queue, dreamer, observability |
 | Public API | `core_memory/__init__.py`, `memory.py`, `transcript_ingest.py` | Curated surface for consumers |
 | CLI | `cli/{parsers,handlers}/` | Command-line surface; entry point `core_memory.cli:main` |
 | Integrations | `integrations/{openclaw,pydanticai,mcp,http,obsidian,…}/` | Framework adapters — consume the public API |
@@ -116,6 +123,11 @@ schema → persistence → domain logic → retrieval → runtime → integratio
 ```
 Nothing imports upward. Adapters consume the public API in `core_memory/__init__.py`
 and do not extend or override core semantics.
+
+> Known debt: a number of function-local lazy imports still cross layers
+> upward (catalogued in `docs/reports/architecture-validation-2026-06-09.md`).
+> The law above is normative for new code; CI guardrails to enforce it are an
+> open item.
 
 ---
 
@@ -129,9 +141,10 @@ and do not extend or override core semantics.
 | Entity registry | **Core / always on** | IDs candidate beads by semantic keyword; consulted as tier 2 in every retrieval pass |
 | Rolling window / compaction | **Core / always on** | Token-efficient continuity across sessions; compact beads carry type/title/associations only |
 | Retrieval pipeline | **Core / always on** | Tiered recall — always executes, starting at tier 1 (rolling window) every turn |
-| Semantic indexing | **Opt-in (today)** | Tier-2 candidate retrieval. Currently gated behind faiss/pgvector. Direction: more universally available via the capability-tier adapter (Phase 6). |
-| Dreamer | **Background, opt-in** | "Move 37" — proposes novel associations across the bead graph as creativity. High-signal results can inform SOUL.md. |
-| Myelination | **Future / in active development** | Causal edges harden by validity + retrieval frequency; decay when stale, superseded, or never retrieved. Replaces vibes-based pruning with schema-driven pruning. |
+| Semantic indexing | **Core / default qdrant** | Tier-2 candidate retrieval. Default backend is embedded Qdrant (zero-ops); pgvector/chromadb supported; FAISS deprecated. See `semantic_backend_modes.md`. |
+| Edge lifecycle | **Core / always on** | Usage-driven edge reinforcement at flush, recency decay with floor, supersession penalty — see `edge_lifecycle.md`. |
+| Dreamer | **Background, opt-in** | "Move 37" — proposes novel associations across the bead graph as creativity. Candidates require explicit accept/reject decisions. High-signal results can inform SOUL.md. |
+| Myelination | **Shipped, flag-gated** | Per-bead retrieval-value bonuses computed from retrieval feedback, consumed as ranking bonuses when enabled. See `contracts/myelination_experiment_contract.md`. |
 | SOUL.md | **Future / emerging** | Agent-authored identity that evolves over time. Informed by claims + dreamer + myelination. Concept from Peter Steinberger (https://soul.md). |
 
 ---
@@ -239,5 +252,5 @@ Curated surface in `core_memory/__init__.py`:
 - `docs/PRD/README.md` — index of all PRD specs
 - `docs/index.md` — full docs navigation
 - `docs/graph_backend_plugin.md` — graph backend + sync target plugin API
-- `docs/canonical_surfaces.md` — public surface contract
+- `docs/public_surface.md` — public surface contract
 - `docs/integrations/` — per-adapter integration guides

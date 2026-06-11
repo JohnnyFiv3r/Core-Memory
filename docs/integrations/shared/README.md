@@ -11,7 +11,7 @@ Shared adapter concepts that apply across OpenClaw, PydanticAI, SpringAI/HTTP, a
 - `validation-common.md`
 
 ## Canonical source references
-- `../../canonical_surfaces.md`
+- `../../public_surface.md`
 - `../../canonical_paths.md`
 - `../../integration_contract.md`
 - `../../contracts/http_api.v1.json`

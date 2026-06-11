@@ -10,7 +10,7 @@ Replaced by:
 
 Canonical shared references:
 - `docs/index.md`
-- `docs/canonical_surfaces.md`
+- `docs/public_surface.md`
 - `docs/contracts/http_api.v1.json`
 
 This file is retained temporarily as a stable top-level path during documentation migration.
