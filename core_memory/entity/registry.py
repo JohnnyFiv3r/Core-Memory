@@ -58,15 +58,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def normalize_entity_alias(value: str | None) -> str:
-    s = str(value or "").strip().lower()
-    if not s:
-        return ""
-    s = re.sub(r"[\s\-_/]+", " ", s)
-    s = re.sub(r"[^a-z0-9\s]+", "", s)
-    s = re.sub(r"\b(inc|incorporated|corp|corporation|llc|ltd|limited|co|company)\b", "", s)
-    s = re.sub(r"\s+", " ", s).strip()
-    return s.replace(" ", "")
+# Canonical implementation lives in schema/normalization.py so projections
+# (e.g. graph/worldlines.py) can share it without a domain-sibling import.
+from core_memory.schema.normalization import normalize_entity_alias  # noqa: E402,F401
 
 
 def _is_valid_entity_alias(raw_label: str, normalized: str) -> bool:

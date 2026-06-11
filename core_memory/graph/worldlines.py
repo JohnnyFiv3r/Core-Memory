@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.store_claim_ops import read_all_claim_rows
+from core_memory.schema.normalization import normalize_entity_alias
 
 WORLDLINE_KINDS = ("claim", "entity", "goal")
 
@@ -58,7 +59,10 @@ def _span(beads: dict[str, Any], bead_ids: list[str]) -> dict[str, str]:
 
 
 def _norm_entity(value: str) -> str:
-    return " ".join(str(value or "").lower().split())
+    # Must match the registry's alias normalization exactly — entity_aliases
+    # keys are written with normalize_entity_alias, so matching bead entity
+    # strings against them requires the same transform.
+    return normalize_entity_alias(value)
 
 
 def _claim_worldlines(root: str | Path, beads: dict[str, Any]) -> list[dict[str, Any]]:

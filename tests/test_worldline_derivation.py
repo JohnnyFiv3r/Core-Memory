@@ -80,8 +80,12 @@ class TestEntityWorldlines(unittest.TestCase):
                     "bead-AAAAAAAAAAA3": _bead("other", "2026-02-01T00:00:00+00:00", entities=["Globex"]),
                 },
                 "associations": [],
-                "entities": {"ent-1": {"label": "ACME Corp", "normalized_label": "acme corp"}},
-                "entity_aliases": {"acme": "ent-1", "acme corp": "ent-1"},
+                # Realistic registry data: entity_aliases keys are written with
+                # normalize_entity_alias (suffix-stripped, space-less) — the
+                # worldline derivation must match bead entity strings like
+                # "ACME Corp" against these registry-normalized keys.
+                "entities": {"ent-1": {"label": "ACME Corp", "normalized_label": "acme"}},
+                "entity_aliases": {"acme": "ent-1"},
             })
             out = derive_worldlines(root, kinds=["entity"])
             by_key = {w["key"]: w for w in out["worldlines"]}

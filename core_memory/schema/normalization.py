@@ -267,3 +267,23 @@ def normalize_claim_update_decision(value: str | None) -> str:
 
 def association_policy() -> str:
     return ASSOCIATION_TYPE_POLICY
+
+
+def normalize_entity_alias(value: str | None) -> str:
+    """Canonical entity-alias normalization shared by the registry and projections.
+
+    Lowercase, unify separators, strip punctuation and organization suffixes,
+    then remove spaces. Idempotent. This is the single normalization used for
+    `entity_aliases` keys — any surface that matches entity strings against
+    the registry (e.g. worldline derivation) must use it.
+    """
+    import re
+
+    s = str(value or "").strip().lower()
+    if not s:
+        return ""
+    s = re.sub(r"[\s\-_/]+", " ", s)
+    s = re.sub(r"[^a-z0-9\s]+", "", s)
+    s = re.sub(r"\b(inc|incorporated|corp|corporation|llc|ltd|limited|co|company)\b", "", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s.replace(" ", "")
