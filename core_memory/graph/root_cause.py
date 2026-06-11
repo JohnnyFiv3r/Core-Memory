@@ -165,15 +165,26 @@ def _build_edges(root: Path, index: dict[str, Any]) -> list[dict[str, Any]]:
         if not isinstance(assoc, dict):
             continue
         status = _text(assoc.get("status") or "active").lower()
-        if status in {"retracted", "inactive"}:
+        # Active-association view — must match traversal/edge_lifecycle:
+        # superseded edges are not current truth.
+        if status in {"retracted", "superseded", "inactive"}:
             continue
+        # Fold the edge lifecycle (reinforcement/decay) into the attribution
+        # edge confidence so beam search and hop expansion share semantics
+        # (clamped to [0,1] by _coerce_confidence).
+        try:
+            from core_memory.graph.edge_weights import effective_edge_multiplier
+            base_conf = _coerce_confidence(assoc.get("confidence"), 0.75)
+            conf: Any = base_conf * effective_edge_multiplier(assoc)
+        except Exception:
+            conf = assoc.get("confidence")
         _add_edge(
             edges,
             assoc.get("source_bead") or assoc.get("source_bead_id"),
             assoc.get("target_bead") or assoc.get("target_bead_id"),
             assoc.get("relationship") or assoc.get("rel"),
             source="association",
-            confidence=assoc.get("confidence"),
+            confidence=conf,
             metadata=assoc,
         )
 

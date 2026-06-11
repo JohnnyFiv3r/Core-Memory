@@ -1235,22 +1235,16 @@ def trace_request(
     # depending on embedding similarity.
     if query:
         try:
-            from core_memory.entity.retrieval import bead_entity_match_score as _bems
-            _ent_ctx = infer_query_entity_context(query, load_entity_registry(str(root)))
-            if _ent_ctx.get("resolved_entity_ids"):
-                _idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
-                _seeded = set(a_ids)
-                _ent_scored: list[tuple[float, str]] = []
-                for _bid, _bead in (_idx.get("beads") or {}).items():
-                    if _bid in _seeded or not isinstance(_bead, dict):
-                        continue
-                    if not _bead.get("retrieval_eligible", True):
-                        continue
-                    _sc, _ = _bems(_bead, _ent_ctx)
-                    if _sc > 0.0:
-                        _ent_scored.append((_sc, _bid))
-                _ent_scored.sort(reverse=True)
-                a_ids = a_ids + [_bid for _, _bid in _ent_scored[:6]]
+            from core_memory.entity.retrieval import entity_seed_bead_ids as _entity_seeds
+            _idx = json.loads((Path(root) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            _seeds = _entity_seeds(
+                query,
+                load_entity_registry(str(root)),
+                dict(_idx.get("beads") or {}),
+                exclude=set(a_ids),
+                limit=6,
+            )
+            a_ids = a_ids + [_bid for _, _bid in _seeds]
         except Exception:
             pass
     if _caps.graph_traversal:

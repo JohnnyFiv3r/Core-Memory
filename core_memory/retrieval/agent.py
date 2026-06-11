@@ -453,6 +453,15 @@ from core_memory.graph.edge_weights import (  # noqa: E402
 # Multi-source seed scores.  All values are set below typical vector scores
 # (0.70+) so extra seeds never displace strong semantic matches; they only
 # contribute their BFS neighbourhood when the vector search was incomplete.
+# Read-time materialised edges from bead-resident notation fields:
+# evidence_bead_ids → derived_from-like (0.80) with model_inferred provenance;
+# because/supporting_facts inline bead-id references → caused_by-like (0.75)
+# with heuristic provenance. Bead ids are `bead-` + 12 uppercase hex chars
+# (store.py).
+_BEAD_ID_RE = re.compile(r"\bbead-[A-F0-9]{12}\b")
+_EVIDENCE_EDGE_SCORE = 0.80 * _PROVENANCE_FACTOR["model_inferred"]   # 0.68
+_BECAUSE_EDGE_SCORE = 0.75 * _PROVENANCE_FACTOR["heuristic"]         # 0.4875
+
 _ENTITY_SEED_FACTOR = 0.65   # entity-matched seeds
 _CLAIM_SEED_FACTOR  = 0.62   # claim-slot token-overlap seeds
 _SESSION_SEED_FACTOR = 0.55  # most-recent session bead; decays with _HOP_DECAY
@@ -491,38 +500,24 @@ def _collect_extra_seeds(
 
     beads_map: dict[str, Any] = dict(index.get("beads") or {})
 
-    # 1. Entity-resolved seeds — beads sharing named entities with the query.
+    # 1. Entity-resolved seeds — beads sharing named entities with the query
+    #    (shared seed source with trace_request: entity/retrieval.entity_seed_bead_ids).
     try:
         from core_memory.entity.registry import load_entity_registry as _load_reg
-        from core_memory.entity.retrieval import (
-            infer_query_entity_context as _infer_ctx,
-            bead_entity_match_score as _ems,
-        )
-        entity_ctx = _infer_ctx(query, _load_reg(root))
-        if entity_ctx.get("resolved_entity_ids"):
-            scored: list[tuple[float, str]] = []
-            for bid, bead in beads_map.items():
-                if bid in existing_ids or not isinstance(bead, dict):
-                    continue
-                if not bead.get("retrieval_eligible", True):
-                    continue
-                sc, _ = _ems(bead, entity_ctx)
-                if sc > 0.0:
-                    scored.append((sc * _ENTITY_SEED_FACTOR, bid))
-            scored.sort(reverse=True)
-            for sc, bid in scored[:_MAX_ENTITY_SEEDS]:
-                bead = beads_map[bid]
-                summary = bead.get("summary") or []
-                excerpt = str(summary[0] if summary else (bead.get("detail") or ""))[:240]
-                extra.append(EvidenceItem(
-                    bead_id=bid,
-                    type=str(bead.get("type") or ""),
-                    title=str(bead.get("title") or ""),
-                    content_excerpt=excerpt,
-                    score=round(sc, 4),
-                    reason="entity_seed",
-                ))
-                existing_ids.add(bid)
+        from core_memory.entity.retrieval import entity_seed_bead_ids as _entity_seeds
+        for sc, bid in _entity_seeds(query, _load_reg(root), beads_map, exclude=existing_ids, limit=_MAX_ENTITY_SEEDS):
+            bead = beads_map[bid]
+            summary = bead.get("summary") or []
+            excerpt = str(summary[0] if summary else (bead.get("detail") or ""))[:240]
+            extra.append(EvidenceItem(
+                bead_id=bid,
+                type=str(bead.get("type") or ""),
+                title=str(bead.get("title") or ""),
+                content_excerpt=excerpt,
+                score=round(sc * _ENTITY_SEED_FACTOR, 4),
+                reason="entity_seed",
+            ))
+            existing_ids.add(bid)
     except Exception:
         pass
 
@@ -678,17 +673,7 @@ def _expand_via_association_hops(
     # Materialise implicit edges from bead-resident notation fields.
     # These are NOT persistent associations — they extend the traversal graph
     # at read time so that agent-authored causal rationale becomes retrievable.
-    #
-    # evidence_bead_ids: agent-provided structured evidence references
-    #   → treated as derived_from (0.80) with model_inferred provenance (0.85)
-    # because / supporting_facts text: may contain inline bead-ID references
-    #   matching the canonical bead-XXXXXXXXXXXX pattern
-    #   → treated as caused_by (0.75×) with heuristic provenance (0.65)
-    import re as _re
-    _BEAD_ID_RE = _re.compile(r"\bbead-[A-F0-9]{12}\b")
-    _EVIDENCE_EDGE_SCORE = 0.80 * _PROVENANCE_FACTOR["model_inferred"]   # 0.68
-    _BECAUSE_EDGE_SCORE  = 0.75 * _PROVENANCE_FACTOR["heuristic"]        # 0.4875
-
+    # Constants and the bead-id pattern are module-level (_BEAD_ID_RE etc.).
     for bid, bead in beads_map.items():
         if not isinstance(bead, dict):
             continue
