@@ -125,14 +125,26 @@ def infer_relationship(bead_a: dict, bead_b: dict) -> tuple[str, str]:
         new_causal=new_causal,
         other_causal=other_causal,
     )
+    if rel == "precedes":
+        # "precedes" is noncanonical on the inference surface (canonical
+        # temporal direction is "follows") and would be quarantined in strict
+        # mode — a guaranteed-dead edge. The fill cannot swap endpoints to
+        # express the canonical direction, so fall back to the non-structural
+        # canonical relation and keep the temporal order in the reason code.
+        return "associated_with", "temporal_precedes_noncanonical"
     return rel, reason_code
 
 
-def run_association_pass(index: dict, bead: dict, *, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
+def compute_preview_association_candidates(index: dict, bead: dict, *, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
     """Compute deterministic association preview candidates.
 
     Non-destructive: computes derived candidates only.
     Session-relative reasoning is weighted higher than cross-session fallback.
+
+    Note: previously exported as ``run_association_pass``, which collided with
+    the unrelated crawler-update applier
+    ``runtime.passes.association_pass.run_association_pass``. The old name
+    remains as a compatibility alias.
     """
     candidates = []
     new_tags = set((bead.get("tags") or []))
@@ -192,3 +204,7 @@ def run_association_pass(index: dict, bead: dict, *, max_lookback: int = 40, top
 
     candidates = sorted(candidates, key=lambda c: (-int(c.get("score") or 0), str(c.get("other_id") or "")))
     return candidates[: max(0, int(top_k))]
+
+
+# Compatibility alias — see compute_preview_association_candidates docstring.
+run_association_pass = compute_preview_association_candidates

@@ -47,12 +47,22 @@ class TestScoreEdge(unittest.TestCase):
         expected = RELATIONSHIP_HOP_WEIGHT["caused_by"] * 1.0 * DEFAULT_PROVENANCE_FACTOR
         self.assertAlmostEqual(sc, expected, places=6)
 
-    def test_edge_class_overrides_provenance_when_valid(self):
-        # edge_class="agent_judged" should take precedence over provenance="preview_classifier"
-        sc_class = score_edge("caused_by", confidence=1.0,
-                              provenance="preview_classifier", edge_class="agent_judged")
-        sc_prov = score_edge("caused_by", confidence=1.0, provenance="agent_judged")
-        self.assertAlmostEqual(sc_class, sc_prov, places=6)
+    def test_low_trust_provenance_overrides_edge_class(self):
+        # The crawler stamps edge_class="agent_judged" on every appended edge
+        # (channel marker). When the relationship label itself came from the
+        # preview classifier, the low-trust discount must still apply —
+        # otherwise the provenance-aware weighting is masked for all new edges.
+        sc = score_edge("caused_by", confidence=1.0,
+                        provenance="preview_classifier", edge_class="agent_judged")
+        sc_preview = score_edge("caused_by", confidence=1.0, provenance="preview_classifier")
+        self.assertAlmostEqual(sc, sc_preview, places=6)
+
+    def test_edge_class_overrides_normal_provenance(self):
+        # Non-low-trust provenances: the channel marker still wins.
+        sc = score_edge("caused_by", confidence=1.0,
+                        provenance="model_inferred", edge_class="agent_judged")
+        sc_agent = score_edge("caused_by", confidence=1.0, provenance="agent_judged")
+        self.assertAlmostEqual(sc, sc_agent, places=6)
 
     def test_confidence_scales_score(self):
         sc_full = score_edge("causes", confidence=1.0, provenance="agent_judged")

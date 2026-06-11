@@ -640,6 +640,7 @@ def _expand_via_association_hops(
     # blocking reverse traversal entirely, preserving discoverability.
     from core_memory.graph.edge_weights import (
         effective_edge_multiplier as _edge_lifecycle,
+        resolve_provenance_factor as _resolve_prov,
         SUPERSEDED_ENDPOINT_FACTOR as _superseded_factor,
     )
 
@@ -657,10 +658,11 @@ def _expand_via_association_hops(
         rel_weight = _RELATIONSHIP_HOP_WEIGHT.get(rel, _DEFAULT_HOP_WEIGHT)
         raw_conf = assoc.get("confidence")
         conf = max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else 0.85
-        edge_class = str(assoc.get("edge_class") or "").strip().lower()
-        provenance = str(assoc.get("provenance") or "model_inferred").strip().lower()
-        prov_key = edge_class if edge_class in _PROVENANCE_FACTOR else provenance
-        prov_factor = _PROVENANCE_FACTOR.get(prov_key, _DEFAULT_PROVENANCE_FACTOR)
+        # Shared provenance resolution: low-trust provenances (preview
+        # classifier / heuristic relationship fills) override the
+        # edge_class="agent_judged" channel marker the crawler stamps on
+        # every appended edge.
+        prov_factor = _resolve_prov(assoc.get("edge_class"), assoc.get("provenance"))
         edge_score = rel_weight * conf * prov_factor
         # Lifecycle: reinforced edges rank higher, unused edges decay toward a
         # floor; edges through superseded beads point at stale truth.

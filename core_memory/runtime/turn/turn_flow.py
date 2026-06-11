@@ -198,7 +198,9 @@ def process_turn_finalized_impl(
             "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
         }
 
-    # Current architecture target: write the canonical turn bead first, then crawl associations/promotions against post-write session state.
+    # Build the crawler context once: the canonical turn bead is created later
+    # by the association pass (apply_crawler_updates), so everything from here
+    # to that pass operates on the same pre-write session surface.
     crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
     invoked_updates, invocation_diag = invoke_turn_crawler_agent(
         root=root,
@@ -246,10 +248,9 @@ def process_turn_finalized_impl(
         reviewed_updates = default_crawler_updates(req)
     reviewed_updates = ensure_turn_creation_update(root, req, reviewed_updates)
 
-    # Rebuild post-write crawler context so association/promotion decisions operate on the bead-centric session surface.
-    crawler_ctx = build_crawler_context(root=root, session_id=req["session_id"], limit=200)
-
-    # F-W2: gate severity — hard mode blocks, warn mode flags, off mode skips
+    # F-W2: semantic-coverage gate — violations always flag, never block
+    # (never-forget); the flag is written after the association pass creates
+    # the canonical bead.
     if bool(gate.get("required")) and isinstance(reviewed_updates, dict):
         prior_beads = session_visible_bead_ids(root=root, session_id=req["session_id"])
         min_required = int(agent_min_semantic_associations_after_first())
