@@ -25,10 +25,12 @@ def _is_system_row(bead: dict[str, Any]) -> bool:
     return ("process_flush" in tags) or (typ in {"checkpoint", "session_end"})
 
 
-def _admit(bead: dict[str, Any], include_system: bool = False) -> bool:
+def _admit(bead: dict[str, Any], include_system: bool = False, include_superseded: bool = False) -> bool:
     status = str(bead.get("status") or "").lower()
     if status == "superseded":
-        return False
+        # Current-truth guard: superseded versions are excluded from retrieval.
+        # Provenance surfaces opt in explicitly via include_superseded.
+        return include_superseded
     if status not in VISIBLE_STATUSES:
         return False
     # Canonical retrieval keeps visible statuses searchable immediately.
@@ -54,7 +56,7 @@ def _to_row(bead: dict[str, Any], source_surface: str) -> dict[str, Any]:
     }
 
 
-def build_visible_corpus(root: str | Path, *, include_system: bool = False) -> list[dict[str, Any]]:
+def build_visible_corpus(root: str | Path, *, include_system: bool = False, include_superseded: bool = False) -> list[dict[str, Any]]:
     root_p = Path(root)
     idx_file = root_p / ".beads" / "index.json"
     if not idx_file.exists():
@@ -64,7 +66,7 @@ def build_visible_corpus(root: str | Path, *, include_system: bool = False) -> l
 
     rows: dict[str, dict[str, Any]] = {}
     for bid, bead in projection.items():
-        if not _admit(bead, include_system=include_system):
+        if not _admit(bead, include_system=include_system, include_superseded=include_superseded):
             continue
         b = dict(bead)
         b.setdefault("id", bid)
@@ -92,7 +94,7 @@ def build_visible_corpus(root: str | Path, *, include_system: bool = False) -> l
             merged = dict((rows.get(bid) or {}).get("bead") or {})
             merged.update(bead)
             merged.setdefault("id", bid)
-            if not _admit(merged, include_system=include_system):
+            if not _admit(merged, include_system=include_system, include_superseded=include_superseded):
                 rows.pop(bid, None)
                 continue
             rows[bid] = _to_row(merged, "session")

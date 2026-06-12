@@ -26,10 +26,14 @@ from .normalization import (
     REVISION_TYPES,
     TESTED_BY_VALUES,
     TOOL_RESULT_STATUSES,
+    confidence_class_rank,
+    derive_confidence_class,
     is_allowed_bead_type,
+    normalize_assertion_kind,
     normalize_bead_type,
     normalize_claim_kind,
     normalize_claim_update_decision,
+    normalize_confidence_class,
     normalize_relation_type,
     relation_kind,
 )
@@ -96,6 +100,17 @@ class Authority(str, Enum):
     AGENT_INFERRED = "agent_inferred"
     USER_CONFIRMED = "user_confirmed"
     SYSTEM = "system"
+    SOURCE_ATTRIBUTED = "source_attributed"
+    DERIVED_ANALYSIS = "derived_analysis"
+
+
+class ConfidenceClass(str, Enum):
+    """Truth/governance status of a bead — distinct from myelination
+    (edge/use strength). C = captured candidate, B = reinforced/used/supported,
+    A = canonical/user-confirmed/operationally trusted."""
+    CAPTURED = "C"
+    REINFORCED = "B"
+    CANONICAL = "A"
 
 
 class RelationshipType(str, Enum):
@@ -421,6 +436,18 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     if out.get("tested_by"):
         v = str(out["tested_by"]).strip().lower()
         out["tested_by"] = v if v in TESTED_BY_VALUES else None
+    if out.get("assertion_kind"):
+        out["assertion_kind"] = normalize_assertion_kind(out.get("assertion_kind"))
+
+    # Confidence class is monotonic: the stored class never reads below the
+    # floor implied by lifecycle fields (promoted / user_confirmed / recalled).
+    provided_class = normalize_confidence_class(out.get("confidence_class"))
+    derived_class = derive_confidence_class(out)
+    out["confidence_class"] = (
+        provided_class
+        if confidence_class_rank(provided_class) >= confidence_class_rank(derived_class)
+        else derived_class
+    )
 
     return out
 
@@ -655,6 +682,9 @@ class Bead:
     mechanism: Optional[str] = None
     impact_level: Optional[str] = None
     uncertainty: float = 0.5
+
+    # Truth/governance status (C/B/A) — distinct from myelination
+    confidence_class: str = "C"
 
     # Contrast fields
     what_almost_happened: Optional[str] = None

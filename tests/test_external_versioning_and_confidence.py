@@ -1,0 +1,275 @@
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+
+os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
+
+from core_memory.memory import confirm_bead
+from core_memory.persistence.store import MemoryStore
+from core_memory.retrieval.visible_corpus import build_visible_corpus
+from core_memory.runtime.ingest.external_evidence import (
+    ingest_document_reference,
+    ingest_structured_observation,
+)
+from core_memory.schema.models import Authority, Bead, ConfidenceClass
+from core_memory.schema.normalization import (
+    ASSERTION_KINDS,
+    EXTERNAL_BEAD_TYPES,
+    confidence_class_rank,
+    derive_confidence_class,
+    normalize_assertion_kind,
+    normalize_confidence_class,
+)
+
+
+def _document_payload(**overrides):
+    payload = {
+        "data_type_flag": "document.media",
+        "title": "Acme Vendor Contract",
+        "summary": ["Vendor contract uploaded for Acme Corp."],
+        "source_id": "src_legal_uploads",
+        "source_event_id": "evt_document_001",
+        "source_system": "upload",
+        "source_kind": "document",
+        "document_id": "doc_001",
+        "document_name": "Acme Vendor Contract.pdf",
+        "mime_type": "application/pdf",
+        "core_memory_unifying_id": "acme_vendor_contract",
+        "hydration_ref": {"store": "ragie", "ref": "ragie_doc_001"},
+    }
+    payload.update(overrides)
+    return payload
+
+
+def _structured_payload(**overrides):
+    payload = {
+        "data_type_flag": "relational",
+        "title": "COGS increased 38% over baseline",
+        "summary": ["COGS was $12,450, 38% above baseline."],
+        "source_id": "src_quickbooks",
+        "source_event_id": "evt_structured_001",
+        "source_system": "quickbooks",
+        "source_table": "qbo_expenses",
+        "source_record_id": "QB-98231",
+        "metric_name": "COGS",
+        "metric_value": 12450,
+        "entities": ["Fresh Produce LLC"],
+        "entity_refs": ["Fresh Produce LLC"],
+        "attribute_tags": ["cogs"],
+        "as_of_timestamp": "2026-05-04T15:00:00Z",
+        "core_memory_unifying_id": "cogs_spike",
+        "hydration_ref": {"store": "supabase", "ref": "qbo_expenses:QB-98231"},
+    }
+    payload.update(overrides)
+    return payload
+
+
+class TestExternalVersionSupersession(unittest.TestCase):
+    def test_adjusted_document_creates_new_version_and_supersedes_old(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = ingest_document_reference(td, _document_payload(), session_id="external")
+            second = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_event_id="evt_document_002",
+                    title="Acme Vendor Contract (amended)",
+                    summary=["Amended contract: termination clause updated."],
+                ),
+                session_id="external",
+            )
+            self.assertEqual("version_superseded", second["status"])
+            self.assertEqual(first["bead_id"], second["superseded_bead_id"])
+            self.assertNotEqual(first["bead_id"], second["bead_id"])
+
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            old = idx["beads"][first["bead_id"]]
+            new = idx["beads"][second["bead_id"]]
+            self.assertEqual("superseded", old["status"])
+            self.assertIn(second["bead_id"], old["superseded_by"])
+            self.assertTrue(old.get("effective_to"))
+            self.assertIn(first["bead_id"], new["supersedes"])
+            rels = [
+                a for a in idx.get("associations", [])
+                if a.get("relationship") == "supersedes"
+                and a.get("source_bead") == second["bead_id"]
+                and a.get("target_bead") == first["bead_id"]
+            ]
+            self.assertEqual(1, len(rels))
+
+    def test_updated_record_supersedes_prior_observation(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = ingest_structured_observation(td, _structured_payload(), session_id="external")
+            second = ingest_structured_observation(
+                td,
+                _structured_payload(
+                    source_event_id="evt_structured_002",
+                    title="COGS revised to 41% over baseline",
+                    metric_value=12990,
+                ),
+                session_id="external",
+            )
+            self.assertEqual("version_superseded", second["status"])
+            self.assertEqual(first["bead_id"], second["superseded_bead_id"])
+
+    def test_same_event_redelivery_stays_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = ingest_document_reference(td, _document_payload(), session_id="external")
+            replay = ingest_document_reference(td, _document_payload(), session_id="external")
+            self.assertEqual("already_exists", replay["status"])
+            self.assertEqual(first["bead_id"], replay["bead_id"])
+
+    def test_old_event_redelivery_after_versioning_stays_idempotent(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = ingest_document_reference(td, _document_payload(), session_id="external")
+            ingest_document_reference(
+                td,
+                _document_payload(source_event_id="evt_document_002", title="Acme Vendor Contract v2"),
+                session_id="external",
+            )
+            replay = ingest_document_reference(td, _document_payload(), session_id="external")
+            self.assertEqual("already_exists", replay["status"])
+            self.assertEqual(first["bead_id"], replay["bead_id"])
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual(2, len(idx["beads"]))
+
+    def test_new_event_with_identical_content_does_not_version(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = ingest_document_reference(td, _document_payload(), session_id="external")
+            same_content = ingest_document_reference(
+                td, _document_payload(source_event_id="evt_document_002"), session_id="external"
+            )
+            self.assertEqual("already_exists", same_content["status"])
+            self.assertEqual(first["bead_id"], same_content["bead_id"])
+
+    def test_third_version_chains_from_current_truth(self):
+        with tempfile.TemporaryDirectory() as td:
+            v1 = ingest_document_reference(td, _document_payload(), session_id="external")
+            v2 = ingest_document_reference(
+                td,
+                _document_payload(source_event_id="evt_document_002", title="Acme Vendor Contract v2"),
+                session_id="external",
+            )
+            v3 = ingest_document_reference(
+                td,
+                _document_payload(source_event_id="evt_document_003", title="Acme Vendor Contract v3"),
+                session_id="external",
+            )
+            self.assertEqual(v2["bead_id"], v3["superseded_bead_id"])
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual("superseded", idx["beads"][v1["bead_id"]]["status"])
+            self.assertEqual("superseded", idx["beads"][v2["bead_id"]]["status"])
+            self.assertNotEqual("superseded", idx["beads"][v3["bead_id"]]["status"])
+
+
+class TestCurrentTruthGuard(unittest.TestCase):
+    def test_superseded_versions_are_excluded_from_visible_corpus(self):
+        with tempfile.TemporaryDirectory() as td:
+            v1 = ingest_document_reference(td, _document_payload(), session_id="external")
+            v2 = ingest_document_reference(
+                td,
+                _document_payload(source_event_id="evt_document_002", title="Acme Vendor Contract v2"),
+                session_id="external",
+            )
+            ids = {r["bead_id"] for r in build_visible_corpus(td)}
+            self.assertNotIn(v1["bead_id"], ids)
+            self.assertIn(v2["bead_id"], ids)
+
+    def test_provenance_callers_can_opt_in_to_superseded(self):
+        with tempfile.TemporaryDirectory() as td:
+            v1 = ingest_document_reference(td, _document_payload(), session_id="external")
+            v2 = ingest_document_reference(
+                td,
+                _document_payload(source_event_id="evt_document_002", title="Acme Vendor Contract v2"),
+                session_id="external",
+            )
+            ids = {r["bead_id"] for r in build_visible_corpus(td, include_superseded=True)}
+            self.assertIn(v1["bead_id"], ids)
+            self.assertIn(v2["bead_id"], ids)
+
+
+class TestConfidenceClass(unittest.TestCase):
+    def test_normalization_and_aliases(self):
+        self.assertEqual("C", normalize_confidence_class(None))
+        self.assertEqual("A", normalize_confidence_class("a"))
+        self.assertEqual("B", normalize_confidence_class("reinforced"))
+        self.assertEqual("A", normalize_confidence_class("canonical"))
+        self.assertEqual("C", normalize_confidence_class("nonsense"))
+        self.assertTrue(confidence_class_rank("A") > confidence_class_rank("B") > confidence_class_rank("C"))
+
+    def test_derivation_floor(self):
+        self.assertEqual("C", derive_confidence_class({}))
+        self.assertEqual("B", derive_confidence_class({"recall_count": 3}))
+        self.assertEqual("B", derive_confidence_class({"promotion_candidate": True}))
+        self.assertEqual("A", derive_confidence_class({"promoted": True}))
+        self.assertEqual("A", derive_confidence_class({"authority": "user_confirmed"}))
+
+    def test_bead_from_dict_applies_floor(self):
+        bead = Bead.from_dict({"id": "b1", "type": "decision", "title": "t", "recall_count": 2})
+        self.assertEqual("B", bead.confidence_class)
+        confirmed = Bead.from_dict({"id": "b2", "type": "decision", "title": "t", "authority": "user_confirmed"})
+        self.assertEqual("A", confirmed.confidence_class)
+        explicit = Bead.from_dict({"id": "b3", "type": "decision", "title": "t", "confidence_class": "A"})
+        self.assertEqual("A", explicit.confidence_class)
+
+    def test_new_beads_start_as_captured(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="decision", title="Choose vendor", summary=["s"], because=["b"], detail="d")
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual("C", idx["beads"][bid]["confidence_class"])
+
+    def test_recall_raises_class_to_reinforced(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="decision", title="Choose vendor", summary=["s"], because=["b"], detail="d")
+            store.recall(bid)
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual("B", idx["beads"][bid]["confidence_class"])
+
+    def test_confirm_bead_surface_records_user_confirmation(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="decision", title="Choose vendor", summary=["s"], because=["b"], detail="d")
+            out = confirm_bead(td, bid, note="verified with vendor")
+            self.assertTrue(out["ok"])
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][bid]
+            self.assertEqual("user_confirmed", bead["authority"])
+            self.assertEqual("A", bead["confidence_class"])
+
+    def test_confirm_bead_missing_id_reports_error(self):
+        with tempfile.TemporaryDirectory() as td:
+            MemoryStore(root=td).add_bead(type="context", title="x", summary=["s"])
+            out = confirm_bead(td, "bead-DOES-NOT-EXIST")
+            self.assertFalse(out["ok"])
+            self.assertEqual("bead_not_found", out["error"])
+
+    def test_confirmation_never_lowers_class(self):
+        self.assertEqual(ConfidenceClass.CANONICAL.value, "A")
+        self.assertEqual(Authority.SOURCE_ATTRIBUTED.value, "source_attributed")
+        self.assertEqual(Authority.DERIVED_ANALYSIS.value, "derived_analysis")
+
+
+class TestVocabularyAdditions(unittest.TestCase):
+    def test_assertion_kind_vocabulary(self):
+        self.assertIn("business_state", ASSERTION_KINDS)
+        self.assertEqual("business_state", normalize_assertion_kind(""))
+        self.assertEqual("business_state", normalize_assertion_kind("derived_business_state"))
+        self.assertEqual("document_claim", normalize_assertion_kind("document_observation"))
+        # unknown non-empty values are preserved, not destroyed
+        self.assertEqual("vendor_specific_kind", normalize_assertion_kind("vendor_specific_kind"))
+
+    def test_external_flag_vocabulary_lives_in_schema(self):
+        self.assertIn("document_reference", EXTERNAL_BEAD_TYPES)
+
+    def test_external_types_have_explicit_promotion_policy(self):
+        from core_memory.policy.promotion import BEAD_TYPE_PRIORS, TYPE_DURABILITY_MULTIPLIERS
+        for bt in ("transcript", "document_reference", "structured_observation", "state_assertion"):
+            self.assertIn(bt, BEAD_TYPE_PRIORS)
+            self.assertIn(bt, TYPE_DURABILITY_MULTIPLIERS)
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -67,6 +67,26 @@ class Memory:
         return process_turn_finalized(root=self.root, session_id=sid, turn_id=tid, turns=normalized, **kwargs)
 
 
+def confirm_bead(root: str, bead_id: str, note: str = "") -> dict[str, Any]:
+    """Record user confirmation of a bead.
+
+    Confirmation is a governance act: authority becomes `user_confirmed` and
+    the confidence class is raised to A (canonical / operationally trusted).
+    Content is never edited — beads remain immutable records.
+    """
+    from core_memory.persistence.store import MemoryStore
+
+    store = MemoryStore(root=root)
+    ok = store.confirm(bead_id, note=note)
+    return {
+        "ok": bool(ok),
+        "bead_id": str(bead_id),
+        "authority": "user_confirmed" if ok else None,
+        "confidence_class": "A" if ok else None,
+        "error": None if ok else "bead_not_found",
+    }
+
+
 def capture(
     turns: list[Turn | dict[str, Any]] | None = None,
     *,

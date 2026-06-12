@@ -12,44 +12,14 @@ from typing import Any
 
 from core_memory.persistence import events
 from core_memory.persistence.store import MemoryStore
-
-TRANSCRIPT_FLAGS = {
-    "transcript",
-    "conversation.transcript",
-    "conversation_transcript",
-}
-DOCUMENT_FLAGS = {
-    "document",
-    "media",
-    "document.media",
-    "document_media",
-    "document/media",
-    "document_reference",
-    "media_reference",
-}
-RELATIONAL_FLAGS = {
-    "relational",
-    "relational.data",
-    "relational_data",
-    "structured",
-    "structured_observation",
-    "data_insight",
-}
-STATE_ASSERTION_FLAGS = {
-    "state_assertion",
-    "derived_business_state",
-    "business_state",
-    "document_claim",
-    "document_observation",
-}
-
-EXTERNAL_BEAD_TYPES = {
-    "transcript",
-    "document_reference",
-    "structured_observation",
-    "state_assertion",
-    "data_insight",
-}
+from core_memory.schema.normalization import (
+    EXTERNAL_BEAD_TYPES,
+    EXTERNAL_DOCUMENT_FLAGS as DOCUMENT_FLAGS,
+    EXTERNAL_RELATIONAL_FLAGS as RELATIONAL_FLAGS,
+    EXTERNAL_STATE_ASSERTION_FLAGS as STATE_ASSERTION_FLAGS,
+    EXTERNAL_TRANSCRIPT_FLAGS as TRANSCRIPT_FLAGS,
+    normalize_assertion_kind,
+)
 
 
 def _clean_str(value: Any) -> str:
@@ -206,11 +176,20 @@ def _find_existing_external_bead(store: MemoryStore, payload: dict[str, Any], be
     transcript_id = _clean_str(payload.get("transcript_id") or payload.get("conversation_id"))
 
     index = store._read_json(store.beads_dir / "index.json")
-    for bead in (index.get("beads") or {}).values():
-        if _clean_str(bead.get("type")) != bead_type:
+    beads = [b for b in (index.get("beads") or {}).values() if _clean_str(b.get("type")) == bead_type]
+
+    # Pass 1 — event identity across ALL versions (including superseded), so
+    # re-delivery of an already-versioned event stays idempotent.
+    if source_event_id:
+        for bead in beads:
+            if _clean_str(bead.get("source_event_id")) == source_event_id:
+                return dict(bead)
+
+    # Pass 2 — same source object, current truth only. A hit here with a new
+    # source_event_id means the source was adjusted: version, don't dedup.
+    for bead in beads:
+        if _clean_str(bead.get("status")).lower() == "superseded":
             continue
-        if source_event_id and _clean_str(bead.get("source_event_id")) == source_event_id:
-            return dict(bead)
         if source_id and source_record_id:
             if _clean_str(bead.get("source_id")) == source_id and _clean_str(bead.get("source_record_id")) == source_record_id:
                 return dict(bead)
@@ -263,7 +242,7 @@ def _typed_fields(bead_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "derived_from": _coerce_str_list(payload.get("derived_from")),
             "derived_from_bead_ids": _coerce_str_list(payload.get("derived_from_bead_ids")),
-            "assertion_kind": _clean_str(payload.get("assertion_kind") or "business_state"),
+            "assertion_kind": normalize_assertion_kind(payload.get("assertion_kind")),
             "assertion_subject": _clean_str(payload.get("assertion_subject")),
             "assertion_predicate": _clean_str(payload.get("assertion_predicate")),
             "assertion_value": _clean_str(payload.get("assertion_value")),
@@ -357,8 +336,24 @@ def _bead_payload(payload: dict[str, Any], *, bead_type: str, source_kind: str, 
     return {k: v for k, v in out.items() if v is not None}
 
 
+def _content_signature(record: dict[str, Any], bead_type: str) -> tuple:
+    """Comparable content identity for idempotency vs. version decisions."""
+    typed = _typed_fields(bead_type, record)
+    return (
+        _clean_str(record.get("title")),
+        tuple(_coerce_summary(record.get("summary"))),
+        _clean_str(record.get("detail") or record.get("content"))[:1200],
+        tuple(sorted((str(k), str(v)) for k, v in typed.items() if v not in (None, "", [], {}))),
+    )
+
+
 def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
-    """Write a typed external source bead and return an ingest receipt."""
+    """Write a typed external source bead and return an ingest receipt.
+
+    Beads are immutable: when a known source object arrives with a new
+    source_event_id and changed content, a new version bead is written and the
+    prior version is closed via a `supersedes` chain — never edited in place.
+    """
     if not isinstance(payload, dict):
         raise ValueError("external_evidence: payload must be an object")
 
@@ -372,24 +367,37 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
     _validate_external_payload(bead_type, merged, hydration_ref)
 
     store = MemoryStore(root=root)
+    predecessor_id = ""
     existing = _find_existing_external_bead(store, merged, bead_type)
     if existing:
         bead_id = _clean_str(existing.get("id"))
-        return {
-            "ok": True,
-            "accepted": True,
-            "status": "already_exists",
-            "mode": "external_evidence",
-            "bead_id": bead_id,
-            "bead_ids": [bead_id] if bead_id else [],
-            "created_count": 0,
-            "event_id": "",
-            "type": bead_type,
-            "source_event_id": _clean_str(merged.get("source_event_id")),
-            "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
-        }
+        incoming_event = _clean_str(merged.get("source_event_id"))
+        same_event = bool(incoming_event) and _clean_str(existing.get("source_event_id")) == incoming_event
+        same_content = _content_signature(existing, bead_type) == _content_signature(merged, bead_type)
+        if same_event or same_content:
+            return {
+                "ok": True,
+                "accepted": True,
+                "status": "already_exists",
+                "mode": "external_evidence",
+                "bead_id": bead_id,
+                "bead_ids": [bead_id] if bead_id else [],
+                "created_count": 0,
+                "event_id": "",
+                "type": bead_type,
+                "source_event_id": _clean_str(merged.get("source_event_id")),
+                "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
+            }
+        # Same source object, new event, changed content: the source was
+        # adjusted. Write the new version; close the old one below.
+        predecessor_id = bead_id
 
     bead = _bead_payload(merged, bead_type=bead_type, source_kind=source_kind, hydration_ref=hydration_ref)
+    if predecessor_id:
+        supersedes = _coerce_str_list(bead.get("supersedes"))
+        if predecessor_id not in supersedes:
+            supersedes.append(predecessor_id)
+        bead["supersedes"] = supersedes
     bead_id = store.add_bead(
         type=bead.pop("type"),
         title=bead.pop("title"),
@@ -400,6 +408,15 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         tags=bead.pop("tags", []),
         **bead,
     )
+    if predecessor_id:
+        store.supersede(predecessor_id, bead_id)
+        store.link(
+            bead_id,
+            predecessor_id,
+            "supersedes",
+            explanation="external source adjusted: new version supersedes prior version",
+            confidence=0.95,
+        )
     event_id = events.append_event(
         Path(root),
         _clean_str(merged.get("session_id")) or session_id,
@@ -414,7 +431,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
             "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
         },
     )
-    return {
+    receipt = {
         "ok": True,
         "accepted": True,
         "status": "accepted",
@@ -427,6 +444,10 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         "source_event_id": _clean_str(merged.get("source_event_id")),
         "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
     }
+    if predecessor_id:
+        receipt["status"] = "version_superseded"
+        receipt["superseded_bead_id"] = predecessor_id
+    return receipt
 
 
 def ingest_structured_observation(root: str, payload: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:

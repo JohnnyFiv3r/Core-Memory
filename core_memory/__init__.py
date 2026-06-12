@@ -14,9 +14,17 @@ Canonical contributor docs:
 from .runtime.engine import process_turn_finalized, process_session_start, process_flush, emit_turn_finalized
 from .retrieval.tools.memory import search as memory_search, trace as memory_trace, execute as memory_execute
 from .retrieval.agent import recall
-from .memory import Memory, capture
+from .memory import Memory, capture, confirm_bead
 from .transcript_ingest import ingest_transcript, normalize_transcript_payload
-from .runtime.ingest import ingest_document_reference, ingest_external_evidence, ingest_state_assertion, ingest_structured_observation
+from .runtime.ingest import (
+    SourceEventMapping,
+    SourceEventRule,
+    ingest_document_reference,
+    ingest_external_evidence,
+    ingest_source_event,
+    ingest_state_assertion,
+    ingest_structured_observation,
+)
 from .schema.turn import Turn
 from .retrieval.contracts import (
     ClaimSlotItem,
@@ -43,6 +51,7 @@ from .schema.models import (
     Scope,
     Status,
     Authority,
+    ConfidenceClass,
     RelationshipType,
     ImpactLevel,
     Association,
@@ -62,9 +71,13 @@ __all__ = [
     "RecallResult",
     "RecallStep",
     "capture",
+    "confirm_bead",
     "ingest_transcript",
     "normalize_transcript_payload",
     "ingest_external_evidence",
+    "ingest_source_event",
+    "SourceEventMapping",
+    "SourceEventRule",
     "ingest_state_assertion",
     "ingest_structured_observation",
     "ingest_document_reference",
@@ -99,6 +112,7 @@ __all__ = [
     "Scope",
     "Status",
     "Authority",
+    "ConfidenceClass",
     "RelationshipType",
     "ImpactLevel",
     "Association",
