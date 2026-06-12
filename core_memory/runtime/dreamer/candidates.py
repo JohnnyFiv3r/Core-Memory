@@ -493,6 +493,64 @@ def decide_dreamer_candidate(
     if decision_n == "accept" and apply:
         hypothesis_type = str(target.get("hypothesis_type") or "").strip().lower()
 
+        if hypothesis_type == "narrative_candidate":
+            # Storyline overlay materialisation — observer contract: writes ONE
+            # overlay record to .beads/overlays.jsonl and nothing else. No
+            # beads, no associations, no claims; the backbone is untouched.
+            from core_memory.graph.storylines import overlays_path, read_active_overlays
+            from core_memory.persistence.io_utils import append_jsonl
+            from core_memory.schema.storyline_overlay import (
+                build_storyline_overlay,
+                validate_storyline_overlay,
+            )
+
+            conv_key = str(target.get("convergence_key") or "")
+            predecessor_id: str | None = None
+            if conv_key:
+                for prior in read_active_overlays(root):
+                    if str(prior.get("convergence_key") or "") == conv_key:
+                        predecessor_id = str(prior.get("id") or "") or None
+                        break
+
+            overlay = build_storyline_overlay(
+                kind="narrative",
+                statement=str(target.get("statement") or target.get("rationale") or ""),
+                supporting_worldline_ids=list(target.get("supporting_worldline_ids") or []),
+                supporting_bead_ids=list(target.get("supporting_bead_ids") or []),
+                confidence=float(target.get("confidence") or 0.0),
+                convergence_key=conv_key,
+                expected_revision_triggers=list(target.get("expected_revision_triggers") or []),
+                supersedes_overlay_id=predecessor_id,
+                run_metadata={
+                    **dict(target.get("run_metadata") or {}),
+                    "candidate_id": cid,
+                    "reviewer": str(reviewer or ""),
+                },
+            )
+            ok_overlay, err_code, err_details = validate_storyline_overlay(overlay)
+            if not ok_overlay:
+                _write_candidates(root, rows)
+                return {
+                    "ok": False,
+                    "error": {"code": err_code, **err_details},
+                    "candidate_id": cid,
+                }
+            append_jsonl(overlays_path(root), overlay)
+            applied = {
+                "ok": True,
+                "application_mode": "storyline_overlay_written",
+                "overlay_id": overlay["id"],
+                "supersedes_overlay_id": predecessor_id,
+            }
+            _write_candidates(root, rows)
+            return {
+                "ok": True,
+                "candidate_id": cid,
+                "status": target.get("status"),
+                "applied": applied,
+                "path": str(_candidates_path(root)),
+            }
+
         if hypothesis_type == "contradiction_pressure_candidate":
             from core_memory.claim.conflict_review import (
                 RESOLUTION_BOTH_VALID,

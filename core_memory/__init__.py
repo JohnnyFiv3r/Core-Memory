@@ -32,6 +32,7 @@ from .retrieval.contracts import (
 )
 from .integrations.api import hydrate_bead_sources
 from .graph.worldlines import derive_worldlines, worldline_membership
+from .graph.storylines import derive_storylines
 from ._version import VERSION, __version__
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
@@ -91,6 +92,7 @@ __all__ = [
     "create_backend",
     "hydrate_bead_sources",
     "derive_worldlines",
+    "derive_storylines",
     "worldline_membership",
     "Bead",
     "BeadType",

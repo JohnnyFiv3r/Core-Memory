@@ -223,6 +223,15 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             },
         )
 
+        # Storyline overlays: detect worldline convergence and enqueue
+        # narrative candidates (threshold-gated; decide flow still required).
+        convergence_out: dict[str, Any] = {"ok": True, "detected": 0, "enqueued": 0}
+        try:
+            from core_memory.runtime.dreamer.convergence import enqueue_narrative_candidates
+            convergence_out = enqueue_narrative_candidates(root, run_id=run_id, source="side_effect_queue")
+        except Exception:
+            convergence_out = {"ok": False, "error": "convergence_detection_failed"}
+
         # Synthesize themes from the updated candidate pool and enqueue them.
         theme_queue_out: dict[str, Any] = {"ok": True, "added": 0, "quarantined": 0}
         try:
@@ -242,6 +251,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "result_count": len(out) if isinstance(out, list) else 0,
             "candidate_queue": queue_out,
             "theme_queue": theme_queue_out,
+            "convergence": convergence_out,
         }
 
     if k == "neo4j-sync":
