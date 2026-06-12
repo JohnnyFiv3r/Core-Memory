@@ -556,6 +556,40 @@ async def memory_confirm(
     return out
 
 
+@app.post("/v1/ingest/github")
+async def ingest_github_webhook(
+    request: Request,
+    root: Optional[str] = None,
+    x_github_event: Optional[str] = Header(default=None),
+    x_github_delivery: Optional[str] = Header(default=None),
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """GitHub webhook receiver — example system-of-record connector.
+
+    Only bead-worthy events (merged PRs, closed issues, published releases,
+    default-branch doc changes) write beads; everything else returns a
+    skip receipt.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory.integrations.github import ingest_github_event
+
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_json_body", "contract": "ingest.github.v1"})
+    try:
+        return ingest_github_event(
+            root=_resolve_root(root, x_tenant_id),
+            event_name=str(x_github_event or ""),
+            event=body if isinstance(body, dict) else {},
+            delivery_id=str(x_github_delivery or ""),
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "ingest.github.v1"})
+
+
 @app.post("/v1/memory/structured-observation")
 async def memory_structured_observation(
     payload: ExternalEvidenceRequest,
