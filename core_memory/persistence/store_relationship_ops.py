@@ -6,6 +6,7 @@ from typing import Any, Optional
 
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import store_lock
+from core_memory.persistence.store_lifecycle_ops import raise_confidence_class_for_bead
 from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
 
 
@@ -44,6 +45,7 @@ def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] 
         bead["promotion_locked"] = True
         bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
         bead["promotion_reason"] = (promotion_reason or bead.get("promotion_reason") or "policy_auto_promote").strip()
+        raise_confidence_class_for_bead(bead, "A")
 
         index["beads"][bead_id] = bead
         store._write_json(store.beads_dir / "index.json", index)
@@ -129,6 +131,7 @@ def recall_for_store(store: Any, bead_id: str) -> bool:
         bead = index["beads"][bead_id]
         bead["recall_count"] = bead.get("recall_count", 0) + 1
         bead["last_recalled"] = datetime.now(timezone.utc).isoformat()
+        raise_confidence_class_for_bead(bead, "B")
 
         index["beads"][bead_id] = bead
         store._write_json(store.beads_dir / "index.json", index)

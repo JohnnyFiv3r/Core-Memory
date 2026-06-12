@@ -130,3 +130,28 @@ No new `BeadType` members. In priority order:
    `already_exists` drop for changed content). — M
 4. Add `ASSERTION_KINDS`; move external flag vocabularies into `normalization.py`. — S
 5. Make external-anchor promotion policy explicit. — S
+
+---
+
+## Addendum (2026-06-12) — implemented
+
+Direction confirmed: no mutations — beads stay immutable; adjusted sources are
+represented as version chains. Items implemented in this branch:
+
+- **§2 (reframed):** re-ingest of an adjusted document/record writes a new
+  version bead + `supersedes` chain; prior version closed (`status=superseded`,
+  `effective_to`). See `docs/contracts/external_evidence_contract.md` →
+  "Source version supersession".
+- **Current-truth guard:** superseded versions excluded from the visible
+  corpus; provenance callers opt in via `include_superseded`.
+- **§3.1:** `Authority` extended with `source_attributed` / `derived_analysis`.
+- **§3.3 + §3.4 (item 4):** `ASSERTION_KINDS` added; external flag
+  vocabularies relocated to `schema/normalization.py`.
+- **§3.7 (item 5):** explicit promotion priors + durability multipliers for
+  all external types.
+- **New:** confidence classes (C/B/A, FaultLine-inspired) as truth/governance
+  status distinct from myelination, plus the `confirm_bead` user-confirmation
+  surface (public API, store, HTTP). See `docs/confidence_class.md`.
+- **§3.2 (`RECORD_ACTIONS`) intentionally not added:** the versioning model
+  replaced the mutation-action framing; `record_action` remains a free-form
+  source-side descriptor.

@@ -45,6 +45,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
     hints = dict(req.get("hints") or facets.get("hints") or {})
 
     require_structural = bool(req.get("require_structural", constraints.get("require_structural", False)))
+    include_superseded = bool(req.get("include_superseded", constraints.get("include_superseded", False)))
 
     submission = {
         "query_text": query,
@@ -60,6 +61,7 @@ def _normalize_search_request(request: dict | None) -> tuple[dict[str, Any], dic
         "avoid_terms": avoid_terms,
         "time_range": time_range,
         "require_structural": require_structural,
+        "include_superseded": include_superseded,
         "hints": hints,
     }
     normalization = {

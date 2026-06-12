@@ -514,6 +514,18 @@ class MemoryStore:
 
         return recall_for_store(self, bead_id=bead_id)
 
+    def supersede(self, bead_id: str, successor_id: str) -> bool:
+        """Mark a bead superseded by a successor (version chain, immutable)."""
+        from ..persistence.store_lifecycle_ops import mark_bead_superseded_for_store
+
+        return mark_bead_superseded_for_store(self, bead_id=bead_id, successor_id=successor_id)
+
+    def confirm(self, bead_id: str, note: str = "") -> bool:
+        """Record user confirmation: authority=user_confirmed, confidence class A."""
+        from ..persistence.store_lifecycle_ops import confirm_bead_for_store
+
+        return confirm_bead_for_store(self, bead_id=bead_id, note=note)
+
     def dream(self, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
         """Run Dreamer association analysis."""
         try:

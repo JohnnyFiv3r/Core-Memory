@@ -900,7 +900,11 @@ def search_request(
 ) -> dict[str, Any]:
     rp = Path(root)
     _caps = get_backend_capabilities(rp / ".beads")
-    corpus = build_visible_corpus(rp)
+    sub_preview = dict(submission or {})
+    # Current-truth guard: superseded versions enter the corpus only when a
+    # provenance caller opts in explicitly.
+    include_superseded = bool(sub_preview.get("include_superseded"))
+    corpus = build_visible_corpus(rp, include_superseded=include_superseded)
     catalog = build_catalog(rp)
     entity_registry = load_entity_registry(rp)
     entity_context = infer_query_entity_context(query, entity_registry)

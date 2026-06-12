@@ -27,6 +27,14 @@ BEAD_TYPE_PRIORS = {
     "incident": 0.65,
     "context": 0.35,
     "checkpoint": 0.35,
+    # External anchors point at caller-owned source stores; the source is the
+    # durable record, so anchors carry low promotion priors by design. Derived
+    # state (state_assertion) is knowledge, not an anchor, and scores like
+    # data_insight.
+    "transcript": 0.30,
+    "document_reference": 0.30,
+    "structured_observation": 0.40,
+    "state_assertion": 0.55,
 }
 
 DEFAULT_THRESHOLD = 0.72
@@ -294,6 +302,11 @@ TYPE_DURABILITY_MULTIPLIERS: dict[str, float] = {
     "blocked": 1.0,
     "context": 1.0,
     "checkpoint": 1.0,
+    # External anchors decay like context; derived state persists like insight.
+    "transcript": 1.0,
+    "document_reference": 1.0,
+    "structured_observation": 1.0,
+    "state_assertion": 1.5,
 }
 
 # Types guaranteed in rolling window if available (type diversity pass)

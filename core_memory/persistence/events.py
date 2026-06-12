@@ -30,6 +30,7 @@ EVENT_BEAD_RECALLED = "bead_recalled"
 EVENT_ASSOCIATION_CREATED = "association_created"
 EVENT_BEAD_COMPACTED = "bead_compacted"
 EVENT_BEAD_SUPERSEDED = "bead_superseded"
+EVENT_BEAD_CONFIRMED = "bead_confirmed"
 EVENT_EDGE_TRAVERSED = "edge_traversed"
 
 

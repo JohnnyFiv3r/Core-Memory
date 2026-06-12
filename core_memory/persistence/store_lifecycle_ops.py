@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Any
+
+from core_memory.persistence import events
+from core_memory.persistence.io_utils import append_jsonl, store_lock
+from core_memory.retrieval.lifecycle import mark_semantic_dirty
+from core_memory.schema.normalization import confidence_class_rank, normalize_confidence_class
 
 
 def close_store_for_store(store: Any) -> None:
@@ -12,4 +18,100 @@ def close_store_for_store(store: Any) -> None:
             pass
 
 
-__all__ = ["close_store_for_store"]
+def _append_bead_delta(store: Any, bead: dict, delta: dict) -> None:
+    """Append a delta line to the bead's session surface.
+
+    The visible-corpus builder merges session lines over the index projection,
+    so post-write lifecycle changes must land on both surfaces or the session
+    overlay silently reverts them.
+    """
+    session_id = str(bead.get("session_id") or "").strip()
+    if not session_id:
+        return
+    line = {"id": str(bead.get("id") or "")}
+    line.update(delta)
+    append_jsonl(store.beads_dir / f"session-{session_id}.jsonl", line)
+
+
+def mark_bead_superseded_for_store(store: Any, *, bead_id: str, successor_id: str) -> bool:
+    """Mark a bead superseded by a successor. Beads are immutable records;
+    supersession closes the old version's validity window and points at the
+    new one — it never rewrites content."""
+    now = datetime.now(timezone.utc).isoformat()
+    with store_lock(store.root):
+        index = store._read_json(store.beads_dir / "index.json")
+        bead = (index.get("beads") or {}).get(bead_id)
+        if not isinstance(bead, dict):
+            return False
+
+        superseded_by = [str(x) for x in (bead.get("superseded_by") or []) if str(x).strip()]
+        if successor_id not in superseded_by:
+            superseded_by.append(successor_id)
+
+        delta = {
+            "status": "superseded",
+            "superseded_by": superseded_by,
+            "effective_to": str(bead.get("effective_to") or "") or now,
+        }
+        bead.update(delta)
+        index["beads"][bead_id] = bead
+        store._write_json(store.beads_dir / "index.json", index)
+
+        _append_bead_delta(store, bead, delta)
+        events.append_event(
+            root=store.root,
+            session_id=str(bead.get("session_id") or "") or None,
+            event_type=events.EVENT_BEAD_SUPERSEDED,
+            payload={"bead_id": bead_id, "successor_bead_id": successor_id},
+            use_lock=False,
+        )
+        mark_semantic_dirty(store.root, reason="supersede")
+    return True
+
+
+def confirm_bead_for_store(store: Any, *, bead_id: str, note: str = "") -> bool:
+    """Record user confirmation: authority becomes user_confirmed and the
+    confidence class is raised to A (canonical / operationally trusted)."""
+    with store_lock(store.root):
+        index = store._read_json(store.beads_dir / "index.json")
+        bead = (index.get("beads") or {}).get(bead_id)
+        if not isinstance(bead, dict):
+            return False
+
+        delta = {
+            "authority": "user_confirmed",
+            "confidence_class": "A",
+        }
+        bead.update(delta)
+        index["beads"][bead_id] = bead
+        store._write_json(store.beads_dir / "index.json", index)
+
+        _append_bead_delta(store, bead, delta)
+        events.append_event(
+            root=store.root,
+            session_id=str(bead.get("session_id") or "") or None,
+            event_type=events.EVENT_BEAD_CONFIRMED,
+            payload={"bead_id": bead_id, "note": str(note or "")},
+            use_lock=False,
+        )
+        mark_semantic_dirty(store.root, reason="confirm")
+    return True
+
+
+def raise_confidence_class_for_bead(bead: dict, floor: str) -> bool:
+    """Raise a bead dict's confidence class to at least `floor`. Returns True
+    when the class changed. Monotonic — never lowers an existing class."""
+    current = normalize_confidence_class(bead.get("confidence_class"))
+    target = normalize_confidence_class(floor)
+    if confidence_class_rank(target) > confidence_class_rank(current):
+        bead["confidence_class"] = target
+        return True
+    return False
+
+
+__all__ = [
+    "close_store_for_store",
+    "confirm_bead_for_store",
+    "mark_bead_superseded_for_store",
+    "raise_confidence_class_for_bead",
+]

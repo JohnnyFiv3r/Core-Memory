@@ -83,6 +83,77 @@ INCIDENT_SEVERITIES = {"low", "medium", "high", "critical"}
 TOOL_RESULT_STATUSES = {"success", "failure"}
 TESTED_BY_VALUES = {"tool", "reasoning", "observation"}
 
+# Canonical assertion kinds for state_assertion beads
+ASSERTION_KINDS = {
+    "business_state",
+    "document_claim",
+    "entity_attribute",
+    "metric_state",
+}
+
+ASSERTION_KIND_ALIASES = {
+    "derived_business_state": "business_state",
+    "document_observation": "document_claim",
+}
+
+# External evidence routing vocabulary. These are the canonical flag sets the
+# typed ingest path uses to route external payloads to bead types. They live
+# here (not in runtime/ingest) because they are schema vocabulary.
+EXTERNAL_TRANSCRIPT_FLAGS = {
+    "transcript",
+    "conversation.transcript",
+    "conversation_transcript",
+}
+EXTERNAL_DOCUMENT_FLAGS = {
+    "document",
+    "media",
+    "document.media",
+    "document_media",
+    "document/media",
+    "document_reference",
+    "media_reference",
+}
+EXTERNAL_RELATIONAL_FLAGS = {
+    "relational",
+    "relational.data",
+    "relational_data",
+    "structured",
+    "structured_observation",
+    "data_insight",
+}
+EXTERNAL_STATE_ASSERTION_FLAGS = {
+    "state_assertion",
+    "derived_business_state",
+    "business_state",
+    "document_claim",
+    "document_observation",
+}
+EXTERNAL_BEAD_TYPES = {
+    "transcript",
+    "document_reference",
+    "structured_observation",
+    "state_assertion",
+    "data_insight",
+}
+
+# Confidence classes — truth/governance status, distinct from myelination
+# (edge/use strength). C = captured candidate, B = reinforced / used /
+# supported, A = canonical / user-confirmed / operationally trusted.
+CONFIDENCE_CLASSES = {"C", "B", "A"}
+
+CONFIDENCE_CLASS_ALIASES = {
+    "captured": "C",
+    "candidate": "C",
+    "reinforced": "B",
+    "used": "B",
+    "supported": "B",
+    "canonical": "A",
+    "confirmed": "A",
+    "trusted": "A",
+}
+
+_CONFIDENCE_CLASS_RANK = {"C": 0, "B": 1, "A": 2}
+
 # Canonical structural/semantic relation types
 CANONICAL_RELATION_TYPES = {
     "caused_by",
@@ -249,6 +320,49 @@ PROMOTION_STATES = {
     "candidate",
     "promoted",
 }
+
+
+def normalize_assertion_kind(value: str | None) -> str:
+    """Canonical assertion kind; unknown non-empty values are preserved."""
+    raw = str(value or "").strip()
+    v = raw.lower()
+    if not v:
+        return "business_state"
+    v = ASSERTION_KIND_ALIASES.get(v, v)
+    if v in ASSERTION_KINDS:
+        return v
+    return raw
+
+
+def normalize_confidence_class(value: str | None, *, default: str = "C") -> str:
+    v = str(value or "").strip()
+    if not v:
+        return default
+    upper = v.upper()
+    if upper in CONFIDENCE_CLASSES:
+        return upper
+    return CONFIDENCE_CLASS_ALIASES.get(v.lower(), default)
+
+
+def confidence_class_rank(value: str | None) -> int:
+    return _CONFIDENCE_CLASS_RANK.get(normalize_confidence_class(value), 0)
+
+
+def derive_confidence_class(bead: dict | None) -> str:
+    """Floor confidence class implied by a bead's lifecycle fields.
+
+    Governance status, not retrieval strength: promotion and user confirmation
+    grant A; reinforcement signals (recall, candidate marking) grant B.
+    """
+    b = bead or {}
+    authority = str(b.get("authority") or "").strip().lower()
+    if bool(b.get("promoted")) or authority == "user_confirmed":
+        return "A"
+    if str(b.get("status") or "").strip().lower() == "promoted" or str(b.get("promotion_state") or "").strip().lower() == "promoted":
+        return "A"
+    if bool(b.get("promotion_candidate")) or int(b.get("recall_count") or 0) > 0:
+        return "B"
+    return "C"
 
 
 def normalize_claim_kind(value: str | None) -> str:

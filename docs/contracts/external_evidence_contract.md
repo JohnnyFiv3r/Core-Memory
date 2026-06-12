@@ -142,3 +142,29 @@ Successful writes return:
 ```
 
 Repeated writes with the same `source_event_id` return `status: "already_exists"` and the existing bead id.
+
+## Source version supersession
+
+Beads are immutable. When a known source object (same `source_id` +
+`document_id` / `source_record_id` / `transcript_id`) arrives with a **new**
+`source_event_id` and **changed** content, the ingest path writes a new
+version bead and closes the prior one — it never edits in place:
+
+- the new bead carries `supersedes: ["<prior bead id>"]`
+- the prior bead gets `status: "superseded"`, `superseded_by`, and
+  `effective_to` (its validity window closes)
+- a `supersedes` association (new → old) is written so provenance surfaces
+  can walk the version chain
+- the receipt returns `status: "version_superseded"` with
+  `superseded_bead_id`
+
+Idempotency rules, in order:
+
+1. Same `source_event_id` as any existing version (current or superseded) →
+   `already_exists`. Event re-delivery never creates churn.
+2. New `source_event_id` but identical content → `already_exists`.
+3. New `source_event_id` and changed content → new version, prior superseded.
+
+Retrieval returns current truth only: superseded versions are excluded from
+the visible corpus unless a caller passes `include_superseded: true`
+(provenance reporting).

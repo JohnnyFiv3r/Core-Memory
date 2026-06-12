@@ -141,6 +141,12 @@ class ExternalEvidenceRequest(BaseModel):
         return data
 
 
+class ConfirmBeadRequest(BaseModel):
+    root: Optional[str] = None
+    bead_id: str
+    note: str = ""
+
+
 class MemoryTraceRequest(BaseModel):
     root: Optional[str] = None
     query: str = ""
@@ -527,6 +533,27 @@ async def memory_external_evidence(
         )
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.external_evidence.v1"})
+
+
+@app.post("/v1/memory/confirm")
+async def memory_confirm(
+    payload: ConfirmBeadRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """User-confirmation surface: authority=user_confirmed, confidence class A."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import confirm_bead
+
+    out = confirm_bead(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_id=payload.bead_id,
+        note=payload.note,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content={**out, "contract": "memory.confirm.v1"})
+    return out
 
 
 @app.post("/v1/memory/structured-observation")
