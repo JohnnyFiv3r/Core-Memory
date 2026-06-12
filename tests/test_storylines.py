@@ -149,6 +149,35 @@ class TestDecideFlowMaterialisation(unittest.TestCase):
             reviewer="test", apply=True,
         )
 
+    def test_retried_accept_is_idempotent(self):
+        # A double-submit / timeout retry of the same decision must return the
+        # original application — one decision, at most one overlay. Without
+        # this, a retry appends a duplicate revision that supersedes its own
+        # predecessor, inflating history without any new review.
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            _convergent_fixture(root)
+            first = self._accept_first_candidate(root)
+            cid = first["candidate_id"]
+            overlay_id = first["applied"]["overlay_id"]
+
+            retry = decide_dreamer_candidate(
+                root=root, candidate_id=cid, decision="accept",
+                reviewer="test", apply=True,
+            )
+            self.assertTrue(retry["ok"])
+            self.assertEqual("already_applied", retry["applied"]["application_mode"])
+            self.assertEqual(overlay_id, retry["applied"]["overlay_id"])
+
+            overlays = read_active_overlays(root)
+            self.assertEqual(1, len(overlays))
+            self.assertEqual(overlay_id, overlays[0]["id"])
+            # History not inflated: exactly one record total.
+            storylines = derive_storylines(root)["storylines"]
+            self.assertEqual(
+                1, max(s["overlay_history_count"] for s in storylines if s["overlays"]),
+            )
+
     def test_accept_writes_one_overlay_and_nothing_else(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
@@ -195,6 +224,8 @@ class TestDecideFlowMaterialisation(unittest.TestCase):
             template = next(r for r in rows if r["hypothesis_type"] == "narrative_candidate")
             revised = {**template, "id": "dc-revised000001", "status": "pending",
                        "statement": "revised interpretation"}
+            # A freshly generated candidate never carries an application marker.
+            revised.pop("applied_overlay_id", None)
             rows.append(revised)
             _write_candidates(root, rows)
 

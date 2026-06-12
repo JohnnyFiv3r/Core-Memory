@@ -497,12 +497,38 @@ def decide_dreamer_candidate(
             # Storyline overlay materialisation — observer contract: writes ONE
             # overlay record to .beads/overlays.jsonl and nothing else. No
             # beads, no associations, no claims; the backbone is untouched.
-            from core_memory.graph.storylines import overlays_path, read_active_overlays
+            from core_memory.graph.storylines import overlays_path, read_active_overlays, read_all_overlays
             from core_memory.persistence.io_utils import append_jsonl
             from core_memory.schema.storyline_overlay import (
                 build_storyline_overlay,
                 validate_storyline_overlay,
             )
+
+            # Idempotency: one decision materialises at most one overlay. A
+            # retried accept (client timeout, double-submit) must return the
+            # original application — never append a duplicate revision that
+            # supersedes its own predecessor without new review.
+            existing_overlay_id = str(target.get("applied_overlay_id") or "")
+            if not existing_overlay_id:
+                for prior in read_all_overlays(root):
+                    meta = prior.get("run_metadata") if isinstance(prior.get("run_metadata"), dict) else {}
+                    if str(meta.get("candidate_id") or "") == cid:
+                        existing_overlay_id = str(prior.get("id") or "")
+                        break
+            if existing_overlay_id:
+                target["applied_overlay_id"] = existing_overlay_id
+                _write_candidates(root, rows)
+                return {
+                    "ok": True,
+                    "candidate_id": cid,
+                    "status": target.get("status"),
+                    "applied": {
+                        "ok": True,
+                        "application_mode": "already_applied",
+                        "overlay_id": existing_overlay_id,
+                    },
+                    "path": str(_candidates_path(root)),
+                }
 
             conv_key = str(target.get("convergence_key") or "")
             predecessor_id: str | None = None
@@ -536,6 +562,7 @@ def decide_dreamer_candidate(
                     "candidate_id": cid,
                 }
             append_jsonl(overlays_path(root), overlay)
+            target["applied_overlay_id"] = overlay["id"]
             applied = {
                 "ok": True,
                 "application_mode": "storyline_overlay_written",
