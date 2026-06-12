@@ -11,9 +11,6 @@ Confidence class is the **truth/governance status** of a bead. It answers
 | Changes via | lifecycle events (recall, promotion, user confirmation) | traversal and reinforcement |
 | Answers | "why didn't this incorrect thing become permanent?" | "why did retrieval prefer this path?" |
 
-The lifecycle is adapted from FaultLine's C/B/A promotion pattern
-(https://github.com/tkalevra/FaultLine), mapped to beads:
-
 | Class | Meaning | How a bead gets here |
 |---|---|---|
 | `C` | captured candidate | every new bead starts here |

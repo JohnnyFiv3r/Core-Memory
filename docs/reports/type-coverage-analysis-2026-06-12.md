@@ -149,9 +149,9 @@ represented as version chains. Items implemented in this branch:
   vocabularies relocated to `schema/normalization.py`.
 - **§3.7 (item 5):** explicit promotion priors + durability multipliers for
   all external types.
-- **New:** confidence classes (C/B/A, FaultLine-inspired) as truth/governance
-  status distinct from myelination, plus the `confirm_bead` user-confirmation
-  surface (public API, store, HTTP). See `docs/confidence_class.md`.
+- **New:** confidence classes (C/B/A) as truth/governance status distinct
+  from myelination, plus the `confirm_bead` user-confirmation surface
+  (public API, store, HTTP). See `docs/confidence_class.md`.
 - **§3.2 (`RECORD_ACTIONS`) intentionally not added:** the versioning model
   replaced the mutation-action framing; `record_action` remains a free-form
   source-side descriptor.
