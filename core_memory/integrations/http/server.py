@@ -857,6 +857,35 @@ async def memory_projection_worldlines(
     return out
 
 
+@app.get("/v1/memory/projection/storylines")
+async def memory_projection_storylines(
+    root: Optional[str] = None,
+    kinds: Optional[str] = None,
+    min_length: int = 1,
+    include_superseded: bool = False,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Storylines: worldline backbones + interpretive overlays + tensions.
+
+    backbone = grounded causal history (derived, evidence-backed);
+    overlays = accepted dreamer interpretations (versioned, falsifiable);
+    tensions = computed (competing overlays, claim-slot conflicts).
+    The overlay layer is never an input to backbone derivation.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory.graph.storylines import derive_storylines
+    resolved = _resolve_root(root, x_tenant_id)
+    kind_list = [k.strip() for k in str(kinds or "").split(",") if k.strip()] or None
+    return derive_storylines(
+        resolved,
+        kinds=kind_list,
+        min_length=int(min_length),
+        include_superseded=bool(include_superseded),
+    )
+
+
 @app.get("/v1/memory/continuity")
 async def memory_continuity(
     root: Optional[str] = None,

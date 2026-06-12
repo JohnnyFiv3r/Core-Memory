@@ -1,8 +1,40 @@
 # PRD: Dreamer v2 — Continuity Observer
 
-Status: Proposed
+Status: Partially shipped (storyline overlay slice); remainder Proposed
 Depends on: worldline derivation (shipped), dreamer candidate queue (shipped),
 myelination v2 / continuity manifest (`myelination-v2-continuity-strength.md`)
+
+---
+
+## Update — Storylines rescope (shipped)
+
+The narrative slice shipped under the **Storyline** product framing:
+`storyline = worldline backbone + interpretive overlay`. Naming change from
+this PRD's draft: overlay records are **`storyline_overlay.v1`**, not
+"observations" — the grounded `structured-observation` ingest type is a
+different, factual thing and the vocabulary must never blur interpretation
+into fact.
+
+Shipped:
+- `schema/storyline_overlay.py` — gate (untraceable ⇒ rejected), versioning
+  via `supersedes_overlay_id`, falsifiability via
+  `expected_revision_triggers`.
+- `runtime/dreamer/convergence.py` — deterministic worldline-convergence
+  detector (Slice A); threshold-gated `narrative_candidate` emission, wired
+  into the `dreamer-run` job. Overlays are earned, never ambient.
+- Accept-path materialisation to append-only `.beads/overlays.jsonl`
+  (observer contract: one overlay record, zero beads/associations/claims).
+- `graph/storylines.py` + `core_memory.derive_storylines` +
+  `GET /v1/memory/projection/storylines` — backbone + overlays + computed
+  tensions (competing overlays, claim-slot conflicts).
+- One-way invariant under test: backbone derivation byte-identical with and
+  without overlays present; backbone modules grep-guarded against reading
+  overlay records.
+
+Still open from this PRD: attractor detection over continuity depth
+(needs myelination-v2 Slice B), value-pattern families, LLM statement
+refinement, revision-trigger staleness checks at flush, and the seeded
+recall/precision benchmark.
 
 ---
 
