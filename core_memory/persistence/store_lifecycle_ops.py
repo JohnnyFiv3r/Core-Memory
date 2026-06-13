@@ -6,7 +6,11 @@ from typing import Any
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
-from core_memory.schema.normalization import confidence_class_rank, normalize_confidence_class
+from core_memory.schema.normalization import (
+    confidence_class_rank,
+    normalize_confidence_class,
+    normalize_grounding,
+)
 
 
 def close_store_for_store(store: Any) -> None:
@@ -77,10 +81,16 @@ def confirm_bead_for_store(store: Any, *, bead_id: str, note: str = "") -> bool:
         if not isinstance(bead, dict):
             return False
 
-        bead.update({
+        update = {
             "authority": "user_confirmed",
             "confidence_class": "A",
-        })
+        }
+        # A user-confirmed bead is no longer speculative — the human has
+        # grounded it. Lift the grounding so class A is consistent with the
+        # speculative ceiling (which otherwise caps speculative at B).
+        if normalize_grounding(bead.get("grounding")) == "speculative":
+            update["grounding"] = "inferred"
+        bead.update(update)
         index["beads"][bead_id] = bead
         store._write_json(store.beads_dir / "index.json", index)
 

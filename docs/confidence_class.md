@@ -13,9 +13,39 @@ Confidence class is the **truth/governance status** of a bead. It answers
 
 | Class | Meaning | How a bead gets here |
 |---|---|---|
-| `C` | captured candidate | every new bead starts here |
-| `B` | reinforced / used / supported | recalled at least once, or marked a promotion candidate |
+| `C` | captured candidate | uncorroborated inference, not yet reinforced |
+| `B` | reinforced / used / supported | recalled, marked a candidate, **or source-supported from birth** (see grounding) |
 | `A` | canonical / user-confirmed / operationally trusted | promoted, or confirmed by the user |
+
+## Grounding gates the ladder
+
+C/B/A is *one* framework, but the **epistemic grounding** of a bead — *how do
+we know it?* — gates where it can sit on the ladder. Grounding is a retained
+field (`grounding`) and an input to the class computation; it is distinct from
+both the lifecycle (how vetted over time) and `authority` (who asserted it).
+
+| `grounding` | Meaning | Effect on C/B/A |
+|---|---|---|
+| `observed` | primary source / system of record / direct user statement | enters at **B** (source-supported); can reach A |
+| `extracted` | parsed from a document or structured field | enters at **B**; can reach A |
+| `inferred` | agent reasoning over beads | enters at C; A only via promotion/confirmation |
+| `speculative` | hypothesis / overlay, untested | enters at C; **capped at B** until validated |
+
+Why this matters: it makes the "why didn't this incorrect thing become
+permanent?" guarantee *structural*. A speculative bead **cannot** reach A
+while it is speculative — not via recall, not even via promotion. The only way
+out of the cap is for the grounding itself to upgrade: a hypothesis whose
+`hypothesis_status` flips to `validated` is no longer speculative, and user
+confirmation lifts a speculative bead to `inferred` (the human has grounded
+it). Conversely, a primary-source observation is trusted (B) from birth rather
+than starting at C, because it is supported by its source before any use.
+
+Grounding defaults from bead type (`GROUNDING_BY_TYPE`): the external/source
+types (`structured_observation`, `operational_event`, `document_reference`,
+`transcript`) and `evidence` default to `observed`; agent reasoning types
+(`decision`, `lesson`, `state_assertion`, `data_insight`, …) to `inferred`;
+`hypothesis` to `speculative`. Connectors may set `grounding` explicitly (e.g.
+a claim parsed out of a document → `extracted`).
 
 ## Rules
 
@@ -36,10 +66,17 @@ Confidence class is the **truth/governance status** of a bead. It answers
 
 ## Vocabulary
 
-`schema/normalization.py`: `CONFIDENCE_CLASSES = {"C", "B", "A"}` with
-aliases (`captured`→C, `reinforced`/`used`/`supported`→B,
-`canonical`/`confirmed`/`trusted`→A), `normalize_confidence_class`,
-`confidence_class_rank`, `derive_confidence_class`.
+`schema/normalization.py`:
+- `CONFIDENCE_CLASSES = {"C", "B", "A"}` with aliases (`captured`→C,
+  `reinforced`/`used`/`supported`→B, `canonical`/`confirmed`/`trusted`→A),
+  `normalize_confidence_class`, `confidence_class_rank`,
+  `derive_confidence_class`.
+- `GROUNDING_LEVELS = {"observed", "extracted", "inferred", "speculative"}`
+  with aliases and `GROUNDING_BY_TYPE`, `normalize_grounding`,
+  `derive_grounding`, `resolve_grounding`.
+- `resolve_confidence_class(bead)` is the single entry point used by every
+  write path: `max(provided floor, derived)` then apply the speculative
+  ceiling. `derive_confidence_class` is grounding-aware.
 
 ## Confirmation surface
 
