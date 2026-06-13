@@ -10,7 +10,12 @@ from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract, is_generic_title
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.runtime.session.session_surface import read_session_surface
-from core_memory.schema.normalization import CANONICAL_BEAD_TYPES, normalize_bead_type
+from core_memory.schema.normalization import (
+    CANONICAL_BEAD_TYPES,
+    normalize_bead_type,
+    resolve_confidence_class,
+    resolve_grounding,
+)
 
 
 def _find_last_session_bead(index: dict, session_id: str) -> str | None:
@@ -84,7 +89,7 @@ def add_bead_for_store(
         "as_of_timestamp", "entity_refs", "attribute_tags",
         "derived_from", "derived_from_bead_ids", "assertion_kind",
         "assertion_subject", "assertion_predicate", "assertion_value",
-        "confidence_class", "actor",
+        "confidence_class", "grounding", "actor",
     }
 
     bead_id = store._generate_id()
@@ -123,6 +128,12 @@ def add_bead_for_store(
             bead.setdefault("attributed_entity_id", eid)
         if conf is not None:
             bead.setdefault("resolution_confidence", float(conf))
+
+    # Grounding (how this is known) gates the C/B/A class; resolve both via the
+    # shared resolvers so every write path computes them identically. Honors a
+    # caller-provided grounding/confidence_class in kwargs (monotonic floor).
+    bead["grounding"] = resolve_grounding(bead)
+    bead["confidence_class"] = resolve_confidence_class(bead)
 
     now_iso = bead.get("created_at") or datetime.now(timezone.utc).isoformat()
     if not bead.get("type_log"):

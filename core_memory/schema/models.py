@@ -34,8 +34,11 @@ from .normalization import (
     normalize_claim_kind,
     normalize_claim_update_decision,
     normalize_confidence_class,
+    normalize_grounding,
     normalize_relation_type,
     relation_kind,
+    resolve_confidence_class,
+    resolve_grounding,
 )
 
 
@@ -112,6 +115,15 @@ class ConfidenceClass(str, Enum):
     CAPTURED = "C"
     REINFORCED = "B"
     CANONICAL = "A"
+
+
+class Grounding(str, Enum):
+    """Epistemic grounding — how a bead is known. Gates the C/B/A ladder
+    (see resolve_confidence_class) and is retained for provenance."""
+    OBSERVED = "observed"
+    EXTRACTED = "extracted"
+    INFERRED = "inferred"
+    SPECULATIVE = "speculative"
 
 
 class RelationshipType(str, Enum):
@@ -440,15 +452,14 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     if out.get("assertion_kind"):
         out["assertion_kind"] = normalize_assertion_kind(out.get("assertion_kind"))
 
-    # Confidence class is monotonic: the stored class never reads below the
-    # floor implied by lifecycle fields (promoted / user_confirmed / recalled).
-    provided_class = normalize_confidence_class(out.get("confidence_class"))
-    derived_class = derive_confidence_class(out)
-    out["confidence_class"] = (
-        provided_class
-        if confidence_class_rank(provided_class) >= confidence_class_rank(derived_class)
-        else derived_class
-    )
+    # Grounding (how this is known) is resolved before the class because it
+    # gates the C/B/A ladder. Explicit value wins; otherwise derived from type.
+    out["grounding"] = resolve_grounding(out)
+
+    # Confidence class is monotonic: the stored class never reads below the floor
+    # implied by lifecycle fields (promoted / user_confirmed / recalled) or by
+    # grounding (observed/extracted enter at B; speculative is capped at B).
+    out["confidence_class"] = resolve_confidence_class(out)
 
     return out
 
@@ -686,6 +697,8 @@ class Bead:
 
     # Truth/governance status (C/B/A) — distinct from myelination
     confidence_class: str = "C"
+    # Epistemic grounding — how this is known; gates confidence_class
+    grounding: str = "inferred"
 
     # Contrast fields
     what_almost_happened: Optional[str] = None
