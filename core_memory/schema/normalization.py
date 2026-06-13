@@ -167,6 +167,27 @@ CONFIDENCE_CLASS_ALIASES = {
 
 _CONFIDENCE_CLASS_RANK = {"C": 0, "B": 1, "A": 2}
 
+# Human-in-the-loop approval workflow. A bead not in a review workflow has no
+# approval_status (None). pending = awaiting human review; approved = a human
+# signed off (grants confidence class A, like confirmation); rejected = a human
+# deemed it not memory-worthy (excluded from current-truth retrieval, retained
+# for audit). Distinct from confidence_class (which it can raise) and from
+# supersession (which is about truth changing, not human judgment).
+APPROVAL_STATUSES = {"pending", "approved", "rejected"}
+
+APPROVAL_STATUS_ALIASES = {
+    "awaiting_review": "pending",
+    "in_review": "pending",
+    "needs_approval": "pending",
+    "accept": "approved",
+    "accepted": "approved",
+    "confirm": "approved",
+    "confirmed": "approved",
+    "reject": "rejected",
+    "denied": "rejected",
+    "declined": "rejected",
+}
+
 # Epistemic grounding — HOW a bead is known. Distinct from the C/B/A lifecycle
 # (how vetted over time) and from authority (who asserted it). Grounding is an
 # input that GATES the C/B/A ladder, not a separate score:
@@ -414,6 +435,16 @@ def normalize_confidence_class(value: str | None, *, default: str = "C") -> str:
 
 def confidence_class_rank(value: str | None) -> int:
     return _CONFIDENCE_CLASS_RANK.get(normalize_confidence_class(value), 0)
+
+
+def normalize_approval_status(value: str | None) -> str | None:
+    """Canonical approval status, or None when not in a review workflow."""
+    v = str(value or "").strip().lower()
+    if not v:
+        return None
+    if v in APPROVAL_STATUSES:
+        return v
+    return APPROVAL_STATUS_ALIASES.get(v)
 
 
 def normalize_grounding(value: str | None, *, default: str = "inferred") -> str:

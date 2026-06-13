@@ -14,7 +14,15 @@ Canonical contributor docs:
 from .runtime.engine import process_turn_finalized, process_session_start, process_flush, emit_turn_finalized
 from .retrieval.tools.memory import search as memory_search, trace as memory_trace, execute as memory_execute
 from .retrieval.agent import recall
-from .memory import Memory, capture, confirm_bead
+from .memory import (
+    Memory,
+    approve_bead,
+    capture,
+    confirm_bead,
+    list_pending_approvals,
+    reject_bead,
+    request_approval,
+)
 from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .runtime.ingest import (
     SourceEventMapping,
@@ -54,6 +62,7 @@ from .schema.models import (
     Authority,
     ConfidenceClass,
     Grounding,
+    ApprovalStatus,
     RelationshipType,
     ImpactLevel,
     Association,
@@ -74,6 +83,10 @@ __all__ = [
     "RecallStep",
     "capture",
     "confirm_bead",
+    "approve_bead",
+    "reject_bead",
+    "request_approval",
+    "list_pending_approvals",
     "ingest_transcript",
     "normalize_transcript_payload",
     "ingest_external_evidence",
@@ -117,6 +130,7 @@ __all__ = [
     "Authority",
     "ConfidenceClass",
     "Grounding",
+    "ApprovalStatus",
     "RelationshipType",
     "ImpactLevel",
     "Association",

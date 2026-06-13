@@ -411,6 +411,65 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
             },
         )
 
+    @mcp.tool(
+        name="request_memory_approval",
+        description=_tool_description("request_memory_approval"),
+        structured_output=True,
+    )
+    def request_memory_approval_tool(
+        bead_id: str,
+        requested_by: str = "",
+        note: str = "",
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "request_memory_approval",
+            {"root": _root(root), "bead_id": bead_id, "requested_by": requested_by, "note": note},
+        )
+
+    @mcp.tool(
+        name="approve_memory",
+        description=_tool_description("approve_memory"),
+        structured_output=True,
+    )
+    def approve_memory_tool(
+        bead_id: str,
+        approver: str = "",
+        note: str = "",
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "approve_memory",
+            {"root": _root(root), "bead_id": bead_id, "approver": approver, "note": note},
+        )
+
+    @mcp.tool(
+        name="reject_memory",
+        description=_tool_description("reject_memory"),
+        structured_output=True,
+    )
+    def reject_memory_tool(
+        bead_id: str,
+        approver: str = "",
+        reason: str = "",
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "reject_memory",
+            {"root": _root(root), "bead_id": bead_id, "approver": approver, "reason": reason},
+        )
+
+    @mcp.tool(
+        name="list_pending_approvals",
+        description=_tool_description("list_pending_approvals"),
+        structured_output=True,
+    )
+    def list_pending_approvals_tool(
+        limit: int = 100,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool("list_pending_approvals", {"root": _root(root), "limit": limit})
+
     @mcp.prompt(name=PROMPT_NAME, description="Canonical Core Memory agent guide for MCP clients.")
     def core_memory_agent_guide() -> str:
         return load_agent_guide()

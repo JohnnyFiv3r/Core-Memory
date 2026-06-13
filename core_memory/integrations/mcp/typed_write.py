@@ -45,6 +45,45 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "request_memory_approval": {
+        "description": "Flag a bead as awaiting human review (approval_status=pending).",
+        "input": {
+            "type": "object",
+            "properties": {
+                "bead_id": {"type": "string"},
+                "requested_by": {"type": "string"},
+                "note": {"type": "string"},
+            },
+            "required": ["bead_id"],
+            "additionalProperties": False,
+        },
+    },
+    "approve_memory": {
+        "description": "Approve a bead under review: grants confidence class A and records the approver. Content is never edited.",
+        "input": {
+            "type": "object",
+            "properties": {
+                "bead_id": {"type": "string"},
+                "approver": {"type": "string"},
+                "note": {"type": "string"},
+            },
+            "required": ["bead_id"],
+            "additionalProperties": False,
+        },
+    },
+    "reject_memory": {
+        "description": "Reject a bead under review: excluded from current-truth retrieval, retained in the index for audit.",
+        "input": {
+            "type": "object",
+            "properties": {
+                "bead_id": {"type": "string"},
+                "approver": {"type": "string"},
+                "reason": {"type": "string"},
+            },
+            "required": ["bead_id"],
+            "additionalProperties": False,
+        },
+    },
     "apply_reviewed_proposal": {
         "description": (
             "Apply an accepted/rejected Dreamer proposal through canonical adjudication path. "
@@ -155,6 +194,30 @@ def write_turn_finalized(
         "processed": int(out.get("processed") or 0),
         "result": out,
     }
+
+
+def request_memory_approval(*, root: str = ".", bead_id: str, requested_by: str = "", note: str = "") -> dict[str, Any]:
+    from core_memory import request_approval
+
+    out = dict(request_approval(root=root, bead_id=str(bead_id or ""), requested_by=str(requested_by or ""), note=str(note or "")))
+    out.setdefault("contract", "mcp.request_memory_approval.v1")
+    return out
+
+
+def approve_memory(*, root: str = ".", bead_id: str, approver: str = "", note: str = "") -> dict[str, Any]:
+    from core_memory import approve_bead
+
+    out = dict(approve_bead(root=root, bead_id=str(bead_id or ""), approver=str(approver or ""), note=str(note or "")))
+    out.setdefault("contract", "mcp.approve_memory.v1")
+    return out
+
+
+def reject_memory(*, root: str = ".", bead_id: str, approver: str = "", reason: str = "") -> dict[str, Any]:
+    from core_memory import reject_bead
+
+    out = dict(reject_bead(root=root, bead_id=str(bead_id or ""), approver=str(approver or ""), reason=str(reason or "")))
+    out.setdefault("contract", "mcp.reject_memory.v1")
+    return out
 
 
 def apply_reviewed_proposal(

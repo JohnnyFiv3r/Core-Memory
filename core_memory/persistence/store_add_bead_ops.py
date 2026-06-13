@@ -90,6 +90,7 @@ def add_bead_for_store(
         "derived_from", "derived_from_bead_ids", "assertion_kind",
         "assertion_subject", "assertion_predicate", "assertion_value",
         "confidence_class", "grounding", "actor",
+        "approval_status", "approved_by", "approved_at", "approval_note",
     }
 
     bead_id = store._generate_id()

@@ -31,6 +31,9 @@ EVENT_ASSOCIATION_CREATED = "association_created"
 EVENT_BEAD_COMPACTED = "bead_compacted"
 EVENT_BEAD_SUPERSEDED = "bead_superseded"
 EVENT_BEAD_CONFIRMED = "bead_confirmed"
+EVENT_BEAD_APPROVAL_REQUESTED = "bead_approval_requested"
+EVENT_BEAD_APPROVED = "bead_approved"
+EVENT_BEAD_REJECTED = "bead_rejected"
 EVENT_EDGE_TRAVERSED = "edge_traversed"
 
 

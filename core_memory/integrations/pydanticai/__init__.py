@@ -9,6 +9,7 @@ from .memory_tools import (
     get_turn_tools_tool,
     get_adjacent_turns_tool,
     hydrate_bead_sources_tool,
+    memory_approval_tools,
 )
 
 __all__ = [
@@ -25,4 +26,5 @@ __all__ = [
     "get_turn_tools_tool",
     "get_adjacent_turns_tool",
     "hydrate_bead_sources_tool",
+    "memory_approval_tools",
 ]

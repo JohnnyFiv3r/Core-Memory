@@ -148,6 +148,27 @@ class ConfirmBeadRequest(BaseModel):
     note: str = ""
 
 
+class ApproveBeadRequest(BaseModel):
+    root: Optional[str] = None
+    bead_id: str
+    approver: str = ""
+    note: str = ""
+
+
+class RejectBeadRequest(BaseModel):
+    root: Optional[str] = None
+    bead_id: str
+    approver: str = ""
+    reason: str = ""
+
+
+class RequestApprovalRequest(BaseModel):
+    root: Optional[str] = None
+    bead_id: str
+    requested_by: str = ""
+    note: str = ""
+
+
 class MemoryTraceRequest(BaseModel):
     root: Optional[str] = None
     query: str = ""
@@ -555,6 +576,87 @@ async def memory_confirm(
     if not out.get("ok"):
         return JSONResponse(status_code=404, content={**out, "contract": "memory.confirm.v1"})
     return out
+
+
+@app.post("/v1/memory/request-approval")
+async def memory_request_approval(
+    payload: RequestApprovalRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Flag a bead as awaiting human review (approval_status=pending)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import request_approval
+
+    out = request_approval(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_id=payload.bead_id,
+        requested_by=payload.requested_by,
+        note=payload.note,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content={**out, "contract": "memory.request_approval.v1"})
+    return out
+
+
+@app.post("/v1/memory/approve")
+async def memory_approve(
+    payload: ApproveBeadRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Approve a bead under review: grants confidence class A, records approver."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import approve_bead
+
+    out = approve_bead(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_id=payload.bead_id,
+        approver=payload.approver,
+        note=payload.note,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content={**out, "contract": "memory.approve.v1"})
+    return out
+
+
+@app.post("/v1/memory/reject")
+async def memory_reject(
+    payload: RejectBeadRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Reject a bead under review: excluded from retrieval, retained for audit."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import reject_bead
+
+    out = reject_bead(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_id=payload.bead_id,
+        approver=payload.approver,
+        reason=payload.reason,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content={**out, "contract": "memory.reject.v1"})
+    return out
+
+
+@app.get("/v1/memory/pending-approvals")
+async def memory_pending_approvals(
+    root: Optional[str] = None,
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """List beads awaiting human review (approval_status=pending)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import list_pending_approvals
+
+    return list_pending_approvals(root=_resolve_root(root, x_tenant_id), limit=int(limit))
 
 
 @app.post("/v1/ingest/github")

@@ -526,6 +526,30 @@ class MemoryStore:
 
         return confirm_bead_for_store(self, bead_id=bead_id, note=note)
 
+    def request_approval(self, bead_id: str, requested_by: str = "", note: str = "") -> bool:
+        """Flag a bead as awaiting human review (approval_status=pending)."""
+        from ..persistence.store_approval_ops import request_bead_approval_for_store
+
+        return request_bead_approval_for_store(self, bead_id=bead_id, requested_by=requested_by, note=note)
+
+    def approve(self, bead_id: str, approver: str = "", note: str = "") -> bool:
+        """Approve a bead under review: grants confidence class A, records approver."""
+        from ..persistence.store_approval_ops import approve_bead_for_store
+
+        return approve_bead_for_store(self, bead_id=bead_id, approver=approver, note=note)
+
+    def reject(self, bead_id: str, approver: str = "", reason: str = "") -> bool:
+        """Reject a bead under review: excluded from retrieval, retained for audit."""
+        from ..persistence.store_approval_ops import reject_bead_for_store
+
+        return reject_bead_for_store(self, bead_id=bead_id, approver=approver, reason=reason)
+
+    def pending_approvals(self, limit: int = 100) -> list:
+        """List beads awaiting human review (approval_status=pending)."""
+        from ..persistence.store_approval_ops import list_pending_approvals_for_store
+
+        return list_pending_approvals_for_store(self, limit=limit)
+
     def dream(self, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
         """Run Dreamer association analysis."""
         try:
