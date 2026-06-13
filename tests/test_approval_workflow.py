@@ -48,7 +48,7 @@ class TestApprovalLifecycle(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(root=td)
             bid = _bead(store, session_id="s1")
-            r = request_approval(td, bid, requested_by="satorid", note="auto-written, needs sign-off")
+            r = request_approval(td, bid, requested_by="ingest-host", note="auto-written, needs sign-off")
             self.assertTrue(r["ok"])
             self.assertEqual("pending", r["approval_status"])
 
@@ -137,7 +137,7 @@ class TestApprovalMCPSurface(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(root=td)
             bid = _bead(store, session_id="s1")
-            req = call_tool("request_memory_approval", {"root": td, "bead_id": bid, "requested_by": "satorid"})
+            req = call_tool("request_memory_approval", {"root": td, "bead_id": bid, "requested_by": "ingest-host"})
             self.assertTrue(req["ok"])
             listed = call_tool("list_pending_approvals", {"root": td})
             self.assertEqual(1, listed["count"])

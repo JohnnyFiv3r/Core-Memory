@@ -1,6 +1,6 @@
-# External Data Schemas — Satorid Ingest Contract
+# External Data Schemas — Ingest Host Contract
 
-Core Memory does not own connectors. A host (Satorid) stores everything from a
+Core Memory does not own connectors. A connector host stores everything from a
 system of record, decides on its configured trigger which data is bead-worthy,
 and pushes a typed payload to Core Memory's ingest surface. Core Memory's job
 is to provide the **distinct bead schemas** every connection type needs and to
@@ -24,13 +24,13 @@ analysis *interprets* reality.
 | *(interpretive)* | `state_assertion` | `state_assertion` | a derived current state |
 | *(interpretive)* | `data_insight` | `data_insight` | an analytical finding |
 
-## The three schemas Satorid selects
+## The three schemas the host selects
 
-Satorid passes the schema to use — **document, data, or transcript** — and Core
+The connector host passes the schema to use — **document, data, or transcript** — and Core
 Memory routes by `data_type_flag` (or explicit `type`). All three are present
 with distinct required-field validation and a dedicated entry point:
 
-| Satorid schema | Entry point | Required fields (beyond title/summary) |
+| Host schema | Entry point | Required fields (beyond title/summary) |
 |---|---|---|
 | **document** | `ingest_document_reference` | `source_id`, `source_event_id`, `source_system`, `core_memory_unifying_id`, `hydration_ref`, `document_name`, and `document_id` or `ragie_document_id` |
 | **data** | `ingest_structured_observation` (also `ingest_operational_event`, `ingest_state_assertion`) | `source_id`, `source_event_id`, `source_system`, `core_memory_unifying_id`, `hydration_ref`, `source_table`, `source_record_id`, `as_of_timestamp`/`observed_at`, entities |

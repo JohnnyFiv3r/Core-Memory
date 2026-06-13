@@ -3,7 +3,7 @@
 A unified review gate over the bead store. Where `confirm` is a lightweight
 one-shot "I vouch for this," **approval** is the full workflow: a bead can be
 flagged `pending`, then `approved` (a human signs off) or `rejected` (a human
-deems it not memory-worthy). This is the review structure a Satorid-fed system
+deems it not memory-worthy). This is the review structure a connector-fed system
 needs — operational systems auto-write beads, and approval is the gate for the
 subset that needs human judgment.
 
@@ -40,7 +40,7 @@ grounded it), so confidence class A is consistent with the speculative ceiling.
 
 1. Explicitly: `request_approval(bead_id)` sets `approval_status=pending`.
 2. At write time: a connector sets `approval_status: "pending"` on the payload
-   (e.g. Satorid flags low-confidence or policy-sensitive auto-captures).
+   (e.g. an ingest host flags low-confidence or policy-sensitive auto-captures).
 
 ## Operations across every surface
 

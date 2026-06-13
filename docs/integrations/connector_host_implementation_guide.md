@@ -1,13 +1,15 @@
-# Satorid → Core Memory: Implementation Guide for Codex
+# Connector Host → Core Memory: Implementation Guide
 
-**Audience:** the Codex agent building Satorid.
-**Goal:** implement Satorid connectors that store everything from a system of
-record and, on a defined trigger, push only the bead-worthy data to Core Memory.
+**Audience:** the engineer (or coding agent) building a connector host.
+**Goal:** implement connectors that store everything from a system of record
+and, on a defined trigger, push only the bead-worthy data to Core Memory.
 
-This is a contract guide. Core Memory provides the schemas and invariants;
-Satorid owns the connectors, storage, triggers, and user configuration. **Do
-not add connector code to the Core Memory repo** — connectors live in Satorid
-and talk to Core Memory over the HTTP API documented here.
+This is a contract guide. Core Memory provides the schemas and invariants; the
+connector host owns the connectors, storage, triggers, and user configuration.
+**Do not add connector code to the Core Memory repo** — connectors live in the
+host and talk to Core Memory over the HTTP API documented here. Core Memory is
+a generic library: it treats every host and adapter equally and carries no
+deployment-specific names.
 
 ---
 
@@ -15,18 +17,18 @@ and talk to Core Memory over the HTTP API documented here.
 
 | Concern | Owner |
 |---|---|
-| Connecting to systems of record (GitHub, Jira, HubSpot, Zendesk, PagerDuty, Toast, SCADA, …) | **Satorid** |
-| Storing raw events/records/documents | **Satorid** (it is the hydration backend) |
-| Trigger definitions (when to push) | **Satorid** |
-| Per-connector user config (what may be used) | **Satorid** |
-| Deciding which events are bead-worthy | **Satorid** (admission policy) |
-| Normalizing a source event into a bead payload | **Satorid** |
+| Connecting to systems of record (GitHub, Jira, HubSpot, Zendesk, PagerDuty, Toast, SCADA, …) | **Host** |
+| Storing raw events/records/documents | **Host** (it is the hydration backend) |
+| Trigger definitions (when to push) | **Host** |
+| Per-connector user config (what may be used) | **Host** |
+| Deciding which events are bead-worthy | **Host** (admission policy) |
+| Normalizing a source event into a bead payload | **Host** |
 | Writing the bead, idempotency, versioning, retrieval, governance | **Core Memory** |
 
-Core Memory never reaches back into a system of record. Satorid pushes a
+Core Memory never reaches back into a system of record. The host pushes a
 **semantic anchor** (title, summary, structured fields, and a `hydration_ref`
 back to where the body lives). Bodies — document contents, full rows, ticket
-threads — stay in Satorid.
+threads — stay in the host.
 
 ---
 
@@ -62,7 +64,7 @@ calls).
 
 ## 3. Transport: the HTTP API
 
-Satorid is a separate service, so use the HTTP surface (not the Python API).
+The host is a separate service, so use the HTTP surface (not the Python API).
 
 **Base + auth.** Set `CORE_MEMORY_HTTP_TOKEN` on the Core Memory server. Send it
 on every request as either `Authorization: Bearer <token>` or
@@ -102,7 +104,7 @@ Content-Type: application/json
   "entities": ["Acme Corp"],
   "as_of_timestamp": "2026-06-12T15:00:00Z",
   "core_memory_unifying_id": "hubspot:deal:991",
-  "hydration_ref": {"store": "satorid", "ref": "hubspot/deals/991/events/001"}
+  "hydration_ref": {"store": "host", "ref": "hubspot/deals/991/events/001"}
 }
 ```
 
@@ -110,7 +112,7 @@ Content-Type: application/json
 
 Every ingest returns a receipt. Branch on `status`:
 
-| `status` | Meaning | Satorid action |
+| `status` | Meaning | Host action |
 |---|---|---|
 | `accepted` | new bead written | record `bead_id` |
 | `already_exists` | same `source_event_id` or identical content | no-op (safe replay) |
@@ -146,7 +148,7 @@ Identity fields drive the invariants — get them stable:
 - **`core_memory_unifying_id`** — opaque cross-store join key. Give the same id
   to related items across connectors (e.g. a Zoom transcript and a HubSpot deal
   for the same meeting) so retrieval can group them.
-- **`hydration_ref`** — `{store, ref}` pointing back into Satorid so Core Memory
+- **`hydration_ref`** — `{store, ref}` pointing back into the host so Core Memory
   can resolve the body on demand.
 
 ---
@@ -160,7 +162,7 @@ confidence class:
 |---|---|---|
 | `observed` | primary records from a system of record (default for the external types) | enters at **B** |
 | `extracted` | a value parsed out of a document/field | enters at **B** |
-| `inferred` | something Satorid computed/derived | enters at C |
+| `inferred` | something the host computed/derived | enters at C |
 | `speculative` | an untested guess | capped at B |
 
 For raw source events, leave it unset — the bead type defaults
@@ -171,10 +173,10 @@ to `observed`. Set it explicitly only when you parse or derive.
 
 ## 6. The admission layer (which events warrant beads)
 
-This is Satorid's core logic. Core Memory ships a reference engine
+This is the host's core logic. Core Memory ships a reference engine
 (`runtime/ingest/source_events.py`: `SourceEventMapping` + `SourceEventRule`)
 and a worked GitHub example (`integrations/github/connector.py`) — **read them
-as the pattern, then implement the equivalent in Satorid.**
+as the pattern, then implement the equivalent in the host.**
 
 The bar for a rule: *would an agent ever cite this event as evidence, context,
 or cause?* Admit records of change; skip workflow noise.
@@ -196,11 +198,11 @@ anomaly → `data_insight`, a reading of record → `structured_observation`.
 ## 7. User configuration: withholding data
 
 Users grant or withhold categories of data per connector. The rule is simple:
-**if the user withholds a data class, Satorid must not build a payload for it.**
-Enforce this in Satorid's admission layer *before* the HTTP call — Core Memory
+**if the user withholds a data class, the host must not build a payload for it.**
+Enforce this in the host's admission layer *before* the HTTP call — Core Memory
 has no visibility into what was withheld and will write whatever it receives.
 
-Recommended config shape (Satorid-side):
+Recommended config shape (host-side):
 
 ```yaml
 connectors:
@@ -215,7 +217,7 @@ connectors:
 
 When a class is `false`, the matching admission rules return no payload. When a
 field is excluded, strip it from `summary`/`detail`/structured fields before
-sending. This is the user's privacy boundary; honor it in Satorid.
+sending. This is the user's privacy boundary; honor it in the host.
 
 ---
 
@@ -237,11 +239,11 @@ Review surface:
 
 `pending` beads stay retrievable (a signal, not a quarantine). `approved` →
 confidence class A. `rejected` → excluded from retrieval but retained for audit.
-Satorid should surface the pending queue in its UI for the reviewing user.
+The host should surface the pending queue in its UI for the reviewing user.
 
 ---
 
-## 9. Invariants Core Memory guarantees (so Satorid doesn't reimplement them)
+## 9. Invariants Core Memory guarantees (so the host doesn't reimplement them)
 
 - **Idempotency** on `source_event_id` — push freely; replays are no-ops.
 - **Versioning** — a changed document/record supersedes its prior version; old
@@ -250,8 +252,8 @@ Satorid should surface the pending queue in its UI for the reviewing user.
 - **Current-truth retrieval** — superseded/rejected beads are excluded from
   recall by default.
 - **Grounding-gated confidence (C/B/A)** — trust is computed from grounding +
-  lifecycle; Satorid just sets `grounding` honestly.
-- **Anchors, not copies** — bodies stay in Satorid behind `hydration_ref`.
+  lifecycle; the host just sets `grounding` honestly.
+- **Anchors, not copies** — bodies stay in the host behind `hydration_ref`.
 
 Reference docs: `docs/integrations/external_data_schemas.md`,
 `docs/confidence_class.md`, `docs/approval_workflow.md`,
@@ -259,23 +261,23 @@ Reference docs: `docs/integrations/external_data_schemas.md`,
 
 ---
 
-## 10. Build checklist for Codex
+## 10. Build checklist
 
 1. **Webhook/poll receiver** per connector → normalize provider payload to a
-   neutral event object. Persist raw event in Satorid (you are the hydration
+   neutral event object. Persist raw event in the host (you are the hydration
    store).
 2. **Admission rules** per connector (the `SourceEventRule` pattern): match
    event kind, decline noise, honor user config. Output an external-evidence
    payload or nothing.
 3. **Payload builder** → set the correct schema (`data_type_flag`), the identity
-   fields (§4), `hydration_ref` back into Satorid, `core_memory_unifying_id`,
+   fields (§4), `hydration_ref` back into the host, `core_memory_unifying_id`,
    and `grounding` only when parsing/deriving.
 4. **HTTP client** → POST to the matching endpoint with auth header; branch on
    receipt `status` (§3); persist the returned `bead_id` keyed by your event.
 5. **Idempotency** → use the provider delivery id as `source_event_id`; trust
-   Core Memory to dedupe. Track `ingested_at` in Satorid to avoid re-polling.
+   Core Memory to dedupe. Track `ingested_at` in the host to avoid re-polling.
 6. **Approval wiring** → optionally set `approval_status: pending`; surface the
-   pending queue and approve/reject in Satorid's UI.
+   pending queue and approve/reject in the host's UI.
 7. **Config enforcement** → withhold categories/fields in the admission layer
    before any HTTP call.
 8. **Tests** per connector: admitted event → correct bead type + receipt;
