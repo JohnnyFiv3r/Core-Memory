@@ -29,6 +29,7 @@ from .normalization import (
     confidence_class_rank,
     derive_confidence_class,
     is_allowed_bead_type,
+    normalize_approval_status,
     normalize_assertion_kind,
     normalize_bead_type,
     normalize_claim_kind,
@@ -124,6 +125,14 @@ class Grounding(str, Enum):
     EXTRACTED = "extracted"
     INFERRED = "inferred"
     SPECULATIVE = "speculative"
+
+
+class ApprovalStatus(str, Enum):
+    """Human-in-the-loop review state. Absent (None) when a bead is not in a
+    review workflow."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class RelationshipType(str, Enum):
@@ -452,6 +461,10 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     if out.get("assertion_kind"):
         out["assertion_kind"] = normalize_assertion_kind(out.get("assertion_kind"))
 
+    # Approval workflow state (None unless the bead is under human review).
+    if "approval_status" in out:
+        out["approval_status"] = normalize_approval_status(out.get("approval_status"))
+
     # Grounding (how this is known) is resolved before the class because it
     # gates the C/B/A ladder. Explicit value wins; otherwise derived from type.
     out["grounding"] = resolve_grounding(out)
@@ -699,6 +712,11 @@ class Bead:
     confidence_class: str = "C"
     # Epistemic grounding — how this is known; gates confidence_class
     grounding: str = "inferred"
+    # Human-in-the-loop approval workflow (None when not under review)
+    approval_status: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_note: Optional[str] = None
 
     # Contrast fields
     what_almost_happened: Optional[str] = None

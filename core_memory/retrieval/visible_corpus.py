@@ -26,6 +26,11 @@ def _is_system_row(bead: dict[str, Any]) -> bool:
 
 
 def _admit(bead: dict[str, Any], include_system: bool = False, include_superseded: bool = False) -> bool:
+    # Human-rejected beads are removed from retrieval entirely (retained in the
+    # index for audit). Rejection is a judgment that the bead is not memory-
+    # worthy — unlike supersession, it is never surfaced as provenance history.
+    if str(bead.get("approval_status") or "").lower() == "rejected":
+        return False
     status = str(bead.get("status") or "").lower()
     if status == "superseded":
         # Current-truth guard: superseded versions are excluded from retrieval.

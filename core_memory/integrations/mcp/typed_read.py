@@ -59,6 +59,17 @@ def _trace_with_fallback(*, root: str, query: str, anchor_ids: list[str], k: int
 
 
 MCP_TYPED_READ_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
+    "list_pending_approvals": {
+        "description": "List beads awaiting human review (approval_status=pending).",
+        "input": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 100},
+            },
+            "required": [],
+            "additionalProperties": False,
+        },
+    },
     "query_current_state": {
         "description": "Resolve current claim-state for a subject/slot and include canonical retrieval evidence.",
         "input": {
@@ -143,6 +154,14 @@ def _window_dict(start: str | None, end: str | None) -> dict[str, str]:
         out["from"] = s
     if e:
         out["to"] = e
+    return out
+
+
+def list_pending_approvals(*, root: str = ".", limit: int = 100) -> dict[str, Any]:
+    from core_memory import list_pending_approvals as _list_pending
+
+    out = dict(_list_pending(root=root, limit=int(limit)))
+    out.setdefault("contract", "mcp.list_pending_approvals.v1")
     return out
 
 

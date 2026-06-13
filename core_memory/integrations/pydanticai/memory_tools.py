@@ -335,3 +335,43 @@ def hydrate_bead_sources_tool(root: Optional[str] = None) -> Callable[..., str]:
 
     hydrate_sources.__name__ = "hydrate_sources"
     return hydrate_sources
+
+
+def memory_approval_tools(root: Optional[str] = None) -> list[Callable[..., str]]:
+    """Return the human-in-the-loop approval tools for a PydanticAI agent:
+    request review, approve, reject, and list the pending queue."""
+    root_final = _resolve_root(root)
+
+    def request_memory_approval(bead_id: str, requested_by: str = "", note: str = "") -> str:
+        """Flag a bead as awaiting human review (approval_status=pending)."""
+        from core_memory import request_approval
+        try:
+            return json.dumps(request_approval(root=root_final, bead_id=bead_id, requested_by=requested_by, note=note), default=str)
+        except Exception as exc:
+            return json.dumps({"error": str(exc)})
+
+    def approve_memory(bead_id: str, approver: str = "", note: str = "") -> str:
+        """Approve a bead under review: grants confidence class A, records the approver."""
+        from core_memory import approve_bead
+        try:
+            return json.dumps(approve_bead(root=root_final, bead_id=bead_id, approver=approver, note=note), default=str)
+        except Exception as exc:
+            return json.dumps({"error": str(exc)})
+
+    def reject_memory(bead_id: str, approver: str = "", reason: str = "") -> str:
+        """Reject a bead under review: excluded from retrieval, retained for audit."""
+        from core_memory import reject_bead
+        try:
+            return json.dumps(reject_bead(root=root_final, bead_id=bead_id, approver=approver, reason=reason), default=str)
+        except Exception as exc:
+            return json.dumps({"error": str(exc)})
+
+    def list_pending_approvals(limit: int = 100) -> str:
+        """List beads awaiting human review (approval_status=pending)."""
+        from core_memory import list_pending_approvals as _list_pending
+        try:
+            return json.dumps(_list_pending(root=root_final, limit=limit), default=str)
+        except Exception as exc:
+            return json.dumps({"error": str(exc)})
+
+    return [request_memory_approval, approve_memory, reject_memory, list_pending_approvals]
