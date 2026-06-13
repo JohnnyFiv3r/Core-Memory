@@ -15,6 +15,7 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.schema.normalization import (
     EXTERNAL_BEAD_TYPES,
     EXTERNAL_DOCUMENT_FLAGS as DOCUMENT_FLAGS,
+    EXTERNAL_OPERATIONAL_FLAGS as OPERATIONAL_FLAGS,
     EXTERNAL_RELATIONAL_FLAGS as RELATIONAL_FLAGS,
     EXTERNAL_STATE_ASSERTION_FLAGS as STATE_ASSERTION_FLAGS,
     EXTERNAL_TRANSCRIPT_FLAGS as TRANSCRIPT_FLAGS,
@@ -84,6 +85,8 @@ def resolve_external_bead_type(payload: dict[str, Any]) -> str:
         return "transcript"
     if flag in DOCUMENT_FLAGS:
         return "document_reference"
+    if flag in OPERATIONAL_FLAGS:
+        return "operational_event"
     if flag in RELATIONAL_FLAGS:
         return "structured_observation"
     if flag in STATE_ASSERTION_FLAGS:
@@ -125,6 +128,8 @@ def _default_source_kind(bead_type: str, payload: dict[str, Any]) -> str:
     if bead_type == "document_reference":
         flag = _normalize_flag(payload.get("data_type_flag"))
         return "media" if flag == "media" else "document"
+    if bead_type == "operational_event":
+        return "operational"
     if bead_type == "structured_observation":
         return "relational"
     if bead_type == "state_assertion":
@@ -185,6 +190,14 @@ def _find_existing_external_bead(store: MemoryStore, payload: dict[str, Any], be
             if _clean_str(bead.get("source_event_id")) == source_event_id:
                 return dict(bead)
 
+    # Operational events are state transitions: history, not mutable objects.
+    # Sibling events of the same business object accumulate as the worldline
+    # substrate — they never dedup or version against each other. Only the
+    # event identity (pass 1) applies. Derived current state supersedes via
+    # state_assertion instead.
+    if bead_type == "operational_event":
+        return None
+
     # Pass 2 — same source object, current truth only. A hit here with a new
     # source_event_id means the source was adjusted: version, don't dedup.
     for bead in beads:
@@ -220,6 +233,19 @@ def _typed_fields(bead_type: str, payload: dict[str, Any]) -> dict[str, Any]:
             "document_date": _clean_str(payload.get("document_date")),
             "author_or_owner": _clean_str(payload.get("author_or_owner")),
             "section_refs": _coerce_list(payload.get("section_refs")),
+        }
+    if bead_type == "operational_event":
+        return {
+            "record_action": _clean_str(payload.get("record_action")),
+            "business_object_type": _clean_str(payload.get("business_object_type")),
+            "business_object_id": _clean_str(payload.get("business_object_id") or payload.get("source_record_id")),
+            "source_table": _clean_str(payload.get("source_table")),
+            "source_record_id": _clean_str(payload.get("source_record_id")),
+            "actor": _clean_str(payload.get("actor")),
+            "state_change": dict(payload.get("state_change") or {}) or None,
+            "as_of_timestamp": _clean_str(payload.get("as_of_timestamp") or payload.get("occurred_at")),
+            "entity_refs": _coerce_str_list(payload.get("entity_refs")),
+            "attribute_tags": _coerce_str_list(payload.get("attribute_tags")),
         }
     if bead_type in {"structured_observation", "data_insight"}:
         return {
@@ -270,6 +296,14 @@ def _validate_external_payload(bead_type: str, payload: dict[str, Any], hydratio
         if not _clean_str(payload.get("document_id") or payload.get("ragie_document_id")):
             raise ValueError("external_evidence: document_reference requires document_id or ragie_document_id")
         _require(payload, ("document_name",))
+    elif bead_type == "operational_event":
+        _require(payload, ("record_action",))
+        if not _clean_str(payload.get("business_object_id") or payload.get("source_record_id")):
+            raise ValueError("external_evidence: operational_event requires business_object_id or source_record_id")
+        if not _clean_str(payload.get("as_of_timestamp") or payload.get("occurred_at") or payload.get("observed_at")):
+            raise ValueError("external_evidence: operational_event requires as_of_timestamp, occurred_at, or observed_at")
+        if not (_coerce_str_list(payload.get("entities")) or _coerce_str_list(payload.get("entity_refs"))):
+            raise ValueError("external_evidence: operational_event requires entities or entity_refs")
     elif bead_type in {"structured_observation", "data_insight"}:
         _require(payload, ("source_table", "source_record_id"))
         if not _clean_str(payload.get("as_of_timestamp") or payload.get("observed_at")):
@@ -299,7 +333,7 @@ def _bead_payload(payload: dict[str, Any], *, bead_type: str, source_kind: str, 
         if tag not in tags:
             tags.append(tag)
 
-    observed_at = _clean_str(payload.get("observed_at") or payload.get("as_of_timestamp"))
+    observed_at = _clean_str(payload.get("observed_at") or payload.get("as_of_timestamp") or payload.get("occurred_at"))
     recorded_at = _clean_str(payload.get("recorded_at")) or datetime.now(timezone.utc).isoformat()
     source_refs = _source_ref_payload(payload, source_kind=source_kind, hydration_ref=hydration_ref)
 
@@ -471,8 +505,16 @@ def ingest_state_assertion(root: str, payload: dict[str, Any], *, session_id: st
     return ingest_external_evidence(root, merged, session_id=session_id)
 
 
+def ingest_operational_event(root: str, payload: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
+    merged = dict(payload or {})
+    merged.setdefault("type", "operational_event")
+    merged.setdefault("data_type_flag", "operational_event")
+    return ingest_external_evidence(root, merged, session_id=session_id)
+
+
 __all__ = [
     "ingest_external_evidence",
+    "ingest_operational_event",
     "ingest_structured_observation",
     "ingest_document_reference",
     "ingest_state_assertion",

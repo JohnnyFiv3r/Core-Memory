@@ -65,6 +65,7 @@ _SCALAR_FIELDS = (
     "record_grain",
     "business_object_type",
     "business_object_id",
+    "actor",
     "metric_name",
     "metric_unit",
     "currency",

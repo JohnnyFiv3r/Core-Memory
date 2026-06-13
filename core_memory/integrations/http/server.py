@@ -25,6 +25,7 @@ from core_memory.runtime.engine import process_flush, process_turn_finalized, pr
 from core_memory.runtime.ingest.external_evidence import (
     ingest_document_reference,
     ingest_external_evidence,
+    ingest_operational_event,
     ingest_state_assertion,
     ingest_structured_observation,
 )
@@ -642,6 +643,25 @@ async def memory_state_assertion(
         )
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.state_assertion.v1"})
+
+
+@app.post("/v1/memory/operational-event")
+async def memory_operational_event(
+    payload: ExternalEvidenceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Operational event systems anchor (state transitions of the business)."""
+    _check_auth(authorization, x_memory_token)
+    try:
+        return ingest_operational_event(
+            root=_resolve_root(payload.root, x_tenant_id),
+            payload=payload.evidence_payload(),
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.operational_event.v1"})
 
 
 @app.post("/v1/memory/search")
