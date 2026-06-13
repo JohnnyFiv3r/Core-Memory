@@ -35,6 +35,9 @@ BEAD_TYPE_PRIORS = {
     "document_reference": 0.30,
     "structured_observation": 0.40,
     "state_assertion": 0.55,
+    # Operational events are the worldline substrate (state transitions of
+    # the business) — promotable when reinforced, like evidence.
+    "operational_event": 0.45,
 }
 
 DEFAULT_THRESHOLD = 0.72
@@ -307,6 +310,7 @@ TYPE_DURABILITY_MULTIPLIERS: dict[str, float] = {
     "document_reference": 1.0,
     "structured_observation": 1.0,
     "state_assertion": 1.5,
+    "operational_event": 1.5,
 }
 
 # Types guaranteed in rolling window if available (type diversity pass)

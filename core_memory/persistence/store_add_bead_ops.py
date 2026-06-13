@@ -84,7 +84,7 @@ def add_bead_for_store(
         "as_of_timestamp", "entity_refs", "attribute_tags",
         "derived_from", "derived_from_bead_ids", "assertion_kind",
         "assertion_subject", "assertion_predicate", "assertion_value",
-        "confidence_class",
+        "confidence_class", "actor",
     }
 
     bead_id = store._generate_id()

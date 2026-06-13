@@ -35,6 +35,7 @@ CANONICAL_BEAD_TYPES = {
     "structured_observation",
     "state_assertion",
     "data_insight",
+    "operational_event",
     "blocked",
     "incident",
 }
@@ -128,12 +129,24 @@ EXTERNAL_STATE_ASSERTION_FLAGS = {
     "document_claim",
     "document_observation",
 }
+# Operational event systems record state transitions of the business
+# (GitHub, Jira, Zendesk, HubSpot, PagerDuty, POS/SCADA, ...). A document
+# describes reality; a structured table stores reality; an operational
+# system records reality changing.
+EXTERNAL_OPERATIONAL_FLAGS = {
+    "operational",
+    "operational_event",
+    "operational.event",
+    "state_transition",
+    "business_event",
+}
 EXTERNAL_BEAD_TYPES = {
     "transcript",
     "document_reference",
     "structured_observation",
     "state_assertion",
     "data_insight",
+    "operational_event",
 }
 
 # Confidence classes — truth/governance status, distinct from myelination

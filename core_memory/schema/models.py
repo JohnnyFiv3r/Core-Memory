@@ -66,6 +66,7 @@ class BeadType(str, Enum):
     STRUCTURED_OBSERVATION = "structured_observation"
     STATE_ASSERTION = "state_assertion"
     DATA_INSIGHT = "data_insight"
+    OPERATIONAL_EVENT = "operational_event"
     BLOCKED = "blocked"
     INCIDENT = "incident"
 
@@ -747,6 +748,11 @@ class Bead:
     document_date: Optional[str] = None
     author_or_owner: Optional[str] = None
     section_refs: list = field(default_factory=list)
+
+    # operational event family (state transitions of the business).
+    # Transitions ACCUMULATE — sibling events of the same business object
+    # coexist as history; only derived state (state_assertion) supersedes.
+    actor: Optional[str] = None
 
     # relational/structured family
     source_table: Optional[str] = None
