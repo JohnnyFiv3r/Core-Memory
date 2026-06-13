@@ -361,6 +361,61 @@ class TestGroundingGatesConfidenceClass(unittest.TestCase):
             self.assertEqual("A", bead["confidence_class"])
 
 
+class TestLifecycleSnapshotDurability(unittest.TestCase):
+    """Recall/promote class changes must survive the session-overlay merge and
+    index rebuild, and promotion must respect the speculative ceiling."""
+
+    def _read(self, td, bid):
+        idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+        return idx["beads"][bid]
+
+    def test_recall_class_survives_corpus_overlay_and_rebuild(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="decision", title="Pick vendor", summary=["s"],
+                                 because=["b"], detail="d", session_id="s1")
+            store.recall(bid)
+            # Visible corpus (which overlays session-*.jsonl) must reflect B.
+            row = next(r for r in build_visible_corpus(td) if r["bead_id"] == bid)
+            self.assertEqual("B", row["bead"]["confidence_class"])
+            self.assertEqual(1, row["bead"]["recall_count"])
+            # ...and so must a rebuilt index.
+            store.rebuild_index()
+            bead = self._read(td, bid)
+            self.assertEqual("B", bead["confidence_class"])
+            self.assertEqual(1, bead["recall_count"])
+
+    def test_promoting_speculative_bead_is_capped_at_b(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="hypothesis", title="Cache stampede under load",
+                                 summary=["s"], hypothesis_status="pending", session_id="s1")
+            store.promote(bid)
+            bead = self._read(td, bid)
+            # Promoted in lifecycle, but still speculative → capped at B, not A.
+            self.assertEqual("speculative", bead["grounding"])
+            self.assertEqual("B", bead["confidence_class"])
+            # Survives rebuild (not silently rewritten to A or back to C).
+            store.rebuild_index()
+            self.assertEqual("B", self._read(td, bid)["confidence_class"])
+
+    def test_promoting_validated_hypothesis_reaches_a(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="hypothesis", title="Retceil fixes stampede",
+                                 summary=["s"], hypothesis_status="validated", session_id="s1")
+            store.promote(bid)
+            self.assertEqual("A", self._read(td, bid)["confidence_class"])
+
+    def test_promoting_grounded_bead_reaches_a(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="decision", title="Adopt NetSuite", summary=["s"],
+                                 because=["cost"], detail="d", session_id="s1")
+            store.promote(bid)
+            self.assertEqual("A", self._read(td, bid)["confidence_class"])
+
+
 class TestVocabularyAdditions(unittest.TestCase):
     def test_assertion_kind_vocabulary(self):
         self.assertIn("business_state", ASSERTION_KINDS)
