@@ -6,8 +6,12 @@ from typing import Any, Optional
 
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import store_lock
-from core_memory.persistence.store_lifecycle_ops import raise_confidence_class_for_bead
+from core_memory.persistence.store_lifecycle_ops import (
+    _append_bead_snapshot,
+    raise_confidence_class_for_bead,
+)
 from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
+from core_memory.schema.normalization import resolve_confidence_class
 
 
 def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] = None) -> bool:
@@ -45,11 +49,19 @@ def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] 
         bead["promotion_locked"] = True
         bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
         bead["promotion_reason"] = (promotion_reason or bead.get("promotion_reason") or "policy_auto_promote").strip()
-        raise_confidence_class_for_bead(bead, "A")
+        # Route through the resolver rather than forcing A: a still-speculative
+        # bead (e.g. a pending hypothesis) is capped at B by the grounding
+        # ceiling. Unlike confirm/approve, automatic promotion does not ground
+        # a speculative bead — only validation or a human acceptance does.
+        bead["confidence_class"] = resolve_confidence_class(bead)
 
         index["beads"][bead_id] = bead
         store._write_json(store.beads_dir / "index.json", index)
 
+        # Persist the lifecycle change to the session archive too: the visible
+        # corpus overlays session-*.jsonl over the index, and rebuild_index()
+        # reads only the archive — an index-only write would be reverted.
+        _append_bead_snapshot(store, bead)
         events.event_bead_promoted(store.root, bead_id, use_lock=False)
         mark_semantic_dirty(store.root, reason="promote")
 
@@ -136,6 +148,11 @@ def recall_for_store(store: Any, bead_id: str) -> bool:
         index["beads"][bead_id] = bead
         store._write_json(store.beads_dir / "index.json", index)
 
+        # Snapshot to the session archive so the reinforcement (recall_count,
+        # last_recalled, and the C→B class raise) survives the visible-corpus
+        # overlay and index rebuild instead of being reverted to the original
+        # captured line.
+        _append_bead_snapshot(store, bead)
         events.event_bead_recalled(store.root, bead_id, use_lock=False)
 
         for assoc in index.get("associations", []):

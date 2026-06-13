@@ -66,6 +66,7 @@ _SCALAR_ANCHOR_FIELDS = (
     "source_record_id",
     "business_object_type",
     "business_object_id",
+    "actor",
     "metric_name",
     "currency",
     "as_of_timestamp",

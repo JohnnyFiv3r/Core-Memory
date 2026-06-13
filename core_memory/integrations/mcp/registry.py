@@ -22,6 +22,7 @@ from core_memory.integrations.mcp.tools.recall import recall_handler
 from core_memory.integrations.mcp.tools.status import status_handler
 from core_memory.integrations.mcp.typed_read import (
     MCP_TYPED_READ_TOOL_SCHEMAS,
+    list_pending_approvals,
     query_causal_chain,
     query_contradictions,
     query_current_state,
@@ -30,6 +31,9 @@ from core_memory.integrations.mcp.typed_read import (
 from core_memory.integrations.mcp.typed_write import (
     MCP_TYPED_WRITE_TOOL_SCHEMAS,
     apply_reviewed_proposal,
+    approve_memory,
+    reject_memory,
+    request_memory_approval,
     submit_entity_merge_proposal,
     write_turn_finalized,
 )
@@ -85,6 +89,7 @@ def _schema_with_root(schema: dict[str, Any]) -> dict[str, Any]:
 
 def _typed_read_handler(name: str) -> MCPHandler:
     functions: dict[str, Callable[..., dict[str, Any]]] = {
+        "list_pending_approvals": list_pending_approvals,
         "query_current_state": query_current_state,
         "query_temporal_window": query_temporal_window,
         "query_causal_chain": query_causal_chain,
@@ -102,6 +107,9 @@ def _typed_write_handler(name: str) -> MCPHandler:
         "write_turn_finalized": write_turn_finalized,
         "apply_reviewed_proposal": apply_reviewed_proposal,
         "submit_entity_merge_proposal": submit_entity_merge_proposal,
+        "request_memory_approval": request_memory_approval,
+        "approve_memory": approve_memory,
+        "reject_memory": reject_memory,
     }
 
     def handler(payload: dict[str, Any]) -> dict[str, Any]:
@@ -257,6 +265,34 @@ TOOLS: dict[str, MCPToolDefinition] = {
         input_schema=_schema_with_root(MCP_TYPED_WRITE_TOOL_SCHEMAS["submit_entity_merge_proposal"]["input"]),
         output_schema=_GENERIC_OBJECT_SCHEMA,
         handler=_typed_write_handler("submit_entity_merge_proposal"),
+    ),
+    "request_memory_approval": MCPToolDefinition(
+        name="request_memory_approval",
+        description=MCP_TYPED_WRITE_TOOL_SCHEMAS["request_memory_approval"]["description"],
+        input_schema=_schema_with_root(MCP_TYPED_WRITE_TOOL_SCHEMAS["request_memory_approval"]["input"]),
+        output_schema=_GENERIC_OBJECT_SCHEMA,
+        handler=_typed_write_handler("request_memory_approval"),
+    ),
+    "approve_memory": MCPToolDefinition(
+        name="approve_memory",
+        description=MCP_TYPED_WRITE_TOOL_SCHEMAS["approve_memory"]["description"],
+        input_schema=_schema_with_root(MCP_TYPED_WRITE_TOOL_SCHEMAS["approve_memory"]["input"]),
+        output_schema=_GENERIC_OBJECT_SCHEMA,
+        handler=_typed_write_handler("approve_memory"),
+    ),
+    "reject_memory": MCPToolDefinition(
+        name="reject_memory",
+        description=MCP_TYPED_WRITE_TOOL_SCHEMAS["reject_memory"]["description"],
+        input_schema=_schema_with_root(MCP_TYPED_WRITE_TOOL_SCHEMAS["reject_memory"]["input"]),
+        output_schema=_GENERIC_OBJECT_SCHEMA,
+        handler=_typed_write_handler("reject_memory"),
+    ),
+    "list_pending_approvals": MCPToolDefinition(
+        name="list_pending_approvals",
+        description=MCP_TYPED_READ_TOOL_SCHEMAS["list_pending_approvals"]["description"],
+        input_schema=_schema_with_root(MCP_TYPED_READ_TOOL_SCHEMAS["list_pending_approvals"]["input"]),
+        output_schema=_GENERIC_OBJECT_SCHEMA,
+        handler=_typed_read_handler("list_pending_approvals"),
     ),
     "capture_session": MCPToolDefinition(
         name="capture_session",

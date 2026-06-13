@@ -25,6 +25,7 @@ from core_memory.runtime.engine import process_flush, process_turn_finalized, pr
 from core_memory.runtime.ingest.external_evidence import (
     ingest_document_reference,
     ingest_external_evidence,
+    ingest_operational_event,
     ingest_state_assertion,
     ingest_structured_observation,
 )
@@ -144,6 +145,27 @@ class ExternalEvidenceRequest(BaseModel):
 class ConfirmBeadRequest(BaseModel):
     root: Optional[str] = None
     bead_id: str
+    note: str = ""
+
+
+class ApproveBeadRequest(BaseModel):
+    root: Optional[str] = None
+    bead_id: str
+    approver: str = ""
+    note: str = ""
+
+
+class RejectBeadRequest(BaseModel):
+    root: Optional[str] = None
+    bead_id: str
+    approver: str = ""
+    reason: str = ""
+
+
+class RequestApprovalRequest(BaseModel):
+    root: Optional[str] = None
+    bead_id: str
+    requested_by: str = ""
     note: str = ""
 
 
@@ -556,6 +578,87 @@ async def memory_confirm(
     return out
 
 
+@app.post("/v1/memory/request-approval")
+async def memory_request_approval(
+    payload: RequestApprovalRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Flag a bead as awaiting human review (approval_status=pending)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import request_approval
+
+    out = request_approval(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_id=payload.bead_id,
+        requested_by=payload.requested_by,
+        note=payload.note,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content={**out, "contract": "memory.request_approval.v1"})
+    return out
+
+
+@app.post("/v1/memory/approve")
+async def memory_approve(
+    payload: ApproveBeadRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Approve a bead under review: grants confidence class A, records approver."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import approve_bead
+
+    out = approve_bead(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_id=payload.bead_id,
+        approver=payload.approver,
+        note=payload.note,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content={**out, "contract": "memory.approve.v1"})
+    return out
+
+
+@app.post("/v1/memory/reject")
+async def memory_reject(
+    payload: RejectBeadRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Reject a bead under review: excluded from retrieval, retained for audit."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import reject_bead
+
+    out = reject_bead(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_id=payload.bead_id,
+        approver=payload.approver,
+        reason=payload.reason,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content={**out, "contract": "memory.reject.v1"})
+    return out
+
+
+@app.get("/v1/memory/pending-approvals")
+async def memory_pending_approvals(
+    root: Optional[str] = None,
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """List beads awaiting human review (approval_status=pending)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import list_pending_approvals
+
+    return list_pending_approvals(root=_resolve_root(root, x_tenant_id), limit=int(limit))
+
+
 @app.post("/v1/ingest/github")
 async def ingest_github_webhook(
     request: Request,
@@ -642,6 +745,25 @@ async def memory_state_assertion(
         )
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.state_assertion.v1"})
+
+
+@app.post("/v1/memory/operational-event")
+async def memory_operational_event(
+    payload: ExternalEvidenceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Operational event systems anchor (state transitions of the business)."""
+    _check_auth(authorization, x_memory_token)
+    try:
+        return ingest_operational_event(
+            root=_resolve_root(payload.root, x_tenant_id),
+            payload=payload.evidence_payload(),
+            session_id=payload.session_id,
+        )
+    except ValueError as exc:
+        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.operational_event.v1"})
 
 
 @app.post("/v1/memory/search")

@@ -87,6 +87,59 @@ def confirm_bead(root: str, bead_id: str, note: str = "") -> dict[str, Any]:
     }
 
 
+def request_approval(root: str, bead_id: str, requested_by: str = "", note: str = "") -> dict[str, Any]:
+    """Flag a bead as awaiting human review (approval_status=pending)."""
+    from core_memory.persistence.store import MemoryStore
+
+    ok = MemoryStore(root=root).request_approval(bead_id, requested_by=requested_by, note=note)
+    return {
+        "ok": bool(ok),
+        "bead_id": str(bead_id),
+        "approval_status": "pending" if ok else None,
+        "error": None if ok else "bead_not_found",
+    }
+
+
+def approve_bead(root: str, bead_id: str, approver: str = "", note: str = "") -> dict[str, Any]:
+    """Approve a bead under review: grants confidence class A, records approver.
+
+    The richer, review-workflow form of `confirm_bead` — content is never
+    edited; approval is a governance act on an immutable record.
+    """
+    from core_memory.persistence.store import MemoryStore
+
+    ok = MemoryStore(root=root).approve(bead_id, approver=approver, note=note)
+    return {
+        "ok": bool(ok),
+        "bead_id": str(bead_id),
+        "approval_status": "approved" if ok else None,
+        "confidence_class": "A" if ok else None,
+        "error": None if ok else "bead_not_found",
+    }
+
+
+def reject_bead(root: str, bead_id: str, approver: str = "", reason: str = "") -> dict[str, Any]:
+    """Reject a bead under review: excluded from current-truth retrieval,
+    retained in the index for audit."""
+    from core_memory.persistence.store import MemoryStore
+
+    ok = MemoryStore(root=root).reject(bead_id, approver=approver, reason=reason)
+    return {
+        "ok": bool(ok),
+        "bead_id": str(bead_id),
+        "approval_status": "rejected" if ok else None,
+        "error": None if ok else "bead_not_found",
+    }
+
+
+def list_pending_approvals(root: str, limit: int = 100) -> dict[str, Any]:
+    """List beads awaiting human review (approval_status=pending)."""
+    from core_memory.persistence.store import MemoryStore
+
+    rows = MemoryStore(root=root).pending_approvals(limit=limit)
+    return {"ok": True, "count": len(rows), "pending": rows}
+
+
 def capture(
     turns: list[Turn | dict[str, Any]] | None = None,
     *,

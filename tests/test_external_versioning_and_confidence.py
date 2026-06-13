@@ -13,14 +13,19 @@ from core_memory.runtime.ingest.external_evidence import (
     ingest_document_reference,
     ingest_structured_observation,
 )
-from core_memory.schema.models import Authority, Bead, ConfidenceClass
+from core_memory.schema.models import Authority, Bead, ConfidenceClass, Grounding
 from core_memory.schema.normalization import (
     ASSERTION_KINDS,
     EXTERNAL_BEAD_TYPES,
+    GROUNDING_LEVELS,
     confidence_class_rank,
     derive_confidence_class,
+    derive_grounding,
     normalize_assertion_kind,
     normalize_confidence_class,
+    normalize_grounding,
+    resolve_confidence_class,
+    resolve_grounding,
 )
 
 
@@ -163,6 +168,45 @@ class TestExternalVersionSupersession(unittest.TestCase):
             self.assertNotEqual("superseded", idx["beads"][v3["bead_id"]]["status"])
 
 
+class TestRebuildIndexAfterLifecycleOps(unittest.TestCase):
+    def test_rebuild_preserves_full_record_for_superseded_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            v1 = ingest_document_reference(td, _document_payload(), session_id="external")
+            ingest_document_reference(
+                td,
+                _document_payload(source_event_id="evt_document_002", title="Acme Vendor Contract v2"),
+                session_id="external",
+            )
+            store = MemoryStore(root=td)
+            store.rebuild_index()
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            old = idx["beads"][v1["bead_id"]]
+            # Lifecycle state survived the rebuild...
+            self.assertEqual("superseded", old["status"])
+            # ...and so did the full original record (P1: partial session lines
+            # must never replace the bead on rebuild).
+            self.assertEqual("document_reference", old["type"])
+            self.assertEqual("Acme Vendor Contract", old["title"])
+            self.assertEqual("doc_001", old["document_id"])
+            self.assertEqual("src_legal_uploads", old["source_id"])
+
+    def test_rebuild_preserves_full_record_for_confirmed_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(
+                type="decision", title="Choose vendor", summary=["s"], because=["b"],
+                detail="d", session_id="s1",
+            )
+            confirm_bead(td, bid)
+            store.rebuild_index()
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][bid]
+            self.assertEqual("user_confirmed", bead["authority"])
+            self.assertEqual("A", bead["confidence_class"])
+            self.assertEqual("decision", bead["type"])
+            self.assertEqual("Choose vendor", bead["title"])
+
+
 class TestCurrentTruthGuard(unittest.TestCase):
     def test_superseded_versions_are_excluded_from_visible_corpus(self):
         with tempfile.TemporaryDirectory() as td:
@@ -250,6 +294,126 @@ class TestConfidenceClass(unittest.TestCase):
         self.assertEqual(ConfidenceClass.CANONICAL.value, "A")
         self.assertEqual(Authority.SOURCE_ATTRIBUTED.value, "source_attributed")
         self.assertEqual(Authority.DERIVED_ANALYSIS.value, "derived_analysis")
+
+
+class TestGroundingGatesConfidenceClass(unittest.TestCase):
+    def test_grounding_vocabulary_and_normalization(self):
+        self.assertEqual(GROUNDING_LEVELS, {"observed", "extracted", "inferred", "speculative"})
+        self.assertEqual("observed", normalize_grounding("primary_source"))
+        self.assertEqual("inferred", normalize_grounding("derived_analysis"))
+        self.assertEqual("speculative", normalize_grounding("untested"))
+        self.assertEqual("inferred", normalize_grounding("nonsense"))  # default
+        self.assertEqual(Grounding.OBSERVED.value, "observed")
+
+    def test_grounding_derived_from_type(self):
+        self.assertEqual("observed", derive_grounding({"type": "structured_observation"}))
+        self.assertEqual("observed", derive_grounding({"type": "operational_event"}))
+        self.assertEqual("observed", derive_grounding({"type": "evidence"}))
+        self.assertEqual("inferred", derive_grounding({"type": "decision"}))
+        self.assertEqual("inferred", derive_grounding({"type": "state_assertion"}))
+        self.assertEqual("speculative", derive_grounding({"type": "hypothesis"}))
+        # A validated hypothesis is no longer speculative.
+        self.assertEqual("inferred", derive_grounding({"type": "hypothesis", "hypothesis_status": "validated"}))
+
+    def test_explicit_grounding_overrides_type_default(self):
+        self.assertEqual("extracted", resolve_grounding({"type": "decision", "grounding": "extracted"}))
+
+    def test_observed_enters_at_b_floor(self):
+        # Source-supported from birth: observed/extracted enter at B.
+        self.assertEqual("B", derive_confidence_class({"type": "structured_observation"}))
+        self.assertEqual("B", derive_confidence_class({"type": "decision", "grounding": "extracted"}))
+        # Inferred without reinforcement stays C.
+        self.assertEqual("C", derive_confidence_class({"type": "decision"}))
+
+    def test_speculative_capped_at_b(self):
+        # Even promoted, a still-speculative bead cannot be canonical.
+        self.assertEqual("B", resolve_confidence_class({"type": "hypothesis", "promoted": True}))
+        self.assertEqual("B", resolve_confidence_class({"type": "hypothesis", "confidence_class": "A"}))
+        # Pending hypothesis with no reinforcement is C.
+        self.assertEqual("C", derive_confidence_class({"type": "hypothesis"}))
+
+    def test_validated_hypothesis_can_reach_a(self):
+        bead = {"type": "hypothesis", "hypothesis_status": "validated", "promoted": True}
+        self.assertEqual("A", resolve_confidence_class(bead))
+
+    def test_structured_observation_bead_starts_at_b(self):
+        with tempfile.TemporaryDirectory() as td:
+            receipt = ingest_structured_observation(td, _structured_payload(), session_id="external")
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][receipt["bead_id"]]
+            self.assertEqual("observed", bead["grounding"])
+            self.assertEqual("B", bead["confidence_class"])
+
+    def test_confirming_speculative_bead_lifts_grounding(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(
+                type="hypothesis", title="Sync worker drops under load",
+                summary=["s"], hypothesis_status="pending", session_id="s1",
+            )
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertEqual("speculative", idx["beads"][bid]["grounding"])
+            self.assertEqual("C", idx["beads"][bid]["confidence_class"])
+            confirm_bead(td, bid)
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][bid]
+            self.assertEqual("inferred", bead["grounding"])  # no longer speculative
+            self.assertEqual("A", bead["confidence_class"])
+
+
+class TestLifecycleSnapshotDurability(unittest.TestCase):
+    """Recall/promote class changes must survive the session-overlay merge and
+    index rebuild, and promotion must respect the speculative ceiling."""
+
+    def _read(self, td, bid):
+        idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+        return idx["beads"][bid]
+
+    def test_recall_class_survives_corpus_overlay_and_rebuild(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="decision", title="Pick vendor", summary=["s"],
+                                 because=["b"], detail="d", session_id="s1")
+            store.recall(bid)
+            # Visible corpus (which overlays session-*.jsonl) must reflect B.
+            row = next(r for r in build_visible_corpus(td) if r["bead_id"] == bid)
+            self.assertEqual("B", row["bead"]["confidence_class"])
+            self.assertEqual(1, row["bead"]["recall_count"])
+            # ...and so must a rebuilt index.
+            store.rebuild_index()
+            bead = self._read(td, bid)
+            self.assertEqual("B", bead["confidence_class"])
+            self.assertEqual(1, bead["recall_count"])
+
+    def test_promoting_speculative_bead_is_capped_at_b(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="hypothesis", title="Cache stampede under load",
+                                 summary=["s"], hypothesis_status="pending", session_id="s1")
+            store.promote(bid)
+            bead = self._read(td, bid)
+            # Promoted in lifecycle, but still speculative → capped at B, not A.
+            self.assertEqual("speculative", bead["grounding"])
+            self.assertEqual("B", bead["confidence_class"])
+            # Survives rebuild (not silently rewritten to A or back to C).
+            store.rebuild_index()
+            self.assertEqual("B", self._read(td, bid)["confidence_class"])
+
+    def test_promoting_validated_hypothesis_reaches_a(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="hypothesis", title="Retceil fixes stampede",
+                                 summary=["s"], hypothesis_status="validated", session_id="s1")
+            store.promote(bid)
+            self.assertEqual("A", self._read(td, bid)["confidence_class"])
+
+    def test_promoting_grounded_bead_reaches_a(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(type="decision", title="Adopt NetSuite", summary=["s"],
+                                 because=["cost"], detail="d", session_id="s1")
+            store.promote(bid)
+            self.assertEqual("A", self._read(td, bid)["confidence_class"])
 
 
 class TestVocabularyAdditions(unittest.TestCase):

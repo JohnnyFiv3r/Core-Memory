@@ -35,6 +35,7 @@ CANONICAL_BEAD_TYPES = {
     "structured_observation",
     "state_assertion",
     "data_insight",
+    "operational_event",
     "blocked",
     "incident",
 }
@@ -128,12 +129,24 @@ EXTERNAL_STATE_ASSERTION_FLAGS = {
     "document_claim",
     "document_observation",
 }
+# Operational event systems record state transitions of the business
+# (GitHub, Jira, Zendesk, HubSpot, PagerDuty, POS/SCADA, ...). A document
+# describes reality; a structured table stores reality; an operational
+# system records reality changing.
+EXTERNAL_OPERATIONAL_FLAGS = {
+    "operational",
+    "operational_event",
+    "operational.event",
+    "state_transition",
+    "business_event",
+}
 EXTERNAL_BEAD_TYPES = {
     "transcript",
     "document_reference",
     "structured_observation",
     "state_assertion",
     "data_insight",
+    "operational_event",
 }
 
 # Confidence classes — truth/governance status, distinct from myelination
@@ -153,6 +166,82 @@ CONFIDENCE_CLASS_ALIASES = {
 }
 
 _CONFIDENCE_CLASS_RANK = {"C": 0, "B": 1, "A": 2}
+
+# Human-in-the-loop approval workflow. A bead not in a review workflow has no
+# approval_status (None). pending = awaiting human review; approved = a human
+# signed off (grants confidence class A, like confirmation); rejected = a human
+# deemed it not memory-worthy (excluded from current-truth retrieval, retained
+# for audit). Distinct from confidence_class (which it can raise) and from
+# supersession (which is about truth changing, not human judgment).
+APPROVAL_STATUSES = {"pending", "approved", "rejected"}
+
+APPROVAL_STATUS_ALIASES = {
+    "awaiting_review": "pending",
+    "in_review": "pending",
+    "needs_approval": "pending",
+    "accept": "approved",
+    "accepted": "approved",
+    "confirm": "approved",
+    "confirmed": "approved",
+    "reject": "rejected",
+    "denied": "rejected",
+    "declined": "rejected",
+}
+
+# Epistemic grounding — HOW a bead is known. Distinct from the C/B/A lifecycle
+# (how vetted over time) and from authority (who asserted it). Grounding is an
+# input that GATES the C/B/A ladder, not a separate score:
+#   observed   — primary source / system of record / direct user statement
+#   extracted  — parsed from a document or structured field (one parse step)
+#   inferred   — agent reasoning over beads
+#   speculative— hypothesis / overlay, untested
+# Gating rules (see resolve_confidence_class):
+#   observed/extracted are source-supported from birth → enter at B floor.
+#   speculative is capped at B until it is validated (grounding then upgrades).
+GROUNDING_LEVELS = {"observed", "extracted", "inferred", "speculative"}
+
+GROUNDING_ALIASES = {
+    "direct": "observed",
+    "primary": "observed",
+    "primary_source": "observed",
+    "source_attributed": "observed",
+    "witnessed": "observed",
+    "parsed": "extracted",
+    "derived": "inferred",
+    "reasoned": "inferred",
+    "derived_analysis": "inferred",
+    "agent_inferred": "inferred",
+    "hypothesized": "speculative",
+    "untested": "speculative",
+    "guess": "speculative",
+}
+
+# Default grounding by bead type. Source-anchored / concrete-occurrence types
+# default to observed; agent reasoning/framing types to inferred; hypothesis to
+# speculative. Connectors may override explicitly (e.g. a claim extracted from
+# a document → extracted).
+GROUNDING_BY_TYPE = {
+    "transcript": "observed",
+    "document_reference": "observed",
+    "structured_observation": "observed",
+    "operational_event": "observed",
+    "evidence": "observed",
+    "tool_call": "observed",
+    "incident": "observed",
+    "blocked": "observed",
+    "data_insight": "inferred",
+    "state_assertion": "inferred",
+    "lesson": "inferred",
+    "reflection": "inferred",
+    "precedent": "inferred",
+    "design_principle": "inferred",
+    "decision": "inferred",
+    "outcome": "inferred",
+    "goal": "inferred",
+    "context": "inferred",
+    "checkpoint": "inferred",
+    "hypothesis": "speculative",
+}
 
 # Canonical structural/semantic relation types
 CANONICAL_RELATION_TYPES = {
@@ -348,21 +437,87 @@ def confidence_class_rank(value: str | None) -> int:
     return _CONFIDENCE_CLASS_RANK.get(normalize_confidence_class(value), 0)
 
 
-def derive_confidence_class(bead: dict | None) -> str:
-    """Floor confidence class implied by a bead's lifecycle fields.
+def normalize_approval_status(value: str | None) -> str | None:
+    """Canonical approval status, or None when not in a review workflow."""
+    v = str(value or "").strip().lower()
+    if not v:
+        return None
+    if v in APPROVAL_STATUSES:
+        return v
+    return APPROVAL_STATUS_ALIASES.get(v)
 
-    Governance status, not retrieval strength: promotion and user confirmation
-    grant A; reinforcement signals (recall, candidate marking) grant B.
+
+def normalize_grounding(value: str | None, *, default: str = "inferred") -> str:
+    v = str(value or "").strip().lower()
+    if not v:
+        return default
+    if v in GROUNDING_LEVELS:
+        return v
+    return GROUNDING_ALIASES.get(v, default)
+
+
+def derive_grounding(bead: dict | None) -> str:
+    """Default grounding implied by a bead's type. A pending/falsified
+    hypothesis is speculative; a validated one is no longer speculative."""
+    b = bead or {}
+    btype = normalize_bead_type(b.get("type"))
+    if btype == "hypothesis":
+        status = str(b.get("hypothesis_status") or "").strip().lower()
+        return "inferred" if status == "validated" else "speculative"
+    return GROUNDING_BY_TYPE.get(btype, "inferred")
+
+
+def resolve_grounding(bead: dict | None) -> str:
+    """Explicit grounding if set (normalized), else derived from type."""
+    b = bead or {}
+    raw = b.get("grounding")
+    if raw is not None and str(raw).strip():
+        return normalize_grounding(raw, default=derive_grounding(b))
+    return derive_grounding(b)
+
+
+def derive_confidence_class(bead: dict | None) -> str:
+    """Floor confidence class implied by lifecycle fields AND grounding.
+
+    Governance status, not retrieval strength. Promotion and user confirmation
+    grant A; reinforcement signals (recall, candidate marking) grant B. Grounding
+    gates the ladder: observed/extracted beads are source-supported from birth so
+    they enter at B; speculative beads are capped at B until validated.
     """
     b = bead or {}
+    grounding = resolve_grounding(b)
     authority = str(b.get("authority") or "").strip().lower()
+
     if bool(b.get("promoted")) or authority == "user_confirmed":
-        return "A"
-    if str(b.get("status") or "").strip().lower() == "promoted" or str(b.get("promotion_state") or "").strip().lower() == "promoted":
-        return "A"
-    if bool(b.get("promotion_candidate")) or int(b.get("recall_count") or 0) > 0:
-        return "B"
-    return "C"
+        base = "A"
+    elif str(b.get("status") or "").strip().lower() == "promoted" or str(b.get("promotion_state") or "").strip().lower() == "promoted":
+        base = "A"
+    elif (
+        bool(b.get("promotion_candidate"))
+        or int(b.get("recall_count") or 0) > 0
+        or grounding in {"observed", "extracted"}
+    ):
+        base = "B"
+    else:
+        base = "C"
+
+    # Speculative ceiling: cannot be canonical until grounding upgrades.
+    if grounding == "speculative" and _CONFIDENCE_CLASS_RANK[base] > _CONFIDENCE_CLASS_RANK["B"]:
+        base = "B"
+    return base
+
+
+def resolve_confidence_class(bead: dict | None) -> str:
+    """Final C/B/A for a bead: max(provided floor, derived) then apply the
+    speculative ceiling. Shared by every write path so the class is computed
+    one way everywhere."""
+    b = bead or {}
+    provided = normalize_confidence_class(b.get("confidence_class"))
+    derived = derive_confidence_class(b)
+    final = provided if _CONFIDENCE_CLASS_RANK[provided] >= _CONFIDENCE_CLASS_RANK[derived] else derived
+    if resolve_grounding(b) == "speculative" and _CONFIDENCE_CLASS_RANK[final] > _CONFIDENCE_CLASS_RANK["B"]:
+        final = "B"
+    return final
 
 
 def normalize_claim_kind(value: str | None) -> str:

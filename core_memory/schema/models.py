@@ -29,13 +29,17 @@ from .normalization import (
     confidence_class_rank,
     derive_confidence_class,
     is_allowed_bead_type,
+    normalize_approval_status,
     normalize_assertion_kind,
     normalize_bead_type,
     normalize_claim_kind,
     normalize_claim_update_decision,
     normalize_confidence_class,
+    normalize_grounding,
     normalize_relation_type,
     relation_kind,
+    resolve_confidence_class,
+    resolve_grounding,
 )
 
 
@@ -66,6 +70,7 @@ class BeadType(str, Enum):
     STRUCTURED_OBSERVATION = "structured_observation"
     STATE_ASSERTION = "state_assertion"
     DATA_INSIGHT = "data_insight"
+    OPERATIONAL_EVENT = "operational_event"
     BLOCKED = "blocked"
     INCIDENT = "incident"
 
@@ -111,6 +116,23 @@ class ConfidenceClass(str, Enum):
     CAPTURED = "C"
     REINFORCED = "B"
     CANONICAL = "A"
+
+
+class Grounding(str, Enum):
+    """Epistemic grounding — how a bead is known. Gates the C/B/A ladder
+    (see resolve_confidence_class) and is retained for provenance."""
+    OBSERVED = "observed"
+    EXTRACTED = "extracted"
+    INFERRED = "inferred"
+    SPECULATIVE = "speculative"
+
+
+class ApprovalStatus(str, Enum):
+    """Human-in-the-loop review state. Absent (None) when a bead is not in a
+    review workflow."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
 
 
 class RelationshipType(str, Enum):
@@ -439,15 +461,18 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     if out.get("assertion_kind"):
         out["assertion_kind"] = normalize_assertion_kind(out.get("assertion_kind"))
 
-    # Confidence class is monotonic: the stored class never reads below the
-    # floor implied by lifecycle fields (promoted / user_confirmed / recalled).
-    provided_class = normalize_confidence_class(out.get("confidence_class"))
-    derived_class = derive_confidence_class(out)
-    out["confidence_class"] = (
-        provided_class
-        if confidence_class_rank(provided_class) >= confidence_class_rank(derived_class)
-        else derived_class
-    )
+    # Approval workflow state (None unless the bead is under human review).
+    if "approval_status" in out:
+        out["approval_status"] = normalize_approval_status(out.get("approval_status"))
+
+    # Grounding (how this is known) is resolved before the class because it
+    # gates the C/B/A ladder. Explicit value wins; otherwise derived from type.
+    out["grounding"] = resolve_grounding(out)
+
+    # Confidence class is monotonic: the stored class never reads below the floor
+    # implied by lifecycle fields (promoted / user_confirmed / recalled) or by
+    # grounding (observed/extracted enter at B; speculative is capped at B).
+    out["confidence_class"] = resolve_confidence_class(out)
 
     return out
 
@@ -685,6 +710,13 @@ class Bead:
 
     # Truth/governance status (C/B/A) — distinct from myelination
     confidence_class: str = "C"
+    # Epistemic grounding — how this is known; gates confidence_class
+    grounding: str = "inferred"
+    # Human-in-the-loop approval workflow (None when not under review)
+    approval_status: Optional[str] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[str] = None
+    approval_note: Optional[str] = None
 
     # Contrast fields
     what_almost_happened: Optional[str] = None
@@ -747,6 +779,11 @@ class Bead:
     document_date: Optional[str] = None
     author_or_owner: Optional[str] = None
     section_refs: list = field(default_factory=list)
+
+    # operational event family (state transitions of the business).
+    # Transitions ACCUMULATE — sibling events of the same business object
+    # coexist as history; only derived state (state_assertion) supersedes.
+    actor: Optional[str] = None
 
     # relational/structured family
     source_table: Optional[str] = None

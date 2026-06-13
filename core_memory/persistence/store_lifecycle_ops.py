@@ -6,7 +6,11 @@ from typing import Any
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
-from core_memory.schema.normalization import confidence_class_rank, normalize_confidence_class
+from core_memory.schema.normalization import (
+    confidence_class_rank,
+    normalize_confidence_class,
+    normalize_grounding,
+)
 
 
 def close_store_for_store(store: Any) -> None:
@@ -18,19 +22,19 @@ def close_store_for_store(store: Any) -> None:
             pass
 
 
-def _append_bead_delta(store: Any, bead: dict, delta: dict) -> None:
-    """Append a delta line to the bead's session surface.
+def _append_bead_snapshot(store: Any, bead: dict) -> None:
+    """Append the full merged bead state to its session archive.
 
     The visible-corpus builder merges session lines over the index projection,
     so post-write lifecycle changes must land on both surfaces or the session
-    overlay silently reverts them.
+    overlay silently reverts them. A FULL snapshot (never a partial delta) is
+    required: events.rebuild_index() treats each session line as a complete
+    bead, so a partial line would replace the original record on rebuild.
     """
     session_id = str(bead.get("session_id") or "").strip()
     if not session_id:
         return
-    line = {"id": str(bead.get("id") or "")}
-    line.update(delta)
-    append_jsonl(store.beads_dir / f"session-{session_id}.jsonl", line)
+    append_jsonl(store.beads_dir / f"session-{session_id}.jsonl", dict(bead))
 
 
 def mark_bead_superseded_for_store(store: Any, *, bead_id: str, successor_id: str) -> bool:
@@ -48,16 +52,15 @@ def mark_bead_superseded_for_store(store: Any, *, bead_id: str, successor_id: st
         if successor_id not in superseded_by:
             superseded_by.append(successor_id)
 
-        delta = {
+        bead.update({
             "status": "superseded",
             "superseded_by": superseded_by,
             "effective_to": str(bead.get("effective_to") or "") or now,
-        }
-        bead.update(delta)
+        })
         index["beads"][bead_id] = bead
         store._write_json(store.beads_dir / "index.json", index)
 
-        _append_bead_delta(store, bead, delta)
+        _append_bead_snapshot(store, bead)
         events.append_event(
             root=store.root,
             session_id=str(bead.get("session_id") or "") or None,
@@ -78,15 +81,20 @@ def confirm_bead_for_store(store: Any, *, bead_id: str, note: str = "") -> bool:
         if not isinstance(bead, dict):
             return False
 
-        delta = {
+        update = {
             "authority": "user_confirmed",
             "confidence_class": "A",
         }
-        bead.update(delta)
+        # A user-confirmed bead is no longer speculative — the human has
+        # grounded it. Lift the grounding so class A is consistent with the
+        # speculative ceiling (which otherwise caps speculative at B).
+        if normalize_grounding(bead.get("grounding")) == "speculative":
+            update["grounding"] = "inferred"
+        bead.update(update)
         index["beads"][bead_id] = bead
         store._write_json(store.beads_dir / "index.json", index)
 
-        _append_bead_delta(store, bead, delta)
+        _append_bead_snapshot(store, bead)
         events.append_event(
             root=store.root,
             session_id=str(bead.get("session_id") or "") or None,
