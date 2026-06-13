@@ -163,6 +163,45 @@ class TestExternalVersionSupersession(unittest.TestCase):
             self.assertNotEqual("superseded", idx["beads"][v3["bead_id"]]["status"])
 
 
+class TestRebuildIndexAfterLifecycleOps(unittest.TestCase):
+    def test_rebuild_preserves_full_record_for_superseded_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            v1 = ingest_document_reference(td, _document_payload(), session_id="external")
+            ingest_document_reference(
+                td,
+                _document_payload(source_event_id="evt_document_002", title="Acme Vendor Contract v2"),
+                session_id="external",
+            )
+            store = MemoryStore(root=td)
+            store.rebuild_index()
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            old = idx["beads"][v1["bead_id"]]
+            # Lifecycle state survived the rebuild...
+            self.assertEqual("superseded", old["status"])
+            # ...and so did the full original record (P1: partial session lines
+            # must never replace the bead on rebuild).
+            self.assertEqual("document_reference", old["type"])
+            self.assertEqual("Acme Vendor Contract", old["title"])
+            self.assertEqual("doc_001", old["document_id"])
+            self.assertEqual("src_legal_uploads", old["source_id"])
+
+    def test_rebuild_preserves_full_record_for_confirmed_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bid = store.add_bead(
+                type="decision", title="Choose vendor", summary=["s"], because=["b"],
+                detail="d", session_id="s1",
+            )
+            confirm_bead(td, bid)
+            store.rebuild_index()
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][bid]
+            self.assertEqual("user_confirmed", bead["authority"])
+            self.assertEqual("A", bead["confidence_class"])
+            self.assertEqual("decision", bead["type"])
+            self.assertEqual("Choose vendor", bead["title"])
+
+
 class TestCurrentTruthGuard(unittest.TestCase):
     def test_superseded_versions_are_excluded_from_visible_corpus(self):
         with tempfile.TemporaryDirectory() as td:
