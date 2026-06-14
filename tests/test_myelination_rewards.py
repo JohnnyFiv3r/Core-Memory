@@ -393,5 +393,111 @@ class TestDreamerCandidateReward(unittest.TestCase):
             self.assertEqual(1, len(read_reward_events(td)))
 
 
+class TestClaimConflictReward(unittest.TestCase):
+    def _setup(self, store):
+        # Two conflicting claims, each carried by its own bead, each with an
+        # evidence association feeding its carrier.
+        bead_a = store.add_bead(type="context", title="Claim A carrier", summary=["s"], session_id="s1",
+                                claims=[{"id": "ca", "subject": "user", "slot": "tz", "value": "PST", "claim_kind": "preference"}])
+        bead_b = store.add_bead(type="context", title="Claim B carrier", summary=["s"], session_id="s1",
+                                claims=[{"id": "cb", "subject": "user", "slot": "tz", "value": "EST", "claim_kind": "preference"}])
+        ev_a = store.add_bead(type="evidence", title="EvA", summary=["s"], detail="d", session_id="s1")
+        ev_b = store.add_bead(type="evidence", title="EvB", summary=["s"], detail="d", session_id="s1")
+        store.link(ev_a, bead_a, "supports")
+        store.link(ev_b, bead_b, "supports")
+        return bead_a, bead_b, ev_a, ev_b
+
+    def test_prefer_a_reinforces_a_weakens_b(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            bead_a, bead_b, ev_a, ev_b = self._setup(store)
+            out = reward_claim_conflict_resolution(td, resolution="prefer_a", claim_a_id="ca", claim_b_id="cb")
+            self.assertTrue(out["ok"])
+            self.assertEqual(2, out["emitted"])
+            m = compute_myelination_bonus_map(td)
+            self.assertGreater(m["bonus_by_edge_key"].get(f"{ev_a}|supports|{bead_a}", 0.0), 0.0)
+            self.assertLess(m["bonus_by_edge_key"].get(f"{ev_b}|supports|{bead_b}", 0.0), 0.0)
+            self.assertEqual(2, m["source_event_counts"].get("claim_conflict_resolution"))
+
+    def test_retract_both_weakens_both(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            bead_a, bead_b, ev_a, ev_b = self._setup(store)
+            reward_claim_conflict_resolution(td, resolution="retract_both", claim_a_id="ca", claim_b_id="cb")
+            for r in read_reward_events(td):
+                self.assertEqual("negative", r["polarity"])
+            m = compute_myelination_bonus_map(td)
+            self.assertLess(m["bonus_by_edge_key"].get(f"{ev_a}|supports|{bead_a}", 0.0), 0.0)
+            self.assertLess(m["bonus_by_edge_key"].get(f"{ev_b}|supports|{bead_b}", 0.0), 0.0)
+
+    def test_both_valid_is_scoped_no_reward(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            self._setup(store)
+            out = reward_claim_conflict_resolution(td, resolution="both_valid", claim_a_id="ca", claim_b_id="cb")
+            self.assertFalse(out["ok"])
+            self.assertEqual("both_valid_scoped", out["skipped"])
+            self.assertEqual([], read_reward_events(td))
+
+    def test_decay_is_edge_level_only_no_recall_trace_smear(self):
+        # Decay uses evidence associations only — a retrieval-trace edge that
+        # merely touched the carrier bead must not be weakened.
+        from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
+        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            bead_a, bead_b, ev_a, ev_b = self._setup(store)
+            # A recall trace touching bead_b via a non-evidence edge.
+            record_retrieval_feedback(td, request={"query": "q"}, response={
+                "ok": True, "answer_outcome": "answer", "results": [{"bead_id": bead_b}],
+                "chains": [{"edges": [{"src": "X", "dst": bead_b, "rel": "associated_with"}]}],
+            })
+            reward_claim_conflict_resolution(td, resolution="prefer_a", claim_a_id="ca", claim_b_id="cb")
+            keys = {ek for r in read_reward_events(td) for ek in r["edge_keys"]}
+            self.assertNotIn(f"X|associated_with|{bead_b}", keys)  # recall-trace edge untouched
+            self.assertIn(f"{ev_b}|supports|{bead_b}", keys)        # evidence edge weakened
+
+    def test_preferred_claim_with_only_recall_trace_support_is_reinforced(self):
+        # Codex P2: the recall-trace exclusion is decay-only. A preferred claim
+        # whose sole support path is a retrieval trace must still be reinforced.
+        from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
+        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            # Carrier for claim ca has NO evidence association — only a recall trace.
+            bead_a = store.add_bead(type="context", title="A", summary=["s"], session_id="s1",
+                                    claims=[{"id": "ca", "subject": "user", "slot": "tz", "value": "PST", "claim_kind": "preference"}])
+            bead_b = store.add_bead(type="context", title="B", summary=["s"], session_id="s1",
+                                    claims=[{"id": "cb", "subject": "user", "slot": "tz", "value": "EST", "claim_kind": "preference"}])
+            record_retrieval_feedback(td, request={"query": "q"}, response={
+                "ok": True, "answer_outcome": "answer", "results": [{"bead_id": bead_a}],
+                "chains": [{"edges": [{"src": "T", "dst": bead_a, "rel": "supports"}]}],
+            })
+            out = reward_claim_conflict_resolution(td, resolution="prefer_a", claim_a_id="ca", claim_b_id="cb")
+            self.assertTrue(out["ok"])
+            rows = read_reward_events(td)
+            pos = [r for r in rows if r["polarity"] == "positive"]
+            self.assertEqual(1, len(pos))
+            self.assertIn(f"T|supports|{bead_a}", pos[0]["edge_keys"])  # trace path reinforced
+
+    def test_disabled_is_noop(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_MYELINATION_ENABLED": "0"}, clear=False):
+            store = MemoryStore(root=td)
+            self._setup(store)
+            out = reward_claim_conflict_resolution(td, resolution="prefer_a", claim_a_id="ca", claim_b_id="cb")
+            self.assertFalse(out["ok"])
+            self.assertEqual([], read_reward_events(td))
+
+
 if __name__ == "__main__":
     unittest.main()
