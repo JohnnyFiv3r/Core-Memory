@@ -479,6 +479,7 @@ def decide_dreamer_candidate(
             "path": str(_candidates_path(root)),
         }
 
+    _prior_status = str(target.get("status") or "").strip().lower()
     target["status"] = "accepted" if decision_n == "accept" else "rejected"
     target["decision"] = {
         "decision": decision_n,
@@ -488,6 +489,20 @@ def decide_dreamer_candidate(
     }
     if resolution_n:
         target["resolution"] = resolution_n
+
+    # Best-effort myelination reward: a human/governance decision on a candidate
+    # reinforces (accept) or weakens (reject) its concrete supporting edge. Only
+    # on a first decision (not idempotent re-decisions), and never for Dreamer
+    # findings themselves — only the decision counts (PRD §11.1).
+    if _prior_status not in {"accepted", "rejected"}:
+        try:
+            from core_memory.runtime.observability.myelination_rewards import (
+                reward_dreamer_candidate_decision,
+            )
+
+            reward_dreamer_candidate_decision(root, candidate=target, decision=decision_n)
+        except Exception:
+            pass
 
     applied = None
     if decision_n == "accept" and apply:
