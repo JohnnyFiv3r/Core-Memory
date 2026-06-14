@@ -261,6 +261,35 @@ def reward_for_bead_decision(
     )
 
 
+def reward_goal_resolution(
+    root: str | Path,
+    *,
+    goal_bead_id: str,
+    outcome_bead_id: str,
+    source_event_id: str = "",
+) -> dict[str, Any]:
+    """Reinforce the audited ``outcome --resolves--> goal`` edge on resolution.
+
+    The ``resolves`` association is the primary, deterministic edge to reinforce
+    (PRD §20.2). No-op when myelination is disabled or either id is missing.
+    """
+    if not myelination_enabled():
+        return {"ok": False, "skipped": "disabled"}
+    gid = str(goal_bead_id or "").strip()
+    oid = str(outcome_bead_id or "").strip()
+    if not gid or not oid:
+        return {"ok": False, "skipped": "missing_ids"}
+    return emit_myelination_reward_event(
+        root,
+        source_type="goal_resolution",
+        polarity="positive",
+        edge_keys=[_edge_key(oid, gid, "resolves")],
+        source_event_id=source_event_id,
+        supporting_bead_ids=[oid, gid],
+        reason="goal resolved",
+    )
+
+
 def read_reward_events(root: str | Path, *, since: str = "30d", limit: int = 2000) -> list[dict[str, Any]]:
     p = _rewards_path(root)
     if not p.exists():
@@ -320,6 +349,7 @@ __all__ = [
     "supporting_edge_keys_for_bead",
     "emit_myelination_reward_event",
     "reward_for_bead_decision",
+    "reward_goal_resolution",
     "read_reward_events",
     "reward_bonus_by_edge_key",
 ]

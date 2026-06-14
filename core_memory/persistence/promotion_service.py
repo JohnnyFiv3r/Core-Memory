@@ -301,7 +301,16 @@ def resolve_goal_candidate_for_store(
             },
         )
         mark_semantic_dirty(store.root, reason="goal_lifecycle_resolved")
-        return {"ok": True, "bead_id": gid, "before_status": before, "after_status": "resolved", "decision": "resolve_goal"}
+
+    # Best-effort myelination reward over the audited outcome--resolves-->goal
+    # edge. Outside the lock; never fails resolution if reinforcement does.
+    try:
+        from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
+
+        reward_goal_resolution(store.root, goal_bead_id=gid, outcome_bead_id=oid, source_event_id=str(turn_id or gid))
+    except Exception:
+        pass
+    return {"ok": True, "bead_id": gid, "before_status": before, "after_status": "resolved", "decision": "resolve_goal"}
 
 
 def decide_promotion_bulk_for_store(store: Any, decisions: list[dict]) -> dict:
