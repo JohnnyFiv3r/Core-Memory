@@ -29,6 +29,29 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _reward_bead_decision(store: Any, *, bead_id: str, polarity: str, source_event_id: str = "", reason: str = "") -> None:
+    """Best-effort myelination reward/decay for a human approval decision.
+
+    Emits an edge-level reward event over the bead's concrete supporting edges
+    (no-op when myelination is off or no edges resolve). Never raises — a
+    governance op must not fail because reinforcement bookkeeping did.
+    """
+    try:
+        from core_memory.runtime.observability.myelination_rewards import reward_for_bead_decision
+
+        source_type = "human_approval" if polarity == "positive" else "human_rejection"
+        reward_for_bead_decision(
+            store.root,
+            bead_id=bead_id,
+            polarity=polarity,
+            source_type=source_type,
+            source_event_id=source_event_id,
+            reason=reason,
+        )
+    except Exception:
+        pass
+
+
 def request_bead_approval_for_store(store: Any, *, bead_id: str, requested_by: str = "", note: str = "") -> bool:
     """Flag a bead as awaiting human review (approval_status=pending).
 
@@ -90,6 +113,8 @@ def approve_bead_for_store(store: Any, *, bead_id: str, approver: str = "", note
             use_lock=False,
         )
         mark_semantic_dirty(store.root, reason="approve")
+
+    _reward_bead_decision(store, bead_id=bead_id, polarity="positive", source_event_id=str(bead_id), reason="bead approved")
     return True
 
 
@@ -122,6 +147,8 @@ def reject_bead_for_store(store: Any, *, bead_id: str, approver: str = "", reaso
             use_lock=False,
         )
         mark_semantic_dirty(store.root, reason="reject")
+
+    _reward_bead_decision(store, bead_id=bead_id, polarity="negative", source_event_id=str(bead_id), reason="bead rejected")
     return True
 
 
