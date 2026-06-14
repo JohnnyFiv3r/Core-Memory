@@ -261,6 +261,24 @@ def reward_for_bead_decision(
     )
 
 
+def _has_resolves_association(root: str | Path, outcome_bead_id: str, goal_bead_id: str) -> bool:
+    """True iff an ``outcome --resolves--> goal`` association exists in the index."""
+    oid = str(outcome_bead_id or "").strip()
+    gid = str(goal_bead_id or "").strip()
+    if not oid or not gid:
+        return False
+    for assoc in (_read_index(root).get("associations") or []):
+        if not isinstance(assoc, dict):
+            continue
+        if (
+            str(assoc.get("relationship") or "").strip().lower() == "resolves"
+            and str(assoc.get("source_bead") or "").strip() == oid
+            and str(assoc.get("target_bead") or "").strip() == gid
+        ):
+            return True
+    return False
+
+
 def reward_goal_resolution(
     root: str | Path,
     *,
@@ -271,7 +289,9 @@ def reward_goal_resolution(
     """Reinforce the audited ``outcome --resolves--> goal`` edge on resolution.
 
     The ``resolves`` association is the primary, deterministic edge to reinforce
-    (PRD §20.2). No-op when myelination is disabled or either id is missing.
+    (PRD §20.2). No-op when myelination is disabled, an id is missing, or the
+    association is not actually present in the index — reward must never boost an
+    edge that does not exist in the graph (edge-only invariant).
     """
     if not myelination_enabled():
         return {"ok": False, "skipped": "disabled"}
@@ -279,6 +299,8 @@ def reward_goal_resolution(
     oid = str(outcome_bead_id or "").strip()
     if not gid or not oid:
         return {"ok": False, "skipped": "missing_ids"}
+    if not _has_resolves_association(root, oid, gid):
+        return {"ok": False, "skipped": "no_resolves_association"}
     return emit_myelination_reward_event(
         root,
         source_type="goal_resolution",

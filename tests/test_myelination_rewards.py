@@ -238,13 +238,27 @@ class TestGoalResolutionReward(unittest.TestCase):
         from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
 
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
-            out = reward_goal_resolution(td, goal_bead_id="g1", outcome_bead_id="o1")
+            store = MemoryStore(root=td)
+            goal = store.add_bead(type="goal", title="G", summary=["s"], goal_id="g1", session_id="s1")
+            outcome = store.add_bead(type="outcome", title="O", summary=["s"], result="resolved", detail="d", session_id="s1")
+            store.link(outcome, goal, "resolves")
+            out = reward_goal_resolution(td, goal_bead_id=goal, outcome_bead_id=outcome)
             self.assertTrue(out["ok"])
             rows = read_reward_events(td)
             self.assertEqual(1, len(rows))
             self.assertEqual("goal_resolution", rows[0]["source_type"])
             self.assertEqual("positive", rows[0]["polarity"])
-            self.assertEqual(["o1|resolves|g1"], rows[0]["edge_keys"])
+            self.assertEqual([f"{outcome}|resolves|{goal}"], rows[0]["edge_keys"])
+
+    def test_reward_goal_resolution_noop_without_association(self):
+        # Edge-only invariant: do not reward an edge that isn't in the graph.
+        from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            out = reward_goal_resolution(td, goal_bead_id="g1", outcome_bead_id="o1")
+            self.assertFalse(out["ok"])
+            self.assertEqual("no_resolves_association", out["skipped"])
+            self.assertEqual([], read_reward_events(td))
 
     def test_reward_goal_resolution_disabled_is_noop(self):
         from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
