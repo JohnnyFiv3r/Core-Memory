@@ -351,6 +351,27 @@ class TestDreamerCandidateReward(unittest.TestCase):
             self.assertFalse(out["ok"])
             self.assertEqual("claim_conflict_path", out["skipped"])
 
+    def test_legacy_relation_is_normalized_for_match_and_edge_key(self):
+        # Codex P2: a stored "Causes" edge must reward under the canonical
+        # caused_by key consumers query, not the raw src|Causes|dst.
+        from core_memory.runtime.observability.myelination_rewards import (
+            reward_dreamer_candidate_decision,
+            supporting_edge_keys_for_bead,
+        )
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s1")
+            b = store.add_bead(type="decision", title="B", summary=["s"], because=["x"], detail="d", session_id="s1")
+            store.link(a, b, "Causes")  # legacy/mixed-case relation
+            cand = {"id": "dc-leg", "hypothesis_type": "retrieval_value_candidate",
+                    "source_bead_id": a, "target_bead_id": b, "relationship": "Causes"}
+            out = reward_dreamer_candidate_decision(td, candidate=cand, decision="accept")
+            self.assertTrue(out["ok"])
+            self.assertEqual([f"{a}|caused_by|{b}"], read_reward_events(td)[0]["edge_keys"])
+            # supporting-edge derivation normalizes too.
+            self.assertIn(f"{a}|caused_by|{b}", supporting_edge_keys_for_bead(td, b))
+
     def test_decide_dreamer_candidate_emits_reward_once(self):
         from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, _write_candidates
 

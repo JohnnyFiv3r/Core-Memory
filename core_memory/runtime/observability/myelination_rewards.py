@@ -31,6 +31,7 @@ from core_memory.runtime.observability.retrieval_feedback import (
     _parse_since,
     read_retrieval_feedback,
 )
+from core_memory.schema.normalization import normalize_relation_type
 
 REWARD_EVENT_SCHEMA = "myelination_reward_event.v1"
 
@@ -123,7 +124,7 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
     for assoc in (index.get("associations") or []):
         if not isinstance(assoc, dict):
             continue
-        rel = str(assoc.get("relationship") or "").strip().lower()
+        rel = normalize_relation_type(assoc.get("relationship"))
         if rel not in EVIDENTIAL_RELATIONSHIPS:
             continue
         src = str(assoc.get("source_bead") or "").strip()
@@ -153,7 +154,7 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
                     continue
                 src = str(e.get("src") or "").strip()
                 dst = str(e.get("dst") or "").strip()
-                rel = str(e.get("rel") or "").strip()
+                rel = normalize_relation_type(e.get("rel"))
                 if not src or not dst or not rel:
                     continue
                 # record_retrieval_feedback stores edges as the flat union of all
@@ -262,15 +263,20 @@ def reward_for_bead_decision(
 
 
 def _association_exists(root: str | Path, src: str, dst: str, rel: str) -> bool:
-    """True iff a ``src --rel--> dst`` association exists in the index."""
-    s, d, r = str(src or "").strip(), str(dst or "").strip(), str(rel or "").strip().lower()
+    """True iff a ``src --rel--> dst`` association exists in the index.
+
+    Relations are normalized on both sides so a legacy/mixed-case stored relation
+    (e.g. ``Causes``) matches the canonical query (``caused_by``).
+    """
+    s, d = str(src or "").strip(), str(dst or "").strip()
+    r = normalize_relation_type(rel)
     if not s or not d or not r:
         return False
     for assoc in (_read_index(root).get("associations") or []):
         if not isinstance(assoc, dict):
             continue
         if (
-            str(assoc.get("relationship") or "").strip().lower() == r
+            normalize_relation_type(assoc.get("relationship")) == r
             and str(assoc.get("source_bead") or "").strip() == s
             and str(assoc.get("target_bead") or "").strip() == d
         ):
@@ -343,8 +349,11 @@ def reward_dreamer_candidate_decision(
 
     src = str(cand.get("source_bead_id") or "").strip()
     dst = str(cand.get("target_bead_id") or "").strip()
-    rel = str(cand.get("relationship") or "").strip()
-    if not src or not dst or not rel or not _association_exists(root, src, dst, rel):
+    raw_rel = str(cand.get("relationship") or "").strip()
+    if not src or not dst or not raw_rel:
+        return {"ok": False, "skipped": "no_concrete_edge"}
+    rel = normalize_relation_type(raw_rel)
+    if not _association_exists(root, src, dst, rel):
         return {"ok": False, "skipped": "no_concrete_edge"}
 
     return emit_myelination_reward_event(
