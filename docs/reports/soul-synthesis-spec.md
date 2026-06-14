@@ -1,7 +1,13 @@
 # SOUL.md Synthesis Specification
 
+> **⚠️ SUPERSEDED by `docs/PRD/soul-files.md`.** This spec modeled SOUL.md as
+> auto-synthesized derived state (not agent-authored). The current design makes
+> SOUL an **agent-authored** self-model under guardrails. The session-start
+> working-memory injection mechanic from this spec is carried forward; the
+> auto-synthesis authoring model is not. Kept for history.
+
 **Date:** 2026-05-17
-**Status:** 2.0 implementation spec
+**Status:** 2.0 implementation spec (SUPERSEDED)
 **Depends on:** myelination (#11), claims layer (#6), Dreamer synthesis (#12), contradiction pressure (#14)
 
 ---

@@ -1,5 +1,11 @@
 # PRD: Myelination v2 — Unified Continuity Strength
 
+> **⚠️ SUPERSEDED.** Slice A (unified edge strength) folds into
+> `myelination-reinforcement.md`; Slice B (per-bead continuity-depth scalar)
+> migrates to Dreamer V3 **Assembly Depth**; Slice C (geometry/projection export)
+> migrates to Dreamer V3 §16.1 (deferred). See `myelination-reinforcement.md` §0.
+> Kept for history.
+
 Status: Proposed
 Depends on: edge lifecycle (shipped), worldline derivation (shipped),
 myelination experiment MYE-1 (shipped, flag-gated)
