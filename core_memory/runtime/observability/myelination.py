@@ -40,6 +40,26 @@ def _edge_key_parts(key: str) -> tuple[str, str, str]:
     return src, rel, dst
 
 
+def _project_bead_bonus(edge_bonus: dict[str, float], cap_neg: float, cap_pos: float) -> dict[str, float]:
+    """Project edge learning onto endpoint beads for scorer compatibility.
+
+    Bead bonus is a *projection* of edge bonus, never bead decay.
+    """
+    bead_bonus: dict[str, float] = {}
+    for ek, bonus in edge_bonus.items():
+        src, _, dst = _edge_key_parts(ek)
+        share = float(bonus) * 0.5
+        if src:
+            bead_bonus[src] = bead_bonus.get(src, 0.0) + share
+        if dst:
+            bead_bonus[dst] = bead_bonus.get(dst, 0.0) + share
+    return {
+        k: round(_clamp(float(v), -cap_neg, cap_pos), 6)
+        for k, v in bead_bonus.items()
+        if abs(float(v)) > 1e-9
+    }
+
+
 def compute_myelination_bonus_map(
     root: str | Path,
     *,
@@ -89,11 +109,8 @@ def compute_myelination_bonus_map(
             else:
                 s["fail"] += 1
 
+    # Telemetry layer: feedback-driven edge bonus (min-hits gates noisy telemetry).
     edge_bonus: dict[str, float] = {}
-    bead_bonus: dict[str, float] = {}
-    strengthened = 0
-    weakened = 0
-
     for ek, sf in edge_stats.items():
         succ = int(sf.get("success") or 0)
         fail = int(sf.get("fail") or 0)
@@ -113,23 +130,36 @@ def compute_myelination_bonus_map(
             continue
         edge_bonus[ek] = round(float(bonus), 6)
 
-        # Runtime scoring still consumes bead-level signals; project edge learning onto endpoints.
-        src, _, dst = _edge_key_parts(ek)
-        share = float(bonus) * 0.5
-        if src:
-            bead_bonus[src] = bead_bonus.get(src, 0.0) + share
-        if dst:
-            bead_bonus[dst] = bead_bonus.get(dst, 0.0) + share
+    # Reward layer (V2): audited reward/decay events fuse additively per edge.
+    # Audited events bypass the telemetry min-hits filter — they are explicit, not
+    # noisy — but are still cap-clamped. bonus_by_bead_id stays a projection.
+    source_event_counts: dict[str, int] = {}
+    # Lazy import avoids a module cycle (rewards imports from this module).
+    from core_memory.runtime.observability.myelination_rewards import (
+        reward_bonus_by_edge_key,
+        reward_events_enabled,
+    )
 
-        if bonus > 0:
-            strengthened += 1
-        elif bonus < 0:
-            weakened += 1
+    rewards_on = reward_events_enabled()
+    if rewards_on:
+        reward_limit = _int_env("CORE_MEMORY_MYELINATION_REWARD_EVENT_LIMIT", 2000)
+        reward = reward_bonus_by_edge_key(root, since=since_v, limit=reward_limit)
+        for ek, info in reward.items():
+            base = float(edge_bonus.get(ek, 0.0))
+            fused = _clamp(base + float(info.get("bonus") or 0.0), -cap_neg, cap_pos)
+            if abs(fused) < 1e-9:
+                edge_bonus.pop(ek, None)
+            else:
+                edge_bonus[ek] = round(fused, 6)
+            for st, n in dict(info.get("by_source") or {}).items():
+                source_event_counts[str(st)] = source_event_counts.get(str(st), 0) + int(n)
 
-    # Keep projected bead bonus bounded for scorer stability.
-    bead_bonus = {k: round(_clamp(float(v), -cap_neg, cap_pos), 6) for k, v in bead_bonus.items() if abs(float(v)) > 1e-9}
+    bead_bonus = _project_bead_bonus(edge_bonus, cap_neg, cap_pos)
+    strengthened = sum(1 for v in edge_bonus.values() if v > 0)
+    weakened = sum(1 for v in edge_bonus.values() if v < 0)
 
     return {
+        "schema": "core_memory.myelination_manifest.v2",
         "enabled": True,
         "bonus_by_edge_key": edge_bonus,
         "bonus_by_bead_id": bead_bonus,
@@ -140,12 +170,14 @@ def compute_myelination_bonus_map(
             "strengthened": strengthened,
             "weakened": weakened,
         },
+        "source_event_counts": source_event_counts,
         "config": {
             "since": since_v,
             "limit": max(1, limit_v),
             "min_hits": min_hits,
             "pos_cap": cap_pos,
             "neg_cap": cap_neg,
+            "reward_events": rewards_on,
         },
     }
 

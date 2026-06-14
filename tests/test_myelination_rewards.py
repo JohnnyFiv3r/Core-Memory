@@ -1,0 +1,237 @@
+import json
+import os
+import tempfile
+import unittest
+from pathlib import Path
+from unittest.mock import patch
+
+os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
+
+from core_memory.memory import confirm_bead
+from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
+from core_memory.runtime.observability.myelination_rewards import (
+    emit_myelination_reward_event,
+    read_reward_events,
+    reward_bonus_by_edge_key,
+    supporting_edge_keys_for_bead,
+)
+
+_ENV = {"CORE_MEMORY_MYELINATION_ENABLED": "1", "CORE_MEMORY_SEMANTIC_AUTODRAIN": "off"}
+
+
+def _edge(src, dst, rel="supports"):
+    return f"{src}|{rel}|{dst}"
+
+
+class TestRewardEventGuardrail(unittest.TestCase):
+    def test_no_edges_no_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = emit_myelination_reward_event(
+                td, source_type="human_approval", polarity="positive", edge_keys=[]
+            )
+            self.assertFalse(out["ok"])
+            self.assertEqual("no_concrete_edges", out["skipped"])
+            self.assertFalse((Path(td) / ".beads" / "events" / "myelination-rewards.jsonl").exists())
+
+    def test_bad_polarity_and_source(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertFalse(emit_myelination_reward_event(td, source_type="human_approval", polarity="meh", edge_keys=[_edge("a", "b")])["ok"])
+            self.assertFalse(emit_myelination_reward_event(td, source_type="bogus", polarity="positive", edge_keys=[_edge("a", "b")])["ok"])
+
+    def test_valid_event_is_written(self):
+        with tempfile.TemporaryDirectory() as td:
+            out = emit_myelination_reward_event(
+                td, source_type="human_approval", polarity="positive", edge_keys=[_edge("a", "b")], reason="x"
+            )
+            self.assertTrue(out["ok"])
+            rows = read_reward_events(td)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("myelination_reward_event.v1", rows[0]["schema"])
+            self.assertEqual([_edge("a", "b")], rows[0]["edge_keys"])
+            self.assertFalse(rows[0]["guardrails"]["mutates_beads"])
+
+
+class TestRewardAggregation(unittest.TestCase):
+    def test_signed_sum_and_count(self):
+        with tempfile.TemporaryDirectory() as td:
+            ek = _edge("a", "b")
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04)
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04)
+            emit_myelination_reward_event(td, source_type="human_rejection", polarity="negative", edge_keys=[ek], strength=0.04)
+            agg = reward_bonus_by_edge_key(td)
+            self.assertAlmostEqual(0.04, agg[ek]["bonus"], places=6)  # 0.04+0.04-0.04
+            self.assertEqual(3, agg[ek]["count"])
+
+
+class TestFusionIntoManifest(unittest.TestCase):
+    def test_reward_only_edge_bypasses_min_hits(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            ek = _edge("bX", "bY")
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.05)
+            m = compute_myelination_bonus_map(td)
+            self.assertTrue(m["enabled"])
+            self.assertEqual("core_memory.myelination_manifest.v2", m["schema"])
+            self.assertIn(ek, m["bonus_by_edge_key"])
+            self.assertAlmostEqual(0.05, m["bonus_by_edge_key"][ek], places=6)
+            self.assertEqual({"human_approval": 1}, m["source_event_counts"])
+
+    def test_cap_clamped(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            ek = _edge("a", "b")
+            for _ in range(10):
+                emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04)
+            m = compute_myelination_bonus_map(td)
+            # 10 * 0.04 = 0.4, clamped to pos_cap default 0.12
+            self.assertAlmostEqual(0.12, m["bonus_by_edge_key"][ek], places=6)
+
+    def test_deterministic(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[_edge("a", "b")])
+            a = compute_myelination_bonus_map(td)
+            b = compute_myelination_bonus_map(td)
+            self.assertEqual(a["bonus_by_edge_key"], b["bonus_by_edge_key"])
+
+    def test_disabled_no_fusion(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_MYELINATION_ENABLED": "0"}, clear=False):
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[_edge("a", "b")])
+            m = compute_myelination_bonus_map(td)
+            self.assertFalse(m["enabled"])
+            self.assertEqual({}, m["bonus_by_edge_key"])
+
+    def test_edge_only_no_smearing_to_unrelated_paths(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[_edge("a", "b")], strength=0.05)
+            m = compute_myelination_bonus_map(td)
+            # Only beads a and b (endpoints of the rewarded edge) get projection;
+            # an unrelated bead c is untouched.
+            self.assertIn("a", m["bonus_by_bead_id"])
+            self.assertIn("b", m["bonus_by_bead_id"])
+            self.assertNotIn("c", m["bonus_by_bead_id"])
+
+
+class TestSupportingEdgeDerivation(unittest.TestCase):
+    def test_evidence_edges_from_associations(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            ev = store.add_bead(type="evidence", title="Metric spiked", summary=["s"], supports_bead_ids=["x"], detail="d", session_id="s1")
+            dec = store.add_bead(type="decision", title="Cut the vendor", summary=["s"], because=["cost"], detail="d", session_id="s1")
+            store.link(ev, dec, "supports")
+            store.link(dec, ev, "associated_with")  # non-evidential, must be ignored
+            eks = supporting_edge_keys_for_bead(td, dec)
+            self.assertIn(f"{ev}|supports|{dec}", eks)
+            self.assertNotIn(f"{dec}|associated_with|{ev}", eks)
+
+
+class TestRecallTraceIncidentFilter(unittest.TestCase):
+    def test_recall_trace_only_includes_edges_touching_the_bead(self):
+        # Codex P1: a multi-result feedback row stores the flat union of all
+        # chain edges; only edges incident to the decided bead are supporting.
+        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            record_retrieval_feedback(
+                td,
+                request={"query": "q", "intent": "remember"},
+                response={
+                    "ok": True,
+                    "answer_outcome": "answer",
+                    "results": [{"bead_id": "target"}, {"bead_id": "other"}],
+                    "chains": [
+                        {"edges": [
+                            {"src": "E1", "dst": "target", "rel": "supports"},      # touches target
+                            {"src": "X", "dst": "other", "rel": "supports"},         # unrelated chain
+                        ]},
+                    ],
+                },
+            )
+            eks = supporting_edge_keys_for_bead(td, "target")
+            self.assertIn("E1|supports|target", eks)
+            self.assertNotIn("X|supports|other", eks)
+
+
+class TestRewardSinceWindow(unittest.TestCase):
+    def test_since_window_excludes_old_events(self):
+        # Codex P2: read_reward_events must honor the since window.
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / ".beads" / "events" / "myelination-rewards.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            old = {
+                "schema": "myelination_reward_event.v1", "id": "mr-old",
+                "created_at": "2000-01-01T00:00:00+00:00", "source_type": "human_approval",
+                "polarity": "positive", "strength": 0.04, "edge_keys": [_edge("a", "b")],
+            }
+            new = {
+                "schema": "myelination_reward_event.v1", "id": "mr-new",
+                "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                "source_type": "human_approval", "polarity": "positive", "strength": 0.04,
+                "edge_keys": [_edge("a", "b")],
+            }
+            with path.open("w", encoding="utf-8") as f:
+                f.write(json.dumps(old) + "\n")
+                f.write(json.dumps(new) + "\n")
+            recent = read_reward_events(td, since="1d")
+            self.assertEqual(["mr-new"], [r["id"] for r in recent])
+            # No window (since="") keeps both.
+            self.assertEqual({"mr-old", "mr-new"}, {r["id"] for r in read_reward_events(td, since="")})
+
+
+class TestApprovalProducesReward(unittest.TestCase):
+    def test_approve_emits_positive_reward_on_supporting_edge(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            ev = store.add_bead(type="evidence", title="Vendor overcharged", summary=["s"], detail="d", session_id="s1")
+            dec = store.add_bead(type="decision", title="Switch vendor", summary=["s"], because=["cost"], detail="d", session_id="s1")
+            store.link(ev, dec, "supports")
+            store.approve(dec, approver="john")
+            rows = read_reward_events(td)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("human_approval", rows[0]["source_type"])
+            self.assertEqual("positive", rows[0]["polarity"])
+            self.assertIn(f"{ev}|supports|{dec}", rows[0]["edge_keys"])
+            m = compute_myelination_bonus_map(td)
+            self.assertGreater(m["bonus_by_edge_key"].get(f"{ev}|supports|{dec}", 0.0), 0.0)
+
+    def test_reject_emits_negative_reward(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            ev = store.add_bead(type="evidence", title="Noise signal", summary=["s"], detail="d", session_id="s1")
+            dec = store.add_bead(type="context", title="Spurious link", summary=["s"], session_id="s1")
+            store.link(ev, dec, "supports")
+            store.reject(dec, approver="john", reason="noise")
+            rows = read_reward_events(td)
+            self.assertEqual("negative", rows[0]["polarity"])
+            self.assertEqual("human_rejection", rows[0]["source_type"])
+            m = compute_myelination_bonus_map(td)
+            self.assertLess(m["bonus_by_edge_key"].get(f"{ev}|supports|{dec}", 0.0), 0.0)
+
+    def test_confirm_emits_positive_reward(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            ev = store.add_bead(type="evidence", title="Receipt", summary=["s"], detail="d", session_id="s1")
+            dec = store.add_bead(type="decision", title="Refund issued", summary=["s"], because=["policy"], detail="d", session_id="s1")
+            store.link(ev, dec, "supports")
+            confirm_bead(td, dec)
+            rows = read_reward_events(td)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("positive", rows[0]["polarity"])
+
+    def test_approve_with_no_supporting_edge_emits_nothing(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            lone = store.add_bead(type="decision", title="Standalone", summary=["s"], because=["x"], detail="d", session_id="s1")
+            store.approve(lone, approver="john")
+            self.assertEqual([], read_reward_events(td))
+
+    def test_myelination_off_emits_no_reward(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_MYELINATION_ENABLED": "0"}, clear=False):
+            store = MemoryStore(root=td)
+            ev = store.add_bead(type="evidence", title="E", summary=["s"], detail="d", session_id="s1")
+            dec = store.add_bead(type="decision", title="D", summary=["s"], because=["x"], detail="d", session_id="s1")
+            store.link(ev, dec, "supports")
+            store.approve(dec, approver="john")
+            self.assertEqual([], read_reward_events(td))
+
+
+if __name__ == "__main__":
+    unittest.main()

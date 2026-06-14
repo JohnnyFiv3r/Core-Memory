@@ -103,6 +103,21 @@ def confirm_bead_for_store(store: Any, *, bead_id: str, note: str = "") -> bool:
             use_lock=False,
         )
         mark_semantic_dirty(store.root, reason="confirm")
+
+    # Best-effort myelination reward over the confirmed bead's supporting edges.
+    try:
+        from core_memory.runtime.observability.myelination_rewards import reward_for_bead_decision
+
+        reward_for_bead_decision(
+            store.root,
+            bead_id=bead_id,
+            polarity="positive",
+            source_type="human_approval",
+            source_event_id=str(bead_id),
+            reason="bead confirmed",
+        )
+    except Exception:
+        pass
     return True
 
 
