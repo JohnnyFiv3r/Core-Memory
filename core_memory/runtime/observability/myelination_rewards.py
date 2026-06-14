@@ -392,9 +392,10 @@ def reward_claim_conflict_resolution(
     is scoped: neither path is punished or reinforced. No-op when myelination is
     disabled.
 
-    Decay precision: only evidence associations of the carrier bead are used
-    (no recall-trace edges), so weakening cannot spill onto retrieval paths that
-    merely touched the claim bead.
+    Asymmetric edge set: reinforcement uses the full supporting set (evidence +
+    recall-trace), so a preferred claim surfaced only by a retrieval trace is
+    still rewarded; decay uses evidence associations only, so weakening cannot
+    spill onto retrieval paths that merely touched the claim bead.
     """
     if not myelination_enabled():
         return {"ok": False, "skipped": "disabled"}
@@ -420,7 +421,12 @@ def reward_claim_conflict_resolution(
         carrier = carrier_by_claim.get(claim_id, "")
         if not carrier:
             continue
-        eks = supporting_edge_keys_for_bead(root, carrier, include_recall_trace=False)
+        # Reinforce across the full supporting set (evidence + recall-trace), but
+        # confine decay to evidence associations so weakening never smears onto a
+        # retrieval path that merely surfaced the claim bead.
+        eks = supporting_edge_keys_for_bead(
+            root, carrier, include_recall_trace=(pol == "positive")
+        )
         if not eks:
             continue
         out = emit_myelination_reward_event(

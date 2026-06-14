@@ -464,6 +464,30 @@ class TestClaimConflictReward(unittest.TestCase):
             self.assertNotIn(f"X|associated_with|{bead_b}", keys)  # recall-trace edge untouched
             self.assertIn(f"{ev_b}|supports|{bead_b}", keys)        # evidence edge weakened
 
+    def test_preferred_claim_with_only_recall_trace_support_is_reinforced(self):
+        # Codex P2: the recall-trace exclusion is decay-only. A preferred claim
+        # whose sole support path is a retrieval trace must still be reinforced.
+        from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
+        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            # Carrier for claim ca has NO evidence association — only a recall trace.
+            bead_a = store.add_bead(type="context", title="A", summary=["s"], session_id="s1",
+                                    claims=[{"id": "ca", "subject": "user", "slot": "tz", "value": "PST", "claim_kind": "preference"}])
+            bead_b = store.add_bead(type="context", title="B", summary=["s"], session_id="s1",
+                                    claims=[{"id": "cb", "subject": "user", "slot": "tz", "value": "EST", "claim_kind": "preference"}])
+            record_retrieval_feedback(td, request={"query": "q"}, response={
+                "ok": True, "answer_outcome": "answer", "results": [{"bead_id": bead_a}],
+                "chains": [{"edges": [{"src": "T", "dst": bead_a, "rel": "supports"}]}],
+            })
+            out = reward_claim_conflict_resolution(td, resolution="prefer_a", claim_a_id="ca", claim_b_id="cb")
+            self.assertTrue(out["ok"])
+            rows = read_reward_events(td)
+            pos = [r for r in rows if r["polarity"] == "positive"]
+            self.assertEqual(1, len(pos))
+            self.assertIn(f"T|supports|{bead_a}", pos[0]["edge_keys"])  # trace path reinforced
+
     def test_disabled_is_noop(self):
         from core_memory.runtime.observability.myelination_rewards import reward_claim_conflict_resolution
 
