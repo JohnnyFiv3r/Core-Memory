@@ -1,5 +1,11 @@
 # PRD: Dreamer v2 — Continuity Observer
 
+> **⚠️ SUPERSEDED by `dreamer-continuity-engine.md` (Dreamer V3).** The shipped
+> storyline-overlay slice (below) remains accurate and in force. The unshipped
+> concepts (attractor over continuity-depth, value patterns, `observation.v1`
+> records, observations projection) are remapped into Dreamer V3's vocabulary —
+> see Dreamer V3 §0. Kept for history.
+
 Status: Partially shipped (storyline overlay slice); remainder Proposed
 Depends on: worldline derivation (shipped), dreamer candidate queue (shipped),
 myelination v2 / continuity manifest (`myelination-v2-continuity-strength.md`)

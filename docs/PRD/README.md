@@ -31,5 +31,17 @@ See `docs/status.md` for current completion state.
 | `session-enrichment-delta-analysis.md` | Session enrichment delta — analysis | Done |
 | `session-enrichment-delta-slice-b.md` | Session enrichment delta — slice B | Done |
 | `execution-plan-search-quality-and-enrichment.md` | Search quality + enrichment plan | Done |
-| `myelination-v2-continuity-strength.md` | Unified edge strength + continuity-depth manifest + geometry projections | **Proposed** |
-| `dreamer-v2-continuity-observer.md` | Dreamer as observer over worldline convergence / attractors / narratives | **Partially shipped** (storyline overlay slice) |
+| `myelination-v2-continuity-strength.md` | Unified edge strength + continuity-depth manifest + geometry projections | **Superseded** → `myelination-reinforcement.md` (+ Dreamer V3 assembly depth / geometry) |
+| `dreamer-v2-continuity-observer.md` | Dreamer as observer over worldline convergence / attractors / narratives | **Superseded** → `dreamer-continuity-engine.md` (storyline slice shipped + preserved) |
+
+## Agency / Self-Model PRDs
+
+These three are the active capability set for the agency layer (self-model,
+scientific findings, reinforcement). They are mutually consistent and supersede
+the older entries above.
+
+| File | Topic | Status |
+|---|---|---|
+| `soul-files.md` | SOUL Files — agent-authored self-model + goal hierarchy (supersedes `reports/soul-synthesis-spec.md`) | **Draft v3** |
+| `dreamer-continuity-engine.md` | Dreamer V3 — scientific continuity engine, assembly depth, storyline projection, future vectors; V4 target-states + agency backlog | **Draft v3** |
+| `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Draft v2** |
