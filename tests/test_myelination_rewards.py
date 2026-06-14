@@ -233,5 +233,69 @@ class TestApprovalProducesReward(unittest.TestCase):
             self.assertEqual([], read_reward_events(td))
 
 
+class TestGoalResolutionReward(unittest.TestCase):
+    def test_reward_goal_resolution_emits_positive_on_resolves_edge(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            goal = store.add_bead(type="goal", title="G", summary=["s"], goal_id="g1", session_id="s1")
+            outcome = store.add_bead(type="outcome", title="O", summary=["s"], result="resolved", detail="d", session_id="s1")
+            store.link(outcome, goal, "resolves")
+            out = reward_goal_resolution(td, goal_bead_id=goal, outcome_bead_id=outcome)
+            self.assertTrue(out["ok"])
+            rows = read_reward_events(td)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("goal_resolution", rows[0]["source_type"])
+            self.assertEqual("positive", rows[0]["polarity"])
+            self.assertEqual([f"{outcome}|resolves|{goal}"], rows[0]["edge_keys"])
+
+    def test_reward_goal_resolution_noop_without_association(self):
+        # Edge-only invariant: do not reward an edge that isn't in the graph.
+        from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            out = reward_goal_resolution(td, goal_bead_id="g1", outcome_bead_id="o1")
+            self.assertFalse(out["ok"])
+            self.assertEqual("no_resolves_association", out["skipped"])
+            self.assertEqual([], read_reward_events(td))
+
+    def test_reward_goal_resolution_disabled_is_noop(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_MYELINATION_ENABLED": "0"}, clear=False):
+            out = reward_goal_resolution(td, goal_bead_id="g1", outcome_bead_id="o1")
+            self.assertFalse(out["ok"])
+            self.assertEqual([], read_reward_events(td))
+
+    def test_resolving_a_goal_candidate_reinforces_resolves_edge(self):
+        from core_memory.persistence.promotion_service import resolve_goal_candidate_for_store
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            goal = store.add_bead(
+                type="goal", title="Reduce onboarding friction", summary=["s"],
+                goal_id="g-onboard", success_criteria="new user completes setup",
+                promotion_candidate=True, session_id="s1",
+            )
+            outcome = store.add_bead(
+                type="outcome", title="Onboarding flow shipped", summary=["s"],
+                result="resolved", linked_bead_id=goal, detail="d", session_id="s1",
+            )
+            store.link(outcome, goal, "resolves")
+            res = resolve_goal_candidate_for_store(store, goal_bead_id=goal, outcome_bead_id=outcome)
+            self.assertTrue(res["ok"])
+            self.assertEqual("resolved", res["after_status"])
+
+            rows = read_reward_events(td)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("goal_resolution", rows[0]["source_type"])
+            ek = f"{outcome}|resolves|{goal}"
+            self.assertEqual([ek], rows[0]["edge_keys"])
+            m = compute_myelination_bonus_map(td)
+            self.assertGreater(m["bonus_by_edge_key"].get(ek, 0.0), 0.0)
+            self.assertEqual(1, m["source_event_counts"].get("goal_resolution"))
+
+
 if __name__ == "__main__":
     unittest.main()
