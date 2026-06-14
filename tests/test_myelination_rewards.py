@@ -297,5 +297,101 @@ class TestGoalResolutionReward(unittest.TestCase):
             self.assertEqual(1, m["source_event_counts"].get("goal_resolution"))
 
 
+class TestDreamerCandidateReward(unittest.TestCase):
+    def _candidate(self, store, src, dst, rel="supports", htype="retrieval_value_candidate"):
+        store.link(src, dst, rel)
+        return {"id": "dc-1", "hypothesis_type": htype, "source_bead_id": src, "target_bead_id": dst, "relationship": rel}
+
+    def test_accept_reinforces_existing_edge(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_dreamer_candidate_decision
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s1")
+            b = store.add_bead(type="decision", title="B", summary=["s"], because=["x"], detail="d", session_id="s1")
+            cand = self._candidate(store, a, b)
+            out = reward_dreamer_candidate_decision(td, candidate=cand, decision="accept")
+            self.assertTrue(out["ok"])
+            rows = read_reward_events(td)
+            self.assertEqual("dreamer_candidate_decision", rows[0]["source_type"])
+            self.assertEqual("positive", rows[0]["polarity"])
+            self.assertEqual([f"{a}|supports|{b}"], rows[0]["edge_keys"])
+
+    def test_reject_weakens_existing_edge(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_dreamer_candidate_decision
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s1")
+            b = store.add_bead(type="context", title="B", summary=["s"], session_id="s1")
+            cand = self._candidate(store, a, b)
+            out = reward_dreamer_candidate_decision(td, candidate=cand, decision="reject")
+            self.assertTrue(out["ok"])
+            self.assertEqual("negative", read_reward_events(td)[0]["polarity"])
+
+    def test_noop_when_edge_absent(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_dreamer_candidate_decision
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            cand = {"id": "dc-2", "hypothesis_type": "retrieval_value_candidate", "source_bead_id": "x", "target_bead_id": "y", "relationship": "supports"}
+            out = reward_dreamer_candidate_decision(td, candidate=cand, decision="accept")
+            self.assertFalse(out["ok"])
+            self.assertEqual("no_concrete_edge", out["skipped"])
+            self.assertEqual([], read_reward_events(td))
+
+    def test_contradiction_candidate_deferred_to_claim_path(self):
+        from core_memory.runtime.observability.myelination_rewards import reward_dreamer_candidate_decision
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s1")
+            b = store.add_bead(type="context", title="B", summary=["s"], session_id="s1")
+            cand = self._candidate(store, a, b, rel="contradicts", htype="contradiction_pressure_candidate")
+            out = reward_dreamer_candidate_decision(td, candidate=cand, decision="accept")
+            self.assertFalse(out["ok"])
+            self.assertEqual("claim_conflict_path", out["skipped"])
+
+    def test_legacy_relation_is_normalized_for_match_and_edge_key(self):
+        # Codex P2: a stored "Causes" edge must reward under the canonical
+        # caused_by key consumers query, not the raw src|Causes|dst.
+        from core_memory.runtime.observability.myelination_rewards import (
+            reward_dreamer_candidate_decision,
+            supporting_edge_keys_for_bead,
+        )
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s1")
+            b = store.add_bead(type="decision", title="B", summary=["s"], because=["x"], detail="d", session_id="s1")
+            store.link(a, b, "Causes")  # legacy/mixed-case relation
+            cand = {"id": "dc-leg", "hypothesis_type": "retrieval_value_candidate",
+                    "source_bead_id": a, "target_bead_id": b, "relationship": "Causes"}
+            out = reward_dreamer_candidate_decision(td, candidate=cand, decision="accept")
+            self.assertTrue(out["ok"])
+            self.assertEqual([f"{a}|caused_by|{b}"], read_reward_events(td)[0]["edge_keys"])
+            # supporting-edge derivation normalizes too.
+            self.assertIn(f"{a}|caused_by|{b}", supporting_edge_keys_for_bead(td, b))
+
+    def test_decide_dreamer_candidate_emits_reward_once(self):
+        from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, _write_candidates
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s1")
+            b = store.add_bead(type="decision", title="B", summary=["s"], because=["x"], detail="d", session_id="s1")
+            store.link(a, b, "supports")
+            # Seed a candidate referencing the existing edge.
+            _write_candidates(td, [{
+                "id": "dc-live", "status": "pending", "hypothesis_type": "retrieval_value_candidate",
+                "source_bead_id": a, "target_bead_id": b, "relationship": "supports", "confidence": 0.7,
+            }])
+            r1 = decide_dreamer_candidate(root=td, candidate_id="dc-live", decision="accept")
+            self.assertTrue(r1["ok"])
+            self.assertEqual(1, len(read_reward_events(td)))
+            # Idempotent re-decision must not double-emit.
+            decide_dreamer_candidate(root=td, candidate_id="dc-live", decision="accept")
+            self.assertEqual(1, len(read_reward_events(td)))
+
+
 if __name__ == "__main__":
     unittest.main()

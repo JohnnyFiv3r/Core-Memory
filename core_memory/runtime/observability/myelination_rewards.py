@@ -31,6 +31,7 @@ from core_memory.runtime.observability.retrieval_feedback import (
     _parse_since,
     read_retrieval_feedback,
 )
+from core_memory.schema.normalization import normalize_relation_type
 
 REWARD_EVENT_SCHEMA = "myelination_reward_event.v1"
 
@@ -123,7 +124,7 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
     for assoc in (index.get("associations") or []):
         if not isinstance(assoc, dict):
             continue
-        rel = str(assoc.get("relationship") or "").strip().lower()
+        rel = normalize_relation_type(assoc.get("relationship"))
         if rel not in EVIDENTIAL_RELATIONSHIPS:
             continue
         src = str(assoc.get("source_bead") or "").strip()
@@ -153,7 +154,7 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
                     continue
                 src = str(e.get("src") or "").strip()
                 dst = str(e.get("dst") or "").strip()
-                rel = str(e.get("rel") or "").strip()
+                rel = normalize_relation_type(e.get("rel"))
                 if not src or not dst or not rel:
                     continue
                 # record_retrieval_feedback stores edges as the flat union of all
@@ -261,22 +262,31 @@ def reward_for_bead_decision(
     )
 
 
-def _has_resolves_association(root: str | Path, outcome_bead_id: str, goal_bead_id: str) -> bool:
-    """True iff an ``outcome --resolves--> goal`` association exists in the index."""
-    oid = str(outcome_bead_id or "").strip()
-    gid = str(goal_bead_id or "").strip()
-    if not oid or not gid:
+def _association_exists(root: str | Path, src: str, dst: str, rel: str) -> bool:
+    """True iff a ``src --rel--> dst`` association exists in the index.
+
+    Relations are normalized on both sides so a legacy/mixed-case stored relation
+    (e.g. ``Causes``) matches the canonical query (``caused_by``).
+    """
+    s, d = str(src or "").strip(), str(dst or "").strip()
+    r = normalize_relation_type(rel)
+    if not s or not d or not r:
         return False
     for assoc in (_read_index(root).get("associations") or []):
         if not isinstance(assoc, dict):
             continue
         if (
-            str(assoc.get("relationship") or "").strip().lower() == "resolves"
-            and str(assoc.get("source_bead") or "").strip() == oid
-            and str(assoc.get("target_bead") or "").strip() == gid
+            normalize_relation_type(assoc.get("relationship")) == r
+            and str(assoc.get("source_bead") or "").strip() == s
+            and str(assoc.get("target_bead") or "").strip() == d
         ):
             return True
     return False
+
+
+def _has_resolves_association(root: str | Path, outcome_bead_id: str, goal_bead_id: str) -> bool:
+    """True iff an ``outcome --resolves--> goal`` association exists in the index."""
+    return _association_exists(root, outcome_bead_id, goal_bead_id, "resolves")
 
 
 def reward_goal_resolution(
@@ -309,6 +319,51 @@ def reward_goal_resolution(
         source_event_id=source_event_id,
         supporting_bead_ids=[oid, gid],
         reason="goal resolved",
+    )
+
+
+def reward_dreamer_candidate_decision(
+    root: str | Path,
+    *,
+    candidate: dict[str, Any],
+    decision: str,
+) -> dict[str, Any]:
+    """Reinforce (accept) or weaken (reject) a Dreamer candidate's concrete edge.
+
+    Only the human/governance decision produces reward — never the finding itself
+    (PRD §11.1). The candidate's ``source_bead_id|relationship|target_bead_id``
+    edge is rewarded only when that association actually exists in the index
+    (edge-only invariant). Contradiction-pressure candidates are handled by the
+    claim-conflict path, not here. No-op when myelination is disabled.
+    """
+    if not myelination_enabled():
+        return {"ok": False, "skipped": "disabled"}
+    cand = candidate or {}
+    decision_n = str(decision or "").strip().lower()
+    if decision_n not in {"accept", "reject"}:
+        return {"ok": False, "skipped": "bad_decision"}
+
+    htype = str(cand.get("hypothesis_type") or "").strip().lower()
+    if htype == "contradiction_pressure_candidate":
+        return {"ok": False, "skipped": "claim_conflict_path"}
+
+    src = str(cand.get("source_bead_id") or "").strip()
+    dst = str(cand.get("target_bead_id") or "").strip()
+    raw_rel = str(cand.get("relationship") or "").strip()
+    if not src or not dst or not raw_rel:
+        return {"ok": False, "skipped": "no_concrete_edge"}
+    rel = normalize_relation_type(raw_rel)
+    if not _association_exists(root, src, dst, rel):
+        return {"ok": False, "skipped": "no_concrete_edge"}
+
+    return emit_myelination_reward_event(
+        root,
+        source_type="dreamer_candidate_decision",
+        polarity="positive" if decision_n == "accept" else "negative",
+        edge_keys=[_edge_key(src, dst, rel)],
+        source_event_id=str(cand.get("id") or ""),
+        supporting_candidate_ids=[str(cand.get("id") or "")],
+        reason=f"dreamer candidate {decision_n}",
     )
 
 
@@ -372,6 +427,7 @@ __all__ = [
     "emit_myelination_reward_event",
     "reward_for_bead_decision",
     "reward_goal_resolution",
+    "reward_dreamer_candidate_decision",
     "read_reward_events",
     "reward_bonus_by_edge_key",
 ]
