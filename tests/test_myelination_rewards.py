@@ -123,6 +123,59 @@ class TestSupportingEdgeDerivation(unittest.TestCase):
             self.assertNotIn(f"{dec}|associated_with|{ev}", eks)
 
 
+class TestRecallTraceIncidentFilter(unittest.TestCase):
+    def test_recall_trace_only_includes_edges_touching_the_bead(self):
+        # Codex P1: a multi-result feedback row stores the flat union of all
+        # chain edges; only edges incident to the decided bead are supporting.
+        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            record_retrieval_feedback(
+                td,
+                request={"query": "q", "intent": "remember"},
+                response={
+                    "ok": True,
+                    "answer_outcome": "answer",
+                    "results": [{"bead_id": "target"}, {"bead_id": "other"}],
+                    "chains": [
+                        {"edges": [
+                            {"src": "E1", "dst": "target", "rel": "supports"},      # touches target
+                            {"src": "X", "dst": "other", "rel": "supports"},         # unrelated chain
+                        ]},
+                    ],
+                },
+            )
+            eks = supporting_edge_keys_for_bead(td, "target")
+            self.assertIn("E1|supports|target", eks)
+            self.assertNotIn("X|supports|other", eks)
+
+
+class TestRewardSinceWindow(unittest.TestCase):
+    def test_since_window_excludes_old_events(self):
+        # Codex P2: read_reward_events must honor the since window.
+        with tempfile.TemporaryDirectory() as td:
+            path = Path(td) / ".beads" / "events" / "myelination-rewards.jsonl"
+            path.parent.mkdir(parents=True, exist_ok=True)
+            old = {
+                "schema": "myelination_reward_event.v1", "id": "mr-old",
+                "created_at": "2000-01-01T00:00:00+00:00", "source_type": "human_approval",
+                "polarity": "positive", "strength": 0.04, "edge_keys": [_edge("a", "b")],
+            }
+            new = {
+                "schema": "myelination_reward_event.v1", "id": "mr-new",
+                "created_at": __import__("datetime").datetime.now(__import__("datetime").timezone.utc).isoformat(),
+                "source_type": "human_approval", "polarity": "positive", "strength": 0.04,
+                "edge_keys": [_edge("a", "b")],
+            }
+            with path.open("w", encoding="utf-8") as f:
+                f.write(json.dumps(old) + "\n")
+                f.write(json.dumps(new) + "\n")
+            recent = read_reward_events(td, since="1d")
+            self.assertEqual(["mr-new"], [r["id"] for r in recent])
+            # No window (since="") keeps both.
+            self.assertEqual({"mr-old", "mr-new"}, {r["id"] for r in read_reward_events(td, since="")})
+
+
 class TestApprovalProducesReward(unittest.TestCase):
     def test_approve_emits_positive_reward_on_supporting_edge(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):

@@ -26,7 +26,11 @@ from core_memory.runtime.observability.myelination import (
     _edge_key,
     myelination_enabled,
 )
-from core_memory.runtime.observability.retrieval_feedback import read_retrieval_feedback
+from core_memory.runtime.observability.retrieval_feedback import (
+    _parse_iso,
+    _parse_since,
+    read_retrieval_feedback,
+)
 
 REWARD_EVENT_SCHEMA = "myelination_reward_event.v1"
 
@@ -152,6 +156,14 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
                 rel = str(e.get("rel") or "").strip()
                 if not src or not dst or not rel:
                     continue
+                # record_retrieval_feedback stores edges as the flat union of all
+                # chains in the response, so an edge from an unrelated chain can
+                # appear in a multi-result row. Only edges that actually touch the
+                # decided bead are its concrete supporting edges (edge-only
+                # guardrail) — incident filter, since per-chain attribution is not
+                # preserved in the stored feedback row.
+                if bid not in (src, dst):
+                    continue
                 ek = _edge_key(src, dst, rel)
                 if ek not in seen:
                     seen.add(ek)
@@ -253,6 +265,12 @@ def read_reward_events(root: str | Path, *, since: str = "30d", limit: int = 200
     p = _rewards_path(root)
     if not p.exists():
         return []
+
+    cutoff = None
+    delta = _parse_since(since)
+    if delta is not None:
+        cutoff = datetime.now(timezone.utc) - delta
+
     rows: list[dict[str, Any]] = []
     with p.open("r", encoding="utf-8") as f:
         for line in f:
@@ -263,8 +281,13 @@ def read_reward_events(root: str | Path, *, since: str = "30d", limit: int = 200
                 row = json.loads(raw)
             except Exception:
                 continue
-            if isinstance(row, dict) and row.get("schema") == REWARD_EVENT_SCHEMA:
-                rows.append(row)
+            if not isinstance(row, dict) or row.get("schema") != REWARD_EVENT_SCHEMA:
+                continue
+            if cutoff is not None:
+                dt = _parse_iso(str(row.get("created_at") or ""))
+                if dt is not None and dt < cutoff:
+                    continue
+            rows.append(row)
     return rows[-max(1, int(limit)):]
 
 
