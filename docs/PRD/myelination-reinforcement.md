@@ -11,7 +11,8 @@ export) migrates to Dreamer V3 §16.1 (deferred). See §0.
 > - Added §0 Supersession + scope split (what stays here vs. moves to Dreamer).
 > - Added §16.2 Reward-event ↔ manifest fusion formula (was unspecified).
 > - Added §9.3 "Concrete supporting edges" derivation (the lynchpin, was one line).
-> - Referenced the existing `apply_contradiction_decay` (already in code).
+> - Claim-conflict decay specified as an edge-level reward event; the bead-level
+>   `apply_contradiction_decay` marked legacy/compatibility-only (Codex P2).
 > - Added §12.3 target states are not a myelination reward source (Dreamer V4).
 > - Brand-neutral throughout (public naming guard).
 
@@ -64,9 +65,11 @@ extracts traversed chain edges from recall responses, counts retrieval
 success/failure, computes `bonus_by_edge_key`, projects edge bonus onto endpoint
 beads (`bonus_by_bead_id`) for scorer compatibility, does not mutate beads/claims,
 uses no time decay, and applies telemetry-driven positive/negative bonus
-(`compute_myelination_bonus_map` in `runtime/observability/myelination.py`; an
-`apply_contradiction_decay` helper already exists there too). V2 extends this
-implementation rather than replacing it.
+(`compute_myelination_bonus_map` in `runtime/observability/myelination.py`). A
+bead-level `apply_contradiction_decay` helper also exists there, applied at
+manifest-projection time; V2 treats it as **legacy/compatibility only** — new
+decay sources are edge-level reward events (§16), not bead-level penalties. V2
+extends this implementation rather than replacing it.
 
 ---
 
@@ -182,10 +185,19 @@ about them. Dreamer is an evidence source, not a reward source.
 ## 12. Source 5: Claim Conflict Resolution
 Tension resolution is too abstract for direct myelination; claim conflict
 resolution is concrete. When a conflict is resolved via an audited claim update or
-contradiction-review decision, supporting edges may be reinforced/decayed
-(preferred-claim path reinforced; contradicted/retracted path weakened;
-both-valid context fork creates scoped resolution, not blanket punishment). The
-existing `apply_contradiction_decay` is the model for the decay side.
+contradiction-review decision, the **concrete supporting edges** (§9.3) of the
+involved claims may be reinforced/decayed: preferred-claim path reinforced;
+contradicted/retracted path weakened; both-valid context fork creates scoped
+resolution, not blanket punishment.
+
+Decay here is **edge-level**, emitted as a negative `myelination_reward_event.v1`
+(§16) on the specific supporting `edge_key`s — never a bead-level penalty. Do
+**not** model this on the existing `apply_contradiction_decay` helper: that helper
+is bead-level (it subtracts from `bonus_by_bead_id` for a conflicting source bead)
+and would penalize every path sharing that endpoint bead, violating the edge-only
+invariant (§2, §6). `apply_contradiction_decay` is retained only as a
+legacy/compatibility projection-time adjustment and is not the model for this
+source.
 
 ### 12.3 Target states are not a reward source
 
@@ -400,7 +412,9 @@ resolution; tension resolution is not rewarded without a concrete proxy event;
 overlays receive no myelination; accepted overlays only reinforce supporting
 substrate edges; C/B/A is never mutated; bead content is never mutated; claims are
 never mutated; `bonus_by_bead_id` is projection only; time decay is not applied;
-reward-event + feedback fusion (§16.2) is deterministic and cap-clamped.
+reward-event + feedback fusion (§16.2) is deterministic and cap-clamped;
+claim-conflict decay targets specific `edge_key`s and does **not** penalize
+unrelated paths sharing an endpoint bead (edge-only invariant).
 
 ---
 
