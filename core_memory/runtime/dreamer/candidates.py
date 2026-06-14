@@ -821,6 +821,26 @@ def decide_dreamer_candidate(
             target["decision"]["applied_turn_id"] = turn_id
             target["review_state"] = "resolved"
 
+            # Best-effort edge-level myelination: reinforce the preferred claim's
+            # support path, weaken the contradicted/retracted one. First decision
+            # only (no double-emit on retried resolution); claim-conflict decay is
+            # edge-level, never bead-level.
+            if _prior_status not in {"accepted", "rejected"} and bool(applied.get("ok")):
+                try:
+                    from core_memory.runtime.observability.myelination_rewards import (
+                        reward_claim_conflict_resolution,
+                    )
+
+                    reward_claim_conflict_resolution(
+                        root,
+                        resolution=resolution_n,
+                        claim_a_id=claim_a_id,
+                        claim_b_id=claim_b_id,
+                        source_event_id=cid,
+                    )
+                except Exception:
+                    pass
+
             _write_candidates(root, rows)
             return {
                 "ok": True,

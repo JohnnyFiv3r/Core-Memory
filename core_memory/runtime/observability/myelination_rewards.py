@@ -367,6 +367,77 @@ def reward_dreamer_candidate_decision(
     )
 
 
+# Conflict-resolution → (claim_a polarity, claim_b polarity). both_valid is
+# deliberately absent: it is scoped, never punished and never reinforced.
+_CONFLICT_RESOLUTION_POLARITY = {
+    "prefer_a": ("positive", "negative"),
+    "prefer_b": ("negative", "positive"),
+    "retract_both": ("negative", "negative"),
+}
+
+
+def reward_claim_conflict_resolution(
+    root: str | Path,
+    *,
+    resolution: str,
+    claim_a_id: str,
+    claim_b_id: str,
+    source_event_id: str = "",
+) -> dict[str, Any]:
+    """Edge-level reward/decay for an audited claim-conflict resolution (PRD §12).
+
+    Reinforces the preferred claim's support path and weakens the
+    contradicted/retracted claim's support path, on the *concrete* supporting
+    edges of each claim's carrier bead — never a bead-level penalty. ``both_valid``
+    is scoped: neither path is punished or reinforced. No-op when myelination is
+    disabled.
+
+    Decay precision: only evidence associations of the carrier bead are used
+    (no recall-trace edges), so weakening cannot spill onto retrieval paths that
+    merely touched the claim bead.
+    """
+    if not myelination_enabled():
+        return {"ok": False, "skipped": "disabled"}
+    res = str(resolution or "").strip().lower()
+    if res == "both_valid":
+        return {"ok": False, "skipped": "both_valid_scoped"}
+    polarity = _CONFLICT_RESOLUTION_POLARITY.get(res)
+    if polarity is None:
+        return {"ok": False, "skipped": "unrewardable_resolution"}
+
+    from core_memory.persistence.store_claim_ops import read_all_claim_rows
+
+    claims, _ = read_all_claim_rows(str(root))
+    carrier_by_claim: dict[str, str] = {}
+    for c in claims:
+        cid = str(c.get("id") or "").strip()
+        if cid and cid not in carrier_by_claim:
+            carrier_by_claim[cid] = str(c.get("source_bead_id") or "").strip()
+
+    pol_a, pol_b = polarity
+    emitted = 0
+    for claim_id, pol in ((str(claim_a_id or ""), pol_a), (str(claim_b_id or ""), pol_b)):
+        carrier = carrier_by_claim.get(claim_id, "")
+        if not carrier:
+            continue
+        eks = supporting_edge_keys_for_bead(root, carrier, include_recall_trace=False)
+        if not eks:
+            continue
+        out = emit_myelination_reward_event(
+            root,
+            source_type="claim_conflict_resolution",
+            polarity=pol,
+            edge_keys=eks,
+            source_event_id=source_event_id,
+            supporting_bead_ids=[carrier],
+            supporting_claim_ids=[claim_id],
+            reason=f"claim conflict {res}",
+        )
+        if out.get("ok"):
+            emitted += 1
+    return {"ok": emitted > 0, "emitted": emitted, "resolution": res}
+
+
 def read_reward_events(root: str | Path, *, since: str = "30d", limit: int = 2000) -> list[dict[str, Any]]:
     p = _rewards_path(root)
     if not p.exists():
@@ -428,6 +499,7 @@ __all__ = [
     "reward_for_bead_decision",
     "reward_goal_resolution",
     "reward_dreamer_candidate_decision",
+    "reward_claim_conflict_resolution",
     "read_reward_events",
     "reward_bonus_by_edge_key",
 ]
