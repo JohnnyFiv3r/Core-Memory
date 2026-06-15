@@ -499,5 +499,32 @@ class TestClaimConflictReward(unittest.TestCase):
             self.assertEqual([], read_reward_events(td))
 
 
+class TestManifestConsistency(unittest.TestCase):
+    def test_feedback_relation_normalized_and_fuses_with_reward(self):
+        # A legacy "Causes" feedback edge and a "caused_by" reward must land on
+        # the same canonical manifest key and fuse.
+        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {**_ENV, "CORE_MEMORY_MYELINATION_MIN_HITS": "1"}, clear=False):
+            # Two successful feedbacks over a legacy-relation edge.
+            for _ in range(2):
+                record_retrieval_feedback(td, request={"query": "q"}, response={
+                    "ok": True, "answer_outcome": "answer", "results": [{"bead_id": "b"}],
+                    "chains": [{"edges": [{"src": "a", "dst": "b", "rel": "Causes"}]}],
+                })
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive",
+                                          edge_keys=[_edge("a", "b", "caused_by")], strength=0.03)
+            m = compute_myelination_bonus_map(td)
+            self.assertIn("a|caused_by|b", m["bonus_by_edge_key"])
+            self.assertNotIn("a|Causes|b", m["bonus_by_edge_key"])
+
+    def test_disabled_manifest_has_stable_shape(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, {"CORE_MEMORY_MYELINATION_ENABLED": "0"}, clear=False):
+            m = compute_myelination_bonus_map(td)
+            self.assertEqual("core_memory.myelination_manifest.v2", m["schema"])
+            self.assertEqual({}, m["source_event_counts"])
+            self.assertFalse(m["enabled"])
+
+
 if __name__ == "__main__":
     unittest.main()
