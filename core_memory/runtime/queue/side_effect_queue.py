@@ -268,6 +268,15 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             goal_discovery_out = {"ok": False, "error": "goal_discovery_failed"}
 
+        # Future projection: advisory storyline continuations (never creates goals).
+        projection_out: dict[str, Any] = {"ok": True, "projection_count": 0}
+        try:
+            from core_memory.runtime.dreamer.projection import compute_future_projections
+            proj = compute_future_projections(root, run_id=run_id, persist=True)
+            projection_out = {"ok": bool(proj.get("ok")), "projection_count": int(proj.get("projection_count") or 0)}
+        except Exception:
+            projection_out = {"ok": False, "error": "future_projection_failed"}
+
         return {
             "ok": True,
             "kind": k,
@@ -280,6 +289,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "tension": tension_out,
             "goal_decay": goal_decay_out,
             "goal_discovery": goal_discovery_out,
+            "projection": projection_out,
         }
 
     if k == "neo4j-sync":
