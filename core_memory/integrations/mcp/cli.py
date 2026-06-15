@@ -36,6 +36,10 @@ Core Memory operating protocol — paste this into your system prompt / custom i
 
 Before answering anything that could depend on earlier context, call recall.
 After any turn containing a decision, fact, preference, commitment, or relationship, call capture.
+When this chat is explicitly opted into Core Memory sync, call sync_transcript_snapshot with
+user_opted_in=true and a stable conversation_id/session_id after meaningful milestones,
+periodically in long chats, and before compaction.
+If sync is not enabled or you are unsure, ask before syncing a transcript snapshot.
 At the end of the conversation (or before compaction), call capture_session with the full transcript.
 """.strip()
 
@@ -316,7 +320,7 @@ def install_payload(
         print(
             "\n--- Core Memory operating protocol ---\n"
             "Paste the block below into your ChatGPT custom instructions or Claude Projects instructions\n"
-            "so the model knows to call recall/capture/capture_session on every turn:\n\n"
+            "so the model knows when to call recall, capture, transcript snapshot sync, and capture_session:\n\n"
             f"{OPERATING_PROTOCOL_BLOCK}\n"
             "--------------------------------------\n",
             file=sys.stderr,

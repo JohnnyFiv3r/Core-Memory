@@ -25,7 +25,7 @@ def capture_session_handler(payload: dict[str, Any] | None = None) -> dict[str, 
     payload.setdefault("session_prefix", "session_sync")
 
     # Flush at end of session so the rolling window is updated for next session.
-    payload.setdefault("flush_policy", "flush")
+    payload.setdefault("flush_policy", "end_only")
 
     result = ingest_handler(payload)
 

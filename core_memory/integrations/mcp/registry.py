@@ -20,6 +20,7 @@ from core_memory.integrations.mcp.tools.capture_session import capture_session_h
 from core_memory.integrations.mcp.tools.ingest import ingest_handler
 from core_memory.integrations.mcp.tools.recall import recall_handler
 from core_memory.integrations.mcp.tools.status import status_handler
+from core_memory.integrations.mcp.tools.sync_transcript_snapshot import sync_transcript_snapshot_handler
 from core_memory.integrations.mcp.typed_read import (
     MCP_TYPED_READ_TOOL_SCHEMAS,
     list_pending_approvals,
@@ -196,7 +197,9 @@ TOOLS: dict[str, MCPToolDefinition] = {
                 "turn_id": {"type": "string"},
                 "self_id": {"type": "string"},
                 "metadata": {"type": "object"},
-                "flush_policy": {"type": "string"},
+                "flush_policy": {"enum": ["none", "end_only", "per_session", "flush"]},
+                "mode": {"enum": ["dyadic", "group"]},
+                "window_size": {"type": "integer", "minimum": 1},
                 "max_turns": {"type": "integer", "minimum": 1},
                 "root": {"type": "string"},
             },
@@ -294,6 +297,62 @@ TOOLS: dict[str, MCPToolDefinition] = {
         output_schema=_GENERIC_OBJECT_SCHEMA,
         handler=_typed_read_handler("list_pending_approvals"),
     ),
+    "sync_transcript_snapshot": MCPToolDefinition(
+        name="sync_transcript_snapshot",
+        description=tool_description("sync_transcript_snapshot"),
+        input_schema={
+            "type": "object",
+            "properties": {
+                "turns": {"type": "array"},
+                "messages": {"type": "array"},
+                "recent_turns": {"type": "array"},
+                "checkpoint_summary": {"type": "string"},
+                "durable_facts": {"type": "array"},
+                "decisions": {"type": "array"},
+                "preferences": {"type": "array"},
+                "open_threads": {"type": "array"},
+                "session_id": {"type": "string"},
+                "session_prefix": {"type": "string"},
+                "transcript_id": {"type": "string"},
+                "conversation_id": {"type": "string"},
+                "conversation_label": {"type": "string"},
+                "source_client": {"type": "string"},
+                "source_system": {"type": "string"},
+                "snapshot_mode": {"enum": ["full", "checkpoint"]},
+                "snapshot_reason": {
+                    "enum": [
+                        "periodic",
+                        "milestone",
+                        "user_requested",
+                        "before_compaction",
+                        "end_of_session",
+                    ]
+                },
+                "previous_snapshot_hash": {"type": "string"},
+                "user_opted_in": {"type": "boolean"},
+                "metadata": {"type": "object"},
+                "flush_policy": {"enum": ["none", "end_only", "per_session", "flush"]},
+                "mode": {"enum": ["dyadic", "group"]},
+                "window_size": {"type": "integer", "minimum": 1},
+                "max_turns": {"type": "integer", "minimum": 1},
+                "root": {"type": "string"},
+            },
+            "required": ["user_opted_in"],
+            "additionalProperties": False,
+        },
+        output_schema={
+            "type": "object",
+            "properties": {
+                "ok": {"type": "boolean"},
+                "session_id": {"type": "string"},
+                "turns_ingested": {"type": "integer"},
+                "bead_ids": {"type": "array", "items": {"type": "string"}},
+                "transcript_hash": {"type": "string"},
+                "snapshot_mode": {"type": "string"},
+            },
+        },
+        handler=sync_transcript_snapshot_handler,
+    ),
     "capture_session": MCPToolDefinition(
         name="capture_session",
         description=tool_description("capture_session"),
@@ -307,7 +366,9 @@ TOOLS: dict[str, MCPToolDefinition] = {
                 "session_id": {"type": "string"},
                 "session_prefix": {"type": "string"},
                 "transcript_id": {"type": "string"},
-                "flush_policy": {"type": "string"},
+                "flush_policy": {"enum": ["none", "end_only", "per_session", "flush"]},
+                "mode": {"enum": ["dyadic", "group"]},
+                "window_size": {"type": "integer", "minimum": 1},
                 "max_turns": {"type": "integer", "minimum": 1},
                 "metadata": {"type": "object"},
                 "root": {"type": "string"},

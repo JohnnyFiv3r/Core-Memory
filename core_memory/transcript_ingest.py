@@ -20,6 +20,13 @@ _ROLE_ALIASES = {
 _ALLOWED_FLUSH_POLICIES = {"end_only", "per_session", "none"}
 
 
+def _normalize_flush_policy(value: Any) -> str:
+    policy = str(value or "none").strip().lower()
+    if policy == "flush":
+        return "end_only"
+    return policy
+
+
 def _safe_id(value: Any, *, default: str) -> str:
     raw = str(value or "").strip()
     if not raw:
@@ -204,7 +211,7 @@ def normalize_transcript_payload(payload: dict[str, Any], *, max_turns: int = 50
 
     transcript_id = _safe_id(payload.get("transcript_id"), default="transcript")
     session_id = _safe_id(payload.get("session_id"), default=f"transcript:{transcript_id}")
-    flush_policy = str(payload.get("flush_policy") or "none").strip().lower()
+    flush_policy = _normalize_flush_policy(payload.get("flush_policy"))
     if flush_policy not in _ALLOWED_FLUSH_POLICIES:
         raise ValueError(f"unsupported_flush_policy:{flush_policy}")
     base_metadata = payload.get("metadata") if isinstance(payload.get("metadata"), dict) else {}
@@ -358,7 +365,7 @@ def ingest_turn_envelopes(*, root: str, envelopes: list[dict[str, Any]], flush_p
             errors.append({"turn_id": str(env.get("turn_id") or ""), "session_id": session_id, "error": str(exc)})
 
     flushes: list[dict[str, Any]] = []
-    policy = str(flush_policy or "none").strip().lower()
+    policy = _normalize_flush_policy(flush_policy)
     if policy not in _ALLOWED_FLUSH_POLICIES:
         policy = "none"
     if policy != "none":

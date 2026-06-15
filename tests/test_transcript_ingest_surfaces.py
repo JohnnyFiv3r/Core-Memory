@@ -38,6 +38,20 @@ class TranscriptIngestSurfaceTests(unittest.TestCase):
         self.assertEqual(["user"], [t["role"] for t in out["envelopes"][1]["turns"]])
         self.assertEqual("unpaired_final_user_turn", out["warnings"][0]["code"])
 
+    def test_normalizer_accepts_legacy_flush_policy_alias(self):
+        out = normalize_transcript_payload(
+            {
+                "transcript_id": "flush-alias",
+                "flush_policy": "flush",
+                "turns": [
+                    {"role": "user", "content": "Legacy callers used flush."},
+                    {"role": "assistant", "content": "Treat it as end_only."},
+                ],
+            }
+        )
+
+        self.assertEqual("end_only", out["flush_policy"])
+
     def test_ingest_pairs_user_query_and_assistant_final_without_dropping_odd_turn(self):
         with tempfile.TemporaryDirectory() as td:
             seen: list[dict] = []
