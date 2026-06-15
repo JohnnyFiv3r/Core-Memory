@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.runtime.observability.retrieval_feedback import read_retrieval_feedback
+from core_memory.schema.normalization import normalize_relation_type
 
 
 def myelination_enabled() -> bool:
@@ -71,10 +72,12 @@ def compute_myelination_bonus_map(
 
     if not myelination_enabled():
         return {
+            "schema": "core_memory.myelination_manifest.v2",
             "enabled": False,
             "bonus_by_edge_key": {},
             "bonus_by_bead_id": {},
             "stats": {"events": 0, "edges": 0, "beads": 0, "strengthened": 0, "weakened": 0},
+            "source_event_counts": {},
             "config": {"since": since_v, "limit": limit_v},
         }
 
@@ -94,10 +97,13 @@ def compute_myelination_bonus_map(
                 continue
             src = str(e.get("src") or "").strip()
             dst = str(e.get("dst") or "").strip()
-            rel = str(e.get("rel") or "").strip()
-            if not src or not dst or not rel:
+            raw_rel = str(e.get("rel") or "").strip()
+            if not src or not dst or not raw_rel:
                 continue
-            edges.append(_edge_key(src, dst, rel))
+            # Normalize the relation so feedback edges share canonical keys with
+            # reward events (and with what consumers query) — otherwise a legacy
+            # "Causes" feedback edge and a "caused_by" reward never fuse.
+            edges.append(_edge_key(src, dst, normalize_relation_type(raw_rel)))
         edge_keys = [x for x in dict.fromkeys(edges) if x]
         if not edge_keys:
             continue
