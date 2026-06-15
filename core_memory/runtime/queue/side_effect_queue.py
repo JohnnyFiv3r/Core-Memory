@@ -243,6 +243,23 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             pass
 
+        # Tension discovery: goal-conflict candidates (threshold-free; decide flow
+        # still required before anything is endorsed).
+        tension_out: dict[str, Any] = {"ok": True, "detected": 0, "enqueued": 0}
+        try:
+            from core_memory.runtime.dreamer.tension_discovery import enqueue_goal_conflict_candidates
+            tension_out = enqueue_goal_conflict_candidates(root, run_id=run_id, source="side_effect_queue")
+        except Exception:
+            tension_out = {"ok": False, "error": "tension_discovery_failed"}
+
+        # Goal decay: surface dormant goals for SOUL / goal-lifecycle review.
+        goal_decay_out: dict[str, Any] = {"ok": True, "detected": 0, "enqueued": 0}
+        try:
+            from core_memory.runtime.dreamer.goal_decay import enqueue_goal_decay_warnings
+            goal_decay_out = enqueue_goal_decay_warnings(root, run_id=run_id, source="side_effect_queue")
+        except Exception:
+            goal_decay_out = {"ok": False, "error": "goal_decay_failed"}
+
         return {
             "ok": True,
             "kind": k,
@@ -252,6 +269,8 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "candidate_queue": queue_out,
             "theme_queue": theme_queue_out,
             "convergence": convergence_out,
+            "tension": tension_out,
+            "goal_decay": goal_decay_out,
         }
 
     if k == "neo4j-sync":

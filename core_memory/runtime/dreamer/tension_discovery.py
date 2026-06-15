@@ -71,13 +71,15 @@ def detect_goal_conflicts(root: str | Path) -> list[dict[str, Any]]:
         return []
 
     # Assembly depth for goals (best-effort), keyed by target_id. Cover the full
-    # goal population — a truncated limit would both drop later goals and distort
-    # the percentile normalization for those included.
+    # goal population (all goal beads, not just the active subset): a truncated
+    # limit drops goals and distorts the percentile normalization, and ineligible
+    # goals may precede active ones in index order.
     depth_by_goal: dict[str, float] = {}
     try:
         from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
 
-        reports = compute_assembly_depth(root, target_kind="goal", limit=len(goals)).get("reports") or []
+        total_goals = max(1, sum(1 for b in beads.values() if str(b.get("type") or "").strip().lower() == "goal"))
+        reports = compute_assembly_depth(root, target_kind="goal", limit=total_goals).get("reports") or []
         for rep in reports:
             depth_by_goal[str(rep.get("target_id"))] = float(rep.get("score") or 0.0)
     except Exception:
