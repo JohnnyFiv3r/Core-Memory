@@ -11,11 +11,13 @@ Core Memory only works if you drive the loop. Treat these as standing instructio
 1. **Recall first.** Before answering anything that could depend on earlier context — prior decisions, the user's stated preferences, facts, commitments, or "what did we say about X" — call `recall` and ground your answer in the result. When in doubt, recall. A missed recall means you answer from a blank slate while the memory sits unused.
 2. **Capture after.** After any turn that contains durable state — a decision, fact, preference, commitment, condition, or relationship — call `capture` with the just-completed user+assistant exchange. Do this as a normal part of responding, not only when the user says "remember this."
 3. **Resolve conflicts when surfaced.** If `recall` returns a `review_prompt`, walk the user through it (see "Surfacing contradictions" below).
-4. **Sync at the end.** Before a long conversation ends or compacts, call `capture_session` (or `ingest`) to flush the full transcript so nothing durable is lost to a missed per-turn capture.
+4. **Sync snapshots during long chats.** When the user or app context has explicitly opted this chat into Core Memory/Satorid sync, treat `sync_transcript_snapshot` as a required safety net. Call it after the first meaningful state-bearing milestone, after important decisions or preference changes, periodically during long conversations, before context loss/compaction, and whenever the user asks to sync/remember the visible conversation. Always pass `user_opted_in=true`. If sync is not enabled or you are unsure, ask before syncing.
+5. **Sync at the end.** Before a long conversation ends or compacts, call `capture_session` (or `ingest`) to flush the full transcript so nothing durable is lost to a missed per-turn capture.
 
 The verbs:
 - `recall` reads memory through the single grounded recall verb with `effort="low|medium|high"`.
 - `capture` writes observed conversation turns through the canonical runtime boundary.
+- `sync_transcript_snapshot` replays the currently visible, user-authorized transcript through the canonical write path for periodic/full transcript sync.
 - `capture_session` replays a whole conversation transcript through the canonical write path (end-of-session safety net).
 - `ingest` imports local transcript files when the MCP server process can read them.
 - `status` checks whether the server and store are alive.
@@ -70,9 +72,27 @@ Accepted shapes — provide exactly one:
 - `messages`: list of OpenAI-style message objects
 - `path`: absolute path to a transcript file readable by the MCP server process
 
-Optional: `session_id` to associate the transcript with a specific session; `flush_policy` to control whether the rolling window is updated (defaults to `"flush"`).
+Optional: `session_id` to associate the transcript with a specific session; `flush_policy` to control whether the rolling window is updated (defaults to `"end_only"`). Legacy callers may still send `"flush"`; it is treated as `"end_only"`.
 
 <!-- tool:capture_session:end -->
+
+<!-- tool:sync_transcript_snapshot:start -->
+## Tool: sync_transcript_snapshot
+
+Use `sync_transcript_snapshot` when the user or app context has explicitly opted this chat into Core Memory/Satorid sync and the current visible conversation should be preserved for asynchronous bead extraction. Once sync is enabled, this is a required safety net, not a rare optional tool: call it after the first meaningful state-bearing milestone, after important decisions or preference changes, periodically during long conversations, before context loss/compaction, and whenever the user asks to sync/remember the conversation.
+
+Do not call this tool when sync is not enabled, when the user has opted out, or merely because the tool exists. Always pass `user_opted_in=true` only when that explicit opt-in exists. Include only visible conversation content intended for memory sync; do not include hidden system/developer instructions, credentials, unrelated private data, or raw transcript beyond the user's authorized memory-sync purpose.
+
+Send faithful visible transcript turns. Prefer a full snapshot over a model-authored summary whenever it fits. Do not summarize unless using checkpoint mode.
+
+Accepted full-snapshot shapes — provide exactly one:
+- `turns`: list of `{role, content}` objects (or `{speaker, role, content}`)
+- `messages`: list of OpenAI-style message objects
+
+Important metadata: include `user_opted_in=true`, `source_client` or `source_system` when known, `snapshot_reason` (`periodic`, `milestone`, `user_requested`, `before_compaction`, or `end_of_session`), `conversation_label` when useful, and `previous_snapshot_hash` when chaining snapshots. The tool returns `transcript_hash`; pass it as `previous_snapshot_hash` on the next snapshot for provenance.
+
+For long chats that exceed the tool/input limit, use checkpoint mode with `recent_turns` plus `checkpoint_summary`, and optionally `durable_facts`, `decisions`, `preferences`, and `open_threads`. Treat checkpoint mode as second-best because it contains model-authored summary content rather than the full visible transcript.
+<!-- tool:sync_transcript_snapshot:end -->
 
 <!-- tool:ingest:start -->
 ## Tool: ingest

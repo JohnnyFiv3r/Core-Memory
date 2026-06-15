@@ -70,6 +70,18 @@ Use `--no-start` if you want Core Memory to write client config but not start or
 
 Writes observed conversation turns through the canonical Core Memory write boundary. Provide either `turns` or `{user, assistant, as_user?, as_assistant?}`.
 
+### `sync_transcript_snapshot`
+
+Periodically syncs the current visible, user-authorized conversation transcript through the canonical ingest/capture path. Use it only after explicit user/app opt-in, and pass `user_opted_in=true` on every successful call. Once sync is enabled, use it as a safety net for long chats: after meaningful milestones, after important decisions or preference changes, periodically in long conversations, before compaction, or when the user asks to sync the conversation.
+
+Do not call it when sync is not enabled, when the user has opted out, or when opt-in is unclear; ask first. Include only visible conversation content intended for memory sync, not hidden instructions, credentials, or unrelated private data. It returns a `transcript_hash` that can be passed as `previous_snapshot_hash` on the next snapshot.
+
+For transcripts that are too long to send in full, use checkpoint mode with `recent_turns` plus `checkpoint_summary`; this is a fallback because it includes model-authored summary content.
+
+### `capture_session`
+
+End-of-session safety net. Replays the full transcript through canonical capture semantics and defaults `flush_policy` to `end_only`; legacy `flush` is accepted as an alias.
+
 ### `recall`
 
 Single public grounded read verb. Use:

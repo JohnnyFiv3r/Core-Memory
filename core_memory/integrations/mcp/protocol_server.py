@@ -156,6 +156,8 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
         session_prefix: str | None = None,
         transcript_id: str | None = None,
         flush_policy: str | None = None,
+        mode: str | None = None,
+        window_size: int | None = None,
         max_turns: int | None = None,
         metadata: dict[str, Any] | None = None,
         root: str | None = None,
@@ -169,13 +171,74 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
             "session_prefix": session_prefix,
             "transcript_id": transcript_id,
             "flush_policy": flush_policy,
+            "mode": mode,
+            "window_size": window_size,
             "max_turns": max_turns,
             "metadata": metadata,
             "root": _root(root),
         }
         # Strip None values so capture_session_handler's setdefault() can apply
-        # its own defaults (session_prefix="session_sync", flush_policy="flush").
+        # its own defaults (session_prefix="session_sync", flush_policy="end_only").
         return call_tool("capture_session", {k: v for k, v in _cs_payload.items() if v is not None})
+
+    @mcp.tool(
+        name="sync_transcript_snapshot",
+        description=_tool_description("sync_transcript_snapshot"),
+        structured_output=True,
+    )
+    def sync_transcript_snapshot_tool(
+        turns: list[dict[str, Any]] | None = None,
+        messages: list[dict[str, Any]] | None = None,
+        recent_turns: list[dict[str, Any]] | None = None,
+        checkpoint_summary: str | None = None,
+        durable_facts: list[Any] | None = None,
+        decisions: list[Any] | None = None,
+        preferences: list[Any] | None = None,
+        open_threads: list[Any] | None = None,
+        session_id: str | None = None,
+        session_prefix: str | None = None,
+        transcript_id: str | None = None,
+        conversation_label: str | None = None,
+        source_client: str | None = None,
+        source_system: str | None = None,
+        snapshot_mode: str | None = None,
+        snapshot_reason: str | None = None,
+        previous_snapshot_hash: str | None = None,
+        user_opted_in: bool | None = None,
+        metadata: dict[str, Any] | None = None,
+        flush_policy: str | None = None,
+        mode: str | None = None,
+        window_size: int | None = None,
+        max_turns: int | None = None,
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        payload = {
+            "turns": turns,
+            "messages": messages,
+            "recent_turns": recent_turns,
+            "checkpoint_summary": checkpoint_summary,
+            "durable_facts": durable_facts,
+            "decisions": decisions,
+            "preferences": preferences,
+            "open_threads": open_threads,
+            "session_id": session_id,
+            "session_prefix": session_prefix,
+            "transcript_id": transcript_id,
+            "conversation_label": conversation_label,
+            "source_client": source_client,
+            "source_system": source_system,
+            "snapshot_mode": snapshot_mode,
+            "snapshot_reason": snapshot_reason,
+            "previous_snapshot_hash": previous_snapshot_hash,
+            "user_opted_in": user_opted_in,
+            "metadata": metadata,
+            "flush_policy": flush_policy,
+            "mode": mode,
+            "window_size": window_size,
+            "max_turns": max_turns,
+            "root": _root(root),
+        }
+        return call_tool("sync_transcript_snapshot", {k: v for k, v in payload.items() if v is not None})
 
     @mcp.tool(name="ingest", description=_tool_description("ingest"), structured_output=True)
     def ingest_tool(
@@ -189,6 +252,8 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
         self_id: str | None = None,
         metadata: dict[str, Any] | None = None,
         flush_policy: str | None = None,
+        mode: str | None = None,
+        window_size: int | None = None,
         max_turns: int | None = None,
         root: str | None = None,
     ) -> dict[str, Any]:
@@ -205,6 +270,8 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
                 "self_id": self_id,
                 "metadata": metadata,
                 "flush_policy": flush_policy,
+                "mode": mode,
+                "window_size": window_size,
                 "max_turns": max_turns,
                 "root": _root(root),
             },

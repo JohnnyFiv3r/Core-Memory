@@ -22,6 +22,11 @@ def fallback_tool_description(tool_name: str) -> str:
             "End-of-session safety net: replay the full conversation transcript through canonical capture semantics. "
             "Call this once before the conversation ends or compacts to ensure no durable state is lost."
         ),
+        "sync_transcript_snapshot": (
+            "Required safety net for opted-in long chats: replay the visible, user-authorized transcript snapshot "
+            "through canonical ingest/capture semantics. Call after milestones, periodically before compaction, "
+            "and pass user_opted_in=true."
+        ),
         "ingest": "Ingest a local transcript file into Core Memory when the file is readable by the MCP server.",
         "status": "Report Core Memory MCP server and store health.",
     }
@@ -50,7 +55,7 @@ def tool_descriptions() -> dict[str, str]:
         body = match.group("body").strip()
         body = re.sub(r"^## Tool: .+?$", "", body, count=1, flags=re.M).strip()
         descriptions[name] = re.sub(r"\s+", " ", body).strip()
-    for name in ("capture", "recall", "capture_session", "ingest", "status"):
+    for name in ("capture", "recall", "capture_session", "sync_transcript_snapshot", "ingest", "status"):
         descriptions.setdefault(name, fallback_tool_description(name))
     return descriptions
 

@@ -13,10 +13,16 @@ class MCPAgentGuideTests(unittest.TestCase):
 
     def test_tool_descriptions_extract_named_sections(self):
         descriptions = tool_descriptions()
-        self.assertEqual({"capture", "recall", "capture_session", "ingest", "status"}, set(descriptions))
+        self.assertEqual(
+            {"capture", "recall", "capture_session", "sync_transcript_snapshot", "ingest", "status"},
+            set(descriptions),
+        )
         self.assertIn('effort="low"', descriptions["recall"])
         self.assertIn("canonical write boundary", descriptions["capture"])
         self.assertIn("safety net", descriptions["capture_session"])
+        self.assertIn("visible conversation", descriptions["sync_transcript_snapshot"])
+        self.assertIn("required safety net", descriptions["sync_transcript_snapshot"])
+        self.assertIn("user_opted_in=true", descriptions["sync_transcript_snapshot"])
         for value in descriptions.values():
             self.assertGreater(len(value.split()), 10)
 
