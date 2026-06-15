@@ -260,6 +260,14 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             goal_decay_out = {"ok": False, "error": "goal_decay_failed"}
 
+        # Goal discovery: propose latent goals from repeated behavior.
+        goal_discovery_out: dict[str, Any] = {"ok": True, "detected": 0, "enqueued": 0}
+        try:
+            from core_memory.runtime.dreamer.goal_discovery import enqueue_latent_goal_candidates
+            goal_discovery_out = enqueue_latent_goal_candidates(root, run_id=run_id, source="side_effect_queue")
+        except Exception:
+            goal_discovery_out = {"ok": False, "error": "goal_discovery_failed"}
+
         return {
             "ok": True,
             "kind": k,
@@ -271,6 +279,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "convergence": convergence_out,
             "tension": tension_out,
             "goal_decay": goal_decay_out,
+            "goal_discovery": goal_discovery_out,
         }
 
     if k == "neo4j-sync":
