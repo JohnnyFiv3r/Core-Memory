@@ -51,6 +51,10 @@ DEFAULT_ANTI_WEIGHTS: dict[str, float] = {
 
 _CAUSAL_RELATIONS = {"caused_by", "led_to", "resolves", "supports", "derived_from"}
 
+# Canonical inactive-association statuses (matches graph/traversal, worldlines,
+# root_cause). Missing status is treated as active.
+_INACTIVE_ASSOC_STATUSES = {"retracted", "superseded", "inactive"}
+
 
 def _w(name: str, default: float) -> float:
     try:
@@ -169,6 +173,10 @@ def compute_assembly_depth(
     incident_edges: dict[str, list[tuple[str, str, str]]] = {}
     for assoc in (index.get("associations") or []):
         if not isinstance(assoc, dict):
+            continue
+        # Skip non-current edges so retracted/superseded support can't inflate
+        # depth (canonical filter; missing status = active).
+        if str(assoc.get("status") or "active").strip().lower() in _INACTIVE_ASSOC_STATUSES:
             continue
         s = str(assoc.get("source_bead") or "").strip()
         d = str(assoc.get("target_bead") or "").strip()

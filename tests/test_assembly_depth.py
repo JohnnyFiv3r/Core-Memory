@@ -83,6 +83,29 @@ class TestAssemblyDepthEngine(unittest.TestCase):
             self.assertEqual(1.0, out[spec]["components"]["anti_factors"]["speculative_only_support"])
             self.assertEqual(1.0, out[spec]["components"]["anti_factors"]["single_session_concentration"])
 
+    def test_inactive_associations_do_not_inflate_depth(self):
+        import json
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            goal = store.add_bead(type="goal", title="G", summary=["s"], goal_id="g1", session_id="s1")
+            ev = store.add_bead(type="evidence", title="E", summary=["s"], detail="d", session_id="s2")
+            store.link(ev, goal, "supports")
+            # Mark the only support edge retracted.
+            idx_path = Path(td) / ".beads" / "index.json"
+            idx = json.loads(idx_path.read_text(encoding="utf-8"))
+            for a in idx["associations"]:
+                if a.get("source_bead") == ev and a.get("target_bead") == goal:
+                    a["status"] = "retracted"
+            idx_path.write_text(json.dumps(idx), encoding="utf-8")
+
+            r = _reports_by_id(compute_assembly_depth(td, target_kind="goal"))[goal]
+            # Support set collapses to the goal alone (retracted edge excluded).
+            self.assertEqual(1.0, r["components"]["factors_raw"]["supporting_bead_count"])
+            self.assertEqual(0.0, r["components"]["factors_raw"]["causal_dependency_count"])
+            self.assertEqual(1.0, r["components"]["anti_factors"]["single_session_concentration"])
+
     def test_target_kind_filter(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(root=td)
