@@ -70,6 +70,48 @@ class TestGoalDecayDetection(unittest.TestCase):
                 del os.environ["CORE_MEMORY_GOAL_DECAY_STALE_DAYS"]
 
 
+    def test_legacy_promoted_goal_not_flagged(self):
+        # Legacy status:"promoted" must be treated as terminal (canonical helper).
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            g = store.add_bead(type="goal", title="Promoted legacy", summary=["s"], goal_id="g1", session_id="s1")
+            idx_path = Path(td) / ".beads" / "index.json"
+            _age(idx_path, g, 60)
+            idx = json.loads(idx_path.read_text(encoding="utf-8"))
+            idx["beads"][g]["status"] = "promoted"  # legacy promotion encoding
+            idx_path.write_text(json.dumps(idx), encoding="utf-8")
+            self.assertEqual([], detect_goal_decay(td))
+
+    def test_depth_scoring_covers_all_goal_beads(self):
+        # Codex P2: ineligible goals before an eligible one must not truncate the
+        # depth population — pass the total goal-bead count.
+        from unittest.mock import patch
+        import core_memory.runtime.dreamer.assembly_depth as ad
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            idx_path = Path(td) / ".beads" / "index.json"
+            # Three superseded (ineligible) goals first, then one eligible stale goal.
+            for i in range(3):
+                sg = store.add_bead(type="goal", title=f"old{i}", summary=["s"], goal_id=f"o{i}", session_id="s1")
+                idx = json.loads(idx_path.read_text(encoding="utf-8"))
+                idx["beads"][sg]["status"] = "superseded"
+                idx_path.write_text(json.dumps(idx), encoding="utf-8")
+            elig = store.add_bead(type="goal", title="eligible", summary=["s"], goal_id="e1", session_id="s1")
+            _age(idx_path, elig, 60)
+
+            real = ad.compute_assembly_depth
+            seen = {}
+
+            def _spy(root, *, target_kind="goal", limit=200):
+                seen["limit"] = limit
+                return real(root, target_kind=target_kind, limit=limit)
+
+            with patch.object(ad, "compute_assembly_depth", _spy):
+                detect_goal_decay(td)
+            self.assertGreaterEqual(seen["limit"], 4)  # 3 superseded + 1 eligible
+
+
 class TestGoalDecayEnqueue(unittest.TestCase):
     def test_enqueue_and_idempotent(self):
         with tempfile.TemporaryDirectory() as td:

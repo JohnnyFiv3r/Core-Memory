@@ -51,6 +51,14 @@ class TestGoalConflictDetection(unittest.TestCase):
             # Add extra (non-conflicting) goals so the goal count is meaningful.
             for i in range(5):
                 store.add_bead(type="goal", title=f"G{i}", summary=["s"], goal_id=f"x{i}", session_id="s1")
+            # A superseded goal must still count toward the depth population so
+            # active goals after it aren't truncated.
+            sg = store.add_bead(type="goal", title="old", summary=["s"], goal_id="old", session_id="s1")
+            idx_path = Path(td) / ".beads" / "index.json"
+            idx = json.loads(idx_path.read_text(encoding="utf-8"))
+            idx["beads"][sg]["status"] = "superseded"
+            idx_path.write_text(json.dumps(idx), encoding="utf-8")
+
             import core_memory.runtime.dreamer.assembly_depth as ad
             real = ad.compute_assembly_depth
             seen = {}
@@ -61,7 +69,7 @@ class TestGoalConflictDetection(unittest.TestCase):
 
             with patch.object(ad, "compute_assembly_depth", _spy):
                 detect_goal_conflicts(td)
-            self.assertGreaterEqual(seen["limit"], 7)  # 2 conflicting + 5 extra
+            self.assertGreaterEqual(seen["limit"], 8)  # 2 conflicting + 5 extra + 1 superseded (total goal beads)
 
     def test_contradicts_between_non_goals_ignored(self):
         with tempfile.TemporaryDirectory() as td:

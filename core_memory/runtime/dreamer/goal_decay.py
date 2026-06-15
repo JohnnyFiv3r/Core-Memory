@@ -23,9 +23,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.policy.promotion_contract import current_promotion_state
 from core_memory.runtime.observability.retrieval_feedback import _parse_iso
 
 _INACTIVE_BEAD_STATUSES = {"superseded", "archived", "resolved"}
+
+
+def _count_goal_beads(beads: dict[str, Any]) -> int:
+    return sum(1 for b in beads.values() if str(b.get("type") or "").strip().lower() == "goal")
 
 
 def _now() -> str:
@@ -64,9 +69,11 @@ def _is_decay_eligible_goal(bead: dict[str, Any]) -> bool:
         return False
     if str(bead.get("goal_status") or "").strip().lower() == "resolved":
         return False
-    if str(bead.get("promotion_state") or "").strip().lower() in {"resolved", "promoted"}:
+    if str(bead.get("promotion_state") or "").strip().lower() == "resolved":
         return False
-    if bool(bead.get("promoted")):
+    # Canonical promotion-state helper catches the boolean flag, promotion_state,
+    # and the legacy status:"promoted" encoding the rest of the codebase honors.
+    if current_promotion_state(bead) == "promoted":
         return False
     if str(bead.get("approval_status") or "").strip().lower() == "rejected":
         return False
@@ -91,11 +98,15 @@ def detect_goal_decay(root: str | Path) -> list[dict[str, Any]]:
     if not goals:
         return []
 
+    # Score the FULL goal population (compute_assembly_depth truncates the first
+    # `limit` goal beads, and ineligible goals may precede eligible ones), so an
+    # eligible goal can't be omitted and default to depth 0.0 (false decay).
     depth_by_goal: dict[str, float] = {}
     try:
         from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
 
-        reports = compute_assembly_depth(root, target_kind="goal", limit=len(goals)).get("reports") or []
+        total_goals = max(1, _count_goal_beads(beads))
+        reports = compute_assembly_depth(root, target_kind="goal", limit=total_goals).get("reports") or []
         for rep in reports:
             depth_by_goal[str(rep.get("target_id"))] = float(rep.get("score") or 0.0)
     except Exception:
