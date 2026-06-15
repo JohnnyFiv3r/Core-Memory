@@ -29,6 +29,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.runtime.dreamer.goal_filters import is_active_goal
+
 FUTURE_PROJECTION_SCHEMA = "future_projection.v1"
 FUTURE_VECTOR_SCHEMA = "future_vector.v1"
 
@@ -106,11 +108,12 @@ def _narrative_strength(*, is_continuation: bool, length: int, ev_quality: float
     return round(_clamp01(score - penalty), 6)
 
 
-def _attractor_strength(theme: set[str], storyline_id: str,
+def _attractor_strength(theme: set[str], storyline_id: str, exclude_goal_ids: set[str],
                         all_storylines: list[dict], goal_themes: list[tuple[str, set[str]]]) -> tuple[float, list[str]]:
     """v1 attractor strength (§20): distinct other storylines + active goals whose
     theme tokens overlap, normalized. Distinct structures only (no duplicate
-    convergence); the storyline itself is excluded."""
+    convergence); the storyline itself and its own backbone goal(s) are excluded
+    — a goal-backed storyline must not count its own goal bead as convergence."""
     norm = max(1.0, _float_env("CORE_MEMORY_PROJECTION_CONVERGENCE_NORM", 5.0))
     converging: list[str] = []
     for s in all_storylines:
@@ -121,6 +124,8 @@ def _attractor_strength(theme: set[str], storyline_id: str,
         if theme & s_theme:
             converging.append(f"storyline:{sid}")
     for gid, g_theme in goal_themes:
+        if gid in exclude_goal_ids:
+            continue
         if theme & g_theme:
             converging.append(f"goal:{gid}")
     converging = sorted(set(converging))
@@ -166,32 +171,38 @@ def compute_future_projections(
 
     storylines = list((derive_storylines(root).get("storylines") or []))
 
-    # Active-goal themes for attractor convergence.
+    # Active-goal themes for attractor convergence — only open objectives count
+    # (resolved/promoted/rejected/superseded goals are excluded; shared helper).
     goal_themes: list[tuple[str, set[str]]] = []
     for bid, b in beads.items():
-        if str(b.get("type") or "").lower() != "goal":
-            continue
-        if str(b.get("status") or "").lower() in _INACTIVE_BEAD_STATUSES:
-            continue
-        goal_themes.append((bid, _tokens(b.get("title"), b.get("entities"), b.get("topics"))))
+        if is_active_goal(b):
+            goal_themes.append((bid, _tokens(b.get("title"), b.get("entities"), b.get("topics"))))
 
     rid = str(run_id or f"proj-{uuid.uuid4().hex[:8]}")
     projections: list[dict[str, Any]] = []
     for s in storylines:
         backbone = dict(s.get("backbone") or {})
         bead_ids = [str(x) for x in (backbone.get("bead_ids") or [])]
-        if not bead_ids:
+        # Cite live support only: superseded/archived backbone beads are stale
+        # evidence and must not appear in supporting_beads or scoring (§19.1).
+        live_bead_ids = [
+            b for b in bead_ids
+            if b in beads and str(beads[b].get("status") or "").lower() not in _INACTIVE_BEAD_STATUSES
+        ]
+        if not live_bead_ids:
             continue
         sid = str(s.get("id") or "")
         tensions = list(s.get("tensions") or [])
         has_tensions = bool(tensions)
-        length = int(backbone.get("length") or len(bead_ids))
+        length = len(live_bead_ids)
         label = str(backbone.get("label") or sid)
-        last_bead = beads.get(bead_ids[-1], {})
+        last_bead = beads.get(live_bead_ids[-1], {})
         current_state = str(last_bead.get("title") or label)
-        ev_q, gr_q = _quality_fractions(bead_ids, beads)
+        ev_q, gr_q = _quality_fractions(live_bead_ids, beads)
         theme = _tokens(label, last_bead.get("entities"), last_bead.get("topics"))
-        att, converging = _attractor_strength(theme, sid, storylines, goal_themes)
+        # Exclude the storyline's own backbone members (a goal-backed storyline
+        # keeps its goal bead as a backbone member) from goal convergence.
+        att, converging = _attractor_strength(theme, sid, set(bead_ids), storylines, goal_themes)
 
         vectors: list[dict[str, Any]] = []
         # Continuation: storyline continues without intervention.
@@ -200,7 +211,7 @@ def compute_future_projections(
             current_state=current_state,
             projected_state=f"'{label}' continues its current trajectory.",
             statement=f"If '{label}' continues without intervention, it extends its current direction.",
-            supporting_beads=bead_ids, supporting_tensions=[],
+            supporting_beads=live_bead_ids, supporting_tensions=[],
             narrative_strength=_narrative_strength(
                 is_continuation=True, length=length, ev_quality=ev_q,
                 grounding_quality=gr_q, has_tensions=has_tensions),
@@ -215,7 +226,7 @@ def compute_future_projections(
                 current_state=current_state,
                 projected_state=f"'{label}' resolves its {tkind}.",
                 statement=f"If the {tkind} on '{label}' resolves, the storyline forks toward that resolution.",
-                supporting_beads=bead_ids, supporting_tensions=[t],
+                supporting_beads=live_bead_ids, supporting_tensions=[t],
                 narrative_strength=_narrative_strength(
                     is_continuation=False, length=length, ev_quality=ev_q,
                     grounding_quality=gr_q, has_tensions=has_tensions),

@@ -23,14 +23,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.policy.promotion_contract import current_promotion_state
+from core_memory.runtime.dreamer.goal_filters import count_goal_beads as _count_goal_beads, is_active_goal
 from core_memory.runtime.observability.retrieval_feedback import _parse_iso
 
 _INACTIVE_BEAD_STATUSES = {"superseded", "archived", "resolved"}
-
-
-def _count_goal_beads(beads: dict[str, Any]) -> int:
-    return sum(1 for b in beads.values() if str(b.get("type") or "").strip().lower() == "goal")
 
 
 def _now() -> str:
@@ -62,22 +58,8 @@ def _float_env(name: str, default: float) -> float:
 
 
 def _is_decay_eligible_goal(bead: dict[str, Any]) -> bool:
-    """Active goal that is neither resolved nor promoted (those are terminal)."""
-    if str(bead.get("type") or "").strip().lower() != "goal":
-        return False
-    if str(bead.get("status") or "").strip().lower() in _INACTIVE_BEAD_STATUSES:
-        return False
-    if str(bead.get("goal_status") or "").strip().lower() == "resolved":
-        return False
-    if str(bead.get("promotion_state") or "").strip().lower() == "resolved":
-        return False
-    # Canonical promotion-state helper catches the boolean flag, promotion_state,
-    # and the legacy status:"promoted" encoding the rest of the codebase honors.
-    if current_promotion_state(bead) == "promoted":
-        return False
-    if str(bead.get("approval_status") or "").strip().lower() == "rejected":
-        return False
-    return True
+    """Active, non-terminal goal — the shared definition used across detectors."""
+    return is_active_goal(bead)
 
 
 def _age_days(created_at: str, now: datetime) -> float:

@@ -7,9 +7,11 @@ from pathlib import Path
 os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
 
 from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.dreamer.goal_filters import is_active_goal
 from core_memory.runtime.dreamer.projection import (
     FUTURE_PROJECTION_SCHEMA,
     FUTURE_VECTOR_SCHEMA,
+    _attractor_strength,
     compute_future_projections,
     read_future_projections,
 )
@@ -101,6 +103,44 @@ class TestFutureProjection(unittest.TestCase):
             out = process_side_effect_event(root=td, kind="dreamer-run", payload={"mode": "suggest"})
             self.assertIn("projection", out)
             self.assertTrue(out["projection"]["ok"])
+
+
+class TestProjectionFixes(unittest.TestCase):
+    def test_attractor_excludes_source_goal_bead(self):
+        # Codex P2: a goal-backed storyline must not count its own goal bead.
+        theme = {"explainability"}
+        goal_themes = [("g_self", {"explainability"}), ("g_other", {"explainability"})]
+        # g_self is a backbone member of this storyline → excluded.
+        score, conv = _attractor_strength(theme, "wl-goal-xyz", {"g_self"}, [], goal_themes)
+        self.assertIn("goal:g_other", conv)
+        self.assertNotIn("goal:g_self", conv)
+
+    def test_is_active_goal_excludes_terminal(self):
+        self.assertTrue(is_active_goal({"type": "goal", "status": "open"}))
+        self.assertFalse(is_active_goal({"type": "goal", "status": "resolved"}))
+        self.assertFalse(is_active_goal({"type": "goal", "goal_status": "resolved"}))
+        self.assertFalse(is_active_goal({"type": "goal", "promotion_state": "resolved"}))
+        self.assertFalse(is_active_goal({"type": "goal", "status": "promoted"}))  # legacy
+        self.assertFalse(is_active_goal({"type": "goal", "promoted": True}))
+        self.assertFalse(is_active_goal({"type": "goal", "approval_status": "rejected"}))
+        self.assertFalse(is_active_goal({"type": "decision"}))
+
+    def test_superseded_support_beads_excluded_from_vectors(self):
+        import json as _json
+        from pathlib import Path as _Path
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            b1, b2 = _claim_chain(store)
+            # Supersede one backbone bead.
+            idx_path = _Path(td) / ".beads" / "index.json"
+            idx = _json.loads(idx_path.read_text(encoding="utf-8"))
+            idx["beads"][b1]["status"] = "superseded"
+            idx_path.write_text(_json.dumps(idx), encoding="utf-8")
+            out = compute_future_projections(td, persist=False)
+            for proj in out["projections"]:
+                for v in proj["future_vectors"]:
+                    self.assertNotIn(b1, v["supporting_beads"])  # stale evidence excluded
 
 
 if __name__ == "__main__":
