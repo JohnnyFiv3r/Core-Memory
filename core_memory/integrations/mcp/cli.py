@@ -36,8 +36,9 @@ Core Memory operating protocol — paste this into your system prompt / custom i
 
 Before answering anything that could depend on earlier context, call recall.
 After any turn containing a decision, fact, preference, commitment, or relationship, call capture.
-When this chat is explicitly opted into Core Memory/Satorid sync, call sync_transcript_snapshot
-with user_opted_in=true after meaningful milestones, periodically in long chats, and before compaction.
+When this chat is explicitly opted into Core Memory sync, call sync_transcript_snapshot with
+user_opted_in=true and a stable conversation_id/session_id after meaningful milestones,
+periodically in long chats, and before compaction.
 If sync is not enabled or you are unsure, ask before syncing a transcript snapshot.
 At the end of the conversation (or before compaction), call capture_session with the full transcript.
 """.strip()

@@ -72,9 +72,9 @@ Writes observed conversation turns through the canonical Core Memory write bound
 
 ### `sync_transcript_snapshot`
 
-Periodically syncs the current visible, user-authorized conversation transcript through the canonical ingest/capture path. Use it only after explicit user/app opt-in, and pass `user_opted_in=true` on every successful call. Once sync is enabled, use it as a safety net for long chats: after meaningful milestones, after important decisions or preference changes, periodically in long conversations, before compaction, or when the user asks to sync the conversation.
+Periodically syncs the current visible, user-authorized conversation transcript through the canonical ingest/capture path. Use it only after explicit user/app opt-in, and pass `user_opted_in=true` plus a stable `conversation_id`, `session_id`, or `transcript_id` on every successful call. Once sync is enabled, use it as a safety net for long chats: after meaningful milestones, after important decisions or preference changes, periodically in long conversations, before compaction, or when the user asks to sync the conversation.
 
-Do not call it when sync is not enabled, when the user has opted out, or when opt-in is unclear; ask first. Include only visible conversation content intended for memory sync, not hidden instructions, credentials, or unrelated private data. It returns a `transcript_hash` that can be passed as `previous_snapshot_hash` on the next snapshot.
+Do not call it when sync is not enabled, when the user has opted out, or when opt-in is unclear; ask first. Keep the stable conversation/session identity the same across snapshots for the same conversation so replay remains idempotent. Include only visible conversation content intended for memory sync, not hidden instructions, credentials, or unrelated private data. It returns a `transcript_hash` that can be passed as `previous_snapshot_hash` on the next snapshot.
 
 For transcripts that are too long to send in full, use checkpoint mode with `recent_turns` plus `checkpoint_summary`; this is a fallback because it includes model-authored summary content.
 

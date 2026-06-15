@@ -16,6 +16,7 @@ _SNAPSHOT_REASONS = {
     "before_compaction",
     "end_of_session",
 }
+_STABLE_ID_FIELDS = ("transcript_id", "conversation_id", "session_id")
 
 
 def _error(code: str, message: str, *, field: str = "", received: Any = None) -> dict[str, Any]:
@@ -30,6 +31,17 @@ def _error(code: str, message: str, *, field: str = "", received: Any = None) ->
 def _stable_hash(value: Any) -> str:
     blob = json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _safe_id_part(value: Any) -> str:
+    text = str(value or "").strip()
+    out = []
+    for char in text:
+        if char.isalnum() or char in {"_", ".", ":", "-"}:
+            out.append(char)
+        elif char.isspace() or char in {"/", "\\"}:
+            out.append("-")
+    return "".join(out).strip("-_.:")[:96]
 
 
 def _as_list(value: Any) -> list[Any]:
@@ -82,6 +94,25 @@ def _checkpoint_turn(payload: dict[str, Any]) -> dict[str, Any] | None:
 def _snapshot_reason(payload: dict[str, Any]) -> str:
     reason = str(payload.get("snapshot_reason") or "periodic").strip().lower()
     return reason if reason in _SNAPSHOT_REASONS else "periodic"
+
+
+def _resolve_transcript_id(payload: dict[str, Any], *, source_system: str, source_client: str) -> str:
+    explicit = _safe_id_part(payload.get("transcript_id"))
+    if explicit:
+        return explicit
+
+    conversation_id = str(payload.get("conversation_id") or "").strip()
+    if conversation_id:
+        digest = _stable_hash(
+            {"source_system": source_system, "source_client": source_client, "conversation_id": conversation_id}
+        )
+        return f"conversation:{digest[:16]}"
+
+    session_id = _safe_id_part(payload.get("session_id"))
+    if session_id:
+        return f"session:{session_id}"
+
+    return ""
 
 
 def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -145,8 +176,19 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
     source_system = str(
         payload.get("source_system") or metadata.get("source_system") or source_client or "chat_mcp"
     ).strip()
+    transcript_id = _resolve_transcript_id(payload, source_system=source_system, source_client=source_client)
+    if not transcript_id:
+        return _error(
+            "cm.snapshot_stable_id_required",
+            "sync_transcript_snapshot requires a stable transcript_id, conversation_id, or session_id",
+            field="transcript_id",
+            received={field: payload.get(field) for field in _STABLE_ID_FIELDS if payload.get(field) is not None},
+        )
+
     metadata.setdefault("source_system", source_system)
     metadata.setdefault("source_client", source_client or source_system)
+    if payload.get("conversation_id") is not None:
+        metadata.setdefault("conversation_id", str(payload.get("conversation_id") or ""))
     metadata.setdefault("capture_surface", "mcp_tool")
     metadata.setdefault("snapshot_kind", "visible_transcript")
     metadata.setdefault("snapshot_mode", snapshot_mode)
@@ -164,7 +206,7 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
     ingest_payload: dict[str, Any] = {
         "session_id": payload.get("session_id"),
         "session_prefix": payload.get("session_prefix") or "transcript_snapshot",
-        "transcript_id": payload.get("transcript_id") or transcript_hash[:16],
+        "transcript_id": transcript_id,
         "flush_policy": payload.get("flush_policy") or "end_only",
         "max_turns": payload.get("max_turns") or 1000,
         "mode": payload.get("mode") or "group",

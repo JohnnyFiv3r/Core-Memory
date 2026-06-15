@@ -314,6 +314,7 @@ TOOLS: dict[str, MCPToolDefinition] = {
                 "session_id": {"type": "string"},
                 "session_prefix": {"type": "string"},
                 "transcript_id": {"type": "string"},
+                "conversation_id": {"type": "string"},
                 "conversation_label": {"type": "string"},
                 "source_client": {"type": "string"},
                 "source_system": {"type": "string"},
