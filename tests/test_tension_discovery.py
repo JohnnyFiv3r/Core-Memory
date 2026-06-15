@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
 
@@ -41,6 +42,26 @@ class TestGoalConflictDetection(unittest.TestCase):
             g2 = store.add_bead(type="goal", title="B", summary=["s"], goal_id="g2", session_id="s2")
             store.link(g1, g2, "associated_with")  # not a contradiction
             self.assertEqual([], detect_goal_conflicts(td))
+
+    def test_depth_call_covers_full_goal_population(self):
+        # Codex P2: depths must cover every goal, not just the first default-limit.
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            _two_conflicting_goals(store)
+            # Add extra (non-conflicting) goals so the goal count is meaningful.
+            for i in range(5):
+                store.add_bead(type="goal", title=f"G{i}", summary=["s"], goal_id=f"x{i}", session_id="s1")
+            import core_memory.runtime.dreamer.assembly_depth as ad
+            real = ad.compute_assembly_depth
+            seen = {}
+
+            def _spy(root, *, target_kind="goal", limit=200):
+                seen["limit"] = limit
+                return real(root, target_kind=target_kind, limit=limit)
+
+            with patch.object(ad, "compute_assembly_depth", _spy):
+                detect_goal_conflicts(td)
+            self.assertGreaterEqual(seen["limit"], 7)  # 2 conflicting + 5 extra
 
     def test_contradicts_between_non_goals_ignored(self):
         with tempfile.TemporaryDirectory() as td:

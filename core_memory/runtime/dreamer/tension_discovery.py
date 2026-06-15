@@ -70,12 +70,15 @@ def detect_goal_conflicts(root: str | Path) -> list[dict[str, Any]]:
     if len(goals) < 2:
         return []
 
-    # Assembly depth for goals (best-effort), keyed by target_id.
+    # Assembly depth for goals (best-effort), keyed by target_id. Cover the full
+    # goal population — a truncated limit would both drop later goals and distort
+    # the percentile normalization for those included.
     depth_by_goal: dict[str, float] = {}
     try:
         from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
 
-        for rep in (compute_assembly_depth(root, target_kind="goal").get("reports") or []):
+        reports = compute_assembly_depth(root, target_kind="goal", limit=len(goals)).get("reports") or []
+        for rep in reports:
             depth_by_goal[str(rep.get("target_id"))] = float(rep.get("score") or 0.0)
     except Exception:
         depth_by_goal = {}
