@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import re
 import sys
@@ -56,7 +57,11 @@ from core_memory.integrations.mcp.typed_write import (
     submit_entity_merge_proposal as mcp_submit_entity_merge_proposal,
 )
 from core_memory.integrations.mcp.constants import MCP_HTTP_PATH
-from core_memory.integrations.mcp.protocol_server import build_mcp_app
+from core_memory.integrations.mcp.protocol_server import (
+    build_mcp_app,
+    reset_mcp_request_root,
+    set_mcp_request_root,
+)
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
@@ -464,10 +469,11 @@ class _MCPAuthMiddleware:
         self._app = app
 
     async def __call__(self, scope: Any, receive: Any, send: Any) -> None:
+        request_root_token = None
         if scope["type"] in ("http", "websocket"):
+            headers = {k.lower(): v for k, v in scope.get("headers", [])}
             tok = _auth_required()
             if tok:
-                headers = {k.lower(): v for k, v in scope.get("headers", [])}
                 auth = headers.get(b"authorization", b"").decode()
                 x_token = headers.get(b"x-memory-token", b"").decode()
                 bearer = ""
@@ -483,7 +489,26 @@ class _MCPAuthMiddleware:
                         await send({"type": "http.response.body",
                                     "body": b'{"detail":"unauthorized"}', "more_body": False})
                     return
-        await self._app(scope, receive, send)
+            if _is_hosted_mode():
+                x_tenant_id = headers.get(b"x-tenant-id", b"").decode()
+                try:
+                    request_root = _resolve_root(None, x_tenant_id)
+                except HTTPException as exc:
+                    if scope["type"] == "http":
+                        status = int(exc.status_code or 400)
+                        detail = str(exc.detail or "invalid_tenant_id")
+                        body = json.dumps({"detail": detail}).encode()
+                        await send({"type": "http.response.start", "status": status,
+                                    "headers": [[b"content-type", b"application/json"]]})
+                        await send({"type": "http.response.body",
+                                    "body": body, "more_body": False})
+                    return
+                request_root_token = set_mcp_request_root(request_root)
+        try:
+            await self._app(scope, receive, send)
+        finally:
+            if request_root_token is not None:
+                reset_mcp_request_root(request_root_token)
 
 
 @asynccontextmanager

@@ -5,7 +5,13 @@ import pytest
 fastapi = pytest.importorskip("fastapi", reason="fastapi not installed; skipping MCP server live tests")
 from fastapi.testclient import TestClient  # noqa: E402
 
-from core_memory.integrations.mcp.protocol_server import _transport_security_settings, build_mcp_app  # noqa: E402
+from core_memory.integrations.mcp.protocol_server import (  # noqa: E402
+    _effective_root,
+    _transport_security_settings,
+    build_mcp_app,
+    reset_mcp_request_root,
+    set_mcp_request_root,
+)
 
 
 class MCPProtocolServerLiveTests(unittest.TestCase):
@@ -47,6 +53,29 @@ class MCPProtocolServerLiveTests(unittest.TestCase):
         self.assertIn("core-memory-demo.onrender.com", settings.allowed_hosts)
         self.assertIn("demo.usecorememory.com", settings.allowed_hosts)
         self.assertIn("https://demo.usecorememory.com", settings.allowed_origins)
+
+    def test_locked_root_uses_request_scoped_tenant_root(self):
+        token = set_mcp_request_root("/srv/core/.tenants/t1")
+        try:
+            self.assertEqual(
+                "/srv/core/.tenants/t1",
+                _effective_root(
+                    caller_root="/tmp/ignored",
+                    default_root="/srv/core",
+                    lock_root=True,
+                ),
+            )
+        finally:
+            reset_mcp_request_root(token)
+
+        self.assertEqual(
+            "/srv/core",
+            _effective_root(
+                caller_root="/tmp/ignored",
+                default_root="/srv/core",
+                lock_root=True,
+            ),
+        )
 
 
 if __name__ == "__main__":

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Any
 
@@ -18,6 +19,35 @@ def _tool_description(name: str) -> str:
 
 def _csv_env(name: str) -> list[str]:
     return [part.strip() for part in str(os.getenv(name) or "").split(",") if part.strip()]
+
+
+_CURRENT_REQUEST_ROOT: ContextVar[str | None] = ContextVar("core_memory_mcp_request_root", default=None)
+
+
+def set_mcp_request_root(root: str | None) -> Any:
+    """Set the hosted request root for the current MCP request context."""
+
+    return _CURRENT_REQUEST_ROOT.set(root)
+
+
+def reset_mcp_request_root(token: Any) -> None:
+    """Reset the hosted request root context token."""
+
+    _CURRENT_REQUEST_ROOT.reset(token)
+
+
+def _effective_root(
+    *,
+    caller_root: str | None,
+    default_root: str,
+    lock_root: bool,
+    configured_root: str | None = None,
+) -> str:
+    """Return the effective MCP tool root for local and hosted modes."""
+
+    if lock_root:
+        return _CURRENT_REQUEST_ROOT.get() or default_root
+    return caller_root or configured_root or default_root
 
 
 def _transport_security_settings() -> Any:
@@ -75,9 +105,12 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
 
     def _root(caller_root: str | None) -> str:
         """Return the effective root, honouring lock_root policy."""
-        if lock_root:
-            return default_root
-        return caller_root or kwargs.get("root") or default_root
+        return _effective_root(
+            caller_root=caller_root,
+            default_root=default_root,
+            lock_root=lock_root,
+            configured_root=kwargs.get("root"),
+        )
     mcp = FastMCP(
         "Core Memory",
         instructions=load_agent_guide(),
