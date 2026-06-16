@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core_memory.schema.normalization import normalize_relation_type
+from core_memory.schema.normalization import normalize_relation_type, relation_family
 
 
 TIMESTAMP_PRIORITY = (
@@ -218,16 +218,7 @@ def _build_edges(root: Path, index: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _relation_family(rel: str) -> str:
-    rel = normalize_relation_type(rel)
-    if rel in {"caused_by", "causes", "led_to"}:
-        return "causal"
-    if rel in {"enabled", "enables", "unblocks", "blocked_by", "blocks_unblocks"}:
-        return "influence"
-    if rel in {"supports", "derived_from", "documented_by", "informed_by", "resolves", "diagnoses"}:
-        return "evidence"
-    if rel in CONFLICT_RELATIONS:
-        return "conflict"
-    return "related"
+    return relation_family(rel)
 
 
 def _candidate_text(bead: dict[str, Any]) -> str:

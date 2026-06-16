@@ -1,4 +1,4 @@
-# Association Inference Contract v2.1 (Temporal Policy Finalized)
+# Association Inference Contract v2.1 (Relation Taxonomy Guardrails)
 
 ## Scope
 
@@ -13,37 +13,68 @@ Legacy rows remain readable for compatibility.
 
 ---
 
-## Canonical temporal relationship
+## Canonical temporal relationships
 
-- Only canonical temporal edge: `follows`
+- Canonical temporal edges: `follows`, `precedes`
 - Semantics: `source follows target` means source happened after target.
+- Semantics: `source precedes target` means source happened before target.
 - Traversal from a selected/current bead may walk `follows` edges into antecedent context.
-
-### Non-canonical temporal label
-
-- `precedes` is non-canonical for new inference.
-- System must not auto-normalize `precedes` to `follows`.
-- If `relationship="precedes"` appears in model-inferred payload:
-  - strict mode: quarantine edge with warning `noncanonical_relationship:precedes`
-  - permissive mode: map to `associated_with` (non-structural), preserve `relationship_raw="precedes"`
-
-No silent direction rewrites.
+- System must not auto-normalize `precedes` to `follows` or reverse source and target.
 
 ---
 
 ## Canonical relationship set (inference surface)
 
+The inference surface accepts the shared canonical relation vocabulary defined in
+`core_memory/schema/normalization.py`. Common model-authored labels include:
+
 - `caused_by`
 - `supports`
 - `supersedes`
+- `superseded_by`
+- `refines`
 - `blocked_by`
 - `unblocks`
+- `blocks_unblocks`
 - `enables`
 - `derived_from`
+- `part_of`
 - `follows`
+- `precedes`
 - `contradicts`
+- `invalidates`
+- `diagnoses`
+- `resolves`
 
 Anything else is non-canonical for this inference surface.
+
+---
+
+## Relation direction and disambiguation
+
+The association payload stores exactly the submitted `source_bead`,
+`target_bead`, and normalized canonical `relationship`. Normalization fixes label
+spelling only; it never rewrites source/target direction.
+
+- `caused_by`: source is explained by the target cause/mechanism in current
+  stored Core Memory usage.
+- `led_to`: process/progression edge, not generic causal proof.
+- `blocked_by`: source is prevented by the target blocker in current stored
+  Core Memory usage.
+- `unblocks`: source removes a blocking condition for target.
+- `blocks_unblocks`: legacy compound relation, accepted but discouraged for new
+  model-authored associations unless the transition itself is being represented.
+- `supports`: source meaningfully supports target. Do not use it as a fallback
+  for unknown semantics.
+
+Accepted aliases such as `causes`, `leads_to`, `blocked`, `unblocked`,
+`enabled`, `conflicts_with`, `related_to`, and `blocks->unblocks` normalize to
+the existing canonical relation labels without changing direction.
+
+The active label `blocks` is intentionally noncanonical for inference writes in
+this version. Mapping `source blocks target` to `source blocked_by target` would
+invert current Core Memory read semantics unless the system also rewrote
+endpoints, which this contract does not do.
 
 ---
 

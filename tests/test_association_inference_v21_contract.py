@@ -54,6 +54,33 @@ def test_precedes_is_accepted_in_strict_mode_without_direction_rewrite():
     assert out.record["relationship"] == "precedes"
 
 
+def test_relation_aliases_are_normalized_before_strict_validation():
+    payload = _base_payload(relationship="leads_to")
+    out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_STRICT)
+
+    assert out.ok is True
+    assert out.quarantine_reasons == []
+    assert out.record["relationship"] == "led_to"
+    assert out.record["relationship_raw"] == "leads_to"
+    assert out.record["normalization_applied"] is True
+
+    enabled = validate_and_normalize_inference_payload(
+        _base_payload(relationship="enabled"),
+        mode=INFERENCE_MODE_STRICT,
+    )
+    assert enabled.ok is True
+    assert enabled.record["relationship"] == "enables"
+
+
+def test_active_blocks_label_is_not_normalized_without_endpoint_rewrite():
+    payload = _base_payload(relationship="blocks")
+    out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_STRICT)
+
+    assert out.ok is False
+    assert f"{Q_NONCANONICAL_PREFIX}blocks" in out.quarantine_reasons
+    assert f"{WARN_NONCANONICAL_PREFIX}blocks" in out.warnings
+
+
 def test_unknown_relation_maps_to_associated_with_in_permissive_mode():
     payload = _base_payload(relationship="mystery_rel")
     out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_PERMISSIVE)

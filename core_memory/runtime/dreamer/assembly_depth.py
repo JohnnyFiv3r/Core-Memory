@@ -21,7 +21,7 @@ import os
 from pathlib import Path
 from typing import Any
 
-from core_memory.schema.normalization import normalize_relation_type
+from core_memory.schema.normalization import is_evidential_relation, normalize_relation_type
 
 ASSEMBLY_DEPTH_SCHEMA = "assembly_depth_report.v1"
 
@@ -48,8 +48,6 @@ DEFAULT_ANTI_WEIGHTS: dict[str, float] = {
     "speculative_only_support": 1.2,
     "recently_superseded_evidence": 1.0,
 }
-
-_CAUSAL_RELATIONS = {"caused_by", "led_to", "resolves", "supports", "derived_from"}
 
 # Canonical inactive-association statuses (matches graph/traversal, worldlines,
 # root_cause). Missing status is treated as active.
@@ -126,7 +124,7 @@ def _raw_factors(
     recall = sum(int(b.get("recall_count") or 0) for b in support)
 
     edges = incident_edges.get(target_id, [])
-    causal = sum(1 for (_s, rel, _d) in edges if rel in _CAUSAL_RELATIONS)
+    causal = sum(1 for (_s, rel, _d) in edges if is_evidential_relation(rel))
     myel = 0.0
     for (s, rel, d) in edges:
         myel += max(0.0, float(edge_bonus.get(f"{s}|{rel}|{d}", 0.0)))

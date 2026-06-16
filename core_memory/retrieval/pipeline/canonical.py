@@ -19,7 +19,7 @@ from core_memory.retrieval.semantic_index import (
     semantic_unavailable_payload,
 )
 from core_memory.retrieval.visible_corpus import build_visible_corpus
-from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type
+from core_memory.schema.normalization import normalize_bead_type, normalize_relation_type, relation_family
 from core_memory.claim.retrieval_planner import plan_retrieval_mode, boost_claim_results
 from core_memory.claim.resolver import resolve_all_current_state
 from core_memory.claim.answer_policy import score_answer
@@ -798,16 +798,7 @@ def _hint_text_blob(row: dict[str, Any], bead: dict[str, Any]) -> str:
 
 
 def _relation_family_for_hint(rel: str) -> str:
-    r = normalize_relation_type(str(rel or ""))
-    if r in {"caused_by", "causes", "led_to"}:
-        return "causal"
-    if r in {"enabled", "enables", "blocked_by", "blocks_unblocks", "unblocks"}:
-        return "influence"
-    if r in {"supports", "derived_from", "documented_by", "informed_by", "resolves", "diagnoses"}:
-        return "evidence"
-    if r in {"contradicts", "invalidates"}:
-        return "conflict"
-    return "related"
+    return relation_family(rel)
 
 
 def _apply_hint_boosts(
