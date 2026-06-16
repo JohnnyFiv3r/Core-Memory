@@ -239,6 +239,56 @@ def approve_soul_update(root: str | Path, *, revision_id: str, subject: str = DE
     return _decide(root, subject=subject, revision_id=revision_id, decision="approve", actor=approver, note=note)
 
 
+def apply_soul_update(
+    root: str | Path,
+    *,
+    revision_id: str,
+    subject: str = DEFAULT_SUBJECT,
+    applied_by: str = "agent",
+    note: str = "",
+) -> dict[str, Any]:
+    """Auto-governance apply of a proposed revision (§9.2 / §13.2).
+
+    Applies (folds) a *proposed* revision the agent deems auto-eligible — without
+    a separate human approval. Guardrails: changes that assert or remove endorsed
+    meaning always require human approval, so this refuses (``requires_human_approval``)
+    when the revision is ``epistemic_status="endorsed"`` or removes a
+    human-authored entry. Use ``approve_soul_update`` for those.
+    """
+    subj = _safe_subject(subject)
+    rid = str(revision_id)
+    with store_lock(Path(root)):
+        revisions = _read_revisions(root, subj)
+        target = next((r for r in revisions if str(r.get("id")) == rid and str(r.get("status")) == "proposed"), None)
+        if target is None:
+            return {"ok": False, "error": "proposed_revision_not_found", "revision_id": rid}
+        if any(str(r.get("supersedes_revision_id") or "") == rid for r in revisions):
+            return {"ok": False, "error": "already_decided", "revision_id": rid}
+
+        # §9.2 guardrails: endorsed-meaning changes need a human.
+        if str(target.get("epistemic_status") or "").strip().lower() == "endorsed":
+            return {"ok": False, "error": "requires_human_approval", "reason": "endorsed_meaning", "revision_id": rid}
+        if str(target.get("op") or "").strip().lower() == "remove":
+            current = _current_entries(revisions, str(target.get("target_file") or "")).get(str(target.get("entry_key") or ""))
+            if current and str(current.get("source") or "").strip().lower() == "human":
+                return {"ok": False, "error": "requires_human_approval", "reason": "removes_human_entry", "revision_id": rid}
+
+        applied = {
+            **target,
+            "id": f"soul-{uuid.uuid4().hex[:12]}",
+            "created_at": _now(),
+            "status": "applied",
+            "approver": str(applied_by or "agent"),
+            "decided_at": _now(),
+            "decision_note": str(note or ""),
+            "auto_applied": True,
+            "supersedes_revision_id": rid,
+        }
+        append_jsonl(_revisions_path(root, subj), applied)
+        _write_rendered(root, subj, str(applied["target_file"]), revisions + [applied])
+    return {"ok": True, "revision_id": applied["id"], "status": "applied", "target_file": applied["target_file"]}
+
+
 def reject_soul_update(root: str | Path, *, revision_id: str, subject: str = DEFAULT_SUBJECT, reviewer: str = "", reason: str = "") -> dict[str, Any]:
     """Reject a proposed revision — it never folds into the projection."""
     return _decide(root, subject=subject, revision_id=revision_id, decision="reject", actor=reviewer, note=reason)
@@ -356,6 +406,7 @@ __all__ = [
     "DEFAULT_SUBJECT",
     "propose_soul_update",
     "approve_soul_update",
+    "apply_soul_update",
     "reject_soul_update",
     "read_soul_file",
     "current_soul_entries",

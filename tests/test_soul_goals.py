@@ -11,6 +11,7 @@ from core_memory.soul.goals import (
     approve_goal,
     complete_goal,
     decay_goal,
+    list_goals,
     propose_goal,
     reject_goal,
 )
@@ -111,6 +112,29 @@ class TestSoulGoals(unittest.TestCase):
             out = approve_goal(td, goal_id="g", subject="self")  # no such goal for self
             self.assertFalse(out["ok"])
             self.assertEqual("goal_not_found", out["error"])
+
+
+class TestListGoals(unittest.TestCase):
+    def test_lists_subject_goals_with_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            propose_goal(td, title="Ship v1", goal_id="g1", subject="self")
+            approve_goal(td, goal_id="g1", subject="self")
+            propose_goal(td, title="Acme thing", goal_id="g2", subject="acme")
+            out = list_goals(td, subject="self")
+            self.assertTrue(out["ok"])
+            self.assertEqual(1, out["count"])  # acme goal excluded
+            g = out["goals"][0]
+            self.assertEqual("g1", g["goal_id"])
+            self.assertEqual("endorsed", g["state"])
+
+    def test_include_terminal_toggle(self):
+        with tempfile.TemporaryDirectory() as td:
+            propose_goal(td, title="done", goal_id="g1")
+            approve_goal(td, goal_id="g1")
+            complete_goal(td, goal_id="g1")
+            propose_goal(td, title="open", goal_id="g2")
+            self.assertEqual(2, list_goals(td)["count"])
+            self.assertEqual(1, list_goals(td, include_terminal=False)["count"])
 
 
 if __name__ == "__main__":

@@ -180,6 +180,20 @@ class SoulApproveRequest(BaseModel):
     note: str = ""
 
 
+class SoulApplyRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    revision_id: str
+    applied_by: str = "agent"
+    note: str = ""
+
+
+class SoulDreamerRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    limit: int = 200
+
+
 class SoulRejectRequest(BaseModel):
     root: Optional[str] = None
     subject: str = "self"
@@ -1024,6 +1038,75 @@ async def soul_approve_update(
     return out
 
 
+@app.post("/v1/soul/apply-update")
+async def soul_apply_update(
+    payload: SoulApplyRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Auto-governance apply of a proposed revision (§13.2 / §9.2).
+
+    Folds an auto-eligible proposal without separate human approval; refuses with
+    ``requires_human_approval`` for endorsed-meaning changes.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory import apply_soul_update
+
+    out = apply_soul_update(
+        _resolve_root(payload.root, x_tenant_id),
+        revision_id=payload.revision_id,
+        subject=payload.subject,
+        applied_by=payload.applied_by,
+        note=payload.note,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": "soul.apply.v1"})
+    return out
+
+
+@app.post("/v1/soul/dreamer/findings")
+async def soul_dreamer_findings(
+    payload: SoulDreamerRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Dreamer findings eligible to become SOUL proposals (§13.4)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import dreamer_soul_findings
+
+    return dreamer_soul_findings(_resolve_root(payload.root, x_tenant_id), subject=payload.subject, limit=payload.limit)
+
+
+@app.post("/v1/soul/dreamer/propose-updates")
+async def soul_dreamer_propose_updates(
+    payload: SoulDreamerRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Generate SOUL proposals from pending Dreamer findings (§13.4)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import propose_soul_from_dreamer
+
+    return propose_soul_from_dreamer(_resolve_root(payload.root, x_tenant_id), subject=payload.subject, limit=payload.limit)
+
+
+@app.post("/v1/soul/dreamer/run-review")
+async def soul_dreamer_run_review(
+    payload: SoulDreamerRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Pending Dreamer-sourced SOUL proposals awaiting human review (§13.4)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import dreamer_soul_review
+
+    return dreamer_soul_review(_resolve_root(payload.root, x_tenant_id), subject=payload.subject, limit=payload.limit)
+
+
 @app.post("/v1/soul/reject-update")
 async def soul_reject_update(
     payload: SoulRejectRequest,
@@ -1045,6 +1128,22 @@ async def soul_reject_update(
     if not out.get("ok"):
         return JSONResponse(status_code=400, content={**out, "contract": "soul.reject.v1"})
     return out
+
+
+@app.get("/v1/soul/goals")
+async def soul_goals_list(
+    root: Optional[str] = None,
+    subject: str = "self",
+    include_terminal: bool = True,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Read the goal hierarchy (Goal Beads + lifecycle state) for a subject (§5.2)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import list_goals
+
+    return list_goals(_resolve_root(root, x_tenant_id), subject=subject, include_terminal=include_terminal)
 
 
 @app.post("/v1/soul/goals/propose")

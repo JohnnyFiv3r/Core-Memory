@@ -1,11 +1,16 @@
 """SOUL — agent-authored self-model (PRD: docs/PRD/soul-files.md)."""
 
-from core_memory.soul.dreamer_bridge import propose_soul_from_dreamer
+from core_memory.soul.dreamer_bridge import (
+    dreamer_soul_findings,
+    dreamer_soul_review,
+    propose_soul_from_dreamer,
+)
 from core_memory.soul.goals import (
     abandon_goal,
     approve_goal,
     complete_goal,
     decay_goal,
+    list_goals,
     propose_goal,
     reject_goal,
 )
@@ -15,6 +20,7 @@ from core_memory.soul.store import (
     DEFAULT_SUBJECT,
     SOUL_FILES,
     SOUL_REVISION_SCHEMA,
+    apply_soul_update,
     approve_soul_update,
     current_soul_entries,
     list_soul_files,
@@ -32,11 +38,15 @@ __all__ = [
     "approve_goal",
     "complete_goal",
     "decay_goal",
+    "list_goals",
     "propose_goal",
     "reject_goal",
+    "apply_soul_update",
     "approve_soul_update",
     "list_soul_files",
     "current_soul_entries",
+    "dreamer_soul_findings",
+    "dreamer_soul_review",
     "propose_soul_from_dreamer",
     "propose_soul_update",
     "read_soul_file",

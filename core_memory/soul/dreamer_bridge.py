@@ -163,4 +163,65 @@ def propose_soul_from_dreamer(
     }
 
 
-__all__ = ["propose_soul_from_dreamer"]
+def dreamer_soul_findings(root: str | Path, *, subject: str = "self", limit: int = 200) -> dict[str, Any]:
+    """The Dreamer findings eligible to become SOUL proposals (§13.4 findings).
+
+    Read-only view of the pending Dreamer candidates the bridge would route into
+    this subject's SOUL, each annotated with its target file and entry key —
+    before any proposal is created.
+    """
+    findings: list[dict[str, Any]] = []
+    for cand in _read_candidates(root):
+        if not isinstance(cand, dict):
+            continue
+        if str(cand.get("status") or "").strip().lower() != "pending":
+            continue
+        cand_subject = str(cand.get("subject") or "").strip()
+        if cand_subject and cand_subject != subject:
+            continue
+        ht = str(cand.get("hypothesis_type") or "").strip()
+        spec = _BRIDGE_MAP.get(ht)
+        entry_key = _finding_entry_key(cand)
+        if spec is None or not entry_key:
+            continue
+        findings.append({
+            "candidate_id": str(cand.get("id") or ""),
+            "hypothesis_type": ht,
+            "target_file": spec[0],
+            "entry_key": entry_key,
+            "statement": str(cand.get("statement") or cand.get("rationale") or ""),
+        })
+        if len(findings) >= max(1, int(limit)):
+            break
+    return {"ok": True, "subject": subject, "count": len(findings), "findings": findings}
+
+
+def dreamer_soul_review(root: str | Path, *, subject: str = "self", limit: int = 200) -> dict[str, Any]:
+    """The pending Dreamer-sourced SOUL proposals awaiting human review (§13.4
+    run-review). Read-only surface over the proposed revisions the bridge created."""
+    from core_memory.soul.store import soul_history
+
+    history = soul_history(root, subject=subject, limit=1_000_000).get("revisions") or []
+    # Append-only: a decision supersedes the proposal but the original record
+    # keeps status="proposed". Exclude any proposal a later record decided.
+    decided = {str(r.get("supersedes_revision_id") or "") for r in history if r.get("supersedes_revision_id")}
+    pending = [
+        {
+            "revision_id": str(r.get("id") or ""),
+            "target_file": str(r.get("target_file") or ""),
+            "entry_key": str(r.get("entry_key") or ""),
+            "op": str(r.get("op") or ""),
+            "content": str(r.get("content") or ""),
+            "reason": str(r.get("reason") or ""),
+            "created_at": str(r.get("created_at") or ""),
+        }
+        for r in history
+        if str(r.get("source") or "").strip().lower() == "dreamer"
+        and str(r.get("status") or "").strip().lower() == "proposed"
+        and str(r.get("id") or "") not in decided
+    ]
+    return {"ok": True, "subject": subject, "count": len(pending[: max(1, int(limit))]),
+            "proposals": pending[: max(1, int(limit))]}
+
+
+__all__ = ["propose_soul_from_dreamer", "dreamer_soul_findings", "dreamer_soul_review"]
