@@ -100,7 +100,7 @@ def run_recall_payload(payload: dict[str, Any] | None, *, surface: str = "recall
             incomplete: list[dict[str, Any]] = []
             for bead_id in _result_bead_ids(out):
                 cov = latest_association_coverage(str(payload.get("root") or "."), bead_id)
-                if str(cov.get("state") or "") in {"deferred", "quarantined", "failed"}:
+                if str(cov.get("state") or "") in {"deferred", "pending_judge", "judge_failed", "quarantined", "failed"}:
                     incomplete.append(cov)
             if incomplete:
                 out.setdefault("warnings", []).append("some cited beads have incomplete association coverage")

@@ -21,7 +21,7 @@ from core_memory.schema.normalization import (
     EXTERNAL_TRANSCRIPT_FLAGS as TRANSCRIPT_FLAGS,
     normalize_assertion_kind,
 )
-from core_memory.runtime.associations.coverage import enqueue_association_coverage
+from core_memory.runtime.associations.coverage import on_bead_committed
 
 
 def _clean_str(value: Any) -> str:
@@ -482,6 +482,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         session_id=bead.pop("session_id", None),
         source_turn_ids=bead.pop("source_turn_ids", []),
         tags=bead.pop("tags", []),
+        _association_coverage=False,
         **bead,
     )
     if predecessor_id:
@@ -523,13 +524,14 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
     if predecessor_id:
         receipt["status"] = "version_superseded"
         receipt["superseded_bead_id"] = predecessor_id
-    coverage_trigger = "periodic_transcript_push" if bead_type == "transcript" else "pre_commit"
+    coverage_trigger = "periodic_transcript_push" if bead_type == "transcript" else "typed_ingest"
     try:
-        coverage = enqueue_association_coverage(
+        coverage = on_bead_committed(
             root=root,
-            bead_ids=[bead_id],
+            bead_id=bead_id,
             session_id=_clean_str(merged.get("session_id")) or session_id,
             trigger=coverage_trigger,
+            source="external_evidence",
             run_inline=True,
         )
     except Exception as exc:  # pragma: no cover - defensive integration boundary

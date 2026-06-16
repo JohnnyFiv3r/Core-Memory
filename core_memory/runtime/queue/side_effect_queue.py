@@ -456,6 +456,10 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             candidate_bead_ids=[str(x) for x in (p.get("candidate_bead_ids") or []) if str(x).strip()],
             max_candidates=int(p.get("max_candidates") or 40),
             policy_version=str(p.get("policy_version") or "bead_association.v1"),
+            prompt_version=str(p.get("prompt_version") or "association_judge.v1"),
+            rubric_version=str(p.get("rubric_version") or "association_truth.v1"),
+            graph_revision=str(p.get("graph_revision") or ""),
+            skipped_bead_ids=[str(x) for x in (p.get("skipped_bead_ids") or []) if str(x).strip()],
         )
         return {
             "ok": bool(out.get("ok")),

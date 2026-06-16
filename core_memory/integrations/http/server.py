@@ -232,6 +232,9 @@ class AssociationRunRequest(BaseModel):
     candidate_bead_ids: list[str] = Field(default_factory=list)
     run_inline: bool = False
     max_candidates: int = 40
+    graph_revision: str = ""
+    prompt_version: str = "association_judge.v1"
+    rubric_version: str = "association_truth.v1"
 
 
 class AssociationProposalRequest(BaseModel):
@@ -1040,8 +1043,11 @@ async def memory_association_runs(
         candidate_bead_ids=list(payload.candidate_bead_ids or []),
         run_inline=bool(payload.run_inline),
         max_candidates=max(1, int(payload.max_candidates)),
+        graph_revision=str(payload.graph_revision or ""),
+        prompt_version=str(payload.prompt_version or "association_judge.v1"),
+        rubric_version=str(payload.rubric_version or "association_truth.v1"),
     )
-    if not out.get("ok"):
+    if not out.get("ok") and str(out.get("status") or "") not in {"judge_failed", "quarantined"}:
         return JSONResponse(status_code=400, content=out)
     return out
 

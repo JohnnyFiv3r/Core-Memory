@@ -48,6 +48,10 @@ def add_bead_for_store(
 ) -> str:
     from core_memory.schema.models import BeadType, Scope
 
+    association_coverage_enabled = bool(kwargs.pop("_association_coverage", True))
+    association_coverage_trigger = str(kwargs.pop("_association_trigger", "bead_committed") or "bead_committed")
+    association_coverage_source = str(kwargs.pop("_association_source", "memory_store") or "memory_store")
+
     type_value = store._normalize_enum(type, BeadType)
     scope_value = store._normalize_enum(scope, Scope)
 
@@ -255,6 +259,22 @@ def add_bead_for_store(
     mark_semantic_dirty(store.root, reason="add_bead")
 
     _mirror_bead_to_backends(store.root, bead)
+
+    if association_coverage_enabled:
+        try:
+            from core_memory.runtime.associations.coverage import on_bead_committed
+
+            on_bead_committed(
+                store.root,
+                bead_id,
+                trigger=association_coverage_trigger,
+                source=association_coverage_source,
+                run_inline=False,
+                session_id=resolved_session_id,
+                enqueue=False,
+            )
+        except Exception:
+            pass
 
     return bead_id
 

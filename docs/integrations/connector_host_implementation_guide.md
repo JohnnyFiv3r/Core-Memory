@@ -280,7 +280,9 @@ Reference docs: `docs/integrations/external_data_schemas.md`,
    receipt `status` (§3); persist the returned `bead_id` keyed by your event.
    For newly accepted beads, also persist `association_run_id` and inspect
    `association_state` when the host wants to know whether Core Memory has
-   woven the bead into the graph yet.
+   woven the bead into the graph yet. `pending_judge` means candidate coverage
+   is waiting for a judge; `judge_failed` means a configured judge errored. In
+   both cases, no judge-approved graph edge has been written.
 5. **Idempotency** → use the provider delivery id as `source_event_id`; trust
    Core Memory to dedupe. Track `ingested_at` in the host to avoid re-polling.
 6. **Approval wiring** → optionally set `approval_status: pending`; surface the
