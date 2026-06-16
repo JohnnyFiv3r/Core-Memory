@@ -188,6 +188,26 @@ class SoulRejectRequest(BaseModel):
     reason: str = ""
 
 
+class SoulGoalProposeRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    title: str
+    statement: str = ""
+    goal_id: Optional[str] = None
+    success_criteria: list[str] = Field(default_factory=list)
+    actor: str = ""
+    reason: str = ""
+
+
+class SoulGoalActionRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    goal_id: str = ""
+    bead_id: str = ""
+    actor: str = ""
+    reason: str = ""
+
+
 class SoulIntegrityRequest(BaseModel):
     root: Optional[str] = None
     subject: str = "self"
@@ -1025,6 +1045,121 @@ async def soul_reject_update(
     if not out.get("ok"):
         return JSONResponse(status_code=400, content={**out, "contract": "soul.reject.v1"})
     return out
+
+
+@app.post("/v1/soul/goals/propose")
+async def soul_goal_propose(
+    payload: SoulGoalProposeRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Declare a new goal as a candidate Goal Bead (§13.3)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import propose_goal
+
+    out = propose_goal(
+        _resolve_root(payload.root, x_tenant_id),
+        title=payload.title,
+        statement=payload.statement,
+        goal_id=payload.goal_id,
+        success_criteria=payload.success_criteria,
+        subject=payload.subject,
+        actor=payload.actor,
+        reason=payload.reason,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": "soul.goal.propose.v1"})
+    return out
+
+
+def _soul_goal_action(verb: str, payload: "SoulGoalActionRequest", x_tenant_id: Optional[str]):
+    from core_memory import (
+        abandon_goal,
+        approve_goal,
+        complete_goal,
+        decay_goal,
+        reject_goal,
+    )
+
+    fn = {
+        "approve": approve_goal,
+        "reject": reject_goal,
+        "complete": complete_goal,
+        "abandon": abandon_goal,
+        "decay": decay_goal,
+    }[verb]
+    out = fn(
+        _resolve_root(payload.root, x_tenant_id),
+        goal_id=payload.goal_id,
+        bead_id=payload.bead_id,
+        subject=payload.subject,
+        actor=payload.actor,
+        reason=payload.reason,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": f"soul.goal.{verb}.v1"})
+    return out
+
+
+@app.post("/v1/soul/goals/approve")
+async def soul_goal_approve(
+    payload: SoulGoalActionRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Approve a goal: candidate → endorsed (§13.3)."""
+    _check_auth(authorization, x_memory_token)
+    return _soul_goal_action("approve", payload, x_tenant_id)
+
+
+@app.post("/v1/soul/goals/reject")
+async def soul_goal_reject(
+    payload: SoulGoalActionRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Reject a goal: candidate → abandoned (§13.3)."""
+    _check_auth(authorization, x_memory_token)
+    return _soul_goal_action("reject", payload, x_tenant_id)
+
+
+@app.post("/v1/soul/goals/complete")
+async def soul_goal_complete(
+    payload: SoulGoalActionRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Mark a goal completed (§13.3)."""
+    _check_auth(authorization, x_memory_token)
+    return _soul_goal_action("complete", payload, x_tenant_id)
+
+
+@app.post("/v1/soul/goals/abandon")
+async def soul_goal_abandon(
+    payload: SoulGoalActionRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Mark a goal abandoned (§13.3)."""
+    _check_auth(authorization, x_memory_token)
+    return _soul_goal_action("abandon", payload, x_tenant_id)
+
+
+@app.post("/v1/soul/goals/decay")
+async def soul_goal_decay(
+    payload: SoulGoalActionRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Mark a goal decaying (§13.3)."""
+    _check_auth(authorization, x_memory_token)
+    return _soul_goal_action("decay", payload, x_tenant_id)
 
 
 @app.post("/v1/soul/integrity/check")
