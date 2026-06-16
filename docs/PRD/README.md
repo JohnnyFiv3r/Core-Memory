@@ -57,5 +57,10 @@ the older entries above.
 | SOUL Files — foundation, session-start injection, HTTP, Dreamer→SOUL bridge | ✅ Shipped (#213, #215, #216, #220) |
 | Dreamer §15 — identity / value research (`value_candidate`, `identity_divergence_candidate` → IDENTITY.md via bridge) | ✅ Shipped (#221) |
 | Dreamer §16.1 — geometry / continuity projection (read-only manifest + `GET /v1/dreamer/geometry`) | ✅ Shipped |
+| SOUL §8.3 / §13.5 — integrity check + auto-safe repair (`/v1/soul/integrity/check\|repair`) | ✅ Shipped |
 
-_All Dreamer V3 + SOUL agency-layer items are shipped; no deferred work remains in this set._
+_Dreamer V3 + SOUL §15/§16.1 are complete. **Remaining SOUL scope:** the
+**Goal Lifecycle v2** shared dependency (goal states `endorsed/active/completed/
+abandoned/decaying`, §6.0) and the SOUL goal-hierarchy endpoints
+(`/v1/soul/goals/*`, §13.3) that depend on it; plus the `apply-update` alias
+(§13.2)._

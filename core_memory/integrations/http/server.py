@@ -188,6 +188,17 @@ class SoulRejectRequest(BaseModel):
     reason: str = ""
 
 
+class SoulIntegrityRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+
+
+class SoulIntegrityRepairRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    apply: bool = True
+
+
 class ApproveBeadRequest(BaseModel):
     root: Optional[str] = None
     bead_id: str
@@ -979,6 +990,38 @@ async def soul_reject_update(
     if not out.get("ok"):
         return JSONResponse(status_code=400, content={**out, "contract": "soul.reject.v1"})
     return out
+
+
+@app.post("/v1/soul/integrity/check")
+async def soul_integrity_check_endpoint(
+    payload: SoulIntegrityRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Check a subject's SOUL files for structural issues (read-only)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import soul_integrity_check
+
+    return soul_integrity_check(_resolve_root(payload.root, x_tenant_id), subject=payload.subject)
+
+
+@app.post("/v1/soul/integrity/repair")
+async def soul_integrity_repair_endpoint(
+    payload: SoulIntegrityRepairRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Apply auto-safe structural repairs (or dry-run with apply=false)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import soul_integrity_repair
+
+    return soul_integrity_repair(
+        _resolve_root(payload.root, x_tenant_id),
+        subject=payload.subject,
+        apply=payload.apply,
+    )
 
 
 @app.post("/v1/ingest/github")

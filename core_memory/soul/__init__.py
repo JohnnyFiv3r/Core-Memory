@@ -2,6 +2,7 @@
 
 from core_memory.soul.dreamer_bridge import propose_soul_from_dreamer
 from core_memory.soul.injection import soul_injection
+from core_memory.soul.integrity import soul_integrity_check, soul_integrity_repair
 from core_memory.soul.store import (
     DEFAULT_SUBJECT,
     SOUL_FILES,
@@ -28,4 +29,6 @@ __all__ = [
     "reject_soul_update",
     "soul_history",
     "soul_injection",
+    "soul_integrity_check",
+    "soul_integrity_repair",
 ]
