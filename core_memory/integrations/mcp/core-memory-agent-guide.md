@@ -20,6 +20,7 @@ The verbs:
 - `sync_transcript_snapshot` replays the currently visible, user-authorized transcript through the canonical write path for periodic/full transcript sync.
 - `capture_session` replays a whole conversation transcript through the canonical write path (end-of-session safety net).
 - `ingest` imports local transcript files when the MCP server process can read them.
+- `maintain` performs governed management tasks such as approval, cleanup, association review dispatch, queue operations, and bead/source removal.
 - `status` checks whether the server and store are alive.
 
 Prefer grounded partial answers over false certainty. If recall lacks credible evidence, say so. Do not invent memories, claims, edges, or sources.
@@ -101,6 +102,26 @@ Use `ingest` to import a local transcript file that is readable by the MCP serve
 
 If the parser cannot detect the format, the file is unreadable, or the transcript lacks usable user/assistant turn structure, return the structured error instead of guessing. Do not silently drop malformed sections unless the output reports them.
 <!-- tool:ingest:end -->
+
+<!-- tool:maintain:start -->
+## Tool: maintain
+
+Use `maintain` for governed control-plane actions only when the user, host app,
+or scheduled/event hook has given authority for the specific operation. Prefer
+`dry_run=true` first for destructive or bulk actions. To remove mistaken memory
+from active recall, call `maintain(action="remove_beads", targets={bead_ids:
+[...]}, decision={reason: ...}, authority={actor: ..., user_confirmed: true},
+apply=true, dry_run=false)`. To clean up after a source object is deleted, call
+`maintain(action="remove_source", targets={source: {document_id|source_ref|
+ragie_document_id|raw_source_object_id|hydration_ref: ...}}, authority={mode:
+"event_hook", actor: ...}, apply=true, dry_run=false)`.
+
+Removal is not raw file mutation: Core Memory removes beads and attached
+associations from active projections, appends tombstone events for rebuild
+integrity, and marks retrieval/trace indexes dirty. Never use `maintain` to
+rewrite bead content, erase audit history, or turn model inference into human
+authority without an approval path.
+<!-- tool:maintain:end -->
 
 <!-- tool:status:start -->
 ## Tool: status

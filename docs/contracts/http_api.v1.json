@@ -164,6 +164,36 @@
       "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     },
     {
+      "method": "POST",
+      "path": "/v1/memory/beads/remove",
+      "authRequired": "conditional",
+      "requestSchema": "RemoveBeadsRequest",
+      "requiredFields": ["bead_ids|bead_id", "reason"],
+      "notes": ["Defaults to dry-run preview. Active removal requires apply=true, dry_run=false, and confirmed or authorized authority.", "Removes beads from active projection, prunes attached associations, appends bead_removed tombstones, and marks retrieval/trace indexes dirty."],
+      "response": {"ok": "bool", "contract": "core_memory.remove_beads.v1", "applied": "bool", "removed_count": "int?", "removed_bead_ids": "array?"},
+      "errors": ["400 remove_beads_requires_bead_ids", "400 remove_beads_requires_reason", "400 remove_beads_requires_confirmed_or_authorized_actor", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/sources/remove",
+      "authRequired": "conditional",
+      "requestSchema": "RemoveSourceRequest",
+      "requiredFields": ["source"],
+      "notes": ["For source-object/file deletion cleanup. Source selector must include a strong identifier such as document_id, source_ref, ragie_document_id, raw_source_object_id, hydration_ref, or core_memory_unifying_id.", "Event-hook authority may apply source cleanup without interactive user confirmation.", "limit bounds preview rows only; apply=true with dry_run=false removes every matching bead and reports matched_total/truncated/remaining_count."],
+      "response": {"ok": "bool", "contract": "core_memory.remove_source.v1", "applied": "bool", "matched_count": "int", "matched_total": "int", "preview_count": "int", "truncated": "bool", "remaining_count": "int", "removed_count": "int?"},
+      "errors": ["400 source_selector_required", "400 source_selector_requires_strong_identifier", "400 remove_source_requires_event_hook_or_authorized_actor", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/maintain",
+      "authRequired": "conditional",
+      "requestSchema": "MaintainRequest",
+      "requiredFields": ["action"],
+      "notes": ["Unified governed facade for agent control-plane management. Supports remove_beads, remove_source, approval actions, queue ops, session lifecycle, association dispatch, and Dreamer/entity proposal actions.", "Destructive or mutating actions preview by default unless apply=true and dry_run=false."],
+      "response": {"ok": "bool", "contract": "core_memory.maintain.v1", "action": "string", "status": "string?", "applied": "bool?"},
+      "errors": ["400 unsupported_maintain_action", "400 maintain_action_required", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
       "method": "GET",
       "path": "/v1/ops/async-jobs/status",
       "authRequired": "conditional",

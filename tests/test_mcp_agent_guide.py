@@ -14,7 +14,7 @@ class MCPAgentGuideTests(unittest.TestCase):
     def test_tool_descriptions_extract_named_sections(self):
         descriptions = tool_descriptions()
         self.assertEqual(
-            {"capture", "recall", "capture_session", "sync_transcript_snapshot", "ingest", "status"},
+            {"capture", "recall", "capture_session", "sync_transcript_snapshot", "ingest", "maintain", "status"},
             set(descriptions),
         )
         self.assertIn('effort="low"', descriptions["recall"])
@@ -23,6 +23,7 @@ class MCPAgentGuideTests(unittest.TestCase):
         self.assertIn("visible conversation", descriptions["sync_transcript_snapshot"])
         self.assertIn("required safety net", descriptions["sync_transcript_snapshot"])
         self.assertIn("user_opted_in=true", descriptions["sync_transcript_snapshot"])
+        self.assertIn("control-plane", descriptions["maintain"])
         for value in descriptions.values():
             self.assertGreater(len(value.split()), 10)
 

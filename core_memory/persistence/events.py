@@ -34,6 +34,7 @@ EVENT_BEAD_CONFIRMED = "bead_confirmed"
 EVENT_BEAD_APPROVAL_REQUESTED = "bead_approval_requested"
 EVENT_BEAD_APPROVED = "bead_approved"
 EVENT_BEAD_REJECTED = "bead_rejected"
+EVENT_BEAD_REMOVED = "bead_removed"
 EVENT_EDGE_TRAVERSED = "edge_traversed"
 
 
@@ -217,12 +218,19 @@ def rebuild_index(root: Path) -> dict:
                 if bead_id:
                     index["beads"][bead_id] = bead
     
-    # Rebuild associations from event logs
+    removed_by_id = {}
+
+    # Rebuild associations and removal tombstones from event logs.
     for ev in iter_events(root):
         if ev.get("event_type") == EVENT_ASSOCIATION_CREATED:
             assoc = (ev.get("payload") or {}).get("association")
             if assoc:
                 index["associations"].append(assoc)
+        if ev.get("event_type") == EVENT_BEAD_REMOVED:
+            payload = ev.get("payload") or {}
+            bead_id = str(payload.get("bead_id") or "").strip()
+            if bead_id:
+                removed_by_id[bead_id] = payload
 
     # Deterministic ordering + de-dup by id where available
     dedup = {}
@@ -233,6 +241,18 @@ def rebuild_index(root: Path) -> dict:
         dedup.values(),
         key=lambda a: (a.get("created_at", ""), a.get("id", ""), a.get("source_bead", ""), a.get("target_bead", "")),
     )
+
+    if removed_by_id:
+        removed_ids = set(removed_by_id)
+        for bead_id in removed_ids:
+            index["beads"].pop(bead_id, None)
+        index["associations"] = [
+            a for a in index["associations"]
+            if str(a.get("source_bead") or "") not in removed_ids
+            and str(a.get("target_bead") or "") not in removed_ids
+        ]
+        index["removed_bead_ids"] = sorted(removed_ids)
+        index["removed_beads"] = removed_by_id
 
     # Update stats
     index["stats"]["total_beads"] = len(index["beads"])
@@ -290,6 +310,38 @@ def event_bead_recalled(
         session_id=None,
         event_type=EVENT_BEAD_RECALLED,
         payload={"bead_id": bead_id},
+        use_lock=use_lock,
+    )
+
+
+def event_bead_removed(
+    root: Path,
+    session_id: Optional[str],
+    bead_id: str,
+    removed_at: str,
+    reason: str,
+    actor: str = "",
+    source: Optional[dict] = None,
+    idempotency_key: str = "",
+    removed_association_ids: Optional[list[str]] = None,
+    bead_snapshot: Optional[dict] = None,
+    use_lock: bool = True,
+) -> str:
+    """Create a bead_removed tombstone event honored by rebuild_index()."""
+    return append_event(
+        root=root,
+        session_id=session_id,
+        event_type=EVENT_BEAD_REMOVED,
+        payload={
+            "bead_id": bead_id,
+            "removed_at": removed_at,
+            "reason": reason,
+            "actor": actor,
+            "source": dict(source or {}),
+            "idempotency_key": idempotency_key,
+            "removed_association_ids": list(removed_association_ids or []),
+            "bead": dict(bead_snapshot or {}),
+        },
         use_lock=use_lock,
     )
 

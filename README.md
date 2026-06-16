@@ -63,7 +63,7 @@ For Claude Code, add to your MCP config:
 }
 ```
 
-Start a new conversation. MCP exposes `recall`, `capture`, and `capture_session` as tools the model can call. Per-turn capture requires the model to follow the bundled agent guide; automatic capture for every turn requires a supported client adapter or lifecycle hook.
+Start a new conversation. MCP exposes `recall`, `capture`, `capture_session`, and governed `maintain` tools the model can call. Per-turn capture requires the model to follow the bundled agent guide; automatic capture for every turn requires a supported client adapter or lifecycle hook.
 
 Or install directly from PyPI for Python SDK use:
 
@@ -99,7 +99,7 @@ See the [full setup guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/maste
 
 **Depth on demand:** recall(query, effort="low" | "medium" | "high") scales from fast lookup to full causal traversal. The orchestrator decides what the question needs.
 
-**Self-hosted MCP:** Streamable-HTTP server at /mcp with a canonical agent guide that loads at connection. For stock MCP clients (Claude, ChatGPT), paste the operating-protocol block printed by `core-memory mcp install` into your custom instructions so the model calls recall/capture/capture_session on every turn.
+**Self-hosted MCP:** Streamable-HTTP server at /mcp with a canonical agent guide that loads at connection. For stock MCP clients (Claude, ChatGPT), paste the operating-protocol block printed by `core-memory mcp install` into your custom instructions so the model calls recall/capture/capture_session on every turn. Owned control-plane agents can also use `maintain` for governed approval, cleanup, and removal workflows.
 
 **Auto-detected embedding model:** Picks up OPENAI_API_KEY, GEMINI_API_KEY, or GOOGLE_API_KEY from your environment. Runs in degraded mode with one hint if none are set.
 

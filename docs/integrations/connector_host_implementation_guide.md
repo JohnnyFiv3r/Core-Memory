@@ -247,7 +247,27 @@ The host should surface the pending queue in its UI for the reviewing user.
 
 ---
 
-## 9. Invariants Core Memory guarantees (so the host doesn't reimplement them)
+## 9. Source Deletion Cleanup
+
+When a source object/file is deleted in the host, call:
+
+`POST /v1/memory/sources/remove`
+
+with a strong source selector such as `document_id`, `source_ref`,
+`ragie_document_id`, `raw_source_object_id`, `hydration_ref`, or
+`core_memory_unifying_id`. The request defaults to dry-run; set
+`apply=true`, `dry_run=false`, and `authority.mode="event_hook"` when handling
+the host's own deletion event.
+
+Core Memory removes matching beads and attached associations from active recall,
+appends `bead_removed` tombstones for rebuild integrity, and leaves the host's
+source ledger as the hydration authority. Dry-run responses may limit the
+returned preview rows and include `truncated` / `remaining_count`; applied source
+cleanup removes every matching bead and retracts configured sync projections.
+
+---
+
+## 10. Invariants Core Memory guarantees (so the host doesn't reimplement them)
 
 - **Idempotency** on `source_event_id` — push freely; replays are no-ops.
 - **Versioning** — a changed document/record supersedes its prior version; old
@@ -265,7 +285,7 @@ Reference docs: `docs/integrations/external_data_schemas.md`,
 
 ---
 
-## 10. Build checklist
+## 11. Build checklist
 
 1. **Webhook/poll receiver** per connector → normalize provider payload to a
    neutral event object. Persist raw event in the host (you are the hydration
@@ -287,11 +307,15 @@ Reference docs: `docs/integrations/external_data_schemas.md`,
    Core Memory to dedupe. Track `ingested_at` in the host to avoid re-polling.
 6. **Approval wiring** → optionally set `approval_status: pending`; surface the
    pending queue and approve/reject in the host's UI.
-7. **Config enforcement** → withhold categories/fields in the admission layer
+7. **Deletion wiring** → when the host deletes a source object, call
+   `/v1/memory/sources/remove` with the same stable source identifier used at
+   ingest.
+8. **Config enforcement** → withhold categories/fields in the admission layer
    before any HTTP call.
-8. **Tests** per connector: admitted event → correct bead type + receipt;
+9. **Tests** per connector: admitted event → correct bead type + receipt;
    withheld class → no call; re-delivery → `already_exists`; changed object →
-   `version_superseded` (docs/records) or a second coexisting bead (operational).
+   `version_superseded` (docs/records) or a second coexisting bead
+   (operational); deleted source → matching beads removed from active recall.
 
 Start with one connector end-to-end (HubSpot or GitHub) against the reference
 implementation, then replicate the pattern.

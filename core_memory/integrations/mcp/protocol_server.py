@@ -539,6 +539,39 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
     ) -> dict[str, Any]:
         return call_tool("list_pending_approvals", {"root": _root(root), "limit": limit})
 
+    @mcp.tool(
+        name="maintain",
+        description=_tool_description("maintain"),
+        structured_output=True,
+    )
+    def maintain_tool(
+        action: str,
+        scope: dict[str, Any] | None = None,
+        targets: dict[str, Any] | None = None,
+        proposal: dict[str, Any] | None = None,
+        decision: dict[str, Any] | None = None,
+        authority: dict[str, Any] | None = None,
+        dry_run: bool = True,
+        apply: bool = False,
+        idempotency_key: str = "",
+        root: str | None = None,
+    ) -> dict[str, Any]:
+        return call_tool(
+            "maintain",
+            {
+                "root": _root(root),
+                "action": action,
+                "scope": scope or {},
+                "targets": targets or {},
+                "proposal": proposal or {},
+                "decision": decision or {},
+                "authority": authority or {},
+                "dry_run": dry_run,
+                "apply": apply,
+                "idempotency_key": idempotency_key,
+            },
+        )
+
     @mcp.prompt(name=PROMPT_NAME, description="Canonical Core Memory agent guide for MCP clients.")
     def core_memory_agent_guide() -> str:
         return load_agent_guide()

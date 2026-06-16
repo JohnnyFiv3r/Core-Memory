@@ -23,6 +23,7 @@ from .memory import (
     reject_bead,
     request_approval,
 )
+from .management import maintain, remove_bead, remove_beads, remove_source
 from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .soul import (
     propose_soul_update,
@@ -103,6 +104,10 @@ __all__ = [
     "reject_bead",
     "request_approval",
     "list_pending_approvals",
+    "maintain",
+    "remove_bead",
+    "remove_beads",
+    "remove_source",
     "propose_soul_update",
     "propose_soul_from_dreamer",
     "approve_soul_update",

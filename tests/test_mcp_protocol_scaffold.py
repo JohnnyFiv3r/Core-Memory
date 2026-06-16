@@ -23,7 +23,7 @@ class MCPProtocolScaffoldTests(unittest.TestCase):
         cls.registry_text = (ROOT / "core_memory/integrations/mcp/registry.py").read_text()
 
     def test_v1_tool_registry_names_and_effort_schema(self):
-        for name in ["capture", "recall", "ingest", "status"]:
+        for name in ["capture", "recall", "ingest", "maintain", "status"]:
             self.assertIn(f'"{name}": MCPToolDefinition', self.registry_text)
         self.assertIn('"effort": {"enum": ["low", "medium", "high"]}', self.registry_text)
         self.assertIn('"hints": {', self.registry_text)
