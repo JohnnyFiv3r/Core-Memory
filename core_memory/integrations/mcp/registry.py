@@ -33,6 +33,7 @@ from core_memory.integrations.mcp.typed_write import (
     MCP_TYPED_WRITE_TOOL_SCHEMAS,
     apply_reviewed_proposal,
     approve_memory,
+    maintain,
     reject_memory,
     request_memory_approval,
     submit_entity_merge_proposal,
@@ -111,6 +112,7 @@ def _typed_write_handler(name: str) -> MCPHandler:
         "request_memory_approval": request_memory_approval,
         "approve_memory": approve_memory,
         "reject_memory": reject_memory,
+        "maintain": maintain,
     }
 
     def handler(payload: dict[str, Any]) -> dict[str, Any]:
@@ -296,6 +298,13 @@ TOOLS: dict[str, MCPToolDefinition] = {
         input_schema=_schema_with_root(MCP_TYPED_READ_TOOL_SCHEMAS["list_pending_approvals"]["input"]),
         output_schema=_GENERIC_OBJECT_SCHEMA,
         handler=_typed_read_handler("list_pending_approvals"),
+    ),
+    "maintain": MCPToolDefinition(
+        name="maintain",
+        description=MCP_TYPED_WRITE_TOOL_SCHEMAS["maintain"]["description"],
+        input_schema=_schema_with_root(MCP_TYPED_WRITE_TOOL_SCHEMAS["maintain"]["input"]),
+        output_schema=_GENERIC_OBJECT_SCHEMA,
+        handler=_typed_write_handler("maintain"),
     ),
     "sync_transcript_snapshot": MCPToolDefinition(
         name="sync_transcript_snapshot",

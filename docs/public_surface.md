@@ -38,6 +38,9 @@ A surface is canonical only if it is both:
 - `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators; generates candidates and requires a judge decision before active graph edge writes
 - `core_memory.on_bead_committed(...)` — post-commit bead coverage hook used by canonical write paths
 - `core_memory.apply_association_proposals(...)` — reviewed association proposal ingestion through the canonical validation/quarantine path
+- `core_memory.maintain(...)` — governed control-plane facade for management actions (approval, cleanup, async ops, association dispatch, candidate review)
+- `core_memory.remove_bead(...)` / `core_memory.remove_beads(...)` — remove mistaken beads from active memory projection after explicit authority, preserving tombstone audit events
+- `core_memory.remove_source(...)` — remove all active beads matching a strong source identifier when a source object/file is deleted
 
 ## Retrieval/runtime tool surface
 - `core_memory.recall(query, effort='low|medium|high', intent=..., k=..., speaker=..., as_of=..., root='.')` —
@@ -136,7 +139,7 @@ Deep recall is separate from canonical hydration.
 - PydanticAI surfaces under `core_memory.integrations.pydanticai.*`
 - SpringAI/HTTP surfaces under `core_memory.integrations.http.*` and docs contract
 - MCP protocol server under `core_memory.integrations.mcp.protocol_server.*` at `/mcp`
-  - tools: `capture`, `recall`, `ingest`, `status`
+  - tools: `capture`, `recall`, `ingest`, `maintain`, `status`
   - prompt: `core-memory.agent-guide`
   - CLI: `core-memory mcp install|status|uninstall|version`
 - MCP typed read surfaces under `core_memory.integrations.mcp.typed_read.*`
@@ -163,6 +166,11 @@ HTTP inspect read surfaces:
 - `GET /v1/memory/inspect/beads/{bead_id}/hydrate`
 - `GET /v1/memory/inspect/claim-slots/{subject}/{slot}`
 - `GET /v1/memory/inspect/turns`
+
+HTTP memory management surfaces:
+- `POST /v1/memory/maintain` — unified governed control-plane facade; destructive actions default to preview unless `apply=true` and `dry_run=false`
+- `POST /v1/memory/beads/remove` — remove explicit bead ids from active projection and prune attached associations; tombstones are honored by `rebuild_index()`
+- `POST /v1/memory/sources/remove` — remove beads matching a strong source identifier such as `document_id`, `source_ref`, `ragie_document_id`, `raw_source_object_id`, or `hydration_ref`
 
 HTTP external evidence write surfaces:
 - `POST /v1/memory/external-evidence`

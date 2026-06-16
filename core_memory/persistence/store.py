@@ -544,6 +544,60 @@ class MemoryStore:
 
         return reject_bead_for_store(self, bead_id=bead_id, approver=approver, reason=reason)
 
+    def remove_beads(
+        self,
+        bead_ids: list[str],
+        *,
+        reason: str = "",
+        actor: str = "",
+        authority: dict | None = None,
+        dry_run: bool = True,
+        apply: bool = False,
+        source: dict | None = None,
+        idempotency_key: str = "",
+    ) -> dict:
+        """Remove beads from active memory projection, preserving audit tombstones."""
+        from ..persistence.store_management_ops import remove_beads_for_store
+
+        return remove_beads_for_store(
+            self,
+            bead_ids=bead_ids,
+            reason=reason,
+            actor=actor,
+            authority=authority,
+            dry_run=dry_run,
+            apply=apply,
+            source=source,
+            idempotency_key=idempotency_key,
+        )
+
+    def remove_source(
+        self,
+        source: dict,
+        *,
+        reason: str = "",
+        actor: str = "",
+        authority: dict | None = None,
+        dry_run: bool = True,
+        apply: bool = False,
+        idempotency_key: str = "",
+        limit: int = 1000,
+    ) -> dict:
+        """Remove all active beads matching a strong source identifier."""
+        from ..persistence.store_management_ops import remove_source_beads_for_store
+
+        return remove_source_beads_for_store(
+            self,
+            source=source,
+            reason=reason,
+            actor=actor,
+            authority=authority,
+            dry_run=dry_run,
+            apply=apply,
+            idempotency_key=idempotency_key,
+            limit=limit,
+        )
+
     def pending_approvals(self, limit: int = 100) -> list:
         """List beads awaiting human review (approval_status=pending)."""
         from ..persistence.store_approval_ops import list_pending_approvals_for_store

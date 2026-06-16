@@ -137,6 +137,25 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
             "additionalProperties": False,
         },
     },
+    "maintain": {
+        "description": "Unified governed maintenance facade for memory management, cleanup, async ops, association, and review actions.",
+        "input": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "scope": {"type": "object"},
+                "targets": {"type": "object"},
+                "proposal": {"type": "object"},
+                "decision": {"type": "object"},
+                "authority": {"type": "object"},
+                "dry_run": {"type": "boolean", "default": True},
+                "apply": {"type": "boolean", "default": False},
+                "idempotency_key": {"type": "string"},
+            },
+            "required": ["action"],
+            "additionalProperties": False,
+        },
+    },
 }
 
 
@@ -277,4 +296,37 @@ def submit_entity_merge_proposal(
     if isinstance(out, dict):
         out = dict(out)
         out.setdefault("contract", "mcp.submit_entity_merge_proposal.v1")
+    return out
+
+
+def maintain(
+    *,
+    root: str = ".",
+    action: str,
+    scope: dict[str, Any] | None = None,
+    targets: dict[str, Any] | None = None,
+    proposal: dict[str, Any] | None = None,
+    decision: dict[str, Any] | None = None,
+    authority: dict[str, Any] | None = None,
+    dry_run: bool = True,
+    apply: bool = False,
+    idempotency_key: str = "",
+) -> dict[str, Any]:
+    from core_memory.management import maintain as core_maintain
+
+    out = core_maintain(
+        root=root,
+        action=action,
+        scope=dict(scope or {}),
+        targets=dict(targets or {}),
+        proposal=dict(proposal or {}),
+        decision=dict(decision or {}),
+        authority=dict(authority or {}),
+        dry_run=bool(dry_run),
+        apply=bool(apply),
+        idempotency_key=str(idempotency_key or ""),
+    )
+    if isinstance(out, dict):
+        out = dict(out)
+        out.setdefault("contract", "mcp.maintain.v1")
     return out

@@ -36,6 +36,11 @@ from core_memory.runtime.associations.coverage import (
     enqueue_association_coverage,
     get_association_run,
 )
+from core_memory.management import (
+    maintain as maintain_memory,
+    remove_beads as remove_memory_beads,
+    remove_source as remove_memory_source,
+)
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
@@ -202,6 +207,43 @@ class RequestApprovalRequest(BaseModel):
     bead_id: str
     requested_by: str = ""
     note: str = ""
+
+
+class RemoveBeadsRequest(BaseModel):
+    root: Optional[str] = None
+    bead_ids: list[str] = Field(default_factory=list)
+    bead_id: str = ""
+    reason: str
+    actor: str = ""
+    authority: dict[str, Any] = Field(default_factory=dict)
+    dry_run: bool = True
+    apply: bool = False
+    idempotency_key: str = ""
+
+
+class RemoveSourceRequest(BaseModel):
+    root: Optional[str] = None
+    source: dict[str, Any] = Field(default_factory=dict)
+    reason: str = "source removed"
+    actor: str = ""
+    authority: dict[str, Any] = Field(default_factory=dict)
+    dry_run: bool = True
+    apply: bool = False
+    idempotency_key: str = ""
+    limit: int = 1000
+
+
+class MaintainRequest(BaseModel):
+    root: Optional[str] = None
+    action: str
+    scope: dict[str, Any] = Field(default_factory=dict)
+    targets: dict[str, Any] = Field(default_factory=dict)
+    proposal: dict[str, Any] = Field(default_factory=dict)
+    decision: dict[str, Any] = Field(default_factory=dict)
+    authority: dict[str, Any] = Field(default_factory=dict)
+    dry_run: bool = True
+    apply: bool = False
+    idempotency_key: str = ""
 
 
 class MemoryTraceRequest(BaseModel):
@@ -696,6 +738,84 @@ async def memory_reject(
     )
     if not out.get("ok"):
         return JSONResponse(status_code=404, content={**out, "contract": "memory.reject.v1"})
+    return out
+
+
+@app.post("/v1/memory/beads/remove")
+async def memory_remove_beads(
+    payload: RemoveBeadsRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Remove beads from active memory projection, preserving audit tombstones."""
+    _check_auth(authorization, x_memory_token)
+    bead_ids = list(payload.bead_ids or [])
+    if payload.bead_id:
+        bead_ids.append(payload.bead_id)
+    out = remove_memory_beads(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_ids=bead_ids,
+        reason=payload.reason,
+        actor=payload.actor,
+        authority=dict(payload.authority or {}),
+        dry_run=bool(payload.dry_run),
+        apply=bool(payload.apply),
+        idempotency_key=payload.idempotency_key,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
+@app.post("/v1/memory/sources/remove")
+async def memory_remove_source(
+    payload: RemoveSourceRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Remove all active beads matching a strong source identifier."""
+    _check_auth(authorization, x_memory_token)
+    out = remove_memory_source(
+        root=_resolve_root(payload.root, x_tenant_id),
+        source=dict(payload.source or {}),
+        reason=payload.reason,
+        actor=payload.actor,
+        authority=dict(payload.authority or {}),
+        dry_run=bool(payload.dry_run),
+        apply=bool(payload.apply),
+        idempotency_key=payload.idempotency_key,
+        limit=max(1, int(payload.limit)),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
+@app.post("/v1/memory/maintain")
+async def memory_maintain(
+    payload: MaintainRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Unified agent control-plane facade for governed memory maintenance."""
+    _check_auth(authorization, x_memory_token)
+    out = maintain_memory(
+        root=_resolve_root(payload.root, x_tenant_id),
+        action=payload.action,
+        scope=dict(payload.scope or {}),
+        targets=dict(payload.targets or {}),
+        proposal=dict(payload.proposal or {}),
+        decision=dict(payload.decision or {}),
+        authority=dict(payload.authority or {}),
+        dry_run=bool(payload.dry_run),
+        apply=bool(payload.apply),
+        idempotency_key=payload.idempotency_key,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
     return out
 
 

@@ -66,6 +66,26 @@ class Memory:
         tid = str(turn_id or kwargs.pop("turn_id", "") or f"turn-{uuid.uuid4().hex[:12]}")
         return process_turn_finalized(root=self.root, session_id=sid, turn_id=tid, turns=normalized, **kwargs)
 
+    def maintain(self, action: str, **kwargs: Any) -> dict[str, Any]:
+        from core_memory.management import maintain
+
+        return maintain(root=self.root, action=action, **kwargs)
+
+    def remove_bead(self, bead_id: str, *, reason: str, **kwargs: Any) -> dict[str, Any]:
+        from core_memory.management import remove_bead
+
+        return remove_bead(root=self.root, bead_id=bead_id, reason=reason, **kwargs)
+
+    def remove_beads(self, bead_ids: list[str], *, reason: str, **kwargs: Any) -> dict[str, Any]:
+        from core_memory.management import remove_beads
+
+        return remove_beads(root=self.root, bead_ids=bead_ids, reason=reason, **kwargs)
+
+    def remove_source(self, source: dict[str, Any], *, reason: str = "source removed", **kwargs: Any) -> dict[str, Any]:
+        from core_memory.management import remove_source
+
+        return remove_source(root=self.root, source=source, reason=reason, **kwargs)
+
 
 def confirm_bead(root: str, bead_id: str, note: str = "") -> dict[str, Any]:
     """Record user confirmation of a bead.

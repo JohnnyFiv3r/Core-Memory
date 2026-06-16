@@ -103,6 +103,13 @@ Imports a local transcript file readable by the server process. Supported v1 par
 
 Ingest normalizes transcript turns and routes them through `capture`; it does not write `.beads`, `.turns`, indexes, claims, or associations directly.
 
+### `maintain`
+
+Governed control-plane tool for approval, cleanup, queue, association, and
+review workflows. Destructive actions such as `remove_beads` and
+`remove_source` default to dry-run; apply them only with explicit user
+confirmation or an authorized host event hook.
+
 ### `status`
 
 Read-only store/server status: root, counts, adapters, MCP version, and server version.
