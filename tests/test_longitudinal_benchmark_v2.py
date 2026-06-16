@@ -67,8 +67,10 @@ class TestLongitudinalBenchmarkV2Slice65A(unittest.TestCase):
 
             pending = list_dreamer_candidates(root=td, status="pending", limit=10).get("results") or []
             self.assertGreaterEqual(len(pending), 2)
-            c_summary = next(c for c in pending if str(c.get("relationship") or "") == "reinforces")
-            c_struct = next(c for c in pending if str(c.get("relationship") or "") == "transferable_lesson")
+            c_summary = next(c for c in pending if str(c.get("relationship_signal") or "") == "reinforces")
+            c_struct = next(c for c in pending if str(c.get("relationship_signal") or "") == "transferable_lesson")
+            self.assertEqual("supports", c_summary.get("relationship"))
+            self.assertEqual("applies_pattern_of", c_struct.get("relationship"))
 
             d1 = decide_dreamer_candidate(root=td, candidate_id=str(c_summary.get("id")), decision="accept", reviewer="qa", apply=False)
             self.assertTrue(d1.get("ok"))

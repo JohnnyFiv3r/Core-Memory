@@ -50,8 +50,9 @@ class TestDreamerEvalSlice64A(unittest.TestCase):
             pending = list_dreamer_candidates(root=td, status="pending", limit=10).get("results") or []
             self.assertGreaterEqual(len(pending), 2)
 
-            c_transfer = next(c for c in pending if str(c.get("relationship") or "") == "transferable_lesson")
+            c_transfer = next(c for c in pending if str(c.get("relationship_signal") or "") == "transferable_lesson")
             c_contra = next(c for c in pending if str(c.get("relationship") or "") == "contradicts")
+            self.assertEqual("applies_pattern_of", c_transfer.get("relationship"))
 
             dec1 = decide_dreamer_candidate(root=td, candidate_id=str(c_transfer.get("id")), decision="accept", reviewer="qa", apply=True)
             self.assertTrue(dec1.get("ok"))
@@ -143,9 +144,9 @@ class TestDreamerEvalSlice64A(unittest.TestCase):
                 run_metadata={"run_id": "r1", "mode": "suggest", "session_id": "s1"},
             )
             pending = list_dreamer_candidates(root=td, status="pending", limit=10).get("results") or []
-            by_rel = {str(c.get("relationship") or ""): c for c in pending}
-            c_transfer = by_rel["transferable_lesson"]
-            c_contra = by_rel["contradicts"]
+            by_signal = {str(c.get("relationship_signal") or c.get("relationship") or ""): c for c in pending}
+            c_transfer = by_signal["transferable_lesson"]
+            c_contra = by_signal["contradicts"]
 
             self.assertTrue(append_dreamer_eval_label(
                 td,

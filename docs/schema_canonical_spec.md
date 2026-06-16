@@ -39,11 +39,9 @@ Canonical/structural relation set is defined in `core_memory/schema/normalizatio
 Includes model-native values plus observed canonicalized extensions:
 - caused_by, led_to, blocked_by, unblocks, blocks_unblocks
 - supersedes, superseded_by, refines
-- associated_with, contradicts, invalidates, diagnoses, reinforces, mirrors
-- applies_pattern_of, violates_pattern_of
-- constraint_transformed_into, solves_same_mechanism
-- similar_pattern, transferable_lesson, generalizes, specializes
-- structural_symmetry, reveals_bias
+- associated_with, contradicts, invalidates, diagnoses
+- applies_pattern_of, constraint_transformed_into
+- similar_pattern, generalizes, reveals_bias
 - supports, derived_from, part_of, resolves, follows, precedes, enables
 
 ## Relation families and direction rules
@@ -58,7 +56,7 @@ change graph traversal semantics.
 - causal: caused_by, led_to, resolves, diagnoses
 - evidence: supports, derived_from, caused_by, led_to, resolves
 - influence: blocked_by, unblocks, blocks_unblocks, enables
-- conflict: contradicts, invalidates, violates_pattern_of
+- conflict: contradicts, invalidates
 - temporal: follows, precedes
 - revision: supersedes, superseded_by, refines
 
@@ -77,10 +75,16 @@ Direction rules for new authored associations:
 Unknown semantics should use `associated_with` or quarantine/review. Do not use
 `supports` as a fallback for unclear semantics.
 
-Accepted aliases normalize spelling variants such as `causes`, `leads_to`,
-`blocked`, `unblocked`, `enabled`, `conflicts_with`, `related_to`, and
+Accepted aliases normalize spelling variants and retired synonym labels such as
+`causes`, `leads_to`, `blocked`, `unblocked`, `enabled`, `conflicts_with`,
+`related_to`, `reinforces`, `mirrors`, `structural_symmetry`,
+`solves_same_mechanism`, `transferable_lesson`, `violates_pattern_of`, and
 `blocks->unblocks` to existing canonical values. Alias normalization never
 rewrites source/target direction.
+
+Dreamer may preserve retired pattern labels as `relationship_signal` metadata
+for candidate-family evaluation, but persisted graph edges use canonical
+relation labels.
 
 The active label `blocks` is intentionally not normalized to `blocked_by`,
 because that would invert current stored semantics without swapping endpoints.

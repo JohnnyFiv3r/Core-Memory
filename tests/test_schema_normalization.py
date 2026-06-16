@@ -35,6 +35,13 @@ class TestSchemaNormalization(unittest.TestCase):
         self.assertEqual("unblocks", normalize_relation_type("unblocked"))
         self.assertEqual("enables", normalize_relation_type("enabled"))
         self.assertEqual("contradicts", normalize_relation_type("conflicts_with"))
+        self.assertEqual("supports", normalize_relation_type("reinforces"))
+        self.assertEqual("similar_pattern", normalize_relation_type("mirrors"))
+        self.assertEqual("similar_pattern", normalize_relation_type("structural_symmetry"))
+        self.assertEqual("applies_pattern_of", normalize_relation_type("solves_same_mechanism"))
+        self.assertEqual("applies_pattern_of", normalize_relation_type("transferable_lesson"))
+        self.assertEqual("contradicts", normalize_relation_type("violates_pattern_of"))
+        self.assertEqual("generalizes", normalize_relation_type("specializes"))
         self.assertEqual("blocks_unblocks", normalize_relation_type("blocks->unblocks"))
 
     def test_relation_families_use_shared_taxonomy(self):
