@@ -7,8 +7,8 @@ because Dreamer owns the depth measure, and it is **decoupled from the v1
 critical path** — SOUL, scientific findings, and reinforcement do not depend on
 it. A host builds the geometry view only if it wants a memory-explorer surface.
 
-The manifest exposes substrate fields plus lightweight display metadata, without
-forking any formula:
+The v2 manifest exposes substrate fields plus lightweight display metadata,
+without forking any formula:
 
 - nodes (beads): ``id``, ``type``, ``status``, ``assembly_depth``,
   ``title``, ``created_at``, ``timestamp``, ``entities``
@@ -29,7 +29,10 @@ from typing import Any
 
 from core_memory.schema.normalization import normalize_relation_type
 
-GEOMETRY_SCHEMA = "dreamer_geometry_manifest.v1"
+GEOMETRY_SCHEMA_V1 = "dreamer_geometry_manifest.v1"
+GEOMETRY_SCHEMA = "dreamer_geometry_manifest.v2"
+GEOMETRY_NODE_SHAPE_VERSION_V1 = "geometry_node.v1"
+GEOMETRY_NODE_SHAPE_VERSION = "geometry_node.v2"
 _INACTIVE_ASSOC_STATUSES = {"retracted", "superseded", "inactive"}
 
 
@@ -50,6 +53,16 @@ def _read_index(root: str | Path) -> dict[str, Any]:
         return out if isinstance(out, dict) else {}
     except Exception:
         return {}
+
+
+def _node_shape_version_for_manifest(manifest: dict[str, Any]) -> str:
+    explicit = str(manifest.get("node_shape_version") or "").strip()
+    if explicit:
+        return explicit
+    schema = str(manifest.get("schema") or "").strip()
+    if schema == GEOMETRY_SCHEMA_V1:
+        return GEOMETRY_NODE_SHAPE_VERSION_V1
+    return GEOMETRY_NODE_SHAPE_VERSION
 
 
 def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str, Any]:
@@ -138,6 +151,7 @@ def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str,
 
     manifest = {
         "schema": GEOMETRY_SCHEMA,
+        "node_shape_version": GEOMETRY_NODE_SHAPE_VERSION,
         "generated_at": _now(),
         "node_count": len(nodes),
         "edge_count": len(edges),
@@ -166,6 +180,7 @@ def read_geometry_manifest(root: str | Path) -> dict[str, Any]:
             "ok": True,
             "present": False,
             "schema": GEOMETRY_SCHEMA,
+            "node_shape_version": GEOMETRY_NODE_SHAPE_VERSION,
             "node_count": 0,
             "edge_count": 0,
             "nodes": [],
@@ -175,7 +190,11 @@ def read_geometry_manifest(root: str | Path) -> dict[str, Any]:
     try:
         manifest = json.loads(p.read_text(encoding="utf-8"))
         if isinstance(manifest, dict):
-            return {"ok": True, "present": True, **manifest}
+            out = {"ok": True, "present": True, **manifest}
+            out.setdefault("node_shape_version", _node_shape_version_for_manifest(manifest))
+            if out.get("schema") == GEOMETRY_SCHEMA_V1:
+                out.setdefault("legacy_node_shape", True)
+            return out
     except Exception:
         pass
     return {
@@ -183,11 +202,15 @@ def read_geometry_manifest(root: str | Path) -> dict[str, Any]:
         "present": False,
         "error": "geometry_manifest_unreadable",
         "schema": GEOMETRY_SCHEMA,
+        "node_shape_version": GEOMETRY_NODE_SHAPE_VERSION,
     }
 
 
 __all__ = [
+    "GEOMETRY_NODE_SHAPE_VERSION",
+    "GEOMETRY_NODE_SHAPE_VERSION_V1",
     "GEOMETRY_SCHEMA",
+    "GEOMETRY_SCHEMA_V1",
     "build_geometry_manifest",
     "read_geometry_manifest",
 ]

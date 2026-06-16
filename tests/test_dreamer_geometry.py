@@ -1,12 +1,17 @@
+import json
 import os
 import tempfile
 import unittest
+from pathlib import Path
 
 os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.dreamer.geometry import (
+    GEOMETRY_NODE_SHAPE_VERSION,
+    GEOMETRY_NODE_SHAPE_VERSION_V1,
     GEOMETRY_SCHEMA,
+    GEOMETRY_SCHEMA_V1,
     build_geometry_manifest,
     read_geometry_manifest,
 )
@@ -31,6 +36,7 @@ class TestGeometryManifest(unittest.TestCase):
             _seed(td)
             m = build_geometry_manifest(td)
             self.assertEqual(GEOMETRY_SCHEMA, m["schema"])
+            self.assertEqual(GEOMETRY_NODE_SHAPE_VERSION, m["node_shape_version"])
             self.assertEqual(3, m["node_count"])
             self.assertEqual(2, m["edge_count"])
             node = m["nodes"][0]
@@ -58,15 +64,38 @@ class TestGeometryManifest(unittest.TestCase):
             out = read_geometry_manifest(td)
             self.assertTrue(out["ok"])
             self.assertFalse(out["present"])
+            self.assertEqual(GEOMETRY_SCHEMA, out["schema"])
+            self.assertEqual(GEOMETRY_NODE_SHAPE_VERSION, out["node_shape_version"])
             self.assertEqual(0, out["node_count"])
             self.assertEqual([], out["nodes"])
+
+    def test_read_legacy_v1_manifest_signals_old_node_shape(self):
+        with tempfile.TemporaryDirectory() as td:
+            p = Path(td) / ".beads" / "events" / "dreamer-geometry.json"
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(json.dumps({
+                "schema": GEOMETRY_SCHEMA_V1,
+                "generated_at": "2026-06-16T00:00:00+00:00",
+                "node_count": 1,
+                "edge_count": 0,
+                "total_bead_count": 1,
+                "truncated": False,
+                "limit": 5000,
+                "nodes": [{"id": "b1", "type": "evidence", "status": "active", "assembly_depth": 0.0}],
+                "edges": [],
+            }), encoding="utf-8")
+            out = read_geometry_manifest(td)
+            self.assertTrue(out["ok"])
+            self.assertTrue(out["present"])
+            self.assertEqual(GEOMETRY_SCHEMA_V1, out["schema"])
+            self.assertEqual(GEOMETRY_NODE_SHAPE_VERSION_V1, out["node_shape_version"])
+            self.assertTrue(out["legacy_node_shape"])
+            self.assertNotIn("title", out["nodes"][0])
 
     def test_inactive_associations_excluded(self):
         with tempfile.TemporaryDirectory() as td:
             store, g, d, e = _seed(td)
             # Manually mark one association inactive in the index.
-            import json
-            from pathlib import Path
             idx_path = Path(td) / ".beads" / "index.json"
             idx = json.loads(idx_path.read_text(encoding="utf-8"))
             idx["associations"][0]["status"] = "superseded"

@@ -5,7 +5,11 @@ import unittest
 from pathlib import Path
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.dreamer.geometry import build_geometry_manifest
+from core_memory.runtime.dreamer.geometry import (
+    GEOMETRY_NODE_SHAPE_VERSION,
+    GEOMETRY_SCHEMA,
+    build_geometry_manifest,
+)
 
 
 class TestHttpDreamerGeometry(unittest.TestCase):
@@ -35,6 +39,8 @@ class TestHttpDreamerGeometry(unittest.TestCase):
             payload = resp.json()
             self.assertTrue(payload.get("ok"))
             self.assertTrue(payload.get("present"))
+            self.assertEqual(GEOMETRY_SCHEMA, payload.get("schema"))
+            self.assertEqual(GEOMETRY_NODE_SHAPE_VERSION, payload.get("node_shape_version"))
             self.assertEqual(2, payload.get("node_count"))
             self.assertEqual(1, payload.get("edge_count"))
             node = (payload.get("nodes") or [{}])[0]
@@ -58,6 +64,8 @@ class TestHttpDreamerGeometry(unittest.TestCase):
             payload = resp.json()
             self.assertTrue(payload.get("ok"))
             self.assertFalse(payload.get("present"))
+            self.assertEqual(GEOMETRY_SCHEMA, payload.get("schema"))
+            self.assertEqual(GEOMETRY_NODE_SHAPE_VERSION, payload.get("node_shape_version"))
 
             alias = c.get("/v1/memory/projection/geometry", params={"root": root})
             self.assertEqual(200, alias.status_code)

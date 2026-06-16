@@ -288,9 +288,12 @@ exists to serve it without forking formulas. Proposed surface:
 `GET /v1/dreamer/geometry` (with compatibility alias
 `GET /v1/memory/projection/geometry`) serves beads with id, type, status,
 assembly_depth, title, created_at/timestamp, and entities; edges include src,
-dst, rel, strength, provenance. The endpoint is served from a manifest, not
-recomputed on read, and returns `present=false` until a Dreamer run has built
-the manifest.
+dst, rel, strength, provenance. The enriched node shape is
+`dreamer_geometry_manifest.v2` / `geometry_node.v2`; persisted pre-enrichment
+v1 manifests remain readable and are returned with `legacy_node_shape=true`
+until a Dreamer run rebuilds them. The endpoint is served from a manifest, not
+recomputed on read, and returns `present=false` until a Dreamer run has built the
+manifest.
 
 ---
 
@@ -634,4 +637,3 @@ asking *should we still want this?*
 `past · present · possible-future · possible-past` for both world and self — the
 four trajectories humans actually use. That framing, not any single feature, is
 the argument for prioritizing counterfactuals next.
-
