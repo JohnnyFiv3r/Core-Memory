@@ -33,6 +33,8 @@ from .soul import (
     read_soul_file,
     list_soul_files,
     soul_history,
+    soul_integrity_check,
+    soul_integrity_repair,
 )
 from .runtime.ingest import (
     SourceEventMapping,
@@ -115,6 +117,8 @@ __all__ = [
     "read_soul_file",
     "list_soul_files",
     "soul_history",
+    "soul_integrity_check",
+    "soul_integrity_repair",
     "ingest_transcript",
     "normalize_transcript_payload",
     "ingest_external_evidence",

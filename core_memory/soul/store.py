@@ -284,6 +284,72 @@ def soul_history(root: str | Path, *, subject: str = DEFAULT_SUBJECT, limit: int
     return {"ok": True, "subject": subj, "count": len(revisions), "revisions": revisions[-max(1, int(limit)):]}
 
 
+def remove_entry_if_unchanged(
+    root: str | Path,
+    *,
+    target_file: str,
+    entry_key: str,
+    expected_revision_id: str,
+    subject: str = DEFAULT_SUBJECT,
+    source: str = "integrity_check",
+    reason: str = "",
+) -> dict[str, Any]:
+    """Atomically remove an entry only if it is still the *exact* revision the
+    caller observed and still empty.
+
+    The whole compare-and-remove runs under the store lock, so a concurrent
+    writer that upserts new content for the same key between a caller's read and
+    this call can never have its newer entry deleted: the revision_id (and empty
+    check) won't match and the remove is refused.
+    """
+    tf = _normalize_target_file(target_file)
+    if tf is None:
+        return {"ok": False, "error": "invalid_target_file", "allowed": list(SOUL_FILES)}
+    src = str(source or "integrity_check").strip().lower()
+    if src not in _SOURCES:
+        return {"ok": False, "error": "invalid_source", "allowed": sorted(_SOURCES)}
+    subj = _safe_subject(subject)
+    key = str(entry_key or "").strip()
+    with store_lock(Path(root)):
+        revisions = _read_revisions(root, subj)
+        entries = _current_entries(revisions, tf)
+        cur = entries.get(key)
+        if cur is None:
+            return {"ok": False, "error": "entry_absent", "entry_key": key}
+        if str(cur.get("revision_id") or "") != str(expected_revision_id or ""):
+            return {
+                "ok": False,
+                "error": "entry_changed",
+                "entry_key": key,
+                "current_revision_id": str(cur.get("revision_id") or ""),
+            }
+        if str(cur.get("content") or "").strip():
+            return {"ok": False, "error": "entry_not_empty", "entry_key": key}
+        rev = {
+            "schema": SOUL_REVISION_SCHEMA,
+            "id": f"soul-{uuid.uuid4().hex[:12]}",
+            "created_at": _now(),
+            "subject": subj,
+            "subject_raw": str(subject or DEFAULT_SUBJECT),
+            "target_file": tf,
+            "op": "remove",
+            "entry_key": key,
+            "content": "",
+            "source": src,
+            "epistemic_status": "inferred",
+            "reason": str(reason or ""),
+            "evidence": [],
+            "requires_approval": False,
+            "status": "applied",
+            "approver": "",
+            "decided_at": _now(),
+            "supersedes_revision_id": str(cur.get("revision_id") or ""),
+        }
+        append_jsonl(_revisions_path(root, subj), rev)
+        _write_rendered(root, subj, tf, _read_revisions(root, subj))
+    return {"ok": True, "revision_id": rev["id"], "target_file": tf, "entry_key": key}
+
+
 __all__ = [
     "SOUL_REVISION_SCHEMA",
     "SOUL_FILES",
@@ -293,6 +359,7 @@ __all__ = [
     "reject_soul_update",
     "read_soul_file",
     "current_soul_entries",
+    "remove_entry_if_unchanged",
     "list_soul_files",
     "soul_history",
 ]
