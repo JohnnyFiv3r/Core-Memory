@@ -26,6 +26,7 @@ from .memory import (
 from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .soul import (
     propose_soul_update,
+    propose_soul_from_dreamer,
     approve_soul_update,
     reject_soul_update,
     read_soul_file,
@@ -96,6 +97,7 @@ __all__ = [
     "request_approval",
     "list_pending_approvals",
     "propose_soul_update",
+    "propose_soul_from_dreamer",
     "approve_soul_update",
     "reject_soul_update",
     "read_soul_file",
