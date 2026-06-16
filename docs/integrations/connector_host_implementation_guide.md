@@ -145,6 +145,10 @@ Identity fields drive the invariants — get them stable:
   identity. A *changed* document/record with the **same** object id and a **new**
   `source_event_id` versions (supersedes); operational events with the same
   object id accumulate.
+- **`section_refs`** — optional document section/chunk scope. Multiple
+  `document_reference` beads may share the same `document_id` when their
+  `section_refs` differ. Re-ingesting the same section versions that section;
+  sibling sections coexist under the same document id.
 - **`core_memory_unifying_id`** — opaque cross-store join key. Give the same id
   to related items across connectors (e.g. a Zoom transcript and a HubSpot deal
   for the same meeting) so retrieval can group them.
