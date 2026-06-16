@@ -255,6 +255,237 @@ class TestMemoryManagement(unittest.TestCase):
             self.assertTrue(out.get("applied"))
             self.assertNotIn(bead, (_index(td).get("beads") or {}))
 
+    def test_maintain_policy_denies_apply_but_allows_preview(self):
+        with tempfile.TemporaryDirectory() as td:
+            bead = _add(MemoryStore(td), type="context", title="Review", summary=["review"], session_id="s1")
+
+            preview = maintain(
+                root=td,
+                action="approve_memory",
+                targets={"bead_id": bead},
+                authority={"actor": "agent.chat"},
+            )
+            self.assertTrue(preview.get("ok"), preview)
+            self.assertFalse(preview.get("authority_ok"))
+            self.assertIn("approve_memory", preview.get("required_authority") or [])
+
+            denied = maintain(
+                root=td,
+                action="approve_memory",
+                targets={"bead_id": bead},
+                authority={"actor": "agent.chat"},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertFalse(denied.get("ok"), denied)
+            self.assertEqual("maintain_authority_required", denied.get("error"))
+
+    def test_remove_source_flat_metadata_does_not_narrow_selector(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            bead = _add(store, type="context", title="Doc", summary=["doc"], session_id="external", document_id="doc-meta")
+
+            preview = remove_source(
+                root=td,
+                source={"document_id": "doc-meta", "display_name": "renamed file", "resource_type": "document"},
+                reason="source file removed",
+            )
+            self.assertTrue(preview.get("ok"), preview)
+            self.assertEqual(1, preview.get("matched_total"))
+            self.assertEqual({"document_id": "doc-meta"}, preview.get("source"))
+            self.assertEqual("renamed file", (preview.get("source_metadata") or {}).get("display_name"))
+
+            applied = remove_source(
+                root=td,
+                source={"document_id": "doc-meta", "display_name": "renamed file", "resource_type": "document"},
+                reason="source file removed",
+                actor="source-cleanup",
+                authority={"mode": "event_hook"},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(applied.get("ok"), applied)
+            self.assertEqual([bead], applied.get("removed_bead_ids"))
+
+    def test_destructive_idempotency_replays_and_conflicts(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add(store, type="context", title="First", summary=["first"], session_id="s1")
+            second = _add(store, type="context", title="Second", summary=["second"], session_id="s1")
+
+            out1 = remove_bead(
+                root=td,
+                bead_id=first,
+                reason="same request",
+                actor="agent.chat",
+                authority={"user_confirmed": True},
+                apply=True,
+                dry_run=False,
+                idempotency_key="rm-once",
+            )
+            self.assertTrue(out1.get("ok"), out1)
+            self.assertEqual(1, out1.get("removed_count"))
+
+            replay = remove_bead(
+                root=td,
+                bead_id=first,
+                reason="same request",
+                actor="agent.chat",
+                authority={"user_confirmed": True},
+                apply=True,
+                dry_run=False,
+                idempotency_key="rm-once",
+            )
+            self.assertTrue(replay.get("ok"), replay)
+            self.assertTrue(replay.get("idempotent_replay"), replay)
+            self.assertEqual(1, replay.get("removed_count"))
+
+            conflict = remove_bead(
+                root=td,
+                bead_id=second,
+                reason="same request",
+                actor="agent.chat",
+                authority={"user_confirmed": True},
+                apply=True,
+                dry_run=False,
+                idempotency_key="rm-once",
+            )
+            self.assertFalse(conflict.get("ok"), conflict)
+            self.assertEqual("idempotency_key_conflict", conflict.get("error"))
+
+    def test_deactivate_association_rebuild_filters_edge_and_queues_myelination(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            source = _add(store, type="context", title="Source", summary=["source"], session_id="s1")
+            target = _add(store, type="context", title="Target", summary=["target"], session_id="s1")
+            assoc_id = store.link(source, target, "supports", "support edge")
+
+            out = maintain(
+                root=td,
+                action="deactivate_association",
+                targets={"association_id": assoc_id},
+                decision={"reason": "support no longer valid"},
+                authority={"actor": "agent.chat", "allowed_authority": ["deactivate_association"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertTrue(out.get("retracted"))
+            self.assertEqual([], (_index(td).get("associations") or []))
+
+            rebuilt = store.rebuild_index()
+            self.assertEqual([], rebuilt.get("associations") or [])
+            self.assertIn(assoc_id, rebuilt.get("retracted_association_ids") or [])
+
+            rows = _event_rows(td)
+            self.assertTrue(any(row.get("event_type") == "association_retracted" for row in rows))
+            queue_path = Path(td) / ".beads" / "events" / "side-effects-queue.json"
+            queue = json.loads(queue_path.read_text(encoding="utf-8"))
+            self.assertTrue(any(item.get("kind") == "myelination-update" for item in queue), queue)
+
+    def test_soul_revision_actions_are_routed_through_revision_store(self):
+        with tempfile.TemporaryDirectory() as td:
+            proposed = maintain(
+                root=td,
+                action="propose_soul_update",
+                proposal={
+                    "subject": "acme",
+                    "target_file": "IDENTITY.md",
+                    "entry_key": "Working style",
+                    "content": "Prefers explicit governance checkpoints.",
+                    "reason": "user supplied profile update",
+                },
+                authority={"actor": "agent.chat", "allowed_authority": ["propose_soul_update"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(proposed.get("ok"), proposed)
+            self.assertEqual("proposed", proposed.get("status"))
+
+            approved = maintain(
+                root=td,
+                action="approve_soul_update",
+                targets={"subject": "acme", "revision_id": proposed.get("revision_id")},
+                authority={"actor": "user", "user_confirmed": True},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(approved.get("ok"), approved)
+            self.assertEqual("applied", approved.get("status"))
+
+            inspected = maintain(
+                root=td,
+                action="inspect_soul",
+                targets={"subject": "acme", "file_name": "IDENTITY.md"},
+            )
+            self.assertTrue(inspected.get("ok"), inspected)
+            self.assertIn("Prefers explicit governance checkpoints.", inspected.get("markdown") or "")
+            self.assertFalse((Path(td) / ".beads" / "index.json").exists())
+
+    def test_refresh_myelination_uses_side_effect_job(self):
+        with tempfile.TemporaryDirectory() as td:
+            status = maintain(root=td, action="myelination_status")
+            self.assertTrue(status.get("ok"), status)
+            self.assertFalse(status.get("manifest_present"))
+            self.assertFalse((status.get("manifest") or {}).get("present"))
+
+            out = maintain(
+                root=td,
+                action="refresh_myelination",
+                authority={"actor": "agent.chat", "allowed_authority": ["refresh_myelination"]},
+                apply=True,
+                dry_run=False,
+                idempotency_key="refresh-1",
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("myelination-update", out.get("kind"))
+            self.assertEqual("myelination-update", ((out.get("queue") or {}).get("kind")))
+
+    def test_apply_association_proposals_requires_authority_and_judge_provenance(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            source = _add(store, type="context", title="Source", summary=["source"], session_id="s1")
+            target = _add(store, type="context", title="Target", summary=["target"], session_id="s1")
+            proposal = {
+                "associations": [
+                    {
+                        "source_bead": source,
+                        "target_bead": target,
+                        "relationship": "supports",
+                        "confidence": 0.9,
+                        "reason_text": "Reviewed support.",
+                    }
+                ]
+            }
+
+            missing_provenance = maintain(
+                root=td,
+                action="apply_association_proposals",
+                proposal=proposal,
+                authority={"actor": "judge.agent", "allowed_authority": ["append_judged_association"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertFalse(missing_provenance.get("ok"), missing_provenance)
+            self.assertEqual("maintain_validation_failed", missing_provenance.get("error"))
+
+            missing_authority = maintain(
+                root=td,
+                action="apply_association_proposals",
+                proposal={
+                    **proposal,
+                    "judge_model": "unit-judge",
+                    "prompt_version": "p1",
+                    "rubric_version": "r1",
+                    "truth_basis": "unit_reviewed",
+                },
+                authority={"actor": "judge.agent"},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertFalse(missing_authority.get("ok"), missing_authority)
+            self.assertEqual("maintain_authority_required", missing_authority.get("error"))
+
 
 if __name__ == "__main__":
     unittest.main()

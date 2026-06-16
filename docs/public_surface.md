@@ -38,9 +38,9 @@ A surface is canonical only if it is both:
 - `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators; generates candidates and requires a judge decision before active graph edge writes
 - `core_memory.on_bead_committed(...)` — post-commit bead coverage hook used by canonical write paths
 - `core_memory.apply_association_proposals(...)` — reviewed association proposal ingestion through the canonical validation/quarantine path
-- `core_memory.maintain(...)` — governed control-plane facade for management actions (approval, cleanup, async ops, association dispatch, candidate review)
+- `core_memory.maintain(...)` — governed control-plane facade for management actions (approval, cleanup, async ops, association dispatch, Dreamer candidate review, SOUL revisions, Myelination refresh, and correction/re-review actions). Mutating dry-runs return `required_authority`, `authority_ok`, and validation errors.
 - `core_memory.remove_bead(...)` / `core_memory.remove_beads(...)` — remove mistaken beads from active memory projection after explicit authority, prune attached associations, retract configured projections, and preserve tombstone audit events
-- `core_memory.remove_source(...)` — remove all active beads matching a strong source identifier when a source object/file is deleted; dry-run previews may be limited, but apply-mode removes every match
+- `core_memory.remove_source(...)` — remove all active beads matching a strong source identifier when a source object/file is deleted; dry-run previews may be limited, but apply-mode removes every match. Use `source.selector` for matching and `source.metadata` for audit-only fields.
 
 ## Retrieval/runtime tool surface
 - `core_memory.recall(query, effort='low|medium|high', intent=..., k=..., speaker=..., as_of=..., root='.')` —
@@ -80,7 +80,7 @@ Convenience package-root aliases are also exported:
 
 ## Async job/queue operations (canonical ops surface)
 - `core_memory.runtime.queue.jobs.async_jobs_status(root='...')`
-- `core_memory.runtime.queue.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute|association-pass', ...)`
+- `core_memory.runtime.queue.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|semantic-reconcile|compaction|dreamer-run|neo4j-sync|health-recompute|myelination-update|data-insight-poll|association-pass|bead-retraction', ...)`
 - `core_memory.runtime.queue.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
 
 Dreamer candidate queue surfaces:
@@ -93,7 +93,7 @@ All async ops payloads include:
 
 CLI operators map to these runtime ops:
 - `core-memory ops jobs-status`
-- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute|association-pass`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|semantic-reconcile|compaction|dreamer-run|neo4j-sync|health-recompute|myelination-update|data-insight-poll|association-pass|bead-retraction`
 - `core-memory ops jobs-run [--max-compaction N] [--max-side-effects N] [--no-semantic]`
 - `core-memory ops dreamer-candidates [--status pending|accepted|rejected] [--limit N]`
 - `core-memory ops dreamer-decide --id <candidate-id> --decision accept|reject [--apply]`
@@ -168,7 +168,7 @@ HTTP inspect read surfaces:
 - `GET /v1/memory/inspect/turns`
 
 HTTP memory management surfaces:
-- `POST /v1/memory/maintain` — unified governed control-plane facade; destructive actions default to preview unless `apply=true` and `dry_run=false`
+- `POST /v1/memory/maintain` — unified governed control-plane facade; destructive and mutating actions default to preview unless `apply=true` and `dry_run=false`
 - `POST /v1/memory/beads/remove` — remove explicit bead ids from active projection and prune attached associations; tombstones are honored by `rebuild_index()`
 - `POST /v1/memory/sources/remove` — remove beads matching a strong source identifier such as `document_id`, `source_ref`, `ragie_document_id`, `raw_source_object_id`, or `hydration_ref`; reports preview truncation and removes all matches when applied
 

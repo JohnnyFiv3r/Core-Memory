@@ -3,6 +3,20 @@ from __future__ import annotations
 import argparse
 
 
+ASYNC_JOB_KIND_CHOICES = [
+    "semantic-rebuild",
+    "semantic-reconcile",
+    "compaction",
+    "dreamer-run",
+    "neo4j-sync",
+    "health-recompute",
+    "myelination-update",
+    "data-insight-poll",
+    "association-pass",
+    "bead-retraction",
+]
+
+
 def add_async_jobs_command_surfaces(
     *,
     ops_sub: argparse._SubParsersAction,
@@ -17,7 +31,7 @@ def add_async_jobs_command_surfaces(
     ops_jobs_enqueue.add_argument(
         "--kind",
         required=True,
-        choices=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
+        choices=ASYNC_JOB_KIND_CHOICES,
     )
     ops_jobs_enqueue.add_argument("--event-file", help="Optional JSON file for compaction event payload")
     ops_jobs_enqueue.add_argument("--ctx-file", help="Optional JSON file for compaction context payload")
@@ -47,7 +61,7 @@ def add_async_jobs_command_surfaces(
     async_jobs_enqueue_parser.add_argument(
         "--kind",
         required=True,
-        choices=["semantic-rebuild", "semantic-reconcile", "compaction", "dreamer-run", "neo4j-sync", "health-recompute"],
+        choices=ASYNC_JOB_KIND_CHOICES,
     )
     async_jobs_enqueue_parser.add_argument("--event-file")
     async_jobs_enqueue_parser.add_argument("--ctx-file")

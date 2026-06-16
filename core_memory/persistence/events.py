@@ -35,6 +35,7 @@ EVENT_BEAD_APPROVAL_REQUESTED = "bead_approval_requested"
 EVENT_BEAD_APPROVED = "bead_approved"
 EVENT_BEAD_REJECTED = "bead_rejected"
 EVENT_BEAD_REMOVED = "bead_removed"
+EVENT_ASSOCIATION_RETRACTED = "association_retracted"
 EVENT_EDGE_TRAVERSED = "edge_traversed"
 
 
@@ -219,6 +220,7 @@ def rebuild_index(root: Path) -> dict:
                     index["beads"][bead_id] = bead
     
     removed_by_id = {}
+    retracted_association_ids = set()
 
     # Rebuild associations and removal tombstones from event logs.
     for ev in iter_events(root):
@@ -231,6 +233,11 @@ def rebuild_index(root: Path) -> dict:
             bead_id = str(payload.get("bead_id") or "").strip()
             if bead_id:
                 removed_by_id[bead_id] = payload
+        if ev.get("event_type") == EVENT_ASSOCIATION_RETRACTED:
+            payload = ev.get("payload") or {}
+            assoc_id = str(payload.get("association_id") or "").strip()
+            if assoc_id:
+                retracted_association_ids.add(assoc_id)
 
     # Deterministic ordering + de-dup by id where available
     dedup = {}
@@ -241,6 +248,13 @@ def rebuild_index(root: Path) -> dict:
         dedup.values(),
         key=lambda a: (a.get("created_at", ""), a.get("id", ""), a.get("source_bead", ""), a.get("target_bead", "")),
     )
+    index["associations"] = [
+        a for a in index["associations"]
+        if str(a.get("id") or "").strip() not in retracted_association_ids
+        and str(a.get("status") or "active").strip().lower() not in {"retracted", "inactive", "superseded"}
+    ]
+    if retracted_association_ids:
+        index["retracted_association_ids"] = sorted(retracted_association_ids)
 
     if removed_by_id:
         removed_ids = set(removed_by_id)
@@ -322,6 +336,7 @@ def event_bead_removed(
     reason: str,
     actor: str = "",
     source: Optional[dict] = None,
+    source_metadata: Optional[dict] = None,
     idempotency_key: str = "",
     removed_association_ids: Optional[list[str]] = None,
     bead_snapshot: Optional[dict] = None,
@@ -338,6 +353,7 @@ def event_bead_removed(
             "reason": reason,
             "actor": actor,
             "source": dict(source or {}),
+            "source_metadata": dict(source_metadata or {}),
             "idempotency_key": idempotency_key,
             "removed_association_ids": list(removed_association_ids or []),
             "bead": dict(bead_snapshot or {}),
@@ -357,6 +373,31 @@ def event_association_created(
         session_id=None,
         event_type=EVENT_ASSOCIATION_CREATED,
         payload={"association": association},
+        use_lock=use_lock,
+    )
+
+
+def event_association_retracted(
+    root: Path,
+    association_id: str,
+    retracted_at: str,
+    actor: str = "",
+    reason: str = "",
+    association_snapshot: Optional[dict] = None,
+    use_lock: bool = True,
+) -> str:
+    """Create an association_retracted event honored by rebuild_index()."""
+    return append_event(
+        root=root,
+        session_id=None,
+        event_type=EVENT_ASSOCIATION_RETRACTED,
+        payload={
+            "association_id": association_id,
+            "retracted_at": retracted_at,
+            "actor": actor,
+            "reason": reason,
+            "association": dict(association_snapshot or {}),
+        },
         use_lock=use_lock,
     )
 

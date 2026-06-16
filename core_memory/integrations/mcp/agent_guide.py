@@ -28,7 +28,7 @@ def fallback_tool_description(tool_name: str) -> str:
             "and pass user_opted_in=true."
         ),
         "ingest": "Ingest a local transcript file into Core Memory when the file is readable by the MCP server.",
-        "maintain": "Governed control-plane tool for memory approvals, cleanup, source removal, queue operations, and other maintenance actions.",
+        "maintain": "Governed control-plane tool for approvals, cleanup, source removal, association review, Dreamer decisions, SOUL revisions, Myelination refresh, queue operations, and correction actions.",
         "status": "Report Core Memory MCP server and store health.",
     }
     return descriptions.get(tool_name, "Core Memory MCP tool.")
