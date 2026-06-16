@@ -54,13 +54,10 @@ the older entries above.
 | Dreamer V3 Phase 1 — Assembly Depth, tension discovery | ✅ Shipped (#208, #209) |
 | Dreamer V3 Phase 2 — goal decay, goal discovery | ✅ Shipped (#210, #211) |
 | Dreamer V3 Phase 3 — future projection (narrative/attractor strength) | ✅ Shipped (#212) |
-| SOUL Files | In progress — foundation slice |
+| SOUL Files — foundation, session-start injection, HTTP, Dreamer→SOUL bridge | ✅ Shipped (#213, #215, #216, #220) |
+| Dreamer §15 — identity / value research (`value_candidate`, `identity_divergence_candidate` → IDENTITY.md via bridge) | ✅ Shipped |
 
 **Deferred — do not lose track:**
-- **Dreamer §15 — identity / value research** (`identity_divergence`, observed-vs-endorsed,
-  emergent/aspirational values). **Blocked on SOUL**: it compares observed self
-  against the *endorsed* self that lives in SOUL. Pick up once SOUL exposes an
-  endorsed-self / IDENTITY surface.
 - **Dreamer §16.1 — geometry / continuity projection** (the memory-visualization
   data layer: per-structure continuity export, mass/wells/curvature readouts).
   Deferred Phase 3, owned by Dreamer V3, decoupled from the v1 critical path —

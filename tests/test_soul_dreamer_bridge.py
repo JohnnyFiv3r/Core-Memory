@@ -47,6 +47,28 @@ def _decay(cid, bead_id, status="pending"):
     }
 
 
+def _value(cid, theme, status="pending"):
+    return {
+        "id": cid,
+        "status": status,
+        "hypothesis_type": "value_candidate",
+        "value_theme": theme,
+        "statement": f"Emergent value: {theme}.",
+        "supporting_bead_ids": ["b1", "b2", "b3", "b4"],
+    }
+
+
+def _divergence(cid, entry_key, status="pending"):
+    return {
+        "id": cid,
+        "status": status,
+        "hypothesis_type": "identity_divergence_candidate",
+        "identity_entry_key": entry_key,
+        "statement": f"Endorsed identity '{entry_key}' has no supporting behavior.",
+        "supporting_bead_ids": [],
+    }
+
+
 class TestSoulDreamerBridge(unittest.TestCase):
     def test_eligible_findings_become_proposed_revisions(self):
         with tempfile.TemporaryDirectory() as td:
@@ -149,6 +171,21 @@ class TestSoulDreamerBridge(unittest.TestCase):
             self.assertEqual(1, soul_history(td, subject="acme")["count"])
             self.assertEqual(0, soul_history(td, subject="self")["count"])
 
+    def test_subject_tagged_candidate_does_not_leak_across_subjects(self):
+        # A value candidate tagged subject="acme" must not bridge into self's
+        # IDENTITY.md, even though it stays pending in the shared queue.
+        with tempfile.TemporaryDirectory() as td:
+            cand = _value("dc-1", "simplicity")
+            cand["subject"] = "acme"
+            _write_candidates(td, [cand])
+            self_out = propose_soul_from_dreamer(td, subject="self")
+            self.assertEqual(0, self_out["proposed"])
+            self.assertEqual(0, soul_history(td, subject="self")["count"])
+            # It bridges correctly for its own subject, and only once.
+            acme_out = propose_soul_from_dreamer(td, subject="acme")
+            self.assertEqual(1, acme_out["proposed"])
+            self.assertEqual(1, soul_history(td, subject="acme")["count"])
+
     def test_unrelated_candidate_types_ignored(self):
         with tempfile.TemporaryDirectory() as td:
             _write_candidates(td, [
@@ -160,6 +197,20 @@ class TestSoulDreamerBridge(unittest.TestCase):
             out = propose_soul_from_dreamer(td)
             self.assertEqual(0, out["proposed"])
             self.assertEqual(0, soul_history(td)["count"])
+
+    def test_identity_value_findings_route_to_identity_file(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_candidates(td, [
+                _value("dc-1", "simplicity"),
+                _divergence("dc-2", "Craftsmanship"),
+            ])
+            out = propose_soul_from_dreamer(td)
+            self.assertEqual(2, out["proposed"])
+            revs = soul_history(td)["revisions"]
+            self.assertTrue(all(r["target_file"] == "IDENTITY.md" for r in revs))
+            keys = {r["entry_key"] for r in revs}
+            self.assertEqual({"value:simplicity", "divergence:Craftsmanship"}, keys)
+            self.assertTrue(all(r["source"] == "dreamer" for r in revs))
 
     def test_empty_queue(self):
         with tempfile.TemporaryDirectory() as td:

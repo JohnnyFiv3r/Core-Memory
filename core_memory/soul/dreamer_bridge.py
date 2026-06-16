@@ -10,9 +10,11 @@ are evidence, not authority (§10).
 
 Eligible candidate types (from the Dreamer candidate queue) and their targets:
 
-- ``tension_candidate``   → ``TENSIONS.md`` (a surfaced goal/value tension)
-- ``goal_candidate``      → ``GOALS.md``    (a latent goal to consider endorsing)
-- ``goal_decay_warning``  → ``GOALS.md``    (a dormant goal flagged for review)
+- ``tension_candidate``              → ``TENSIONS.md`` (surfaced goal/value tension)
+- ``goal_candidate``                 → ``GOALS.md``    (latent goal to consider)
+- ``goal_decay_warning``             → ``GOALS.md``    (dormant goal flagged for review)
+- ``value_candidate``                → ``IDENTITY.md`` (emergent value from behavior)
+- ``identity_divergence_candidate``  → ``IDENTITY.md`` (endorsed-identity drift)
 
 Proposals are idempotent: a finding maps to a stable ``entry_key`` and the bridge
 skips any ``(target_file, entry_key)`` that a prior Dreamer-sourced revision
@@ -33,6 +35,17 @@ _BRIDGE_MAP: dict[str, tuple[str, str]] = {
     "tension_candidate": ("TENSIONS.md", "tension"),
     "goal_candidate": ("GOALS.md", "goal"),
     "goal_decay_warning": ("GOALS.md", "decay"),
+    "value_candidate": ("IDENTITY.md", "value"),
+    "identity_divergence_candidate": ("IDENTITY.md", "divergence"),
+}
+
+# Candidate field carrying the stable identifier, per hypothesis_type.
+_IDENT_FIELD: dict[str, str] = {
+    "tension_candidate": "tension_key",
+    "goal_candidate": "goal_theme",
+    "goal_decay_warning": "goal_bead_id",
+    "value_candidate": "value_theme",
+    "identity_divergence_candidate": "identity_entry_key",
 }
 
 
@@ -43,12 +56,7 @@ def _finding_entry_key(candidate: dict[str, Any]) -> str | None:
     if spec is None:
         return None
     _, prefix = spec
-    if ht == "tension_candidate":
-        ident = str(candidate.get("tension_key") or "").strip()
-    elif ht == "goal_candidate":
-        ident = str(candidate.get("goal_theme") or "").strip()
-    else:  # goal_decay_warning
-        ident = str(candidate.get("goal_bead_id") or "").strip()
+    ident = str(candidate.get(_IDENT_FIELD.get(ht, "")) or "").strip()
     if not ident:
         return None
     return f"{prefix}:{ident}"
@@ -96,6 +104,13 @@ def propose_soul_from_dreamer(
         if not isinstance(cand, dict):
             continue
         if str(cand.get("status") or "").strip().lower() != "pending":
+            continue
+        # Subject scoping: a candidate explicitly tagged for another subject must
+        # never bridge into this subject's SOUL (identity/value findings are
+        # subject-scoped). Subjectless candidates (tension/goal/decay) bridge
+        # under whatever subject is requested, preserving prior behavior.
+        cand_subject = str(cand.get("subject") or "").strip()
+        if cand_subject and cand_subject != subject:
             continue
         ht = str(cand.get("hypothesis_type") or "").strip()
         spec = _BRIDGE_MAP.get(ht)
