@@ -101,12 +101,23 @@ def build_session_start_snapshot(*, session_id: str, continuity: dict[str, Any],
     }
 
 
+def _soul_injection(root: str, subject: str) -> dict[str, Any]:
+    """Best-effort SOUL working-memory payload (§4.3). Never breaks session start."""
+    try:
+        from core_memory.soul.injection import soul_injection
+
+        return soul_injection(root, subject=subject)
+    except Exception:
+        return {"ok": False, "present": False, "files": {}, "injected_files": []}
+
+
 def process_session_start_impl(
     *,
     root: str,
     session_id: str,
     source: str = "runtime",
     max_items: int = 80,
+    soul_subject: str = "self",
 ) -> dict[str, Any]:
     sid = str(session_id or "").strip()
     if not sid:
@@ -121,6 +132,7 @@ def process_session_start_impl(
             "session_id": sid,
             "source": source,
             "type": "session_start",
+            "soul": _soul_injection(root, soul_subject),
         }
 
     continuity = load_continuity_injection(workspace_root=root, max_items=max_items)
@@ -155,4 +167,5 @@ def process_session_start_impl(
         "type": "session_start",
         "authority": continuity.get("authority"),
         "record_count": int(bead.get("continuity_record_count") or 0),
+        "soul": _soul_injection(root, soul_subject),
     }

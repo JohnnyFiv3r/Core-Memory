@@ -648,14 +648,18 @@ def process_session_start(
     session_id: str,
     source: str = "runtime",
     max_items: int = 80,
+    soul_subject: str = "self",
 ) -> dict[str, Any]:
     """Canonical adapter `on_session_start` boundary.
 
     Adapters should call this once before the first turn for a session; repeated
-    calls are safe continuity refreshes. See `docs/adapters/contract.md` for the
-    adapter lifecycle contract.
+    calls are safe continuity refreshes. The result carries a read-only ``soul``
+    payload (SOUL.md/GOALS.md/TENSIONS.md) for working-memory injection (§4.3).
+    See `docs/adapters/contract.md` for the adapter lifecycle contract.
     """
-    return process_session_start_impl(root=root, session_id=session_id, source=source, max_items=max_items)
+    return process_session_start_impl(
+        root=root, session_id=session_id, source=source, max_items=max_items, soul_subject=soul_subject
+    )
 
 
 def continuity_injection_context(*, workspace_root: str, max_items: int = 80) -> dict[str, Any]:

@@ -123,25 +123,38 @@ def continuity_prompt(
         )
     except Exception:
         logger.debug("continuity injection load failed; returning empty", exc_info=True)
-        return CONTINUITY_EMPTY
+        ctx = {}
+
+    # SOUL self-model is injected at session start (§4.3): the agent reasons FROM
+    # its self-model. Read it directly (decoupled from the discarded
+    # process_session_start return) and prepend to the continuity context.
+    soul_text = ""
+    try:
+        from core_memory.soul.injection import soul_injection_text
+        soul_text = soul_injection_text(root_final, subject="self")
+    except Exception:
+        logger.debug("soul injection load failed", exc_info=True)
 
     records = ctx.get("records") or []
-    if not records:
+    continuity_block = ""
+    if records:
+        lines = [CONTINUITY_HEADER]
+        for rec in records:
+            title = rec.get("title") or rec.get("type", "memory")
+            summary = rec.get("summary")
+            if isinstance(summary, list):
+                summary = " ".join(str(s) for s in summary)
+            summary = summary or rec.get("detail") or ""
+            lines.append(f"- **{title}**: {summary}")
+        authority = ctx.get("authority", "unknown")
+        lines.append(f"\n_Source: {authority}, {len(records)} record(s)_")
+        lines.append("_Transcript hydration is available on demand via get_turn/hydrate tools._")
+        continuity_block = "\n".join(lines)
+
+    blocks = [b for b in (soul_text, continuity_block) if b]
+    if not blocks:
         return CONTINUITY_EMPTY
-
-    lines = [CONTINUITY_HEADER]
-    for rec in records:
-        title = rec.get("title") or rec.get("type", "memory")
-        summary = rec.get("summary")
-        if isinstance(summary, list):
-            summary = " ".join(str(s) for s in summary)
-        summary = summary or rec.get("detail") or ""
-        lines.append(f"- **{title}**: {summary}")
-
-    authority = ctx.get("authority", "unknown")
-    lines.append(f"\n_Source: {authority}, {len(records)} record(s)_")
-    lines.append("_Transcript hydration is available on demand via get_turn/hydrate tools._")
-    return "\n".join(lines)
+    return "\n\n".join(blocks)
 
 
 # ── Memory tools ──────────────────────────────────────────────────────

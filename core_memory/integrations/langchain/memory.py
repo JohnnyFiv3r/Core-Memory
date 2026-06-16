@@ -80,17 +80,27 @@ class CoreMemory(BaseMemory):
         )
         records = result.get("records") or []
 
-        if not records:
-            return {self.memory_key: ""}
+        # SOUL self-model injection (§4.3): prepend the agent's self-model so it
+        # is actually present in working memory, not just returned to the host.
+        soul_text = ""
+        try:
+            from core_memory.soul.injection import soul_injection_text
+            soul_text = soul_injection_text(self.root, subject="self")
+        except Exception:
+            soul_text = ""
 
-        lines = []
-        for r in records:
-            typ = r.get("type", "")
-            title = r.get("title", "")
-            summary = " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", ""))
-            lines.append(f"[{typ}] {title}: {summary}")
+        continuity_block = ""
+        if records:
+            lines = []
+            for r in records:
+                typ = r.get("type", "")
+                title = r.get("title", "")
+                summary = " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", ""))
+                lines.append(f"[{typ}] {title}: {summary}")
+            continuity_block = "\n".join(lines)
 
-        return {self.memory_key: "\n".join(lines)}
+        blocks = [b for b in (soul_text, continuity_block) if b]
+        return {self.memory_key: "\n\n".join(blocks)}
 
     def save_context(self, inputs: dict[str, Any], outputs: dict[str, str]) -> None:
         """Write the completed turn to Core Memory."""
