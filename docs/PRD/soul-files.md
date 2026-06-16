@@ -167,9 +167,12 @@ not a v1 requirement. SOUL is tenant-isolated like the rest of Core Memory
 SOUL Files are injected into working memory at **session start** via the turn
 pipeline (`turn_flow.py` / `process_session_start`), not retrieved on demand.
 The agent reasons *from* its self-model every session rather than rediscovering
-it. `SOUL.md` (the synthesis) is the primary injected surface; `GOALS.md` and
-`TENSIONS.md` may be injected when relevant to the session. This is the one
-mechanic carried forward from the superseded synthesis spec.
+it. `SOUL.md` (the synthesis) is the primary injected surface; `GOALS.md`,
+`TENSIONS.md`, and `IDENTITY.md` may be injected when they have content. The
+prompt renderer groups applied entries under visible `Endorsed`, `Observed`, and
+`Inferred` sections so agents do not flatten inferred self-model content into
+settled identity. This is the one mechanic carried forward from the superseded
+synthesis spec.
 
 ---
 
