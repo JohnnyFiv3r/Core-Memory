@@ -16,6 +16,9 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
         self.assertIn(("POST", "/v1/ops/async-jobs/run"), eps)
         self.assertIn(("GET", "/v1/ops/dreamer/candidates"), eps)
         self.assertIn(("POST", "/v1/ops/dreamer/candidates/decide"), eps)
+        self.assertIn(("POST", "/v1/memory/association-runs"), eps)
+        self.assertIn(("GET", "/v1/memory/association-runs/{run_id}"), eps)
+        self.assertIn(("POST", "/v1/memory/association-proposals"), eps)
 
     def test_contract_endpoints_exist_in_http_server_routes(self):
         try:
@@ -29,6 +32,9 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
         self.assertIn(("POST", "/v1/ops/async-jobs/run"), route_pairs)
         self.assertIn(("GET", "/v1/ops/dreamer/candidates"), route_pairs)
         self.assertIn(("POST", "/v1/ops/dreamer/candidates/decide"), route_pairs)
+        self.assertIn(("POST", "/v1/memory/association-runs"), route_pairs)
+        self.assertIn(("GET", "/v1/memory/association-runs/{run_id}"), route_pairs)
+        self.assertIn(("POST", "/v1/memory/association-proposals"), route_pairs)
 
 
 if __name__ == "__main__":

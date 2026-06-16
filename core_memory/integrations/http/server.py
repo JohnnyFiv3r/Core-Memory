@@ -31,6 +31,11 @@ from core_memory.runtime.ingest.external_evidence import (
 )
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
 from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.runtime.associations.coverage import (
+    apply_association_proposals,
+    enqueue_association_coverage,
+    get_association_run,
+)
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.retrieval.query_norm import classify_intent
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
@@ -217,6 +222,23 @@ class MemoryRecallRequest(BaseModel):
     as_of: Optional[str] = None
     include_raw: bool = False
     hints: dict[str, Any] = Field(default_factory=dict)
+
+
+class AssociationRunRequest(BaseModel):
+    root: Optional[str] = None
+    bead_ids: list[str] = Field(default_factory=list)
+    session_id: Optional[str] = None
+    trigger: str = "operator"
+    candidate_bead_ids: list[str] = Field(default_factory=list)
+    run_inline: bool = False
+    max_candidates: int = 40
+
+
+class AssociationProposalRequest(BaseModel):
+    root: Optional[str] = None
+    run_id: str = ""
+    session_id: Optional[str] = None
+    associations: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class MCPQueryCurrentStateRequest(BaseModel):
@@ -1000,6 +1022,60 @@ async def memory_recall(
         return JSONResponse(status_code=400, content=out)
     maybe = _semantic_http_response(out)
     return maybe or out
+
+
+@app.post("/v1/memory/association-runs")
+async def memory_association_runs(
+    payload: AssociationRunRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = enqueue_association_coverage(
+        root=_resolve_root(payload.root, x_tenant_id),
+        bead_ids=list(payload.bead_ids or []),
+        session_id=(str(payload.session_id or "").strip() or None),
+        trigger=str(payload.trigger or "operator"),
+        candidate_bead_ids=list(payload.candidate_bead_ids or []),
+        run_inline=bool(payload.run_inline),
+        max_candidates=max(1, int(payload.max_candidates)),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
+@app.get("/v1/memory/association-runs/{run_id}")
+async def memory_association_run_status(
+    run_id: str,
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = get_association_run(root=_resolve_root(root, x_tenant_id), run_id=str(run_id or ""))
+    if not out.get("ok"):
+        return JSONResponse(status_code=404, content=out)
+    return out
+
+
+@app.post("/v1/memory/association-proposals")
+async def memory_association_proposals(
+    payload: AssociationProposalRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = apply_association_proposals(
+        root=_resolve_root(payload.root, x_tenant_id),
+        associations=list(payload.associations or []),
+        run_id=str(payload.run_id or ""),
+        session_id=(str(payload.session_id or "").strip() or None),
+    )
+    return out
 
 
 @app.post("/v1/memory/classify-intent")

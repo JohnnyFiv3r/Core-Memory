@@ -272,6 +272,7 @@ CANONICAL_RELATION_TYPES = {
     # observed additional canonicalized relations
     "supports",
     "derived_from",
+    "part_of",
     "resolves",
     "follows",
     "precedes",
@@ -321,6 +322,7 @@ INFERENCE_CANONICAL_RELATION_TYPES = {
     "reveals_bias",
     "supports",
     "derived_from",
+    "part_of",
     "resolves",
     "follows",
     "precedes",

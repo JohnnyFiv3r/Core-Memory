@@ -35,6 +35,8 @@ A surface is canonical only if it is both:
 - `core_memory.ingest_structured_observation(...)` — experimental relational/metric observation write helper
 - `core_memory.ingest_document_reference(...)` — experimental document/media artifact anchor write helper
 - `core_memory.ingest_state_assertion(...)` — experimental derived business-state/document-claim write helper
+- `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators
+- `core_memory.apply_association_proposals(...)` — reviewed association proposal ingestion through the canonical validation/quarantine path
 
 ## Retrieval/runtime tool surface
 - `core_memory.recall(query, effort='low|medium|high', intent=..., k=..., speaker=..., as_of=..., root='.')` —
@@ -74,7 +76,7 @@ Convenience package-root aliases are also exported:
 
 ## Async job/queue operations (canonical ops surface)
 - `core_memory.runtime.queue.jobs.async_jobs_status(root='...')`
-- `core_memory.runtime.queue.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute', ...)`
+- `core_memory.runtime.queue.jobs.enqueue_async_job(root='...', kind='semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute|association-pass', ...)`
 - `core_memory.runtime.queue.jobs.run_async_jobs(root='...', run_semantic=True, max_compaction=1, max_side_effects=2)`
 
 Dreamer candidate queue surfaces:
@@ -87,7 +89,7 @@ All async ops payloads include:
 
 CLI operators map to these runtime ops:
 - `core-memory ops jobs-status`
-- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute`
+- `core-memory ops jobs-enqueue --kind semantic-rebuild|compaction|dreamer-run|neo4j-sync|health-recompute|association-pass`
 - `core-memory ops jobs-run [--max-compaction N] [--max-side-effects N] [--no-semantic]`
 - `core-memory ops dreamer-candidates [--status pending|accepted|rejected] [--limit N]`
 - `core-memory ops dreamer-decide --id <candidate-id> --decision accept|reject [--apply]`

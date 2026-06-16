@@ -175,3 +175,15 @@ Idempotency rules, in order:
 Retrieval returns current truth only: superseded versions are excluded from
 the visible corpus unless a caller passes `include_superseded: true`
 (provenance reporting).
+
+Newly accepted external-evidence beads also run source-local association
+coverage. Receipts include:
+
+- `association_run_id`
+- `association_trigger`
+- `association_state`
+- `association_queued`
+
+Replayed `already_exists` events do not enqueue another association run. Changed
+source-object versions still write the new bead and let coverage de-duplicate
+the existing `supersedes` edge.

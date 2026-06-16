@@ -17,6 +17,7 @@ from core_memory.runtime.flush.flush_state import (
 )
 from core_memory.runtime.queue.side_effects import enqueue_post_write_side_effects
 from core_memory.runtime.event_schemas import FLUSH_REPORT, FLUSH_CHECKPOINT
+from core_memory.runtime.associations.coverage import enqueue_association_coverage
 
 
 def process_flush_impl(
@@ -105,10 +106,20 @@ def process_flush_impl(
             edge_lifecycle_out = fold_edge_usage(root)
         except Exception:
             edge_lifecycle_out = {"ok": False, "error": "edge_lifecycle_fold_failed"}
+        try:
+            association_coverage = enqueue_association_coverage(
+                root=root,
+                session_id=str(session_id or ""),
+                trigger="session_flush",
+                run_inline=False,
+            )
+        except Exception as exc:
+            association_coverage = {"ok": False, "error": str(exc)}
         skipped_out = {
             "ok": True,
             "skipped": True,
             "edge_lifecycle": edge_lifecycle_out,
+            "association_coverage": association_coverage,
             "reason": "already_flushed_for_latest_done_turn",
             "latest_turn_id": str(latest_turn or ""),
             "latest_done_turn_id": str(flush_anchor_turn),
@@ -251,6 +262,15 @@ def process_flush_impl(
         flush_tx_id=flush_id_final,
         source=str(source or "flush_hook"),
     )
+    try:
+        association_coverage = enqueue_association_coverage(
+            root=root,
+            session_id=str(session_id or ""),
+            trigger="session_flush",
+            run_inline=False,
+        )
+    except Exception as exc:
+        association_coverage = {"ok": False, "error": str(exc)}
 
     # Edge lifecycle: fold recall-time edge-usage events into association
     # reinforcement fields. Session flush is the maintenance boundary — the
@@ -272,6 +292,7 @@ def process_flush_impl(
         "checkpoint_bead_id": str(checkpoint_bead_id or ""),
         "checkpoint_bead_created": bool(checkpoint_created),
         "crawler_merge": merge_out,
+        "association_coverage": association_coverage,
         "post_write_side_effects": side_effects,
         "result": out,
         "engine": {

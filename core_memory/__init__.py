@@ -42,6 +42,12 @@ from .runtime.ingest import (
     ingest_state_assertion,
     ingest_structured_observation,
 )
+from .runtime.associations.coverage import (
+    apply_association_proposals,
+    enqueue_association_coverage,
+    get_association_run,
+    run_association_coverage,
+)
 from .schema.turn import Turn
 from .retrieval.contracts import (
     ClaimSlotItem,
@@ -111,6 +117,10 @@ __all__ = [
     "ingest_state_assertion",
     "ingest_structured_observation",
     "ingest_document_reference",
+    "apply_association_proposals",
+    "enqueue_association_coverage",
+    "get_association_run",
+    "run_association_coverage",
     "recall",
     "recall_result_from_memory_execute",
     "validate_recall_effort",

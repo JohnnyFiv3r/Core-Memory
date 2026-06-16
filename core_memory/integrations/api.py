@@ -503,7 +503,13 @@ def inspect_bead(*, root: Optional[str] = None, bead_id: str) -> dict[str, Any] 
     hit = beads.get(str(bead_id).strip())
     if not isinstance(hit, dict):
         return None
-    return dict(hit)
+    out = dict(hit)
+    try:
+        from core_memory.runtime.associations.coverage import latest_association_coverage
+        out["association_coverage"] = latest_association_coverage(root_path, str(bead_id).strip())
+    except Exception:
+        out["association_coverage"] = {"state": "unknown", "bead_id": str(bead_id).strip()}
+    return out
 
 
 def inspect_bead_hydration(

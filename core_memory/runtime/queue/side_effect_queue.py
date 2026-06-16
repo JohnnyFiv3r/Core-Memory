@@ -19,7 +19,7 @@ from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 _SIDE_EFFECT_KINDS = {
     "dreamer-run", "neo4j-sync", "health-recompute",
     "turn-enrichment", "graphiti-episode-add", "myelination-update",
-    "data-insight-poll",
+    "data-insight-poll", "association-pass",
 }
 _CLAIM_LEASE_SECONDS = 120
 
@@ -442,6 +442,26 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "ingested": ingested,
             "failed": failed,
             "bead_ids": bead_ids,
+        }
+
+    if k == "association-pass":
+        from core_memory.runtime.associations.coverage import run_association_coverage
+
+        out = run_association_coverage(
+            root=root,
+            run_id=str(p.get("run_id") or ""),
+            bead_ids=[str(x) for x in (p.get("bead_ids") or []) if str(x).strip()],
+            session_id=str(p.get("session_id") or ""),
+            trigger=str(p.get("trigger") or "operator"),
+            candidate_bead_ids=[str(x) for x in (p.get("candidate_bead_ids") or []) if str(x).strip()],
+            max_candidates=int(p.get("max_candidates") or 40),
+            policy_version=str(p.get("policy_version") or "bead_association.v1"),
+        )
+        return {
+            "ok": bool(out.get("ok")),
+            "kind": k,
+            "result": out,
+            "error": out.get("error") if not bool(out.get("ok")) else None,
         }
 
     if k == "myelination-update":

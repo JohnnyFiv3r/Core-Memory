@@ -136,6 +136,33 @@
       "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     },
     {
+      "method": "POST",
+      "path": "/v1/memory/association-runs",
+      "authRequired": "conditional",
+      "requestSchema": "AssociationRunRequest",
+      "requiredFields": ["bead_ids|session_id"],
+      "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object"},
+      "errors": ["400 association_run_requires_bead_ids_or_session_id", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/association-runs/{run_id}",
+      "authRequired": "conditional",
+      "requestSchema": "path + query params",
+      "requiredFields": ["run_id"],
+      "response": {"ok": "bool", "run": "object"},
+      "errors": ["401 unauthorized", "404 association_run_not_found", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/association-proposals",
+      "authRequired": "conditional",
+      "requestSchema": "AssociationProposalRequest",
+      "requiredFields": ["associations"],
+      "response": {"ok": "bool", "contract": "memory.association_proposals.v1", "accepted": "int", "appended": "int", "quarantined": "int", "association_ids": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
       "method": "GET",
       "path": "/v1/ops/async-jobs/status",
       "authRequired": "conditional",
@@ -150,7 +177,7 @@
       "authRequired": "conditional",
       "requestSchema": "AsyncJobsEnqueueRequest",
       "requiredFields": ["kind"],
-      "notes": ["kind supports: semantic-rebuild, compaction, dreamer-run, neo4j-sync, health-recompute"],
+      "notes": ["kind supports: semantic-rebuild, compaction, dreamer-run, neo4j-sync, health-recompute, association-pass"],
       "response": {"ok": "bool", "schema_version": "core_memory.async_jobs.v1", "kind": "string", "queue": "object", "status": "object"},
       "errors": ["400 unknown_kind", "401 unauthorized", "400 invalid_tenant_id"]
     },

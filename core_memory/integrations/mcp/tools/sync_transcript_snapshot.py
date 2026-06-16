@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from core_memory.integrations.mcp.tools.ingest import ingest_handler
+from core_memory.runtime.associations.coverage import enqueue_association_coverage
 
 _CHECKPOINT_LIST_FIELDS = ("durable_facts", "decisions", "preferences", "open_threads")
 _SNAPSHOT_REASONS = {
@@ -228,4 +229,18 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
     result["tool"] = "sync_transcript_snapshot"
     result["transcript_hash"] = transcript_hash
     result["snapshot_mode"] = snapshot_mode
+    if result.get("ok") and result.get("bead_ids"):
+        try:
+            coverage = enqueue_association_coverage(
+                root=str(payload.get("root") or "."),
+                bead_ids=[str(x) for x in (result.get("bead_ids") or []) if str(x).strip()],
+                session_id=str(ingest_payload.get("session_id") or ""),
+                trigger="periodic_transcript_push",
+                run_inline=True,
+            )
+        except Exception as exc:  # pragma: no cover - defensive integration boundary
+            coverage = {"ok": False, "error": str(exc)}
+        result["association_coverage"] = coverage
+        result["association_run_id"] = str(coverage.get("run_id") or "")
+        result["association_trigger"] = "periodic_transcript_push"
     return result
