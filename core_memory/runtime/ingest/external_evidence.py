@@ -46,6 +46,31 @@ def _coerce_summary(value: Any) -> list[str]:
     return [x[:220] for x in items[:3]]
 
 
+def _section_ref_key(value: Any) -> tuple[str, ...]:
+    if isinstance(value, dict):
+        for field in ("section_id", "chunk_ref", "ref", "id", "label"):
+            text = _clean_str(value.get(field))
+            if text:
+                return (field, text)
+        if value:
+            return tuple(sorted((str(k), str(v)) for k, v in value.items() if _clean_str(v)))
+        return ()
+    text = _clean_str(value)
+    return ("value", text) if text else ()
+
+
+def _document_scope_key(payload: dict[str, Any]) -> tuple[tuple[str, ...], ...]:
+    """Stable section scope for document_reference identity.
+
+    An empty key means the bead describes the whole document. A non-empty key
+    scopes identity to one or more source sections/chunks so multiple beads can
+    share the same document_id without superseding each other.
+    """
+    refs = [_section_ref_key(ref) for ref in _coerce_list(payload.get("section_refs"))]
+    refs = [ref for ref in refs if ref]
+    return tuple(sorted(refs))
+
+
 def _coerce_float(value: Any) -> float | None:
     if value is None or value == "":
         return None
@@ -178,6 +203,7 @@ def _find_existing_external_bead(store: MemoryStore, payload: dict[str, Any], be
     source_id = _clean_str(payload.get("source_id"))
     source_record_id = _clean_str(payload.get("source_record_id"))
     document_id = _clean_str(payload.get("document_id") or payload.get("ragie_document_id"))
+    document_scope_key = _document_scope_key(payload) if bead_type == "document_reference" else ()
     transcript_id = _clean_str(payload.get("transcript_id") or payload.get("conversation_id"))
 
     index = store._read_json(store.beads_dir / "index.json")
@@ -202,6 +228,21 @@ def _find_existing_external_bead(store: MemoryStore, payload: dict[str, Any], be
     # source_event_id means the source was adjusted: version, don't dedup.
     for bead in beads:
         if _clean_str(bead.get("status")).lower() == "superseded":
+            continue
+        if bead_type == "document_reference" and source_id:
+            bead_source_id = _clean_str(bead.get("source_id"))
+            bead_source_record_id = _clean_str(bead.get("source_record_id"))
+            bead_scope_key = _document_scope_key(bead)
+            same_scope = bead_scope_key == document_scope_key
+            if source_record_id:
+                if bead_source_id == source_id and same_scope and bead_source_record_id == source_record_id:
+                    return dict(bead)
+            if document_id:
+                if bead_source_id == source_id and same_scope and document_id in {
+                    _clean_str(bead.get("document_id")),
+                    _clean_str(bead.get("ragie_document_id")),
+                }:
+                    return dict(bead)
             continue
         if source_id and source_record_id:
             if _clean_str(bead.get("source_id")) == source_id and _clean_str(bead.get("source_record_id")) == source_record_id:

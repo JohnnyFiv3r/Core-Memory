@@ -103,6 +103,89 @@ class TestExternalVersionSupersession(unittest.TestCase):
             ]
             self.assertEqual(1, len(rels))
 
+    def test_section_scoped_document_beads_share_document_id_without_superseding(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_event_id="evt_document_section_intro",
+                    title="Acme Vendor Contract - Introduction",
+                    summary=["Introduction section from the Acme vendor contract."],
+                    section_refs=[{"section_id": "intro", "label": "Introduction", "chunk_ref": "chunk_intro"}],
+                ),
+                session_id="external",
+            )
+            second = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_event_id="evt_document_section_terms",
+                    title="Acme Vendor Contract - Terms",
+                    summary=["Terms section from the Acme vendor contract."],
+                    section_refs=[{"section_id": "terms", "label": "Terms", "chunk_ref": "chunk_terms"}],
+                ),
+                session_id="external",
+            )
+
+            self.assertEqual("accepted", first["status"])
+            self.assertEqual("accepted", second["status"])
+            self.assertNotEqual(first["bead_id"], second["bead_id"])
+            self.assertNotIn("superseded_bead_id", second)
+
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            first_bead = idx["beads"][first["bead_id"]]
+            second_bead = idx["beads"][second["bead_id"]]
+            self.assertEqual("doc_001", first_bead["document_id"])
+            self.assertEqual("doc_001", second_bead["document_id"])
+            self.assertNotEqual("superseded", first_bead.get("status"))
+            self.assertNotEqual("superseded", second_bead.get("status"))
+            self.assertEqual(2, len(idx["beads"]))
+
+    def test_same_document_section_versions_only_that_section(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_event_id="evt_document_section_terms_v1",
+                    title="Acme Vendor Contract - Terms",
+                    summary=["Original terms section."],
+                    section_refs=[{"section_id": "terms", "label": "Terms", "chunk_ref": "chunk_terms"}],
+                ),
+                session_id="external",
+            )
+            second = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_event_id="evt_document_section_terms_v2",
+                    title="Acme Vendor Contract - Terms",
+                    summary=["Updated terms section."],
+                    section_refs=[{"section_id": "terms", "label": "Terms", "chunk_ref": "chunk_terms"}],
+                ),
+                session_id="external",
+            )
+
+            self.assertEqual("version_superseded", second["status"])
+            self.assertEqual(first["bead_id"], second["superseded_bead_id"])
+
+    def test_whole_document_and_section_beads_do_not_supersede_each_other(self):
+        with tempfile.TemporaryDirectory() as td:
+            whole = ingest_document_reference(td, _document_payload(), session_id="external")
+            section = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_event_id="evt_document_section_terms",
+                    title="Acme Vendor Contract - Terms",
+                    summary=["Terms section from the Acme vendor contract."],
+                    section_refs=[{"section_id": "terms", "label": "Terms", "chunk_ref": "chunk_terms"}],
+                ),
+                session_id="external",
+            )
+
+            self.assertEqual("accepted", section["status"])
+            self.assertNotIn("superseded_bead_id", section)
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertNotEqual("superseded", idx["beads"][whole["bead_id"]].get("status"))
+            self.assertNotEqual("superseded", idx["beads"][section["bead_id"]].get("status"))
+
     def test_updated_record_supersedes_prior_observation(self):
         with tempfile.TemporaryDirectory() as td:
             first = ingest_structured_observation(td, _structured_payload(), session_id="external")

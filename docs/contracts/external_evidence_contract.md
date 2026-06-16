@@ -84,7 +84,13 @@ Recommended:
 - `document_kind`
 - `document_date`
 - `author_or_owner`
-- `section_refs`
+- `section_refs` for section- or chunk-scoped beads
+
+Multiple `document_reference` beads may carry the same `document_id` when they
+refer to different `section_refs`. Core Memory treats the section scope as part
+of document-reference identity: whole-document beads version against
+whole-document beads, and a given section versions against that same section,
+but sibling sections of the same document coexist.
 
 ## State Assertion
 
@@ -146,9 +152,10 @@ Repeated writes with the same `source_event_id` return `status: "already_exists"
 ## Source version supersession
 
 Beads are immutable. When a known source object (same `source_id` +
-`document_id` / `source_record_id` / `transcript_id`) arrives with a **new**
-`source_event_id` and **changed** content, the ingest path writes a new
-version bead and closes the prior one — it never edits in place:
+`document_id` plus section scope, `source_record_id`, or `transcript_id`)
+arrives with a **new** `source_event_id` and **changed** content, the ingest
+path writes a new version bead and closes the prior one — it never edits in
+place:
 
 - the new bead carries `supersedes: ["<prior bead id>"]`
 - the prior bead gets `status: "superseded"`, `superseded_by`, and
