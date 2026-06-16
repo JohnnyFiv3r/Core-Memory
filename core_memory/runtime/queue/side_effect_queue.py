@@ -277,6 +277,18 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             projection_out = {"ok": False, "error": "future_projection_failed"}
 
+        # Dreamer → SOUL bridge: turn eligible pending findings into proposed
+        # (human-approval-gated) SOUL revisions. Dreamer never writes SOUL
+        # directly (SOUL §8.2); this only enqueues proposals for agent review.
+        soul_bridge_out: dict[str, Any] = {"ok": True, "proposed": 0, "skipped": 0}
+        try:
+            from core_memory.soul.dreamer_bridge import propose_soul_from_dreamer
+            soul_bridge_out = propose_soul_from_dreamer(
+                root, subject=str(p.get("soul_subject") or "self")
+            )
+        except Exception:
+            soul_bridge_out = {"ok": False, "error": "soul_bridge_failed"}
+
         return {
             "ok": True,
             "kind": k,
@@ -290,6 +302,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "goal_decay": goal_decay_out,
             "goal_discovery": goal_discovery_out,
             "projection": projection_out,
+            "soul_bridge": soul_bridge_out,
         }
 
     if k == "neo4j-sync":

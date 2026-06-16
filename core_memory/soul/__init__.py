@@ -1,5 +1,6 @@
 """SOUL — agent-authored self-model (PRD: docs/PRD/soul-files.md)."""
 
+from core_memory.soul.dreamer_bridge import propose_soul_from_dreamer
 from core_memory.soul.injection import soul_injection
 from core_memory.soul.store import (
     DEFAULT_SUBJECT,
@@ -19,6 +20,7 @@ __all__ = [
     "SOUL_REVISION_SCHEMA",
     "approve_soul_update",
     "list_soul_files",
+    "propose_soul_from_dreamer",
     "propose_soul_update",
     "read_soul_file",
     "reject_soul_update",
