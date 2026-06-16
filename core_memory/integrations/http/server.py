@@ -933,6 +933,7 @@ async def soul_history_endpoint(
 
 
 @app.get("/v1/dreamer/geometry")
+@app.get("/v1/memory/projection/geometry")
 async def dreamer_geometry(
     root: Optional[str] = None,
     authorization: Optional[str] = Header(default=None),
@@ -943,7 +944,8 @@ async def dreamer_geometry(
 
     Served from the manifest built on the Dreamer cadence — never recomputed on
     read. When no manifest exists yet, returns ``present=false``; trigger a
-    dreamer-run to build it.
+    dreamer-run to build it. ``/v1/memory/projection/geometry`` is a compatibility
+    alias for clients that group projection reads under the memory namespace.
     """
     _check_auth(authorization, x_memory_token)
     from core_memory.runtime.dreamer.geometry import read_geometry_manifest

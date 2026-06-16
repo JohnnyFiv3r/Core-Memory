@@ -48,10 +48,14 @@ Fragmentation costs:
    (`worldline_membership()`), promotion status, and goal linkage. Persisted
    to `.beads/continuity-manifest.json` (myelination-manifest pattern).
 3. **Projection surfaces.** `core_memory.continuity_depth(root)` +
-   `GET /v1/memory/projection/continuity`; bulk geometry export
-   (`GET /v1/memory/projection/geometry`) returning beads (id, created_at,
-   type, status, depth) + edges (src, dst, rel, strength, provenance,
-   lifecycle fields) in one call.
+   `GET /v1/memory/projection/continuity`; bulk geometry export. The shipped
+   Dreamer-owned geometry surface is `GET /v1/dreamer/geometry`, with
+   `GET /v1/memory/projection/geometry` retained as a compatibility alias,
+   returning `dreamer_geometry_manifest.v2` / `geometry_node.v2` beads (id,
+   title, created_at/timestamp, entities, type, status, depth/assembly_depth) +
+   edges (src, dst, rel, strength, provenance, lifecycle fields) in one call.
+   Persisted v1 manifests remain readable and are marked as legacy-shaped until
+   the Dreamer cadence rebuilds them.
 4. **Default-on.** Retire the MYE-1 experiment flag; quality signal becomes a
    permanent input with neutral behavior when feedback volume is low.
 
@@ -85,8 +89,8 @@ Fragmentation costs:
 ### Slice C — projection surfaces
 - Public API export + HTTP routes (generic projection paths, not
   deployment-privileged — adapter law).
-- Geometry export includes manifest version + computed_at so renderers can
-  detect staleness.
+- Geometry export includes manifest version, node-shape version, and generated_at
+  so renderers can detect staleness or legacy node payloads.
 
 ### Slice D — flag retirement
 - `CORE_MEMORY_MYELINATION_ENABLED` removed; doctor migration note; contract
