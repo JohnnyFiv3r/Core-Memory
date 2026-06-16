@@ -1,0 +1,262 @@
+"""SOUL Files — agent-authored self-model store (PRD: docs/PRD/soul-files.md).
+
+SOUL is a maintained *theory of self*, not a memory store. The markdown files are
+the human-readable **projection**; the authoritative source of truth is an
+append-only stream of ``soul_revision.v1`` records (§4.1). The markdown is
+rendered by folding the *applied* revisions.
+
+A revision is an entry-level operation (``upsert``/``remove``) on a section of a
+SOUL file — deterministic and falsifiable (history retained), avoiding
+unified-diff fragility. SOUL is scoped per ``(root, subject)`` at
+``.beads/identity/<subject>/`` (§4.2); the default subject is ``self``.
+
+Governance (§8–§10): a revision is ``proposed`` → ``applied`` (via approve, or
+directly when ``requires_approval`` is False) | ``rejected``. Only applied
+revisions render. Writes serialize through the store lock (§13.0). SOUL never
+mutates beads, claims, or C/B/A — it is a projection layer (§3.4).
+"""
+from __future__ import annotations
+
+import json
+import uuid
+from collections import OrderedDict
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from core_memory.persistence.io_utils import append_jsonl, store_lock
+
+SOUL_REVISION_SCHEMA = "soul_revision.v1"
+DEFAULT_SUBJECT = "self"
+
+SOUL_FILES = ("SOUL.md", "GOALS.md", "TENSIONS.md", "WORLDLINES.md", "IDENTITY.md")
+_SOURCES = {"human", "agent", "dreamer", "integrity_check"}
+_EPISTEMIC = {"observed", "inferred", "endorsed"}
+_OPS = {"upsert", "remove"}
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def _safe_subject(subject: str | None) -> str:
+    s = str(subject or DEFAULT_SUBJECT).strip().lower()
+    s = "".join(ch for ch in s if ch.isalnum() or ch in {"-", "_"})
+    return s or DEFAULT_SUBJECT
+
+
+def _identity_dir(root: str | Path, subject: str) -> Path:
+    return Path(root) / ".beads" / "identity" / _safe_subject(subject)
+
+
+def _revisions_path(root: str | Path, subject: str) -> Path:
+    return _identity_dir(root, subject) / "revisions.jsonl"
+
+
+def _normalize_target_file(target_file: str) -> str | None:
+    t = str(target_file or "").strip()
+    for f in SOUL_FILES:
+        if t.lower() == f.lower():
+            return f
+    return None
+
+
+def _read_revisions(root: str | Path, subject: str) -> list[dict[str, Any]]:
+    p = _revisions_path(root, subject)
+    if not p.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with p.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except Exception:
+                continue
+            if isinstance(row, dict) and row.get("schema") == SOUL_REVISION_SCHEMA:
+                rows.append(row)
+    return rows
+
+
+def _current_entries(revisions: list[dict[str, Any]], target_file: str) -> "OrderedDict[str, dict[str, Any]]":
+    """Fold applied revisions for one file into ordered current entries.
+
+    File order in the jsonl is chronological; later applied upserts overwrite in
+    place (keeping original position), removes delete.
+    """
+    entries: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+    for r in revisions:
+        if r.get("target_file") != target_file or r.get("status") != "applied":
+            continue
+        key = str(r.get("entry_key") or "")
+        if not key:
+            continue
+        if r.get("op") == "remove":
+            entries.pop(key, None)
+        else:  # upsert
+            entries[key] = {
+                "content": str(r.get("content") or ""),
+                "epistemic_status": str(r.get("epistemic_status") or "inferred"),
+                "source": str(r.get("source") or "agent"),
+                "revision_id": str(r.get("id") or ""),
+            }
+    return entries
+
+
+def _render_markdown(target_file: str, entries: "OrderedDict[str, dict[str, Any]]") -> str:
+    title = target_file[:-3] if target_file.endswith(".md") else target_file
+    lines = [f"# {title}", ""]
+    if not entries:
+        lines.append("_(no entries yet)_")
+        lines.append("")
+    for key, e in entries.items():
+        lines.append(f"## {key}")
+        lines.append(f"<!-- {e['epistemic_status']} · source:{e['source']} -->")
+        lines.append("")
+        lines.append(e["content"].rstrip())
+        lines.append("")
+    return "\n".join(lines).rstrip() + "\n"
+
+
+def _write_rendered(root: str | Path, subject: str, target_file: str, revisions: list[dict[str, Any]]) -> None:
+    d = _identity_dir(root, subject)
+    d.mkdir(parents=True, exist_ok=True)
+    entries = _current_entries(revisions, target_file)
+    (d / target_file).write_text(_render_markdown(target_file, entries), encoding="utf-8")
+
+
+def propose_soul_update(
+    root: str | Path,
+    *,
+    target_file: str,
+    entry_key: str,
+    content: str = "",
+    op: str = "upsert",
+    subject: str = DEFAULT_SUBJECT,
+    source: str = "agent",
+    epistemic_status: str = "inferred",
+    reason: str = "",
+    evidence: list[dict[str, Any]] | None = None,
+    requires_approval: bool = True,
+) -> dict[str, Any]:
+    """Create a proposed SOUL revision (soul_revision.v1). When
+    ``requires_approval`` is False (auto-eligible governance) it is applied
+    immediately; otherwise it waits for approval."""
+    tf = _normalize_target_file(target_file)
+    if tf is None:
+        return {"ok": False, "error": "invalid_target_file", "allowed": list(SOUL_FILES)}
+    op_n = str(op or "upsert").strip().lower()
+    if op_n not in _OPS:
+        return {"ok": False, "error": "invalid_op", "allowed": sorted(_OPS)}
+    if not str(entry_key or "").strip():
+        return {"ok": False, "error": "missing_entry_key"}
+    src = str(source or "agent").strip().lower()
+    if src not in _SOURCES:
+        return {"ok": False, "error": "invalid_source", "allowed": sorted(_SOURCES)}
+    epi = str(epistemic_status or "inferred").strip().lower()
+    if epi not in _EPISTEMIC:
+        return {"ok": False, "error": "invalid_epistemic_status", "allowed": sorted(_EPISTEMIC)}
+
+    subj = _safe_subject(subject)
+    auto = not bool(requires_approval)
+    rev = {
+        "schema": SOUL_REVISION_SCHEMA,
+        "id": f"soul-{uuid.uuid4().hex[:12]}",
+        "created_at": _now(),
+        "subject": subj,
+        "target_file": tf,
+        "op": op_n,
+        "entry_key": str(entry_key).strip(),
+        "content": str(content or ""),
+        "source": src,
+        "epistemic_status": epi,
+        "reason": str(reason or ""),
+        "evidence": [dict(e) for e in (evidence or []) if isinstance(e, dict)],
+        "requires_approval": bool(requires_approval),
+        "status": "applied" if auto else "proposed",
+        "approver": "",
+        "decided_at": _now() if auto else "",
+    }
+    with store_lock(Path(root)):
+        append_jsonl(_revisions_path(root, subj), rev)
+        if auto:
+            _write_rendered(root, subj, tf, _read_revisions(root, subj))
+    return {"ok": True, "revision_id": rev["id"], "status": rev["status"], "subject": subj, "target_file": tf}
+
+
+def _decide(root: str | Path, *, subject: str, revision_id: str, decision: str, actor: str, note: str) -> dict[str, Any]:
+    subj = _safe_subject(subject)
+    rid = str(revision_id)
+    with store_lock(Path(root)):
+        revisions = _read_revisions(root, subj)
+        target = next((r for r in revisions if str(r.get("id")) == rid and str(r.get("status")) == "proposed"), None)
+        if target is None:
+            return {"ok": False, "error": "proposed_revision_not_found", "revision_id": rid}
+        # Append-only: a decision is a new record superseding the proposal. The
+        # proposal never folds (only "applied" folds); a prior decision for this
+        # id blocks re-deciding.
+        if any(str(r.get("supersedes_revision_id") or "") == rid for r in revisions):
+            return {"ok": False, "error": "already_decided", "revision_id": rid}
+        decided = {
+            **target,
+            "id": f"soul-{uuid.uuid4().hex[:12]}",
+            "created_at": _now(),
+            "status": "applied" if decision == "approve" else "rejected",
+            "approver": str(actor or ""),
+            "decided_at": _now(),
+            "decision_note": str(note or ""),
+            "supersedes_revision_id": rid,
+        }
+        append_jsonl(_revisions_path(root, subj), decided)
+        if decision == "approve":
+            _write_rendered(root, subj, str(decided["target_file"]), revisions + [decided])
+    return {"ok": True, "revision_id": decided["id"], "status": decided["status"], "target_file": decided["target_file"]}
+
+
+def approve_soul_update(root: str | Path, *, revision_id: str, subject: str = DEFAULT_SUBJECT, approver: str = "", note: str = "") -> dict[str, Any]:
+    """Approve a proposed revision (approval implies apply)."""
+    return _decide(root, subject=subject, revision_id=revision_id, decision="approve", actor=approver, note=note)
+
+
+def reject_soul_update(root: str | Path, *, revision_id: str, subject: str = DEFAULT_SUBJECT, reviewer: str = "", reason: str = "") -> dict[str, Any]:
+    """Reject a proposed revision — it never folds into the projection."""
+    return _decide(root, subject=subject, revision_id=revision_id, decision="reject", actor=reviewer, note=reason)
+
+
+def read_soul_file(root: str | Path, *, file_name: str, subject: str = DEFAULT_SUBJECT) -> dict[str, Any]:
+    tf = _normalize_target_file(file_name)
+    if tf is None:
+        return {"ok": False, "error": "invalid_target_file", "allowed": list(SOUL_FILES)}
+    subj = _safe_subject(subject)
+    entries = _current_entries(_read_revisions(root, subj), tf)
+    return {"ok": True, "subject": subj, "file_name": tf, "markdown": _render_markdown(tf, entries), "entry_count": len(entries)}
+
+
+def list_soul_files(root: str | Path, *, subject: str = DEFAULT_SUBJECT) -> dict[str, Any]:
+    subj = _safe_subject(subject)
+    revisions = _read_revisions(root, subj)
+    files = []
+    for f in SOUL_FILES:
+        files.append({"file_name": f, "entry_count": len(_current_entries(revisions, f))})
+    return {"ok": True, "subject": subj, "files": files}
+
+
+def soul_history(root: str | Path, *, subject: str = DEFAULT_SUBJECT, limit: int = 500) -> dict[str, Any]:
+    subj = _safe_subject(subject)
+    revisions = _read_revisions(root, subj)
+    return {"ok": True, "subject": subj, "count": len(revisions), "revisions": revisions[-max(1, int(limit)):]}
+
+
+__all__ = [
+    "SOUL_REVISION_SCHEMA",
+    "SOUL_FILES",
+    "DEFAULT_SUBJECT",
+    "propose_soul_update",
+    "approve_soul_update",
+    "reject_soul_update",
+    "read_soul_file",
+    "list_soul_files",
+    "soul_history",
+]

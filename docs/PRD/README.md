@@ -45,3 +45,23 @@ the older entries above.
 | `soul-files.md` | SOUL Files — agent-authored self-model + goal hierarchy (supersedes `reports/soul-synthesis-spec.md`) | **Draft v3** |
 | `dreamer-continuity-engine.md` | Dreamer V3 — scientific continuity engine, assembly depth, storyline projection, future vectors; V4 target-states + agency backlog | **Draft v3** |
 | `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Draft v2** |
+
+## Implementation status & deferred work
+
+| Capability | Status |
+|---|---|
+| Myelination V2 (all reward sources + host guide) | ✅ Shipped (#202–#206) |
+| Dreamer V3 Phase 1 — Assembly Depth, tension discovery | ✅ Shipped (#208, #209) |
+| Dreamer V3 Phase 2 — goal decay, goal discovery | ✅ Shipped (#210, #211) |
+| Dreamer V3 Phase 3 — future projection (narrative/attractor strength) | ✅ Shipped (#212) |
+| SOUL Files | In progress — foundation slice |
+
+**Deferred — do not lose track:**
+- **Dreamer §15 — identity / value research** (`identity_divergence`, observed-vs-endorsed,
+  emergent/aspirational values). **Blocked on SOUL**: it compares observed self
+  against the *endorsed* self that lives in SOUL. Pick up once SOUL exposes an
+  endorsed-self / IDENTITY surface.
+- **Dreamer §16.1 — geometry / continuity projection** (the memory-visualization
+  data layer: per-structure continuity export, mass/wells/curvature readouts).
+  Deferred Phase 3, owned by Dreamer V3, decoupled from the v1 critical path —
+  build only when a host wants a memory-geometry view.
