@@ -108,6 +108,34 @@ class TestSoulValidationAndScope(unittest.TestCase):
             self.assertIn("org goal", read_soul_file(td, file_name="GOALS.md", subject="acme")["markdown"])
             self.assertNotIn("org goal", read_soul_file(td, file_name="GOALS.md", subject="self")["markdown"])
 
+    def test_distinct_unsafe_subjects_stay_isolated(self):
+        # Codex P2: stripping chars must not merge distinct subjects.
+        with tempfile.TemporaryDirectory() as td:
+            propose_soul_update(td, target_file="GOALS.md", entry_key="g", content="email goal",
+                                subject="alice@example.com", requires_approval=False)
+            propose_soul_update(td, target_file="GOALS.md", entry_key="g", content="stripped goal",
+                                subject="aliceexamplecom", requires_approval=False)
+            propose_soul_update(td, target_file="GOALS.md", entry_key="g", content="domain goal",
+                                subject="acme.com", requires_approval=False)
+            propose_soul_update(td, target_file="GOALS.md", entry_key="g", content="bare goal",
+                                subject="acmecom", requires_approval=False)
+            self.assertIn("email goal", read_soul_file(td, file_name="GOALS.md", subject="alice@example.com")["markdown"])
+            self.assertIn("stripped goal", read_soul_file(td, file_name="GOALS.md", subject="aliceexamplecom")["markdown"])
+            self.assertIn("domain goal", read_soul_file(td, file_name="GOALS.md", subject="acme.com")["markdown"])
+            self.assertIn("bare goal", read_soul_file(td, file_name="GOALS.md", subject="acmecom")["markdown"])
+            # No cross-contamination between the email and its stripped form.
+            self.assertNotIn("stripped goal", read_soul_file(td, file_name="GOALS.md", subject="alice@example.com")["markdown"])
+
+    def test_path_traversal_subject_is_contained(self):
+        with tempfile.TemporaryDirectory() as td:
+            propose_soul_update(td, target_file="GOALS.md", entry_key="g", content="contained",
+                                subject="../../etc", requires_approval=False)
+            # The identity tree stays under .beads/identity (no escape).
+            identity_root = Path(td) / ".beads" / "identity"
+            self.assertTrue(identity_root.exists())
+            for p in identity_root.rglob("revisions.jsonl"):
+                self.assertIn(str(identity_root.resolve()), str(p.resolve()))
+
     def test_list_files(self):
         with tempfile.TemporaryDirectory() as td:
             out = list_soul_files(td)

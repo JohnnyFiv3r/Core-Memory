@@ -17,7 +17,9 @@ mutates beads, claims, or C/B/A — it is a projection layer (§3.4).
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import re
 import uuid
 from collections import OrderedDict
 from datetime import datetime, timezone
@@ -25,6 +27,13 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import append_jsonl, store_lock
+
+# A subject directory name must be filesystem-safe, traversal-safe, and stable
+# across case-insensitive filesystems. Safe IDs (lowercase alnum + -/_ , no
+# leading separator) pass through readably; anything else maps to a disjoint
+# hashed namespace ("_h…", which a safe ID can never start with), so distinct
+# subjects can never collide into one identity directory.
+_SAFE_SUBJECT_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 
 SOUL_REVISION_SCHEMA = "soul_revision.v1"
 DEFAULT_SUBJECT = "self"
@@ -40,9 +49,18 @@ def _now() -> str:
 
 
 def _safe_subject(subject: str | None) -> str:
-    s = str(subject or DEFAULT_SUBJECT).strip().lower()
-    s = "".join(ch for ch in s if ch.isalnum() or ch in {"-", "_"})
-    return s or DEFAULT_SUBJECT
+    """Injective directory-safe encoding of a subject id.
+
+    Safe ids pass through unchanged; unsafe ids (emails, domains, uppercase,
+    dots, slashes, ``..``) map to a collision-resistant ``_h<hash>`` name, never
+    silently merging distinct subjects.
+    """
+    s = str(subject or "").strip()
+    if not s:
+        return DEFAULT_SUBJECT
+    if _SAFE_SUBJECT_RE.match(s):
+        return s
+    return "_h" + hashlib.sha256(s.encode("utf-8")).hexdigest()[:24]
 
 
 def _identity_dir(root: str | Path, subject: str) -> Path:
@@ -166,6 +184,7 @@ def propose_soul_update(
         "id": f"soul-{uuid.uuid4().hex[:12]}",
         "created_at": _now(),
         "subject": subj,
+        "subject_raw": str(subject or DEFAULT_SUBJECT),
         "target_file": tf,
         "op": op_n,
         "entry_key": str(entry_key).strip(),
