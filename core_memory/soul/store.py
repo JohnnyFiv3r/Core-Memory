@@ -253,6 +253,22 @@ def read_soul_file(root: str | Path, *, file_name: str, subject: str = DEFAULT_S
     return {"ok": True, "subject": subj, "file_name": tf, "markdown": _render_markdown(tf, entries), "entry_count": len(entries)}
 
 
+def current_soul_entries(root: str | Path, *, file_name: str, subject: str = DEFAULT_SUBJECT) -> dict[str, Any]:
+    """Folded current entries for one SOUL file as structured data.
+
+    Returns ``{ok, subject, file_name, entries: {entry_key: {content,
+    epistemic_status, source, revision_id}}}``. Unlike ``read_soul_file`` (which
+    renders markdown), this exposes per-entry metadata for analysis surfaces
+    (e.g. the Dreamer identity/value research detector).
+    """
+    tf = _normalize_target_file(file_name)
+    if tf is None:
+        return {"ok": False, "error": "invalid_target_file", "allowed": list(SOUL_FILES)}
+    subj = _safe_subject(subject)
+    entries = _current_entries(_read_revisions(root, subj), tf)
+    return {"ok": True, "subject": subj, "file_name": tf, "entries": dict(entries)}
+
+
 def list_soul_files(root: str | Path, *, subject: str = DEFAULT_SUBJECT) -> dict[str, Any]:
     subj = _safe_subject(subject)
     revisions = _read_revisions(root, subj)
@@ -276,6 +292,7 @@ __all__ = [
     "approve_soul_update",
     "reject_soul_update",
     "read_soul_file",
+    "current_soul_entries",
     "list_soul_files",
     "soul_history",
 ]

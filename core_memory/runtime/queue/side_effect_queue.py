@@ -277,15 +277,27 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             projection_out = {"ok": False, "error": "future_projection_failed"}
 
+        # Identity / value research: compare observed self (behavior) vs endorsed
+        # self (IDENTITY.md) and surface value / divergence candidates (§15).
+        soul_subject = str(p.get("soul_subject") or "self")
+        identity_value_out: dict[str, Any] = {"ok": True, "detected": 0, "enqueued": 0}
+        try:
+            from core_memory.runtime.dreamer.identity_value_research import (
+                enqueue_identity_value_candidates,
+            )
+            identity_value_out = enqueue_identity_value_candidates(
+                root, run_id=run_id, source="side_effect_queue", subject=soul_subject
+            )
+        except Exception:
+            identity_value_out = {"ok": False, "error": "identity_value_research_failed"}
+
         # Dreamer → SOUL bridge: turn eligible pending findings into proposed
         # (human-approval-gated) SOUL revisions. Dreamer never writes SOUL
         # directly (SOUL §8.2); this only enqueues proposals for agent review.
         soul_bridge_out: dict[str, Any] = {"ok": True, "proposed": 0, "skipped": 0}
         try:
             from core_memory.soul.dreamer_bridge import propose_soul_from_dreamer
-            soul_bridge_out = propose_soul_from_dreamer(
-                root, subject=str(p.get("soul_subject") or "self")
-            )
+            soul_bridge_out = propose_soul_from_dreamer(root, subject=soul_subject)
         except Exception:
             soul_bridge_out = {"ok": False, "error": "soul_bridge_failed"}
 
@@ -302,6 +314,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "goal_decay": goal_decay_out,
             "goal_discovery": goal_discovery_out,
             "projection": projection_out,
+            "identity_value": identity_value_out,
             "soul_bridge": soul_bridge_out,
         }
 
