@@ -148,6 +148,36 @@ class ConfirmBeadRequest(BaseModel):
     note: str = ""
 
 
+class SoulProposeRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    target_file: str
+    entry_key: str
+    content: str = ""
+    op: str = "upsert"
+    source: str = "agent"
+    epistemic_status: str = "inferred"
+    reason: str = ""
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    requires_approval: bool = True
+
+
+class SoulApproveRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    revision_id: str
+    approver: str = ""
+    note: str = ""
+
+
+class SoulRejectRequest(BaseModel):
+    root: Optional[str] = None
+    subject: str = "self"
+    revision_id: str
+    reviewer: str = ""
+    reason: str = ""
+
+
 class ApproveBeadRequest(BaseModel):
     root: Optional[str] = None
     bead_id: str
@@ -657,6 +687,134 @@ async def memory_pending_approvals(
     from core_memory import list_pending_approvals
 
     return list_pending_approvals(root=_resolve_root(root, x_tenant_id), limit=int(limit))
+
+
+# ── SOUL: agent-authored self-model surface (PRD §13) ──────────────────
+
+
+@app.get("/v1/soul/files")
+async def soul_files(
+    root: Optional[str] = None,
+    subject: str = "self",
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """List SOUL files and their entry counts for a subject."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import list_soul_files
+
+    return list_soul_files(_resolve_root(root, x_tenant_id), subject=subject)
+
+
+@app.get("/v1/soul/files/{file_name}")
+async def soul_file(
+    file_name: str,
+    root: Optional[str] = None,
+    subject: str = "self",
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Return the rendered markdown for one SOUL file."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import read_soul_file
+
+    out = read_soul_file(_resolve_root(root, x_tenant_id), file_name=file_name, subject=subject)
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": "soul.read.v1"})
+    return out
+
+
+@app.get("/v1/soul/history")
+async def soul_history_endpoint(
+    root: Optional[str] = None,
+    subject: str = "self",
+    limit: int = 500,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Return the SOUL revision history for a subject."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import soul_history
+
+    return soul_history(_resolve_root(root, x_tenant_id), subject=subject, limit=int(limit))
+
+
+@app.post("/v1/soul/propose-update")
+async def soul_propose_update(
+    payload: SoulProposeRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Propose a SOUL revision (applied immediately when requires_approval=False)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import propose_soul_update
+
+    out = propose_soul_update(
+        _resolve_root(payload.root, x_tenant_id),
+        target_file=payload.target_file,
+        entry_key=payload.entry_key,
+        content=payload.content,
+        op=payload.op,
+        subject=payload.subject,
+        source=payload.source,
+        epistemic_status=payload.epistemic_status,
+        reason=payload.reason,
+        evidence=payload.evidence,
+        requires_approval=payload.requires_approval,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": "soul.propose.v1"})
+    return out
+
+
+@app.post("/v1/soul/approve-update")
+async def soul_approve_update(
+    payload: SoulApproveRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Approve a proposed SOUL revision (approval applies it)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import approve_soul_update
+
+    out = approve_soul_update(
+        _resolve_root(payload.root, x_tenant_id),
+        revision_id=payload.revision_id,
+        subject=payload.subject,
+        approver=payload.approver,
+        note=payload.note,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": "soul.approve.v1"})
+    return out
+
+
+@app.post("/v1/soul/reject-update")
+async def soul_reject_update(
+    payload: SoulRejectRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Reject a proposed SOUL revision (it never folds into the projection)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import reject_soul_update
+
+    out = reject_soul_update(
+        _resolve_root(payload.root, x_tenant_id),
+        revision_id=payload.revision_id,
+        subject=payload.subject,
+        reviewer=payload.reviewer,
+        reason=payload.reason,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": "soul.reject.v1"})
+    return out
 
 
 @app.post("/v1/ingest/github")
