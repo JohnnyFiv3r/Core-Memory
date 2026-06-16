@@ -1058,6 +1058,7 @@ def _soul_goal_action(verb: str, payload: "SoulGoalActionRequest", x_tenant_id: 
         _resolve_root(payload.root, x_tenant_id),
         goal_id=payload.goal_id,
         bead_id=payload.bead_id,
+        subject=payload.subject,
         actor=payload.actor,
         reason=payload.reason,
     )

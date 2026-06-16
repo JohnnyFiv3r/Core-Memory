@@ -89,6 +89,29 @@ class TestSoulGoals(unittest.TestCase):
             self.assertEqual("soul-goals:acme", idx["beads"][a["bead_id"]]["session_id"])
             self.assertEqual("soul-goals:self", idx["beads"][s["bead_id"]]["session_id"])
 
+    def test_same_goal_id_isolated_across_subjects(self):
+        # Two subjects reuse goal_id "g"; an action for one must resolve to and
+        # mutate only that subject's bead (P2: subject-scoped resolution).
+        with tempfile.TemporaryDirectory() as td:
+            a = propose_goal(td, title="acme goal", goal_id="g", subject="acme")
+            s = propose_goal(td, title="self goal", goal_id="g", subject="self")
+            self.assertNotEqual(a["bead_id"], s["bead_id"])
+
+            self.assertTrue(approve_goal(td, goal_id="g", subject="acme")["ok"])
+            self.assertEqual("endorsed", _status(td, a["bead_id"]))
+            self.assertEqual("candidate", _status(td, s["bead_id"]))  # untouched
+
+            self.assertTrue(abandon_goal(td, goal_id="g", subject="self")["ok"])
+            self.assertEqual("abandoned", _status(td, s["bead_id"]))
+            self.assertEqual("endorsed", _status(td, a["bead_id"]))  # still untouched
+
+    def test_action_wrong_subject_not_found(self):
+        with tempfile.TemporaryDirectory() as td:
+            propose_goal(td, title="acme goal", goal_id="g", subject="acme")
+            out = approve_goal(td, goal_id="g", subject="self")  # no such goal for self
+            self.assertFalse(out["ok"])
+            self.assertEqual("goal_not_found", out["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

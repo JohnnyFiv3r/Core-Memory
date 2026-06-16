@@ -28,29 +28,43 @@ from core_memory.persistence.goal_lifecycle_v2 import (
     transition_goal_state_for_store,
 )
 from core_memory.persistence.store import MemoryStore
-from core_memory.persistence.store_index_heads_ops import read_heads_for_store
 
 _GOAL_SESSION = "soul-goals"
 
 
-def _resolve_goal_bead_id(store: Any, *, goal_id: str = "", bead_id: str = "") -> str:
-    """Resolve a goal to its Goal Bead id: explicit bead_id wins, else the goal
-    head cache, else an index scan by goal_id. Returns "" if not found."""
+def _goal_session(subject: str) -> str:
+    return f"{_GOAL_SESSION}:{str(subject or 'self')}"
+
+
+def _resolve_goal_bead_id(store: Any, *, goal_id: str = "", bead_id: str = "", subject: str = "self") -> str:
+    """Resolve a goal to its Goal Bead id.
+
+    An explicit ``bead_id`` is unambiguous and wins. Otherwise a ``goal_id`` is
+    resolved **within the subject's goal session** (``soul-goals:<subject>``) —
+    NOT against the subject-blind heads cache — so a goal id reused across
+    subjects can never resolve to (and mutate) the wrong subject's bead. The
+    latest matching bead is returned. Returns "" if not found.
+    """
     bid = str(bead_id or "").strip()
     if bid:
         return bid
     gid = str(goal_id or "").strip()
     if not gid:
         return ""
-    head = (read_heads_for_store(store).get("goals") or {}).get(gid)
-    if isinstance(head, dict) and str(head.get("bead_id") or "").strip():
-        return str(head["bead_id"]).strip()
+    session = _goal_session(subject)
     index = store._read_json(store.beads_dir / "index.json")
-    for cand_id, b in (index.get("beads") or {}).items():
-        if isinstance(b, dict) and str(b.get("type") or "").strip().lower() == "goal" \
-                and str(b.get("goal_id") or "").strip() == gid:
-            return str(cand_id)
-    return ""
+    matches = [
+        (str(cand_id), str(b.get("created_at") or ""))
+        for cand_id, b in (index.get("beads") or {}).items()
+        if isinstance(b, dict)
+        and str(b.get("type") or "").strip().lower() == "goal"
+        and str(b.get("goal_id") or "").strip() == gid
+        and str(b.get("session_id") or "").strip() == session
+    ]
+    if not matches:
+        return ""
+    matches.sort(key=lambda m: m[1])
+    return matches[-1][0]
 
 
 def propose_goal(
@@ -81,7 +95,7 @@ def propose_goal(
         goal_id=gid,
         goal_status="candidate",
         success_criteria=list(success_criteria or []),
-        session_id=f"{_GOAL_SESSION}:{subject}",
+        session_id=_goal_session(subject),
         actor=str(actor or ""),
     )
     return {"ok": True, "goal_id": gid, "bead_id": bead_id, "status": "candidate", "subject": subject}
@@ -93,44 +107,45 @@ def _transition_goal(
     to_state: str,
     goal_id: str = "",
     bead_id: str = "",
+    subject: str = "self",
     actor: str = "",
     reason: str = "",
 ) -> dict[str, Any]:
     store = MemoryStore(root=root)
-    resolved = _resolve_goal_bead_id(store, goal_id=goal_id, bead_id=bead_id)
+    resolved = _resolve_goal_bead_id(store, goal_id=goal_id, bead_id=bead_id, subject=subject)
     if not resolved:
-        return {"ok": False, "error": "goal_not_found", "goal_id": goal_id, "bead_id": bead_id}
+        return {"ok": False, "error": "goal_not_found", "goal_id": goal_id, "bead_id": bead_id, "subject": subject}
     return transition_goal_state_for_store(
         store, goal_bead_id=resolved, to_state=to_state, reason=reason, actor=actor,
     )
 
 
-def approve_goal(root: str, *, goal_id: str = "", bead_id: str = "", actor: str = "", reason: str = "") -> dict[str, Any]:
+def approve_goal(root: str, *, goal_id: str = "", bead_id: str = "", subject: str = "self", actor: str = "", reason: str = "") -> dict[str, Any]:
     """Human approval: ``candidate → endorsed`` (authorizes pursuit)."""
-    return _transition_goal(root, to_state="endorsed", goal_id=goal_id, bead_id=bead_id, actor=actor, reason=reason)
+    return _transition_goal(root, to_state="endorsed", goal_id=goal_id, bead_id=bead_id, subject=subject, actor=actor, reason=reason)
 
 
-def reject_goal(root: str, *, goal_id: str = "", bead_id: str = "", actor: str = "", reason: str = "") -> dict[str, Any]:
+def reject_goal(root: str, *, goal_id: str = "", bead_id: str = "", subject: str = "self", actor: str = "", reason: str = "") -> dict[str, Any]:
     """Human rejection: ``candidate → abandoned`` (recorded as a rejection)."""
     return _transition_goal(
-        root, to_state="abandoned", goal_id=goal_id, bead_id=bead_id, actor=actor,
+        root, to_state="abandoned", goal_id=goal_id, bead_id=bead_id, subject=subject, actor=actor,
         reason=f"rejected: {reason}" if reason else "rejected",
     )
 
 
-def complete_goal(root: str, *, goal_id: str = "", bead_id: str = "", actor: str = "", reason: str = "") -> dict[str, Any]:
+def complete_goal(root: str, *, goal_id: str = "", bead_id: str = "", subject: str = "self", actor: str = "", reason: str = "") -> dict[str, Any]:
     """Mark a goal ``completed``."""
-    return _transition_goal(root, to_state="completed", goal_id=goal_id, bead_id=bead_id, actor=actor, reason=reason)
+    return _transition_goal(root, to_state="completed", goal_id=goal_id, bead_id=bead_id, subject=subject, actor=actor, reason=reason)
 
 
-def abandon_goal(root: str, *, goal_id: str = "", bead_id: str = "", actor: str = "", reason: str = "") -> dict[str, Any]:
+def abandon_goal(root: str, *, goal_id: str = "", bead_id: str = "", subject: str = "self", actor: str = "", reason: str = "") -> dict[str, Any]:
     """Mark a goal ``abandoned``."""
-    return _transition_goal(root, to_state="abandoned", goal_id=goal_id, bead_id=bead_id, actor=actor, reason=reason)
+    return _transition_goal(root, to_state="abandoned", goal_id=goal_id, bead_id=bead_id, subject=subject, actor=actor, reason=reason)
 
 
-def decay_goal(root: str, *, goal_id: str = "", bead_id: str = "", actor: str = "", reason: str = "") -> dict[str, Any]:
+def decay_goal(root: str, *, goal_id: str = "", bead_id: str = "", subject: str = "self", actor: str = "", reason: str = "") -> dict[str, Any]:
     """Mark a goal ``decaying`` (dormant but revivable)."""
-    return _transition_goal(root, to_state="decaying", goal_id=goal_id, bead_id=bead_id, actor=actor, reason=reason)
+    return _transition_goal(root, to_state="decaying", goal_id=goal_id, bead_id=bead_id, subject=subject, actor=actor, reason=reason)
 
 
 __all__ = [
