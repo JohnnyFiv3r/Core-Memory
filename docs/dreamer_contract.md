@@ -85,9 +85,12 @@ Dreamer eval reporting should track behavior-oriented metrics, including:
 - accepted candidate rate
 - downstream retrieval/use rate of accepted outputs
 - policy reuse lift proxy
+- labeled precision by hypothesis type
+- labeled actionability rate by hypothesis type
 
 Reference surfaces:
-- runtime report: `core_memory.runtime.dreamer_eval.dreamer_eval_report(...)`
+- runtime report: `core_memory.runtime.dreamer.eval.dreamer_eval_report(...)`
+- label ledger: `.beads/events/dreamer-eval-labels.jsonl`
 - CLI: `core-memory metrics dreamer-eval --since 30d [--strict]`
 - eval script: `python -m eval.dreamer_behavior_eval --root <path> --since 30d`
 
