@@ -221,6 +221,7 @@ def rebuild_index(root: Path) -> dict:
     
     removed_by_id = {}
     retracted_association_ids = set()
+    retracted_associations = {}
 
     # Rebuild associations and removal tombstones from event logs.
     for ev in iter_events(root):
@@ -238,6 +239,9 @@ def rebuild_index(root: Path) -> dict:
             assoc_id = str(payload.get("association_id") or "").strip()
             if assoc_id:
                 retracted_association_ids.add(assoc_id)
+                snapshot = payload.get("association")
+                if isinstance(snapshot, dict):
+                    retracted_associations[assoc_id] = snapshot
 
     # Deterministic ordering + de-dup by id where available
     dedup = {}
@@ -255,6 +259,8 @@ def rebuild_index(root: Path) -> dict:
     ]
     if retracted_association_ids:
         index["retracted_association_ids"] = sorted(retracted_association_ids)
+    if retracted_associations:
+        index["retracted_associations"] = retracted_associations
 
     if removed_by_id:
         removed_ids = set(removed_by_id)

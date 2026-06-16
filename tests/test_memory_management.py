@@ -353,6 +353,54 @@ class TestMemoryManagement(unittest.TestCase):
             self.assertFalse(conflict.get("ok"), conflict)
             self.assertEqual("idempotency_key_conflict", conflict.get("error"))
 
+    def test_remove_source_idempotency_key_replays_source_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add(store, type="context", title="Doc 1", summary=["one"], session_id="external", document_id="doc-idem")
+            second = _add(store, type="context", title="Doc 2", summary=["two"], session_id="external", document_id="doc-idem")
+
+            out1 = remove_source(
+                root=td,
+                source={"selector": {"document_id": "doc-idem"}, "metadata": {"name": "Doc"}},
+                reason="source removed",
+                actor="source-cleanup",
+                authority={"mode": "event_hook"},
+                apply=True,
+                dry_run=False,
+                idempotency_key="source-cleanup-1",
+            )
+            self.assertTrue(out1.get("ok"), out1)
+            self.assertEqual(2, out1.get("removed_count"))
+            self.assertEqual({first, second}, set(out1.get("removed_bead_ids") or []))
+
+            replay = remove_source(
+                root=td,
+                source={"selector": {"document_id": "doc-idem"}, "metadata": {"name": "Doc"}},
+                reason="source removed",
+                actor="source-cleanup",
+                authority={"mode": "event_hook"},
+                apply=True,
+                dry_run=False,
+                idempotency_key="source-cleanup-1",
+            )
+            self.assertTrue(replay.get("ok"), replay)
+            self.assertTrue(replay.get("idempotent_replay"), replay)
+            self.assertEqual(2, replay.get("removed_count"))
+            self.assertEqual({first, second}, set(replay.get("removed_bead_ids") or []))
+
+            conflict = remove_source(
+                root=td,
+                source={"document_id": "other-doc"},
+                reason="source removed",
+                actor="source-cleanup",
+                authority={"mode": "event_hook"},
+                apply=True,
+                dry_run=False,
+                idempotency_key="source-cleanup-1",
+            )
+            self.assertFalse(conflict.get("ok"), conflict)
+            self.assertEqual("idempotency_key_conflict", conflict.get("error"))
+
     def test_deactivate_association_rebuild_filters_edge_and_queues_myelination(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
@@ -376,6 +424,24 @@ class TestMemoryManagement(unittest.TestCase):
             rebuilt = store.rebuild_index()
             self.assertEqual([], rebuilt.get("associations") or [])
             self.assertIn(assoc_id, rebuilt.get("retracted_association_ids") or [])
+            self.assertEqual(
+                {source, target},
+                {
+                    (rebuilt.get("retracted_associations") or {}).get(assoc_id, {}).get("source_bead"),
+                    (rebuilt.get("retracted_associations") or {}).get(assoc_id, {}).get("target_bead"),
+                },
+            )
+
+            rereview = maintain(
+                root=td,
+                action="request_re_review",
+                targets={"association_id": assoc_id},
+                authority={"actor": "agent.chat", "allowed_authority": ["run_association_judge"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(rereview.get("ok"), rereview)
+            self.assertEqual({source, target}, set(rereview.get("bead_ids") or []))
 
             rows = _event_rows(td)
             self.assertTrue(any(row.get("event_type") == "association_retracted" for row in rows))

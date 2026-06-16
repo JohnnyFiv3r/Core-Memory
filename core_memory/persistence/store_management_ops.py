@@ -558,6 +558,11 @@ def remove_source_beads_for_store(
     delegated_allowed = list(delegated_authority.get("allowed_authority") or [])
     delegated_allowed.append("remove_bead")
     delegated_authority["allowed_authority"] = list(dict.fromkeys(str(x) for x in delegated_allowed if str(x).strip()))
+    delegated_idempotency_key = (
+        f"{_clean_str(idempotency_key)}:remove_beads"
+        if apply_requested and _clean_str(idempotency_key)
+        else _clean_str(idempotency_key)
+    )
     out = remove_beads_for_store(
         store,
         bead_ids=bead_ids,
@@ -567,7 +572,7 @@ def remove_source_beads_for_store(
         dry_run=dry_run,
         apply=apply,
         source={"selector": selector, "metadata": source_metadata},
-        idempotency_key=idempotency_key,
+        idempotency_key=delegated_idempotency_key,
     )
     out["contract"] = "core_memory.remove_source.v1"
     out["source"] = selector
