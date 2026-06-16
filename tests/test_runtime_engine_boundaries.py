@@ -24,7 +24,7 @@ class TestRuntimeEngineBoundariesSlice46A(unittest.TestCase):
             out = engine.process_session_start(root=".", session_id="s1", source="test", max_items=10)
 
         self.assertEqual(expected, out)
-        spy.assert_called_once_with(root=".", session_id="s1", source="test", max_items=10)
+        spy.assert_called_once_with(root=".", session_id="s1", source="test", max_items=10, soul_subject="self")
 
     def test_process_flush_delegates_to_flush_flow(self):
         expected = {"ok": True, "flush_tx_id": "fx-1"}
