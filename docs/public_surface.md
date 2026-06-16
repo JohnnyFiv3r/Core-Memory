@@ -39,8 +39,8 @@ A surface is canonical only if it is both:
 - `core_memory.on_bead_committed(...)` — post-commit bead coverage hook used by canonical write paths
 - `core_memory.apply_association_proposals(...)` — reviewed association proposal ingestion through the canonical validation/quarantine path
 - `core_memory.maintain(...)` — governed control-plane facade for management actions (approval, cleanup, async ops, association dispatch, candidate review)
-- `core_memory.remove_bead(...)` / `core_memory.remove_beads(...)` — remove mistaken beads from active memory projection after explicit authority, preserving tombstone audit events
-- `core_memory.remove_source(...)` — remove all active beads matching a strong source identifier when a source object/file is deleted
+- `core_memory.remove_bead(...)` / `core_memory.remove_beads(...)` — remove mistaken beads from active memory projection after explicit authority, prune attached associations, retract configured projections, and preserve tombstone audit events
+- `core_memory.remove_source(...)` — remove all active beads matching a strong source identifier when a source object/file is deleted; dry-run previews may be limited, but apply-mode removes every match
 
 ## Retrieval/runtime tool surface
 - `core_memory.recall(query, effort='low|medium|high', intent=..., k=..., speaker=..., as_of=..., root='.')` —
@@ -170,7 +170,7 @@ HTTP inspect read surfaces:
 HTTP memory management surfaces:
 - `POST /v1/memory/maintain` — unified governed control-plane facade; destructive actions default to preview unless `apply=true` and `dry_run=false`
 - `POST /v1/memory/beads/remove` — remove explicit bead ids from active projection and prune attached associations; tombstones are honored by `rebuild_index()`
-- `POST /v1/memory/sources/remove` — remove beads matching a strong source identifier such as `document_id`, `source_ref`, `ragie_document_id`, `raw_source_object_id`, or `hydration_ref`
+- `POST /v1/memory/sources/remove` — remove beads matching a strong source identifier such as `document_id`, `source_ref`, `ragie_document_id`, `raw_source_object_id`, or `hydration_ref`; reports preview truncation and removes all matches when applied
 
 HTTP external evidence write surfaces:
 - `POST /v1/memory/external-evidence`

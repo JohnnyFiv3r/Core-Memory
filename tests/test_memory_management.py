@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory import maintain, remove_bead, remove_source
 from core_memory.integrations.mcp.registry import call_tool
@@ -101,6 +102,80 @@ class TestMemoryManagement(unittest.TestCase):
             self.assertNotIn(section, idx.get("beads") or {})
             self.assertIn(other, idx.get("beads") or {})
             self.assertEqual([], idx.get("associations") or [])
+
+    def test_remove_source_limit_reports_truncation_and_apply_removes_all(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            bead_ids = [
+                _add(store, type="context", title=f"Doc section {i}", summary=[str(i)], session_id="external", document_id="doc-many")
+                for i in range(3)
+            ]
+
+            preview = remove_source(
+                root=td,
+                source={"document_id": "doc-many"},
+                reason="source file removed",
+                limit=2,
+            )
+            self.assertTrue(preview.get("ok"), preview)
+            self.assertFalse(preview.get("applied"))
+            self.assertTrue(preview.get("truncated"), preview)
+            self.assertEqual(3, preview.get("matched_total"))
+            self.assertEqual(3, preview.get("matched_count"))
+            self.assertEqual(2, preview.get("preview_count"))
+            self.assertEqual(1, preview.get("remaining_count"))
+            for bead_id in bead_ids:
+                self.assertIn(bead_id, (_index(td).get("beads") or {}))
+
+            applied = remove_source(
+                root=td,
+                source={"document_id": "doc-many"},
+                reason="source file removed",
+                actor="source-cleanup",
+                authority={"mode": "event_hook"},
+                limit=2,
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(applied.get("ok"), applied)
+            self.assertFalse(applied.get("truncated"), applied)
+            self.assertEqual(3, applied.get("matched_total"))
+            self.assertEqual(3, applied.get("removed_count"))
+            self.assertEqual(0, applied.get("remaining_count"))
+            for bead_id in bead_ids:
+                self.assertNotIn(bead_id, (_index(td).get("beads") or {}))
+
+    def test_remove_bead_retracts_configured_sync_target(self):
+        with tempfile.TemporaryDirectory() as td:
+            vault = Path(td) / "vault"
+            with patch.dict(
+                "os.environ",
+                {
+                    "CORE_MEMORY_SYNC_TARGETS": "obsidian",
+                    "CORE_MEMORY_OBSIDIAN_VAULT": str(vault),
+                    "CORE_MEMORY_GRAPH_BACKEND": "none",
+                },
+                clear=False,
+            ):
+                store = MemoryStore(td)
+                bead = _add(store, type="context", title="Synced", summary=["synced"], session_id="s1")
+                note_path = vault / "s1" / f"{bead}.md"
+                self.assertTrue(note_path.exists())
+                self.assertIn("status: open", note_path.read_text(encoding="utf-8"))
+
+                out = remove_bead(
+                    root=td,
+                    bead_id=bead,
+                    reason="user identified mistake",
+                    actor="agent.chat",
+                    authority={"user_confirmed": True},
+                    apply=True,
+                    dry_run=False,
+                )
+                self.assertTrue(out.get("ok"), out)
+                text = note_path.read_text(encoding="utf-8")
+                self.assertIn("status: retracted", text)
+                self.assertIn("RETRACTED", text)
 
     def test_maintain_remove_beads_previews_then_applies(self):
         with tempfile.TemporaryDirectory() as td:

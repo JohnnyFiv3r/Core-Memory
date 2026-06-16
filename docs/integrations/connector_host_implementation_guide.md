@@ -261,7 +261,9 @@ the host's own deletion event.
 
 Core Memory removes matching beads and attached associations from active recall,
 appends `bead_removed` tombstones for rebuild integrity, and leaves the host's
-source ledger as the hydration authority.
+source ledger as the hydration authority. Dry-run responses may limit the
+returned preview rows and include `truncated` / `remaining_count`; applied source
+cleanup removes every matching bead and retracts configured sync projections.
 
 ---
 

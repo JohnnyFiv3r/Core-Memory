@@ -131,6 +131,43 @@ def _mirror_removed_beads_to_graph(root: Any, bead_ids: list[str]) -> None:
         log.warning("graph backend removal mirror failed: %s", exc)
 
 
+def _create_sync_targets() -> list[Any]:
+    targets_env = (os.environ.get("CORE_MEMORY_SYNC_TARGETS") or "").strip().lower()
+    if not targets_env or targets_env == "none":
+        return []
+    targets: list[Any] = []
+    log = logging.getLogger(__name__)
+    for name in [t.strip() for t in targets_env.split(",") if t.strip()]:
+        if name == "obsidian":
+            try:
+                from core_memory.integrations.obsidian import ObsidianSyncTarget
+
+                targets.append(ObsidianSyncTarget.from_env())
+            except Exception as exc:
+                log.warning("obsidian sync target init failed: %s", exc)
+    return targets
+
+
+def _mirror_removed_beads_to_sync_targets(bead_ids: list[str]) -> None:
+    if not bead_ids:
+        return
+    log = logging.getLogger(__name__)
+    for target in _create_sync_targets():
+        target_name = getattr(target, "name", "?")
+        retract = getattr(target, "on_bead_retracted", None)
+        delete = getattr(target, "delete_bead", None)
+        remove = getattr(target, "remove_bead", None)
+        hook = retract if callable(retract) else delete if callable(delete) else remove if callable(remove) else None
+        if hook is None:
+            log.warning("sync target %s has no bead removal hook", target_name)
+            continue
+        for bead_id in bead_ids:
+            try:
+                hook(str(bead_id))
+            except Exception as exc:
+                log.warning("sync target %s bead removal failed for %s: %s", target_name, bead_id, exc)
+
+
 def remove_beads_for_store(
     store: Any,
     *,
@@ -244,6 +281,7 @@ def remove_beads_for_store(
     mark_semantic_dirty(store.root, reason="remove_bead")
     mark_trace_dirty(store.root, reason="remove_bead")
     _mirror_removed_beads_to_graph(store.root, found)
+    _mirror_removed_beads_to_sync_targets(found)
     return {
         **preview,
         "applied": True,
@@ -278,12 +316,16 @@ def remove_source_beads_for_store(
             "contract": "core_memory.remove_source.v1",
         }
 
+    limit_n = max(1, int(limit))
     index = store._read_json(store.beads_dir / "index.json")
-    bead_ids = [
+    all_bead_ids = [
         bid for bid, bead in (index.get("beads") or {}).items()
         if isinstance(bead, dict) and _matches_source(bead, selector)
     ]
-    bead_ids = sorted(bead_ids)[: max(1, int(limit))]
+    all_bead_ids = sorted(all_bead_ids)
+    apply_requested = bool(apply) and not bool(dry_run)
+    bead_ids = all_bead_ids if apply_requested else all_bead_ids[:limit_n]
+    truncated = len(all_bead_ids) > len(bead_ids)
     if not bead_ids:
         return {
             "ok": True,
@@ -291,6 +333,11 @@ def remove_source_beads_for_store(
             "applied": bool(apply) and not bool(dry_run),
             "dry_run": bool(dry_run),
             "matched_count": 0,
+            "matched_total": 0,
+            "preview_count": 0,
+            "limit": limit_n,
+            "truncated": False,
+            "remaining_count": 0,
             "removed_count": 0,
             "beads": [],
             "association_count": 0,
@@ -314,6 +361,12 @@ def remove_source_beads_for_store(
     )
     out["contract"] = "core_memory.remove_source.v1"
     out["source"] = selector
+    out["matched_total"] = len(all_bead_ids)
+    out["matched_count"] = len(all_bead_ids)
+    out["preview_count"] = len(bead_ids)
+    out["limit"] = limit_n
+    out["truncated"] = truncated
+    out["remaining_count"] = max(0, len(all_bead_ids) - len(bead_ids))
     return out
 
 
