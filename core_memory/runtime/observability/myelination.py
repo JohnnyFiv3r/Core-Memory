@@ -1,9 +1,46 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 from pathlib import Path
 from typing import Any
+
+MYELINATION_MANIFEST_SCHEMA = "core_memory.myelination_manifest.v2"
+
+
+def _manifest_path(root: str | Path) -> Path:
+    return Path(root) / ".beads" / "events" / "myelination-manifest.json"
+
+
+def read_myelination_manifest(root: str | Path) -> dict[str, Any]:
+    """Serve the myelination manifest from disk (never recomputed on read).
+
+    The manifest is rebuilt on the maintenance cadence (the ``myelination-update``
+    side-effect job / Dreamer pass). Returns ``present=False`` when none exists
+    yet so a host knows to trigger a refresh, rather than computing inline.
+    """
+    p = _manifest_path(root)
+    if not p.exists():
+        return {
+            "ok": True,
+            "present": False,
+            "schema": MYELINATION_MANIFEST_SCHEMA,
+            "enabled": myelination_enabled(),
+            "note": "no myelination manifest yet; run a myelination-update to build it",
+        }
+    try:
+        manifest = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(manifest, dict):
+            return {"ok": True, "present": True, **manifest}
+    except Exception:
+        pass
+    return {
+        "ok": False,
+        "present": False,
+        "error": "myelination_manifest_unreadable",
+        "schema": MYELINATION_MANIFEST_SCHEMA,
+    }
 
 from core_memory.runtime.observability.retrieval_feedback import read_retrieval_feedback
 from core_memory.schema.normalization import normalize_relation_type
@@ -225,9 +262,11 @@ def apply_contradiction_decay(root: str | Path, bonus_by_bead_id: dict[str, floa
 
 
 __all__ = [
+    "MYELINATION_MANIFEST_SCHEMA",
     "myelination_enabled",
     "compute_myelination_bonus_map",
     "apply_contradiction_decay",
+    "read_myelination_manifest",
 ]
 
 

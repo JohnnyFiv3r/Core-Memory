@@ -917,6 +917,41 @@ async def dreamer_geometry(
     return read_geometry_manifest(_resolve_root(root, x_tenant_id))
 
 
+@app.get("/v1/myelination/manifest")
+async def myelination_manifest(
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Serve the myelination manifest from disk (read-only, never recomputed).
+
+    Rebuilt on the maintenance cadence (the ``myelination-update`` side-effect
+    job / Dreamer pass). Returns ``present=false`` when none exists yet.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory.runtime.observability.myelination import read_myelination_manifest
+
+    return read_myelination_manifest(_resolve_root(root, x_tenant_id))
+
+
+@app.get("/v1/myelination/report")
+async def myelination_report_endpoint(
+    root: Optional[str] = None,
+    since: Optional[str] = None,
+    limit: Optional[int] = None,
+    top: int = 20,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Computed myelination diagnostic report (top reinforced/decayed edges)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory.runtime.observability.myelination import myelination_report
+
+    return myelination_report(_resolve_root(root, x_tenant_id), since=since, limit=limit, top=int(top))
+
+
 @app.post("/v1/soul/propose-update")
 async def soul_propose_update(
     payload: SoulProposeRequest,
