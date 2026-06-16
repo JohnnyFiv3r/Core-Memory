@@ -64,8 +64,17 @@ def _int_env(name: str, default: int) -> int:
         return int(default)
 
 
-def _norm_token(value: Any) -> str:
-    return re.sub(r"\s+", " ", str(value or "").strip().lower())
+def _word_tokens(text: Any) -> set[str]:
+    """Single canonical tokenizer used on *both* sides of the acknowledgment
+    test: lowercase, split on any non-alphanumeric, keep word tokens of length
+    >= 3 that are not stop tokens. Multi-word phrases ("cache invalidation") and
+    short technical terms ("api") tokenize identically whether they come from a
+    bead's entity/topic list or from free-text IDENTITY.md content — so the
+    membership comparison can't false-positive on a phrase/length mismatch."""
+    return {
+        w for w in re.split(r"[^a-z0-9]+", str(text or "").lower())
+        if len(w) >= 3 and w not in _STOP_TOKENS
+    }
 
 
 def _is_active(bead: dict[str, Any]) -> bool:
@@ -74,31 +83,23 @@ def _is_active(bead: dict[str, Any]) -> bool:
 
 
 def _bead_theme_tokens(bead: dict[str, Any]) -> set[str]:
-    """Curated theme tokens for a bead: entities + topics (structural tags are
-    excluded — they carry source-system / bead-type noise)."""
+    """Theme word tokens for a bead: entities + topics tokenized by ``_word_tokens``
+    (structural tags are excluded — they carry source-system / bead-type noise)."""
     out: set[str] = set()
     for v in list(bead.get("entities") or []) + list(bead.get("topics") or []):
-        t = _norm_token(v)
-        if t and t not in _STOP_TOKENS and len(t) >= 3:
-            out.add(t)
+        out |= _word_tokens(v)
     return out
 
 
-def _text_tokens(text: str) -> set[str]:
-    return {
-        w for w in re.split(r"[^a-z0-9]+", str(text or "").lower())
-        if len(w) >= 4 and w not in _STOP_TOKENS
-    }
-
-
 def _identity_tokens(root: str | Path, subject: str) -> set[str]:
-    """All theme tokens already acknowledged anywhere in ``IDENTITY.md`` (entry
-    keys + content), so a value the agent already names is never re-proposed."""
+    """All word tokens already acknowledged anywhere in ``IDENTITY.md`` (entry
+    keys + content), tokenized the *same* way as bead themes, so a value the
+    agent already names is never re-proposed."""
     out: set[str] = set()
     entries = (current_soul_entries(root, file_name="IDENTITY.md", subject=subject).get("entries") or {})
     for key, e in entries.items():
-        out |= _text_tokens(key)
-        out |= _text_tokens(str((e or {}).get("content") or ""))
+        out |= _word_tokens(key)
+        out |= _word_tokens(str((e or {}).get("content") or ""))
     return out
 
 
@@ -152,8 +153,7 @@ def detect_identity_value_findings(root: str | Path, *, subject: str = "self") -
     for key, e in identity_entries.items():
         if str((e or {}).get("epistemic_status") or "").strip().lower() != "endorsed":
             continue
-        value_tokens = _text_tokens(key) | _text_tokens(str((e or {}).get("content") or ""))
-        value_tokens = {t for t in value_tokens if t not in _STOP_TOKENS}
+        value_tokens = _word_tokens(key) | _word_tokens(str((e or {}).get("content") or ""))
         if not value_tokens:
             continue
         support_beads: set[str] = set()

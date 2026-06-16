@@ -105,6 +105,13 @@ def propose_soul_from_dreamer(
             continue
         if str(cand.get("status") or "").strip().lower() != "pending":
             continue
+        # Subject scoping: a candidate explicitly tagged for another subject must
+        # never bridge into this subject's SOUL (identity/value findings are
+        # subject-scoped). Subjectless candidates (tension/goal/decay) bridge
+        # under whatever subject is requested, preserving prior behavior.
+        cand_subject = str(cand.get("subject") or "").strip()
+        if cand_subject and cand_subject != subject:
+            continue
         ht = str(cand.get("hypothesis_type") or "").strip()
         spec = _BRIDGE_MAP.get(ht)
         if spec is None:

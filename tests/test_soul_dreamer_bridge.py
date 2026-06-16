@@ -171,6 +171,21 @@ class TestSoulDreamerBridge(unittest.TestCase):
             self.assertEqual(1, soul_history(td, subject="acme")["count"])
             self.assertEqual(0, soul_history(td, subject="self")["count"])
 
+    def test_subject_tagged_candidate_does_not_leak_across_subjects(self):
+        # A value candidate tagged subject="acme" must not bridge into self's
+        # IDENTITY.md, even though it stays pending in the shared queue.
+        with tempfile.TemporaryDirectory() as td:
+            cand = _value("dc-1", "simplicity")
+            cand["subject"] = "acme"
+            _write_candidates(td, [cand])
+            self_out = propose_soul_from_dreamer(td, subject="self")
+            self.assertEqual(0, self_out["proposed"])
+            self.assertEqual(0, soul_history(td, subject="self")["count"])
+            # It bridges correctly for its own subject, and only once.
+            acme_out = propose_soul_from_dreamer(td, subject="acme")
+            self.assertEqual(1, acme_out["proposed"])
+            self.assertEqual(1, soul_history(td, subject="acme")["count"])
+
     def test_unrelated_candidate_types_ignored(self):
         with tempfile.TemporaryDirectory() as td:
             _write_candidates(td, [

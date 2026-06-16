@@ -58,6 +58,24 @@ class TestValueCandidateDetection(unittest.TestCase):
             self.assertEqual([], [d for d in detect_identity_value_findings(td)
                                   if d["finding"] == "value_candidate"])
 
+    def test_phrase_and_short_token_acknowledgment_matches(self):
+        # An endorsed IDENTITY entry phrased in free text ("cache invalidation",
+        # "API") must suppress value candidates for the same behavior themes —
+        # both sides tokenize the same way (regression for the phrase/length-3
+        # mismatch).
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            _endorse_identity(td, "Engineering",
+                              "I value cache invalidation discipline and clean API design.")
+            for i, s in enumerate(["s1", "s2", "s3", "s4"]):
+                store.add_bead(type="decision", title=f"d{i}", summary=["s"], because=["x"],
+                               detail="d", topics=["cache invalidation", "api"], session_id=s)
+            values = [d for d in detect_identity_value_findings(td) if d["finding"] == "value_candidate"]
+            themes = {v["value_theme"] for v in values}
+            self.assertNotIn("cache", themes)
+            self.assertNotIn("invalidation", themes)
+            self.assertNotIn("api", themes)
+
     def test_below_threshold_not_a_value(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(root=td)
