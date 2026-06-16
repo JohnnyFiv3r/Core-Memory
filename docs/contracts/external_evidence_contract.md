@@ -176,14 +176,20 @@ Retrieval returns current truth only: superseded versions are excluded from
 the visible corpus unless a caller passes `include_superseded: true`
 (provenance reporting).
 
-Newly accepted external-evidence beads also run source-local association
-coverage. Receipts include:
+Newly accepted external-evidence beads also request source-local association
+coverage. Coverage generates candidate association proposals first; active
+association edges are written only after a semantic/judge decision approves
+them. Receipts include:
 
 - `association_run_id`
 - `association_trigger`
 - `association_state`
 - `association_queued`
 
+`association_state` may be `pending_judge` or `judge_failed` when no judge has
+completed. These states mean the bead was written but graph association
+coverage is not yet complete; they must not be treated as `linked`.
+
 Replayed `already_exists` events do not enqueue another association run. Changed
-source-object versions still write the new bead and let coverage de-duplicate
-the existing `supersedes` edge.
+source-object versions still write the new bead and let coverage generate
+judge-reviewed candidates for version lineage.

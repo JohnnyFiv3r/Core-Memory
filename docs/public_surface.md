@@ -35,7 +35,8 @@ A surface is canonical only if it is both:
 - `core_memory.ingest_structured_observation(...)` — experimental relational/metric observation write helper
 - `core_memory.ingest_document_reference(...)` — experimental document/media artifact anchor write helper
 - `core_memory.ingest_state_assertion(...)` — experimental derived business-state/document-claim write helper
-- `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators
+- `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators; generates candidates and requires a judge decision before active graph edge writes
+- `core_memory.on_bead_committed(...)` — post-commit bead coverage hook used by canonical write paths
 - `core_memory.apply_association_proposals(...)` — reviewed association proposal ingestion through the canonical validation/quarantine path
 
 ## Retrieval/runtime tool surface
