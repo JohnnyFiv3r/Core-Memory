@@ -159,6 +159,63 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual(1, out.get("quarantined"))
             self.assertTrue((Path(td) / ".beads" / "events" / "association-quarantine.jsonl").exists())
 
+    def test_association_proposal_run_tracks_states_per_source_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            target = store.add_bead(type="context", title="Target", summary=["target"], session_id="s1", source_turn_ids=["t1"])
+            source_ok = store.add_bead(type="context", title="Source OK", summary=["ok"], session_id="s1", source_turn_ids=["t2"])
+            source_bad = store.add_bead(type="context", title="Source Bad", summary=["bad"], session_id="s1", source_turn_ids=["t3"])
+
+            out = apply_association_proposals(
+                td,
+                run_id="arun-proposals",
+                associations=[
+                    {
+                        "source_bead_id": source_ok,
+                        "target_bead_id": target,
+                        "relationship": "supports",
+                        "confidence": 0.9,
+                        "reason_text": "The source supports the target.",
+                    },
+                    {
+                        "source_bead_id": source_bad,
+                        "target_bead_id": target,
+                        "relationship": "supports",
+                    },
+                ],
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual(1, out.get("appended"))
+            self.assertEqual(1, out.get("quarantined"))
+
+            run = get_association_run(td, "arun-proposals")
+            self.assertTrue(run.get("ok"), run)
+            states = (run.get("run") or {}).get("association_state_by_bead") or {}
+            self.assertEqual("linked", states.get(source_ok))
+            self.assertEqual("quarantined", states.get(source_bad))
+
+    def test_session_coverage_queue_key_includes_resolved_bead_set(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            store.add_bead(type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = store.add_bead(type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            first_enqueued = enqueue_association_coverage(td, session_id="s1", trigger="session_flush")
+            self.assertTrue(first_enqueued.get("ok"), first_enqueued)
+            self.assertFalse((first_enqueued.get("queue") or {}).get("duplicate"), first_enqueued)
+
+            third = store.add_bead(type="context", title="Third", summary=["third"], session_id="s1", source_turn_ids=["t3"])
+            second_enqueued = enqueue_association_coverage(td, session_id="s1", trigger="session_flush")
+            self.assertTrue(second_enqueued.get("ok"), second_enqueued)
+            self.assertFalse((second_enqueued.get("queue") or {}).get("duplicate"), second_enqueued)
+            self.assertNotEqual(first_enqueued.get("queued_job_id"), second_enqueued.get("queued_job_id"))
+
+            queue_path = Path(td) / ".beads" / "events" / "side-effects-queue.json"
+            queue = json.loads(queue_path.read_text(encoding="utf-8"))
+            self.assertEqual(2, len(queue))
+            self.assertIn(second, (queue[0].get("payload") or {}).get("bead_ids") or [])
+            self.assertIn(third, (queue[1].get("payload") or {}).get("bead_ids") or [])
+
     def test_flush_enqueues_session_association_coverage(self):
         with tempfile.TemporaryDirectory() as td:
             turn = process_turn_finalized(

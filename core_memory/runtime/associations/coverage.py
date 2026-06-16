@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import uuid
 from datetime import datetime, timezone
@@ -47,6 +48,12 @@ def _as_list(value: Any) -> list[Any]:
     if isinstance(value, tuple):
         return list(value)
     return [value]
+
+
+def _bead_set_signature(bead_ids: list[str]) -> str:
+    normalized = sorted({_clean_str(x) for x in bead_ids if _clean_str(x)})
+    material = "\n".join(normalized)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
 def _events_dir(root: str | Path) -> Path:
@@ -604,10 +611,11 @@ def enqueue_association_coverage(
             policy_version=policy_version,
         )
 
+    bead_set_sig = _bead_set_signature(resolved_ids)
     idempotency_key = (
-        f"assoc:{policy_version}:session:{session_id}"
+        f"assoc:{policy_version}:session:{_clean_str(session_id)}:beads:{bead_set_sig}"
         if _clean_str(session_id)
-        else f"assoc:{policy_version}:beads:{'-'.join(resolved_ids)}"
+        else f"assoc:{policy_version}:beads:{bead_set_sig}"
     )
     from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
 
@@ -786,6 +794,23 @@ def apply_association_proposals(
     quarantined = 0
     association_ids: list[str] = []
     errors: list[dict[str, Any]] = []
+    state_by_bead: dict[str, str] = {}
+
+    def proposal_source(payload: dict[str, Any] | None, row: dict[str, Any] | None = None) -> str:
+        for candidate in (row or {}, payload or {}):
+            src = _clean_str(candidate.get("source_bead") or candidate.get("source_bead_id"))
+            if src:
+                return src
+        return ""
+
+    def mark_state(source_bead: str, state: str) -> None:
+        src = _clean_str(source_bead)
+        if not src:
+            return
+        priority = {"quarantined": 1, "failed": 2, "linked": 3}
+        current = state_by_bead.get(src)
+        if current is None or priority.get(state, 0) >= priority.get(current, 0):
+            state_by_bead[src] = state
 
     for raw in list(associations or []):
         if not isinstance(raw, dict):
@@ -794,6 +819,7 @@ def apply_association_proposals(
         validated = validate_and_normalize_inference_payload(raw, mode=INFERENCE_MODE_STRICT)
         row = validated.record
         if not validated.ok:
+            mark_state(proposal_source(raw, row), "quarantined")
             write_quarantine(
                 Path(root),
                 row,
@@ -808,6 +834,7 @@ def apply_association_proposals(
         src = _clean_str(row.get("source_bead"))
         tgt = _clean_str(row.get("target_bead"))
         if src not in beads or tgt not in beads:
+            mark_state(src or proposal_source(raw, row), "quarantined")
             write_quarantine(
                 Path(root),
                 row,
@@ -838,20 +865,17 @@ def apply_association_proposals(
         )
         if out.get("ok") and out.get("deduped"):
             deduped += 1
+            mark_state(src, "linked")
         elif out.get("ok"):
             appended += 1
+            mark_state(src, "linked")
             if _clean_str(out.get("association_id")):
                 association_ids.append(_clean_str(out.get("association_id")))
         else:
+            mark_state(src, "failed")
             errors.append({"edge": row, "error": out.get("error")})
 
     if _clean_str(run_id):
-        state_by_bead: dict[str, str] = {}
-        for assoc in list(associations or []):
-            if isinstance(assoc, dict):
-                src = _clean_str(assoc.get("source_bead") or assoc.get("source_bead_id"))
-                if src:
-                    state_by_bead[src] = "linked" if appended or deduped else ("quarantined" if quarantined else "failed")
         _append_run_record(
             root,
             {
