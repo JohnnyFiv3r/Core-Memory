@@ -71,6 +71,19 @@ def _evidence_from(candidate: dict[str, Any]) -> list[dict[str, Any]]:
     return refs
 
 
+def _covered_keys(root: str | Path, subject: str) -> set[tuple[str, str]]:
+    """Existing SOUL coverage by stable key, regardless of source. A prior
+    Dreamer revision (proposed/applied/rejected) means a finding is already in
+    review; a human/agent revision means the entry is authoritatively owned.
+    Either way a new Dreamer proposal for that ``(target_file, entry_key)`` is
+    skipped, so callers should treat covered keys as not-eligible."""
+    history = soul_history(root, subject=subject, limit=100000)
+    return {
+        (str(rev.get("target_file") or ""), str(rev.get("entry_key") or ""))
+        for rev in (history.get("revisions") or [])
+    }
+
+
 def propose_soul_from_dreamer(
     root: str | Path,
     *,
@@ -85,17 +98,7 @@ def propose_soul_from_dreamer(
     Returns a summary; never raises for an empty queue.
     """
     candidates = _read_candidates(root)
-
-    # Existing coverage by stable key, regardless of source. A prior Dreamer
-    # revision (proposed/applied/rejected) means the finding is already in
-    # review — don't re-propose. A human/agent revision for the same key means
-    # the entry is already owned by an authoritative author; proposing a Dreamer
-    # duplicate would, if approved, clobber that endorsed content during folding
-    # (last applied upsert per key wins). Either way: leave it alone.
-    history = soul_history(root, subject=subject, limit=100000)
-    covered: set[tuple[str, str]] = set()
-    for rev in history.get("revisions") or []:
-        covered.add((str(rev.get("target_file") or ""), str(rev.get("entry_key") or "")))
+    covered = _covered_keys(root, subject)
 
     proposed = 0
     skipped = 0
@@ -168,8 +171,12 @@ def dreamer_soul_findings(root: str | Path, *, subject: str = "self", limit: int
 
     Read-only view of the pending Dreamer candidates the bridge would route into
     this subject's SOUL, each annotated with its target file and entry key —
-    before any proposal is created.
+    before any proposal is created. Findings already covered in SOUL history
+    (proposed/applied/rejected, or authored by another author) are excluded so
+    this matches exactly what a subsequent ``propose-updates`` would create — no
+    stale review work.
     """
+    covered = _covered_keys(root, subject)
     findings: list[dict[str, Any]] = []
     for cand in _read_candidates(root):
         if not isinstance(cand, dict):
@@ -183,6 +190,8 @@ def dreamer_soul_findings(root: str | Path, *, subject: str = "self", limit: int
         spec = _BRIDGE_MAP.get(ht)
         entry_key = _finding_entry_key(cand)
         if spec is None or not entry_key:
+            continue
+        if (spec[0], entry_key) in covered:
             continue
         findings.append({
             "candidate_id": str(cand.get("id") or ""),

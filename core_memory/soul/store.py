@@ -266,12 +266,19 @@ def apply_soul_update(
             return {"ok": False, "error": "already_decided", "revision_id": rid}
 
         # §9.2 guardrails: endorsed-meaning changes need a human.
+        # 1. The proposal itself asserts endorsed meaning.
         if str(target.get("epistemic_status") or "").strip().lower() == "endorsed":
             return {"ok": False, "error": "requires_human_approval", "reason": "endorsed_meaning", "revision_id": rid}
-        if str(target.get("op") or "").strip().lower() == "remove":
-            current = _current_entries(revisions, str(target.get("target_file") or "")).get(str(target.get("entry_key") or ""))
-            if current and str(current.get("source") or "").strip().lower() == "human":
-                return {"ok": False, "error": "requires_human_approval", "reason": "removes_human_entry", "revision_id": rid}
+        # 2. The change would overwrite (upsert) or delete (remove) a *protected*
+        #    existing entry — one that is endorsed (incl. human-approved entries
+        #    whose stored source stays "agent") or human-authored. Auto-apply must
+        #    never destroy endorsed/human meaning regardless of op.
+        current = _current_entries(revisions, str(target.get("target_file") or "")).get(str(target.get("entry_key") or ""))
+        if current is not None:
+            cur_status = str(current.get("epistemic_status") or "").strip().lower()
+            cur_source = str(current.get("source") or "").strip().lower()
+            if cur_status == "endorsed" or cur_source == "human":
+                return {"ok": False, "error": "requires_human_approval", "reason": "protected_entry", "revision_id": rid}
 
         applied = {
             **target,

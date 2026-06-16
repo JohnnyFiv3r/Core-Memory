@@ -41,6 +41,15 @@ class TestDreamerSoulEndpoints(unittest.TestCase):
             # Decided proposals drop out of the review queue.
             self.assertEqual(0, dreamer_soul_review(td)["count"])
 
+    def test_findings_excludes_already_proposed(self):
+        # After propose-updates creates a proposal, the candidate stays pending,
+        # but findings must not report it (a re-propose would skip it).
+        with tempfile.TemporaryDirectory() as td:
+            _write_candidates(td, [_tension("dc-1", "k1")])
+            self.assertEqual(1, dreamer_soul_findings(td)["count"])
+            propose_soul_from_dreamer(td)
+            self.assertEqual(0, dreamer_soul_findings(td)["count"])
+
     def test_subject_scoped(self):
         with tempfile.TemporaryDirectory() as td:
             cand = _tension("dc-1", "k1")
