@@ -54,19 +54,32 @@ def _read_index(root: str | Path) -> dict[str, Any]:
 def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str, Any]:
     """Compute the continuity-geometry manifest and persist it to disk.
 
-    Nodes are every bead (id/type/status/assembly_depth); edges are every
-    *active* association (src/dst/rel/strength/provenance). Returns the manifest.
-    Best-effort: missing depth or myelination data degrades to 0.0, never raises.
+    Nodes are beads (id/type/status/assembly_depth); edges are *active*
+    associations between emitted nodes (src/dst/rel/strength/provenance). When a
+    store has more than ``limit`` beads the manifest is capped to the first
+    ``limit`` (``truncated=True``, ``total_bead_count`` reported) — depth scoring
+    and the emitted node set use the *same* capped population, so no node ever
+    carries a placeholder depth and no edge dangles. Returns the manifest.
+    Best-effort: missing myelination data degrades edge strength to 0.0.
     """
     index = _read_index(root)
     beads = {str(k): v for k, v in (index.get("beads") or {}).items() if isinstance(v, dict)}
 
-    # Assembly depth across the whole population (reuse Dreamer's depth measure).
+    # Cap nodes and depth scoring on the *same* bead set so every emitted node
+    # carries a real depth — never a silent 0.0 for a bead past the cap.
+    # compute_assembly_depth selects the first `limit` ids of the same index, so
+    # the scored set and this emitted set are identical.
+    cap = max(1, int(limit))
+    target_ids = list(beads.keys())[:cap]
+    target_set = set(target_ids)
+    truncated = len(beads) > len(target_ids)
+
+    # Assembly depth across the emitted population (reuse Dreamer's depth measure).
     depth_by_bead: dict[str, float] = {}
     try:
         from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
 
-        rep = compute_assembly_depth(root, target_kind="*", limit=max(1, int(limit)))
+        rep = compute_assembly_depth(root, target_kind="*", limit=cap)
         for r in rep.get("reports") or []:
             depth_by_bead[str(r.get("target_id") or "")] = float(r.get("score") or 0.0)
     except Exception:
@@ -82,7 +95,8 @@ def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str,
         edge_bonus = {}
 
     nodes: list[dict[str, Any]] = []
-    for bid, b in beads.items():
+    for bid in target_ids:
+        b = beads[bid]
         nodes.append({
             "id": bid,
             "type": str(b.get("type") or ""),
@@ -101,6 +115,9 @@ def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str,
         d = str(assoc.get("target_bead") or "").strip()
         if not s or not d:
             continue
+        # Only edges whose endpoints are both emitted nodes — no dangling refs.
+        if s not in target_set or d not in target_set:
+            continue
         rel = normalize_relation_type(assoc.get("relationship"))
         strength = float(edge_bonus.get(f"{s}|{rel}|{d}", 0.0))
         edges.append({
@@ -117,6 +134,9 @@ def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str,
         "generated_at": _now(),
         "node_count": len(nodes),
         "edge_count": len(edges),
+        "total_bead_count": len(beads),
+        "truncated": truncated,
+        "limit": cap,
         "nodes": nodes,
         "edges": edges,
     }

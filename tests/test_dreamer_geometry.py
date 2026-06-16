@@ -78,6 +78,25 @@ class TestGeometryManifest(unittest.TestCase):
             self.assertEqual(0, m["node_count"])
             self.assertEqual(0, m["edge_count"])
 
+    def test_limit_caps_nodes_and_edges_consistently(self):
+        # With more beads than the limit, the manifest caps emitted nodes to the
+        # scored set, never serving placeholder-0.0 depths for uncomputed beads,
+        # and never emitting an edge to a node outside the manifest.
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            ids = [store.add_bead(type="decision", title=f"d{i}", summary=["s"],
+                                  because=["x"], detail="d", topics=["t"], session_id=f"s{i}")
+                   for i in range(6)]
+            store.link(ids[0], ids[1], "supports")
+            m = build_geometry_manifest(td, limit=3)
+            self.assertEqual(3, m["node_count"])
+            self.assertTrue(m["truncated"])
+            self.assertEqual(6, m["total_bead_count"])
+            emitted = {n["id"] for n in m["nodes"]}
+            for e in m["edges"]:
+                self.assertIn(e["src"], emitted)
+                self.assertIn(e["dst"], emitted)
+
 
 class TestGeometryWiring(unittest.TestCase):
     def test_dreamer_run_builds_manifest(self):
