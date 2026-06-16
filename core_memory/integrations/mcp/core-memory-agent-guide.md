@@ -108,19 +108,39 @@ If the parser cannot detect the format, the file is unreadable, or the transcrip
 
 Use `maintain` for governed control-plane actions only when the user, host app,
 or scheduled/event hook has given authority for the specific operation. Prefer
-`dry_run=true` first for destructive or bulk actions. To remove mistaken memory
-from active recall, call `maintain(action="remove_beads", targets={bead_ids:
-[...]}, decision={reason: ...}, authority={actor: ..., user_confirmed: true},
-apply=true, dry_run=false)`. To clean up after a source object is deleted, call
-`maintain(action="remove_source", targets={source: {document_id|source_ref|
-ragie_document_id|raw_source_object_id|hydration_ref: ...}}, authority={mode:
-"event_hook", actor: ...}, apply=true, dry_run=false)`.
+`dry_run=true` first for destructive or bulk actions; previews report
+`required_authority`, `authority_ok`, and validation errors. Apply requires
+`apply=true`, `dry_run=false`, an `authority.actor`, and an authority token such
+as `user_confirmed`, `admin_repair`, or the specific `allowed_authority` named
+by the action policy.
+
+Use `remove_beads` to prune mistaken memory from active recall, and
+`remove_source` for source-deletion cleanup. Source cleanup accepts
+`targets.source.selector` for strong matching identifiers (`document_id`,
+`source_ref`, `ragie_document_id`, `raw_source_object_id`, `hydration_ref`,
+`core_memory_unifying_id`) and `targets.source.metadata` for audit-only fields;
+flat legacy source payloads treat only strong identifiers as selectors.
+Supplying an `idempotency_key` on destructive applies enables replay/conflict
+protection.
+
+Layer-aware actions are intentionally narrow: use `myelination_status` and
+`refresh_myelination` for Myelination; `list_dreamer_candidates` and
+`decide_dreamer_candidate` for Dreamer decisions; `propose_soul_update`,
+`approve_soul_update`, `reject_soul_update`, `inspect_soul`, and `soul_history`
+for SOUL. SOUL actions write structured revision records, not markdown directly.
+Association proposal application requires `append_judged_association` authority
+and judge provenance (`judge_model`, `prompt_version`, `rubric_version`,
+`truth_basis`). Correction actions (`correct_memory`, `mark_outdated`,
+`supersede_memory`, `deactivate_association`, `request_re_review`) are
+non-destructive graph governance operations; association deactivation appends a
+retraction event and queues Myelination refresh.
 
 Removal is not raw file mutation: Core Memory removes beads and attached
 associations from active projections, appends tombstone events for rebuild
-integrity, and marks retrieval/trace indexes dirty. Never use `maintain` to
-rewrite bead content, erase audit history, or turn model inference into human
-authority without an approval path.
+integrity, retracts configured projections, and marks retrieval/trace indexes
+dirty. Never use `maintain` to rewrite bead content, erase audit history, write
+Myelination rewards directly, materialize Dreamer findings outside the decision
+path, or turn model inference into human authority without an approval path.
 <!-- tool:maintain:end -->
 
 <!-- tool:status:start -->

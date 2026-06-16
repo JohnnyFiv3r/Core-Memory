@@ -169,9 +169,9 @@
       "authRequired": "conditional",
       "requestSchema": "RemoveBeadsRequest",
       "requiredFields": ["bead_ids|bead_id", "reason"],
-      "notes": ["Defaults to dry-run preview. Active removal requires apply=true, dry_run=false, and confirmed or authorized authority.", "Removes beads from active projection, prunes attached associations, appends bead_removed tombstones, and marks retrieval/trace indexes dirty."],
-      "response": {"ok": "bool", "contract": "core_memory.remove_beads.v1", "applied": "bool", "removed_count": "int?", "removed_bead_ids": "array?"},
-      "errors": ["400 remove_beads_requires_bead_ids", "400 remove_beads_requires_reason", "400 remove_beads_requires_confirmed_or_authorized_actor", "401 unauthorized", "400 invalid_tenant_id"]
+      "notes": ["Defaults to dry-run preview. Active removal requires apply=true, dry_run=false, and confirmed or authorized authority.", "Removes beads from active projection, prunes attached associations, appends bead_removed tombstones, retracts configured projections, and marks retrieval/trace indexes dirty.", "Supplying idempotency_key on apply enables original-result replay or idempotency_key_conflict for changed fingerprints."],
+      "response": {"ok": "bool", "contract": "core_memory.remove_beads.v1", "applied": "bool", "removed_count": "int?", "removed_bead_ids": "array?", "projection_retry": "object?"},
+      "errors": ["400 remove_beads_requires_bead_ids", "400 remove_beads_requires_reason", "400 remove_beads_requires_confirmed_or_authorized_actor", "400 idempotency_key_conflict", "401 unauthorized", "400 invalid_tenant_id"]
     },
     {
       "method": "POST",
@@ -179,9 +179,9 @@
       "authRequired": "conditional",
       "requestSchema": "RemoveSourceRequest",
       "requiredFields": ["source"],
-      "notes": ["For source-object/file deletion cleanup. Source selector must include a strong identifier such as document_id, source_ref, ragie_document_id, raw_source_object_id, hydration_ref, or core_memory_unifying_id.", "Event-hook authority may apply source cleanup without interactive user confirmation.", "limit bounds preview rows only; apply=true with dry_run=false removes every matching bead and reports matched_total/truncated/remaining_count."],
-      "response": {"ok": "bool", "contract": "core_memory.remove_source.v1", "applied": "bool", "matched_count": "int", "matched_total": "int", "preview_count": "int", "truncated": "bool", "remaining_count": "int", "removed_count": "int?"},
-      "errors": ["400 source_selector_required", "400 source_selector_requires_strong_identifier", "400 remove_source_requires_event_hook_or_authorized_actor", "401 unauthorized", "400 invalid_tenant_id"]
+      "notes": ["For source-object/file deletion cleanup. Source selector must include a strong identifier such as document_id, source_ref, ragie_document_id, raw_source_object_id, hydration_ref, or core_memory_unifying_id.", "Use source.selector for matching and source.metadata for audit-only metadata. Flat legacy source objects match only strong selector keys; extra fields are preserved as metadata.", "Event-hook authority may apply source cleanup without interactive user confirmation.", "limit bounds preview rows only; apply=true with dry_run=false removes every matching bead and reports matched_total/truncated/remaining_count."],
+      "response": {"ok": "bool", "contract": "core_memory.remove_source.v1", "applied": "bool", "matched_count": "int", "matched_total": "int", "preview_count": "int", "truncated": "bool", "remaining_count": "int", "removed_count": "int?", "source_metadata": "object?"},
+      "errors": ["400 source_selector_required", "400 source_selector_requires_strong_identifier", "400 remove_source_requires_event_hook_or_authorized_actor", "400 idempotency_key_conflict", "401 unauthorized", "400 invalid_tenant_id"]
     },
     {
       "method": "POST",
@@ -189,9 +189,9 @@
       "authRequired": "conditional",
       "requestSchema": "MaintainRequest",
       "requiredFields": ["action"],
-      "notes": ["Unified governed facade for agent control-plane management. Supports remove_beads, remove_source, approval actions, queue ops, session lifecycle, association dispatch, and Dreamer/entity proposal actions.", "Destructive or mutating actions preview by default unless apply=true and dry_run=false."],
-      "response": {"ok": "bool", "contract": "core_memory.maintain.v1", "action": "string", "status": "string?", "applied": "bool?"},
-      "errors": ["400 unsupported_maintain_action", "400 maintain_action_required", "401 unauthorized", "400 invalid_tenant_id"]
+      "notes": ["Unified governed facade for agent control-plane management. Supports remove_beads, remove_source, approval actions, queue ops, session lifecycle, association dispatch, Dreamer/entity proposal actions, SOUL revision actions, Myelination status/refresh, and correction actions.", "Destructive or mutating actions preview by default unless apply=true and dry_run=false. Dry-run previews run the same schema/authority preflight and return required_authority, authority_ok, and validation_errors.", "apply_association_proposals requires append_judged_association authority and judge provenance. Dreamer decisions route through candidate APIs; SOUL actions route through the structured revision store."],
+      "response": {"ok": "bool", "contract": "core_memory.maintain.v1", "action": "string", "status": "string?", "applied": "bool?", "required_authority": "array?", "authority_ok": "bool?", "validation_errors": "array?"},
+      "errors": ["400 unsupported_maintain_action", "400 maintain_action_required", "400 maintain_authority_required", "400 maintain_validation_failed", "401 unauthorized", "400 invalid_tenant_id"]
     },
     {
       "method": "GET",
@@ -208,7 +208,7 @@
       "authRequired": "conditional",
       "requestSchema": "AsyncJobsEnqueueRequest",
       "requiredFields": ["kind"],
-      "notes": ["kind supports: semantic-rebuild, compaction, dreamer-run, neo4j-sync, health-recompute, association-pass"],
+      "notes": ["kind supports: semantic-rebuild, compaction, dreamer-run, neo4j-sync, health-recompute, association-pass, myelination-update, data-insight-poll, bead-retraction"],
       "response": {"ok": "bool", "schema_version": "core_memory.async_jobs.v1", "kind": "string", "queue": "object", "status": "object"},
       "errors": ["400 unknown_kind", "401 unauthorized", "400 invalid_tenant_id"]
     },

@@ -138,7 +138,7 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "maintain": {
-        "description": "Unified governed maintenance facade for memory management, cleanup, async ops, association, and review actions.",
+        "description": "Unified governed maintenance facade for approvals, cleanup, async ops, association review, Dreamer decisions, SOUL revisions, Myelination refresh, and correction actions. Dry-run previews report required_authority, authority_ok, and validation_errors.",
         "input": {
             "type": "object",
             "properties": {

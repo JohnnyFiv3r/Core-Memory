@@ -19,7 +19,7 @@ from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 _SIDE_EFFECT_KINDS = {
     "dreamer-run", "neo4j-sync", "health-recompute",
     "turn-enrichment", "graphiti-episode-add", "myelination-update",
-    "data-insight-poll", "association-pass",
+    "data-insight-poll", "association-pass", "bead-retraction",
 }
 _CLAIM_LEASE_SECONDS = 120
 
@@ -529,6 +529,20 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "enabled": bool(manifest.get("enabled")),
             "stats": dict(manifest.get("stats") or {}),
             "manifest_path": str(manifest_path),
+        }
+
+    if k == "bead-retraction":
+        from core_memory.persistence.store_management_ops import retry_bead_retraction
+
+        out = retry_bead_retraction(
+            root=root,
+            bead_ids=[str(x) for x in (p.get("bead_ids") or []) if str(x).strip()],
+        )
+        return {
+            "ok": bool(out.get("ok")),
+            "kind": k,
+            "result": out,
+            "error": {"code": "bead_retraction_retry_failed", "result": out} if not bool(out.get("ok")) else None,
         }
 
     return {
