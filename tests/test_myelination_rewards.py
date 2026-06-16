@@ -115,11 +115,14 @@ class TestSupportingEdgeDerivation(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(root=td)
             ev = store.add_bead(type="evidence", title="Metric spiked", summary=["s"], supports_bead_ids=["x"], detail="d", session_id="s1")
+            prior = store.add_bead(type="evidence", title="Prior decision", summary=["s"], detail="d", session_id="s1")
             dec = store.add_bead(type="decision", title="Cut the vendor", summary=["s"], because=["cost"], detail="d", session_id="s1")
             store.link(ev, dec, "supports")
+            store.link(prior, dec, "leads_to")
             store.link(dec, ev, "associated_with")  # non-evidential, must be ignored
             eks = supporting_edge_keys_for_bead(td, dec)
             self.assertIn(f"{ev}|supports|{dec}", eks)
+            self.assertIn(f"{prior}|led_to|{dec}", eks)
             self.assertNotIn(f"{dec}|associated_with|{ev}", eks)
 
 

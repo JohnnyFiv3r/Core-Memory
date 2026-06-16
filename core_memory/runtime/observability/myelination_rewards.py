@@ -31,19 +31,13 @@ from core_memory.runtime.observability.retrieval_feedback import (
     _parse_since,
     read_retrieval_feedback,
 )
-from core_memory.schema.normalization import normalize_relation_type
+from core_memory.schema.normalization import EVIDENTIAL_RELATION_TYPES, is_evidential_relation, normalize_relation_type
 
 REWARD_EVENT_SCHEMA = "myelination_reward_event.v1"
 
 # Evidential relationships whose incident associations count as a bead's
 # concrete supporting edges (PRD §9.3).
-EVIDENTIAL_RELATIONSHIPS = {
-    "supports",
-    "derived_from",
-    "caused_by",
-    "resolves",
-    "led_to",
-}
+EVIDENTIAL_RELATIONSHIPS = set(EVIDENTIAL_RELATION_TYPES)
 
 _VALID_SOURCE_TYPES = {
     "retrieval_feedback",
@@ -125,7 +119,7 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
         if not isinstance(assoc, dict):
             continue
         rel = normalize_relation_type(assoc.get("relationship"))
-        if rel not in EVIDENTIAL_RELATIONSHIPS:
+        if not is_evidential_relation(rel):
             continue
         src = str(assoc.get("source_bead") or "").strip()
         dst = str(assoc.get("target_bead") or "").strip()

@@ -288,9 +288,54 @@ DERIVED_RELATION_TYPES = {
 # Legacy relation aliases -> canonical relation vocabulary.
 RELATION_TYPE_ALIASES = {
     "causes": "caused_by",
+    "cause": "caused_by",
+    "leads_to": "led_to",
+    "leads to": "led_to",
+    "lead_to": "led_to",
+    "leads-to": "led_to",
+    "blocks": "blocked_by",
+    "blocked": "blocked_by",
+    "unblock": "unblocks",
+    "unblocked": "unblocks",
+    "enabled": "enables",
+    "conflicts_with": "contradicts",
+    "related_to": "associated_with",
     "blocks→unblocks": "blocks_unblocks",
     "blocks->unblocks": "blocks_unblocks",
+    "blocks_unblock": "blocks_unblocks",
+    "block_unblock": "blocks_unblocks",
 }
+
+# Shared relation-family groupings. These are helper classifications over the
+# existing canonical relation vocabulary; they are not storage migrations.
+CAUSAL_RELATION_TYPES = frozenset({
+    "caused_by",
+    "led_to",
+    "resolves",
+    "diagnoses",
+})
+EVIDENTIAL_RELATION_TYPES = frozenset({
+    "supports",
+    "derived_from",
+    "caused_by",
+    "led_to",
+    "resolves",
+})
+INFLUENCE_RELATION_TYPES = frozenset({
+    "blocked_by",
+    "unblocks",
+    "blocks_unblocks",
+    "enables",
+})
+CONFLICT_RELATION_TYPES = frozenset({
+    "contradicts",
+    "invalidates",
+    "violates_pattern_of",
+})
+REPORTING_EVIDENCE_RELATION_TYPES = frozenset({
+    "documented_by",
+    "informed_by",
+})
 
 # Inference surface canonical relationship set.
 # Allow the full canonical structural relation vocabulary so agent-authored
@@ -367,6 +412,35 @@ def relation_kind(value: str | None) -> str:
     if r in DERIVED_RELATION_TYPES:
         return "derived"
     return "unknown"
+
+
+def relation_family(value: str | None) -> str:
+    r = normalize_relation_type(value)
+    if r in CAUSAL_RELATION_TYPES:
+        return "causal"
+    if r in EVIDENTIAL_RELATION_TYPES or r in REPORTING_EVIDENCE_RELATION_TYPES:
+        return "evidence"
+    if r in INFLUENCE_RELATION_TYPES:
+        return "influence"
+    if r in CONFLICT_RELATION_TYPES:
+        return "conflict"
+    if r in {"follows", "precedes"}:
+        return "temporal"
+    if r in {"supersedes", "superseded_by", "refines"}:
+        return "revision"
+    if r in CANONICAL_RELATION_TYPES:
+        return "structural"
+    if r in DERIVED_RELATION_TYPES:
+        return "derived"
+    return "related"
+
+
+def is_causal_relation(value: str | None) -> bool:
+    return normalize_relation_type(value) in CAUSAL_RELATION_TYPES
+
+
+def is_evidential_relation(value: str | None) -> bool:
+    return normalize_relation_type(value) in EVIDENTIAL_RELATION_TYPES
 
 
 # Agent-facing relation types: canonical minus derived helper tags
