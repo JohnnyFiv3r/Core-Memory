@@ -186,9 +186,10 @@ them. Receipts include:
 - `association_state`
 - `association_queued`
 
-`association_state` may be `pending_judge` or `judge_failed` when no judge has
-completed. These states mean the bead was written but graph association
-coverage is not yet complete; they must not be treated as `linked`.
+`association_state` is `pending_judge` when no judge is configured yet, and may
+be `judge_failed` when a configured judge errors. These states mean the bead was
+written but graph association coverage is not yet complete; they must not be
+treated as `linked`.
 
 Replayed `already_exists` events do not enqueue another association run. Changed
 source-object versions still write the new bead and let coverage generate

@@ -917,7 +917,10 @@ def _apply_judge_result(
 
     reviewed = [x for x in (judge_result.get("reviewed_beads") or []) if isinstance(x, dict)]
     for row in reviewed:
-        mark(_clean_str(row.get("bead_id")), row.get("association_state"))
+        reviewed_state = _decision_state(row.get("association_state"))
+        if reviewed_state == "linked":
+            continue
+        mark(_clean_str(row.get("bead_id")), reviewed_state)
 
     decisions = [x for x in (judge_result.get("decisions") or []) if isinstance(x, dict)]
     new_associations = [x for x in (judge_result.get("new_associations") or []) if isinstance(x, dict)]
@@ -1396,6 +1399,47 @@ def run_association_coverage(
     )
     try:
         judge_result = _invoke_association_judge(judge_context, judge=judge)
+    except AssociationJudgeUnavailable as exc:
+        state_by_bead = {bid: "pending_judge" for bid in eligible_ids}
+        state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
+        out = {
+            "ok": True,
+            "contract": "memory.association_run.v1",
+            "run_id": run_id_final,
+            "status": "pending_judge",
+            "trigger": trigger_n,
+            "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+            "prompt_version": prompt_v,
+            "rubric_version": rubric_v,
+            "graph_revision": graph_rev,
+            "session_id": _clean_str(session_id),
+            "bead_ids": eligible_ids,
+            "skipped_bead_ids": skipped_ids,
+            "association_state_by_bead": state_by_bead,
+            "candidate_count": len(candidates),
+            "counts": {
+                "appended": 0,
+                "deduped": 0,
+                "quarantined": 0,
+                "failed": 0,
+                "pending_judge": len(eligible_ids),
+                "skipped": len(skipped_ids),
+            },
+            "warning": _clean_str(exc),
+        }
+        _append_judge_decision_record(
+            root,
+            {
+                "contract": ASSOCIATION_JUDGE_CONTRACT,
+                "run_id": run_id_final,
+                "status": "pending_judge",
+                "warning": _clean_str(exc),
+                "candidate_ids": [_clean_str(c.get("candidate_id")) for c in candidates],
+                "source_bead_ids": eligible_ids,
+            },
+        )
+        _append_run_record(root, out)
+        return out
     except Exception as exc:
         state_by_bead = {bid: "judge_failed" for bid in eligible_ids}
         state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
@@ -1450,19 +1494,25 @@ def run_association_coverage(
     state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
     failed = int(applied.get("failed") or 0)
     quarantined = int(applied.get("quarantined") or 0)
-    status = "quarantined" if quarantined else ("failed" if failed else "completed")
+    unresolved_ids = [bid for bid in eligible_ids if state_by_bead.get(bid) == "pending_judge"]
+    errors = list(applied.get("errors") or [])
+    for bid in unresolved_ids:
+        errors.append({"code": "unresolved_judge_decision", "bead_id": bid})
+    effective_failed = failed + len(unresolved_ids)
+    status = "quarantined" if quarantined else ("failed" if effective_failed else "completed")
     counts = {
         "accepted": int(applied.get("accepted") or 0),
         "rejected": int(applied.get("rejected") or 0),
         "appended": int(applied.get("appended") or 0),
         "deduped": int(applied.get("deduped") or 0),
         "quarantined": quarantined,
-        "failed": failed,
+        "failed": effective_failed,
+        "pending_judge": len(unresolved_ids),
         "skipped": len(skipped_ids),
         "candidates": len(candidates),
     }
     out = {
-        "ok": failed == 0 and quarantined == 0,
+        "ok": effective_failed == 0 and quarantined == 0,
         "contract": "memory.association_run.v1",
         "run_id": run_id_final,
         "status": status,
@@ -1480,7 +1530,7 @@ def run_association_coverage(
         "judge_model": _clean_str(applied.get("judge_model")),
         "grounding_hash": _clean_str(applied.get("grounding_hash")),
         "counts": counts,
-        "errors": list(applied.get("errors") or []),
+        "errors": errors,
     }
     _append_run_record(root, out)
     return out

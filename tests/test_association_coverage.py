@@ -134,6 +134,19 @@ class InvalidFakeAssociationJudge:
         }
 
 
+class PartialFakeAssociationJudge:
+    def review(self, context):
+        return {
+            "contract": "memory.association_judge.v1",
+            "run_id": context["run_id"],
+            "judge_model": "fake-partial",
+            "prompt_version": context["prompt_version"],
+            "rubric_version": context["rubric_version"],
+            "decisions": [],
+            "reviewed_beads": [],
+        }
+
+
 def _document_payload(**overrides):
     payload = {
         "title": "Vendor Contract",
@@ -185,7 +198,7 @@ class TestAssociationCoverage(unittest.TestCase):
 
             self.assertEqual("accepted", whole["status"])
             self.assertEqual("accepted", section["status"])
-            self.assertEqual("judge_failed", section["association_state"])
+            self.assertEqual("pending_judge", section["association_state"])
             self.assertEqual([], _assocs(td, "part_of"))
 
             judged = run_association_coverage(
@@ -247,12 +260,16 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertTrue(enq.get("ok"), enq)
             ran = run_async_jobs(td, run_semantic=False, max_compaction=0, max_side_effects=5)
             self.assertTrue(ran.get("ok"), ran)
+            side_effect = ran.get("side_effect_run") or {}
+            self.assertEqual(1, side_effect.get("processed"), ran)
+            self.assertEqual(0, side_effect.get("failed"), ran)
+            self.assertEqual(0, side_effect.get("queue_depth"), ran)
             self.assertEqual([], _assocs(td, "follows"))
             candidate_rows = _jsonl_rows(td, "association-candidates.jsonl")
             self.assertTrue(candidate_rows)
             latest = get_association_run(td, (candidate_rows[-1] or {}).get("run_id"))
             self.assertTrue(latest.get("ok"), latest)
-            self.assertIn("judge_failed", (latest.get("run") or {}).get("status", ""))
+            self.assertEqual("pending_judge", (latest.get("run") or {}).get("status"))
 
             rerun = run_association_coverage(
                 td,
@@ -349,6 +366,26 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual("quarantined", out.get("status"))
             self.assertEqual([], _assocs(td, "not_a_relation"))
             self.assertTrue((Path(td) / ".beads" / "events" / "association-quarantine.jsonl").exists())
+
+    def test_partial_judge_result_fails_run_with_pending_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+                judge=PartialFakeAssociationJudge(),
+            )
+            self.assertFalse(out.get("ok"), out)
+            self.assertEqual("failed", out.get("status"))
+            self.assertEqual("pending_judge", (out.get("association_state_by_bead") or {}).get(second))
+            self.assertEqual(1, (out.get("counts") or {}).get("pending_judge"))
+            self.assertEqual(1, (out.get("counts") or {}).get("failed"))
+            self.assertIn("unresolved_judge_decision", json.dumps(out.get("errors") or []))
 
     def test_association_proposals_append_valid_and_quarantine_invalid(self):
         with tempfile.TemporaryDirectory() as td:
@@ -474,8 +511,8 @@ class TestAssociationCoverage(unittest.TestCase):
             )
             self.assertEqual(200, created.status_code)
             data = created.json()
-            self.assertFalse(data.get("ok"), data)
-            self.assertEqual("judge_failed", data.get("status"))
+            self.assertTrue(data.get("ok"), data)
+            self.assertEqual("pending_judge", data.get("status"))
             run_id = data.get("run_id")
 
             fetched = client.get(f"/v1/memory/association-runs/{run_id}", params={"root": root})
@@ -485,7 +522,7 @@ class TestAssociationCoverage(unittest.TestCase):
             inspect = client.get(f"/v1/memory/inspect/beads/{second}", params={"root": root})
             self.assertEqual(200, inspect.status_code)
             coverage = ((inspect.json().get("bead") or {}).get("association_coverage") or {})
-            self.assertEqual("judge_failed", coverage.get("state"))
+            self.assertEqual("pending_judge", coverage.get("state"))
 
     def test_on_bead_committed_store_hook_records_deferred_coverage(self):
         with tempfile.TemporaryDirectory() as td:
