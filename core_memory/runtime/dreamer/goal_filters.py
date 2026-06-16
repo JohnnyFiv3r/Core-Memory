@@ -2,8 +2,9 @@
 
 A single definition of "active, non-terminal goal" used by goal decay, goal
 discovery, and future-projection convergence — so they all exclude resolved /
-promoted / rejected / superseded goals identically (honoring every promotion
-encoding via current_promotion_state).
+completed / abandoned / promoted / rejected / superseded goals identically
+(honoring every promotion encoding via current_promotion_state and Goal
+Lifecycle v2 terminal states).
 """
 from __future__ import annotations
 
@@ -11,19 +12,24 @@ from typing import Any
 
 from core_memory.policy.promotion_contract import current_promotion_state
 
-_INACTIVE_GOAL_STATUSES = {"superseded", "archived", "resolved"}
+# Terminal lifecycle states (Goal Lifecycle v2) — exclude from active objectives.
+# `decaying` is intentionally NOT terminal: it is still an open objective, only
+# flagged as weakening.
+_INACTIVE_GOAL_STATUSES = {"superseded", "archived", "resolved", "completed", "abandoned"}
+_TERMINAL_GOAL_STATUSES = {"resolved", "completed", "abandoned"}
 
 
 def is_active_goal(bead: dict[str, Any]) -> bool:
     """True iff ``bead`` is a goal that is still an open objective — not
-    superseded/archived, not resolved, not promoted, not rejected."""
+    superseded/archived, not terminal (resolved/completed/abandoned), not
+    promoted, not rejected."""
     if not isinstance(bead, dict):
         return False
     if str(bead.get("type") or "").strip().lower() != "goal":
         return False
     if str(bead.get("status") or "").strip().lower() in _INACTIVE_GOAL_STATUSES:
         return False
-    if str(bead.get("goal_status") or "").strip().lower() == "resolved":
+    if str(bead.get("goal_status") or "").strip().lower() in _TERMINAL_GOAL_STATUSES:
         return False
     if str(bead.get("promotion_state") or "").strip().lower() == "resolved":
         return False

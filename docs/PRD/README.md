@@ -58,9 +58,8 @@ the older entries above.
 | Dreamer §15 — identity / value research (`value_candidate`, `identity_divergence_candidate` → IDENTITY.md via bridge) | ✅ Shipped (#221) |
 | Dreamer §16.1 — geometry / continuity projection (read-only manifest + `GET /v1/dreamer/geometry`) | ✅ Shipped |
 | SOUL §8.3 / §13.5 — integrity check + auto-safe repair (`/v1/soul/integrity/check\|repair`) | ✅ Shipped |
+| SOUL §6.0 — Goal Lifecycle v2 core (states `endorsed/active/completed/abandoned/decaying` + validated transitions) | ✅ Shipped |
 
-_Dreamer V3 + SOUL §15/§16.1 are complete. **Remaining SOUL scope:** the
-**Goal Lifecycle v2** shared dependency (goal states `endorsed/active/completed/
-abandoned/decaying`, §6.0) and the SOUL goal-hierarchy endpoints
-(`/v1/soul/goals/*`, §13.3) that depend on it; plus the `apply-update` alias
-(§13.2)._
+_Dreamer V3 + SOUL §15/§16.1 are complete. **Remaining SOUL scope:** the SOUL
+goal-hierarchy endpoints (`/v1/soul/goals/*`, §13.3) built on Goal Lifecycle v2,
+and the `apply-update` alias (§13.2)._
