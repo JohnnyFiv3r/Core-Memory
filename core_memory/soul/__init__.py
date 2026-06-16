@@ -1,5 +1,6 @@
 """SOUL — agent-authored self-model (PRD: docs/PRD/soul-files.md)."""
 
+from core_memory.soul.injection import soul_injection
 from core_memory.soul.store import (
     DEFAULT_SUBJECT,
     SOUL_FILES,
@@ -22,4 +23,5 @@ __all__ = [
     "read_soul_file",
     "reject_soul_update",
     "soul_history",
+    "soul_injection",
 ]
