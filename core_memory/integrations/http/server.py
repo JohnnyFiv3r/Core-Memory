@@ -887,6 +887,25 @@ async def soul_history_endpoint(
     return soul_history(_resolve_root(root, x_tenant_id), subject=subject, limit=int(limit))
 
 
+@app.get("/v1/dreamer/geometry")
+async def dreamer_geometry(
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Serve the continuity-geometry manifest (read-only projection, §16.1).
+
+    Served from the manifest built on the Dreamer cadence — never recomputed on
+    read. When no manifest exists yet, returns ``present=false``; trigger a
+    dreamer-run to build it.
+    """
+    _check_auth(authorization, x_memory_token)
+    from core_memory.runtime.dreamer.geometry import read_geometry_manifest
+
+    return read_geometry_manifest(_resolve_root(root, x_tenant_id))
+
+
 @app.post("/v1/soul/propose-update")
 async def soul_propose_update(
     payload: SoulProposeRequest,

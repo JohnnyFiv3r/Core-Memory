@@ -160,6 +160,12 @@ def compute_assembly_depth(
 ) -> dict[str, Any]:
     """Compute Assembly Depth reports for all targets of ``target_kind``.
 
+    ``target_kind`` of ``"*"`` or ``"all"`` scores **every** bead as one
+    population (used by read-only projection surfaces such as the geometry
+    manifest); otherwise only beads of that type are scored. The formula and
+    percentile-rank normalization are identical either way — only the target
+    population widens.
+
     Returns ``{schema, target_kind, reports: [assembly_depth_report.v1...], config}``.
     Deterministic for a fixed store state.
     """
@@ -188,10 +194,14 @@ def compute_assembly_depth(
         incident_edges.setdefault(s, []).append((s, rel, d))
         incident_edges.setdefault(d, []).append((s, rel, d))
 
-    target_ids = [
-        bid for bid, b in beads.items()
-        if str(b.get("type") or "").strip().lower() == str(target_kind).strip().lower()
-    ][: max(1, int(limit))]
+    kind_n = str(target_kind).strip().lower()
+    if kind_n in {"*", "all"}:
+        target_ids = list(beads.keys())[: max(1, int(limit))]
+    else:
+        target_ids = [
+            bid for bid, b in beads.items()
+            if str(b.get("type") or "").strip().lower() == kind_n
+        ][: max(1, int(limit))]
 
     # Pull myelination edge bonuses (best-effort; empty when disabled).
     edge_bonus: dict[str, float] = {}
