@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import store_lock
-from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
+from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES, normalize_relation_type
 
 SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
@@ -578,7 +578,8 @@ def crawler_updates_to_delta(
     for row in assoc_rows:
         src = _as_str(row.get("source_bead") or row.get("source_bead_id"))
         tgt = _as_str(row.get("target_bead") or row.get("target_bead_id"))
-        rel = _as_str(row.get("relationship")).lower()
+        rel_raw = _as_str(row.get("relationship")).lower()
+        rel = normalize_relation_type(rel_raw) if rel_raw else ""
         if not src or not tgt or not rel:
             quarantine_rows.append(
                 _quarantine(
@@ -592,12 +593,12 @@ def crawler_updates_to_delta(
             continue
         if rel not in CANONICAL_DELTA_RELATIONSHIPS:
             quarantined = dict(row)
-            quarantined["relationship_raw"] = rel
+            quarantined["relationship_raw"] = rel_raw
             quarantine_rows.append(
                 _quarantine(
                     "associations",
                     quarantined,
-                    [f"noncanonical_relationship:{rel or 'empty'}"],
+                    [f"noncanonical_relationship:{rel_raw or 'empty'}"],
                     session_id=sid,
                     turn_id=tid,
                 )
@@ -624,7 +625,7 @@ def crawler_updates_to_delta(
             "source_bead_id": src,
             "target_bead_id": tgt,
             "relationship": rel,
-            "relationship_raw": _as_str(row.get("relationship_raw")) or None,
+            "relationship_raw": _as_str(row.get("relationship_raw")) or (rel_raw if rel_raw != rel else None),
             "reason_text": _as_str(row.get("reason_text") or row.get("rationale")),
             "reason_code": _as_str(row.get("reason_code")) or None,
             "evidence_fields": _str_list(row.get("evidence_fields")),

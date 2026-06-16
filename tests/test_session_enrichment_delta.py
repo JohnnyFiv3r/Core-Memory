@@ -135,6 +135,32 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
         self.assertEqual(1, delta["diagnostics"]["quarantined"])
         self.assertIn("noncanonical_relationship:shared_tag", quarantine[0]["reasons"])
 
+    def test_association_relationship_alias_normalizes_before_validation(self):
+        delta = crawler_updates_to_delta(
+            session_id="s1",
+            turn_id="t1",
+            updates={
+                "associations": [
+                    {
+                        "source_bead_id": "b2",
+                        "target_bead_id": "b1",
+                        "relationship": "leads_to",
+                        "reason_text": "The prior state led to the decision.",
+                        "confidence": 0.7,
+                    }
+                ]
+            },
+            crawler_ctx={"session_id": "s1", "visible_bead_ids": ["b1", "b2"]},
+        )
+        projected = delta_to_crawler_updates(delta)
+
+        self.assertEqual(1, len(delta["associations"]))
+        self.assertEqual(0, delta["diagnostics"]["quarantined"])
+        self.assertEqual("led_to", delta["associations"][0]["relationship"])
+        self.assertEqual("leads_to", delta["associations"][0]["relationship_raw"])
+        self.assertEqual("assoc:b2:b1:led_to", delta["associations"][0]["dedupe_key"])
+        self.assertEqual("led_to", projected["associations"][0]["relationship"])
+
     def test_association_target_outside_visible_window_is_quarantined(self):
         delta = crawler_updates_to_delta(
             session_id="s1",

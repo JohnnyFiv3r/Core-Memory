@@ -78,9 +78,13 @@ Unknown semantics should use `associated_with` or quarantine/review. Do not use
 `supports` as a fallback for unclear semantics.
 
 Accepted aliases normalize spelling variants such as `causes`, `leads_to`,
-`blocks`, `unblocked`, `enabled`, `conflicts_with`, `related_to`, and
+`blocked`, `unblocked`, `enabled`, `conflicts_with`, `related_to`, and
 `blocks->unblocks` to existing canonical values. Alias normalization never
 rewrites source/target direction.
+
+The active label `blocks` is intentionally not normalized to `blocked_by`,
+because that would invert current stored semantics without swapping endpoints.
+Use `blocked_by` with passive direction, `unblocks`, or quarantine for review.
 
 ## Derived/helper relation tags
 

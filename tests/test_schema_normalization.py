@@ -30,7 +30,8 @@ class TestSchemaNormalization(unittest.TestCase):
     def test_relation_aliases_normalize_without_direction_rewrite(self):
         self.assertEqual("caused_by", normalize_relation_type("Causes"))
         self.assertEqual("led_to", normalize_relation_type("leads_to"))
-        self.assertEqual("blocked_by", normalize_relation_type("blocks"))
+        self.assertEqual("blocks", normalize_relation_type("blocks"))
+        self.assertEqual("blocked_by", normalize_relation_type("blocked"))
         self.assertEqual("unblocks", normalize_relation_type("unblocked"))
         self.assertEqual("enables", normalize_relation_type("enabled"))
         self.assertEqual("contradicts", normalize_relation_type("conflicts_with"))

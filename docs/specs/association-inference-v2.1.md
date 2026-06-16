@@ -67,9 +67,14 @@ spelling only; it never rewrites source/target direction.
 - `supports`: source meaningfully supports target. Do not use it as a fallback
   for unknown semantics.
 
-Accepted aliases such as `causes`, `leads_to`, `blocks`, `unblocked`,
+Accepted aliases such as `causes`, `leads_to`, `blocked`, `unblocked`,
 `enabled`, `conflicts_with`, `related_to`, and `blocks->unblocks` normalize to
 the existing canonical relation labels without changing direction.
+
+The active label `blocks` is intentionally noncanonical for inference writes in
+this version. Mapping `source blocks target` to `source blocked_by target` would
+invert current Core Memory read semantics unless the system also rewrote
+endpoints, which this contract does not do.
 
 ---
 

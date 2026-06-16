@@ -293,7 +293,6 @@ RELATION_TYPE_ALIASES = {
     "leads to": "led_to",
     "lead_to": "led_to",
     "leads-to": "led_to",
-    "blocks": "blocked_by",
     "blocked": "blocked_by",
     "unblock": "unblocks",
     "unblocked": "unblocks",

@@ -5,7 +5,7 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES
+from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES, normalize_relation_type
 
 CANONICAL_INFERENCE_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
 
@@ -158,10 +158,10 @@ def validate_and_normalize_inference_payload(payload: dict[str, Any], *, mode: s
         if confidence is None:
             _append_unique(quarantine_reasons, Q_MISSING_OR_INVALID_CONFIDENCE)
 
-    normalized_relationship = relationship_raw
-    normalization_applied = False
+    normalized_relationship = normalize_relation_type(relationship_raw) if relationship_raw else ""
+    normalization_applied = bool(relationship_raw and normalized_relationship != relationship_raw)
 
-    if relationship_raw not in CANONICAL_INFERENCE_RELATIONSHIPS:
+    if normalized_relationship not in CANONICAL_INFERENCE_RELATIONSHIPS:
         reason = _noncanonical_reason(relationship_raw)
         _append_unique(warnings, f"{WARN_NONCANONICAL_PREFIX}{relationship_raw or 'empty'}")
         if mode_n == INFERENCE_MODE_STRICT:
