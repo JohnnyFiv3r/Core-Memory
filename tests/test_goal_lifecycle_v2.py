@@ -102,6 +102,52 @@ class TestCurrentGoalStatusLegacy(unittest.TestCase):
         self.assertEqual("candidate", current_goal_status({"status": "open"}))
         self.assertEqual("candidate", current_goal_status({}))
 
+    def test_legacy_raw_promotion_state_resolved_maps(self):
+        # current_promotion_state() normalizes promotion_state:"resolved" to
+        # "null"; the helper must still recognize the raw field as terminal.
+        self.assertEqual("resolved", current_goal_status({"promotion_state": "resolved"}))
+
+    def test_raw_promotion_state_resolved_blocks_transition(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            gid = _goal(store)
+            import json
+            idx_path = store.beads_dir / "index.json"
+            idx = json.loads(idx_path.read_text(encoding="utf-8"))
+            idx["beads"][gid]["promotion_state"] = "resolved"
+            idx_path.write_text(json.dumps(idx), encoding="utf-8")
+            out = transition_goal_state_for_store(store, goal_bead_id=gid, to_state="endorsed")
+            self.assertFalse(out["ok"])
+            self.assertEqual("goal_terminal", out["error"])
+            self.assertEqual("resolved", out["from_state"])
+
+
+class TestGoalHeadsSync(unittest.TestCase):
+    def _head_status(self, store, goal_id):
+        import json
+        heads = json.loads((store.beads_dir / "heads.json").read_text(encoding="utf-8"))
+        return heads.get("goals", {}).get(goal_id, {}).get("goal_status")
+
+    def test_head_reflects_transition(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            gid = _goal(store, "g1")
+            transition_goal_state_for_store(store, goal_bead_id=gid, to_state="endorsed")
+            self.assertEqual("endorsed", self._head_status(store, "g1"))
+            transition_goal_state_for_store(store, goal_bead_id=gid, to_state="active")
+            self.assertEqual("active", self._head_status(store, "g1"))
+            transition_goal_state_for_store(store, goal_bead_id=gid, to_state="completed")
+            self.assertEqual("completed", self._head_status(store, "g1"))
+
+    def test_head_preserves_bead_id_pointer(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            gid = _goal(store, "g1")
+            transition_goal_state_for_store(store, goal_bead_id=gid, to_state="endorsed")
+            import json
+            heads = json.loads((store.beads_dir / "heads.json").read_text(encoding="utf-8"))
+            self.assertEqual(gid, heads["goals"]["g1"]["bead_id"])
+
 
 class TestIsActiveGoalIntegration(unittest.TestCase):
     def test_terminal_states_excluded(self):

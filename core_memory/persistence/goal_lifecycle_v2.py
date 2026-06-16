@@ -26,6 +26,7 @@ from typing import Any
 from ..policy.promotion_contract import current_promotion_state
 from ..retrieval.lifecycle import mark_semantic_dirty
 from .io_utils import append_jsonl, store_lock
+from .store_index_heads_ops import read_heads_for_store, write_heads_for_store
 
 # Canonical goal lifecycle states.
 GOAL_STATES: frozenset[str] = frozenset(
@@ -62,7 +63,12 @@ def current_goal_status(bead: dict[str, Any]) -> str:
     gs = str(bead.get("goal_status") or "").strip().lower()
     if gs in GOAL_STATES:
         return gs
-    if str(bead.get("status") or "").strip().lower() == "resolved" or current_promotion_state(bead) == "resolved":
+    # Legacy resolved encodings: a closed status, OR a raw promotion_state of
+    # "resolved" (current_promotion_state() normalizes that to "null", so check
+    # the raw field directly — mirrors is_active_goal's terminal handling).
+    status = str(bead.get("status") or "").strip().lower()
+    raw_promotion_state = str(bead.get("promotion_state") or "").strip().lower()
+    if status == "resolved" or raw_promotion_state == "resolved" or current_promotion_state(bead) == "resolved":
         return "resolved"
     return "candidate"
 
@@ -130,6 +136,22 @@ def transition_goal_state_for_store(
 
         index["beads"][gid] = bead
         store._write_json(store.beads_dir / "index.json", index)
+
+        # Keep the goal head cache (.beads/heads.json, read by
+        # `core-memory heads --goal-id`) in sync so it doesn't report stale
+        # status until an unrelated rewrite. Update the existing head's status in
+        # place (preserving its bead_id pointer); create it if absent.
+        goal_id = str(bead.get("goal_id") or "").strip()
+        if goal_id:
+            heads = read_heads_for_store(store)
+            goals_head = heads.setdefault("goals", {})
+            existing = goals_head.get(goal_id) if isinstance(goals_head.get(goal_id), dict) else None
+            goals_head[goal_id] = {
+                "bead_id": str((existing or {}).get("bead_id") or gid),
+                "goal_status": target,
+                "updated_at": now,
+            }
+            write_heads_for_store(store, heads)
 
         append_jsonl(
             store.beads_dir / "events" / "promotion-decisions.jsonl",
