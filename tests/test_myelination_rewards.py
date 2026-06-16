@@ -14,6 +14,7 @@ from core_memory.runtime.observability.myelination_rewards import (
     emit_myelination_reward_event,
     read_reward_events,
     reward_bonus_by_edge_key,
+    reward_event_fingerprint,
     supporting_edge_keys_for_bead,
 )
 
@@ -48,17 +49,66 @@ class TestRewardEventGuardrail(unittest.TestCase):
             rows = read_reward_events(td)
             self.assertEqual(1, len(rows))
             self.assertEqual("myelination_reward_event.v1", rows[0]["schema"])
+            self.assertIn("fingerprint", rows[0])
             self.assertEqual([_edge("a", "b")], rows[0]["edge_keys"])
             self.assertFalse(rows[0]["guardrails"]["mutates_beads"])
+
+    def test_duplicate_fingerprint_dedupes(self):
+        with tempfile.TemporaryDirectory() as td:
+            first = emit_myelination_reward_event(
+                td,
+                source_type="human_approval",
+                polarity="positive",
+                edge_keys=[_edge("b", "c"), _edge("a", "b")],
+                source_event_id="approval-1",
+            )
+            second = emit_myelination_reward_event(
+                td,
+                source_type="human_approval",
+                polarity="positive",
+                edge_keys=[_edge("a", "b"), _edge("b", "c")],
+                source_event_id="approval-1",
+            )
+            self.assertTrue(first["ok"])
+            self.assertTrue(second["ok"])
+            self.assertFalse(first["deduped"])
+            self.assertTrue(second["deduped"])
+            self.assertEqual(first["event_id"], second["event_id"])
+            self.assertEqual(1, len(read_reward_events(td)))
+
+    def test_changed_polarity_or_edges_are_distinct_rewards(self):
+        with tempfile.TemporaryDirectory() as td:
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive",
+                                          edge_keys=[_edge("a", "b")], source_event_id="review-1")
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="negative",
+                                          edge_keys=[_edge("a", "b")], source_event_id="review-1")
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive",
+                                          edge_keys=[_edge("a", "c")], source_event_id="review-1")
+            self.assertEqual(3, len(read_reward_events(td)))
+
+    def test_fingerprint_normalizes_relation_and_edge_order(self):
+        a = reward_event_fingerprint(
+            source_type="Human_Approval",
+            source_event_id="evt",
+            polarity="Positive",
+            edge_keys=["b|supports|c", "a|Causes|b"],
+        )
+        b = reward_event_fingerprint(
+            source_type="human_approval",
+            source_event_id="evt",
+            polarity="positive",
+            edge_keys=["a|caused_by|b", "b|supports|c"],
+        )
+        self.assertEqual(a, b)
 
 
 class TestRewardAggregation(unittest.TestCase):
     def test_signed_sum_and_count(self):
         with tempfile.TemporaryDirectory() as td:
             ek = _edge("a", "b")
-            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04)
-            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04)
-            emit_myelination_reward_event(td, source_type="human_rejection", polarity="negative", edge_keys=[ek], strength=0.04)
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04, source_event_id="evt-1")
+            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04, source_event_id="evt-2")
+            emit_myelination_reward_event(td, source_type="human_rejection", polarity="negative", edge_keys=[ek], strength=0.04, source_event_id="evt-3")
             agg = reward_bonus_by_edge_key(td)
             self.assertAlmostEqual(0.04, agg[ek]["bonus"], places=6)  # 0.04+0.04-0.04
             self.assertEqual(3, agg[ek]["count"])
@@ -79,8 +129,8 @@ class TestFusionIntoManifest(unittest.TestCase):
     def test_cap_clamped(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
             ek = _edge("a", "b")
-            for _ in range(10):
-                emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04)
+            for i in range(10):
+                emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.04, source_event_id=f"evt-{i}")
             m = compute_myelination_bonus_map(td)
             # 10 * 0.04 = 0.4, clamped to pos_cap default 0.12
             self.assertAlmostEqual(0.12, m["bonus_by_edge_key"][ek], places=6)
@@ -184,6 +234,7 @@ class TestApprovalProducesReward(unittest.TestCase):
             dec = store.add_bead(type="decision", title="Switch vendor", summary=["s"], because=["cost"], detail="d", session_id="s1")
             store.link(ev, dec, "supports")
             store.approve(dec, approver="john")
+            store.approve(dec, approver="john")
             rows = read_reward_events(td)
             self.assertEqual(1, len(rows))
             self.assertEqual("human_approval", rows[0]["source_type"])
@@ -199,7 +250,9 @@ class TestApprovalProducesReward(unittest.TestCase):
             dec = store.add_bead(type="context", title="Spurious link", summary=["s"], session_id="s1")
             store.link(ev, dec, "supports")
             store.reject(dec, approver="john", reason="noise")
+            store.reject(dec, approver="john", reason="noise")
             rows = read_reward_events(td)
+            self.assertEqual(1, len(rows))
             self.assertEqual("negative", rows[0]["polarity"])
             self.assertEqual("human_rejection", rows[0]["source_type"])
             m = compute_myelination_bonus_map(td)
@@ -211,6 +264,7 @@ class TestApprovalProducesReward(unittest.TestCase):
             ev = store.add_bead(type="evidence", title="Receipt", summary=["s"], detail="d", session_id="s1")
             dec = store.add_bead(type="decision", title="Refund issued", summary=["s"], because=["policy"], detail="d", session_id="s1")
             store.link(ev, dec, "supports")
+            confirm_bead(td, dec)
             confirm_bead(td, dec)
             rows = read_reward_events(td)
             self.assertEqual(1, len(rows))
@@ -244,6 +298,8 @@ class TestGoalResolutionReward(unittest.TestCase):
             store.link(outcome, goal, "resolves")
             out = reward_goal_resolution(td, goal_bead_id=goal, outcome_bead_id=outcome)
             self.assertTrue(out["ok"])
+            again = reward_goal_resolution(td, goal_bead_id=goal, outcome_bead_id=outcome)
+            self.assertTrue(again["deduped"])
             rows = read_reward_events(td)
             self.assertEqual(1, len(rows))
             self.assertEqual("goal_resolution", rows[0]["source_type"])
@@ -416,6 +472,9 @@ class TestClaimConflictReward(unittest.TestCase):
             out = reward_claim_conflict_resolution(td, resolution="prefer_a", claim_a_id="ca", claim_b_id="cb")
             self.assertTrue(out["ok"])
             self.assertEqual(2, out["emitted"])
+            again = reward_claim_conflict_resolution(td, resolution="prefer_a", claim_a_id="ca", claim_b_id="cb")
+            self.assertTrue(again["ok"])
+            self.assertEqual(2, len(read_reward_events(td)))
             m = compute_myelination_bonus_map(td)
             self.assertGreater(m["bonus_by_edge_key"].get(f"{ev_a}|supports|{bead_a}", 0.0), 0.0)
             self.assertLess(m["bonus_by_edge_key"].get(f"{ev_b}|supports|{bead_b}", 0.0), 0.0)

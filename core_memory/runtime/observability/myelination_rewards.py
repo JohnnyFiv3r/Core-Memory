@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import os
 import uuid
+import hashlib
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -99,6 +100,61 @@ def _read_index(root: str | Path) -> dict[str, Any]:
         return json.loads(p.read_text(encoding="utf-8"))
     except Exception:
         return {}
+
+
+def _normalize_edge_key(edge_key: Any) -> str:
+    raw = str(edge_key or "").strip()
+    if not raw:
+        return ""
+    parts = raw.split("|")
+    if len(parts) != 3:
+        return raw
+    src = parts[0].strip()
+    rel = normalize_relation_type(parts[1])
+    dst = parts[2].strip()
+    if not src or not rel or not dst:
+        return raw
+    return _edge_key(src, dst, rel)
+
+
+def _normalized_edge_keys(edge_keys: list[str]) -> list[str]:
+    return sorted({k for k in (_normalize_edge_key(x) for x in edge_keys or []) if k})
+
+
+def reward_event_fingerprint(
+    *,
+    source_type: str,
+    source_event_id: str,
+    polarity: str,
+    edge_keys: list[str],
+) -> str:
+    """Deterministic idempotency fingerprint for audited reward events."""
+    payload = {
+        "source_type": str(source_type or "").strip().lower(),
+        "source_event_id": str(source_event_id or "").strip(),
+        "polarity": str(polarity or "").strip().lower(),
+        "edge_keys": _normalized_edge_keys(edge_keys),
+    }
+    blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+    return "mrfp-" + hashlib.sha256(blob.encode("utf-8")).hexdigest()
+
+
+def _read_reward_events_unbounded(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as f:
+        for line in f:
+            raw = line.strip()
+            if not raw:
+                continue
+            try:
+                row = json.loads(raw)
+            except Exception:
+                continue
+            if isinstance(row, dict) and row.get("schema") == REWARD_EVENT_SCHEMA:
+                rows.append(row)
+    return rows
 
 
 def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_recall_trace: bool = True) -> list[str]:
@@ -192,7 +248,7 @@ def emit_myelination_reward_event(
     no concrete edge keys (the edge-only guardrail) — the caller should record a
     governance event separately if it needs an audit trail.
     """
-    eks = [str(k).strip() for k in (edge_keys or []) if str(k).strip()]
+    eks = _normalized_edge_keys([str(k).strip() for k in (edge_keys or []) if str(k).strip()])
     if not eks:
         return {"ok": False, "skipped": "no_concrete_edges"}
 
@@ -206,13 +262,21 @@ def emit_myelination_reward_event(
 
     default_strength = _float_env("CORE_MEMORY_MYELINATION_REWARD_STRENGTH", 0.04)
     s = abs(float(strength)) if strength is not None else default_strength
+    source_event_id_final = str(source_event_id or "").strip()
+    fingerprint = reward_event_fingerprint(
+        source_type=st,
+        source_event_id=source_event_id_final,
+        polarity=pol,
+        edge_keys=eks,
+    )
 
     row = {
         "schema": REWARD_EVENT_SCHEMA,
         "id": f"mr-{uuid.uuid4().hex[:12]}",
         "created_at": _now(),
         "source_type": st,
-        "source_event_id": str(source_event_id or ""),
+        "source_event_id": source_event_id_final,
+        "fingerprint": fingerprint,
         "polarity": pol,
         "strength": round(float(s), 6),
         "edge_keys": eks,
@@ -231,8 +295,25 @@ def emit_myelination_reward_event(
 
     path = _rewards_path(root)
     with store_lock(Path(root)):
+        for existing in _read_reward_events_unbounded(path):
+            existing_fingerprint = str(existing.get("fingerprint") or "").strip()
+            if not existing_fingerprint:
+                existing_fingerprint = reward_event_fingerprint(
+                    source_type=str(existing.get("source_type") or ""),
+                    source_event_id=str(existing.get("source_event_id") or ""),
+                    polarity=str(existing.get("polarity") or ""),
+                    edge_keys=[str(x) for x in (existing.get("edge_keys") or []) if str(x).strip()],
+                )
+            if existing_fingerprint == fingerprint:
+                return {
+                    "ok": True,
+                    "deduped": True,
+                    "event_id": str(existing.get("id") or ""),
+                    "edge_count": len(eks),
+                    "fingerprint": fingerprint,
+                }
         append_jsonl(path, row)
-    return {"ok": True, "event_id": row["id"], "edge_count": len(eks)}
+    return {"ok": True, "deduped": False, "event_id": row["id"], "edge_count": len(eks), "fingerprint": fingerprint}
 
 
 def reward_for_bead_decision(
@@ -256,7 +337,7 @@ def reward_for_bead_decision(
         source_type=source_type,
         polarity=polarity,
         edge_keys=eks,
-        source_event_id=source_event_id,
+        source_event_id=str(source_event_id or "").strip() or str(bead_id),
         supporting_bead_ids=[str(bead_id)],
         reason=reason,
     )
@@ -316,7 +397,7 @@ def reward_goal_resolution(
         source_type="goal_resolution",
         polarity="positive",
         edge_keys=[_edge_key(oid, gid, "resolves")],
-        source_event_id=source_event_id,
+        source_event_id=str(source_event_id or "").strip() or f"goal_resolution:{oid}:{gid}",
         supporting_bead_ids=[oid, gid],
         reason="goal resolved",
     )
@@ -361,7 +442,7 @@ def reward_dreamer_candidate_decision(
         source_type="dreamer_candidate_decision",
         polarity="positive" if decision_n == "accept" else "negative",
         edge_keys=[_edge_key(src, dst, rel)],
-        source_event_id=str(cand.get("id") or ""),
+        source_event_id=str(cand.get("id") or "").strip() or f"dreamer_candidate:{src}:{rel}:{dst}:{decision_n}",
         supporting_candidate_ids=[str(cand.get("id") or "")],
         reason=f"dreamer candidate {decision_n}",
     )
@@ -417,6 +498,10 @@ def reward_claim_conflict_resolution(
 
     pol_a, pol_b = polarity
     emitted = 0
+    source_event_id_final = (
+        str(source_event_id or "").strip()
+        or f"claim_conflict:{res}:{str(claim_a_id or '').strip()}:{str(claim_b_id or '').strip()}"
+    )
     for claim_id, pol in ((str(claim_a_id or ""), pol_a), (str(claim_b_id or ""), pol_b)):
         carrier = carrier_by_claim.get(claim_id, "")
         if not carrier:
@@ -434,7 +519,7 @@ def reward_claim_conflict_resolution(
             source_type="claim_conflict_resolution",
             polarity=pol,
             edge_keys=eks,
-            source_event_id=source_event_id,
+            source_event_id=source_event_id_final,
             supporting_bead_ids=[carrier],
             supporting_claim_ids=[claim_id],
             reason=f"claim conflict {res}",
@@ -500,6 +585,7 @@ __all__ = [
     "REWARD_EVENT_SCHEMA",
     "EVIDENTIAL_RELATIONSHIPS",
     "reward_events_enabled",
+    "reward_event_fingerprint",
     "supporting_edge_keys_for_bead",
     "emit_myelination_reward_event",
     "reward_for_bead_decision",
