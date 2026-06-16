@@ -24,6 +24,14 @@ from .memory import (
     request_approval,
 )
 from .transcript_ingest import ingest_transcript, normalize_transcript_payload
+from .soul import (
+    propose_soul_update,
+    approve_soul_update,
+    reject_soul_update,
+    read_soul_file,
+    list_soul_files,
+    soul_history,
+)
 from .runtime.ingest import (
     SourceEventMapping,
     SourceEventRule,
@@ -87,6 +95,12 @@ __all__ = [
     "reject_bead",
     "request_approval",
     "list_pending_approvals",
+    "propose_soul_update",
+    "approve_soul_update",
+    "reject_soul_update",
+    "read_soul_file",
+    "list_soul_files",
+    "soul_history",
     "ingest_transcript",
     "normalize_transcript_payload",
     "ingest_external_evidence",
