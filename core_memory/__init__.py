@@ -28,7 +28,10 @@ from .transcript_ingest import ingest_transcript, normalize_transcript_payload
 from .soul import (
     propose_soul_update,
     propose_soul_from_dreamer,
+    dreamer_soul_findings,
+    dreamer_soul_review,
     approve_soul_update,
+    apply_soul_update,
     reject_soul_update,
     read_soul_file,
     list_soul_files,
@@ -41,6 +44,7 @@ from .soul import (
     complete_goal,
     abandon_goal,
     decay_goal,
+    list_goals,
 )
 from .runtime.ingest import (
     SourceEventMapping,
@@ -118,7 +122,10 @@ __all__ = [
     "remove_source",
     "propose_soul_update",
     "propose_soul_from_dreamer",
+    "dreamer_soul_findings",
+    "dreamer_soul_review",
     "approve_soul_update",
+    "apply_soul_update",
     "reject_soul_update",
     "read_soul_file",
     "list_soul_files",
@@ -131,6 +138,7 @@ __all__ = [
     "complete_goal",
     "abandon_goal",
     "decay_goal",
+    "list_goals",
     "ingest_transcript",
     "normalize_transcript_payload",
     "ingest_external_evidence",

@@ -24,6 +24,7 @@ import uuid
 from typing import Any
 
 from core_memory.persistence.goal_lifecycle_v2 import (
+    TERMINAL_GOAL_STATES,
     current_goal_status,
     transition_goal_state_for_store,
 )
@@ -148,6 +149,41 @@ def decay_goal(root: str, *, goal_id: str = "", bead_id: str = "", subject: str 
     return _transition_goal(root, to_state="decaying", goal_id=goal_id, bead_id=bead_id, subject=subject, actor=actor, reason=reason)
 
 
+def list_goals(root: str, *, subject: str = "self", include_terminal: bool = True) -> dict[str, Any]:
+    """Read the goal hierarchy for ``subject`` from its Goal Beads (§5.2).
+
+    Returns each goal with its current lifecycle state. This is the authoritative
+    goal hierarchy (Goal Beads + Goal Lifecycle v2 state); the markdown GOALS.md
+    remains the revision-backed self-model projection. Set ``include_terminal``
+    False to drop completed/abandoned/resolved goals.
+    """
+    store = MemoryStore(root=root)
+    session = _goal_session(subject)
+    index = store._read_json(store.beads_dir / "index.json")
+    goals: list[dict[str, Any]] = []
+    for bid, b in (index.get("beads") or {}).items():
+        if not isinstance(b, dict):
+            continue
+        if str(b.get("type") or "").strip().lower() != "goal":
+            continue
+        if str(b.get("session_id") or "").strip() != session:
+            continue
+        state = current_goal_status(b)
+        if not include_terminal and state in TERMINAL_GOAL_STATES:
+            continue
+        goals.append({
+            "bead_id": str(bid),
+            "goal_id": str(b.get("goal_id") or ""),
+            "title": str(b.get("title") or ""),
+            "state": state,
+            "success_criteria": list(b.get("success_criteria") or []),
+            "created_at": str(b.get("created_at") or ""),
+            "goal_state_changed_at": str(b.get("goal_state_changed_at") or ""),
+        })
+    goals.sort(key=lambda g: (g["state"], g["created_at"]))
+    return {"ok": True, "subject": subject, "count": len(goals), "goals": goals}
+
+
 __all__ = [
     "propose_goal",
     "approve_goal",
@@ -155,4 +191,5 @@ __all__ = [
     "complete_goal",
     "abandon_goal",
     "decay_goal",
+    "list_goals",
 ]

@@ -60,8 +60,12 @@ the older entries above.
 | SOUL §8.3 / §13.5 — integrity check + auto-safe repair (`/v1/soul/integrity/check\|repair`) | ✅ Shipped |
 | SOUL §6.0 — Goal Lifecycle v2 core (states `endorsed/active/completed/abandoned/decaying` + validated transitions) | ✅ Shipped |
 | SOUL §13.3 — goal-hierarchy endpoints (`/v1/soul/goals/propose\|approve\|reject\|complete\|abandon\|decay`) | ✅ Shipped |
+| SOUL §13.2 — `apply-update` auto-governance apply (`/v1/soul/apply-update`) | ✅ Shipped |
+| SOUL §13.4 — Dreamer integration endpoints (`/v1/soul/dreamer/findings\|propose-updates\|run-review`) | ✅ Shipped |
+| SOUL §5.2 — goal-hierarchy read (`GET /v1/soul/goals`, from Goal Beads + lifecycle) | ✅ Shipped |
 
-_Dreamer V3 + SOUL §15/§16.1 are complete, and the SOUL goal hierarchy is wired
-end-to-end (Goal Lifecycle v2 + §13.3 endpoints). **Remaining SOUL scope:** the
-`apply-update` alias (§13.2, minor) and a GOALS.md read-projection rendered from
-goal beads (the Dreamer bridge already proposes GOALS.md candidate entries)._
+_**All three agency-layer PRDs (Myelination V2, Dreamer V3, SOUL Files) are
+fully implemented.** The full SOUL §13 endpoint surface (read, proposal, goals,
+Dreamer integration, integrity) is shipped. Dreamer V4 target-states (§31) and
+the §32 future-directions backlog (counterfactuals, regret, curiosity, salience,
+…) remain explicitly out of scope as future work._
