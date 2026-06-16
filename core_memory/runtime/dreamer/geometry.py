@@ -7,10 +7,11 @@ because Dreamer owns the depth measure, and it is **decoupled from the v1
 critical path** — SOUL, scientific findings, and reinforcement do not depend on
 it. A host builds the geometry view only if it wants a memory-explorer surface.
 
-The manifest exposes exactly the substrate fields a renderer needs, without
+The manifest exposes substrate fields plus lightweight display metadata, without
 forking any formula:
 
-- nodes (beads): ``id``, ``type``, ``status``, ``assembly_depth``
+- nodes (beads): ``id``, ``type``, ``status``, ``assembly_depth``,
+  ``title``, ``created_at``, ``timestamp``, ``entities``
 - edges: ``src``, ``dst``, ``rel``, ``strength``, ``provenance``
 
 ``assembly_depth`` reuses ``compute_assembly_depth`` over the all-bead
@@ -54,13 +55,14 @@ def _read_index(root: str | Path) -> dict[str, Any]:
 def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str, Any]:
     """Compute the continuity-geometry manifest and persist it to disk.
 
-    Nodes are beads (id/type/status/assembly_depth); edges are *active*
-    associations between emitted nodes (src/dst/rel/strength/provenance). When a
-    store has more than ``limit`` beads the manifest is capped to the first
-    ``limit`` (``truncated=True``, ``total_bead_count`` reported) — depth scoring
-    and the emitted node set use the *same* capped population, so no node ever
-    carries a placeholder depth and no edge dangles. Returns the manifest.
-    Best-effort: missing myelination data degrades edge strength to 0.0.
+    Nodes are beads (id/type/status/assembly_depth plus display metadata);
+    edges are *active* associations between emitted nodes
+    (src/dst/rel/strength/provenance). When a store has more than ``limit``
+    beads the manifest is capped to the first ``limit`` (``truncated=True``,
+    ``total_bead_count`` reported) — depth scoring and the emitted node set use
+    the *same* capped population, so no node ever carries a placeholder depth
+    and no edge dangles. Returns the manifest. Best-effort: missing
+    myelination data degrades edge strength to 0.0.
     """
     index = _read_index(root)
     beads = {str(k): v for k, v in (index.get("beads") or {}).items() if isinstance(v, dict)}
@@ -97,11 +99,16 @@ def build_geometry_manifest(root: str | Path, *, limit: int = 5000) -> dict[str,
     nodes: list[dict[str, Any]] = []
     for bid in target_ids:
         b = beads[bid]
+        timestamp = str(b.get("created_at") or b.get("updated_at") or b.get("effective_at") or "")
         nodes.append({
             "id": bid,
             "type": str(b.get("type") or ""),
             "status": str(b.get("status") or "active"),
             "assembly_depth": round(float(depth_by_bead.get(bid, 0.0)), 6),
+            "title": str(b.get("title") or ""),
+            "created_at": timestamp,
+            "timestamp": timestamp,
+            "entities": [str(x) for x in (b.get("entities") or []) if str(x).strip()] if isinstance(b.get("entities"), list) else [],
         })
     nodes.sort(key=lambda n: (-float(n["assembly_depth"]), str(n["id"])))
 

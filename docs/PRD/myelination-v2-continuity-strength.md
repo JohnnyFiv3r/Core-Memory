@@ -48,9 +48,11 @@ Fragmentation costs:
    (`worldline_membership()`), promotion status, and goal linkage. Persisted
    to `.beads/continuity-manifest.json` (myelination-manifest pattern).
 3. **Projection surfaces.** `core_memory.continuity_depth(root)` +
-   `GET /v1/memory/projection/continuity`; bulk geometry export
-   (`GET /v1/memory/projection/geometry`) returning beads (id, created_at,
-   type, status, depth) + edges (src, dst, rel, strength, provenance,
+   `GET /v1/memory/projection/continuity`; bulk geometry export. The shipped
+   Dreamer-owned geometry surface is `GET /v1/dreamer/geometry`, with
+   `GET /v1/memory/projection/geometry` retained as a compatibility alias,
+   returning beads (id, title, created_at/timestamp, entities, type, status,
+   depth/assembly_depth) + edges (src, dst, rel, strength, provenance,
    lifecycle fields) in one call.
 4. **Default-on.** Retire the MYE-1 experiment flag; quality signal becomes a
    permanent input with neutral behavior when feedback volume is low.

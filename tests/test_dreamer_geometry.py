@@ -15,9 +15,9 @@ from core_memory.runtime.dreamer.geometry import (
 def _seed(td):
     store = MemoryStore(root=td)
     g = store.add_bead(type="goal", title="Ship simply", summary=["s"], goal_id="g1",
-                       because=["x"], session_id="s1")
+                       because=["x"], session_id="s1", entities=["acme"])
     d = store.add_bead(type="decision", title="Cut scope", summary=["s"], because=["y"],
-                       detail="d", session_id="s2")
+                       detail="d", session_id="s2", entities=["scope"])
     e = store.add_bead(type="evidence", title="User asked for less", summary=["s"],
                        detail="d", session_id="s3")
     store.link(d, g, "supports")
@@ -34,7 +34,9 @@ class TestGeometryManifest(unittest.TestCase):
             self.assertEqual(3, m["node_count"])
             self.assertEqual(2, m["edge_count"])
             node = m["nodes"][0]
-            self.assertEqual({"id", "type", "status", "assembly_depth"}, set(node.keys()))
+            self.assertTrue({"id", "type", "status", "assembly_depth", "title", "created_at", "timestamp", "entities"} <= set(node.keys()))
+            self.assertIsInstance(node["entities"], list)
+            self.assertEqual(node["created_at"], node["timestamp"])
             edge = m["edges"][0]
             self.assertEqual({"src", "dst", "rel", "strength", "provenance"}, set(edge.keys()))
             # Every node carries a numeric depth in [0, 1].

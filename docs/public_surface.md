@@ -158,7 +158,9 @@ HTTP memory read surfaces:
   `recall` tool; identical `RecallResult` contract and `cm.invalid_request`
   error envelope)
 - `POST /v1/memory/search` / `POST /v1/memory/execute` / `POST /v1/memory/trace` — low-level reads
+- `GET /v1/dreamer/geometry` / `GET /v1/memory/projection/geometry` — continuity-geometry manifest, served from disk with `present=false` when absent
 - `GET /v1/memory/projection/worldlines?kinds=&min_length=&include_membership=` — worldline projection
+- `GET /v1/memory/projection/storylines?kinds=&min_length=&include_superseded=` — storyline projection over worldline backbones plus accepted overlays
 
 HTTP inspect read surfaces:
 - `GET /v1/memory/inspect/state`
