@@ -301,6 +301,21 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             soul_bridge_out = {"ok": False, "error": "soul_bridge_failed"}
 
+        # Continuity-geometry projection: rebuild the read-only manifest served
+        # at GET /v1/dreamer/geometry (built on cadence, never recomputed on
+        # read — §16.1). Off the critical path; best-effort.
+        geometry_out: dict[str, Any] = {"ok": True, "node_count": 0, "edge_count": 0}
+        try:
+            from core_memory.runtime.dreamer.geometry import build_geometry_manifest
+            gm = build_geometry_manifest(root)
+            geometry_out = {
+                "ok": True,
+                "node_count": int(gm.get("node_count") or 0),
+                "edge_count": int(gm.get("edge_count") or 0),
+            }
+        except Exception:
+            geometry_out = {"ok": False, "error": "geometry_projection_failed"}
+
         return {
             "ok": True,
             "kind": k,
@@ -316,6 +331,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "projection": projection_out,
             "identity_value": identity_value_out,
             "soul_bridge": soul_bridge_out,
+            "geometry": geometry_out,
         }
 
     if k == "neo4j-sync":

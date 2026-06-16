@@ -55,10 +55,7 @@ the older entries above.
 | Dreamer V3 Phase 2 — goal decay, goal discovery | ✅ Shipped (#210, #211) |
 | Dreamer V3 Phase 3 — future projection (narrative/attractor strength) | ✅ Shipped (#212) |
 | SOUL Files — foundation, session-start injection, HTTP, Dreamer→SOUL bridge | ✅ Shipped (#213, #215, #216, #220) |
-| Dreamer §15 — identity / value research (`value_candidate`, `identity_divergence_candidate` → IDENTITY.md via bridge) | ✅ Shipped |
+| Dreamer §15 — identity / value research (`value_candidate`, `identity_divergence_candidate` → IDENTITY.md via bridge) | ✅ Shipped (#221) |
+| Dreamer §16.1 — geometry / continuity projection (read-only manifest + `GET /v1/dreamer/geometry`) | ✅ Shipped |
 
-**Deferred — do not lose track:**
-- **Dreamer §16.1 — geometry / continuity projection** (the memory-visualization
-  data layer: per-structure continuity export, mass/wells/curvature readouts).
-  Deferred Phase 3, owned by Dreamer V3, decoupled from the v1 critical path —
-  build only when a host wants a memory-geometry view.
+_All Dreamer V3 + SOUL agency-layer items are shipped; no deferred work remains in this set._
