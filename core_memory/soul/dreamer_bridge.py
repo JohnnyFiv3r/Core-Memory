@@ -78,13 +78,15 @@ def propose_soul_from_dreamer(
     """
     candidates = _read_candidates(root)
 
-    # Existing Dreamer-sourced coverage: any revision (proposed/applied/rejected)
-    # authored by Dreamer already represents this finding — don't re-propose it.
+    # Existing coverage by stable key, regardless of source. A prior Dreamer
+    # revision (proposed/applied/rejected) means the finding is already in
+    # review — don't re-propose. A human/agent revision for the same key means
+    # the entry is already owned by an authoritative author; proposing a Dreamer
+    # duplicate would, if approved, clobber that endorsed content during folding
+    # (last applied upsert per key wins). Either way: leave it alone.
     history = soul_history(root, subject=subject, limit=100000)
     covered: set[tuple[str, str]] = set()
     for rev in history.get("revisions") or []:
-        if str(rev.get("source") or "").strip().lower() != "dreamer":
-            continue
         covered.add((str(rev.get("target_file") or ""), str(rev.get("entry_key") or "")))
 
     proposed = 0

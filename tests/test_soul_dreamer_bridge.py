@@ -123,6 +123,25 @@ class TestSoulDreamerBridge(unittest.TestCase):
             self.assertEqual(0, again["proposed"])
             self.assertIn("Latent goal", read_soul_file(td, file_name="GOALS.md")["markdown"])
 
+    def test_does_not_clobber_existing_authoritative_entry(self):
+        # A human/agent already owns goal:g1 in GOALS.md. The bridge must not
+        # propose a Dreamer duplicate for the same key — approving it would
+        # overwrite the endorsed content with inferred Dreamer text.
+        with tempfile.TemporaryDirectory() as td:
+            from core_memory.soul.store import propose_soul_update
+            propose_soul_update(
+                td, target_file="GOALS.md", entry_key="goal:g1",
+                content="Endorsed: reduce onboarding friction.",
+                source="human", epistemic_status="endorsed", requires_approval=False,
+            )
+            _write_candidates(td, [_goal("dc-1", "g1")])
+            out = propose_soul_from_dreamer(td)
+            self.assertEqual(0, out["proposed"])
+            self.assertEqual(1, out["skipped"])
+            md = read_soul_file(td, file_name="GOALS.md")["markdown"]
+            self.assertIn("Endorsed: reduce onboarding friction.", md)
+            self.assertNotIn("Latent goal", md)
+
     def test_subject_scoped(self):
         with tempfile.TemporaryDirectory() as td:
             _write_candidates(td, [_tension("dc-1", "k1")])
