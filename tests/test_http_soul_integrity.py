@@ -21,8 +21,8 @@ class TestHttpSoulIntegrity(unittest.TestCase):
 
         with tempfile.TemporaryDirectory(prefix="cm-http-soul-int-") as td:
             root = str(Path(td) / "memory")
-            propose_soul_update(root, target_file="GOALS.md", entry_key="blank",
-                                content="  ", requires_approval=False)
+            propose_soul_update(root, target_file="GOALS.md", entry_key="decay:blank",
+                                content="  ", source="dreamer", requires_approval=False)
             c = TestClient(app)
 
             check = c.post("/v1/soul/integrity/check", json={"root": root})

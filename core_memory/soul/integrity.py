@@ -12,8 +12,13 @@ auditable and reversible like any other SOUL change.
 
 v1 checks:
 
-- ``empty_entry`` — an applied entry whose content is empty/whitespace. Carries
-  no identity or endorsed meaning, so removing it is **auto-repairable**.
+- ``empty_entry`` — an applied entry whose content is empty/whitespace. The
+  store renders ``entry_key`` as the markdown heading, so a blank-bodied entry
+  with a *human-meaningful* key (e.g. ``"Reduce onboarding friction"``) is still
+  a visible statement — removing it would alter endorsed meaning. So an empty
+  entry is **auto-repairable only when it was machine-authored**
+  (``source ∈ {dreamer, integrity_check}``); human/agent empty entries are
+  reported for review, never auto-removed.
 - ``duplicate_content`` — two entries in one file with identical normalized
   content. Reported only (which one is canonical is a meaning decision).
 - ``broken_evidence_reference`` — an entry citing evidence ``bead_id``s absent
@@ -29,10 +34,13 @@ from core_memory.soul.store import (
     DEFAULT_SUBJECT,
     SOUL_FILES,
     current_soul_entries,
-    propose_soul_update,
+    remove_entry_if_unchanged,
     soul_history,
 )
 
+# Sources whose empty entries are safe to auto-remove: machine-authored, never a
+# human/agent-endorsed heading. (Empty content from these is degenerate noise.)
+_MACHINE_SOURCES = {"dreamer", "integrity_check"}
 _REPAIRABLE_CODES = {"empty_entry"}
 
 
@@ -69,13 +77,22 @@ def soul_integrity_check(root: str | Path, *, subject: str = DEFAULT_SUBJECT) ->
         for key, e in entries.items():
             content = str((e or {}).get("content") or "")
             if not content.strip():
+                src = str((e or {}).get("source") or "").strip().lower()
+                machine = src in _MACHINE_SOURCES
                 issues.append({
                     "code": "empty_entry",
                     "target_file": file_name,
                     "entry_key": str(key),
+                    "source": src,
+                    "revision_id": str((e or {}).get("revision_id") or ""),
                     "severity": "warning",
-                    "repairable": True,
-                    "detail": "entry has empty content; safe to remove (no identity/endorsed meaning)",
+                    "repairable": machine,
+                    "detail": (
+                        "machine-authored empty entry; safe to remove (degenerate, not endorsed)"
+                        if machine else
+                        "empty body but the key renders as a visible heading; review before removing "
+                        "(may carry endorsed meaning)"
+                    ),
                 })
                 continue
 
@@ -142,19 +159,20 @@ def soul_integrity_repair(root: str | Path, *, subject: str = DEFAULT_SUBJECT, a
             continue
 
         if code == "empty_entry":
-            out = propose_soul_update(
+            # Compare-and-remove under the store lock: only delete if the entry
+            # is still the exact revision we observed and still empty, so a
+            # concurrent upsert can't have its newer content silently removed.
+            out = remove_entry_if_unchanged(
                 root,
                 target_file=str(issue.get("target_file") or ""),
                 entry_key=str(issue.get("entry_key") or ""),
-                op="remove",
+                expected_revision_id=str(issue.get("revision_id") or ""),
                 subject=subject,
                 source="integrity_check",
-                epistemic_status="inferred",
-                reason="integrity: removed empty entry (no identity/endorsed meaning)",
-                requires_approval=False,
+                reason="integrity: removed machine-authored empty entry (degenerate, not endorsed)",
             )
             if out.get("ok"):
-                repaired.append({**issue, "revision_id": out.get("revision_id")})
+                repaired.append({**issue, "remove_revision_id": out.get("revision_id")})
             else:
                 skipped.append({**issue, "error": out.get("error")})
 
