@@ -72,5 +72,46 @@ class TestSessionStartCarriesSoul(unittest.TestCase):
             self.assertIn("acme self", out["soul"]["files"]["SOUL.md"])
 
 
+class TestSoulInjectionText(unittest.TestCase):
+    def test_empty_text(self):
+        with tempfile.TemporaryDirectory() as td:
+            from core_memory.soul.injection import soul_injection_text
+            self.assertEqual("", soul_injection_text(td))
+
+    def test_text_has_header_and_content(self):
+        with tempfile.TemporaryDirectory() as td:
+            from core_memory.soul.injection import soul_injection_text, SOUL_INJECTION_HEADER
+            propose_soul_update(td, target_file="SOUL.md", entry_key="Summary",
+                                content="We pursue continuity.", requires_approval=False)
+            txt = soul_injection_text(td)
+            self.assertTrue(txt.startswith(SOUL_INJECTION_HEADER))
+            self.assertIn("We pursue continuity.", txt)
+
+
+class TestAdapterPromptCarriesSoul(unittest.TestCase):
+    def test_pydanticai_continuity_prompt_includes_soul(self):
+        # Codex P2: SOUL must reach the rendered adapter prompt, not just the
+        # discarded process_session_start return.
+        from core_memory.integrations.pydanticai.memory_tools import continuity_prompt
+
+        with tempfile.TemporaryDirectory() as td:
+            propose_soul_update(td, target_file="SOUL.md", entry_key="Summary",
+                                content="Builds continuity systems.", requires_approval=False)
+            prompt = continuity_prompt(root=td, session_id="s1")
+            self.assertIn("Builds continuity systems.", prompt)
+            self.assertIn("Self-Model (SOUL)", prompt)
+
+    def test_pydanticai_continuity_prompt_soul_only_when_no_records(self):
+        from core_memory.integrations.pydanticai.memory_tools import continuity_prompt, CONTINUITY_EMPTY
+
+        with tempfile.TemporaryDirectory() as td:
+            # No continuity records at all, but a SOUL exists.
+            propose_soul_update(td, target_file="GOALS.md", entry_key="g",
+                                content="Reduce friction.", requires_approval=False)
+            prompt = continuity_prompt(root=td, session_id="s1", ensure_session_start=False)
+            self.assertNotEqual(CONTINUITY_EMPTY, prompt)
+            self.assertIn("Reduce friction.", prompt)
+
+
 if __name__ == "__main__":
     unittest.main()

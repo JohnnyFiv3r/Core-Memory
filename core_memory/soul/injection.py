@@ -17,6 +17,7 @@ from typing import Any
 from core_memory.soul.store import DEFAULT_SUBJECT, read_soul_file
 
 DEFAULT_INJECT_FILES = ("SOUL.md", "GOALS.md", "TENSIONS.md")
+SOUL_INJECTION_HEADER = "# Self-Model (SOUL)"
 
 
 def soul_injection(
@@ -44,4 +45,19 @@ def soul_injection(
     }
 
 
-__all__ = ["soul_injection", "DEFAULT_INJECT_FILES"]
+def soul_injection_text(root: str | Path, *, subject: str = DEFAULT_SUBJECT) -> str:
+    """Render the SOUL injection as a ready-to-prepend prompt block, or "" when
+    the self-model is empty. Adapters concatenate this into their session-start
+    context so the agent actually sees its self-model (not just the host)."""
+    out = soul_injection(root, subject=subject)
+    if not out.get("present"):
+        return ""
+    parts = [SOUL_INJECTION_HEADER]
+    for name in (out.get("injected_files") or []):
+        block = str((out.get("files") or {}).get(name) or "").strip()
+        if block:
+            parts.append(block)
+    return "\n\n".join(parts).strip()
+
+
+__all__ = ["soul_injection", "soul_injection_text", "DEFAULT_INJECT_FILES", "SOUL_INJECTION_HEADER"]
