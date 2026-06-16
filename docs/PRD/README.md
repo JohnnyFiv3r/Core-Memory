@@ -59,7 +59,9 @@ the older entries above.
 | Dreamer §16.1 — geometry / continuity projection (read-only manifest + `GET /v1/dreamer/geometry`) | ✅ Shipped |
 | SOUL §8.3 / §13.5 — integrity check + auto-safe repair (`/v1/soul/integrity/check\|repair`) | ✅ Shipped |
 | SOUL §6.0 — Goal Lifecycle v2 core (states `endorsed/active/completed/abandoned/decaying` + validated transitions) | ✅ Shipped |
+| SOUL §13.3 — goal-hierarchy endpoints (`/v1/soul/goals/propose\|approve\|reject\|complete\|abandon\|decay`) | ✅ Shipped |
 
-_Dreamer V3 + SOUL §15/§16.1 are complete. **Remaining SOUL scope:** the SOUL
-goal-hierarchy endpoints (`/v1/soul/goals/*`, §13.3) built on Goal Lifecycle v2,
-and the `apply-update` alias (§13.2)._
+_Dreamer V3 + SOUL §15/§16.1 are complete, and the SOUL goal hierarchy is wired
+end-to-end (Goal Lifecycle v2 + §13.3 endpoints). **Remaining SOUL scope:** the
+`apply-update` alias (§13.2, minor) and a GOALS.md read-projection rendered from
+goal beads (the Dreamer bridge already proposes GOALS.md candidate entries)._
