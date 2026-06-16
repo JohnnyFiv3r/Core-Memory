@@ -39,6 +39,18 @@ def invalid_request(message: str, *, surface: str, field: str) -> dict[str, Any]
     }
 
 
+def _result_bead_ids(out: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+    for key in ("citations", "results", "anchors"):
+        for row in out.get(key) or []:
+            if not isinstance(row, dict):
+                continue
+            bid = str(row.get("bead_id") or row.get("id") or "").strip()
+            if bid and bid not in ids:
+                ids.append(bid)
+    return ids
+
+
 def run_recall_payload(payload: dict[str, Any] | None, *, surface: str = "recall") -> dict[str, Any]:
     """Validate a wire payload, run recall(), return a JSON-safe dict.
 
@@ -81,4 +93,18 @@ def run_recall_payload(payload: dict[str, Any] | None, *, surface: str = "recall
     out["ok"] = result.status not in {"failed"}
     if result.status == "empty":
         out.setdefault("warnings", []).append("recall returned no grounded evidence")
+    if effort == "high":
+        try:
+            from core_memory.runtime.associations.coverage import latest_association_coverage
+
+            incomplete: list[dict[str, Any]] = []
+            for bead_id in _result_bead_ids(out):
+                cov = latest_association_coverage(str(payload.get("root") or "."), bead_id)
+                if str(cov.get("state") or "") in {"deferred", "quarantined", "failed"}:
+                    incomplete.append(cov)
+            if incomplete:
+                out.setdefault("warnings", []).append("some cited beads have incomplete association coverage")
+                out.setdefault("association_coverage", {})["incomplete"] = incomplete
+        except Exception:
+            pass
     return out

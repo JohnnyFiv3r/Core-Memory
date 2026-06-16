@@ -164,6 +164,7 @@ class RelationshipType(str, Enum):
     REVEALS_BIAS = "reveals_bias"
     SUPPORTS = "supports"
     DERIVED_FROM = "derived_from"
+    PART_OF = "part_of"
     RESOLVES = "resolves"
     FOLLOWS = "follows"
     PRECEDES = "precedes"

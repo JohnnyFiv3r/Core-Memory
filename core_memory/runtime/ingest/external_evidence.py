@@ -21,6 +21,7 @@ from core_memory.schema.normalization import (
     EXTERNAL_TRANSCRIPT_FLAGS as TRANSCRIPT_FLAGS,
     normalize_assertion_kind,
 )
+from core_memory.runtime.associations.coverage import enqueue_association_coverage
 
 
 def _clean_str(value: Any) -> str:
@@ -522,6 +523,22 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
     if predecessor_id:
         receipt["status"] = "version_superseded"
         receipt["superseded_bead_id"] = predecessor_id
+    coverage_trigger = "periodic_transcript_push" if bead_type == "transcript" else "pre_commit"
+    try:
+        coverage = enqueue_association_coverage(
+            root=root,
+            bead_ids=[bead_id],
+            session_id=_clean_str(merged.get("session_id")) or session_id,
+            trigger=coverage_trigger,
+            run_inline=True,
+        )
+    except Exception as exc:  # pragma: no cover - defensive integration boundary
+        coverage = {"ok": False, "error": str(exc), "association_state_by_bead": {bead_id: "failed"}}
+    receipt["association_run_id"] = _clean_str(coverage.get("run_id"))
+    receipt["association_trigger"] = coverage_trigger
+    receipt["association_state"] = _clean_str((coverage.get("association_state_by_bead") or {}).get(bead_id)) or "failed"
+    receipt["association_queued"] = False
+    receipt["association_coverage"] = coverage
     return receipt
 
 

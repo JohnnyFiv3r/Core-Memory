@@ -59,6 +59,16 @@ class TestRuntimeJobsEnqueueSlice52A(unittest.TestCase):
         self.assertEqual("dreamer-run", out.get("kind"))
         self.assertEqual(1, ((out.get("status") or {}).get("queue_depth") or 0))
 
+    @patch("core_memory.runtime.queue.jobs.side_effect_queue_status")
+    @patch("core_memory.runtime.queue.jobs.enqueue_side_effect_event")
+    def test_enqueue_association_pass_side_effect_kind(self, enqueue_side_effect, side_effect_status):
+        enqueue_side_effect.return_value = {"ok": True, "id": "se-2", "queue_depth": 1, "kind": "association-pass"}
+        side_effect_status.return_value = {"ok": True, "kind": "side_effects", "queue_depth": 1}
+
+        out = enqueue_async_job("/tmp/x", kind="association", event={"bead_ids": ["b1"]})
+        self.assertTrue(out.get("ok"))
+        self.assertEqual("association-pass", out.get("kind"))
+
 
 if __name__ == "__main__":
     unittest.main()
