@@ -34,7 +34,7 @@ JUDGE_RUBRIC_VERSION = "association_truth.v1"
 CANDIDATE_GENERATION_VERSION = "association_candidates.v1"
 DEFAULT_MAX_CANDIDATES = 40
 DEFAULT_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS = 1800
-DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS = 16000
+DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS = 6000
 DEFAULT_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_CANDIDATE = 220
 DEFAULT_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_SOURCE_BEAD = 40
 ALLOWED_TRIGGERS = {
@@ -48,6 +48,26 @@ ALLOWED_TRIGGERS = {
 }
 INCOMPLETE_STATES = {"deferred", "pending_judge", "judge_failed", "quarantined", "failed"}
 JUDGE_ACTIONS = {"accept", "reject", "modify", "invert", "replace", "add", "no_link"}
+JUDGE_ACTION_ALIASES = {
+    "approve": "accept",
+    "approved": "accept",
+    "associate": "accept",
+    "link": "accept",
+    "linked": "accept",
+    "supported": "accept",
+    "create": "add",
+    "create_edge": "add",
+    "add_link": "add",
+    "no link": "no_link",
+    "no-link": "no_link",
+    "no_supported_link": "no_link",
+    "no_supported_links": "no_link",
+    "none": "no_link",
+    "not_supported": "no_link",
+    "unsupported": "no_link",
+    "reject_candidate": "reject",
+    "rejected": "reject",
+}
 ACTIVE_ASSOCIATION_STATUSES = {"", "active", "current", "linked"}
 
 
@@ -1031,8 +1051,11 @@ class LLMAssociationJudge:
             "You are Core Memory's association judge. Review candidate bead associations "
             "against the supplied bead content, metadata, provenance, and evidence refs. "
             "Return only JSON matching contract memory.association_judge.v1. "
-            "Allowed decision actions: accept, reject, modify, invert, replace, add, no_link. "
-            "Do not approve unsupported links. linked/no_supported_links require your decision.\n\n"
+            "For every supported or unsupported candidate, emit one decisions[] object with "
+            "candidate_id, action, reason_text, and truth_basis. Allowed decision actions are "
+            "only: accept, reject, modify, invert, replace, add, no_link. Do not use linked or "
+            "no_supported_links as action values; those are reviewed_beads association_state "
+            "values only. Do not approve unsupported links.\n\n"
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
         max_tokens = _association_judge_max_tokens(context)
@@ -1063,6 +1086,16 @@ def _invoke_association_judge(context: dict[str, Any], judge: Any | None = None)
     if not isinstance(out, dict):
         raise ValueError("association_judge_returned_non_object")
     return out
+
+
+def _judge_action(decision: dict[str, Any]) -> str:
+    raw = _clean_str(
+        decision.get("action")
+        or decision.get("decision")
+        or decision.get("association_state")
+        or decision.get("status"),
+    ).lower()
+    return JUDGE_ACTION_ALIASES.get(raw, raw)
 
 
 def _bead_context(bead: dict[str, Any]) -> dict[str, Any]:
@@ -1156,7 +1189,7 @@ def _candidate_association_payload(
     decision: dict[str, Any],
     candidate_by_id: dict[str, dict[str, Any]],
 ) -> tuple[dict[str, Any] | None, list[str]]:
-    action = _clean_str(decision.get("action")).lower()
+    action = _judge_action(decision)
     candidate_id = _clean_str(decision.get("candidate_id"))
     candidate = candidate_by_id.get(candidate_id) if candidate_id else None
     candidate_ids = [candidate_id] if candidate_id else []
@@ -1196,10 +1229,10 @@ def _candidate_association_payload(
         "confidence": confidence,
         "reason_text": reason_text,
         "provenance": "model_inferred",
-        "truth_basis": _clean_str(decision.get("truth_basis")),
         "reason_code": _clean_str(decision.get("reason_code") or (candidate or {}).get("reason_code")),
         "evidence_bead_ids": evidence_bead_ids,
         "evidence_refs": evidence_refs,
+        "truth_basis": _clean_str(decision.get("truth_basis")) or "association_judge_candidate_review",
     }, candidate_ids
 
 
@@ -1267,7 +1300,7 @@ def _apply_judge_result(
         decisions.append(item)
 
     for decision in decisions:
-        action = _clean_str(decision.get("action")).lower()
+        action = _judge_action(decision)
         if action not in JUDGE_ACTIONS:
             quarantined += 1
             write_quarantine(
