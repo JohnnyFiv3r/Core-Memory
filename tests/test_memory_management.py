@@ -449,6 +449,48 @@ class TestMemoryManagement(unittest.TestCase):
             queue = json.loads(queue_path.read_text(encoding="utf-8"))
             self.assertTrue(any(item.get("kind") == "myelination-update" for item in queue), queue)
 
+    def test_maintain_can_queue_full_graph_association_sweep(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add(store, type="context", title="Sweep 1", summary=["shared sweep"], tags=["sweep"], session_id="s1")
+            second = _add(store, type="context", title="Sweep 2", summary=["shared sweep"], tags=["sweep"], session_id="s1")
+
+            preview = maintain(
+                root=td,
+                action="run_association_coverage",
+                targets={"sweep": True, "sweep_mode": "all", "sweep_limit": 1, "trigger": "nightly_sweep"},
+                authority={"actor": "agent.ops", "allowed_authority": ["run_association_judge"]},
+                apply=False,
+                dry_run=True,
+            )
+            self.assertTrue(preview.get("ok"), preview)
+            self.assertEqual("preview", preview.get("status"))
+            self.assertFalse(preview.get("applied"))
+            self.assertEqual(1, ((preview.get("sweep") or {}).get("selected_count")))
+            self.assertTrue((preview.get("sweep") or {}).get("has_more"))
+
+            out = maintain(
+                root=td,
+                action="run_association_coverage",
+                targets={"sweep": True, "sweep_mode": "all", "sweep_limit": 1, "trigger": "nightly_sweep"},
+                authority={"actor": "agent.ops", "allowed_authority": ["run_association_judge"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("association_run", out.get("action"))
+            self.assertEqual("queued", out.get("status"))
+            self.assertEqual(1, len(out.get("bead_ids") or []))
+            self.assertTrue(set(out.get("bead_ids") or []).issubset({first, second}))
+            self.assertEqual(1, ((out.get("sweep") or {}).get("selected_count")))
+            self.assertTrue((out.get("sweep") or {}).get("has_more"))
+
+            queue_path = Path(td) / ".beads" / "events" / "side-effects-queue.json"
+            queue = json.loads(queue_path.read_text(encoding="utf-8"))
+            payload = queue[-1].get("payload") or {}
+            self.assertEqual("nightly_sweep", payload.get("trigger"))
+            self.assertEqual(out.get("sweep"), payload.get("sweep"))
+
     def test_soul_revision_actions_are_routed_through_revision_store(self):
         with tempfile.TemporaryDirectory() as td:
             proposed = maintain(

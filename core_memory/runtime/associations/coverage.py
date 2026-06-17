@@ -31,6 +31,8 @@ JUDGE_PROMPT_VERSION = "association_judge.v1"
 JUDGE_RUBRIC_VERSION = "association_truth.v1"
 CANDIDATE_GENERATION_VERSION = "association_candidates.v1"
 DEFAULT_MAX_CANDIDATES = 40
+DEFAULT_SWEEP_LIMIT = 100
+SWEEP_MODES = {"all", "isolated", "incomplete"}
 ALLOWED_TRIGGERS = {
     "bead_commit",
     "bead_committed",
@@ -372,19 +374,7 @@ def association_coverage_summary(root: str | Path, *, limit: int = 10) -> dict[s
     beads = index.get("beads") or {}
     associations = index.get("associations") or []
     eligible_ids = [bid for bid, bead in beads.items() if _coverage_eligible(bead)]
-    connected: set[str] = set()
-    for assoc in associations:
-        if not isinstance(assoc, dict):
-            continue
-        status = _clean_str(assoc.get("status") or "active").lower()
-        if status in {"inactive", "retracted", "superseded"}:
-            continue
-        src = _clean_str(assoc.get("source_bead") or assoc.get("source_bead_id"))
-        tgt = _clean_str(assoc.get("target_bead") or assoc.get("target_bead_id"))
-        if src:
-            connected.add(src)
-        if tgt:
-            connected.add(tgt)
+    connected = _active_connected_bead_ids(index)
     isolated_ids = [bid for bid in eligible_ids if bid not in connected]
 
     latest_by_run: dict[str, dict[str, Any]] = {}
@@ -454,6 +444,109 @@ def _resolve_session_bead_ids(index: dict[str, Any], session_id: str | None) -> 
         rows.append((_clean_str((bead or {}).get("created_at")), _clean_str(bid)))
     rows.sort()
     return [bid for _created, bid in rows if bid]
+
+
+def _active_connected_bead_ids(index: dict[str, Any]) -> set[str]:
+    connected: set[str] = set()
+    for assoc in index.get("associations") or []:
+        if not isinstance(assoc, dict):
+            continue
+        status = _clean_str(assoc.get("status") or "active").lower()
+        if status in {"inactive", "retracted", "superseded"}:
+            continue
+        src = _clean_str(assoc.get("source_bead") or assoc.get("source_bead_id"))
+        tgt = _clean_str(assoc.get("target_bead") or assoc.get("target_bead_id"))
+        if src:
+            connected.add(src)
+        if tgt:
+            connected.add(tgt)
+    return connected
+
+
+def _latest_coverage_state_by_bead(root: str | Path) -> dict[str, str]:
+    latest: dict[str, str] = {}
+    for row in _iter_run_records(root):
+        states = row.get("association_state_by_bead") or {}
+        if not isinstance(states, dict):
+            continue
+        for bead_id, state in states.items():
+            bid = _clean_str(bead_id)
+            if bid:
+                latest[bid] = _clean_str(state).lower() or "unknown"
+    return latest
+
+
+def _bead_sort_key(row: tuple[str, dict[str, Any]]) -> tuple[str, str]:
+    bead_id, bead = row
+    return (_clean_str(bead.get("created_at")), _clean_str(bead_id))
+
+
+def _parse_sweep_cursor(cursor: str | None) -> int:
+    try:
+        return max(0, int(_clean_str(cursor) or "0"))
+    except Exception:
+        return 0
+
+
+def _normalize_sweep_mode(mode: str | None) -> str:
+    value = _clean_str(mode).lower() or "all"
+    return value if value in SWEEP_MODES else "all"
+
+
+def plan_association_coverage_sweep(
+    root: str | Path,
+    *,
+    mode: str = "all",
+    cursor: str | None = None,
+    limit: int = DEFAULT_SWEEP_LIMIT,
+    index: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Plan one deterministic association-coverage sweep batch.
+
+    The sweep planner is intentionally read-only. Hosts can page through
+    `next_cursor` to cover an entire graph while the write path still goes
+    through `run_association_coverage` and Core Memory's judge-gated edge flow.
+    """
+    idx = index if isinstance(index, dict) else _load_index(root)
+    beads = idx.get("beads") or {}
+    mode_n = _normalize_sweep_mode(mode)
+    rows = sorted(
+        [(bid, bead) for bid, bead in beads.items() if _coverage_eligible(bead)],
+        key=_bead_sort_key,
+    )
+    eligible_ids = [_clean_str(bid) for bid, _bead in rows if _clean_str(bid)]
+    connected = _active_connected_bead_ids(idx)
+    latest_state = _latest_coverage_state_by_bead(root)
+
+    if mode_n == "isolated":
+        matching = [bid for bid in eligible_ids if bid not in connected]
+    elif mode_n == "incomplete":
+        matching = [
+            bid for bid in eligible_ids
+            if latest_state.get(bid, "unknown") in INCOMPLETE_STATES.union({"unknown"})
+        ]
+    else:
+        matching = list(eligible_ids)
+
+    offset = _parse_sweep_cursor(cursor)
+    batch_limit = max(1, min(1000, int(limit or DEFAULT_SWEEP_LIMIT)))
+    selected = matching[offset: offset + batch_limit]
+    next_offset = offset + len(selected)
+    has_more = next_offset < len(matching)
+    return {
+        "ok": True,
+        "contract": "memory.association_coverage_sweep_plan.v1",
+        "mode": mode_n,
+        "cursor": str(offset),
+        "next_cursor": str(next_offset) if has_more else "",
+        "has_more": has_more,
+        "limit": batch_limit,
+        "eligible_bead_count": len(eligible_ids),
+        "matching_bead_count": len(matching),
+        "selected_count": len(selected),
+        "bead_ids": selected,
+        "graph_revision": _graph_revision(idx),
+    }
 
 
 def _coverage_eligible(bead: Any) -> bool:
@@ -1408,6 +1501,10 @@ def enqueue_association_coverage(
     candidate_bead_ids: list[str] | None = None,
     run_inline: bool = False,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    sweep: bool = False,
+    sweep_mode: str = "all",
+    sweep_cursor: str | None = None,
+    sweep_limit: int = DEFAULT_SWEEP_LIMIT,
     policy_version: str = POLICY_VERSION,
     prompt_version: str = JUDGE_PROMPT_VERSION,
     rubric_version: str = JUDGE_RUBRIC_VERSION,
@@ -1419,23 +1516,53 @@ def enqueue_association_coverage(
     resolved_ids = [_clean_str(x) for x in (bead_ids or []) if _clean_str(x)]
     if not resolved_ids and _clean_str(session_id):
         resolved_ids = _resolve_session_bead_ids(index, session_id)
+    sweep_info: dict[str, Any] | None = None
+    if bool(sweep) and not resolved_ids and not _clean_str(session_id):
+        sweep_info = plan_association_coverage_sweep(
+            root,
+            mode=sweep_mode,
+            cursor=sweep_cursor,
+            limit=sweep_limit,
+            index=index,
+        )
+        resolved_ids = list(sweep_info.get("bead_ids") or [])
     resolved_ids = [bid for bid in dict.fromkeys(resolved_ids) if bid in (index.get("beads") or {})]
     skipped_ids = [bid for bid in resolved_ids if not _coverage_eligible((index.get("beads") or {}).get(bid))]
     eligible_ids = [bid for bid in resolved_ids if bid not in set(skipped_ids)]
+    run_id = f"arun-{uuid.uuid4().hex[:12]}"
+    trigger_n = _normalize_trigger(trigger)
+    graph_rev = _clean_str(graph_revision) or _graph_revision(index)
+    prompt_v = _clean_str(prompt_version) or JUDGE_PROMPT_VERSION
+    rubric_v = _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION
     if not resolved_ids:
+        if sweep_info is not None:
+            out = {
+                "ok": True,
+                "contract": "memory.association_run.v1",
+                "run_id": run_id,
+                "status": "completed",
+                "trigger": trigger_n,
+                "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+                "prompt_version": prompt_v,
+                "rubric_version": rubric_v,
+                "graph_revision": graph_rev,
+                "session_id": "",
+                "bead_ids": [],
+                "skipped_bead_ids": [],
+                "association_state_by_bead": {},
+                "sweep": sweep_info,
+                "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": 0},
+            }
+            _append_run_record(root, out)
+            return out
         return {
             "ok": False,
             "error": "association_run_requires_bead_ids_or_session_id",
             "contract": "memory.association_run.v1",
         }
 
-    run_id = f"arun-{uuid.uuid4().hex[:12]}"
-    trigger_n = _normalize_trigger(trigger)
     initial_states = {bid: "deferred" for bid in eligible_ids}
     initial_states.update({bid: "skipped_ineligible" for bid in skipped_ids})
-    graph_rev = _clean_str(graph_revision) or _graph_revision(index)
-    prompt_v = _clean_str(prompt_version) or JUDGE_PROMPT_VERSION
-    rubric_v = _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION
     candidate_sig = _bead_set_signature([_clean_str(x) for x in (candidate_bead_ids or []) if _clean_str(x)]) if candidate_bead_ids else "auto"
 
     if not eligible_ids:
@@ -1453,6 +1580,7 @@ def enqueue_association_coverage(
             "bead_ids": [],
             "skipped_bead_ids": skipped_ids,
             "association_state_by_bead": initial_states,
+            "sweep": sweep_info,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
         }
         _append_run_record(root, out)
@@ -1474,6 +1602,7 @@ def enqueue_association_coverage(
             judge=judge,
             use_configured_judge=use_configured_judge,
             skipped_bead_ids=skipped_ids,
+            sweep_info=sweep_info,
         )
 
     bead_set_sig = _bead_set_signature(eligible_ids)
@@ -1484,6 +1613,8 @@ def enqueue_association_coverage(
         f"beads:{bead_set_sig}:"
         f"candidates:{candidate_sig}:"
         f"max:{max(1, int(max_candidates))}:"
+        f"sweep:{_normalize_sweep_mode(sweep_mode) if sweep_info is not None else '-'}:"
+        f"cursor:{(sweep_info or {}).get('cursor') or '-'}:"
         f"graph:{graph_rev}:"
         f"prompt:{prompt_v}:"
         f"rubric:{rubric_v}:"
@@ -1508,6 +1639,7 @@ def enqueue_association_coverage(
             "graph_revision": graph_rev,
             "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
             "use_configured_judge": bool(use_configured_judge),
+            "sweep": sweep_info,
         },
         idempotency_key=idempotency_key,
     )
@@ -1525,6 +1657,7 @@ def enqueue_association_coverage(
             "bead_ids": eligible_ids,
             "skipped_bead_ids": skipped_ids,
             "association_state_by_bead": initial_states,
+            "sweep": sweep_info,
             "queued_job_id": _clean_str(queue.get("id")),
             "queue": queue,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
@@ -1539,6 +1672,7 @@ def enqueue_association_coverage(
         "bead_ids": eligible_ids,
         "skipped_bead_ids": skipped_ids,
         "association_state_by_bead": initial_states,
+        "sweep": sweep_info,
         "queued_job_id": _clean_str(queue.get("id")),
         "association_queued": bool(queue.get("ok")),
         "queue": queue,
@@ -1602,6 +1736,11 @@ def run_association_coverage(
     trigger: str = "operator",
     candidate_bead_ids: list[str] | None = None,
     max_candidates: int = DEFAULT_MAX_CANDIDATES,
+    sweep: bool = False,
+    sweep_mode: str = "all",
+    sweep_cursor: str | None = None,
+    sweep_limit: int = DEFAULT_SWEEP_LIMIT,
+    sweep_info: dict[str, Any] | None = None,
     policy_version: str = POLICY_VERSION,
     prompt_version: str = JUDGE_PROMPT_VERSION,
     rubric_version: str = JUDGE_RUBRIC_VERSION,
@@ -1617,6 +1756,16 @@ def run_association_coverage(
     resolved_ids = [_clean_str(x) for x in (bead_ids or []) if _clean_str(x)]
     if not resolved_ids and _clean_str(session_id):
         resolved_ids = _resolve_session_bead_ids(index, session_id)
+    sweep_record = dict(sweep_info or {})
+    if bool(sweep) and not resolved_ids and not _clean_str(session_id):
+        sweep_record = plan_association_coverage_sweep(
+            root,
+            mode=sweep_mode,
+            cursor=sweep_cursor,
+            limit=sweep_limit,
+            index=index,
+        )
+        resolved_ids = list(sweep_record.get("bead_ids") or [])
     resolved_ids = [bid for bid in dict.fromkeys(resolved_ids) if bid in beads]
     skipped_ids = [_clean_str(x) for x in (skipped_bead_ids or []) if _clean_str(x)]
     skipped_ids.extend([bid for bid in resolved_ids if not _coverage_eligible(beads.get(bid))])
@@ -1627,6 +1776,26 @@ def run_association_coverage(
     graph_rev = _clean_str(graph_revision) or _graph_revision(index)
 
     if not eligible_ids and not skipped_ids:
+        if sweep_record:
+            out = {
+                "ok": True,
+                "contract": "memory.association_run.v1",
+                "run_id": run_id_final,
+                "status": "completed",
+                "trigger": trigger_n,
+                "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+                "prompt_version": prompt_v,
+                "rubric_version": rubric_v,
+                "graph_revision": graph_rev,
+                "session_id": _clean_str(session_id),
+                "bead_ids": [],
+                "skipped_bead_ids": [],
+                "association_state_by_bead": {},
+                "sweep": sweep_record,
+                "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": 0},
+            }
+            _append_run_record(root, out)
+            return out
         out = {
             "ok": False,
             "contract": "memory.association_run.v1",
@@ -1656,6 +1825,7 @@ def run_association_coverage(
             "bead_ids": [],
             "skipped_bead_ids": skipped_ids,
             "association_state_by_bead": state_by_bead,
+            "sweep": sweep_record or None,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
         }
         _append_run_record(root, out)
@@ -1677,6 +1847,7 @@ def run_association_coverage(
             "bead_ids": eligible_ids,
             "skipped_bead_ids": skipped_ids,
             "association_state_by_bead": pending_states,
+            "sweep": sweep_record or None,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
             "contract": "memory.association_run.v1",
         },
@@ -1714,6 +1885,7 @@ def run_association_coverage(
             "source_bead_ids": eligible_ids,
             "explicit_candidate_bead_ids": explicit_candidates,
             "max_candidates": max(1, int(max_candidates)),
+            "sweep": sweep_record or None,
             "candidate_count": len(candidates),
             "candidates": candidates,
         },
@@ -1752,6 +1924,7 @@ def run_association_coverage(
             "bead_ids": eligible_ids,
             "skipped_bead_ids": skipped_ids,
             "association_state_by_bead": state_by_bead,
+            "sweep": sweep_record or None,
             "candidate_count": len(candidates),
             "counts": {
                 "appended": 0,
@@ -1793,6 +1966,7 @@ def run_association_coverage(
             "bead_ids": eligible_ids,
             "skipped_bead_ids": skipped_ids,
             "association_state_by_bead": state_by_bead,
+            "sweep": sweep_record or None,
             "candidate_count": len(candidates),
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": len(eligible_ids), "skipped": len(skipped_ids)},
             "error": _clean_str(exc),
@@ -1861,6 +2035,7 @@ def run_association_coverage(
         "bead_ids": eligible_ids,
         "skipped_bead_ids": skipped_ids,
         "association_state_by_bead": state_by_bead,
+        "sweep": sweep_record or None,
         "association_ids": list(applied.get("association_ids") or []),
         "candidate_count": len(candidates),
         "judge_model": _clean_str(applied.get("judge_model")),
@@ -2019,5 +2194,6 @@ __all__ = [
     "latest_association_coverage",
     "list_association_candidates",
     "on_bead_committed",
+    "plan_association_coverage_sweep",
     "run_association_coverage",
 ]
