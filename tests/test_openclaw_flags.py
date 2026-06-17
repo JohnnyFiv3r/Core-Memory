@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from core_memory.integrations.api import get_turn, hydrate_bead_sources
 from core_memory.integrations.openclaw.flags import agent_authored_mode, resolved_agent_authored_gate, runtime_flags_snapshot
-from core_memory.integrations.openclaw.onboard import run_openclaw_onboard
+from core_memory.integrations.openclaw.onboard import harden_openclaw_plugin_config, run_openclaw_onboard
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
 
 
@@ -36,7 +37,47 @@ def test_onboard_uses_supersede_flag_by_default(monkeypatch):
     out = run_openclaw_onboard(dry_run=True)
     assert out["replace_memory_core"] is True
     cmds = [" ".join(step.get("cmd") or []) for step in out.get("steps") or []]
+    assert any("plugins uninstall core-memory-bridge" in c for c in cmds)
+    assert any("patch_openclaw_config" in c for c in cmds)
+    assert any("plugins enable core-memory-bridge" in c for c in cmds)
     assert any("plugins disable memory-core" in c for c in cmds)
+    assert out["restart_required"] is True
+
+
+def test_onboard_preserves_memory_core_in_coexist_dry_run():
+    out = run_openclaw_onboard(dry_run=True, replace_memory_core=False, config_path="/tmp/openclaw-test.json")
+    cmds = [" ".join(step.get("cmd") or []) for step in out.get("steps") or []]
+    assert any("plugins enable memory-core" in c for c in cmds)
+    assert out["config_path"] == "/tmp/openclaw-test.json"
+
+
+def test_harden_openclaw_plugin_config_removes_stale_entry_and_enforces_allow(tmp_path: Path):
+    cfg_path = tmp_path / "openclaw.json"
+    cfg_path.write_text(
+        json.dumps(
+            {
+                "plugins": {
+                    "entries": {
+                        "core-memory-bridge": {"config": {"coreMemoryRoot": "stale"}},
+                        "telegram": {"enabled": True},
+                    },
+                    "allow": "telegram",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    out = harden_openclaw_plugin_config(config_path=cfg_path)
+    assert out["ok"] is True
+    assert out["removed_stale_entry"] is True
+    assert out["added_allow"] is True
+
+    updated = json.loads(cfg_path.read_text(encoding="utf-8"))
+    plugins = updated["plugins"]
+    assert "core-memory-bridge" not in plugins["entries"]
+    assert "telegram" in plugins["entries"]
+    assert plugins["allow"] == ["telegram", "core-memory-bridge"]
 
 
 def test_flags_snapshot_shape():

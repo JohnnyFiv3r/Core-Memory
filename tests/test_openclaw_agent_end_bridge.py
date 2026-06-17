@@ -41,6 +41,20 @@ class TestOpenClawAgentEndBridge(unittest.TestCase):
             self.assertFalse(out.get("emitted"))
             self.assertEqual(out.get("reason"), "memory_trigger_skip")
 
+    def test_skips_missing_assistant_output(self):
+        with tempfile.TemporaryDirectory(prefix="cm-bridge-") as td:
+            event = {
+                "messages": [
+                    {"role": "user", "content": "telegram inbound without finalized reply"},
+                ],
+                "runId": "run-missing-assistant",
+            }
+            ctx = {"sessionId": "s1", "sessionKey": "main", "trigger": "user"}
+            out = process_agent_end_event(event=event, ctx=ctx, root=td)
+            self.assertTrue(out.get("ok"))
+            self.assertFalse(out.get("emitted"))
+            self.assertEqual(out.get("reason"), "missing_assistant_output")
+
 
 if __name__ == "__main__":
     unittest.main()
