@@ -6,6 +6,7 @@ from typing import Any
 
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
 from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.persistence.relation_migration import canonicalize_associations_for_store
 
 
 def _load_json_object(path: str, *, code_prefix: str, flag_name: str) -> dict[str, Any]:
@@ -99,6 +100,17 @@ def handle_ops_commands(*, args: Any, memory: Any) -> bool:
             reviewer=str(getattr(args, "reviewer", "") or ""),
             notes=str(getattr(args, "notes", "") or ""),
             apply=bool(getattr(args, "apply", False)),
+        )
+        print(json.dumps(out, indent=2))
+        if not out.get("ok"):
+            raise SystemExit(2)
+        return True
+
+    if cmd == "ops-canonicalize-relations":
+        out = canonicalize_associations_for_store(
+            memory.root,
+            apply=bool(getattr(args, "apply", False)),
+            limit=getattr(args, "limit", None),
         )
         print(json.dumps(out, indent=2))
         if not out.get("ok"):

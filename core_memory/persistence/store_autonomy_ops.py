@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from core_memory.schema.normalization import normalize_relation_type
+
 
 def reinforcement_signals_for_store(store: Any, index: dict, bead: dict) -> dict:
     bead_id = str(bead.get("id") or "")
@@ -28,7 +30,7 @@ def reinforcement_signals_for_store(store: Any, index: dict, bead: dict) -> dict
             continue
         edge_class = str(a.get("edge_class") or "").lower()
         rel = str(a.get("relationship") or "").lower()
-        if edge_class == "derived" and rel in {"shared_tag", "follows", "related"}:
+        if edge_class == "derived" and normalize_relation_type(rel) in {"shared_tag", "precedes", "related"}:
             continue
         assoc_deg += 1
 

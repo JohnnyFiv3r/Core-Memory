@@ -28,6 +28,7 @@ from .normalization import (
     TOOL_RESULT_STATUSES,
     canonicalize_association_edge,
     confidence_class_rank,
+    canonicalize_association_edge,
     derive_confidence_class,
     is_allowed_bead_type,
     normalize_approval_status,
@@ -141,11 +142,10 @@ class RelationshipType(str, Enum):
     CAUSES = "causes"
     ENABLES = "enables"
     LEADS_TO = "leads_to"
-    BLOCKED_BY = "blocked_by"
+    BLOCKS = "blocks"
     UNBLOCKS = "unblocks"
     BLOCKS_UNBLOCKS = "blocks_unblocks"
     SUPERSEDES = "supersedes"
-    SUPERSEDED_BY = "superseded_by"
     ASSOCIATED_WITH = "associated_with"
     CONTRADICTS = "contradicts"
     REFINES = "refines"
@@ -160,7 +160,6 @@ class RelationshipType(str, Enum):
     DERIVED_FROM = "derived_from"
     PART_OF = "part_of"
     RESOLVES = "resolves"
-    FOLLOWS = "follows"
     PRECEDES = "precedes"
 
 

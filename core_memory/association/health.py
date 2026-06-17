@@ -5,6 +5,8 @@ from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
+from core_memory.schema.normalization import normalize_relation_type
+
 
 def association_health_report(root: str, *, session_id: str | None = None) -> dict[str, Any]:
     idx_file = Path(root) / ".beads" / "index.json"
@@ -53,8 +55,8 @@ def association_health_report(root: str, *, session_id: str | None = None) -> di
     active_assocs = int(sum(v for k, v in status.items() if k not in {"retracted", "superseded", "inactive"}))
     isolated = sum(1 for bid in beads if deg.get(bid, 0) == 0)
 
-    noise_rels = {"shared_tag", "follows", "precedes"}
-    active_noise = sum(v for k, v in rel_active.items() if k in noise_rels)
+    noise_rels = {"shared_tag", "precedes"}
+    active_noise = sum(v for k, v in rel_active.items() if normalize_relation_type(k) in noise_rels)
 
     return {
         "ok": True,

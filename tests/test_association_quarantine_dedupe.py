@@ -17,7 +17,7 @@ def _read_jsonl(path: Path) -> list[dict]:
     return out
 
 
-def test_noncanonical_precedes_quarantined_and_deduped():
+def test_model_inferred_precedes_is_canonical_temporal_edge():
     with tempfile.TemporaryDirectory() as td:
         s = MemoryStore(td)
         a = s.add_bead(type="context", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
@@ -29,6 +29,37 @@ def test_noncanonical_precedes_quarantined_and_deduped():
                     "source_bead_id": a,
                     "target_bead_id": b,
                     "relationship": "precedes",
+                    "reason_text": "temporal ordering",
+                    "confidence": 0.77,
+                    "provenance": "model_inferred",
+                }
+            ]
+        }
+
+        out1 = apply_crawler_turn_updates(root=td, session_id="s1", visible_bead_ids=[a, b], updates=payload)
+        assert out1.get("ok") is True
+        assert out1.get("associations_appended") == 1
+        assert out1.get("associations_quarantined") == 0
+
+        rows = _read_jsonl(Path(out1.get("queued_to") or ""))
+        assoc = next(x for x in rows if x.get("kind") == "association_append")
+        assert assoc.get("source_bead") == a
+        assert assoc.get("target_bead") == b
+        assert assoc.get("relationship") == "precedes"
+
+
+def test_noncanonical_relationship_quarantined_and_deduped():
+    with tempfile.TemporaryDirectory() as td:
+        s = MemoryStore(td)
+        a = s.add_bead(type="context", title="A", summary=["x"], session_id="s1", source_turn_ids=["t1"])
+        b = s.add_bead(type="context", title="B", summary=["y"], session_id="s1", source_turn_ids=["t2"])
+
+        payload = {
+            "associations": [
+                {
+                    "source_bead_id": a,
+                    "target_bead_id": b,
+                    "relationship": "beforeish",
                     "reason_text": "temporal ordering",
                     "confidence": 0.77,
                     "provenance": "model_inferred",

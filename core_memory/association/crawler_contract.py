@@ -193,7 +193,7 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "Thin beads preserve temporal continuity; rich beads carry structured retrieval payload.",
             "Summary is optional; do not invent prose when structured fields are stronger.",
             "Initial write requires temporal grounding only (session/turn order/prev bead).",
-            "Every non-initial turn should preserve temporal baseline continuity with at least one temporal association such as follows/precedes to the immediately adjacent session bead when that adjacency is visible.",
+            "Every non-initial turn should preserve temporal baseline continuity with at least one temporal association such as precedes to the immediately adjacent session bead when that adjacency is visible.",
             "Do not force broad causal or semantic links on initial write unless strongly grounded.",
             "After the first turn in a session, actively sweep plausible prior visible beads against the defined association types and append every non-temporal semantic relation that is strongly or highly plausibly supported.",
             "When multiple relationships are highly plausibly true, append all of them rather than choosing only one.",
@@ -302,18 +302,6 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 tgt = str(row.get("target_bead") or "")
                 rel = str(row.get("relationship") or "").strip()
                 if not src or not tgt or not rel:
-                    continue
-
-                if rel == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
-                    write_quarantine(
-                        Path(root),
-                        row,
-                        reasons=["noncanonical_relationship:precedes"],
-                        warnings=["noncanonical_relationship:precedes"],
-                        original_payload=row,
-                        session_id=str(session_id),
-                    )
-                    quarantined += 1
                     continue
 
                 validated = validate_and_normalize_inference_payload(
@@ -486,7 +474,7 @@ def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any
     return out
 
 
-_TEMPORAL_RELATIONS = {"follows", "precedes"}
+_TEMPORAL_RELATIONS = {"precedes"}
 
 
 def _maybe_upgrade_context_to_reflection(*, root: Any, session_id: str, associations: list[dict], store: Any = None) -> None:
@@ -689,17 +677,6 @@ def apply_crawler_updates(
                     if not str(row.get("reason_code") or "").strip():
                         row["reason_code"] = _rc
                     row["provenance"] = "preview_classifier"
-            if str(row.get("relationship") or "").strip().lower() == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
-                write_quarantine(
-                    Path(root),
-                    row,
-                    reasons=["noncanonical_relationship:precedes"],
-                    warnings=["noncanonical_relationship:precedes"],
-                    original_payload=row,
-                    session_id=str(session_id),
-                )
-                quarantined += 1
-                continue
             validated = validate_and_normalize_inference_payload(row, mode=inference_mode)
             row_n = validated.record
 

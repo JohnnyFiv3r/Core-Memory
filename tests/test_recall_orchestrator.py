@@ -43,7 +43,7 @@ class TestRecallOrchestrator(unittest.TestCase):
 
         self.assertEqual("medium", result.planning.selected_effort)
         self.assertIn("decision", result.planning.expected_shape["bead_types"])
-        self.assertIn("superseded_by", result.planning.expected_shape["relations"])
+        self.assertIn("supersedes", result.planning.expected_shape["relations"])
         request = spy.call_args.kwargs["request"]
         self.assertEqual("causal", request["intent"])
         self.assertEqual("prefer_grounded", request["grounding_mode"])

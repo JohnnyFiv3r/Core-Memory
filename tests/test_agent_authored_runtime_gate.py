@@ -320,7 +320,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                             {
                                 "source_bead_id": src_id,
                                 "target_bead_id": target_id,
-                                "relationship": "follows",
+                                "relationship": "precedes",
                                 "reason_text": "temporal only",
                                 "confidence": 0.7,
                             }

@@ -247,11 +247,10 @@ GROUNDING_BY_TYPE = {
 CANONICAL_RELATION_TYPES = {
     "causes",
     "leads_to",
-    "blocked_by",
+    "blocks",
     "unblocks",
     "blocks_unblocks",
     "supersedes",
-    "superseded_by",
     "associated_with",
     "contradicts",
     "refines",
@@ -267,7 +266,6 @@ CANONICAL_RELATION_TYPES = {
     "derived_from",
     "part_of",
     "resolves",
-    "follows",
     "precedes",
     "enables",
 }
@@ -287,9 +285,17 @@ RELATION_TYPE_ALIASES = {
     "leads to": "leads_to",
     "lead_to": "leads_to",
     "leads-to": "leads_to",
-    "blocked": "blocked_by",
+    "blocked_by": "blocks",
+    "blocked by": "blocks",
+    "blocked": "blocks",
     "unblock": "unblocks",
     "unblocked": "unblocks",
+    "superseded_by": "supersedes",
+    "superseded by": "supersedes",
+    "follows": "precedes",
+    "followed_by": "precedes",
+    "followed by": "precedes",
+    "specializes": "generalizes",
     "enabled": "enables",
     "conflicts_with": "contradicts",
     "related_to": "associated_with",
@@ -299,7 +305,6 @@ RELATION_TYPE_ALIASES = {
     "solves_same_mechanism": "applies_pattern_of",
     "transferable_lesson": "applies_pattern_of",
     "violates_pattern_of": "contradicts",
-    "specializes": "generalizes",
     "blocks→unblocks": "blocks_unblocks",
     "blocks->unblocks": "blocks_unblocks",
     "blocks_unblock": "blocks_unblocks",
@@ -311,6 +316,12 @@ RELATION_TYPE_ALIASES = {
 INVERSE_EDGE_RELATION_ALIASES = frozenset({
     "caused_by",
     "caused by",
+    "blocked_by",
+    "blocked by",
+    "superseded_by",
+    "superseded by",
+    "follows",
+    "specializes",
 })
 
 # Shared relation-family groupings. These are helper classifications over the
@@ -329,7 +340,7 @@ EVIDENTIAL_RELATION_TYPES = frozenset({
     "resolves",
 })
 INFLUENCE_RELATION_TYPES = frozenset({
-    "blocked_by",
+    "blocks",
     "unblocks",
     "blocks_unblocks",
     "enables",
@@ -349,11 +360,10 @@ REPORTING_EVIDENCE_RELATION_TYPES = frozenset({
 INFERENCE_CANONICAL_RELATION_TYPES = {
     "causes",
     "leads_to",
-    "blocked_by",
+    "blocks",
     "unblocks",
     "blocks_unblocks",
     "supersedes",
-    "superseded_by",
     "associated_with",
     "contradicts",
     "refines",
@@ -368,7 +378,6 @@ INFERENCE_CANONICAL_RELATION_TYPES = {
     "derived_from",
     "part_of",
     "resolves",
-    "follows",
     "precedes",
     "enables",
 }
@@ -446,9 +455,9 @@ def relation_family(value: str | None) -> str:
         return "influence"
     if r in CONFLICT_RELATION_TYPES:
         return "conflict"
-    if r in {"follows", "precedes"}:
+    if r in {"precedes"}:
         return "temporal"
-    if r in {"supersedes", "superseded_by", "refines"}:
+    if r in {"supersedes", "refines"}:
         return "revision"
     if r in CANONICAL_RELATION_TYPES:
         return "structural"

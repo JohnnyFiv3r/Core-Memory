@@ -37,6 +37,7 @@ EVENT_BEAD_APPROVED = "bead_approved"
 EVENT_BEAD_REJECTED = "bead_rejected"
 EVENT_BEAD_REMOVED = "bead_removed"
 EVENT_ASSOCIATION_RETRACTED = "association_retracted"
+EVENT_ASSOCIATION_CANONICALIZED = "association_canonicalized"
 EVENT_EDGE_TRAVERSED = "edge_traversed"
 
 
@@ -223,6 +224,7 @@ def rebuild_index(root: Path) -> dict:
     removed_by_id = {}
     retracted_association_ids = set()
     retracted_associations = {}
+    canonicalized_associations = {}
 
     # Rebuild associations and removal tombstones from event logs.
     for ev in iter_events(root):
@@ -257,11 +259,19 @@ def rebuild_index(root: Path) -> dict:
                 snapshot = payload.get("association")
                 if isinstance(snapshot, dict):
                     retracted_associations[assoc_id] = snapshot
+        if ev.get("event_type") == EVENT_ASSOCIATION_CANONICALIZED:
+            payload = ev.get("payload") or {}
+            assoc_id = str(payload.get("association_id") or "").strip()
+            snapshot = payload.get("association")
+            if assoc_id and isinstance(snapshot, dict):
+                canonicalized_associations[assoc_id] = dict(snapshot)
 
     # Deterministic ordering + de-dup by id where available
     dedup = {}
     for a in index["associations"]:
         key = a.get("id") or f"{a.get('source_bead')}->{a.get('target_bead')}:{a.get('relationship')}"
+        if key in canonicalized_associations:
+            a = dict(canonicalized_associations[key])
         dedup[key] = a
     index["associations"] = sorted(
         dedup.values(),
@@ -418,6 +428,27 @@ def event_association_retracted(
             "actor": actor,
             "reason": reason,
             "association": dict(association_snapshot or {}),
+        },
+        use_lock=use_lock,
+    )
+
+
+def event_association_canonicalized(
+    root: Path,
+    association_id: str,
+    association_snapshot: dict,
+    previous_association: Optional[dict] = None,
+    use_lock: bool = True,
+) -> str:
+    """Create an association_canonicalized event honored by rebuild_index()."""
+    return append_event(
+        root=root,
+        session_id=None,
+        event_type=EVENT_ASSOCIATION_CANONICALIZED,
+        payload={
+            "association_id": association_id,
+            "association": dict(association_snapshot or {}),
+            "previous_association": dict(previous_association or {}),
         },
         use_lock=use_lock,
     )

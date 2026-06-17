@@ -7,7 +7,10 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import store_lock
-from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES, normalize_relation_type
+from core_memory.schema.normalization import (
+    INFERENCE_CANONICAL_RELATION_TYPES,
+    canonicalize_association_edge,
+)
 
 SCHEMA = "session_enrichment_delta.v1"
 NORMALIZER_VERSION = "session_enrichment_delta.normalizer.slice_a.1"
@@ -579,7 +582,10 @@ def crawler_updates_to_delta(
         src = _as_str(row.get("source_bead") or row.get("source_bead_id"))
         tgt = _as_str(row.get("target_bead") or row.get("target_bead_id"))
         rel_raw = _as_str(row.get("relationship")).lower()
-        rel = normalize_relation_type(rel_raw) if rel_raw else ""
+        edge = canonicalize_association_edge(src, tgt, rel_raw)
+        src = _as_str(edge.get("source_bead"))
+        tgt = _as_str(edge.get("target_bead"))
+        rel = _as_str(edge.get("relationship"))
         if not src or not tgt or not rel:
             quarantine_rows.append(
                 _quarantine(
@@ -606,9 +612,10 @@ def crawler_updates_to_delta(
             continue
         visibility_reasons: list[str] = []
         source_is_current_turn_alias = src.lower() in CURRENT_TURN_ASSOC_SOURCE_ALIASES
+        target_is_current_turn_alias = tgt.lower() in CURRENT_TURN_ASSOC_SOURCE_ALIASES
         if src not in visible_bead_ids and not historical_association_scope and not source_is_current_turn_alias:
             visibility_reasons.append("source_outside_visible_window")
-        if tgt not in visible_bead_ids and not historical_association_scope:
+        if tgt not in visible_bead_ids and not historical_association_scope and not target_is_current_turn_alias:
             visibility_reasons.append("target_outside_visible_window")
         if visibility_reasons:
             quarantine_rows.append(
@@ -625,7 +632,8 @@ def crawler_updates_to_delta(
             "source_bead_id": src,
             "target_bead_id": tgt,
             "relationship": rel,
-            "relationship_raw": _as_str(row.get("relationship_raw")) or (rel_raw if rel_raw != rel else None),
+            "relationship_raw": _as_str(row.get("relationship_raw")) or (rel_raw if edge.get("normalization_applied") else None),
+            "endpoints_swapped": True if edge.get("endpoints_swapped") else None,
             "reason_text": _as_str(row.get("reason_text") or row.get("rationale")),
             "reason_code": _as_str(row.get("reason_code")) or None,
             "evidence_fields": _str_list(row.get("evidence_fields")),

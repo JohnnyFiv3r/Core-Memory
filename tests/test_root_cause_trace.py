@@ -70,6 +70,17 @@ class TestRootCauseTrace(unittest.TestCase):
         self.assertIn(vendor, cause_ids)
         self.assertTrue(any(path["nodes"][:2] == [outcome, vendor] for path in out["causal_paths"]))
 
+    def test_supersedes_edges_remain_upstream_support(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            old = store.add_bead(type="state_assertion", title="Old state", summary=["old"], observed_at="2026-05-01T00:00:00Z")
+            new = store.add_bead(type="state_assertion", title="New state", summary=["new"], observed_at="2026-05-02T00:00:00Z")
+            store.link(source_id=new, target_id=old, relationship="supersedes", confidence=0.9)
+
+            out = root_cause_trace(Path(td), [old], query="What replaced this state?", max_depth=2, max_paths=5)
+
+        self.assertTrue(any(path["nodes"][:2] == [old, new] for path in out["causal_paths"]))
+
     def test_semantic_cold_hop_is_penalized_not_pruned(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)

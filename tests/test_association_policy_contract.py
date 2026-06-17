@@ -26,6 +26,14 @@ class TestAssociationPolicyContract(unittest.TestCase):
         self.assertEqual("causes", n.get("relationship"))
         self.assertTrue(n.get("endpoints_swapped"))
 
+    def test_inverse_relation_aliases_swap_endpoints(self):
+        row = {"source_bead": "blocked", "target_bead": "blocker", "relationship": "blocked_by"}
+        n = normalize_assoc_row(row)
+        self.assertEqual("blocker", n.get("source_bead_id"))
+        self.assertEqual("blocked", n.get("target_bead_id"))
+        self.assertEqual("blocks", n.get("relationship"))
+        self.assertTrue(n.get("endpoints_swapped"))
+
 
 if __name__ == "__main__":
     unittest.main()

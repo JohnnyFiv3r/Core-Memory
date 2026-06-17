@@ -37,12 +37,12 @@ Rule:
 Canonical/structural relation set is defined in `core_memory/schema/normalization.py` (`CANONICAL_RELATION_TYPES`).
 
 Includes model-native values plus observed canonicalized extensions:
-- causes, leads_to, blocked_by, unblocks, blocks_unblocks
-- supersedes, superseded_by, refines
+- causes, leads_to, blocks, unblocks, blocks_unblocks
+- supersedes, refines
 - associated_with, contradicts, invalidates, diagnoses
 - applies_pattern_of, constraint_transformed_into
 - similar_pattern, generalizes, reveals_bias
-- supports, derived_from, part_of, resolves, follows, precedes, enables
+- supports, derived_from, part_of, resolves, precedes, enables
 
 ## Relation families and direction rules
 
@@ -55,16 +55,15 @@ change graph traversal semantics.
 
 - causal: causes, leads_to, resolves, diagnoses
 - evidence: supports, derived_from, causes, leads_to, resolves
-- influence: blocked_by, unblocks, blocks_unblocks, enables
+- influence: blocks, unblocks, blocks_unblocks, enables
 - conflict: contradicts, invalidates
-- temporal: follows, precedes
-- revision: supersedes, superseded_by, refines
+- temporal: precedes
+- revision: supersedes, refines
 
 Direction rules for new authored associations:
 - `causes`: the source bead is evidence/cause for the affected target bead.
 - `leads_to`: a process/progression edge, not generic causal proof.
-- `blocked_by`: the source bead is prevented by the target blocker in current
-  stored Core Memory usage.
+- `blocks`: the source bead blocks or prevents the target bead.
 - `unblocks`: the source removes a blocking condition for the target.
 - `blocks_unblocks`: legacy compound relation. It remains accepted for
   compatibility but is discouraged for new model-authored associations unless
@@ -74,19 +73,23 @@ Unknown semantics should use `associated_with` or quarantine/review. Do not use
 `supports` as a fallback for unclear semantics.
 
 Accepted aliases normalize spelling variants and retired synonym labels such as
-`caused_by`, `led_to`, `blocked`, `unblocked`, `enabled`, `conflicts_with`,
-`related_to`, `reinforces`, `mirrors`, `structural_symmetry`,
-`solves_same_mechanism`, `transferable_lesson`, `violates_pattern_of`, and
-`blocks->unblocks` to existing canonical values. Alias normalization never
-rewrites source/target direction.
+`caused_by`, `led_to`, `unblocked`, `enabled`, `conflicts_with`, `related_to`,
+`reinforces`, `mirrors`, `structural_symmetry`, `solves_same_mechanism`,
+`transferable_lesson`, `violates_pattern_of`, and `blocks->unblocks` to
+existing canonical values.
+
+Inverse labels `blocked_by`, `superseded_by`, `follows`, and `specializes`
+normalize to active canonical labels and require endpoint swapping at
+association write boundaries. Use `core-memory ops canonicalize-relations` for
+dry-run inspection and `core-memory ops canonicalize-relations --apply` to
+rewrite existing active index rows with audit events.
 
 Dreamer may preserve retired pattern labels as `relationship_signal` metadata
 for candidate-family evaluation, but persisted graph edges use canonical
 relation labels.
 
-The active label `blocks` is intentionally not normalized to `blocked_by`,
-because that would invert current stored semantics without swapping endpoints.
-Use `blocked_by` with passive direction, `unblocks`, or quarantine for review.
+New model-authored associations should prefer the active canonical labels and
+source -> target direction directly.
 
 ## Derived/helper relation tags
 

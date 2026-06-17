@@ -19,7 +19,7 @@ from core_memory.policy.association_inference_v21 import (
     validate_and_normalize_inference_payload,
 )
 from core_memory.retrieval.lifecycle import mark_trace_dirty
-from core_memory.schema.normalization import normalize_relation_type
+from core_memory.schema.normalization import canonicalize_association_edge
 
 
 ASSOCIATION_RUNS_SCHEMA = "core_memory.association_runs.v1"
@@ -415,10 +415,10 @@ def _candidate_proposals_for_bead(
     if prev_id in beads:
         candidates_out.append(
             _candidate(
-                bead_id,
                 prev_id,
-                "follows",
-                reason_text="Source bead follows the previous bead in the same session.",
+                bead_id,
+                "precedes",
+                reason_text="Previous bead precedes the source bead in the same session.",
                 reason_code="session_temporal_adjacency",
                 confidence=0.98,
                 evidence_refs=[
@@ -554,10 +554,10 @@ def _candidate_proposals_for_bead(
         if matches:
             candidates_out.append(
                 _candidate(
-                    bead_id,
                     matches[0][1],
-                    "follows",
-                    reason_text="Periodic transcript bead follows the prior snapshot for the same transcript.",
+                    bead_id,
+                    "precedes",
+                    reason_text="Prior transcript snapshot precedes the periodic transcript bead.",
                     reason_code="periodic_transcript_snapshot_continuity",
                     confidence=0.9,
                     evidence_refs=[
@@ -631,7 +631,10 @@ def _write_association_if_missing(
     source_id = _clean_str(source)
     target_id = _clean_str(target)
     raw_rel = _clean_str(relationship)
-    rel = normalize_relation_type(raw_rel)
+    edge = canonicalize_association_edge(source_id, target_id, raw_rel)
+    source_id = _clean_str(edge.get("source_bead"))
+    target_id = _clean_str(edge.get("target_bead"))
+    rel = _clean_str(edge.get("relationship"))
     if not source_id or not target_id or not rel or source_id == target_id:
         return {"ok": False, "error": "invalid_association_edge"}
 
@@ -651,7 +654,8 @@ def _write_association_if_missing(
             "source_bead": source_id,
             "target_bead": target_id,
             "relationship": rel,
-            "relationship_raw": raw_rel if raw_rel and raw_rel.lower() != rel else None,
+            "relationship_raw": raw_rel if edge.get("normalization_applied") else None,
+            "endpoints_swapped": True if edge.get("endpoints_swapped") else None,
             "status": "active",
             "edge_class": _clean_str(edge_class) or "system_structural",
             "confidence": float(confidence),

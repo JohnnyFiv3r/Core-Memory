@@ -326,7 +326,7 @@ def query_contradictions(
         "as_of": str(as_of or "").strip() or None,
         "grounding_mode": "prefer_grounded",
         "constraints": {"require_structural": True},
-        "facets": {"relation_types": ["contradicts", "supersedes", "superseded_by"]},
+        "facets": {"relation_types": ["contradicts", "supersedes"]},
     }
     out = _execute_with_fallback(root=root, request=req, explain=True)
 

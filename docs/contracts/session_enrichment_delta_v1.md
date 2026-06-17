@@ -198,7 +198,7 @@ Adapter target today: `associations` rows passed to `apply_crawler_updates(...)`
   "dedupe_key": "assoc:{source_bead_id}:{target_bead_id}:{relationship}",
   "source_bead_id": "string",
   "target_bead_id": "string",
-  "relationship": "supports|refines|causes|leads_to|enables|diagnoses|resolves|supersedes|contradicts|follows|precedes|related_to|other-canonical",
+  "relationship": "supports|refines|causes|leads_to|blocks|unblocks|enables|diagnoses|resolves|supersedes|contradicts|precedes|related_to|other-canonical",
   "relationship_raw": "string|null",
   "reason_text": "string",
   "reason_code": "string|null",

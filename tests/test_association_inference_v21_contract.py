@@ -85,13 +85,28 @@ def test_caused_by_alias_swaps_endpoints_before_strict_validation():
     assert out.record["endpoints_swapped"] is True
 
 
-def test_active_blocks_label_is_not_normalized_without_endpoint_rewrite():
+def test_active_blocks_label_is_accepted_without_endpoint_rewrite():
     payload = _base_payload(relationship="blocks")
     out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_STRICT)
 
-    assert out.ok is False
-    assert f"{Q_NONCANONICAL_PREFIX}blocks" in out.quarantine_reasons
-    assert f"{WARN_NONCANONICAL_PREFIX}blocks" in out.warnings
+    assert out.ok is True
+    assert out.quarantine_reasons == []
+    assert out.record["relationship"] == "blocks"
+    assert out.record["source_bead"] == "bead-A"
+    assert out.record["target_bead"] == "bead-B"
+
+
+def test_inverse_blocks_label_swaps_endpoints_before_validation():
+    payload = _base_payload(relationship="blocked_by")
+    out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_STRICT)
+
+    assert out.ok is True
+    assert out.record["relationship"] == "blocks"
+    assert out.record["relationship_raw"] == "blocked_by"
+    assert out.record["source_bead"] == "bead-B"
+    assert out.record["target_bead"] == "bead-A"
+    assert out.record["endpoints_swapped"] is True
+    assert out.record["normalization_applied"] is True
 
 
 def test_unknown_relation_maps_to_associated_with_in_permissive_mode():

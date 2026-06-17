@@ -87,7 +87,11 @@ def _relationship_for_candidate(
     if same_session:
         if order < 0:
             return ("precedes", "temporal_precedes", "Source bead appears earlier in the same session.")
-        return ("follows", "temporal_follows", "Source bead appears later in the same session.")
+        return (
+            "associated_with",
+            "temporal_follows_requires_endpoint_swap",
+            "Source bead appears later in the same session; preview cannot swap endpoints.",
+        )
 
     return (
         "associated_with",
@@ -126,13 +130,6 @@ def infer_relationship(bead_a: dict, bead_b: dict) -> tuple[str, str]:
         new_causal=new_causal,
         other_causal=other_causal,
     )
-    if rel == "precedes":
-        # "precedes" is noncanonical on the inference surface (canonical
-        # temporal direction is "follows") and would be quarantined in strict
-        # mode — a guaranteed-dead edge. The fill cannot swap endpoints to
-        # express the canonical direction, so fall back to the non-structural
-        # canonical relation and keep the temporal order in the reason code.
-        return "associated_with", "temporal_precedes_noncanonical"
     return rel, reason_code
 
 
