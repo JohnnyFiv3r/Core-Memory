@@ -345,3 +345,10 @@ refs into association candidates, coverage runs, judge receipts, and accepted
 association provenance. Source-local deterministic links are useful candidate
 evidence only; they do not become active graph edges unless the association
 judge accepts them.
+
+If the host later asks Core Memory to run association coverage over a source
+batch, pass the compact refs back as `source_ingest_envelope_refs` on
+`POST /v1/memory/association-runs` or through
+`maintain(action="association_run")`. Core Memory merges those refs with
+bead-local refs and preserves them through queued runs, candidate rows, judge
+context, and accepted associations.

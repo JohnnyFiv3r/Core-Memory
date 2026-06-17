@@ -503,6 +503,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             graph_revision=str(p.get("graph_revision") or ""),
             skipped_bead_ids=[str(x) for x in (p.get("skipped_bead_ids") or []) if str(x).strip()],
             source_ingest_envelope=dict(p.get("source_ingest_envelope") or {}),
+            source_ingest_envelope_refs=[x for x in (p.get("source_ingest_envelope_refs") or []) if isinstance(x, dict)],
             sweep_info={
                 "sweep": bool(p.get("sweep")),
                 "sweep_mode": str(p.get("sweep_mode") or ""),

@@ -1683,6 +1683,7 @@ def enqueue_association_coverage(
     sweep_cursor: str | None = None,
     sweep_limit: int | None = None,
     source_ingest_envelope: dict[str, Any] | None = None,
+    source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     index = _load_index(root)
     resolved_ids = [_clean_str(x) for x in (bead_ids or []) if _clean_str(x)]
@@ -1701,7 +1702,10 @@ def enqueue_association_coverage(
     resolved_ids = [bid for bid in dict.fromkeys(resolved_ids) if bid in (index.get("beads") or {})]
     skipped_ids = [bid for bid in resolved_ids if not _coverage_eligible((index.get("beads") or {}).get(bid))]
     eligible_ids = [bid for bid in resolved_ids if bid not in set(skipped_ids)]
-    explicit_envelope_refs = merge_source_ingest_envelope_refs(source_ingest_envelope or [])
+    explicit_envelope_refs = merge_source_ingest_envelope_refs(
+        source_ingest_envelope or [],
+        source_ingest_envelope_refs or [],
+    )
     run_envelope_refs = merge_source_ingest_envelope_refs(
         _source_envelope_refs_for_bead_ids(index, eligible_ids + skipped_ids),
         explicit_envelope_refs,
@@ -1787,6 +1791,7 @@ def enqueue_association_coverage(
             skipped_bead_ids=skipped_ids,
             sweep_info=sweep_info,
             source_ingest_envelope=source_ingest_envelope,
+            source_ingest_envelope_refs=run_envelope_refs,
         )
 
     bead_set_sig = _bead_set_signature(eligible_ids)
@@ -1955,6 +1960,7 @@ def run_association_coverage(
     skipped_bead_ids: list[str] | None = None,
     sweep_info: dict[str, Any] | None = None,
     source_ingest_envelope: dict[str, Any] | None = None,
+    source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     run_id_final = _clean_str(run_id) or f"arun-{uuid.uuid4().hex[:12]}"
     trigger_n = _normalize_trigger(trigger)
@@ -1968,7 +1974,10 @@ def run_association_coverage(
     skipped_ids.extend([bid for bid in resolved_ids if not _coverage_eligible(beads.get(bid))])
     skipped_ids = list(dict.fromkeys([bid for bid in skipped_ids if bid in beads]))
     eligible_ids = [bid for bid in resolved_ids if bid not in set(skipped_ids) and _coverage_eligible(beads.get(bid))]
-    explicit_envelope_refs = merge_source_ingest_envelope_refs(source_ingest_envelope or [])
+    explicit_envelope_refs = merge_source_ingest_envelope_refs(
+        source_ingest_envelope or [],
+        source_ingest_envelope_refs or [],
+    )
     run_envelope_refs = merge_source_ingest_envelope_refs(
         _source_envelope_refs_for_bead_ids(index, eligible_ids + skipped_ids),
         explicit_envelope_refs,

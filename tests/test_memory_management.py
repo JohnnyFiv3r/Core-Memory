@@ -7,6 +7,8 @@ from unittest.mock import patch
 from core_memory import maintain, remove_bead, remove_source
 from core_memory.integrations.mcp.registry import call_tool
 from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.associations.coverage import get_association_run
+from core_memory.runtime.queue.jobs import run_async_jobs
 
 
 def _index(root: str) -> dict:
@@ -506,6 +508,78 @@ class TestMemoryManagement(unittest.TestCase):
             self.assertTrue(out.get("ok"), out)
             self.assertEqual("myelination-update", out.get("kind"))
             self.assertEqual("myelination-update", ((out.get("queue") or {}).get("kind")))
+
+    def test_association_run_maintain_supports_sweep_without_client_bead_ids(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = maintain(
+                root=td,
+                action="association_run",
+                targets={
+                    "sweep": True,
+                    "sweep_mode": "all",
+                    "sweep_limit": 1,
+                    "run_inline": True,
+                    "max_candidates": 1,
+                },
+                authority={"actor": "agent.chat", "allowed_authority": ["run_association_judge"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertTrue(out.get("sweep"), out)
+            self.assertEqual("all", out.get("sweep_mode"))
+            self.assertEqual(1, len(out.get("bead_ids") or []))
+            self.assertIn((out.get("bead_ids") or [None])[0], {first, second})
+            self.assertTrue(out.get("next_sweep_cursor"))
+
+    def test_association_run_maintain_preserves_source_ingest_envelope_refs_through_queue(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            _add(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            _add(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+            envelope_ref = {
+                "schema": "core_memory.source_ingest_envelope.v1",
+                "envelope_id": "env-maintain-source-1",
+                "boundary_type": "DocumentImported",
+                "ingest_batch_id": "batch-maintain-source-1",
+                "source_object_id": "doc-maintain-source-1",
+            }
+
+            queued = maintain(
+                root=td,
+                action="association_run",
+                targets={
+                    "sweep": True,
+                    "sweep_mode": "all",
+                    "sweep_limit": 1,
+                    "max_candidates": 1,
+                    "source_ingest_envelope_refs": [envelope_ref],
+                },
+                authority={"actor": "agent.chat", "allowed_authority": ["run_association_judge"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(queued.get("ok"), queued)
+            self.assertEqual("queued", queued.get("status"))
+            self.assertIn(
+                "env-maintain-source-1",
+                {ref.get("envelope_id") for ref in (queued.get("source_ingest_envelope_refs") or [])},
+            )
+
+            ran = run_async_jobs(td, run_semantic=False, max_compaction=0, max_side_effects=1)
+            self.assertTrue(ran.get("ok"), ran)
+            final = get_association_run(td, str(queued.get("run_id") or ""))
+            self.assertTrue(final.get("ok"), final)
+            run_record = final.get("run") or {}
+            self.assertIn(
+                "env-maintain-source-1",
+                {ref.get("envelope_id") for ref in (run_record.get("source_ingest_envelope_refs") or [])},
+            )
+            self.assertIn("batch-maintain-source-1", run_record.get("source_ingest_batch_ids") or [])
 
     def test_apply_association_proposals_requires_authority_and_judge_provenance(self):
         with tempfile.TemporaryDirectory() as td:

@@ -159,6 +159,47 @@ def _bead_ids_from_targets(targets: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(bead_ids))
 
 
+def _truthy(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    text = _clean_str(value).lower()
+    return text in {"1", "true", "yes", "y", "on"}
+
+
+def _int_or_default(value: Any, default: int, minimum: int = 1) -> int:
+    try:
+        return max(minimum, int(value))
+    except Exception:
+        return max(minimum, int(default))
+
+
+def _association_source_ingest_envelope(targets: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
+    for row in (
+        targets.get("source_ingest_envelope"),
+        proposal.get("source_ingest_envelope"),
+        targets.get("source_ingest_envelope_ref"),
+        proposal.get("source_ingest_envelope_ref"),
+    ):
+        if isinstance(row, dict):
+            return dict(row)
+    return {}
+
+
+def _association_source_ingest_envelope_refs(targets: dict[str, Any], proposal: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for value in (
+        targets.get("source_ingest_envelope_refs"),
+        proposal.get("source_ingest_envelope_refs"),
+    ):
+        if isinstance(value, list):
+            refs.extend(dict(x) for x in value if isinstance(x, dict))
+        elif isinstance(value, dict):
+            refs.append(dict(value))
+    return refs
+
+
 def _source_payload(targets: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
     source = targets.get("source") if isinstance(targets.get("source"), dict) else proposal.get("source")
     return dict(source or {})
@@ -255,8 +296,8 @@ def _validate_action(
         if not _clean_str(targets.get("kind")):
             errors.append(_validation_error("targets.kind", "job_kind_required"))
     elif action == "association_run":
-        if not _bead_ids_from_targets(targets) and not _clean_str(scope.get("session_id") or targets.get("session_id")):
-            errors.append(_validation_error("targets.bead_ids", "bead_ids_or_session_id_required"))
+        if not _bead_ids_from_targets(targets) and not _clean_str(scope.get("session_id") or targets.get("session_id")) and not _truthy(targets.get("sweep")):
+            errors.append(_validation_error("targets.bead_ids", "bead_ids_session_id_or_sweep_required"))
     elif action == "apply_association_proposals":
         rows = _merge_association_provenance(
             list(proposal.get("associations") or []),
@@ -748,10 +789,19 @@ def maintain(
             root=root_final,
             bead_ids=_bead_ids_from_targets(targets_d),
             session_id=_clean_str(scope_d.get("session_id") or targets_d.get("session_id")) or None,
-            trigger=_clean_str(targets_d.get("trigger") or "operator"),
+            trigger=_clean_str(targets_d.get("trigger") or proposal_d.get("trigger") or "operator"),
             candidate_bead_ids=list(targets_d.get("candidate_bead_ids") or []),
-            run_inline=bool(targets_d.get("run_inline")),
-            max_candidates=int(targets_d.get("max_candidates") or 40),
+            run_inline=_truthy(targets_d.get("run_inline")),
+            max_candidates=_int_or_default(targets_d.get("max_candidates"), 40),
+            graph_revision=_clean_str(targets_d.get("graph_revision") or proposal_d.get("graph_revision")),
+            prompt_version=_clean_str(targets_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v1"),
+            rubric_version=_clean_str(targets_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v1"),
+            sweep=_truthy(targets_d.get("sweep")),
+            sweep_mode=_clean_str(targets_d.get("sweep_mode") or proposal_d.get("sweep_mode") or "incomplete"),
+            sweep_cursor=_clean_str(targets_d.get("sweep_cursor") or proposal_d.get("sweep_cursor")),
+            sweep_limit=_int_or_default(targets_d.get("sweep_limit"), _int_or_default(targets_d.get("max_candidates"), 40)),
+            source_ingest_envelope=_association_source_ingest_envelope(targets_d, proposal_d),
+            source_ingest_envelope_refs=_association_source_ingest_envelope_refs(targets_d, proposal_d),
         )
         return _augment(out, action=action_n, authority=authority_d)
 
