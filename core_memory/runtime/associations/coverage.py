@@ -57,7 +57,7 @@ TRIGGER_ALIASES = {
     "operator_rereview": "operator_review",
 }
 INCOMPLETE_STATES = {"deferred", "pending_judge", "judge_failed", "quarantined", "failed"}
-JUDGE_ACTIONS = {"accept", "reject", "modify", "invert", "replace", "add", "no_link"}
+JUDGE_ACTIONS = {"accept", "reject", "modify", "invert", "replace", "add", "no_link", "defer"}
 
 
 def _now() -> str:
@@ -275,8 +275,12 @@ def _candidate_status_from_action(action: str) -> str:
     action_n = _clean_str(action).lower()
     if action_n in {"accept", "modify", "invert", "replace", "add"}:
         return "linked"
-    if action_n in {"reject", "no_link"}:
+    if action_n == "no_link":
+        return "no_supported_links"
+    if action_n == "reject":
         return "rejected"
+    if action_n == "defer":
+        return "deferred"
     return ""
 
 
@@ -285,6 +289,7 @@ def _candidate_decision_statuses(root: str | Path) -> dict[str, str]:
     priority = {
         "pending_judge": 1,
         "deferred": 2,
+        "no_supported_links": 3,
         "rejected": 3,
         "judge_failed": 4,
         "quarantined": 5,
@@ -314,16 +319,140 @@ def _candidate_decision_statuses(root: str | Path) -> dict[str, str]:
     return statuses
 
 
+def _candidate_priority_rank(value: Any) -> int:
+    return {
+        "weak_plausible": 1,
+        "plausible": 2,
+        "strong": 3,
+        "urgent": 4,
+    }.get(_clean_str(value).lower(), 0)
+
+
+def _jsonable_dedupe_key(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        return _clean_str(value)
+
+
+def _merge_unique_values(left: list[Any], right: list[Any], *, limit: int = 50) -> list[Any]:
+    out = list(left or [])
+    seen = {_jsonable_dedupe_key(item) for item in out}
+    for item in right or []:
+        key = _jsonable_dedupe_key(item)
+        if key in seen:
+            continue
+        out.append(item)
+        seen.add(key)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _confidence_value(value: Any) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def _candidate_row_from_batch(candidate: dict[str, Any], *, recorded_at: str, run_id: str, trigger: str, status: str) -> dict[str, Any]:
+    return {
+        "candidate_id": _clean_str(candidate.get("candidate_id")),
+        "status": _clean_str(status).lower() or "pending_judge",
+        "run_id": run_id,
+        "trigger": trigger,
+        "recorded_at": recorded_at,
+        "source_bead": _clean_str(candidate.get("source_bead")),
+        "target_bead": _clean_str(candidate.get("target_bead")),
+        "proposed_relationship": _clean_str(candidate.get("proposed_relationship")),
+        "candidate_class": _clean_str(candidate.get("candidate_class")),
+        "priority": _clean_str(candidate.get("priority")),
+        "reason_code": _clean_str(candidate.get("reason_code")),
+        "system_rationale": _clean_str(candidate.get("system_rationale")),
+        "confidence_prior": candidate.get("confidence_prior"),
+        "evidence_bead_ids": list(candidate.get("evidence_bead_ids") or []),
+        "evidence_refs": list(candidate.get("evidence_refs") or []),
+        "requires_judge": bool(candidate.get("requires_judge", True)),
+    }
+
+
+def _merge_candidate_observation(current: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(current)
+    latest_key = (_clean_str(merged.get("recorded_at")), _clean_str(merged.get("candidate_id")))
+    row_key = (_clean_str(row.get("recorded_at")), _clean_str(row.get("candidate_id")))
+    if row_key >= latest_key:
+        for key in (
+            "run_id",
+            "trigger",
+            "recorded_at",
+            "source_bead",
+            "target_bead",
+            "proposed_relationship",
+            "candidate_class",
+            "reason_code",
+            "system_rationale",
+            "requires_judge",
+        ):
+            merged[key] = row.get(key)
+        if _confidence_value(row.get("confidence_prior")) >= _confidence_value(merged.get("confidence_prior")):
+            merged["confidence_prior"] = row.get("confidence_prior")
+
+    if _candidate_priority_rank(row.get("priority")) > _candidate_priority_rank(merged.get("priority")):
+        merged["priority"] = row.get("priority")
+
+    merged["first_seen_at"] = min(
+        [x for x in [_clean_str(merged.get("first_seen_at")), _clean_str(row.get("recorded_at"))] if x],
+        default=_clean_str(row.get("recorded_at")),
+    )
+    merged["latest_seen_at"] = max(
+        [x for x in [_clean_str(merged.get("latest_seen_at")), _clean_str(row.get("recorded_at"))] if x],
+        default=_clean_str(row.get("recorded_at")),
+    )
+    run_id = _clean_str(row.get("run_id"))
+    trigger = _clean_str(row.get("trigger")) or "unknown"
+    merged["run_ids"] = _merge_unique_values(list(merged.get("run_ids") or []), [run_id] if run_id else [], limit=100)
+    merged["triggers"] = _merge_unique_values(list(merged.get("triggers") or []), [trigger], limit=25)
+    trigger_counts = dict(merged.get("trigger_counts") or {})
+    trigger_counts[trigger] = int(trigger_counts.get(trigger) or 0) + 1
+    merged["trigger_counts"] = trigger_counts
+    merged["evidence_bead_ids"] = _merge_unique_values(
+        list(merged.get("evidence_bead_ids") or []),
+        list(row.get("evidence_bead_ids") or []),
+        limit=100,
+    )
+    merged["evidence_refs"] = _merge_unique_values(
+        list(merged.get("evidence_refs") or []),
+        list(row.get("evidence_refs") or []),
+        limit=100,
+    )
+    observations = list(merged.get("rediscovery_observations") or [])
+    observations.append(
+        {
+            "run_id": run_id,
+            "trigger": trigger,
+            "recorded_at": _clean_str(row.get("recorded_at")),
+            "priority": _clean_str(row.get("priority")),
+            "confidence_prior": row.get("confidence_prior"),
+            "reason_code": _clean_str(row.get("reason_code")),
+        }
+    )
+    merged["rediscovery_observations"] = observations[-10:]
+    merged["rediscovery_count"] = int(merged.get("rediscovery_count") or 0) + 1
+    return merged
+
+
 def list_association_candidates(
     root: str | Path,
     *,
     status: str | None = None,
     limit: int = 100,
 ) -> dict[str, Any]:
-    """Return flattened association candidates from the shared candidate ledger."""
+    """Return unique association candidates from the shared candidate ledger."""
     status_filter = _clean_str(status).lower()
     decision_statuses = _candidate_decision_statuses(root)
-    rows: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    observation_count = 0
     for batch in _iter_candidate_records(root):
         recorded_at = _clean_str(batch.get("recorded_at"))
         run_id = _clean_str(batch.get("run_id"))
@@ -332,31 +461,43 @@ def list_association_candidates(
             if not isinstance(candidate, dict):
                 continue
             cid = _clean_str(candidate.get("candidate_id"))
+            if not cid:
+                continue
             state = decision_statuses.get(cid, "pending_judge")
             if status_filter and state != status_filter:
                 continue
-            rows.append(
-                {
-                    "candidate_id": cid,
-                    "status": state,
-                    "run_id": run_id,
-                    "trigger": trigger,
-                    "recorded_at": recorded_at,
-                    "source_bead": _clean_str(candidate.get("source_bead")),
-                    "target_bead": _clean_str(candidate.get("target_bead")),
-                    "proposed_relationship": _clean_str(candidate.get("proposed_relationship")),
-                    "candidate_class": _clean_str(candidate.get("candidate_class")),
-                    "priority": _clean_str(candidate.get("priority")),
-                    "reason_code": _clean_str(candidate.get("reason_code")),
-                    "system_rationale": _clean_str(candidate.get("system_rationale")),
-                    "confidence_prior": candidate.get("confidence_prior"),
-                    "evidence_bead_ids": list(candidate.get("evidence_bead_ids") or []),
-                    "evidence_refs": list(candidate.get("evidence_refs") or []),
-                    "requires_judge": bool(candidate.get("requires_judge", True)),
-                }
+            row = _candidate_row_from_batch(
+                candidate,
+                recorded_at=recorded_at,
+                run_id=run_id,
+                trigger=trigger,
+                status=state,
             )
+            observation_count += 1
+            if cid in by_id:
+                by_id[cid] = _merge_candidate_observation(by_id[cid], row)
+            else:
+                by_id[cid] = _merge_candidate_observation(
+                    {
+                        **row,
+                        "first_seen_at": recorded_at,
+                        "latest_seen_at": recorded_at,
+                        "run_ids": [],
+                        "triggers": [],
+                        "trigger_counts": {},
+                        "rediscovery_count": 0,
+                        "rediscovery_observations": [],
+                    },
+                    row,
+                )
+    rows = list(by_id.values())
     rows.sort(
-        key=lambda r: (_clean_str(r.get("recorded_at")), _clean_str(r.get("candidate_id"))),
+        key=lambda r: (
+            _clean_str(r.get("latest_seen_at") or r.get("recorded_at")),
+            _candidate_priority_rank(r.get("priority")),
+            int(r.get("rediscovery_count") or 0),
+            _clean_str(r.get("candidate_id")),
+        ),
         reverse=True,
     )
     return {
@@ -364,7 +505,232 @@ def list_association_candidates(
         "contract": "memory.association_candidates.v1",
         "status": status_filter or "all",
         "count": len(rows),
+        "observation_count": observation_count,
         "results": rows[: max(1, int(limit))],
+    }
+
+
+def decide_association_candidate(
+    root: str | Path,
+    *,
+    candidate_id: str,
+    action: str,
+    run_id: str | None = None,
+    session_id: str | None = None,
+    reviewer: str | None = None,
+    reason_text: str | None = None,
+    truth_basis: str | None = None,
+    confidence: float | None = None,
+    relationship: str | None = None,
+    source_bead: str | None = None,
+    target_bead: str | None = None,
+    evidence_refs: list[Any] | None = None,
+    evidence_bead_ids: list[Any] | None = None,
+    judge_model: str | None = None,
+    prompt_version: str | None = None,
+    rubric_version: str | None = None,
+) -> dict[str, Any]:
+    """Apply a host/judge decision to a unique association candidate."""
+    cid = _clean_str(candidate_id)
+    action_n = _clean_str(action).lower()
+    if not cid:
+        return {
+            "ok": False,
+            "contract": "memory.association_candidate_decision.v1",
+            "error": "association_candidate_id_required",
+        }
+    if action_n not in JUDGE_ACTIONS:
+        return {
+            "ok": False,
+            "contract": "memory.association_candidate_decision.v1",
+            "error": "invalid_association_candidate_action",
+            "candidate_id": cid,
+            "action": action_n,
+            "allowed_actions": sorted(JUDGE_ACTIONS),
+        }
+
+    listing = list_association_candidates(root, limit=100000)
+    candidate = next(
+        (
+            row for row in (listing.get("results") or [])
+            if _clean_str((row or {}).get("candidate_id")) == cid
+        ),
+        None,
+    )
+    if not isinstance(candidate, dict):
+        return {
+            "ok": False,
+            "contract": "memory.association_candidate_decision.v1",
+            "error": "association_candidate_not_found",
+            "candidate_id": cid,
+        }
+
+    run_id_final = _clean_str(run_id) or f"association-candidate-decision-{uuid.uuid4().hex}"
+    prompt_v = _clean_str(prompt_version) or JUDGE_PROMPT_VERSION
+    rubric_v = _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION
+    reviewer_n = _clean_str(reviewer) or "host"
+    source = _clean_str(source_bead) or _clean_str(candidate.get("source_bead"))
+    target = _clean_str(target_bead) or _clean_str(candidate.get("target_bead"))
+    rel = _clean_str(relationship) or _clean_str(candidate.get("proposed_relationship"))
+    reason = (
+        _clean_str(reason_text)
+        or _clean_str(candidate.get("system_rationale"))
+        or "Association candidate reviewed by host."
+    )
+    basis = _clean_str(truth_basis)
+    if not basis and action_n in {"accept", "modify", "invert", "replace", "add"}:
+        basis = "host_reviewed_candidate"
+    elif not basis and action_n in {"reject", "no_link"}:
+        basis = "host_rejected_candidate"
+    elif not basis and action_n == "defer":
+        basis = "host_deferred_candidate"
+
+    decision = {
+        "candidate_id": cid,
+        "action": action_n,
+        "reviewer": reviewer_n,
+        "source_bead": source,
+        "target_bead": target,
+        "relationship": rel,
+        "confidence": confidence if confidence is not None else candidate.get("confidence_prior"),
+        "reason_text": reason,
+        "truth_basis": basis,
+        "reason_code": _clean_str(candidate.get("reason_code")),
+        "evidence_refs": list(evidence_refs if evidence_refs is not None else (candidate.get("evidence_refs") or [])),
+        "evidence_bead_ids": list(
+            evidence_bead_ids if evidence_bead_ids is not None else (candidate.get("evidence_bead_ids") or [])
+        ),
+    }
+
+    if action_n == "defer":
+        state_by_bead = {source: "deferred"} if source else {}
+        _append_judge_decision_record(
+            root,
+            {
+                "contract": ASSOCIATION_JUDGE_CONTRACT,
+                "run_id": run_id_final,
+                "session_id": _clean_str(session_id),
+                "status": "deferred",
+                "judge_model": _clean_str(judge_model) or "host-association-candidate-decision",
+                "prompt_version": prompt_v,
+                "rubric_version": rubric_v,
+                "candidate_ids": [cid],
+                "decisions": [decision],
+                "reviewed_beads": [
+                    {"bead_id": source, "association_state": "deferred"}
+                ] if source else [],
+                "counts": {"accepted": 0, "rejected": 0, "deferred": 1, "appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
+                "errors": [],
+            },
+        )
+        _append_run_record(
+            root,
+            {
+                "run_id": run_id_final,
+                "status": "deferred",
+                "trigger": "operator_review",
+                "contract": "memory.association_candidate_decision.v1",
+                "session_id": _clean_str(session_id),
+                "candidate_id": cid,
+                "candidate_ids": [cid],
+                "bead_ids": [bid for bid in [source] if bid],
+                "association_state_by_bead": state_by_bead,
+                "counts": {"accepted": 0, "rejected": 0, "deferred": 1, "appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
+                "errors": [],
+            },
+        )
+        return {
+            "ok": True,
+            "contract": "memory.association_candidate_decision.v1",
+            "candidate_id": cid,
+            "run_id": run_id_final,
+            "status": "deferred",
+            "association_state_by_bead": state_by_bead,
+            "association_ids": [],
+            "counts": {"accepted": 0, "rejected": 0, "deferred": 1, "appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
+            "errors": [],
+        }
+
+    index = _load_index(root)
+    judge_result = {
+        "contract": ASSOCIATION_JUDGE_CONTRACT,
+        "run_id": run_id_final,
+        "judge_model": _clean_str(judge_model) or "host-association-candidate-decision",
+        "prompt_version": prompt_v,
+        "rubric_version": rubric_v,
+        "decisions": [decision],
+        "reviewed_beads": [],
+    }
+    applied = _apply_judge_result(
+        root,
+        index=index,
+        run_id=run_id_final,
+        session_id=session_id,
+        source_bead_ids=[source] if source else [],
+        candidates=[candidate],
+        judge_context={
+            "run_id": run_id_final,
+            "candidates": [candidate],
+            "source_bead_ids": [source] if source else [],
+            "prompt_version": prompt_v,
+            "rubric_version": rubric_v,
+        },
+        judge_result=judge_result,
+        policy_version=POLICY_VERSION,
+        prompt_version=prompt_v,
+        rubric_version=rubric_v,
+    )
+    state_by_bead = dict(applied.get("association_state_by_bead") or {})
+    if action_n in {"reject", "no_link"} and source:
+        state_by_bead.setdefault(source, "no_supported_links")
+    failed = int(applied.get("failed") or 0)
+    quarantined = int(applied.get("quarantined") or 0)
+    if quarantined:
+        status = "quarantined"
+    elif failed:
+        status = "failed"
+    elif action_n in {"reject", "no_link"}:
+        status = "no_supported_links"
+    else:
+        status = "linked"
+    counts = {
+        "accepted": int(applied.get("accepted") or 0),
+        "rejected": int(applied.get("rejected") or 0),
+        "deferred": int(applied.get("deferred") or 0),
+        "appended": int(applied.get("appended") or 0),
+        "deduped": int(applied.get("deduped") or 0),
+        "quarantined": quarantined,
+        "failed": failed,
+    }
+    errors = list(applied.get("errors") or [])
+    association_ids = list(applied.get("association_ids") or [])
+    _append_run_record(
+        root,
+        {
+            "run_id": run_id_final,
+            "status": status,
+            "trigger": "operator_review",
+            "contract": "memory.association_candidate_decision.v1",
+            "session_id": _clean_str(session_id),
+            "candidate_id": cid,
+            "candidate_ids": [cid],
+            "bead_ids": [bid for bid in [source, target] if bid],
+            "association_state_by_bead": state_by_bead,
+            "association_ids": association_ids,
+            "counts": counts,
+            "errors": errors,
+        },
+    )
+    return {
+        "ok": status not in {"failed", "quarantined"},
+        "contract": "memory.association_candidate_decision.v1",
+        "candidate_id": cid,
+        "run_id": run_id_final,
+        "status": status,
+        "association_state_by_bead": state_by_bead,
+        "association_ids": association_ids,
+        "counts": counts,
+        "errors": errors,
     }
 
 
@@ -395,7 +761,8 @@ def association_coverage_summary(root: str | Path, *, limit: int = 10) -> dict[s
         runs_by_status[row_status] = runs_by_status.get(row_status, 0) + 1
         runs_by_trigger[row_trigger] = runs_by_trigger.get(row_trigger, 0) + 1
 
-    candidates = list_association_candidates(root, limit=100000).get("results") or []
+    candidate_listing = list_association_candidates(root, limit=100000)
+    candidates = candidate_listing.get("results") or []
     candidate_status: dict[str, int] = {}
     for candidate in candidates:
         state = _clean_str((candidate or {}).get("status")) or "unknown"
@@ -417,6 +784,7 @@ def association_coverage_summary(root: str | Path, *, limit: int = 10) -> dict[s
         "isolated_eligible_bead_count": len(isolated_ids),
         "isolated_eligible_bead_ids": isolated_ids[: max(1, int(limit))],
         "candidate_count": len(candidates),
+        "candidate_observation_count": int(candidate_listing.get("observation_count") or 0),
         "candidate_status_counts": candidate_status,
         "pending_judge_count": int(candidate_status.get("pending_judge") or 0),
         "runs_by_status": runs_by_status,
@@ -1162,12 +1530,18 @@ def _invoke_association_judge(
 def _bead_context(bead: dict[str, Any]) -> dict[str, Any]:
     keys = [
         "id", "type", "title", "summary", "detail", "session_id", "source_turn_ids",
-        "tags", "entities", "topics", "created_at", "prev_bead_id", "next_bead_id",
+        "tags", "entities", "entity_refs", "topics", "created_at", "prev_bead_id", "next_bead_id",
         "source_id", "source_event_id", "source_system", "source_kind",
         "core_memory_unifying_id", "document_id", "ragie_document_id",
         "raw_source_object_id", "section_refs", "source_record_id",
-        "business_object_id", "transcript_id", "conversation_id", "supersedes",
-        "derived_from", "derived_from_bead_ids", "evidence_refs",
+        "source_table", "business_object_type", "business_object_id",
+        "record_action", "record_grain", "metric_name", "metric_value",
+        "metric_unit", "change_pct", "currency", "attribute_tags",
+        "as_of_timestamp", "observed_at", "effective_from", "effective_to",
+        "state_change", "claims", "supporting_facts", "because", "actor",
+        "assertion_kind", "assertion_subject", "assertion_predicate", "assertion_value",
+        "transcript_id", "conversation_id", "source_thread_id", "message_refs",
+        "speaker_refs", "supersedes", "derived_from", "derived_from_bead_ids", "evidence_refs",
     ]
     out: dict[str, Any] = {}
     for key in keys:
@@ -1241,7 +1615,7 @@ def _decision_state(value: Any) -> str:
     state = _clean_str(value).lower()
     if state in {"no_link", "none"}:
         return "no_supported_links"
-    if state in {"linked", "no_supported_links", "quarantined", "judge_failed", "failed", "pending_judge", "skipped_ineligible"}:
+    if state in {"linked", "no_supported_links", "quarantined", "judge_failed", "failed", "pending_judge", "deferred", "skipped_ineligible"}:
         return state
     return ""
 
@@ -1320,6 +1694,7 @@ def _apply_judge_result(
 
     accepted = 0
     rejected = 0
+    deferred = 0
     appended = 0
     deduped = 0
     quarantined = 0
@@ -1373,10 +1748,14 @@ def _apply_judge_result(
                 session_id=_clean_str(session_id),
             )
             continue
-        if action in {"reject", "no_link"}:
-            rejected += 1
+        if action in {"reject", "no_link", "defer"}:
+            if action != "defer":
+                rejected += 1
+            else:
+                deferred += 1
             candidate = candidate_by_id.get(_clean_str(decision.get("candidate_id"))) or {}
-            mark(_clean_str(decision.get("source_bead") or candidate.get("source_bead")), "no_supported_links")
+            state = "deferred" if action == "defer" else "no_supported_links"
+            mark(_clean_str(decision.get("source_bead") or candidate.get("source_bead")), state)
             continue
 
         assoc_payload, candidate_ids = _candidate_association_payload(decision, candidate_by_id)
@@ -1466,6 +1845,7 @@ def _apply_judge_result(
             "counts": {
                 "accepted": accepted,
                 "rejected": rejected,
+                "deferred": deferred,
                 "appended": appended,
                 "deduped": deduped,
                 "quarantined": quarantined,
@@ -1478,6 +1858,7 @@ def _apply_judge_result(
     return {
         "accepted": accepted,
         "rejected": rejected,
+        "deferred": deferred,
         "appended": appended,
         "deduped": deduped,
         "quarantined": quarantined,
@@ -2189,6 +2570,7 @@ __all__ = [
     "POLICY_VERSION",
     "apply_association_proposals",
     "association_coverage_summary",
+    "decide_association_candidate",
     "enqueue_association_coverage",
     "get_association_run",
     "latest_association_coverage",

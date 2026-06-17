@@ -7,6 +7,7 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.associations.coverage import (
     apply_association_proposals,
     association_coverage_summary,
+    decide_association_candidate,
     enqueue_association_coverage,
     get_association_run,
     list_association_candidates,
@@ -304,6 +305,68 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertTrue(decision_rows)
             self.assertGreaterEqual(((decision_rows[-1].get("counts") or {}).get("rejected") or 0), 1)
 
+    def test_association_candidate_decision_accepts_and_links_candidate(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            pending = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+            )
+            self.assertTrue(pending.get("ok"), pending)
+            candidates = list_association_candidates(td, status="pending_judge")
+            candidate = (candidates.get("results") or [])[0]
+
+            out = decide_association_candidate(
+                td,
+                candidate_id=str(candidate.get("candidate_id")),
+                action="accept",
+                reviewer="unit-test",
+                truth_basis="unit_test_candidate_review",
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("linked", out.get("status"))
+            self.assertEqual("linked", (out.get("association_state_by_bead") or {}).get(str(candidate.get("source_bead"))))
+            self.assertEqual(1, len(_assocs(td, "precedes")))
+
+            linked = list_association_candidates(td, status="linked")
+            self.assertIn(str(candidate.get("candidate_id")), {str(row.get("candidate_id")) for row in linked.get("results") or []})
+
+    def test_association_candidate_decision_can_defer_without_writing_edge(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            pending = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+            )
+            self.assertTrue(pending.get("ok"), pending)
+            candidates = list_association_candidates(td, status="pending_judge")
+            candidate = (candidates.get("results") or [])[0]
+
+            out = decide_association_candidate(
+                td,
+                candidate_id=str(candidate.get("candidate_id")),
+                action="defer",
+                reviewer="unit-test",
+                reason_text="Needs a later review batch.",
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("deferred", out.get("status"))
+            self.assertEqual("deferred", (out.get("association_state_by_bead") or {}).get(str(candidate.get("source_bead"))))
+            self.assertEqual([], _assocs(td, "precedes"))
+
+            deferred = list_association_candidates(td, status="deferred")
+            self.assertIn(str(candidate.get("candidate_id")), {str(row.get("candidate_id")) for row in deferred.get("results") or []})
+
     def test_judge_can_modify_candidate_relation_before_commit(self):
         with tempfile.TemporaryDirectory() as td:
             whole = ingest_document_reference(td, _document_payload(), session_id="external")
@@ -538,6 +601,16 @@ class TestAssociationCoverage(unittest.TestCase):
             candidates_data = candidates.json()
             self.assertTrue(candidates_data.get("ok"), candidates_data)
             self.assertGreaterEqual(candidates_data.get("count") or 0, 1)
+            candidate_id = str(((candidates_data.get("results") or [])[0] or {}).get("candidate_id") or "")
+            decision = client.post(
+                f"/v1/memory/association-candidates/{candidate_id}/decide",
+                json={"root": root, "action": "no_link", "reviewer": "unit-test"},
+            )
+            self.assertEqual(200, decision.status_code)
+            decision_data = decision.json()
+            self.assertTrue(decision_data.get("ok"), decision_data)
+            self.assertEqual("no_supported_links", decision_data.get("status"))
+            self.assertEqual([], _assocs(root, "precedes"))
 
             sweep = client.post(
                 "/v1/memory/association-runs",
@@ -627,6 +700,44 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual(all_ids, first_batch.union(second_batch))
             self.assertEqual(1, ((next_out.get("sweep") or {}).get("selected_count")))
             self.assertFalse((next_out.get("sweep") or {}).get("has_more"))
+
+    def test_candidate_listing_merges_repeated_rediscovery(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="Rediscovery one", summary=["first"], tags=["rediscovery"], session_id="s1")
+            second = _add_test_bead(store, type="context", title="Rediscovery two", summary=["second"], tags=["rediscovery"], session_id="s2")
+
+            one = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator_review",
+                use_configured_judge=False,
+            )
+            self.assertTrue(one.get("ok"), one)
+            two = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="repair",
+                use_configured_judge=False,
+            )
+            self.assertTrue(two.get("ok"), two)
+
+            candidates = list_association_candidates(td, status="pending_judge")
+            self.assertTrue(candidates.get("ok"), candidates)
+            self.assertEqual(1, candidates.get("count"))
+            self.assertEqual(2, candidates.get("observation_count"))
+            row = (candidates.get("results") or [])[0]
+            self.assertEqual(2, row.get("rediscovery_count"))
+            self.assertEqual({one.get("run_id"), two.get("run_id")}, set(row.get("run_ids") or []))
+            self.assertEqual({"operator_review": 1, "repair": 1}, row.get("trigger_counts"))
+            self.assertGreaterEqual(len(row.get("rediscovery_observations") or []), 2)
+
+            summary = association_coverage_summary(td)
+            self.assertEqual(1, summary.get("candidate_count"))
+            self.assertEqual(2, summary.get("candidate_observation_count"))
+            self.assertEqual(1, summary.get("pending_judge_count"))
 
     def test_association_run_requires_beads_or_session(self):
         with tempfile.TemporaryDirectory() as td:

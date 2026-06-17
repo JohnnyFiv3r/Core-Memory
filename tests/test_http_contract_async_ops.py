@@ -20,6 +20,7 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
         self.assertIn(("GET", "/v1/memory/association-runs/{run_id}"), eps)
         self.assertIn(("GET", "/v1/memory/association-coverage/summary"), eps)
         self.assertIn(("GET", "/v1/memory/association-candidates"), eps)
+        self.assertIn(("POST", "/v1/memory/association-candidates/{candidate_id}/decide"), eps)
         self.assertIn(("POST", "/v1/memory/association-proposals"), eps)
 
     def test_contract_endpoints_exist_in_http_server_routes(self):
@@ -38,6 +39,7 @@ class TestHttpContractAsyncOpsSlice52A(unittest.TestCase):
         self.assertIn(("GET", "/v1/memory/association-runs/{run_id}"), route_pairs)
         self.assertIn(("GET", "/v1/memory/association-coverage/summary"), route_pairs)
         self.assertIn(("GET", "/v1/memory/association-candidates"), route_pairs)
+        self.assertIn(("POST", "/v1/memory/association-candidates/{candidate_id}/decide"), route_pairs)
         self.assertIn(("POST", "/v1/memory/association-proposals"), route_pairs)
 
 
