@@ -49,7 +49,7 @@ def add_bead_for_store(
     from core_memory.schema.models import BeadType, Scope
 
     association_coverage_enabled = bool(kwargs.pop("_association_coverage", True))
-    association_coverage_trigger = str(kwargs.pop("_association_trigger", "bead_committed") or "bead_committed")
+    association_coverage_trigger = str(kwargs.pop("_association_trigger", "bead_commit") or "bead_commit")
     association_coverage_source = str(kwargs.pop("_association_source", "memory_store") or "memory_store")
 
     type_value = store._normalize_enum(type, BeadType)
@@ -269,9 +269,10 @@ def add_bead_for_store(
                 bead_id,
                 trigger=association_coverage_trigger,
                 source=association_coverage_source,
-                run_inline=False,
+                run_inline=True,
                 session_id=resolved_session_id,
                 enqueue=False,
+                use_configured_judge=False,
             )
         except Exception:
             pass
