@@ -2353,7 +2353,7 @@ def decide_association_candidate(
     rubric_version: str | None = None,
 ) -> dict[str, Any]:
     cid = _clean_str(candidate_id)
-    action_n = _clean_str(action).lower()
+    action_n = _judge_action({"action": action})
     if not cid:
         return {"ok": False, "contract": ASSOCIATION_CANDIDATE_DECISION_CONTRACT, "error": "missing_candidate_id"}
     if action_n not in JUDGE_ACTIONS:

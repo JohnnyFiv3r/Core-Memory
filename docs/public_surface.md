@@ -38,7 +38,7 @@ A surface is canonical only if it is both:
 - `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators; generates candidates and requires a judge decision before active graph edge writes
 - `core_memory.on_bead_committed(...)` — post-commit bead coverage hook used by canonical write paths
 - `core_memory.apply_association_proposals(...)` — reviewed association proposal ingestion through the canonical validation/quarantine path
-- `core_memory.maintain(...)` — governed control-plane facade for management actions (approval, cleanup, async ops, association dispatch, Dreamer candidate review, SOUL revisions, Myelination refresh, and correction/re-review actions). Mutating dry-runs return `required_authority`, `authority_ok`, and validation errors.
+- `core_memory.maintain(...)` — governed control-plane facade for management actions (approval, cleanup, async ops, association dispatch, association coverage review, Dreamer candidate review, SOUL revisions, Myelination refresh, and correction/re-review actions). Mutating dry-runs return `required_authority`, `authority_ok`, and validation errors.
 - `core_memory.remove_bead(...)` / `core_memory.remove_beads(...)` — remove mistaken beads from active memory projection after explicit authority, prune attached associations, retract configured projections, and preserve tombstone audit events
 - `core_memory.remove_source(...)` — remove all active beads matching a strong source identifier when a source object/file is deleted; dry-run previews may be limited, but apply-mode removes every match. Use `source.selector` for matching and `source.metadata` for audit-only fields.
 
