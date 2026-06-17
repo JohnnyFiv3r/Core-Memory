@@ -152,6 +152,42 @@ class PartialFakeAssociationJudge:
         }
 
 
+class LinkedAliasAssociationJudge:
+    def review(self, context):
+        candidate = (context.get("candidates") or [])[0]
+        return {
+            "contract": "memory.association_judge.v1",
+            "run_id": context["run_id"],
+            "judge_model": "fake-linked-alias",
+            "decisions": [
+                {
+                    "candidate_id": candidate["candidate_id"],
+                    "action": "linked",
+                    "reason_text": "Alias should be treated as candidate acceptance.",
+                }
+            ],
+            "reviewed_beads": [{"bead_id": bid, "association_state": "linked"} for bid in context.get("source_bead_ids", [])],
+        }
+
+
+class NoSupportedLinksAliasAssociationJudge:
+    def review(self, context):
+        candidate = (context.get("candidates") or [])[0]
+        return {
+            "contract": "memory.association_judge.v1",
+            "run_id": context["run_id"],
+            "judge_model": "fake-no-supported-alias",
+            "decisions": [
+                {
+                    "candidate_id": candidate["candidate_id"],
+                    "action": "no_supported_links",
+                    "reason_text": "Alias should be treated as no_link.",
+                }
+            ],
+            "reviewed_beads": [{"bead_id": bid, "association_state": "no_supported_links"} for bid in context.get("source_bead_ids", [])],
+        }
+
+
 def _document_payload(**overrides):
     payload = {
         "title": "Vendor Contract",
@@ -264,6 +300,45 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual("no_supported_links", (out.get("association_state_by_bead") or {}).get(bead))
             self.assertEqual(0, (out.get("counts") or {}).get("pending_judge"))
             self.assertEqual(1, (out.get("counts") or {}).get("no_supported_links"))
+            self.assertEqual([], _assocs(td, "follows"))
+
+    def test_linked_action_alias_accepts_candidate(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+                judge=LinkedAliasAssociationJudge(),
+            )
+
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("completed", out.get("status"))
+            follows = _assocs(td, "follows")
+            self.assertEqual(1, len(follows))
+            self.assertEqual("association_judge_candidate_review", follows[0].get("truth_basis"))
+
+    def test_no_supported_links_action_alias_rejects_candidate(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+                judge=NoSupportedLinksAliasAssociationJudge(),
+            )
+
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("completed", out.get("status"))
+            self.assertEqual("no_supported_links", (out.get("association_state_by_bead") or {}).get(second))
             self.assertEqual([], _assocs(td, "follows"))
 
     def test_section_document_bead_links_part_of_whole_document_after_judge_approval(self):
