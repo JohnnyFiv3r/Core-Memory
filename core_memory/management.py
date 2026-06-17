@@ -13,6 +13,32 @@ from typing import Any
 
 
 MAINTAIN_CONTRACT = "core_memory.maintain.v1"
+ASSOCIATION_CANDIDATE_ACTIONS = {
+    "accept",
+    "approve",
+    "approved",
+    "associate",
+    "link",
+    "linked",
+    "supported",
+    "reject",
+    "reject_candidate",
+    "modify",
+    "invert",
+    "replace",
+    "add",
+    "create",
+    "create_edge",
+    "add_link",
+    "no_link",
+    "no link",
+    "no-link",
+    "no_supported_link",
+    "no_supported_links",
+    "none",
+    "not_supported",
+    "unsupported",
+}
 
 
 @dataclass(frozen=True)
@@ -35,6 +61,7 @@ ACTION_POLICIES: dict[str, ActionPolicy] = {
     "enqueue_job": ActionPolicy(("queue_ops", "admin_repair"), True, True),
     "run_jobs": ActionPolicy(("queue_ops", "admin_repair"), True, True),
     "association_run": ActionPolicy(("run_association_judge", "queue_ops", "admin_repair"), True, True),
+    "decide_association_candidate": ActionPolicy(("append_judged_association", "user_confirmed", "admin_repair"), True, True),
     "apply_association_proposals": ActionPolicy(("append_judged_association", "admin_repair"), True, True),
     "decide_dreamer_candidate": ActionPolicy(("decide_dreamer_candidate", "user_confirmed", "admin_repair"), True, True),
     "submit_entity_merge_proposal": ActionPolicy(("submit_entity_merge_proposal", "admin_repair"), True, True),
@@ -57,6 +84,8 @@ READ_ACTIONS = {
     "inspect_bead",
     "list_pending_approvals",
     "list_dreamer_candidates",
+    "association_coverage_summary",
+    "list_association_candidates",
     "myelination_status",
     "inspect_soul",
     "soul_history",
@@ -93,6 +122,15 @@ def _normalize_action(action: str) -> str:
         "run_async_jobs": "run_jobs",
         "run_association_judge": "association_run",
         "run_association_coverage": "association_run",
+        "association_summary": "association_coverage_summary",
+        "association_coverage": "association_coverage_summary",
+        "coverage_summary": "association_coverage_summary",
+        "list_association": "list_association_candidates",
+        "list_association_candidate": "list_association_candidates",
+        "association_candidates": "list_association_candidates",
+        "association_candidate": "decide_association_candidate",
+        "decide_association": "decide_association_candidate",
+        "review_association_candidate": "decide_association_candidate",
         "apply_associations": "apply_association_proposals",
         "list_dreamer": "list_dreamer_candidates",
         "decide_dreamer": "decide_dreamer_candidate",
@@ -298,6 +336,11 @@ def _validate_action(
     elif action == "association_run":
         if not _bead_ids_from_targets(targets) and not _clean_str(scope.get("session_id") or targets.get("session_id")) and not _truthy(targets.get("sweep")):
             errors.append(_validation_error("targets.bead_ids", "bead_ids_session_id_or_sweep_required"))
+    elif action == "decide_association_candidate":
+        if not _clean_str(targets.get("candidate_id") or decision.get("candidate_id")):
+            errors.append(_validation_error("targets.candidate_id", "candidate_id_required"))
+        if _clean_str(decision.get("action") or decision.get("decision") or targets.get("action") or targets.get("decision")).lower() not in ASSOCIATION_CANDIDATE_ACTIONS:
+            errors.append(_validation_error("decision.action", "association_candidate_action_required"))
     elif action == "apply_association_proposals":
         rows = _merge_association_provenance(
             list(proposal.get("associations") or []),
@@ -607,6 +650,26 @@ def maintain(
         out["action"] = action_n
         return out
 
+    if action_n == "association_coverage_summary":
+        from core_memory.runtime.associations.coverage import association_coverage_summary
+
+        out = association_coverage_summary(root=root_final, limit=_int_or_default(targets_d.get("limit"), 10))
+        out["contract"] = MAINTAIN_CONTRACT
+        out["action"] = action_n
+        return out
+
+    if action_n == "list_association_candidates":
+        from core_memory.runtime.associations.coverage import list_association_candidates
+
+        out = list_association_candidates(
+            root=root_final,
+            status=_clean_str(targets_d.get("status") or scope_d.get("status")) or None,
+            limit=_int_or_default(targets_d.get("limit"), 100),
+        )
+        out["contract"] = MAINTAIN_CONTRACT
+        out["action"] = action_n
+        return out
+
     if action_n == "myelination_status":
         return _myelination_status(root_final)
 
@@ -802,6 +865,30 @@ def maintain(
             sweep_limit=_int_or_default(targets_d.get("sweep_limit"), _int_or_default(targets_d.get("max_candidates"), 40)),
             source_ingest_envelope=_association_source_ingest_envelope(targets_d, proposal_d),
             source_ingest_envelope_refs=_association_source_ingest_envelope_refs(targets_d, proposal_d),
+        )
+        return _augment(out, action=action_n, authority=authority_d)
+
+    if action_n == "decide_association_candidate":
+        from core_memory.runtime.associations.coverage import decide_association_candidate
+
+        out = decide_association_candidate(
+            root=root_final,
+            candidate_id=_clean_str(targets_d.get("candidate_id") or decision_d.get("candidate_id")),
+            action=_clean_str(decision_d.get("action") or decision_d.get("decision") or targets_d.get("action") or targets_d.get("decision")),
+            run_id=_clean_str(targets_d.get("run_id") or decision_d.get("run_id")),
+            session_id=_clean_str(scope_d.get("session_id") or targets_d.get("session_id")) or None,
+            reviewer=_clean_str(authority_d.get("actor") or decision_d.get("reviewer")),
+            reason_text=_clean_str(decision_d.get("reason_text") or decision_d.get("reason") or proposal_d.get("reason")),
+            truth_basis=_clean_str(decision_d.get("truth_basis") or proposal_d.get("truth_basis")),
+            confidence=decision_d.get("confidence"),
+            relationship=_clean_str(decision_d.get("relationship") or targets_d.get("relationship")),
+            source_bead=_clean_str(decision_d.get("source_bead") or targets_d.get("source_bead")),
+            target_bead=_clean_str(decision_d.get("target_bead") or targets_d.get("target_bead")),
+            evidence_refs=list(decision_d.get("evidence_refs") or proposal_d.get("evidence_refs") or []),
+            evidence_bead_ids=list(decision_d.get("evidence_bead_ids") or proposal_d.get("evidence_bead_ids") or []),
+            judge_model=_clean_str(decision_d.get("judge_model") or proposal_d.get("judge_model")),
+            prompt_version=_clean_str(decision_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v1"),
+            rubric_version=_clean_str(decision_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v1"),
         )
         return _augment(out, action=action_n, authority=authority_d)
 

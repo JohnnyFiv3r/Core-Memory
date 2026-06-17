@@ -581,6 +581,76 @@ class TestMemoryManagement(unittest.TestCase):
             )
             self.assertIn("batch-maintain-source-1", run_record.get("source_ingest_batch_ids") or [])
 
+    def test_maintain_exposes_association_review_control_plane(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            run = maintain(
+                root=td,
+                action="association_run",
+                targets={
+                    "bead_ids": [second],
+                    "candidate_bead_ids": [first],
+                    "run_inline": True,
+                },
+                authority={"actor": "association.agent", "allowed_authority": ["run_association_judge"]},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(run.get("ok"), run)
+            self.assertEqual("pending_judge", run.get("status"))
+
+            summary = maintain(root=td, action="association_coverage_summary", targets={"limit": 10})
+            self.assertTrue(summary.get("ok"), summary)
+            self.assertEqual("association_coverage_summary", summary.get("action"))
+            self.assertEqual(2, summary.get("eligible_bead_count"))
+            self.assertGreaterEqual((summary.get("candidate_status_counts") or {}).get("pending_judge") or 0, 1)
+
+            pending = maintain(
+                root=td,
+                action="list_association_candidates",
+                targets={"status": "pending_judge", "limit": 10},
+            )
+            self.assertTrue(pending.get("ok"), pending)
+            self.assertEqual("list_association_candidates", pending.get("action"))
+            self.assertGreaterEqual(pending.get("count") or 0, 1)
+            candidate = pending["results"][0]
+
+            denied = maintain(
+                root=td,
+                action="decide_association_candidate",
+                targets={"candidate_id": candidate.get("candidate_id")},
+                decision={"action": "accept"},
+                authority={"actor": "qa"},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertFalse(denied.get("ok"), denied)
+            self.assertEqual("maintain_authority_required", denied.get("error"))
+
+            decided = maintain(
+                root=td,
+                action="decide_association_candidate",
+                targets={"candidate_id": candidate.get("candidate_id")},
+                decision={
+                    "action": "linked",
+                    "truth_basis": "manual_association_review",
+                    "reason_text": "The two beads are related in this test fixture.",
+                },
+                authority={"actor": "qa", "user_confirmed": True},
+                apply=True,
+                dry_run=False,
+            )
+            self.assertTrue(decided.get("ok"), decided)
+            self.assertEqual("linked", decided.get("status"))
+            self.assertTrue(decided.get("authority_ok"))
+            self.assertTrue(decided.get("association_ids"))
+
+            after = maintain(root=td, action="coverage_summary")
+            self.assertEqual(1, after.get("active_association_count"))
+
     def test_apply_association_proposals_requires_authority_and_judge_provenance(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
