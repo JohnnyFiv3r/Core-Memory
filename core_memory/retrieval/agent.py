@@ -360,10 +360,10 @@ def _expected_shape(query: str) -> dict[str, Any]:
         bead_types.extend(["decision", "rationale"])
         relations.extend(["superseded_by", "resolves", "supports"])
     if any(term in q for term in ["why", "cause", "caused", "because", "led to"]):
-        relations.extend(["caused_by", "led_to", "supports"])
+        relations.extend(["causes", "leads_to", "supports"])
     if any(term in q for term in ["goal", "finished", "done", "outcome", "resolved"]):
         bead_types.extend(["goal", "outcome"])
-        relations.extend(["resolves", "led_to"])
+        relations.extend(["resolves", "leads_to"])
     temporal_terms = ["last week", "yesterday", "today", "when", "timeline", "history"]
     time_range_hint = "relative" if any(term in q for term in temporal_terms) else ""
     return {
@@ -413,7 +413,7 @@ def _normalize_request(
         facets["metadata"] = metadata
         request.setdefault("facets", facets)
     # Soft structural hints parsed from the query (e.g. "what caused X" implies
-    # caused_by/led_to edges). These only re-rank traversal chains, never filter,
+    # causes/leads_to edges). These only re-rank traversal chains, never filter,
     # so a wrong parse cannot hurt recall. Skipped for low effort (no traversal)
     # and never overrides hints a caller passed explicitly.
     if effort != "low":
@@ -455,7 +455,7 @@ from core_memory.graph.edge_weights import (  # noqa: E402
 # contribute their BFS neighbourhood when the vector search was incomplete.
 # Read-time materialised edges from bead-resident notation fields:
 # evidence_bead_ids → derived_from-like (0.80) with model_inferred provenance;
-# because/supporting_facts inline bead-id references → caused_by-like (0.75)
+# because/supporting_facts inline bead-id references -> causes-like (0.75)
 # with heuristic provenance. Bead ids are `bead-` + 12 uppercase hex chars
 # (store.py).
 _BEAD_ID_RE = re.compile(r"\bbead-[A-F0-9]{12}\b")
@@ -683,7 +683,7 @@ def _expand_via_association_hops(
             if tgt and tgt != bid and tgt in beads_map:
                 adj.setdefault(bid, []).append((tgt, _EVIDENCE_EDGE_SCORE))
                 adj.setdefault(tgt, []).append((bid, _EVIDENCE_EDGE_SCORE * _REVERSE_DIRECTION_FACTOR))
-        # because + supporting_facts text → caused_by (directional)
+        # because + supporting_facts text -> causes (directional)
         text_fields = list(bead.get("because") or []) + list(bead.get("supporting_facts") or [])
         for text in text_fields:
             for m in _BEAD_ID_RE.finditer(str(text)):

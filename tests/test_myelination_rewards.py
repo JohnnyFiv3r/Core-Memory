@@ -97,7 +97,7 @@ class TestRewardEventGuardrail(unittest.TestCase):
             source_type="human_approval",
             source_event_id="evt",
             polarity="positive",
-            edge_keys=["a|caused_by|b", "b|supports|c"],
+            edge_keys=["a|causes|b", "b|supports|c"],
         )
         self.assertEqual(a, b)
 
@@ -172,7 +172,7 @@ class TestSupportingEdgeDerivation(unittest.TestCase):
             store.link(dec, ev, "associated_with")  # non-evidential, must be ignored
             eks = supporting_edge_keys_for_bead(td, dec)
             self.assertIn(f"{ev}|supports|{dec}", eks)
-            self.assertIn(f"{prior}|led_to|{dec}", eks)
+            self.assertIn(f"{prior}|leads_to|{dec}", eks)
             self.assertNotIn(f"{dec}|associated_with|{ev}", eks)
 
 
@@ -412,7 +412,7 @@ class TestDreamerCandidateReward(unittest.TestCase):
 
     def test_legacy_relation_is_normalized_for_match_and_edge_key(self):
         # Codex P2: a stored "Causes" edge must reward under the canonical
-        # caused_by key consumers query, not the raw src|Causes|dst.
+        # causes key consumers query, not the raw src|Causes|dst.
         from core_memory.runtime.observability.myelination_rewards import (
             reward_dreamer_candidate_decision,
             supporting_edge_keys_for_bead,
@@ -427,9 +427,57 @@ class TestDreamerCandidateReward(unittest.TestCase):
                     "source_bead_id": a, "target_bead_id": b, "relationship": "Causes"}
             out = reward_dreamer_candidate_decision(td, candidate=cand, decision="accept")
             self.assertTrue(out["ok"])
-            self.assertEqual([f"{a}|caused_by|{b}"], read_reward_events(td)[0]["edge_keys"])
+            self.assertEqual([f"{a}|causes|{b}"], read_reward_events(td)[0]["edge_keys"])
             # supporting-edge derivation normalizes too.
-            self.assertIn(f"{a}|caused_by|{b}", supporting_edge_keys_for_bead(td, b))
+            self.assertIn(f"{a}|causes|{b}", supporting_edge_keys_for_bead(td, b))
+
+    def test_legacy_caused_by_reward_keys_swap_to_active_direction(self):
+        from core_memory.runtime.observability.myelination_rewards import (
+            emit_myelination_reward_event,
+            reward_bonus_by_edge_key,
+            reward_dreamer_candidate_decision,
+            supporting_edge_keys_for_bead,
+        )
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            effect = store.add_bead(type="decision", title="Effect", summary=["s"], because=["x"], detail="d", session_id="s1")
+            cause = store.add_bead(type="evidence", title="Cause", summary=["s"], detail="d", session_id="s1")
+            idx_path = store.beads_dir / "index.json"
+            idx = store._read_json(idx_path)
+            idx.setdefault("associations", []).append(
+                {
+                    "id": "legacy-caused-by",
+                    "source_bead": effect,
+                    "target_bead": cause,
+                    "relationship": "caused_by",
+                    "confidence": 0.9,
+                }
+            )
+            store._write_json(idx_path, idx)
+
+            self.assertIn(f"{cause}|causes|{effect}", supporting_edge_keys_for_bead(td, effect))
+            cand = {
+                "id": "dc-caused-by",
+                "hypothesis_type": "retrieval_value_candidate",
+                "source_bead_id": effect,
+                "target_bead_id": cause,
+                "relationship": "caused_by",
+            }
+            out = reward_dreamer_candidate_decision(td, candidate=cand, decision="accept")
+            self.assertTrue(out["ok"], out)
+            self.assertEqual([f"{cause}|causes|{effect}"], read_reward_events(td)[0]["edge_keys"])
+
+            emit_myelination_reward_event(
+                td,
+                source_type="human_approval",
+                polarity="positive",
+                edge_keys=[f"{effect}|caused_by|{cause}"],
+                source_event_id="legacy-key",
+            )
+            bonus = reward_bonus_by_edge_key(td)
+            self.assertIn(f"{cause}|causes|{effect}", bonus)
+            self.assertNotIn(f"{effect}|caused_by|{cause}", bonus)
 
     def test_decide_dreamer_candidate_emits_reward_once(self):
         from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, _write_candidates
@@ -563,7 +611,7 @@ class TestClaimConflictReward(unittest.TestCase):
 
 class TestManifestConsistency(unittest.TestCase):
     def test_feedback_relation_normalized_and_fuses_with_reward(self):
-        # A legacy "Causes" feedback edge and a "caused_by" reward must land on
+        # A legacy "Causes" feedback edge and a "causes" reward must land on
         # the same canonical manifest key and fuse.
         from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
 
@@ -575,9 +623,9 @@ class TestManifestConsistency(unittest.TestCase):
                     "chains": [{"edges": [{"src": "a", "dst": "b", "rel": "Causes"}]}],
                 })
             emit_myelination_reward_event(td, source_type="human_approval", polarity="positive",
-                                          edge_keys=[_edge("a", "b", "caused_by")], strength=0.03)
+                                          edge_keys=[_edge("a", "b", "causes")], strength=0.03)
             m = compute_myelination_bonus_map(td)
-            self.assertIn("a|caused_by|b", m["bonus_by_edge_key"])
+            self.assertIn("a|causes|b", m["bonus_by_edge_key"])
             self.assertNotIn("a|Causes|b", m["bonus_by_edge_key"])
 
     def test_disabled_manifest_has_stable_shape(self):

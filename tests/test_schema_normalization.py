@@ -1,6 +1,7 @@
 import unittest
 
 from core_memory.schema.normalization import (
+    canonicalize_association_edge,
     normalize_bead_type,
     is_allowed_bead_type,
     is_causal_relation,
@@ -28,8 +29,10 @@ class TestSchemaNormalization(unittest.TestCase):
         self.assertEqual("associated_with", normalize_relation_type(None))
 
     def test_relation_aliases_normalize_without_direction_rewrite(self):
-        self.assertEqual("caused_by", normalize_relation_type("Causes"))
-        self.assertEqual("led_to", normalize_relation_type("leads_to"))
+        self.assertEqual("causes", normalize_relation_type("caused_by"))
+        self.assertEqual("causes", normalize_relation_type("Causes"))
+        self.assertEqual("leads_to", normalize_relation_type("led_to"))
+        self.assertEqual("leads_to", normalize_relation_type("leads_to"))
         self.assertEqual("blocks", normalize_relation_type("blocks"))
         self.assertEqual("blocked_by", normalize_relation_type("blocked"))
         self.assertEqual("unblocks", normalize_relation_type("unblocked"))
@@ -43,6 +46,19 @@ class TestSchemaNormalization(unittest.TestCase):
         self.assertEqual("contradicts", normalize_relation_type("violates_pattern_of"))
         self.assertEqual("generalizes", normalize_relation_type("specializes"))
         self.assertEqual("blocks_unblocks", normalize_relation_type("blocks->unblocks"))
+
+    def test_caused_by_swaps_endpoints_at_edge_boundary(self):
+        edge = canonicalize_association_edge("effect", "cause", "caused_by")
+        self.assertEqual("cause", edge["source_bead"])
+        self.assertEqual("effect", edge["target_bead"])
+        self.assertEqual("causes", edge["relationship"])
+        self.assertTrue(edge["endpoints_swapped"])
+
+        active = canonicalize_association_edge("cause", "effect", "causes")
+        self.assertEqual("cause", active["source_bead"])
+        self.assertEqual("effect", active["target_bead"])
+        self.assertEqual("causes", active["relationship"])
+        self.assertFalse(active["endpoints_swapped"])
 
     def test_relation_families_use_shared_taxonomy(self):
         self.assertEqual("causal", relation_family("causes"))

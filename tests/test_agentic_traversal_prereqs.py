@@ -106,7 +106,7 @@ def test_chain_merge_budget_exceeds_k(tmp_path: Path, monkeypatch):
 
 def test_structural_hints_are_control_constraints_not_metadata_filters():
     assert "structural_hint_relations" not in _metadata_constraints(
-        {"structural_hint_relations": ["caused_by", "led_to", "supports"]}
+        {"structural_hint_relations": ["causes", "leads_to", "supports"]}
     )
 
 
@@ -122,14 +122,14 @@ def test_recall_causal_query_does_not_filter_anchors_by_structural_hint_metadata
     idx_path = tmp_path / ".beads" / "index.json"
     anchor = _add(store, title="redis outage", summary=["redis outage during deploy"], dia="D1:1", type="evidence")
     cause = _add(store, title="connection pool exhausted", summary=["connection pool exhaustion caused the outage"], dia="D1:2", type="decision")
-    _link(idx_path, anchor, cause, rel="caused_by")
+    _link(idx_path, anchor, cause, rel="causes")
 
     out = recall("why did redis outage happen", root=str(tmp_path), effort="high", k=8, include_raw=True)
     result_ids = [r.bead_id for r in out.evidence]
     assert anchor in result_ids
     assert cause in result_ids
     raw_request = dict((out.raw or {}).get("request") or {})
-    assert raw_request.get("facets", {}).get("structural_hint_relations") == ["caused_by", "led_to", "supports"]
+    assert raw_request.get("facets", {}).get("structural_hint_relations") == ["causes", "leads_to", "supports"]
 
 
 def test_seed_count_and_merge_bonus_are_env_tunable(monkeypatch):
@@ -151,32 +151,32 @@ def test_structural_hints_reorder_not_filter(tmp_path: Path, monkeypatch):
     a = _add(store, title="outage root", summary=["the outage happened"], dia="D1:1", type="evidence")
     caused = _add(store, title="db url missing", summary=["db url was missing"], dia="D1:2", type="decision")
     sibling = _add(store, title="rollback decision", summary=["we rolled back the deploy"], dia="D1:3", type="decision")
-    _link(idx_path, a, caused, rel="caused_by")
+    _link(idx_path, a, caused, rel="causes")
     _link(idx_path, a, sibling, rel="supports")
 
     # Baseline (no hint): capture which chain beads traversal surfaced.
     base = trace_request(root=tmp_path, query="what caused the outage", anchor_ids=[a], k=8)
     base_ids = {r.get("bead_id") for r in (base.get("results") or [])}
 
-    # With a caused_by hint: the same beads are still present (no filtering), and
-    # the caused_by chain is preferred (ordered ahead of the supports chain).
+    # With a causes hint: the same beads are still present (no filtering), and
+    # the causes chain is preferred (ordered ahead of the supports chain).
     out = trace_request(
         root=tmp_path,
         query="what caused the outage",
         anchor_ids=[a],
         k=8,
-        submission={"structural_hint_relations": ["caused_by"]},
+        submission={"structural_hint_relations": ["causes"]},
     )
     hinted_ids = {r.get("bead_id") for r in (out.get("results") or [])}
     assert base_ids.issubset(hinted_ids), "hint dropped chains it should only reorder"
     assert caused in hinted_ids
-    # caused_by chain ordered before the supports chain when both exist.
+    # causes chain ordered before the supports chain when both exist.
     chain_rels = [
         {str((e or {}).get("rel") or "") for e in (c.get("edges") or [])}
         for c in (out.get("chains") or [])
     ]
     if len(chain_rels) >= 2:
-        assert "caused_by" in chain_rels[0]
+        assert "causes" in chain_rels[0]
 
 
 if __name__ == "__main__":

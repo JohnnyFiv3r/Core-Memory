@@ -1,5 +1,6 @@
 {
-  "caused_by": "caused_by",
+  "caused_by": "causes",
+  "causes": "causes",
   "supports": "supports",
   "derived_from": "derived_from",
   "supersedes": "supersedes",

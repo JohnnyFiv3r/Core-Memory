@@ -69,7 +69,7 @@ class TestCatalogRelationSource(unittest.TestCase):
 
             cat = build_catalog(s.root)
             rels = set(cat.get("relation_types") or [])
-            self.assertIn("caused_by", rels)
+            self.assertIn("causes", rels)
             self.assertNotIn("mystery_rel", rels)
             self.assertNotIn("shared_tag", rels)
 

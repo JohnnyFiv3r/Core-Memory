@@ -67,14 +67,14 @@ def _relationship_for_candidate(
     if (new_causal or other_causal) and not same_session and (token_overlap or shared_tags):
         if order < 0:
             return (
-                "led_to",
+                "leads_to",
                 "causal_cross_session_source_precedes_target",
                 "Cross-session causal language with source bead preceding the target bead.",
             )
         return (
             "caused_by",
             "causal_cross_session_source_follows_target",
-            "Cross-session causal language with source bead following the target bead.",
+            "Cross-session causal language with target bead preceding and causing the source bead.",
         )
 
     if shared_tags:
@@ -100,7 +100,8 @@ def infer_relationship(bead_a: dict, bead_b: dict) -> tuple[str, str]:
     """Return (relationship, reason_code) for two beads using the preview classifier.
 
     Intended as a fallback when an agent-authored association omits the relationship field.
-    Always produces a canonical relationship — callers must not override agent-supplied values.
+    Produces a canonical relationship or a legacy inverse alias that association
+    write boundaries can endpoint-normalize.
     """
     new_text = str(bead_a.get("title", "")) + " " + " ".join(bead_a.get("summary") or [])
     other_text = str(bead_b.get("title", "")) + " " + " ".join(bead_b.get("summary") or [])

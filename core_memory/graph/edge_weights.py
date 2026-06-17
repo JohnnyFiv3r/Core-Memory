@@ -13,12 +13,14 @@ import math
 from datetime import datetime, timezone
 from typing import Any
 
+from core_memory.schema.normalization import normalize_relation_type
+
 # Per-relationship base weights.  Causal/semantic edges carry topical signal;
 # temporal/entity edges do not.
 RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
     # Causal — strongest signal for multi-hop retrieval
-    "caused_by": 0.90, "causes": 0.90, "enables": 0.90, "results_in": 0.90,
-    "led_to": 0.90, "resolves": 0.88, "diagnoses": 0.88,
+    "causes": 0.90, "leads_to": 0.90, "enables": 0.90, "results_in": 0.90,
+    "resolves": 0.88, "diagnoses": 0.88,
     # Semantic — strong topical signal
     "supports": 0.85, "refines": 0.85, "supersedes": 0.85, "derived_from": 0.80,
     "contradicts": 0.82, "validates": 0.82, "informed_by": 0.80,
@@ -64,7 +66,7 @@ def resolve_provenance_factor(edge_class: str, provenance: str) -> float:
 # Directed relationships: the edge has a natural source→target direction.
 # Reverse traversal is penalised but not blocked.
 DIRECTIONAL_RELS: frozenset[str] = frozenset({
-    "caused_by", "causes", "enables", "results_in", "led_to",
+    "causes", "leads_to", "enables", "results_in",
     "derived_from", "refines", "supersedes", "resolves", "diagnoses",
 })
 REVERSE_DIRECTION_FACTOR: float = 0.65
@@ -73,7 +75,7 @@ REVERSE_DIRECTION_FACTOR: float = 0.65
 # topical similarity or temporal adjacency. Used to detect causal structure
 # in a retrieved candidate set (structural trigger for the causal pipeline).
 CAUSAL_RELS: frozenset[str] = frozenset({
-    "caused_by", "causes", "enables", "results_in", "led_to",
+    "causes", "leads_to", "enables", "results_in",
     "resolves", "diagnoses",
 })
 
@@ -139,7 +141,7 @@ def score_edge(
 
     Does not include hop-decay — callers apply ``HOP_DECAY`` per hop if needed.
     """
-    r = str(rel or "").strip().lower()
+    r = normalize_relation_type(rel)
     rel_weight = RELATIONSHIP_HOP_WEIGHT.get(r, DEFAULT_HOP_WEIGHT)
     prov_factor = resolve_provenance_factor(edge_class, provenance)
     conf = max(0.0, min(1.0, float(confidence)))

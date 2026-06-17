@@ -88,7 +88,7 @@ def _materialize_case(root: str, case: CausalCase) -> dict[str, str]:
         assoc_rows.append({
             "source_bead_id": src,
             "target_bead_id": tgt,
-            "relationship": str(e.get("relationship") or "caused_by"),
+            "relationship": str(e.get("relationship") or "causes"),
             "confidence": float(e.get("confidence") if e.get("confidence") is not None else 0.9),
             "reason_text": str(e.get("reason_text") or "benchmark causal edge"),
             "provenance": str(e.get("provenance") or "agent_judged"),

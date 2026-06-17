@@ -199,7 +199,7 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "When multiple relationships are highly plausibly true, append all of them rather than choosing only one.",
             "High plausibility is enough for append-only associations; certainty is not required, but do not invent links unsupported by the visible record.",
             "Use canonical relationship types only. Put free-text justification in reason_text or rationale, and express uncertainty with confidence rather than inventing new relation labels.",
-            "Prefer specific semantic links like supports, refines, caused_by, enables, diagnoses, resolves, supersedes, or contradicts over generic or purely temporal links when the turn meaningfully updates prior memory.",
+            "Prefer specific semantic links like supports, refines, causes, leads_to, enables, diagnoses, resolves, supersedes, or contradicts over generic or purely temporal links when the turn meaningfully updates prior memory.",
             "If no non-temporal semantic link is strongly or highly plausibly supported, omit it rather than fabricating one.",
         ],
         "retrieval_contract": [

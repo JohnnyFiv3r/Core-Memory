@@ -2,19 +2,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from core_memory.schema.normalization import normalize_relation_type
+from core_memory.schema.normalization import canonicalize_association_edge
 
 
 def normalize_assoc_row(row: dict[str, Any]) -> dict[str, Any]:
     """Canonical association row normalization for policy layer."""
     rel_raw = str(row.get("relationship") or "").strip().lower()
-    rel = normalize_relation_type(rel_raw) if rel_raw else ""
+    edge = canonicalize_association_edge(
+        row.get("source_bead_id") or row.get("source_bead"),
+        row.get("target_bead_id") or row.get("target_bead"),
+        rel_raw,
+    )
     return {
-        "source_bead_id": str(row.get("source_bead_id") or row.get("source_bead") or "").strip(),
-        "target_bead_id": str(row.get("target_bead_id") or row.get("target_bead") or "").strip(),
-        "relationship": rel,
+        "source_bead_id": str(edge.get("source_bead") or "").strip(),
+        "target_bead_id": str(edge.get("target_bead") or "").strip(),
+        "relationship": str(edge.get("relationship") or "").strip(),
         "confidence": row.get("confidence"),
         "rationale": row.get("rationale"),
+        "relationship_raw": rel_raw if edge.get("normalization_applied") else row.get("relationship_raw"),
+        "endpoints_swapped": bool(edge.get("endpoints_swapped")),
     }
 
 

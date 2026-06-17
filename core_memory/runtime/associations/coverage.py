@@ -19,6 +19,7 @@ from core_memory.policy.association_inference_v21 import (
     validate_and_normalize_inference_payload,
 )
 from core_memory.retrieval.lifecycle import mark_trace_dirty
+from core_memory.schema.normalization import normalize_relation_type
 
 
 ASSOCIATION_RUNS_SCHEMA = "core_memory.association_runs.v1"
@@ -629,7 +630,8 @@ def _write_association_if_missing(
     root_path = Path(root)
     source_id = _clean_str(source)
     target_id = _clean_str(target)
-    rel = _clean_str(relationship).lower()
+    raw_rel = _clean_str(relationship)
+    rel = normalize_relation_type(raw_rel)
     if not source_id or not target_id or not rel or source_id == target_id:
         return {"ok": False, "error": "invalid_association_edge"}
 
@@ -649,6 +651,7 @@ def _write_association_if_missing(
             "source_bead": source_id,
             "target_bead": target_id,
             "relationship": rel,
+            "relationship_raw": raw_rel if raw_rel and raw_rel.lower() != rel else None,
             "status": "active",
             "edge_class": _clean_str(edge_class) or "system_structural",
             "confidence": float(confidence),

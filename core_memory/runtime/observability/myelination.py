@@ -139,7 +139,7 @@ def compute_myelination_bonus_map(
                 continue
             # Normalize the relation so feedback edges share canonical keys with
             # reward events (and with what consumers query) — otherwise a legacy
-            # "Causes" feedback edge and a "caused_by" reward never fuse.
+            # "Causes" feedback edge and a "causes" reward never fuse.
             edges.append(_edge_key(src, dst, normalize_relation_type(raw_rel)))
         edge_keys = [x for x in dict.fromkeys(edges) if x]
         if not edge_keys:

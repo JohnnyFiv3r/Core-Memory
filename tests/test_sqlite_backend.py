@@ -48,16 +48,16 @@ class TestSqliteBackend(unittest.TestCase):
         self.assertEqual(len(promoted), 1)
 
     def test_associations(self):
-        assoc = {"source_bead": "b1", "target_bead": "b2", "relationship": "caused_by", "weight": 1.0}
+        assoc = {"source_bead": "b1", "target_bead": "b2", "relationship": "causes", "weight": 1.0}
         self.backend.put_association(assoc)
         all_assocs = self.backend.get_associations()
         self.assertEqual(len(all_assocs), 1)
         self.assertEqual(all_assocs[0]["source_bead"], "b1")
 
     def test_associations_for_bead(self):
-        self.backend.put_association({"source_bead": "b1", "target_bead": "b2", "relationship": "caused_by"})
+        self.backend.put_association({"source_bead": "b1", "target_bead": "b2", "relationship": "causes"})
         self.backend.put_association({"source_bead": "b3", "target_bead": "b1", "relationship": "supports"})
-        self.backend.put_association({"source_bead": "b4", "target_bead": "b5", "relationship": "led_to"})
+        self.backend.put_association({"source_bead": "b4", "target_bead": "b5", "relationship": "leads_to"})
 
         b1_assocs = self.backend.get_associations_for_bead("b1")
         self.assertEqual(len(b1_assocs), 2)
@@ -69,7 +69,7 @@ class TestSqliteBackend(unittest.TestCase):
                 "b2": {"id": "b2", "type": "goal", "status": "promoted", "session_id": "s1", "created_at": "2026-01-02"},
             },
             "associations": [
-                {"source_bead": "b1", "target_bead": "b2", "relationship": "led_to"},
+                {"source_bead": "b1", "target_bead": "b2", "relationship": "leads_to"},
             ],
             "stats": {"total_beads": 2, "total_associations": 1, "created_at": "2026-01-01"},
             "projection": {"mode": "session_first_projection_cache", "rebuilt_at": "2026-01-01"},
@@ -92,7 +92,7 @@ class TestSqliteBackend(unittest.TestCase):
 
     def test_get_stats(self):
         self.backend.put_bead({"id": "b1", "type": "decision", "status": "open", "session_id": "s1", "created_at": "2026-01-01"})
-        self.backend.put_association({"source_bead": "b1", "target_bead": "b2", "relationship": "caused_by"})
+        self.backend.put_association({"source_bead": "b1", "target_bead": "b2", "relationship": "causes"})
         stats = self.backend.get_stats()
         self.assertEqual(stats["total_beads"], 1)
         self.assertEqual(stats["total_associations"], 1)

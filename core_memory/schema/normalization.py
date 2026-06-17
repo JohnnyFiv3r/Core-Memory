@@ -245,8 +245,8 @@ GROUNDING_BY_TYPE = {
 
 # Canonical structural/semantic relation types
 CANONICAL_RELATION_TYPES = {
-    "caused_by",
-    "led_to",
+    "causes",
+    "leads_to",
     "blocked_by",
     "unblocks",
     "blocks_unblocks",
@@ -280,12 +280,13 @@ DERIVED_RELATION_TYPES = {
 
 # Legacy relation aliases -> canonical relation vocabulary.
 RELATION_TYPE_ALIASES = {
-    "causes": "caused_by",
-    "cause": "caused_by",
-    "leads_to": "led_to",
-    "leads to": "led_to",
-    "lead_to": "led_to",
-    "leads-to": "led_to",
+    "caused_by": "causes",
+    "caused by": "causes",
+    "cause": "causes",
+    "led_to": "leads_to",
+    "leads to": "leads_to",
+    "lead_to": "leads_to",
+    "leads-to": "leads_to",
     "blocked": "blocked_by",
     "unblock": "unblocks",
     "unblocked": "unblocks",
@@ -305,19 +306,26 @@ RELATION_TYPE_ALIASES = {
     "block_unblock": "blocks_unblocks",
 }
 
+# Inputs whose label is semantically inverse to the active canonical relation.
+# Association write boundaries must swap source/target when these labels appear.
+INVERSE_EDGE_RELATION_ALIASES = frozenset({
+    "caused_by",
+    "caused by",
+})
+
 # Shared relation-family groupings. These are helper classifications over the
 # existing canonical relation vocabulary; they are not storage migrations.
 CAUSAL_RELATION_TYPES = frozenset({
-    "caused_by",
-    "led_to",
+    "causes",
+    "leads_to",
     "resolves",
     "diagnoses",
 })
 EVIDENTIAL_RELATION_TYPES = frozenset({
     "supports",
     "derived_from",
-    "caused_by",
-    "led_to",
+    "causes",
+    "leads_to",
     "resolves",
 })
 INFLUENCE_RELATION_TYPES = frozenset({
@@ -339,8 +347,8 @@ REPORTING_EVIDENCE_RELATION_TYPES = frozenset({
 # Allow the full canonical structural relation vocabulary so agent-authored
 # association judges can express specific semantics directly.
 INFERENCE_CANONICAL_RELATION_TYPES = {
-    "caused_by",
-    "led_to",
+    "causes",
+    "leads_to",
     "blocked_by",
     "unblocks",
     "blocks_unblocks",
@@ -394,6 +402,29 @@ def normalize_relation_type(value: str | None) -> str:
     if not v:
         return "associated_with"
     return RELATION_TYPE_ALIASES.get(v, v)
+
+
+def canonicalize_association_edge(
+    source_bead: str | None,
+    target_bead: str | None,
+    relationship: str | None,
+) -> dict[str, object]:
+    """Canonicalize one association edge, including inverse endpoint rewrites."""
+    src = str(source_bead or "").strip()
+    tgt = str(target_bead or "").strip()
+    raw = str(relationship or "").strip().lower()
+    rel = normalize_relation_type(raw) if raw else ""
+    swapped = raw in INVERSE_EDGE_RELATION_ALIASES
+    if swapped:
+        src, tgt = tgt, src
+    return {
+        "source_bead": src,
+        "target_bead": tgt,
+        "relationship": rel,
+        "relationship_raw": raw,
+        "endpoints_swapped": swapped,
+        "normalization_applied": bool(raw and (rel != raw or swapped)),
+    }
 
 
 def relation_kind(value: str | None) -> str:

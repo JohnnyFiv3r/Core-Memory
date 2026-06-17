@@ -26,6 +26,7 @@ from .normalization import (
     REVISION_TYPES,
     TESTED_BY_VALUES,
     TOOL_RESULT_STATUSES,
+    canonicalize_association_edge,
     confidence_class_rank,
     derive_confidence_class,
     is_allowed_bead_type,
@@ -137,9 +138,9 @@ class ApprovalStatus(str, Enum):
 
 class RelationshipType(str, Enum):
     """Canonical relation values (aligned to core_memory.schema)."""
-    CAUSED_BY = "caused_by"
+    CAUSES = "causes"
     ENABLES = "enables"
-    LED_TO = "led_to"
+    LEADS_TO = "leads_to"
     BLOCKED_BY = "blocked_by"
     UNBLOCKS = "unblocks"
     BLOCKS_UNBLOCKS = "blocks_unblocks"
@@ -474,7 +475,28 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
 def _normalize_association_payload(data: dict[str, Any]) -> dict[str, Any]:
     out = dict(data or {})
     raw_rel = out.get("relationship")
-    rel = normalize_relation_type(raw_rel)
+    edge = canonicalize_association_edge(
+        out.get("source_bead") or out.get("source_bead_id"),
+        out.get("target_bead") or out.get("target_bead_id"),
+        raw_rel,
+    )
+    rel = str(edge.get("relationship") or "")
+    src = str(edge.get("source_bead") or "")
+    tgt = str(edge.get("target_bead") or "")
+    if src:
+        if "source_bead" in out:
+            out["source_bead"] = src
+        if "source_bead_id" in out:
+            out["source_bead_id"] = src
+    if tgt:
+        if "target_bead" in out:
+            out["target_bead"] = tgt
+        if "target_bead_id" in out:
+            out["target_bead_id"] = tgt
+    if edge.get("normalization_applied") and not out.get("relationship_raw"):
+        out["relationship_raw"] = edge.get("relationship_raw")
+    if edge.get("endpoints_swapped"):
+        out["endpoints_swapped"] = True
     if relation_kind(rel) == "canonical":
         out["relationship"] = rel
     else:

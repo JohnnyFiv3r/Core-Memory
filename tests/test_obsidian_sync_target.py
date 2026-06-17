@@ -26,7 +26,7 @@ def _assoc(src: str = "bead-1", tgt: str = "bead-2") -> dict:
         "id": f"assoc-{src}-{tgt}",
         "source_bead": src,
         "target_bead": tgt,
-        "relationship": "caused_by",
+        "relationship": "causes",
     }
 
 

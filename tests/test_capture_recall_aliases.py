@@ -105,7 +105,7 @@ class TestRecallWrapper(unittest.TestCase):
             "effort": "high",
             "hydration": {"turn_sources": True, "max_beads": 16, "adjacent_before": 2, "adjacent_after": 2},
             # "why ..." parses to causal structural hints (soft; reorders chains only).
-            "facets": {"structural_hint_relations": ["caused_by", "led_to", "supports"]},
+            "facets": {"structural_hint_relations": ["causes", "leads_to", "supports"]},
         }
         self.assertEqual(expected_request, spy.call_args.kwargs["request"])
 
