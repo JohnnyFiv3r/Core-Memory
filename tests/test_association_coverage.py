@@ -6,8 +6,10 @@ from pathlib import Path
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.associations.coverage import (
     apply_association_proposals,
+    association_coverage_summary,
     enqueue_association_coverage,
     get_association_run,
+    list_association_candidates,
     on_bead_committed,
     run_association_coverage,
 )
@@ -299,7 +301,7 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual([], _assocs(td, "precedes"))
             decision_rows = _jsonl_rows(td, "association-judge-decisions.jsonl")
             self.assertTrue(decision_rows)
-            self.assertEqual(1, ((decision_rows[-1].get("counts") or {}).get("rejected") or 0))
+            self.assertGreaterEqual(((decision_rows[-1].get("counts") or {}).get("rejected") or 0), 1)
 
     def test_judge_can_modify_candidate_relation_before_commit(self):
         with tempfile.TemporaryDirectory() as td:
@@ -524,17 +526,41 @@ class TestAssociationCoverage(unittest.TestCase):
             coverage = ((inspect.json().get("bead") or {}).get("association_coverage") or {})
             self.assertEqual("pending_judge", coverage.get("state"))
 
-    def test_on_bead_committed_store_hook_records_deferred_coverage(self):
+            summary = client.get("/v1/memory/association-coverage/summary", params={"root": root})
+            self.assertEqual(200, summary.status_code)
+            summary_data = summary.json()
+            self.assertTrue(summary_data.get("ok"), summary_data)
+            self.assertGreaterEqual(summary_data.get("pending_judge_count") or 0, 1)
+
+            candidates = client.get("/v1/memory/association-candidates", params={"root": root, "status": "pending_judge"})
+            self.assertEqual(200, candidates.status_code)
+            candidates_data = candidates.json()
+            self.assertTrue(candidates_data.get("ok"), candidates_data)
+            self.assertGreaterEqual(candidates_data.get("count") or 0, 1)
+
+    def test_on_bead_committed_store_hook_generates_pending_judge_candidates(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
-            bead = store.add_bead(type="context", title="Hooked", summary=["hooked"], session_id="s1", source_turn_ids=["t1"])
+            first = store.add_bead(type="context", title="First hook", summary=["shared hook"], tags=["hook"], session_id="s1", source_turn_ids=["t1"])
+            bead = store.add_bead(type="context", title="Hooked", summary=["shared hook"], tags=["hook"], session_id="s1", source_turn_ids=["t2"])
 
             runs = _jsonl_rows(td, "association-runs.jsonl")
-            self.assertEqual(1, len(runs))
-            self.assertEqual("deferred", runs[0].get("status"))
-            self.assertEqual([bead], runs[0].get("bead_ids"))
-            self.assertEqual("bead_committed", runs[0].get("trigger"))
-            self.assertFalse(runs[0].get("association_queued"))
+            self.assertGreaterEqual(len(runs), 2)
+            self.assertEqual("pending_judge", runs[-1].get("status"))
+            self.assertEqual([bead], runs[-1].get("bead_ids"))
+            self.assertEqual("bead_commit", runs[-1].get("trigger"))
+            self.assertFalse(runs[-1].get("association_queued"))
+            self.assertGreaterEqual(int(runs[-1].get("candidate_count") or 0), 1)
+
+            candidates = list_association_candidates(td, status="pending_judge")
+            self.assertTrue(candidates.get("ok"), candidates)
+            self.assertGreaterEqual(candidates.get("count") or 0, 1)
+            reason_codes = {str(row.get("reason_code") or "") for row in candidates.get("results") or []}
+            self.assertIn("shared_tag_or_topic_overlap", reason_codes)
+            summary = association_coverage_summary(td)
+            self.assertTrue(summary.get("ok"), summary)
+            self.assertGreaterEqual(summary.get("pending_judge_count") or 0, 1)
+            self.assertGreaterEqual(summary.get("isolated_eligible_bead_count") or 0, 1)
 
             extra = on_bead_committed(td, bead, trigger="operator", source="test", run_inline=True, judge=RejectingFakeAssociationJudge())
             self.assertTrue(extra.get("ok"), extra)

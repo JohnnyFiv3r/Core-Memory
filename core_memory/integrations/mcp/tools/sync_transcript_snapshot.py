@@ -235,12 +235,12 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
                 root=str(payload.get("root") or "."),
                 bead_ids=[str(x) for x in (result.get("bead_ids") or []) if str(x).strip()],
                 session_id=str(ingest_payload.get("session_id") or ""),
-                trigger="periodic_transcript_push",
+                trigger="transcript_sync",
                 run_inline=True,
             )
         except Exception as exc:  # pragma: no cover - defensive integration boundary
             coverage = {"ok": False, "error": str(exc)}
         result["association_coverage"] = coverage
         result["association_run_id"] = str(coverage.get("run_id") or "")
-        result["association_trigger"] = "periodic_transcript_push"
+        result["association_trigger"] = "transcript_sync"
     return result

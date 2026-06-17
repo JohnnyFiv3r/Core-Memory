@@ -524,7 +524,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
     if predecessor_id:
         receipt["status"] = "version_superseded"
         receipt["superseded_bead_id"] = predecessor_id
-    coverage_trigger = "periodic_transcript_push" if bead_type == "transcript" else "typed_ingest"
+    coverage_trigger = "transcript_sync" if bead_type == "transcript" else "typed_ingest"
     try:
         coverage = on_bead_committed(
             root=root,

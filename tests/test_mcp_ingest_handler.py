@@ -122,7 +122,7 @@ class MCPIngestHandlerTests(unittest.TestCase):
         self.assertEqual(out["transcript_hash"], metadata["transcript_hash"])
         self.assertTrue(metadata["user_opted_in"])
 
-    def test_sync_transcript_snapshot_runs_periodic_association_coverage_for_beads(self):
+    def test_sync_transcript_snapshot_runs_association_coverage_for_beads(self):
         with patch(
             "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
             return_value={"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": ["bead-1"]},
@@ -145,10 +145,10 @@ class MCPIngestHandlerTests(unittest.TestCase):
 
         self.assertTrue(out["ok"])
         self.assertEqual("arun-1", out["association_run_id"])
-        self.assertEqual("periodic_transcript_push", out["association_trigger"])
+        self.assertEqual("transcript_sync", out["association_trigger"])
         kwargs = coverage.call_args.kwargs
         self.assertEqual(["bead-1"], kwargs["bead_ids"])
-        self.assertEqual("periodic_transcript_push", kwargs["trigger"])
+        self.assertEqual("transcript_sync", kwargs["trigger"])
         self.assertTrue(kwargs["run_inline"])
 
     def test_sync_transcript_snapshot_rejects_missing_opt_in(self):
