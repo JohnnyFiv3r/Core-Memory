@@ -1,7 +1,9 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.associations.coverage import (
@@ -280,6 +282,78 @@ class TestAssociationCoverage(unittest.TestCase):
             )
             self.assertTrue(rerun.get("ok"), rerun)
             self.assertEqual(1, len(_assocs(td, "follows")))
+
+    def test_model_candidate_scout_raises_cross_domain_candidates_for_judge(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            invoice = _add_test_bead(
+                store,
+                type="structured_observation",
+                title="QuickBooks invoice variance",
+                summary=["Invoice INV-1 from Acme Corp exceeded the renewal budget."],
+                session_id="external",
+                source_turn_ids=[],
+                source_id="src_quickbooks",
+                source_event_id="evt_qb_inv_1",
+                source_system="quickbooks",
+                source_table="invoices",
+                source_record_id="INV-1",
+                business_object_type="invoice",
+                business_object_id="INV-1",
+                entities=["Acme Corp"],
+                topics=["renewal budget"],
+                as_of_timestamp="2026-06-01T00:00:00Z",
+            )
+            slack = _add_test_bead(
+                store,
+                type="transcript",
+                title="Slack renewal escalation",
+                summary=["The sales channel escalated Acme Corp renewal budget pressure."],
+                session_id="external",
+                source_turn_ids=[],
+                source_id="src_slack",
+                source_event_id="evt_slack_1",
+                source_system="slack",
+                conversation_id="C123",
+                entities=["Acme Corp"],
+                topics=["renewal budget"],
+            )
+            scout_response = json.dumps({
+                "candidates": [
+                    {
+                        "target_bead": invoice,
+                        "relationship": "supports",
+                        "reason_text": "The Slack escalation and invoice bead both concern Acme Corp renewal budget pressure.",
+                        "reason_code": "shared_customer_budget_pressure",
+                        "confidence": 0.62,
+                    }
+                ]
+            })
+
+            with patch.dict(
+                os.environ,
+                {"CORE_MEMORY_ASSOCIATION_CANDIDATE_MODE": "model"},
+                clear=False,
+            ), patch(
+                "core_memory.runtime.associations.coverage.chat_complete",
+                return_value=scout_response,
+            ):
+                out = run_association_coverage(
+                    td,
+                    bead_ids=[slack],
+                    trigger="operator",
+                    judge=AcceptingFakeAssociationJudge(),
+                )
+
+            self.assertTrue(out.get("ok"), out)
+            supports = _assocs(td, "supports")
+            self.assertEqual(1, len(supports))
+            self.assertEqual(slack, supports[0]["source_bead"])
+            self.assertEqual(invoice, supports[0]["target_bead"])
+            candidate_rows = _jsonl_rows(td, "association-candidates.jsonl")
+            latest = candidate_rows[-1]
+            self.assertEqual("model", latest.get("candidate_generation_mode"))
+            self.assertEqual("model_candidate_hint", latest["candidates"][0]["candidate_class"])
 
     def test_rejecting_judge_records_no_supported_links_without_edge(self):
         with tempfile.TemporaryDirectory() as td:

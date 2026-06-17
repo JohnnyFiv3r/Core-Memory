@@ -4,11 +4,13 @@ import hashlib
 import json
 import os
 import uuid
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 from core_memory.association.quarantine import write_quarantine
+from core_memory.llm_client import chat_complete
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.persistence.store import MemoryStore
@@ -18,7 +20,9 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
+from core_memory.provider_config import resolve_chat_config
 from core_memory.retrieval.lifecycle import mark_trace_dirty
+from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES, normalize_relation_type
 
 
 ASSOCIATION_RUNS_SCHEMA = "core_memory.association_runs.v1"
@@ -51,6 +55,12 @@ def _clean_str(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _clean_mode(value: Any, *, default: str = "deterministic") -> str:
+    mode = _clean_str(value).lower()
+    allowed = {"deterministic", "hybrid", "llm", "model"}
+    return mode if mode in allowed else default
+
+
 def _as_list(value: Any) -> list[Any]:
     if value is None:
         return []
@@ -65,6 +75,32 @@ def _bead_set_signature(bead_ids: list[str]) -> str:
     normalized = sorted({_clean_str(x) for x in bead_ids if _clean_str(x)})
     material = "\n".join(normalized)
     return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    raw = _clean_str(text)
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+    try:
+        obj = json.loads(raw)
+    except Exception:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _chat_config_with_model(*env_names: str):
+    cfg = resolve_chat_config()
+    for name in env_names:
+        model = _clean_str(os.environ.get(name))
+        if model:
+            return replace(cfg, model=model)
+    return cfg
+
+
+def _candidate_generation_mode() -> str:
+    return _clean_mode(os.environ.get("CORE_MEMORY_ASSOCIATION_CANDIDATE_MODE"), default="deterministic")
 
 
 def _graph_revision(index: dict[str, Any]) -> str:
@@ -330,6 +366,39 @@ def _candidate(
     return row
 
 
+def _term_values(value: Any) -> set[str]:
+    out: set[str] = set()
+    for item in _as_list(value):
+        if isinstance(item, dict):
+            for nested in item.values():
+                out.update(_term_values(nested))
+            continue
+        text = _clean_str(item).lower()
+        if not text:
+            continue
+        if len(text) <= 96:
+            out.add(text)
+        for token in text.replace("/", " ").replace("_", " ").replace("-", " ").split():
+            token = token.strip(".,:;!?()[]{}")
+            if len(token) >= 3:
+                out.add(token)
+    return out
+
+
+def _association_terms(bead: dict[str, Any]) -> set[str]:
+    fields = (
+        "entities", "entity_refs", "topics", "tags", "attribute_tags",
+        "business_object_type", "business_object_id", "source_record_id",
+        "source_table", "metric_name", "document_id", "ragie_document_id",
+        "transcript_id", "conversation_id", "assertion_subject",
+        "assertion_value", "core_memory_unifying_id",
+    )
+    terms: set[str] = set()
+    for field in fields:
+        terms.update(_term_values(bead.get(field)))
+    return {term for term in terms if term not in {"external_evidence", "structured_observation", "operational_event"}}
+
+
 def _add_candidate(candidates: list[str], candidate_id: str, *, self_id: str, beads: dict[str, Any]) -> None:
     value = _clean_str(candidate_id)
     if not value or value == self_id or value not in beads or value in candidates:
@@ -366,6 +435,8 @@ def _candidate_ids_for_bead(
     source_record_id = _clean_str(bead.get("source_record_id") or bead.get("business_object_id"))
     transcript_id = _clean_str(bead.get("transcript_id") or bead.get("conversation_id"))
     same_session: list[tuple[str, str]] = []
+    source_terms = _association_terms(bead)
+    semantic_pool: list[tuple[int, str, str]] = []
     for other_id, other in beads.items():
         if not isinstance(other, dict):
             continue
@@ -386,11 +457,119 @@ def _candidate_ids_for_bead(
                 _add_candidate(candidates, other_id_s, self_id=bead_id, beads=beads)
         if _clean_str(other.get("session_id")) == _clean_str(bead.get("session_id")):
             same_session.append((_clean_str(other.get("created_at")), other_id_s))
+        shared_terms = source_terms.intersection(_association_terms(other))
+        if shared_terms:
+            semantic_pool.append((len(shared_terms), _clean_str(other.get("created_at")), other_id_s))
 
     same_session.sort(reverse=True)
     for _created, cid in same_session[:10]:
         _add_candidate(candidates, cid, self_id=bead_id, beads=beads)
+    semantic_pool.sort(reverse=True)
+    for _score, _created, cid in semantic_pool[: max(1, int(max_candidates))]:
+        _add_candidate(candidates, cid, self_id=bead_id, beads=beads)
     return candidates[: max(1, int(max_candidates))]
+
+
+def _model_candidate_context(index: dict[str, Any], bead: dict[str, Any], candidate_ids: list[str]) -> dict[str, Any]:
+    beads = index.get("beads") or {}
+    return {
+        "contract": "memory.association_candidate_scout.v1",
+        "role": "cheap_candidate_scout",
+        "source_bead": _bead_context(bead),
+        "candidate_beads": {
+            cid: _bead_context(beads.get(cid) or {})
+            for cid in candidate_ids
+            if cid in beads and isinstance(beads.get(cid), dict)
+        },
+        "allowed_relationships": sorted(INFERENCE_CANONICAL_RELATION_TYPES),
+        "rules": [
+            "Return possible association candidates only; do not assert graph truth.",
+            "Every candidate must target one of candidate_beads.",
+            "Use canonical relationships only.",
+            "Prefer cross-domain business, evidence, temporal, causal, blocking, support, and contradiction signals.",
+            "Omit weak lexical-only matches.",
+        ],
+        "response_shape": {
+            "candidates": [
+                {
+                    "target_bead": "candidate bead id",
+                    "relationship": "canonical relationship",
+                    "reason_text": "why this deserves frontier judge review",
+                    "reason_code": "short_snake_case",
+                    "confidence": 0.0,
+                    "evidence_refs": [],
+                }
+            ]
+        },
+    }
+
+
+def _model_candidate_proposals_for_bead(
+    index: dict[str, Any],
+    bead: dict[str, Any],
+    *,
+    candidate_ids: list[str],
+) -> list[dict[str, Any]]:
+    bead_id = _clean_str(bead.get("id"))
+    if not bead_id or not candidate_ids:
+        return []
+    context = _model_candidate_context(index, bead, candidate_ids)
+    prompt = (
+        "You are Core Memory's cheap association candidate scout. Your job is to "
+        "raise plausible candidate links for a separate frontier association judge. "
+        "You never write graph edges and you never mark a candidate as true. "
+        "Return JSON only.\n\n"
+        f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
+    )
+    try:
+        raw = chat_complete(
+            prompt,
+            config=_chat_config_with_model(
+                "CORE_MEMORY_ASSOCIATION_CANDIDATE_MODEL",
+                "CORE_MEMORY_CHEAP_MODEL",
+            ),
+            max_tokens=1200,
+            temperature=0,
+        )
+        obj = _json_object(raw)
+    except Exception:
+        return []
+    if not isinstance(obj, dict):
+        return []
+
+    allowed_targets = set(candidate_ids)
+    rows: list[dict[str, Any]] = []
+    for idx, row in enumerate(_as_list(obj.get("candidates"))):
+        if not isinstance(row, dict):
+            continue
+        target_id = _clean_str(row.get("target_bead") or row.get("target") or row.get("target_bead_id"))
+        if target_id not in allowed_targets or target_id == bead_id:
+            continue
+        relationship = normalize_relation_type(_clean_str(row.get("relationship") or row.get("proposed_relationship")).lower())
+        if relationship not in INFERENCE_CANONICAL_RELATION_TYPES:
+            continue
+        reason_text = _clean_str(row.get("reason_text") or row.get("rationale") or row.get("reason"))
+        if not reason_text:
+            continue
+        confidence = row.get("confidence")
+        try:
+            confidence_f = min(0.95, max(0.05, float(confidence)))
+        except Exception:
+            confidence_f = 0.45
+        reason_code = _clean_str(row.get("reason_code")) or f"model_candidate_{idx + 1}"
+        rows.append(
+            _candidate(
+                bead_id,
+                target_id,
+                relationship,
+                reason_text=reason_text,
+                reason_code=reason_code,
+                confidence=confidence_f,
+                candidate_class="model_candidate_hint",
+                evidence_refs=[x for x in _as_list(row.get("evidence_refs")) if x],
+            )
+        )
+    return _dedupe_candidate_rows(rows)
 
 
 def _candidate_proposals_for_bead(
@@ -408,6 +587,9 @@ def _candidate_proposals_for_bead(
         explicit_candidate_ids=explicit_candidate_ids,
         max_candidates=max_candidates,
     )
+    generation_mode = _candidate_generation_mode()
+    if generation_mode in {"llm", "model"}:
+        return _model_candidate_proposals_for_bead(index, bead, candidate_ids=candidates)
     candidates_out: list[dict[str, Any]] = []
 
     prev_id = _clean_str(bead.get("prev_bead_id"))
@@ -566,6 +748,11 @@ def _candidate_proposals_for_bead(
                 )
             )
 
+    if generation_mode == "hybrid":
+        candidates_out.extend(
+            _model_candidate_proposals_for_bead(index, bead, candidate_ids=candidates)
+        )
+
     return _dedupe_candidate_rows(candidates_out)
 
 
@@ -687,8 +874,6 @@ class AssociationJudgeUnavailable(RuntimeError):
 
 class LLMAssociationJudge:
     def review(self, context: dict[str, Any]) -> dict[str, Any]:
-        from core_memory.llm_client import chat_complete
-
         prompt = (
             "You are Core Memory's association judge. Review candidate bead associations "
             "against the supplied bead content, metadata, provenance, and evidence refs. "
@@ -697,7 +882,15 @@ class LLMAssociationJudge:
             "Do not approve unsupported links. linked/no_supported_links require your decision.\n\n"
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
-        raw = chat_complete(prompt, max_tokens=1800, temperature=0)
+        raw = chat_complete(
+            prompt,
+            config=_chat_config_with_model(
+                "CORE_MEMORY_ASSOCIATION_JUDGE_MODEL",
+                "CORE_MEMORY_FRONTIER_MODEL",
+            ),
+            max_tokens=1800,
+            temperature=0,
+        )
         text = _clean_str(raw)
         if text.startswith("```"):
             text = text.strip("`")
@@ -731,12 +924,18 @@ def _invoke_association_judge(context: dict[str, Any], judge: Any | None = None)
 def _bead_context(bead: dict[str, Any]) -> dict[str, Any]:
     keys = [
         "id", "type", "title", "summary", "detail", "session_id", "source_turn_ids",
-        "tags", "entities", "topics", "created_at", "prev_bead_id", "next_bead_id",
+        "tags", "entities", "entity_refs", "topics", "created_at", "prev_bead_id", "next_bead_id",
         "source_id", "source_event_id", "source_system", "source_kind",
         "core_memory_unifying_id", "document_id", "ragie_document_id",
         "raw_source_object_id", "section_refs", "source_record_id",
-        "business_object_id", "transcript_id", "conversation_id", "supersedes",
-        "derived_from", "derived_from_bead_ids", "evidence_refs",
+        "source_table", "business_object_type", "business_object_id",
+        "record_action", "record_grain", "metric_name", "metric_value",
+        "metric_unit", "change_pct", "currency", "attribute_tags",
+        "as_of_timestamp", "observed_at", "effective_from", "effective_to",
+        "state_change", "claims", "supporting_facts", "because", "actor",
+        "assertion_kind", "assertion_subject", "assertion_predicate", "assertion_value",
+        "transcript_id", "conversation_id", "source_thread_id", "message_refs",
+        "speaker_refs", "supersedes", "derived_from", "derived_from_bead_ids", "evidence_refs",
     ]
     out: dict[str, Any] = {}
     for key in keys:
@@ -1354,6 +1553,7 @@ def run_association_coverage(
     candidates: list[dict[str, Any]] = []
     candidate_state = {bid: "pending_judge" for bid in eligible_ids}
     candidate_state.update({bid: "skipped_ineligible" for bid in skipped_ids})
+    candidate_generation_mode = _candidate_generation_mode()
 
     for bead_id in eligible_ids:
         bead = beads.get(bead_id)
@@ -1379,6 +1579,7 @@ def run_association_coverage(
             "rubric_version": rubric_v,
             "graph_revision": graph_rev,
             "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
+            "candidate_generation_mode": candidate_generation_mode,
             "source_bead_ids": eligible_ids,
             "explicit_candidate_bead_ids": explicit_candidates,
             "max_candidates": max(1, int(max_candidates)),
