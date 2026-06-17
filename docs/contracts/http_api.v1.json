@@ -160,7 +160,7 @@
       "authRequired": "conditional",
       "requestSchema": "query params",
       "requiredFields": [],
-      "response": {"ok": "bool", "contract": "memory.association_coverage_summary.v1", "eligible_bead_count": "int", "isolated_eligible_bead_count": "int", "pending_judge_count": "int", "candidate_status_counts": "object", "latest_runs": "array"},
+      "response": {"ok": "bool", "contract": "memory.association_coverage_summary.v1", "eligible_bead_count": "int", "isolated_eligible_bead_count": "int", "pending_judge_count": "int", "candidate_count": "int", "candidate_observation_count": "int", "candidate_status_counts": "object", "latest_runs": "array"},
       "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     },
     {
@@ -169,7 +169,8 @@
       "authRequired": "conditional",
       "requestSchema": "query params",
       "requiredFields": [],
-      "response": {"ok": "bool", "contract": "memory.association_candidates.v1", "status": "string", "count": "int", "results": "array"},
+      "response": {"ok": "bool", "contract": "memory.association_candidates.v1", "status": "string", "count": "int", "observation_count": "int", "results": "array"},
+      "notes": ["Results are unique by candidate_id. Repeated producer sightings remain in the append-only ledger and surface as rediscovery_count, run_ids, trigger_counts, and rediscovery_observations on each result."],
       "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     },
     {

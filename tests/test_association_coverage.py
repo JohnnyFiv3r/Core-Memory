@@ -628,6 +628,44 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual(1, ((next_out.get("sweep") or {}).get("selected_count")))
             self.assertFalse((next_out.get("sweep") or {}).get("has_more"))
 
+    def test_candidate_listing_merges_repeated_rediscovery(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="Rediscovery one", summary=["first"], tags=["rediscovery"], session_id="s1")
+            second = _add_test_bead(store, type="context", title="Rediscovery two", summary=["second"], tags=["rediscovery"], session_id="s2")
+
+            one = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator_review",
+                use_configured_judge=False,
+            )
+            self.assertTrue(one.get("ok"), one)
+            two = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="repair",
+                use_configured_judge=False,
+            )
+            self.assertTrue(two.get("ok"), two)
+
+            candidates = list_association_candidates(td, status="pending_judge")
+            self.assertTrue(candidates.get("ok"), candidates)
+            self.assertEqual(1, candidates.get("count"))
+            self.assertEqual(2, candidates.get("observation_count"))
+            row = (candidates.get("results") or [])[0]
+            self.assertEqual(2, row.get("rediscovery_count"))
+            self.assertEqual({one.get("run_id"), two.get("run_id")}, set(row.get("run_ids") or []))
+            self.assertEqual({"operator_review": 1, "repair": 1}, row.get("trigger_counts"))
+            self.assertGreaterEqual(len(row.get("rediscovery_observations") or []), 2)
+
+            summary = association_coverage_summary(td)
+            self.assertEqual(1, summary.get("candidate_count"))
+            self.assertEqual(2, summary.get("candidate_observation_count"))
+            self.assertEqual(1, summary.get("pending_judge_count"))
+
     def test_association_run_requires_beads_or_session(self):
         with tempfile.TemporaryDirectory() as td:
             out = enqueue_association_coverage(td, trigger="operator")

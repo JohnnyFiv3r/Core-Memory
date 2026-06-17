@@ -314,16 +314,140 @@ def _candidate_decision_statuses(root: str | Path) -> dict[str, str]:
     return statuses
 
 
+def _candidate_priority_rank(value: Any) -> int:
+    return {
+        "weak_plausible": 1,
+        "plausible": 2,
+        "strong": 3,
+        "urgent": 4,
+    }.get(_clean_str(value).lower(), 0)
+
+
+def _jsonable_dedupe_key(value: Any) -> str:
+    try:
+        return json.dumps(value, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    except Exception:
+        return _clean_str(value)
+
+
+def _merge_unique_values(left: list[Any], right: list[Any], *, limit: int = 50) -> list[Any]:
+    out = list(left or [])
+    seen = {_jsonable_dedupe_key(item) for item in out}
+    for item in right or []:
+        key = _jsonable_dedupe_key(item)
+        if key in seen:
+            continue
+        out.append(item)
+        seen.add(key)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _confidence_value(value: Any) -> float:
+    try:
+        return float(value)
+    except Exception:
+        return 0.0
+
+
+def _candidate_row_from_batch(candidate: dict[str, Any], *, recorded_at: str, run_id: str, trigger: str, status: str) -> dict[str, Any]:
+    return {
+        "candidate_id": _clean_str(candidate.get("candidate_id")),
+        "status": _clean_str(status).lower() or "pending_judge",
+        "run_id": run_id,
+        "trigger": trigger,
+        "recorded_at": recorded_at,
+        "source_bead": _clean_str(candidate.get("source_bead")),
+        "target_bead": _clean_str(candidate.get("target_bead")),
+        "proposed_relationship": _clean_str(candidate.get("proposed_relationship")),
+        "candidate_class": _clean_str(candidate.get("candidate_class")),
+        "priority": _clean_str(candidate.get("priority")),
+        "reason_code": _clean_str(candidate.get("reason_code")),
+        "system_rationale": _clean_str(candidate.get("system_rationale")),
+        "confidence_prior": candidate.get("confidence_prior"),
+        "evidence_bead_ids": list(candidate.get("evidence_bead_ids") or []),
+        "evidence_refs": list(candidate.get("evidence_refs") or []),
+        "requires_judge": bool(candidate.get("requires_judge", True)),
+    }
+
+
+def _merge_candidate_observation(current: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(current)
+    latest_key = (_clean_str(merged.get("recorded_at")), _clean_str(merged.get("candidate_id")))
+    row_key = (_clean_str(row.get("recorded_at")), _clean_str(row.get("candidate_id")))
+    if row_key >= latest_key:
+        for key in (
+            "run_id",
+            "trigger",
+            "recorded_at",
+            "source_bead",
+            "target_bead",
+            "proposed_relationship",
+            "candidate_class",
+            "reason_code",
+            "system_rationale",
+            "requires_judge",
+        ):
+            merged[key] = row.get(key)
+        if _confidence_value(row.get("confidence_prior")) >= _confidence_value(merged.get("confidence_prior")):
+            merged["confidence_prior"] = row.get("confidence_prior")
+
+    if _candidate_priority_rank(row.get("priority")) > _candidate_priority_rank(merged.get("priority")):
+        merged["priority"] = row.get("priority")
+
+    merged["first_seen_at"] = min(
+        [x for x in [_clean_str(merged.get("first_seen_at")), _clean_str(row.get("recorded_at"))] if x],
+        default=_clean_str(row.get("recorded_at")),
+    )
+    merged["latest_seen_at"] = max(
+        [x for x in [_clean_str(merged.get("latest_seen_at")), _clean_str(row.get("recorded_at"))] if x],
+        default=_clean_str(row.get("recorded_at")),
+    )
+    run_id = _clean_str(row.get("run_id"))
+    trigger = _clean_str(row.get("trigger")) or "unknown"
+    merged["run_ids"] = _merge_unique_values(list(merged.get("run_ids") or []), [run_id] if run_id else [], limit=100)
+    merged["triggers"] = _merge_unique_values(list(merged.get("triggers") or []), [trigger], limit=25)
+    trigger_counts = dict(merged.get("trigger_counts") or {})
+    trigger_counts[trigger] = int(trigger_counts.get(trigger) or 0) + 1
+    merged["trigger_counts"] = trigger_counts
+    merged["evidence_bead_ids"] = _merge_unique_values(
+        list(merged.get("evidence_bead_ids") or []),
+        list(row.get("evidence_bead_ids") or []),
+        limit=100,
+    )
+    merged["evidence_refs"] = _merge_unique_values(
+        list(merged.get("evidence_refs") or []),
+        list(row.get("evidence_refs") or []),
+        limit=100,
+    )
+    observations = list(merged.get("rediscovery_observations") or [])
+    observations.append(
+        {
+            "run_id": run_id,
+            "trigger": trigger,
+            "recorded_at": _clean_str(row.get("recorded_at")),
+            "priority": _clean_str(row.get("priority")),
+            "confidence_prior": row.get("confidence_prior"),
+            "reason_code": _clean_str(row.get("reason_code")),
+        }
+    )
+    merged["rediscovery_observations"] = observations[-10:]
+    merged["rediscovery_count"] = int(merged.get("rediscovery_count") or 0) + 1
+    return merged
+
+
 def list_association_candidates(
     root: str | Path,
     *,
     status: str | None = None,
     limit: int = 100,
 ) -> dict[str, Any]:
-    """Return flattened association candidates from the shared candidate ledger."""
+    """Return unique association candidates from the shared candidate ledger."""
     status_filter = _clean_str(status).lower()
     decision_statuses = _candidate_decision_statuses(root)
-    rows: list[dict[str, Any]] = []
+    by_id: dict[str, dict[str, Any]] = {}
+    observation_count = 0
     for batch in _iter_candidate_records(root):
         recorded_at = _clean_str(batch.get("recorded_at"))
         run_id = _clean_str(batch.get("run_id"))
@@ -332,31 +456,43 @@ def list_association_candidates(
             if not isinstance(candidate, dict):
                 continue
             cid = _clean_str(candidate.get("candidate_id"))
+            if not cid:
+                continue
             state = decision_statuses.get(cid, "pending_judge")
             if status_filter and state != status_filter:
                 continue
-            rows.append(
-                {
-                    "candidate_id": cid,
-                    "status": state,
-                    "run_id": run_id,
-                    "trigger": trigger,
-                    "recorded_at": recorded_at,
-                    "source_bead": _clean_str(candidate.get("source_bead")),
-                    "target_bead": _clean_str(candidate.get("target_bead")),
-                    "proposed_relationship": _clean_str(candidate.get("proposed_relationship")),
-                    "candidate_class": _clean_str(candidate.get("candidate_class")),
-                    "priority": _clean_str(candidate.get("priority")),
-                    "reason_code": _clean_str(candidate.get("reason_code")),
-                    "system_rationale": _clean_str(candidate.get("system_rationale")),
-                    "confidence_prior": candidate.get("confidence_prior"),
-                    "evidence_bead_ids": list(candidate.get("evidence_bead_ids") or []),
-                    "evidence_refs": list(candidate.get("evidence_refs") or []),
-                    "requires_judge": bool(candidate.get("requires_judge", True)),
-                }
+            row = _candidate_row_from_batch(
+                candidate,
+                recorded_at=recorded_at,
+                run_id=run_id,
+                trigger=trigger,
+                status=state,
             )
+            observation_count += 1
+            if cid in by_id:
+                by_id[cid] = _merge_candidate_observation(by_id[cid], row)
+            else:
+                by_id[cid] = _merge_candidate_observation(
+                    {
+                        **row,
+                        "first_seen_at": recorded_at,
+                        "latest_seen_at": recorded_at,
+                        "run_ids": [],
+                        "triggers": [],
+                        "trigger_counts": {},
+                        "rediscovery_count": 0,
+                        "rediscovery_observations": [],
+                    },
+                    row,
+                )
+    rows = list(by_id.values())
     rows.sort(
-        key=lambda r: (_clean_str(r.get("recorded_at")), _clean_str(r.get("candidate_id"))),
+        key=lambda r: (
+            _clean_str(r.get("latest_seen_at") or r.get("recorded_at")),
+            _candidate_priority_rank(r.get("priority")),
+            int(r.get("rediscovery_count") or 0),
+            _clean_str(r.get("candidate_id")),
+        ),
         reverse=True,
     )
     return {
@@ -364,6 +500,7 @@ def list_association_candidates(
         "contract": "memory.association_candidates.v1",
         "status": status_filter or "all",
         "count": len(rows),
+        "observation_count": observation_count,
         "results": rows[: max(1, int(limit))],
     }
 
@@ -395,7 +532,8 @@ def association_coverage_summary(root: str | Path, *, limit: int = 10) -> dict[s
         runs_by_status[row_status] = runs_by_status.get(row_status, 0) + 1
         runs_by_trigger[row_trigger] = runs_by_trigger.get(row_trigger, 0) + 1
 
-    candidates = list_association_candidates(root, limit=100000).get("results") or []
+    candidate_listing = list_association_candidates(root, limit=100000)
+    candidates = candidate_listing.get("results") or []
     candidate_status: dict[str, int] = {}
     for candidate in candidates:
         state = _clean_str((candidate or {}).get("status")) or "unknown"
@@ -417,6 +555,7 @@ def association_coverage_summary(root: str | Path, *, limit: int = 10) -> dict[s
         "isolated_eligible_bead_count": len(isolated_ids),
         "isolated_eligible_bead_ids": isolated_ids[: max(1, int(limit))],
         "candidate_count": len(candidates),
+        "candidate_observation_count": int(candidate_listing.get("observation_count") or 0),
         "candidate_status_counts": candidate_status,
         "pending_judge_count": int(candidate_status.get("pending_judge") or 0),
         "runs_by_status": runs_by_status,
