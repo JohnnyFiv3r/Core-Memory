@@ -60,6 +60,15 @@ class MCPProtocolClientSmokeTests(unittest.TestCase):
             "submit_entity_merge_proposal",
         ]:
             self.assertIn(name, tool_names)
+        tools_by_name = {tool.name: tool for tool in tools.tools}
+        self.assertEqual("Core Memory Status", tools_by_name["status"].title)
+        self.assertTrue(tools_by_name["status"].annotations.readOnlyHint)
+        self.assertTrue(tools_by_name["status"].annotations.idempotentHint)
+        self.assertFalse(tools_by_name["status"].annotations.openWorldHint)
+        self.assertEqual("Sync Transcript Snapshot", tools_by_name["sync_transcript_snapshot"].title)
+        self.assertFalse(tools_by_name["sync_transcript_snapshot"].annotations.readOnlyHint)
+        self.assertFalse(tools_by_name["sync_transcript_snapshot"].annotations.destructiveHint)
+        self.assertTrue(tools_by_name["sync_transcript_snapshot"].annotations.idempotentHint)
         self.assertIn("core-memory.agent-guide", [prompt.name for prompt in prompts.prompts])
         self.assertFalse(status.isError)
         self.assertTrue(status.structuredContent["ok"])

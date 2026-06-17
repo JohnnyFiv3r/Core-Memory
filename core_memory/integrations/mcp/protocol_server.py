@@ -17,6 +17,10 @@ def _tool_description(name: str) -> str:
     return tool.description
 
 
+def _tool_title(name: str) -> str | None:
+    return TOOLS[name].title or None
+
+
 def _csv_env(name: str) -> list[str]:
     return [part.strip() for part in str(os.getenv(name) or "").split(",") if part.strip()]
 
@@ -98,6 +102,7 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
     try:
         from fastapi import FastAPI
         from mcp.server.fastmcp import FastMCP
+        from mcp.types import ToolAnnotations
     except Exception as exc:  # pragma: no cover - exercised in envs without extras
         raise RuntimeError("MCP HTTP server requires `core-memory[mcp]`.") from exc
 
@@ -111,6 +116,11 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
             lock_root=lock_root,
             configured_root=kwargs.get("root"),
         )
+
+    def _tool_annotations(name: str) -> Any:
+        annotations = TOOLS[name].annotations
+        return ToolAnnotations(**annotations) if annotations else None
+
     mcp = FastMCP(
         "Core Memory",
         instructions=load_agent_guide(),
@@ -216,7 +226,9 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
 
     @mcp.tool(
         name="sync_transcript_snapshot",
+        title=_tool_title("sync_transcript_snapshot"),
         description=_tool_description("sync_transcript_snapshot"),
+        annotations=_tool_annotations("sync_transcript_snapshot"),
         structured_output=True,
     )
     def sync_transcript_snapshot_tool(
@@ -314,7 +326,13 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
             },
         )
 
-    @mcp.tool(name="status", description=_tool_description("status"), structured_output=True)
+    @mcp.tool(
+        name="status",
+        title=_tool_title("status"),
+        description=_tool_description("status"),
+        annotations=_tool_annotations("status"),
+        structured_output=True,
+    )
     def status_tool(root: str | None = None) -> dict[str, Any]:
         return call_tool("status", {"root": _root(root)})
 

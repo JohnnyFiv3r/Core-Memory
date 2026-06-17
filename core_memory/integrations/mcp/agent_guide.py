@@ -23,13 +23,13 @@ def fallback_tool_description(tool_name: str) -> str:
             "Call this once before the conversation ends or compacts to ensure no durable state is lost."
         ),
         "sync_transcript_snapshot": (
-            "Required safety net for opted-in long chats: replay the visible, user-authorized transcript snapshot "
-            "through canonical ingest/capture semantics. Call after milestones, periodically before compaction, "
-            "and pass user_opted_in=true."
+            "Use this when the user explicitly asks to save, sync, checkpoint, preserve, remember, send, or "
+            "capture the visible, user-authorized conversation into Core Memory. Pass user_opted_in=true plus "
+            "a stable conversation/session identity."
         ),
         "ingest": "Ingest a local transcript file into Core Memory when the file is readable by the MCP server.",
         "maintain": "Governed control-plane tool for approvals, cleanup, source removal, association review, Dreamer decisions, SOUL revisions, Myelination refresh, queue operations, and correction actions.",
-        "status": "Report Core Memory MCP server and store health.",
+        "status": "Use this when the user asks whether Core Memory, MCP, transcript sync, memory capture, or the connected store is reachable, healthy, writable, or ready.",
     }
     return descriptions.get(tool_name, "Core Memory MCP tool.")
 

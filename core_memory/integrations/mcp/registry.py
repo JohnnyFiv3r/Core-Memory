@@ -49,6 +49,8 @@ class MCPToolDefinition:
     description: str
     input_schema: dict[str, Any]
     output_schema: dict[str, Any]
+    title: str = ""
+    annotations: dict[str, bool] | None = None
     handler: MCPHandler | None = None
 
 
@@ -308,7 +310,14 @@ TOOLS: dict[str, MCPToolDefinition] = {
     ),
     "sync_transcript_snapshot": MCPToolDefinition(
         name="sync_transcript_snapshot",
+        title="Sync Transcript Snapshot",
         description=tool_description("sync_transcript_snapshot"),
+        annotations={
+            "readOnlyHint": False,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
         input_schema={
             "type": "object",
             "properties": {
@@ -408,7 +417,14 @@ TOOLS: dict[str, MCPToolDefinition] = {
     ),
     "status": MCPToolDefinition(
         name="status",
+        title="Core Memory Status",
         description=tool_description("status"),
+        annotations={
+            "readOnlyHint": True,
+            "destructiveHint": False,
+            "idempotentHint": True,
+            "openWorldHint": False,
+        },
         input_schema={"type": "object", "properties": {"root": {"type": "string"}}, "additionalProperties": False},
         output_schema={
             "type": "object",

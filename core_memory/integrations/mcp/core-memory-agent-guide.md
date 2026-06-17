@@ -146,7 +146,7 @@ path, or turn model inference into human authority without an approval path.
 <!-- tool:status:start -->
 ## Tool: status
 
-Use `status` before debugging or after install to confirm the MCP server is connected to the intended Core Memory store. It is read-only and should report root path, memory counts, connected adapters, MCP version, and server version. Status is not a recall substitute and should not be used to infer semantic facts.
+Use `status` when the user asks whether Core Memory, transcript sync, memory capture, MCP, or the connected store is installed, reachable, healthy, writable, or ready. It is read-only and reports root path, memory counts, queue depth, last transcript snapshot metadata, connected adapters, tool/schema versions, MCP version, and server version. Status is not a recall substitute and should not be used to infer semantic facts.
 
 If status points at an unexpected root, stop and fix configuration before writing or recalling. The wrong store is more dangerous than a failed tool call because it creates convincing but irrelevant memory behavior.
 <!-- tool:status:end -->
