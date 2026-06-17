@@ -18,6 +18,13 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
+from core_memory.runtime.source_ingest_envelope import (
+    merge_source_ingest_envelope_refs,
+    normalize_source_ingest_envelope,
+    source_ingest_batch_ids,
+    source_ingest_envelope_ref,
+    source_microbatch_key,
+)
 from core_memory.retrieval.lifecycle import mark_trace_dirty
 from core_memory.schema.normalization import canonicalize_association_edge
 
@@ -349,6 +356,125 @@ def _merge_unique_values(left: list[Any], right: list[Any], *, limit: int = 50) 
     return out
 
 
+def _source_envelope_refs_from_bead(bead: dict[str, Any]) -> list[dict[str, Any]]:
+    refs = []
+    if isinstance(bead.get("source_ingest_envelope_ref"), dict):
+        refs.append(bead.get("source_ingest_envelope_ref"))
+    if isinstance(bead.get("source_ingest_envelope"), dict):
+        refs.append(source_ingest_envelope_ref(bead.get("source_ingest_envelope")))
+    return merge_source_ingest_envelope_refs(refs)
+
+
+def _source_envelope_refs_for_bead_ids(index: dict[str, Any], bead_ids: list[str]) -> list[dict[str, Any]]:
+    beads = index.get("beads") or {}
+    refs: list[dict[str, Any]] = []
+    for bead_id in bead_ids:
+        bead = beads.get(_clean_str(bead_id))
+        if isinstance(bead, dict):
+            refs.extend(_source_envelope_refs_from_bead(bead))
+    return merge_source_ingest_envelope_refs(refs, limit=100)
+
+
+def _source_envelope_refs_for_candidate(index: dict[str, Any], candidate: dict[str, Any]) -> list[dict[str, Any]]:
+    bead_ids = [
+        _clean_str(candidate.get("source_bead")),
+        _clean_str(candidate.get("target_bead")),
+    ]
+    bead_ids.extend(_clean_str(x) for x in (candidate.get("evidence_bead_ids") or []))
+    refs = _source_envelope_refs_for_bead_ids(index, [x for x in bead_ids if x])
+    refs.extend(merge_source_ingest_envelope_refs(candidate.get("source_ingest_envelope_refs")))
+    return merge_source_ingest_envelope_refs(refs, limit=25)
+
+
+def _source_envelope_refs_for_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    for candidate in candidates:
+        refs.extend(merge_source_ingest_envelope_refs((candidate or {}).get("source_ingest_envelope_refs")))
+    return merge_source_ingest_envelope_refs(refs, limit=100)
+
+
+def _source_envelope_context_for_judge(index: dict[str, Any], refs: list[dict[str, Any]], bead_ids: set[str]) -> dict[str, Any]:
+    wanted = {_clean_str(ref.get("envelope_id")) for ref in refs if isinstance(ref, dict)}
+    wanted = {x for x in wanted if x}
+    envelopes: dict[str, dict[str, Any]] = {}
+    for bead_id in bead_ids:
+        bead = (index.get("beads") or {}).get(_clean_str(bead_id))
+        if not isinstance(bead, dict):
+            continue
+        envelope = bead.get("source_ingest_envelope")
+        if not isinstance(envelope, dict):
+            continue
+        envelope_id = _clean_str(envelope.get("envelope_id"))
+        if envelope_id in wanted:
+            envelopes[envelope_id] = dict(envelope)
+    return envelopes
+
+
+def _annotate_candidates_with_source_context(
+    index: dict[str, Any],
+    candidates: list[dict[str, Any]],
+    *,
+    run_envelope_refs: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for candidate in candidates:
+        row = dict(candidate or {})
+        refs = _source_envelope_refs_for_candidate(index, row)
+        refs = merge_source_ingest_envelope_refs(refs, run_envelope_refs or [], limit=25)
+        if refs:
+            row["source_ingest_envelope_refs"] = refs
+            row["source_ingest_batch_ids"] = source_ingest_batch_ids(refs)
+            microbatch = source_microbatch_key(refs)
+            if microbatch:
+                row["source_microbatch_key"] = microbatch
+        out.append(row)
+    return out
+
+
+def _source_envelope_summary(refs: list[dict[str, Any]]) -> dict[str, Any]:
+    source_types: dict[str, int] = {}
+    boundary_types: dict[str, int] = {}
+    for ref in refs:
+        source_type = _clean_str(ref.get("source_type")) or "unknown"
+        boundary_type = _clean_str(ref.get("boundary_type")) or "unknown"
+        source_types[source_type] = source_types.get(source_type, 0) + 1
+        boundary_types[boundary_type] = boundary_types.get(boundary_type, 0) + 1
+    return {
+        "count": len(refs),
+        "batch_ids": source_ingest_batch_ids(refs),
+        "source_types": source_types,
+        "boundary_types": boundary_types,
+    }
+
+
+def _run_source_envelope_refs(
+    *,
+    source_ingest_envelope: dict[str, Any] | None = None,
+    source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    if isinstance(source_ingest_envelope, dict) and source_ingest_envelope:
+        envelope = (
+            source_ingest_envelope
+            if source_ingest_envelope.get("envelope_id")
+            else normalize_source_ingest_envelope(source_ingest_envelope)
+        )
+        refs.append(source_ingest_envelope_ref(envelope))
+    refs.extend(list(source_ingest_envelope_refs or []))
+    return merge_source_ingest_envelope_refs(refs, limit=100)
+
+
+def _source_envelope_receipt_fields(refs: list[dict[str, Any]]) -> dict[str, Any]:
+    normalized = merge_source_ingest_envelope_refs(refs, limit=100)
+    if not normalized:
+        return {}
+    return {
+        "source_ingest_envelope_refs": normalized,
+        "source_ingest_batch_ids": source_ingest_batch_ids(normalized),
+        "source_ingest_envelope_summary": _source_envelope_summary(normalized),
+    }
+
+
 def _confidence_value(value: Any) -> float:
     try:
         return float(value)
@@ -373,6 +499,9 @@ def _candidate_row_from_batch(candidate: dict[str, Any], *, recorded_at: str, ru
         "confidence_prior": candidate.get("confidence_prior"),
         "evidence_bead_ids": list(candidate.get("evidence_bead_ids") or []),
         "evidence_refs": list(candidate.get("evidence_refs") or []),
+        "source_ingest_envelope_refs": list(candidate.get("source_ingest_envelope_refs") or []),
+        "source_ingest_batch_ids": list(candidate.get("source_ingest_batch_ids") or []),
+        "source_microbatch_key": _clean_str(candidate.get("source_microbatch_key")),
         "requires_judge": bool(candidate.get("requires_judge", True)),
     }
 
@@ -392,6 +521,7 @@ def _merge_candidate_observation(current: dict[str, Any], row: dict[str, Any]) -
             "candidate_class",
             "reason_code",
             "system_rationale",
+            "source_microbatch_key",
             "requires_judge",
         ):
             merged[key] = row.get(key)
@@ -426,6 +556,16 @@ def _merge_candidate_observation(current: dict[str, Any], row: dict[str, Any]) -
         list(row.get("evidence_refs") or []),
         limit=100,
     )
+    merged["source_ingest_envelope_refs"] = merge_source_ingest_envelope_refs(
+        list(merged.get("source_ingest_envelope_refs") or []),
+        list(row.get("source_ingest_envelope_refs") or []),
+        limit=100,
+    )
+    merged["source_ingest_batch_ids"] = _merge_unique_values(
+        list(merged.get("source_ingest_batch_ids") or []),
+        list(row.get("source_ingest_batch_ids") or []),
+        limit=100,
+    )
     observations = list(merged.get("rediscovery_observations") or [])
     observations.append(
         {
@@ -435,6 +575,7 @@ def _merge_candidate_observation(current: dict[str, Any], row: dict[str, Any]) -
             "priority": _clean_str(row.get("priority")),
             "confidence_prior": row.get("confidence_prior"),
             "reason_code": _clean_str(row.get("reason_code")),
+            "source_microbatch_key": _clean_str(row.get("source_microbatch_key")),
         }
     )
     merged["rediscovery_observations"] = observations[-10:]
@@ -767,6 +908,16 @@ def association_coverage_summary(root: str | Path, *, limit: int = 10) -> dict[s
     for candidate in candidates:
         state = _clean_str((candidate or {}).get("status")) or "unknown"
         candidate_status[state] = candidate_status.get(state, 0) + 1
+    envelope_refs = merge_source_ingest_envelope_refs(
+        _source_envelope_refs_for_bead_ids(index, eligible_ids),
+        _source_envelope_refs_for_candidates([c for c in candidates if isinstance(c, dict)]),
+        *[
+            row.get("source_ingest_envelope_refs")
+            for row in latest_by_run.values()
+            if isinstance(row, dict)
+        ],
+        limit=250,
+    )
 
     active_association_count = len(
         [
@@ -787,6 +938,8 @@ def association_coverage_summary(root: str | Path, *, limit: int = 10) -> dict[s
         "candidate_observation_count": int(candidate_listing.get("observation_count") or 0),
         "candidate_status_counts": candidate_status,
         "pending_judge_count": int(candidate_status.get("pending_judge") or 0),
+        "source_ingest_envelope_summary": _source_envelope_summary(envelope_refs),
+        "source_ingest_envelope_refs": envelope_refs[: max(1, int(limit))],
         "runs_by_status": runs_by_status,
         "runs_by_trigger": runs_by_trigger,
         "latest_runs": latest_runs[: max(1, int(limit))],
@@ -1413,6 +1566,7 @@ def _write_association_if_missing(
     candidate_ids: list[str] | None = None,
     association_run_id: str = "",
     association_policy_version: str = "",
+    source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     root_path = Path(root)
     source_id = _clean_str(source)
@@ -1460,6 +1614,8 @@ def _write_association_if_missing(
             "candidate_ids": list(candidate_ids or []),
             "association_run_id": _clean_str(association_run_id) or None,
             "association_policy_version": _clean_str(association_policy_version) or None,
+            "source_ingest_envelope_refs": merge_source_ingest_envelope_refs(source_ingest_envelope_refs or []),
+            "source_ingest_batch_ids": source_ingest_batch_ids(source_ingest_envelope_refs or []),
             "created_at": _now(),
         }
         assoc = {k: v for k, v in assoc.items() if v not in (None, [], {})}
@@ -1532,6 +1688,7 @@ def _bead_context(bead: dict[str, Any]) -> dict[str, Any]:
         "id", "type", "title", "summary", "detail", "session_id", "source_turn_ids",
         "tags", "entities", "entity_refs", "topics", "created_at", "prev_bead_id", "next_bead_id",
         "source_id", "source_event_id", "source_system", "source_kind",
+        "source_ingest_envelope_ref", "source_ingest_envelope_id", "source_ingest_batch_id",
         "core_memory_unifying_id", "document_id", "ragie_document_id",
         "raw_source_object_id", "section_refs", "source_record_id",
         "source_table", "business_object_type", "business_object_id",
@@ -1573,6 +1730,25 @@ def _build_judge_context(
         context_ids.add(_clean_str(candidate.get("target_bead")))
         for bid in candidate.get("evidence_bead_ids") or []:
             context_ids.add(_clean_str(bid))
+    envelope_refs = merge_source_ingest_envelope_refs(
+        _source_envelope_refs_for_bead_ids(index, list(context_ids)),
+        _source_envelope_refs_for_candidates(candidates),
+        limit=100,
+    )
+    microbatches: dict[str, dict[str, Any]] = {}
+    for candidate in candidates:
+        key = _clean_str(candidate.get("source_microbatch_key"))
+        if not key:
+            continue
+        bucket = microbatches.setdefault(key, {"candidate_ids": [], "source_ingest_envelope_refs": []})
+        cid = _clean_str(candidate.get("candidate_id"))
+        if cid and cid not in bucket["candidate_ids"]:
+            bucket["candidate_ids"].append(cid)
+        bucket["source_ingest_envelope_refs"] = merge_source_ingest_envelope_refs(
+            bucket.get("source_ingest_envelope_refs") or [],
+            candidate.get("source_ingest_envelope_refs") or [],
+            limit=25,
+        )
     return {
         "contract": ASSOCIATION_JUDGE_CONTRACT,
         "run_id": run_id,
@@ -1582,6 +1758,9 @@ def _build_judge_context(
         "rubric_version": rubric_version,
         "source_bead_ids": source_bead_ids,
         "candidates": candidates,
+        "source_ingest_envelope_refs": envelope_refs,
+        "source_ingest_envelopes": _source_envelope_context_for_judge(index, envelope_refs, context_ids),
+        "source_microbatches": microbatches,
         "beads": {
             bid: _bead_context(beads.get(bid) or {})
             for bid in sorted(x for x in context_ids if x and isinstance(beads.get(x), dict))
@@ -1668,6 +1847,10 @@ def _candidate_association_payload(
         "reason_code": _clean_str(decision.get("reason_code") or (candidate or {}).get("reason_code")),
         "evidence_bead_ids": evidence_bead_ids,
         "evidence_refs": evidence_refs,
+        "source_ingest_envelope_refs": merge_source_ingest_envelope_refs(
+            decision.get("source_ingest_envelope_refs") or [],
+            (candidate or {}).get("source_ingest_envelope_refs") or [],
+        ),
     }, candidate_ids
 
 
@@ -1812,6 +1995,7 @@ def _apply_judge_result(
             candidate_ids=candidate_ids,
             association_run_id=run_id,
             association_policy_version=policy_version,
+            source_ingest_envelope_refs=list(assoc_payload.get("source_ingest_envelope_refs") or []),
         )
         if out.get("ok") and out.get("deduped"):
             deduped += 1
@@ -1839,6 +2023,8 @@ def _apply_judge_result(
             "rubric_version": rubric_v,
             "grounding_hash": grounding_hash,
             "candidate_ids": [_clean_str(c.get("candidate_id")) for c in candidates],
+            "source_ingest_envelope_refs": _source_envelope_refs_for_candidates(candidates),
+            "source_ingest_batch_ids": source_ingest_batch_ids(_source_envelope_refs_for_candidates(candidates)),
             "decisions": decisions,
             "reviewed_beads": reviewed,
             "association_ids": association_ids,
@@ -1892,8 +2078,15 @@ def enqueue_association_coverage(
     graph_revision: str | None = None,
     judge: Any | None = None,
     use_configured_judge: bool = True,
+    source_ingest_envelope: dict[str, Any] | None = None,
+    source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     index = _load_index(root)
+    run_envelope_refs = _run_source_envelope_refs(
+        source_ingest_envelope=source_ingest_envelope,
+        source_ingest_envelope_refs=source_ingest_envelope_refs,
+    )
+    envelope_fields = _source_envelope_receipt_fields(run_envelope_refs)
     resolved_ids = [_clean_str(x) for x in (bead_ids or []) if _clean_str(x)]
     if not resolved_ids and _clean_str(session_id):
         resolved_ids = _resolve_session_bead_ids(index, session_id)
@@ -1933,6 +2126,7 @@ def enqueue_association_coverage(
                 "association_state_by_bead": {},
                 "sweep": sweep_info,
                 "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": 0},
+                **envelope_fields,
             }
             _append_run_record(root, out)
             return out
@@ -1963,6 +2157,7 @@ def enqueue_association_coverage(
             "association_state_by_bead": initial_states,
             "sweep": sweep_info,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
+            **envelope_fields,
         }
         _append_run_record(root, out)
         return out
@@ -1984,9 +2179,11 @@ def enqueue_association_coverage(
             use_configured_judge=use_configured_judge,
             skipped_bead_ids=skipped_ids,
             sweep_info=sweep_info,
+            source_ingest_envelope_refs=run_envelope_refs,
         )
 
     bead_set_sig = _bead_set_signature(eligible_ids)
+    envelope_sig = _jsonable_dedupe_key(run_envelope_refs) if run_envelope_refs else "-"
     idempotency_key = (
         f"assoc:{_clean_str(policy_version) or POLICY_VERSION}:"
         f"trigger:{trigger_n}:"
@@ -1999,6 +2196,7 @@ def enqueue_association_coverage(
         f"graph:{graph_rev}:"
         f"prompt:{prompt_v}:"
         f"rubric:{rubric_v}:"
+        f"envelopes:{envelope_sig}:"
         f"cgen:{CANDIDATE_GENERATION_VERSION}"
     )
     from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
@@ -2021,6 +2219,7 @@ def enqueue_association_coverage(
             "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
             "use_configured_judge": bool(use_configured_judge),
             "sweep": sweep_info,
+            "source_ingest_envelope_refs": run_envelope_refs,
         },
         idempotency_key=idempotency_key,
     )
@@ -2043,6 +2242,7 @@ def enqueue_association_coverage(
             "queue": queue,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
             "contract": "memory.association_run.v1",
+            **envelope_fields,
         },
     )
     return {
@@ -2057,6 +2257,7 @@ def enqueue_association_coverage(
         "queued_job_id": _clean_str(queue.get("id")),
         "association_queued": bool(queue.get("ok")),
         "queue": queue,
+        **envelope_fields,
     }
 
 
@@ -2073,6 +2274,8 @@ def on_bead_committed(
     judge: Any | None = None,
     enqueue: bool = True,
     use_configured_judge: bool = False,
+    source_ingest_envelope: dict[str, Any] | None = None,
+    source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any] | None:
     bid = _clean_str(bead_id)
     if not bid:
@@ -2087,6 +2290,8 @@ def on_bead_committed(
             graph_revision=graph_revision,
             judge=judge,
             use_configured_judge=False,
+            source_ingest_envelope=source_ingest_envelope,
+            source_ingest_envelope_refs=source_ingest_envelope_refs,
         )
         if isinstance(out, dict):
             out["association_queued"] = False
@@ -2102,6 +2307,8 @@ def on_bead_committed(
         graph_revision=graph_revision,
         judge=judge,
         use_configured_judge=use_configured_judge,
+        source_ingest_envelope=source_ingest_envelope,
+        source_ingest_envelope_refs=source_ingest_envelope_refs,
     )
     if isinstance(out, dict):
         out["bead_commit_source"] = _clean_str(source) or "memory_store"
@@ -2129,6 +2336,8 @@ def run_association_coverage(
     judge: Any | None = None,
     skipped_bead_ids: list[str] | None = None,
     use_configured_judge: bool = True,
+    source_ingest_envelope: dict[str, Any] | None = None,
+    source_ingest_envelope_refs: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     run_id_final = _clean_str(run_id) or f"arun-{uuid.uuid4().hex[:12]}"
     trigger_n = _normalize_trigger(trigger)
@@ -2155,6 +2364,11 @@ def run_association_coverage(
     prompt_v = _clean_str(prompt_version) or JUDGE_PROMPT_VERSION
     rubric_v = _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION
     graph_rev = _clean_str(graph_revision) or _graph_revision(index)
+    run_envelope_refs = _run_source_envelope_refs(
+        source_ingest_envelope=source_ingest_envelope,
+        source_ingest_envelope_refs=source_ingest_envelope_refs,
+    )
+    envelope_fields = _source_envelope_receipt_fields(run_envelope_refs)
 
     if not eligible_ids and not skipped_ids:
         if sweep_record:
@@ -2174,6 +2388,7 @@ def run_association_coverage(
                 "association_state_by_bead": {},
                 "sweep": sweep_record,
                 "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": 0},
+                **envelope_fields,
             }
             _append_run_record(root, out)
             return out
@@ -2186,6 +2401,7 @@ def run_association_coverage(
             "bead_ids": [],
             "association_state_by_bead": {},
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
+            **envelope_fields,
         }
         _append_run_record(root, out)
         return out
@@ -2208,6 +2424,7 @@ def run_association_coverage(
             "association_state_by_bead": state_by_bead,
             "sweep": sweep_record or None,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
+            **envelope_fields,
         }
         _append_run_record(root, out)
         return out
@@ -2231,6 +2448,7 @@ def run_association_coverage(
             "sweep": sweep_record or None,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
             "contract": "memory.association_run.v1",
+            **envelope_fields,
         },
     )
 
@@ -2252,7 +2470,11 @@ def run_association_coverage(
                 max_candidates=max_candidates,
             )
         )
-    candidates = _dedupe_candidate_rows(candidates)
+    candidates = _annotate_candidates_with_source_context(
+        index,
+        _dedupe_candidate_rows(candidates),
+        run_envelope_refs=run_envelope_refs,
+    )
     _append_candidate_record(
         root,
         {
@@ -2269,6 +2491,7 @@ def run_association_coverage(
             "sweep": sweep_record or None,
             "candidate_count": len(candidates),
             "candidates": candidates,
+            **envelope_fields,
         },
     )
 
@@ -2316,6 +2539,7 @@ def run_association_coverage(
                 "skipped": len(skipped_ids),
             },
             "warning": _clean_str(exc),
+            **envelope_fields,
         }
         _append_judge_decision_record(
             root,
@@ -2326,6 +2550,7 @@ def run_association_coverage(
                 "warning": _clean_str(exc),
                 "candidate_ids": [_clean_str(c.get("candidate_id")) for c in candidates],
                 "source_bead_ids": eligible_ids,
+                **envelope_fields,
             },
         )
         _append_run_record(root, out)
@@ -2351,6 +2576,7 @@ def run_association_coverage(
             "candidate_count": len(candidates),
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": len(eligible_ids), "skipped": len(skipped_ids)},
             "error": _clean_str(exc),
+            **envelope_fields,
         }
         _append_judge_decision_record(
             root,
@@ -2361,6 +2587,7 @@ def run_association_coverage(
                 "error": _clean_str(exc),
                 "candidate_ids": [_clean_str(c.get("candidate_id")) for c in candidates],
                 "source_bead_ids": eligible_ids,
+                **envelope_fields,
             },
         )
         _append_run_record(root, out)
@@ -2423,6 +2650,7 @@ def run_association_coverage(
         "grounding_hash": _clean_str(applied.get("grounding_hash")),
         "counts": counts,
         "errors": errors,
+        **envelope_fields,
     }
     _append_run_record(root, out)
     return out

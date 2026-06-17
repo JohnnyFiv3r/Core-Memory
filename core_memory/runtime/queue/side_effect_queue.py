@@ -504,6 +504,9 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             skipped_bead_ids=[str(x) for x in (p.get("skipped_bead_ids") or []) if str(x).strip()],
             sweep_info=dict(p.get("sweep") or {}),
             use_configured_judge=bool(p.get("use_configured_judge", True)),
+            source_ingest_envelope_refs=[
+                x for x in (p.get("source_ingest_envelope_refs") or []) if isinstance(x, dict)
+            ],
         )
         return {
             "ok": bool(out.get("ok")),
