@@ -102,7 +102,7 @@ class TestClassifierFallback(unittest.TestCase):
                         {
                             "source_bead_id": b1,
                             "target_bead_id": b2,
-                            "relationship": "caused_by",
+                            "relationship": "causes",
                             "reason_text": "explicit agent decision",
                             "confidence": 0.9,
                         }
@@ -111,14 +111,14 @@ class TestClassifierFallback(unittest.TestCase):
                 visible_bead_ids=[b1, b2],
             )
             self.assertEqual(result.get("associations_appended"), 1, result)
-            # Verify the stored relationship is the agent-supplied one
+            # Verify the explicit legacy relationship is accepted and stored canonically.
             idx_path = Path(td) / ".beads" / "index.json"
             from core_memory.association.crawler_contract import merge_crawler_updates
             merge_crawler_updates(td, "sess-1")
             idx = json.loads(idx_path.read_text())
             assocs = [a for a in idx.get("associations", [])
                       if a.get("source_bead") == b1 and a.get("target_bead") == b2]
-            self.assertTrue(any(a.get("relationship") == "caused_by" for a in assocs), assocs)
+            self.assertTrue(any(a.get("relationship") == "causes" for a in assocs), assocs)
 
     def test_infer_relationship_public_api(self):
         """infer_relationship returns a canonical relationship and reason_code."""
@@ -144,7 +144,7 @@ class TestClassifierFallback(unittest.TestCase):
         self.assertTrue(len(rel) > 0)
         self.assertIsInstance(reason_code, str)
         # The two beads share tags and session — classifier should produce something specific
-        canonical = {"supports", "led_to", "caused_by", "associated_with", "precedes", "follows"}
+        canonical = {"supports", "leads_to", "causes", "associated_with", "precedes", "follows"}
         self.assertIn(rel, canonical)
 
     def test_classifier_fills_provenance(self):

@@ -65,7 +65,7 @@ class TestNeo4jGraphBackendParity(unittest.TestCase):
             "status": kwargs.get("status", "open"),
         }
 
-    def _assoc(self, src: str, tgt: str, rel_type: str = "caused_by") -> dict:
+    def _assoc(self, src: str, tgt: str, rel_type: str = "causes") -> dict:
         return {
             "id": f"assoc-{src}-{tgt}",
             "source_bead": src,
@@ -135,7 +135,7 @@ class TestNeo4jGraphBackendParity(unittest.TestCase):
     # on_association_written
     # -------------------------------------------------------------------------
     def test_on_association_written_issues_merge_relationship_cypher(self):
-        assoc = self._assoc("bead-X", "bead-Y", "caused_by")
+        assoc = self._assoc("bead-X", "bead-Y", "causes")
         self.backend.on_association_written(assoc)
 
         self._session_mock.run.assert_called_once()
@@ -145,12 +145,12 @@ class TestNeo4jGraphBackendParity(unittest.TestCase):
         self.assertIn(":ASSOCIATION", cypher)
         self.assertEqual(kwargs.get("src"), "bead-X")
         self.assertEqual(kwargs.get("tgt"), "bead-Y")
-        self.assertEqual(kwargs.get("rel_type"), "caused_by")
+        self.assertEqual(kwargs.get("rel_type"), "causes")
         self.assertAlmostEqual(float(kwargs.get("confidence") or 0), 0.9)
 
     def test_on_association_written_skips_missing_fields(self):
         # Missing tgt — should not run any Cypher
-        self.backend.on_association_written({"source_bead": "bead-X", "relationship": "caused_by"})
+        self.backend.on_association_written({"source_bead": "bead-X", "relationship": "causes"})
         self._session_mock.run.assert_not_called()
 
     def test_on_association_written_does_not_raise_on_driver_error(self):
@@ -205,7 +205,7 @@ class TestNeo4jGraphBackendParity(unittest.TestCase):
     def test_traverse_returns_chain_list(self):
         node_a = {"id": "bead-A", "type": "decision", "title": "A"}
         node_b = {"id": "bead-B", "type": "outcome", "title": "B"}
-        edge = {"rel": "caused_by", "src": "bead-A", "tgt": "bead-B"}
+        edge = {"rel": "causes", "src": "bead-A", "tgt": "bead-B"}
 
         record = MagicMock()
         record.__getitem__ = lambda self, key: {"nodes": [node_a, node_b], "edges": [edge]}[key]
@@ -226,12 +226,12 @@ class TestNeo4jGraphBackendParity(unittest.TestCase):
     def test_traverse_respects_edge_type_filter(self):
         self._session_mock.run.return_value = []
         self.backend.traverse(
-            seed_ids=["bead-A"], edge_types=["caused_by", "supersedes"], max_hops=3
+            seed_ids=["bead-A"], edge_types=["causes", "supersedes"], max_hops=3
         )
 
         args, _ = self._session_mock.run.call_args
         cypher = args[0]
-        self.assertIn("caused_by", cypher)
+        self.assertIn("causes", cypher)
         self.assertIn("supersedes", cypher)
 
     # -------------------------------------------------------------------------

@@ -16,7 +16,15 @@ class TestAssociationPolicyContract(unittest.TestCase):
     def test_normalize_legacy_relation_aliases_via_schema_vocabulary(self):
         row = {"source_bead": "A", "target_bead": "B", "relationship": "Causes"}
         n = normalize_assoc_row(row)
-        self.assertEqual("caused_by", n.get("relationship"))
+        self.assertEqual("causes", n.get("relationship"))
+
+    def test_normalize_caused_by_swaps_endpoints(self):
+        row = {"source_bead": "effect", "target_bead": "cause", "relationship": "caused_by"}
+        n = normalize_assoc_row(row)
+        self.assertEqual("cause", n.get("source_bead_id"))
+        self.assertEqual("effect", n.get("target_bead_id"))
+        self.assertEqual("causes", n.get("relationship"))
+        self.assertTrue(n.get("endpoints_swapped"))
 
 
 if __name__ == "__main__":

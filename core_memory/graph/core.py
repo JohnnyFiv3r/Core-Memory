@@ -16,8 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from ..persistence.io_utils import append_jsonl, atomic_write_json
+from ..schema.normalization import normalize_relation_type
 
-STRUCTURAL_RELS = {"caused_by", "supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+STRUCTURAL_RELS = {"causes", "supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
 
 
 def _paths(root: Path) -> tuple[Path, Path, Path]:
@@ -182,7 +183,7 @@ def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[i
         if status in {"retracted", "superseded", "inactive"}:
             continue
         rel0 = str(a.get("relationship") or "").strip()
-        rel = rel_map.get(rel0, rel0)
+        rel = normalize_relation_type(rel_map.get(rel0, rel0))
         if rel not in STRUCTURAL_RELS:
             continue
         edge_class = str(a.get("edge_class") or "").strip().lower()
@@ -383,7 +384,7 @@ def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = 
     missing_edges = []
     for src, b in sorted(beads.items()):
         for l in _normalize_links((b or {}).get("links")):
-            rel = rel_map.get(str(l.get("rel") or ""), str(l.get("rel") or ""))
+            rel = normalize_relation_type(rel_map.get(str(l.get("rel") or ""), str(l.get("rel") or "")))
             dst = str(l.get("dst_id") or "")
             if rel not in STRUCTURAL_RELS or not dst:
                 continue
@@ -408,7 +409,7 @@ def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = 
         if not isinstance(a, dict):
             continue
         rel0 = str(a.get("relationship") or "").strip()
-        rel = rel_map.get(rel0, rel0)
+        rel = normalize_relation_type(rel_map.get(rel0, rel0))
         if rel not in STRUCTURAL_RELS:
             continue
         src = str(a.get("source_bead") or "").strip()
@@ -852,8 +853,8 @@ def causal_traverse(
             return None
 
     def _rel_time_expectation(rel: str) -> str:
-        r = str(rel or "").strip().lower()
-        if r in {"causes", "caused_by", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
+        r = normalize_relation_type(rel)
+        if r in {"causes", "leads_to", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
             return "forward"
         if r in {"diagnoses"}:
             return "backward_ok"
@@ -862,8 +863,8 @@ def causal_traverse(
     def _quick_coherence(path_nodes: list[str], path_edges: list[dict]) -> float:
         if not path_edges:
             return 0.7
-        rels = [str(e.get("rel") or "") for e in path_edges]
-        causal_rels = {"causes", "caused_by", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by", "follows", "precedes"}
+        rels = [normalize_relation_type(str(e.get("rel") or "")) for e in path_edges]
+        causal_rels = {"causes", "leads_to", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by", "follows", "precedes"}
         rel_score = sum(1 for r in rels if r in causal_rels) / max(1, len(rels))
 
         temporal_penalty = 0.0

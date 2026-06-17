@@ -406,7 +406,7 @@ def _non_temporal_semantic_association_count(updates: dict[str, Any]) -> int:
     associations = list((updates or {}).get("associations") or [])
     # Keep generic/temporal/noise preview labels out of semantic-count gating.
     # Rich canonical relations emitted by association.preview (for example
-    # caused_by/led_to/supports) intentionally remain counted.
+    # causes/leads_to/supports) intentionally remain counted.
     excluded = {"follows", "precedes", "shared_tag", "associated_with"}
     count = 0
     for row in associations:

@@ -40,7 +40,7 @@ class TestSearchTypedRelationFilters(unittest.TestCase):
             b = s.add_bead(type="evidence", title="B", summary=["cause"], session_id="main", source_turn_ids=["t2"])
             idx = s._read_json(s.beads_dir / "index.json")
             beads = idx.get("beads") or {}
-            beads[a]["links"] = [{"bead_id": b, "type": "caused_by"}]
+            beads[a]["links"] = [{"bead_id": b, "type": "causes"}]
             s._write_json(s.beads_dir / "index.json", idx)
 
             out = memory_search_typed(td, {
@@ -55,7 +55,7 @@ class TestSearchTypedRelationFilters(unittest.TestCase):
             if chains:
                 for ch in chains:
                     rels = {str(e.get("rel") or "") for e in (ch.get("edges") or [])}
-                    self.assertIn("caused_by", rels)
+                    self.assertIn("causes", rels)
 
 
 if __name__ == "__main__":

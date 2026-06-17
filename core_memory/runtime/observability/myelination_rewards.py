@@ -32,7 +32,11 @@ from core_memory.runtime.observability.retrieval_feedback import (
     _parse_since,
     read_retrieval_feedback,
 )
-from core_memory.schema.normalization import EVIDENTIAL_RELATION_TYPES, is_evidential_relation, normalize_relation_type
+from core_memory.schema.normalization import (
+    EVIDENTIAL_RELATION_TYPES,
+    canonicalize_association_edge,
+    is_evidential_relation,
+)
 
 REWARD_EVENT_SCHEMA = "myelination_reward_event.v1"
 
@@ -103,9 +107,10 @@ def _normalize_edge_key(edge_key: Any) -> str:
     parts = raw.split("|")
     if len(parts) != 3:
         return raw
-    src = parts[0].strip()
-    rel = normalize_relation_type(parts[1])
-    dst = parts[2].strip()
+    edge = canonicalize_association_edge(parts[0], parts[2], parts[1])
+    src = str(edge.get("source_bead") or "").strip()
+    rel = str(edge.get("relationship") or "").strip()
+    dst = str(edge.get("target_bead") or "").strip()
     if not src or not rel or not dst:
         return raw
     return _edge_key(src, dst, rel)
@@ -156,8 +161,8 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
 
     Union of:
       1. evidence edges — associations incident to ``bead_id`` whose relationship
-         is evidential (``supports``/``derived_from``/``caused_by``/``resolves``/
-         ``led_to``);
+         is evidential (``supports``/``derived_from``/``causes``/``resolves``/
+         ``leads_to``);
       2. recall-trace edges — traversed chain edges from retrieval-feedback rows
          that surfaced ``bead_id`` (bounded, recent).
 
@@ -174,11 +179,16 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
     for assoc in (index.get("associations") or []):
         if not isinstance(assoc, dict):
             continue
-        rel = normalize_relation_type(assoc.get("relationship"))
+        edge = canonicalize_association_edge(
+            assoc.get("source_bead"),
+            assoc.get("target_bead"),
+            assoc.get("relationship"),
+        )
+        src = str(edge.get("source_bead") or "").strip()
+        dst = str(edge.get("target_bead") or "").strip()
+        rel = str(edge.get("relationship") or "").strip()
         if not is_evidential_relation(rel):
             continue
-        src = str(assoc.get("source_bead") or "").strip()
-        dst = str(assoc.get("target_bead") or "").strip()
         if bid not in (src, dst) or not src or not dst:
             continue
         ek = _edge_key(src, dst, rel)
@@ -204,7 +214,10 @@ def supporting_edge_keys_for_bead(root: str | Path, bead_id: str, *, include_rec
                     continue
                 src = str(e.get("src") or "").strip()
                 dst = str(e.get("dst") or "").strip()
-                rel = normalize_relation_type(e.get("rel"))
+                edge = canonicalize_association_edge(e.get("src"), e.get("dst"), e.get("rel"))
+                src = str(edge.get("source_bead") or "").strip()
+                dst = str(edge.get("target_bead") or "").strip()
+                rel = str(edge.get("relationship") or "").strip()
                 if not src or not dst or not rel:
                     continue
                 # record_retrieval_feedback stores edges as the flat union of all
@@ -341,19 +354,26 @@ def _association_exists(root: str | Path, src: str, dst: str, rel: str) -> bool:
     """True iff a ``src --rel--> dst`` association exists in the index.
 
     Relations are normalized on both sides so a legacy/mixed-case stored relation
-    (e.g. ``Causes``) matches the canonical query (``caused_by``).
+    (e.g. ``Caused_by``) matches the canonical query (``causes``).
     """
-    s, d = str(src or "").strip(), str(dst or "").strip()
-    r = normalize_relation_type(rel)
+    edge = canonicalize_association_edge(src, dst, rel)
+    s = str(edge.get("source_bead") or "").strip()
+    d = str(edge.get("target_bead") or "").strip()
+    r = str(edge.get("relationship") or "").strip()
     if not s or not d or not r:
         return False
     for assoc in (_read_index(root).get("associations") or []):
         if not isinstance(assoc, dict):
             continue
+        stored = canonicalize_association_edge(
+            assoc.get("source_bead"),
+            assoc.get("target_bead"),
+            assoc.get("relationship"),
+        )
         if (
-            normalize_relation_type(assoc.get("relationship")) == r
-            and str(assoc.get("source_bead") or "").strip() == s
-            and str(assoc.get("target_bead") or "").strip() == d
+            str(stored.get("relationship") or "").strip() == r
+            and str(stored.get("source_bead") or "").strip() == s
+            and str(stored.get("target_bead") or "").strip() == d
         ):
             return True
     return False
@@ -427,7 +447,10 @@ def reward_dreamer_candidate_decision(
     raw_rel = str(cand.get("relationship") or "").strip()
     if not src or not dst or not raw_rel:
         return {"ok": False, "skipped": "no_concrete_edge"}
-    rel = normalize_relation_type(raw_rel)
+    edge = canonicalize_association_edge(src, dst, raw_rel)
+    src = str(edge.get("source_bead") or "").strip()
+    dst = str(edge.get("target_bead") or "").strip()
+    rel = str(edge.get("relationship") or "").strip()
     if not _association_exists(root, src, dst, rel):
         return {"ok": False, "skipped": "no_concrete_edge"}
 

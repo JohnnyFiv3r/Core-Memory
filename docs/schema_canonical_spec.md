@@ -37,7 +37,7 @@ Rule:
 Canonical/structural relation set is defined in `core_memory/schema/normalization.py` (`CANONICAL_RELATION_TYPES`).
 
 Includes model-native values plus observed canonicalized extensions:
-- caused_by, led_to, blocked_by, unblocks, blocks_unblocks
+- causes, leads_to, blocked_by, unblocks, blocks_unblocks
 - supersedes, superseded_by, refines
 - associated_with, contradicts, invalidates, diagnoses
 - applies_pattern_of, constraint_transformed_into
@@ -53,18 +53,16 @@ carry private relation sets.
 Families are helper classifications only. They do not migrate stored rows or
 change graph traversal semantics.
 
-- causal: caused_by, led_to, resolves, diagnoses
-- evidence: supports, derived_from, caused_by, led_to, resolves
+- causal: causes, leads_to, resolves, diagnoses
+- evidence: supports, derived_from, causes, leads_to, resolves
 - influence: blocked_by, unblocks, blocks_unblocks, enables
 - conflict: contradicts, invalidates
 - temporal: follows, precedes
 - revision: supersedes, superseded_by, refines
 
 Direction rules for new authored associations:
-- `caused_by`: the source bead is explained by, or exists because of, the target
-  cause/mechanism in current stored Core Memory usage. Do not rewrite direction
-  during normalization.
-- `led_to`: a process/progression edge, not generic causal proof.
+- `causes`: the source bead is evidence/cause for the affected target bead.
+- `leads_to`: a process/progression edge, not generic causal proof.
 - `blocked_by`: the source bead is prevented by the target blocker in current
   stored Core Memory usage.
 - `unblocks`: the source removes a blocking condition for the target.
@@ -76,7 +74,7 @@ Unknown semantics should use `associated_with` or quarantine/review. Do not use
 `supports` as a fallback for unclear semantics.
 
 Accepted aliases normalize spelling variants and retired synonym labels such as
-`causes`, `leads_to`, `blocked`, `unblocked`, `enabled`, `conflicts_with`,
+`caused_by`, `led_to`, `blocked`, `unblocked`, `enabled`, `conflicts_with`,
 `related_to`, `reinforces`, `mirrors`, `structural_symmetry`,
 `solves_same_mechanism`, `transferable_lesson`, `violates_pattern_of`, and
 `blocks->unblocks` to existing canonical values. Alias normalization never

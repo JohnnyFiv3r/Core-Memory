@@ -20,7 +20,7 @@ class TestEdgeTraversalLogging(unittest.TestCase):
     def test_recall_logs_edge_traversed_events(self):
         a = self.store.add_bead(type="decision", title="A", because=["x"], session_id="s1")
         b = self.store.add_bead(type="outcome", title="B", summary=["y"], session_id="s1")
-        assoc_id = self.store.link(source_id=b, target_id=a, relationship="led_to", explanation="test")
+        assoc_id = self.store.link(source_id=b, target_id=a, relationship="leads_to", explanation="test")
 
         ok = self.store.recall(a)
         self.assertTrue(ok)

@@ -123,13 +123,13 @@ class TestAssociationPassStrengthened(unittest.TestCase):
         }
         older_source = dict(newer_source, id="current-older", created_at="2025-12-31T00:00:00+00:00")
 
-        caused_by = run_association_pass({"beads": {"older": idx["beads"]["older"]}}, newer_source, max_lookback=10, top_k=1)
-        led_to = run_association_pass({"beads": {"newer": idx["beads"]["newer"]}}, older_source, max_lookback=10, top_k=1)
+        causes = run_association_pass({"beads": {"older": idx["beads"]["older"]}}, newer_source, max_lookback=10, top_k=1)
+        leads_to = run_association_pass({"beads": {"newer": idx["beads"]["newer"]}}, older_source, max_lookback=10, top_k=1)
 
-        self.assertEqual("caused_by", caused_by[0]["relationship"])
-        self.assertEqual("causal_cross_session_source_follows_target", caused_by[0]["reason_code"])
-        self.assertEqual("led_to", led_to[0]["relationship"])
-        self.assertEqual("causal_cross_session_source_precedes_target", led_to[0]["reason_code"])
+        self.assertEqual("caused_by", causes[0]["relationship"])
+        self.assertEqual("causal_cross_session_source_follows_target", causes[0]["reason_code"])
+        self.assertEqual("leads_to", leads_to[0]["relationship"])
+        self.assertEqual("causal_cross_session_source_precedes_target", leads_to[0]["reason_code"])
 
     def test_temporal_typing_can_emit_precedes_for_older_source(self):
         idx = {
@@ -160,8 +160,8 @@ class TestAssociationPassStrengthened(unittest.TestCase):
     def test_preview_relationships_stay_within_schema_enum(self):
         schema_values = {x.value for x in RelationshipType}
         self.assertIn("associated_with", schema_values)
-        self.assertIn("caused_by", schema_values)
-        self.assertIn("led_to", schema_values)
+        self.assertIn("causes", schema_values)
+        self.assertIn("leads_to", schema_values)
         self.assertIn("precedes", schema_values)
         self.assertNotIn("related", schema_values)
         self.assertNotIn("shared_tag", schema_values)

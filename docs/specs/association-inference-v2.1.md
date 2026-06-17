@@ -28,7 +28,8 @@ Legacy rows remain readable for compatibility.
 The inference surface accepts the shared canonical relation vocabulary defined in
 `core_memory/schema/normalization.py`. Common model-authored labels include:
 
-- `caused_by`
+- `causes`
+- `leads_to`
 - `supports`
 - `supersedes`
 - `superseded_by`
@@ -56,9 +57,8 @@ The association payload stores exactly the submitted `source_bead`,
 `target_bead`, and normalized canonical `relationship`. Normalization fixes label
 spelling only; it never rewrites source/target direction.
 
-- `caused_by`: source is explained by the target cause/mechanism in current
-  stored Core Memory usage.
-- `led_to`: process/progression edge, not generic causal proof.
+- `causes`: source is evidence/cause for the affected target.
+- `leads_to`: process/progression edge, not generic causal proof.
 - `blocked_by`: source is prevented by the target blocker in current stored
   Core Memory usage.
 - `unblocks`: source removes a blocking condition for target.
@@ -67,7 +67,7 @@ spelling only; it never rewrites source/target direction.
 - `supports`: source meaningfully supports target. Do not use it as a fallback
   for unknown semantics.
 
-Accepted aliases such as `causes`, `leads_to`, `blocked`, `unblocked`,
+Accepted aliases such as `caused_by`, `led_to`, `blocked`, `unblocked`,
 `enabled`, `conflicts_with`, `related_to`, `reinforces`, `mirrors`,
 `structural_symmetry`, `solves_same_mechanism`, `transferable_lesson`,
 `violates_pattern_of`, and `blocks->unblocks` normalize to the existing

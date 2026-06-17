@@ -18,6 +18,7 @@ from typing import Optional, Iterator
 
 from .io_utils import store_lock, append_jsonl, atomic_write_json
 from .store_contract import INDEX_FILE, SESSION_FILE
+from core_memory.schema.normalization import canonicalize_association_edge
 
 # Constants
 EVENTS_DIR = ".beads/events"
@@ -228,6 +229,20 @@ def rebuild_index(root: Path) -> dict:
         if ev.get("event_type") == EVENT_ASSOCIATION_CREATED:
             assoc = (ev.get("payload") or {}).get("association")
             if assoc:
+                assoc = dict(assoc)
+                raw_rel = str(assoc.get("relationship") or assoc.get("rel") or "").strip()
+                edge = canonicalize_association_edge(
+                    assoc.get("source_bead") or assoc.get("source_bead_id"),
+                    assoc.get("target_bead") or assoc.get("target_bead_id"),
+                    raw_rel,
+                )
+                assoc["source_bead"] = str(edge.get("source_bead") or "")
+                assoc["target_bead"] = str(edge.get("target_bead") or "")
+                assoc["relationship"] = str(edge.get("relationship") or "")
+                if edge.get("normalization_applied") and not assoc.get("relationship_raw"):
+                    assoc["relationship_raw"] = raw_rel
+                if edge.get("endpoints_swapped"):
+                    assoc["endpoints_swapped"] = True
                 index["associations"].append(assoc)
         if ev.get("event_type") == EVENT_BEAD_REMOVED:
             payload = ev.get("payload") or {}

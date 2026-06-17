@@ -5,7 +5,10 @@ import json
 from dataclasses import dataclass
 from typing import Any
 
-from core_memory.schema.normalization import INFERENCE_CANONICAL_RELATION_TYPES, normalize_relation_type
+from core_memory.schema.normalization import (
+    INFERENCE_CANONICAL_RELATION_TYPES,
+    canonicalize_association_edge,
+)
 
 CANONICAL_INFERENCE_RELATIONSHIPS = set(INFERENCE_CANONICAL_RELATION_TYPES)
 
@@ -158,8 +161,12 @@ def validate_and_normalize_inference_payload(payload: dict[str, Any], *, mode: s
         if confidence is None:
             _append_unique(quarantine_reasons, Q_MISSING_OR_INVALID_CONFIDENCE)
 
-    normalized_relationship = normalize_relation_type(relationship_raw) if relationship_raw else ""
-    normalization_applied = bool(relationship_raw and normalized_relationship != relationship_raw)
+    edge = canonicalize_association_edge(source_bead, target_bead, relationship_raw)
+    source_bead = str(edge.get("source_bead") or "")
+    target_bead = str(edge.get("target_bead") or "")
+    normalized_relationship = str(edge.get("relationship") or "")
+    normalization_applied = bool(edge.get("normalization_applied"))
+    endpoints_swapped = bool(edge.get("endpoints_swapped"))
 
     if normalized_relationship not in CANONICAL_INFERENCE_RELATIONSHIPS:
         reason = _noncanonical_reason(relationship_raw)
@@ -190,6 +197,7 @@ def validate_and_normalize_inference_payload(payload: dict[str, Any], *, mode: s
         "turn_id": str(payload.get("turn_id") or "").strip(),
         "visible_bead_ids": [str(x).strip() for x in (payload.get("visible_bead_ids") or []) if str(x).strip()],
         "normalization_applied": normalization_applied,
+        "endpoints_swapped": endpoints_swapped,
         "warnings": list(warnings),
     }
 

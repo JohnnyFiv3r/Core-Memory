@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from core_memory.schema.normalization import normalize_relation_type, relation_family
+from core_memory.schema.normalization import canonicalize_association_edge, normalize_relation_type, relation_family
 
 
 TIMESTAMP_PRIORITY = (
@@ -21,15 +21,14 @@ TIMESTAMP_PRIORITY = (
     "last_activated_at",
 )
 
-UPSTREAM_FROM_SOURCE = {"caused_by", "blocked_by", "derived_from", "superseded_by", "documented_by", "informed_by"}
-UPSTREAM_FROM_TARGET = {"causes", "led_to", "enabled", "enables", "unblocks", "supports", "resolves", "diagnoses"}
+UPSTREAM_FROM_SOURCE = {"blocked_by", "derived_from", "superseded_by", "documented_by", "informed_by"}
+UPSTREAM_FROM_TARGET = {"causes", "leads_to", "enabled", "enables", "unblocks", "supports", "resolves", "diagnoses"}
 BIDIRECTIONAL_WEAK = {"associated_with", "related_to", "shared_entity", "refines", "applies_pattern_of", "similar_pattern"}
 CONFLICT_RELATIONS = {"contradicts", "invalidates", "conflicts_with"}
 
 RELATION_PRIOR_COST = {
-    "caused_by": 0.05,
     "causes": 0.05,
-    "led_to": 0.08,
+    "leads_to": 0.08,
     "enabled": 0.15,
     "enables": 0.15,
     "unblocks": 0.15,
@@ -139,9 +138,10 @@ def _coerce_confidence(value: Any, default: float = 0.75) -> float:
 
 
 def _add_edge(edges: dict[str, dict[str, Any]], src: str, dst: str, rel: str, *, source: str, confidence: Any = None, metadata: dict[str, Any] | None = None) -> None:
-    src = _text(src)
-    dst = _text(dst)
-    rel = normalize_relation_type(_text(rel) or "associated_with")
+    edge = canonicalize_association_edge(src, dst, _text(rel) or "associated_with")
+    src = _text(edge.get("source_bead"))
+    dst = _text(edge.get("target_bead"))
+    rel = _text(edge.get("relationship"))
     if not src or not dst or src == dst:
         return
     eid = _edge_id(src, dst, rel, source)
@@ -296,7 +296,7 @@ def _temporal_penalty(effect: dict[str, Any], cause: dict[str, Any], rel: str) -
         return 0.0, {"status": "unknown", "effect_field": effect_field, "cause_field": cause_field}
     if cause_dt <= effect_dt:
         return 0.0, {"status": "plausible", "effect_field": effect_field, "cause_field": cause_field}
-    penalty = 0.18 if rel in {"caused_by", "causes", "led_to"} else 0.35
+    penalty = 0.18 if rel in {"causes", "leads_to"} else 0.35
     return penalty, {"status": "cause_after_effect", "effect_field": effect_field, "cause_field": cause_field}
 
 

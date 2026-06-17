@@ -13,13 +13,13 @@ class TestCausalRecallPipeline(unittest.TestCase):
     def test_hints_normalize_as_generic_soft_priors(self):
         hints = normalize_recall_hints({
             "bead_types": ["Outcome", "state_assertion"],
-            "causal_labels": ["caused_by"],
+            "causal_labels": ["causes"],
             "keywords": ["COGS"],
             "source_scope": {"denied_source_ids": ["secret-source"]},
         })
 
         self.assertEqual(["outcome", "state_assertion"], hints["bead_types"])
-        self.assertEqual(["caused_by"], hints["causal_labels"])
+        self.assertEqual(["causes"], hints["causal_labels"])
         self.assertEqual(["COGS"], hints["keywords"])
         self.assertEqual(["secret-source"], hints["source_scope"]["denied_source_ids"])
 
@@ -28,7 +28,7 @@ class TestCausalRecallPipeline(unittest.TestCase):
             store = MemoryStore(td)
             outcome = store.add_bead(type="outcome", title="COGS spike", summary=["COGS increased."], observed_at="2026-05-04T15:00:00Z")
             cause = store.add_bead(type="state_assertion", title="Vendor price increase", summary=["Vendor prices increased."], observed_at="2026-05-03T15:00:00Z")
-            store.link(source_id=outcome, target_id=cause, relationship="caused_by", confidence=0.95)
+            store.link(source_id=outcome, target_id=cause, relationship="causes", confidence=0.95)
             raw = {"ok": True, "results": [{"bead_id": outcome, "title": "COGS spike", "summary": ["COGS increased."], "type": "outcome"}]}
 
             with patch("core_memory.retrieval.agent.memory_execute", return_value=raw), patch(

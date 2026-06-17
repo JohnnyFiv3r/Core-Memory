@@ -18,8 +18,8 @@ from core_memory.graph.edge_weights import (
 
 class TestScoreEdge(unittest.TestCase):
     def test_known_causal_rel_uses_high_weight(self):
-        sc = score_edge("caused_by", confidence=1.0, provenance="agent_judged")
-        expected = RELATIONSHIP_HOP_WEIGHT["caused_by"] * 1.0 * PROVENANCE_FACTOR["agent_judged"]
+        sc = score_edge("causes", confidence=1.0, provenance="agent_judged")
+        expected = RELATIONSHIP_HOP_WEIGHT["causes"] * 1.0 * PROVENANCE_FACTOR["agent_judged"]
         self.assertAlmostEqual(sc, expected, places=6)
 
     def test_unknown_rel_uses_default_weight(self):
@@ -28,23 +28,23 @@ class TestScoreEdge(unittest.TestCase):
         self.assertAlmostEqual(sc, expected, places=6)
 
     def test_temporal_rel_scores_low(self):
-        sc_causal = score_edge("caused_by", confidence=1.0, provenance="agent_judged")
+        sc_causal = score_edge("causes", confidence=1.0, provenance="agent_judged")
         sc_temporal = score_edge("follows", confidence=1.0, provenance="agent_judged")
         self.assertGreater(sc_causal, sc_temporal)
 
     def test_model_inferred_lower_than_agent_judged(self):
-        sc_agent = score_edge("caused_by", confidence=1.0, provenance="agent_judged")
-        sc_model = score_edge("caused_by", confidence=1.0, provenance="model_inferred")
+        sc_agent = score_edge("causes", confidence=1.0, provenance="agent_judged")
+        sc_model = score_edge("causes", confidence=1.0, provenance="model_inferred")
         self.assertGreater(sc_agent, sc_model)
 
     def test_preview_classifier_lower_than_model_inferred(self):
-        sc_model = score_edge("caused_by", confidence=1.0, provenance="model_inferred")
-        sc_preview = score_edge("caused_by", confidence=1.0, provenance="preview_classifier")
+        sc_model = score_edge("causes", confidence=1.0, provenance="model_inferred")
+        sc_preview = score_edge("causes", confidence=1.0, provenance="preview_classifier")
         self.assertGreater(sc_model, sc_preview)
 
     def test_unknown_provenance_uses_default_factor(self):
-        sc = score_edge("caused_by", confidence=1.0, provenance="totally_unknown")
-        expected = RELATIONSHIP_HOP_WEIGHT["caused_by"] * 1.0 * DEFAULT_PROVENANCE_FACTOR
+        sc = score_edge("causes", confidence=1.0, provenance="totally_unknown")
+        expected = RELATIONSHIP_HOP_WEIGHT["causes"] * 1.0 * DEFAULT_PROVENANCE_FACTOR
         self.assertAlmostEqual(sc, expected, places=6)
 
     def test_low_trust_provenance_overrides_edge_class(self):
@@ -52,16 +52,16 @@ class TestScoreEdge(unittest.TestCase):
         # (channel marker). When the relationship label itself came from the
         # preview classifier, the low-trust discount must still apply —
         # otherwise the provenance-aware weighting is masked for all new edges.
-        sc = score_edge("caused_by", confidence=1.0,
+        sc = score_edge("causes", confidence=1.0,
                         provenance="preview_classifier", edge_class="agent_judged")
-        sc_preview = score_edge("caused_by", confidence=1.0, provenance="preview_classifier")
+        sc_preview = score_edge("causes", confidence=1.0, provenance="preview_classifier")
         self.assertAlmostEqual(sc, sc_preview, places=6)
 
     def test_edge_class_overrides_normal_provenance(self):
         # Non-low-trust provenances: the channel marker still wins.
-        sc = score_edge("caused_by", confidence=1.0,
+        sc = score_edge("causes", confidence=1.0,
                         provenance="model_inferred", edge_class="agent_judged")
-        sc_agent = score_edge("caused_by", confidence=1.0, provenance="agent_judged")
+        sc_agent = score_edge("causes", confidence=1.0, provenance="agent_judged")
         self.assertAlmostEqual(sc, sc_agent, places=6)
 
     def test_confidence_scales_score(self):
@@ -81,18 +81,18 @@ class TestScoreEdge(unittest.TestCase):
 
 class TestConstants(unittest.TestCase):
     def test_causal_weights_higher_than_temporal(self):
-        self.assertGreater(RELATIONSHIP_HOP_WEIGHT["caused_by"], RELATIONSHIP_HOP_WEIGHT["follows"])
+        self.assertGreater(RELATIONSHIP_HOP_WEIGHT["causes"], RELATIONSHIP_HOP_WEIGHT["follows"])
 
     def test_semantic_weights_between_causal_and_temporal(self):
         self.assertGreater(RELATIONSHIP_HOP_WEIGHT["supports"], RELATIONSHIP_HOP_WEIGHT["follows"])
-        self.assertLess(RELATIONSHIP_HOP_WEIGHT["supports"], RELATIONSHIP_HOP_WEIGHT["caused_by"])
+        self.assertLess(RELATIONSHIP_HOP_WEIGHT["supports"], RELATIONSHIP_HOP_WEIGHT["causes"])
 
     def test_hop_decay_is_subunit(self):
         self.assertGreater(HOP_DECAY, 0.0)
         self.assertLess(HOP_DECAY, 1.0)
 
     def test_directional_rels_includes_causal_edges(self):
-        for rel in ("caused_by", "causes", "enables", "supersedes"):
+        for rel in ("causes", "leads_to", "enables", "supersedes"):
             self.assertIn(rel, DIRECTIONAL_RELS)
 
     def test_reverse_factor_is_subunit(self):
@@ -125,7 +125,7 @@ class TestNormalizeBackendChain(unittest.TestCase):
         chain = self._make_backend_chain(
             nodes=[{"id": "bead-AAAAAAAAAAAA", "type": "event", "title": "A"},
                    {"id": "bead-BBBBBBBBBBBB", "type": "decision", "title": "B"}],
-            edges=[{"rel": "caused_by", "src": "bead-AAAAAAAAAAAA", "tgt": "bead-BBBBBBBBBBBB"}],
+            edges=[{"rel": "causes", "src": "bead-AAAAAAAAAAAA", "tgt": "bead-BBBBBBBBBBBB"}],
         )
         out = normalize_backend_chain(chain)
         self.assertEqual(["bead-AAAAAAAAAAAA", "bead-BBBBBBBBBBBB"], out["path"])
@@ -154,16 +154,16 @@ class TestNormalizeBackendChain(unittest.TestCase):
     def test_score_computed_from_edges_when_absent(self):
         chain = self._make_backend_chain(
             nodes=[{"id": "b1"}, {"id": "b2"}],
-            edges=[{"rel": "caused_by", "src": "b1", "tgt": "b2", "confidence": 0.9}],
+            edges=[{"rel": "causes", "src": "b1", "tgt": "b2", "confidence": 0.9}],
         )
         out = normalize_backend_chain(chain)
-        expected = score_edge("caused_by", confidence=0.9, provenance="model_inferred")
+        expected = score_edge("causes", confidence=0.9, provenance="model_inferred")
         self.assertAlmostEqual(float(out["score"]), expected, places=5)
 
     def test_existing_score_preserved(self):
         chain = self._make_backend_chain(
             nodes=[{"id": "b1"}, {"id": "b2"}],
-            edges=[{"rel": "caused_by", "src": "b1", "tgt": "b2"}],
+            edges=[{"rel": "causes", "src": "b1", "tgt": "b2"}],
             score=0.999,
         )
         out = normalize_backend_chain(chain)
@@ -172,7 +172,7 @@ class TestNormalizeBackendChain(unittest.TestCase):
     def test_causal_chain_scores_higher_than_temporal(self):
         causal = normalize_backend_chain({
             "nodes": [{"id": "b1"}, {"id": "b2"}],
-            "edges": [{"rel": "caused_by", "src": "b1", "tgt": "b2", "confidence": 0.9}],
+            "edges": [{"rel": "causes", "src": "b1", "tgt": "b2", "confidence": 0.9}],
         })
         temporal = normalize_backend_chain({
             "nodes": [{"id": "c1"}, {"id": "c2"}],
@@ -203,7 +203,7 @@ class TestNormalizeBackendChain(unittest.TestCase):
     def test_extra_keys_preserved(self):
         chain = self._make_backend_chain(
             nodes=[{"id": "b1"}, {"id": "b2"}],
-            edges=[{"rel": "caused_by", "src": "b1", "tgt": "b2"}],
+            edges=[{"rel": "causes", "src": "b1", "tgt": "b2"}],
         )
         chain["backend"] = "neo4j"
         chain["custom_diag"] = {"latency_ms": 42}
@@ -214,22 +214,22 @@ class TestNormalizeBackendChain(unittest.TestCase):
     def test_confidence_default_used_when_missing(self):
         chain = self._make_backend_chain(
             nodes=[{"id": "b1"}, {"id": "b2"}],
-            edges=[{"rel": "caused_by", "src": "b1", "tgt": "b2"}],  # no confidence
+            edges=[{"rel": "causes", "src": "b1", "tgt": "b2"}],  # no confidence
         )
         out = normalize_backend_chain(chain)
-        expected = score_edge("caused_by", confidence=0.85)  # default
+        expected = score_edge("causes", confidence=0.85)  # default
         self.assertAlmostEqual(float(out["score"]), expected, places=5)
 
     def test_multi_edge_chain_score_is_mean(self):
         chain = self._make_backend_chain(
             nodes=[{"id": "b1"}, {"id": "b2"}, {"id": "b3"}],
             edges=[
-                {"rel": "caused_by", "src": "b1", "tgt": "b2", "confidence": 0.9},
+                {"rel": "causes", "src": "b1", "tgt": "b2", "confidence": 0.9},
                 {"rel": "follows", "src": "b2", "tgt": "b3", "confidence": 0.9},
             ],
         )
         out = normalize_backend_chain(chain)
-        e1 = score_edge("caused_by", confidence=0.9)
+        e1 = score_edge("causes", confidence=0.9)
         e2 = score_edge("follows", confidence=0.9)
         expected = (e1 + e2) / 2
         self.assertAlmostEqual(float(out["score"]), expected, places=5)

@@ -83,7 +83,7 @@ class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
         with patch.dict(os.environ, _BACKEND_ENV, clear=False):
             cls.store = MemoryStore(cls.root)
 
-            # --- Session 1: decision + 3 caused_by children + retracted bead ---
+            # --- Session 1: decision + 3 causes children + retracted bead ---
             cls.decision_id = cls.store.add_bead(
                 type="decision",
                 title="Adopt Qdrant as default vector backend",
@@ -125,21 +125,21 @@ class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
             cls.store.link(
                 source_id=cls.decision_id,
                 target_id=cls.child1_id,
-                relationship="caused_by",
+                relationship="causes",
                 explanation="decision led to FastEmbed outcome",
                 confidence=0.9,
             )
             cls.store.link(
                 source_id=cls.decision_id,
                 target_id=cls.child2_id,
-                relationship="caused_by",
+                relationship="causes",
                 explanation="decision led to embedded mode outcome",
                 confidence=0.9,
             )
             cls.store.link(
                 source_id=cls.decision_id,
                 target_id=cls.child3_id,
-                relationship="caused_by",
+                relationship="causes",
                 explanation="decision led to UUID5 outcome",
                 confidence=0.9,
             )
@@ -287,7 +287,7 @@ class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
     # Test 3: causal chain from decision bead shows full grounding
     # ------------------------------------------------------------------
     def test_causal_chain_grounding_full(self):
-        """Trace from decision bead via Kuzu; expect all 3 caused_by children in chains."""
+        """Trace from decision bead via Kuzu; expect all 3 causes children in chains."""
         out = self._trace(anchor_ids=[self.decision_id], k=5)
         self.assertTrue(out.get("ok"), f"trace failed: {out.get('error')}")
 
@@ -299,11 +299,11 @@ class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
             for node in chain.get("nodes") or []:
                 chain_bead_ids.add(str((node or {}).get("id") or ""))
 
-        # All 3 caused_by children must appear in the chains
+        # All 3 causes children must appear in the chains
         child_ids = {self.child1_id, self.child2_id, self.child3_id}
         self.assertTrue(
             child_ids.issubset(chain_bead_ids),
-            f"not all caused_by children found in trace chains. missing={child_ids - chain_bead_ids}, chains={out.get('chains')[:2]}",
+            f"not all causes children found in trace chains. missing={child_ids - chain_bead_ids}, chains={out.get('chains')[:2]}",
         )
 
     # ------------------------------------------------------------------

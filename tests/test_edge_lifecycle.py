@@ -109,7 +109,7 @@ class TestCollectAndFold(unittest.TestCase):
             pairs = collect_used_edge_pairs(root, [], paths)
             self.assertEqual([("bead-AAAAAAAAAAA2", "bead-AAAAAAAAAAA3", "supports")], pairs)
             # pseudo-edges (no matching association) are never reinforced
-            paths = [{"edges": [{"src": "bead-AAAAAAAAAAA1", "dst": "bead-XXXXXXXXXXXX", "rel": "caused_by"}]}]
+            paths = [{"edges": [{"src": "bead-AAAAAAAAAAA1", "dst": "bead-XXXXXXXXXXXX", "rel": "causes"}]}]
             self.assertEqual([], collect_used_edge_pairs(root, [], paths))
 
     def test_record_then_fold_applies_reinforcement_and_truncates(self):

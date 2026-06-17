@@ -13,8 +13,8 @@ A fixture row describes a synthetic causal history:
         ...
       ],
       "edges": [
-        {"source_key": "effect", "target_key": "cause",
-         "relationship": "caused_by", "confidence": 0.9}
+        {"source_key": "cause", "target_key": "effect",
+         "relationship": "causes", "confidence": 0.9}
       ],
       "distractor_keys": ["dashboard"],
       "k": 8

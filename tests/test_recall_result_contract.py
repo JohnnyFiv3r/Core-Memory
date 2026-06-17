@@ -131,7 +131,7 @@ class TestRecallResultContract(unittest.TestCase):
         raw = {
             "ok": True,
             "results": [{"bead_id": "b1", "title": "Timeout fix", "summary": ["Redis timeouts caused retries"]}],
-            "chains": [{"edges": [{"src": "b1", "dst": "b2", "rel": "caused_by"}]}],
+            "chains": [{"edges": [{"src": "b1", "dst": "b2", "rel": "causes"}]}],
             "answer_candidate": {"answer": "Retries caused the timeout cascade.", "why": "Current claim slot matched."},
             "answer_outcome": "answer_current",
         }

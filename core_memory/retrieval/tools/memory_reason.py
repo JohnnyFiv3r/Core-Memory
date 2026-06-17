@@ -26,6 +26,7 @@ from core_memory.retrieval.config import RETRY_APPEND_HINT, QUALITY_THRESHOLD_LO
 from core_memory.retrieval.query_norm import classify_intent, resolve_query_anchors
 from core_memory.persistence.archive_index import read_snapshot
 from core_memory.persistence.store import MemoryStore
+from core_memory.schema.normalization import normalize_relation_type
 
 
 def _hydrate_bead(store: MemoryStore, bead_id: str) -> dict[str, Any]:
@@ -108,8 +109,8 @@ def _parse_iso(ts: str) -> datetime | None:
 
 
 def _rel_time_expectation(rel: str) -> str:
-    r = str(rel or "").strip().lower()
-    if r in {"causes", "caused_by", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
+    r = normalize_relation_type(rel)
+    if r in {"causes", "leads_to", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
         return "forward"
     if r in {"diagnoses"}:
         return "backward_ok"
@@ -126,7 +127,7 @@ def _chain_coherence(chain: dict) -> tuple[float, dict]:
         return 0.0, {"reason": "no_beads"}
 
     types = [str(b.get("type") or "") for b in beads]
-    rels = [str(e.get("rel") or "") for e in edges]
+    rels = [normalize_relation_type(str(e.get("rel") or "")) for e in edges]
 
     type_prog = 0.0
     if any(t in {"decision", "precedent"} for t in types):
@@ -136,7 +137,7 @@ def _chain_coherence(chain: dict) -> tuple[float, dict]:
     if "context" in types and any(t in {"decision", "precedent"} for t in types):
         type_prog += 0.1
 
-    causal_rels = {"causes", "caused_by", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by"}
+    causal_rels = {"causes", "leads_to", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by"}
     rel_continuity = min(0.3, 0.3 * (sum(1 for r in rels if r in causal_rels) / max(1, len(rels))))
 
     temporal_penalty = 0.0
@@ -740,12 +741,12 @@ def _causal_intent(query: str) -> bool:
 
 
 def _has_structural_chain(result: dict) -> bool:
-    allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves", "caused_by"}
+    allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves", "causes", "leads_to"}
     for c in (result.get("chains") or []):
         for e in (c.get("edges") or []):
             if str(e.get("class") or "") == "structural":
                 return True
-            if str(e.get("rel") or "") in allowed:
+            if normalize_relation_type(str(e.get("rel") or "")) in allowed:
                 return True
     return False
 

@@ -61,8 +61,8 @@ class TestAssociationQualityPolicySlice4(unittest.TestCase):
                     {"relationship": "associated_with"},
                     {"relationship": "follows"},
                     {"relationship": "precedes"},
-                    {"relationship": "caused_by"},
-                    {"relationship": "led_to"},
+                    {"relationship": "causes"},
+                    {"relationship": "leads_to"},
                     {"relationship": "supports"},
                 ]
             }

@@ -76,7 +76,7 @@ Rules Core Memory enforces so the host can't get them wrong:
 - **Existence-checked.** An edge is rewarded only if it actually exists in the
   graph (or, for evidence/recall paths, was a real supporting edge).
 - **Normalized relations.** Edge keys use canonical relations
-  (`Causes` → `caused_by`), so reward and telemetry fuse and consumers find them.
+  (`caused_by` -> `causes`), so reward and telemetry fuse and consumers find them.
 - **Idempotent for audited decisions.** Reward events carry a deterministic
   fingerprint over `(source_type, source_event_id, polarity, sorted edge_keys)`.
   Retrying the same audited decision returns the original reward event instead

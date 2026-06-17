@@ -55,13 +55,13 @@ def test_precedes_is_accepted_in_strict_mode_without_direction_rewrite():
 
 
 def test_relation_aliases_are_normalized_before_strict_validation():
-    payload = _base_payload(relationship="leads_to")
+    payload = _base_payload(relationship="led_to")
     out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_STRICT)
 
     assert out.ok is True
     assert out.quarantine_reasons == []
-    assert out.record["relationship"] == "led_to"
-    assert out.record["relationship_raw"] == "leads_to"
+    assert out.record["relationship"] == "leads_to"
+    assert out.record["relationship_raw"] == "led_to"
     assert out.record["normalization_applied"] is True
 
     enabled = validate_and_normalize_inference_payload(
@@ -70,6 +70,19 @@ def test_relation_aliases_are_normalized_before_strict_validation():
     )
     assert enabled.ok is True
     assert enabled.record["relationship"] == "enables"
+
+
+def test_caused_by_alias_swaps_endpoints_before_strict_validation():
+    payload = _base_payload(source_bead="effect", target_bead="cause", relationship="caused_by")
+    out = validate_and_normalize_inference_payload(payload, mode=INFERENCE_MODE_STRICT)
+
+    assert out.ok is True
+    assert out.record["source_bead"] == "cause"
+    assert out.record["target_bead"] == "effect"
+    assert out.record["relationship"] == "causes"
+    assert out.record["relationship_raw"] == "caused_by"
+    assert out.record["normalization_applied"] is True
+    assert out.record["endpoints_swapped"] is True
 
 
 def test_active_blocks_label_is_not_normalized_without_endpoint_rewrite():

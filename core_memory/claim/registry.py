@@ -68,8 +68,8 @@ PROMOTION_STATE_DEFINITIONS: dict[str, str] = {
 
 _RELATION_OVERRIDES: dict[str, str] = {
     "supports": "Source provides positive support for target.",
-    "caused_by": "Source is explained by the target cause/mechanism.",
-    "led_to": "Source progressed or contributed forward into target.",
+    "causes": "Source is evidence/cause for the affected target.",
+    "leads_to": "Source progresses or contributes forward into target.",
     "blocked_by": "Source is prevented by target.",
     "unblocks": "Source removes blocking condition for target.",
     "blocks_unblocks": "Legacy compound transition; prefer blocked_by or unblocks for new authored edges.",

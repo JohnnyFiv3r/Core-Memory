@@ -58,7 +58,7 @@ class TestAssemblyDepthEngine(unittest.TestCase):
             ev2 = store.add_bead(type="decision", title="D1", summary=["s"], because=["y"], detail="d", session_id="s3",
                                  claims=[{"id": "c1", "subject": "u", "slot": "x", "value": "v", "claim_kind": "preference"}])
             store.link(ev1, rich, "supports")
-            store.link(ev2, rich, "caused_by")
+            store.link(ev2, rich, "causes")
             store.confirm(ev2)  # human confirmation in support set
 
             # Isolated goal: single session, no support.

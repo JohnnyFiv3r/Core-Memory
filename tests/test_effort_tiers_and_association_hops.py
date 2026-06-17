@@ -93,7 +93,7 @@ class TestExpandViaAssociationHops(unittest.TestCase):
                 "b1": {"type": "event", "title": "b1", "retrieval_eligible": True, "summary": ["b1 text"]},
                 "b2": {"type": "event", "title": "b2", "retrieval_eligible": True, "summary": ["b2 text"]},
             }
-            assocs = [{"source_bead": "b1", "target_bead": "b2", "relationship": "caused_by"}]
+            assocs = [{"source_bead": "b1", "target_bead": "b2", "relationship": "causes"}]
             self._write_index(root, beads, assocs)
 
             ev = [_make_evidence("b1", score=0.8)]
@@ -229,7 +229,7 @@ class TestHopScoring(unittest.TestCase):
             root = Path(td)
             beads = {"b1": self._bead(title="b1"), "b2": self._bead(title="b2")}
             assocs = [{"source_bead": "b1", "target_bead": "b2",
-                       "relationship": "caused_by", "confidence": 1.0}]
+                       "relationship": "causes", "confidence": 1.0}]
             self._write_index(root, beads, assocs)
 
             seed_score = 0.80
@@ -239,13 +239,13 @@ class TestHopScoring(unittest.TestCase):
             hop_item = next(e for e in out if e.bead_id == "b2")
             # Association has no provenance/edge_class → defaults to model_inferred (0.85×)
             expected = round(
-                seed_score * _RELATIONSHIP_HOP_WEIGHT["caused_by"] * 1.0
+                seed_score * _RELATIONSHIP_HOP_WEIGHT["causes"] * 1.0
                 * _PROVENANCE_FACTOR["model_inferred"] * _HOP_DECAY, 4
             )
             self.assertAlmostEqual(hop_item.score, expected, places=3)
 
     def test_causal_edge_outranks_temporal_edge(self):
-        """A caused_by neighbour should score higher than a follows neighbour."""
+        """A causes neighbour should score higher than a follows neighbour."""
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             beads = {
@@ -255,7 +255,7 @@ class TestHopScoring(unittest.TestCase):
             }
             assocs = [
                 {"source_bead": "seed", "target_bead": "causal_nb",
-                 "relationship": "caused_by", "confidence": 0.9},
+                 "relationship": "causes", "confidence": 0.9},
                 {"source_bead": "seed", "target_bead": "temporal_nb",
                  "relationship": "follows", "confidence": 0.9},
             ]
@@ -278,7 +278,7 @@ class TestHopScoring(unittest.TestCase):
                 "weak_vector": self._bead(title="weak_vector"),
             }
             assocs = [{"source_bead": "strong_seed", "target_bead": "causal_nb",
-                       "relationship": "caused_by", "confidence": 0.95}]
+                       "relationship": "causes", "confidence": 0.95}]
             self._write_index(root, beads, assocs)
 
             strong_seed_score = 0.90
@@ -305,9 +305,9 @@ class TestHopScoring(unittest.TestCase):
             }
             assocs = [
                 {"source_bead": "b1", "target_bead": "b2",
-                 "relationship": "caused_by", "confidence": 1.0},
+                 "relationship": "causes", "confidence": 1.0},
                 {"source_bead": "b2", "target_bead": "b3",
-                 "relationship": "caused_by", "confidence": 1.0},
+                 "relationship": "causes", "confidence": 1.0},
             ]
             self._write_index(root, beads, assocs)
 
@@ -327,7 +327,7 @@ class TestHopScoring(unittest.TestCase):
             # Create one strong causal neighbour and several weak temporal neighbours
             beads["causal"] = self._bead(title="causal")
             assocs.append({"source_bead": "b0", "target_bead": "causal",
-                            "relationship": "caused_by", "confidence": 0.95})
+                            "relationship": "causes", "confidence": 0.95})
             for i in range(5):
                 bid = f"temporal_{i}"
                 beads[bid] = self._bead(title=bid)
@@ -350,7 +350,7 @@ class TestHopScoring(unittest.TestCase):
             root = Path(td)
             beads = {"b1": self._bead(title="b1"), "b2": self._bead(title="b2")}
             assocs = [{"source_bead": "b1", "target_bead": "b2",
-                       "relationship": "caused_by", "confidence": 0.0}]
+                       "relationship": "causes", "confidence": 0.0}]
             self._write_index(root, beads, assocs)
 
             ev = [_make_evidence("b1", score=0.8)]
@@ -362,7 +362,7 @@ class TestHopScoring(unittest.TestCase):
 
     def test_relationship_weight_constants(self):
         """Causal > semantic > generic > temporal in the weight table."""
-        self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["caused_by"],
+        self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["causes"],
                            _RELATIONSHIP_HOP_WEIGHT["supports"])
         self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["supports"],
                            _RELATIONSHIP_HOP_WEIGHT["associated_with"])
@@ -384,7 +384,7 @@ class TestHopScoring(unittest.TestCase):
                 "weak_vector": self._bead(title="weak_vector"),
             }
             assocs = [{"source_bead": "strong_seed", "target_bead": "causal_nb",
-                       "relationship": "caused_by", "confidence": 0.95}]
+                       "relationship": "causes", "confidence": 0.95}]
             self._write_index(root, beads, assocs)
 
             ev = [

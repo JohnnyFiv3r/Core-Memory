@@ -13,7 +13,7 @@ class TestRootCauseTrace(unittest.TestCase):
             outcome = store.add_bead(type="structured_observation", title="COGS spike", summary=["COGS increased 38%."], observed_at="2026-05-04T15:00:00Z")
             vendor = store.add_bead(type="state_assertion", title="Vendor price increase", summary=["Vendor prices increased."], observed_at="2026-05-03T15:00:00Z")
             contract = store.add_bead(type="document_reference", title="Contract amendment", summary=["Pricing changed."], observed_at="2026-05-01T15:00:00Z")
-            store.link(source_id=outcome, target_id=vendor, relationship="caused_by", confidence=0.95)
+            store.link(source_id=vendor, target_id=outcome, relationship="causes", confidence=0.95)
             store.link(source_id=vendor, target_id=contract, relationship="derived_from", confidence=0.90)
 
             out = root_cause_trace(Path(td), [outcome], query="Why did COGS spike?", max_depth=4, max_paths=8)
@@ -33,10 +33,10 @@ class TestRootCauseTrace(unittest.TestCase):
             a = store.add_bead(type="state_assertion", title="Long ticket times", summary=["Tickets waited longer."], observed_at="2026-06-04T00:00:00Z")
             b = store.add_bead(type="state_assertion", title="Low staffing coverage", summary=["Coverage was low."], observed_at="2026-06-04T00:00:00Z")
             root = store.add_bead(type="decision", title="Support budget reduction", summary=["Budget was reduced."], observed_at="2026-06-01T00:00:00Z")
-            store.link(source_id=outcome, target_id=a, relationship="caused_by", confidence=0.9)
-            store.link(source_id=outcome, target_id=b, relationship="caused_by", confidence=0.9)
-            store.link(source_id=a, target_id=root, relationship="caused_by", confidence=0.9)
-            store.link(source_id=b, target_id=root, relationship="caused_by", confidence=0.9)
+            store.link(source_id=a, target_id=outcome, relationship="causes", confidence=0.9)
+            store.link(source_id=b, target_id=outcome, relationship="causes", confidence=0.9)
+            store.link(source_id=root, target_id=a, relationship="causes", confidence=0.9)
+            store.link(source_id=root, target_id=b, relationship="causes", confidence=0.9)
 
             out = root_cause_trace(Path(td), [outcome], query="What caused the support backlog?", max_depth=4, max_paths=10)
 
@@ -45,12 +45,37 @@ class TestRootCauseTrace(unittest.TestCase):
         self.assertEqual(root, ranked[0]["bead_id"])
         self.assertGreaterEqual(ranked[0]["path_count"], 2)
 
+    def test_legacy_caused_by_edge_keeps_cause_direction(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            outcome = store.add_bead(type="outcome", title="COGS spike", summary=["COGS increased."], observed_at="2026-05-04T00:00:00Z")
+            vendor = store.add_bead(type="state_assertion", title="Vendor increase", summary=["Vendor prices increased."], observed_at="2026-05-03T00:00:00Z")
+            idx_path = store.beads_dir / "index.json"
+            idx = store._read_json(idx_path)
+            idx.setdefault("associations", []).append(
+                {
+                    "id": "legacy-caused-by",
+                    "source_bead": outcome,
+                    "target_bead": vendor,
+                    "relationship": "caused_by",
+                    "confidence": 0.95,
+                    "status": "active",
+                }
+            )
+            store._write_json(idx_path, idx)
+
+            out = root_cause_trace(Path(td), [outcome], query="Why did COGS spike?", max_depth=2, max_paths=5)
+
+        cause_ids = {c["bead_id"] for c in out["root_causes"]}
+        self.assertIn(vendor, cause_ids)
+        self.assertTrue(any(path["nodes"][:2] == [outcome, vendor] for path in out["causal_paths"]))
+
     def test_semantic_cold_hop_is_penalized_not_pruned(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
             outcome = store.add_bead(type="outcome", title="Enterprise churn increased", summary=["Enterprise churn increased."], observed_at="2026-06-05T00:00:00Z")
             cause = store.add_bead(type="decision", title="Billing system migration", summary=["Invoice routing changed."], observed_at="2026-06-01T00:00:00Z")
-            store.link(source_id=outcome, target_id=cause, relationship="caused_by", confidence=0.99)
+            store.link(source_id=cause, target_id=outcome, relationship="causes", confidence=0.99)
 
             out = root_cause_trace(Path(td), [outcome], query="Why did enterprise churn increase?", max_depth=2, max_paths=5)
 

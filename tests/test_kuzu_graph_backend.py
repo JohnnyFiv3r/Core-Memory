@@ -33,7 +33,7 @@ class TestKuzuGraphBackend(unittest.TestCase):
             "status": kwargs.get("status", "open"),
         }
 
-    def _assoc(self, src: str, tgt: str, rel_type: str = "caused_by") -> dict:
+    def _assoc(self, src: str, tgt: str, rel_type: str = "causes") -> dict:
         return {
             "id": f"assoc-{src}-{tgt}",
             "source_bead": src,
@@ -78,11 +78,11 @@ class TestKuzuGraphBackend(unittest.TestCase):
     def test_1hop_traversal(self):
         self.backend.on_bead_written(self._bead("a"))
         self.backend.on_bead_written(self._bead("b"))
-        self.backend.on_association_written(self._assoc("a", "b", "caused_by"))
+        self.backend.on_association_written(self._assoc("a", "b", "causes"))
         chains = self.backend.traverse(seed_ids=["a"], edge_types=None, max_hops=1)
         self.assertEqual(len(chains), 1)
         edge = chains[0]["edges"][0]
-        self.assertEqual(edge["rel"], "caused_by")
+        self.assertEqual(edge["rel"], "causes")
 
     def test_3hop_traversal(self):
         for bid in ("x", "y", "z", "w"):
@@ -98,13 +98,13 @@ class TestKuzuGraphBackend(unittest.TestCase):
         self.backend.on_bead_written(self._bead("a"))
         self.backend.on_bead_written(self._bead("b"))
         self.backend.on_bead_written(self._bead("c"))
-        self.backend.on_association_written(self._assoc("a", "b", "caused_by"))
+        self.backend.on_association_written(self._assoc("a", "b", "causes"))
         self.backend.on_association_written(self._assoc("a", "c", "follows"))
         chains_all = self.backend.traverse(seed_ids=["a"], edge_types=None, max_hops=1)
-        chains_filtered = self.backend.traverse(seed_ids=["a"], edge_types=["caused_by"], max_hops=1)
+        chains_filtered = self.backend.traverse(seed_ids=["a"], edge_types=["causes"], max_hops=1)
         self.assertEqual(len(chains_all), 2)
         self.assertEqual(len(chains_filtered), 1)
-        self.assertEqual(chains_filtered[0]["edges"][0]["rel"], "caused_by")
+        self.assertEqual(chains_filtered[0]["edges"][0]["rel"], "causes")
 
     def test_retracted_node_excluded_from_traversal(self):
         self.backend.on_bead_written(self._bead("a"))

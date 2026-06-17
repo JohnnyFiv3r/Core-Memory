@@ -11,7 +11,7 @@ from core_memory.persistence.store_lifecycle_ops import (
     raise_confidence_class_for_bead,
 )
 from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
-from core_memory.schema.normalization import resolve_confidence_class
+from core_memory.schema.normalization import canonicalize_association_edge, resolve_confidence_class
 
 
 def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] = None) -> bool:
@@ -79,17 +79,26 @@ def link_for_store(
 ) -> str:
     """Create a link between two beads."""
     assoc_id = f"assoc-{uuid.uuid4().hex[:12].upper()}"
+    raw_relationship = str(relationship or "").strip()
+    edge = canonicalize_association_edge(source_id, target_id, raw_relationship)
+    source_id = str(edge.get("source_bead") or "")
+    target_id = str(edge.get("target_bead") or "")
+    rel = str(edge.get("relationship") or "")
 
     assoc = {
         "id": assoc_id,
         "type": "association",
         "source_bead": source_id,
         "target_bead": target_id,
-        "relationship": relationship,
+        "relationship": rel,
         "explanation": explanation,
         "confidence": float(confidence),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
+    if edge.get("normalization_applied"):
+        assoc["relationship_raw"] = raw_relationship
+    if edge.get("endpoints_swapped"):
+        assoc["endpoints_swapped"] = True
 
     with store_lock(store.root):
         index = store._read_json(store.beads_dir / "index.json")

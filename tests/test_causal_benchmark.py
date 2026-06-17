@@ -36,7 +36,7 @@ class TestSchemaValidation(unittest.TestCase):
                 {"key": "outcome", "type": "outcome", "title": "Outcome", "summary": ["o"]},
             ],
             "edges": [
-                {"source_key": "outcome", "target_key": "root", "relationship": "caused_by"},
+                {"source_key": "root", "target_key": "outcome", "relationship": "causes"},
             ],
             "distractor_keys": [],
         }
@@ -54,7 +54,7 @@ class TestSchemaValidation(unittest.TestCase):
 
     def test_edge_with_unknown_source_fails(self):
         row = self._valid_fixture()
-        row["edges"] = [{"source_key": "ghost", "target_key": "root", "relationship": "caused_by"}]
+        row["edges"] = [{"source_key": "ghost", "target_key": "root", "relationship": "causes"}]
         ok, errs = validate_fixture_row(row)
         self.assertFalse(ok)
         self.assertIn("edge_source_unknown:ghost", errs)
@@ -115,19 +115,19 @@ class TestCollectTraversedEdges(unittest.TestCase):
         rca = {
             "causal_paths": [
                 {"edges": [
-                    {"raw_src": "b1", "raw_dst": "b2", "relation": "caused_by"},
-                    {"raw_src": "b2", "raw_dst": "b3", "relation": "caused_by"},
+                    {"raw_src": "b1", "raw_dst": "b2", "relation": "causes"},
+                    {"raw_src": "b2", "raw_dst": "b3", "relation": "causes"},
                 ]},
             ]
         }
         edges = _collect_traversed_edges(rca)
-        self.assertEqual(edges, {("b1", "b2", "caused_by"), ("b2", "b3", "caused_by")})
+        self.assertEqual(edges, {("b1", "b2", "causes"), ("b2", "b3", "causes")})
 
     def test_deduplicates_across_paths(self):
         rca = {
             "causal_paths": [
-                {"edges": [{"raw_src": "b1", "raw_dst": "b2", "relation": "caused_by"}]},
-                {"edges": [{"raw_src": "b1", "raw_dst": "b2", "relation": "caused_by"}]},
+                {"edges": [{"raw_src": "b1", "raw_dst": "b2", "relation": "causes"}]},
+                {"edges": [{"raw_src": "b1", "raw_dst": "b2", "relation": "causes"}]},
             ]
         }
         self.assertEqual(len(_collect_traversed_edges(rca)), 1)
@@ -165,8 +165,8 @@ class TestEvaluateCase(unittest.TestCase):
                 {"key": "outcome", "type": "outcome", "title": "O", "summary": ["o"]},
             ),
             edges=(
-                {"source_key": "outcome", "target_key": "mid", "relationship": "caused_by"},
-                {"source_key": "mid", "target_key": "root", "relationship": "caused_by"},
+                {"source_key": "mid", "target_key": "outcome", "relationship": "causes"},
+                {"source_key": "root", "target_key": "mid", "relationship": "causes"},
             ),
             distractor_keys=("distractor",),
             k=8,
@@ -187,8 +187,8 @@ class TestEvaluateCase(unittest.TestCase):
                 ],
                 "causal_paths": [
                     {"depth": 2, "nodes": ["bO", "bM", "bR"], "edges": [
-                        {"raw_src": "bO", "raw_dst": "bM", "relation": "caused_by"},
-                        {"raw_src": "bM", "raw_dst": "bR", "relation": "caused_by"},
+                        {"raw_src": "bM", "raw_dst": "bO", "relation": "causes"},
+                        {"raw_src": "bR", "raw_dst": "bM", "relation": "causes"},
                     ]},
                 ],
             },
@@ -222,7 +222,7 @@ class TestEvaluateCase(unittest.TestCase):
                 "root_causes": [{"bead_id": "bM", "influence": 1.0, "depth": 1}],
                 "causal_paths": [
                     {"depth": 1, "nodes": ["bO", "bM"], "edges": [
-                        {"raw_src": "bO", "raw_dst": "bM", "relation": "caused_by"},
+                        {"raw_src": "bM", "raw_dst": "bO", "relation": "causes"},
                     ]},
                 ],
             },

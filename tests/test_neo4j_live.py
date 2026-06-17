@@ -46,7 +46,7 @@ def _assoc(src: str, tgt: str) -> dict:
         "id": f"assoc-{src}-{tgt}",
         "source_bead": src,
         "target_bead": tgt,
-        "relationship": "caused_by",
+        "relationship": "causes",
         "confidence": 0.9,
         "created_at": "2026-01-01T00:00:00Z",
     }

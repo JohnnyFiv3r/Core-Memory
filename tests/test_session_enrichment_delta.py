@@ -144,7 +144,7 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
                     {
                         "source_bead_id": "b2",
                         "target_bead_id": "b1",
-                        "relationship": "leads_to",
+                        "relationship": "led_to",
                         "reason_text": "The prior state led to the decision.",
                         "confidence": 0.7,
                     }
@@ -156,10 +156,10 @@ class TestSessionEnrichmentDeltaAdapter(unittest.TestCase):
 
         self.assertEqual(1, len(delta["associations"]))
         self.assertEqual(0, delta["diagnostics"]["quarantined"])
-        self.assertEqual("led_to", delta["associations"][0]["relationship"])
-        self.assertEqual("leads_to", delta["associations"][0]["relationship_raw"])
-        self.assertEqual("assoc:b2:b1:led_to", delta["associations"][0]["dedupe_key"])
-        self.assertEqual("led_to", projected["associations"][0]["relationship"])
+        self.assertEqual("leads_to", delta["associations"][0]["relationship"])
+        self.assertEqual("led_to", delta["associations"][0]["relationship_raw"])
+        self.assertEqual("assoc:b2:b1:leads_to", delta["associations"][0]["dedupe_key"])
+        self.assertEqual("leads_to", projected["associations"][0]["relationship"])
 
     def test_association_target_outside_visible_window_is_quarantined(self):
         delta = crawler_updates_to_delta(

@@ -22,7 +22,7 @@ def _make_test_beads():
 
 def _make_test_assocs():
     return [
-        {"source_bead": "b1", "target_bead": "b2", "relationship": "led_to", "weight": 1.0},
+        {"source_bead": "b1", "target_bead": "b2", "relationship": "leads_to", "weight": 1.0},
         {"source_bead": "b2", "target_bead": "b3", "relationship": "supports", "weight": 0.8},
     ]
 
