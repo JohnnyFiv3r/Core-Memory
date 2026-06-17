@@ -12,7 +12,9 @@
       "coreMemoryRepo": { "type": "string" },
       "enableAgentEnd": { "type": "boolean" },
       "enableMemorySearch": { "type": "boolean" },
-      "enableCompactionFlush": { "type": "boolean" }
+      "enableCompactionFlush": { "type": "boolean" },
+      "enableMessageTurnFallback": { "type": "boolean" },
+      "messageTurnFallbackDelayMs": { "type": "number" }
     }
   }
 }

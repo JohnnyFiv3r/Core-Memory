@@ -127,8 +127,12 @@ if [ -f "$HOOK_LOG" ]; then
   fi
   if grep -q "agent_end session=" "$HOOK_LOG"; then
     pass "hook log has agent_end lifecycle movement"
+  elif grep -q "fallback_result ok=true emitted=true" "$HOOK_LOG"; then
+    pass "hook log has streaming message fallback bead movement"
+  elif grep -q "message_received captured" "$HOOK_LOG" && grep -q "message_sent observed" "$HOOK_LOG"; then
+    warn "hook log has message fallback observations but no emitted fallback result yet"
   else
-    warn "hook log has no agent_end line yet; send a user turn after restart to verify live write movement"
+    warn "hook log has no agent_end or streaming fallback movement yet; send a user turn after restart to verify live write movement"
   fi
   tail -n 5 "$HOOK_LOG" || true
 else
@@ -152,7 +156,7 @@ if [ "$status" -ne 0 ]; then
   printf '1. From the Core Memory repo, run: core-memory openclaw onboard\n'
   printf '2. Restart the OpenClaw gateway/container that owns Telegram/Codex traffic.\n'
   printf '3. Rerun: %s\n' "$0"
-  printf '4. Send a Telegram turn and confirm %s gets agent_end plus .beads/events file movement under %s.\n' "$HOOK_LOG" "$BEADS_ROOT"
+  printf '4. Send a Telegram turn and confirm %s gets agent_end or message fallback movement plus .beads/events file movement under %s.\n' "$HOOK_LOG" "$BEADS_ROOT"
 fi
 
 exit "$status"
