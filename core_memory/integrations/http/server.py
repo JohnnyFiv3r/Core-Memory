@@ -34,8 +34,10 @@ from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, lis
 from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.runtime.associations.coverage import (
     apply_association_proposals,
+    association_coverage_summary,
     enqueue_association_coverage,
     get_association_run,
+    list_association_candidates,
 )
 from core_memory.management import (
     maintain as maintain_memory,
@@ -1543,6 +1545,38 @@ async def memory_association_run_status(
     if not out.get("ok"):
         return JSONResponse(status_code=404, content=out)
     return out
+
+
+@app.get("/v1/memory/association-coverage/summary")
+async def memory_association_coverage_summary(
+    root: Optional[str] = None,
+    limit: int = 10,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return association_coverage_summary(
+        root=_resolve_root(root, x_tenant_id),
+        limit=max(1, int(limit or 10)),
+    )
+
+
+@app.get("/v1/memory/association-candidates")
+async def memory_association_candidates(
+    root: Optional[str] = None,
+    status: str = "",
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return list_association_candidates(
+        root=_resolve_root(root, x_tenant_id),
+        status=str(status or ""),
+        limit=max(1, int(limit or 100)),
+    )
 
 
 @app.post("/v1/memory/association-proposals")

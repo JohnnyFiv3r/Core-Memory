@@ -155,6 +155,24 @@
       "errors": ["401 unauthorized", "404 association_run_not_found", "400 invalid_tenant_id"]
     },
     {
+      "method": "GET",
+      "path": "/v1/memory/association-coverage/summary",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "contract": "memory.association_coverage_summary.v1", "eligible_bead_count": "int", "isolated_eligible_bead_count": "int", "pending_judge_count": "int", "candidate_status_counts": "object", "latest_runs": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/association-candidates",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "contract": "memory.association_candidates.v1", "status": "string", "count": "int", "results": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
       "method": "POST",
       "path": "/v1/memory/association-proposals",
       "authRequired": "conditional",
