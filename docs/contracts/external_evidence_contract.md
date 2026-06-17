@@ -231,3 +231,9 @@ source-local structure, such as document sections, row order, transcript
 continuity, or supersession, is treated as candidate evidence and provenance,
 not active semantic graph truth. Active edges are still written only by the
 association judge path.
+
+Association coverage callers may also pass `source_ingest_envelope_refs` to
+`POST /v1/memory/association-runs` or through the governed `maintain()` action
+when the host already has compact envelope refs from earlier writes. Core
+Memory merges those refs with bead-local refs and carries them into queued
+side-effect runs, candidate rows, and judge context.

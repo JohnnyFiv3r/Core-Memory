@@ -814,10 +814,23 @@ class TestAssociationCoverage(unittest.TestCase):
             first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
             second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
             client = TestClient(app)
+            envelope_ref = {
+                "schema": "core_memory.source_ingest_envelope.v1",
+                "envelope_id": "env-http-association-source",
+                "boundary_type": "DocumentImported",
+                "ingest_batch_id": "batch-http-association-source",
+                "source_object_id": "doc-http-association-source",
+            }
 
             created = client.post(
                 "/v1/memory/association-runs",
-                json={"root": root, "bead_ids": [second], "candidate_bead_ids": [first], "run_inline": True},
+                json={
+                    "root": root,
+                    "bead_ids": [second],
+                    "candidate_bead_ids": [first],
+                    "run_inline": True,
+                    "source_ingest_envelope_refs": [envelope_ref],
+                },
             )
             self.assertEqual(200, created.status_code)
             data = created.json()
@@ -828,6 +841,10 @@ class TestAssociationCoverage(unittest.TestCase):
             fetched = client.get(f"/v1/memory/association-runs/{run_id}", params={"root": root})
             self.assertEqual(200, fetched.status_code)
             self.assertEqual(run_id, (fetched.json().get("run") or {}).get("run_id"))
+            self.assertIn(
+                "env-http-association-source",
+                {ref.get("envelope_id") for ref in ((fetched.json().get("run") or {}).get("source_ingest_envelope_refs") or [])},
+            )
 
             summary = client.get("/v1/memory/association-coverage/summary", params={"root": root})
             self.assertEqual(200, summary.status_code)

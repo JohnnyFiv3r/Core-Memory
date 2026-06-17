@@ -166,7 +166,7 @@
       "method": "POST",
       "path": "/v1/memory/association-runs",
       "authRequired": "conditional",
-      "requestSchema": "AssociationRunRequest { source_ingest_envelope?: object }",
+      "requestSchema": "AssociationRunRequest { source_ingest_envelope?: object, source_ingest_envelope_refs?: array }",
       "requiredFields": ["bead_ids|session_id|sweep"],
       "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object", "candidate_count": "int?", "judge_model": "string?", "source_ingest_envelope_refs": "array", "source_ingest_batch_ids": "array", "sweep_complete": "bool?"},
       "notes": ["Deterministic/source-local coverage emits candidates only; active association edges require judge-approved decisions.", "States include deferred, pending_judge, linked, no_supported_links, quarantined, judge_failed, failed, skipped_ineligible."],

@@ -335,6 +335,7 @@ class AssociationRunRequest(BaseModel):
     sweep_cursor: str = ""
     sweep_limit: int = 250
     source_ingest_envelope: dict[str, Any] = Field(default_factory=dict)
+    source_ingest_envelope_refs: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class AssociationProposalRequest(BaseModel):
@@ -1621,6 +1622,7 @@ async def memory_association_runs(
         sweep_cursor=str(payload.sweep_cursor or ""),
         sweep_limit=max(1, int(payload.sweep_limit or payload.max_candidates or 250)),
         source_ingest_envelope=dict(payload.source_ingest_envelope or {}),
+        source_ingest_envelope_refs=[x for x in (payload.source_ingest_envelope_refs or []) if isinstance(x, dict)],
     )
     if not out.get("ok") and str(out.get("status") or "") not in {"judge_failed", "quarantined"}:
         return JSONResponse(status_code=400, content=out)
