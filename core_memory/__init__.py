@@ -61,6 +61,7 @@ from .runtime.associations.coverage import (
     enqueue_association_coverage,
     get_association_run,
     on_bead_committed,
+    plan_association_coverage_sweep,
     run_association_coverage,
 )
 from .schema.turn import Turn
@@ -153,6 +154,7 @@ __all__ = [
     "enqueue_association_coverage",
     "get_association_run",
     "on_bead_committed",
+    "plan_association_coverage_sweep",
     "run_association_coverage",
     "recall",
     "recall_result_from_memory_execute",

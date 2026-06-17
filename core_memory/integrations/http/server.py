@@ -326,6 +326,10 @@ class AssociationRunRequest(BaseModel):
     candidate_bead_ids: list[str] = Field(default_factory=list)
     run_inline: bool = False
     max_candidates: int = 40
+    sweep: bool = False
+    sweep_mode: str = "all"
+    sweep_cursor: str = ""
+    sweep_limit: int = 100
     graph_revision: str = ""
     prompt_version: str = "association_judge.v1"
     rubric_version: str = "association_truth.v1"
@@ -1523,6 +1527,10 @@ async def memory_association_runs(
         candidate_bead_ids=list(payload.candidate_bead_ids or []),
         run_inline=bool(payload.run_inline),
         max_candidates=max(1, int(payload.max_candidates)),
+        sweep=bool(payload.sweep),
+        sweep_mode=str(payload.sweep_mode or "all"),
+        sweep_cursor=str(payload.sweep_cursor or ""),
+        sweep_limit=max(1, int(payload.sweep_limit or 100)),
         graph_revision=str(payload.graph_revision or ""),
         prompt_version=str(payload.prompt_version or "association_judge.v1"),
         rubric_version=str(payload.rubric_version or "association_truth.v1"),

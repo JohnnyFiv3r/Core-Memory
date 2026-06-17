@@ -36,6 +36,7 @@ A surface is canonical only if it is both:
 - `core_memory.ingest_document_reference(...)` — experimental document/media artifact anchor write helper
 - `core_memory.ingest_state_assertion(...)` — experimental derived business-state/document-claim write helper
 - `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators; generates candidates and requires a judge decision before active graph edge writes
+- `core_memory.plan_association_coverage_sweep(...)` — read-only batch planner for full-graph, isolated-bead, or incomplete association-coverage sweeps; hosts page through `next_cursor` and submit each batch through the same judge-gated coverage path
 - `core_memory.on_bead_committed(...)` — post-commit bead coverage hook used by canonical write paths
 - `core_memory.apply_association_proposals(...)` — reviewed association proposal ingestion through the canonical validation/quarantine path
 - `core_memory.maintain(...)` — governed control-plane facade for management actions (approval, cleanup, async ops, association dispatch, Dreamer candidate review, SOUL revisions, Myelination refresh, and correction/re-review actions). Mutating dry-runs return `required_authority`, `authority_ok`, and validation errors.

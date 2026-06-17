@@ -11,6 +11,7 @@ from core_memory.runtime.associations.coverage import (
     get_association_run,
     list_association_candidates,
     on_bead_committed,
+    plan_association_coverage_sweep,
     run_association_coverage,
 )
 from core_memory.runtime.engine import process_flush, process_turn_finalized
@@ -538,6 +539,17 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertTrue(candidates_data.get("ok"), candidates_data)
             self.assertGreaterEqual(candidates_data.get("count") or 0, 1)
 
+            sweep = client.post(
+                "/v1/memory/association-runs",
+                json={"root": root, "sweep": True, "sweep_limit": 1, "run_inline": True},
+            )
+            self.assertEqual(200, sweep.status_code)
+            sweep_data = sweep.json()
+            self.assertTrue(sweep_data.get("ok"), sweep_data)
+            self.assertEqual("pending_judge", sweep_data.get("status"))
+            self.assertEqual(1, ((sweep_data.get("sweep") or {}).get("selected_count")))
+            self.assertTrue((sweep_data.get("sweep") or {}).get("has_more"))
+
     def test_on_bead_committed_store_hook_generates_pending_judge_candidates(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
@@ -565,6 +577,56 @@ class TestAssociationCoverage(unittest.TestCase):
             extra = on_bead_committed(td, bead, trigger="operator", source="test", run_inline=True, judge=RejectingFakeAssociationJudge())
             self.assertTrue(extra.get("ok"), extra)
             self.assertEqual("no_supported_links", (extra.get("association_state_by_bead") or {}).get(bead))
+
+    def test_full_graph_sweep_batches_eligible_beads(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="Sweep one", summary=["alpha sweep"], tags=["sweep"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Sweep two", summary=["alpha sweep"], tags=["sweep"], session_id="s1", source_turn_ids=["t2"])
+            third = _add_test_bead(store, type="context", title="Sweep three", summary=["alpha sweep"], tags=["sweep"], session_id="s1", source_turn_ids=["t3"])
+
+            plan = plan_association_coverage_sweep(td, mode="all", limit=2)
+            self.assertTrue(plan.get("ok"), plan)
+            all_ids = {first, second, third}
+            self.assertEqual(2, len(plan.get("bead_ids") or []))
+            self.assertTrue(set(plan.get("bead_ids") or []).issubset(all_ids))
+            self.assertEqual(3, plan.get("matching_bead_count"))
+            self.assertEqual(2, plan.get("selected_count"))
+            self.assertTrue(plan.get("has_more"))
+            self.assertEqual("2", plan.get("next_cursor"))
+
+            out = enqueue_association_coverage(
+                td,
+                sweep=True,
+                sweep_mode="all",
+                sweep_limit=2,
+                run_inline=True,
+                use_configured_judge=False,
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("pending_judge", out.get("status"))
+            first_batch = set(out.get("bead_ids") or [])
+            self.assertEqual(2, len(first_batch))
+            self.assertTrue(first_batch.issubset(all_ids))
+            self.assertEqual(2, ((out.get("sweep") or {}).get("selected_count")))
+            self.assertTrue((out.get("sweep") or {}).get("has_more"))
+            self.assertGreaterEqual(out.get("candidate_count") or 0, 1)
+
+            next_out = run_association_coverage(
+                td,
+                sweep=True,
+                sweep_mode="all",
+                sweep_cursor=str((out.get("sweep") or {}).get("next_cursor")),
+                sweep_limit=2,
+                use_configured_judge=False,
+            )
+            self.assertTrue(next_out.get("ok"), next_out)
+            second_batch = set(next_out.get("bead_ids") or [])
+            self.assertEqual(1, len(second_batch))
+            self.assertFalse(first_batch.intersection(second_batch))
+            self.assertEqual(all_ids, first_batch.union(second_batch))
+            self.assertEqual(1, ((next_out.get("sweep") or {}).get("selected_count")))
+            self.assertFalse((next_out.get("sweep") or {}).get("has_more"))
 
     def test_association_run_requires_beads_or_session(self):
         with tempfile.TemporaryDirectory() as td:

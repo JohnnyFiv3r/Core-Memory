@@ -140,9 +140,9 @@
       "path": "/v1/memory/association-runs",
       "authRequired": "conditional",
       "requestSchema": "AssociationRunRequest",
-      "requiredFields": ["bead_ids|session_id"],
-      "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object", "candidate_count": "int?", "judge_model": "string?"},
-      "notes": ["Deterministic/source-local coverage emits candidates only; active association edges require judge-approved decisions.", "States include deferred, pending_judge, linked, no_supported_links, quarantined, judge_failed, failed, skipped_ineligible."],
+      "requiredFields": ["bead_ids|session_id|sweep=true"],
+      "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object", "candidate_count": "int?", "judge_model": "string?", "sweep": "object?"},
+      "notes": ["Deterministic/source-local coverage emits candidates only; active association edges require judge-approved decisions.", "States include deferred, pending_judge, linked, no_supported_links, quarantined, judge_failed, failed, skipped_ineligible.", "Set sweep=true with sweep_mode all|isolated|incomplete, sweep_cursor, and sweep_limit to page through full-graph backstop coverage batches."],
       "errors": ["400 association_run_requires_bead_ids_or_session_id", "401 unauthorized", "400 invalid_tenant_id"]
     },
     {
