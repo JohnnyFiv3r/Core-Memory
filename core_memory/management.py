@@ -255,8 +255,12 @@ def _validate_action(
         if not _clean_str(targets.get("kind")):
             errors.append(_validation_error("targets.kind", "job_kind_required"))
     elif action == "association_run":
-        if not _bead_ids_from_targets(targets) and not _clean_str(scope.get("session_id") or targets.get("session_id")):
-            errors.append(_validation_error("targets.bead_ids", "bead_ids_or_session_id_required"))
+        if (
+            not _bead_ids_from_targets(targets)
+            and not _clean_str(scope.get("session_id") or targets.get("session_id"))
+            and not bool(targets.get("sweep"))
+        ):
+            errors.append(_validation_error("targets.bead_ids", "bead_ids_session_id_or_sweep_required"))
     elif action == "apply_association_proposals":
         rows = _merge_association_provenance(
             list(proposal.get("associations") or []),
@@ -632,6 +636,28 @@ def maintain(
                 limit=int(targets_d.get("limit") or 1000),
             )
             return _augment(out, action=action_n, authority=authority_d, validation_errors=validation_errors)
+        if not validation_errors and action_n == "association_run" and bool(targets_d.get("sweep")):
+            from core_memory.runtime.associations.coverage import plan_association_coverage_sweep
+
+            plan = plan_association_coverage_sweep(
+                root_final,
+                mode=_clean_str(targets_d.get("sweep_mode") or "all"),
+                cursor=_clean_str(targets_d.get("sweep_cursor")),
+                limit=int(targets_d.get("sweep_limit") or 100),
+            )
+            return _augment(
+                {
+                    "ok": True,
+                    "status": "preview",
+                    "applied": False,
+                    "dry_run": True,
+                    "sweep": plan,
+                    "bead_ids": list(plan.get("bead_ids") or []),
+                },
+                action=action_n,
+                authority=authority_d,
+                validation_errors=validation_errors,
+            )
         return _preview(
             action_n,
             root=root_final,
@@ -752,6 +778,10 @@ def maintain(
             candidate_bead_ids=list(targets_d.get("candidate_bead_ids") or []),
             run_inline=bool(targets_d.get("run_inline")),
             max_candidates=int(targets_d.get("max_candidates") or 40),
+            sweep=bool(targets_d.get("sweep")),
+            sweep_mode=_clean_str(targets_d.get("sweep_mode") or "all"),
+            sweep_cursor=_clean_str(targets_d.get("sweep_cursor")),
+            sweep_limit=int(targets_d.get("sweep_limit") or 100),
         )
         return _augment(out, action=action_n, authority=authority_d)
 
