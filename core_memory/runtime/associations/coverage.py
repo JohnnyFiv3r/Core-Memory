@@ -24,6 +24,9 @@ from core_memory.retrieval.lifecycle import mark_trace_dirty
 ASSOCIATION_RUNS_SCHEMA = "core_memory.association_runs.v1"
 ASSOCIATION_CANDIDATES_SCHEMA = "core_memory.association_candidates.v1"
 ASSOCIATION_JUDGE_DECISIONS_SCHEMA = "core_memory.association_judge_decisions.v1"
+ASSOCIATION_COVERAGE_SUMMARY_CONTRACT = "memory.association_coverage_summary.v1"
+ASSOCIATION_CANDIDATES_CONTRACT = "memory.association_candidates.v1"
+ASSOCIATION_CANDIDATE_DECISION_CONTRACT = "memory.association_candidate_decision.v1"
 ASSOCIATION_JUDGE_CONTRACT = "memory.association_judge.v1"
 POLICY_VERSION = "bead_association.v1"
 JUDGE_PROMPT_VERSION = "association_judge.v1"
@@ -41,6 +44,7 @@ ALLOWED_TRIGGERS = {
 }
 INCOMPLETE_STATES = {"deferred", "pending_judge", "judge_failed", "quarantined", "failed"}
 JUDGE_ACTIONS = {"accept", "reject", "modify", "invert", "replace", "add", "no_link"}
+ACTIVE_ASSOCIATION_STATUSES = {"", "active", "current", "linked"}
 
 
 def _now() -> str:
@@ -159,6 +163,30 @@ def _iter_run_records(root: str | Path) -> list[dict[str, Any]]:
     return rows
 
 
+def _read_jsonl_dicts(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            row = json.loads(line)
+        except Exception:
+            continue
+        if isinstance(row, dict):
+            rows.append(row)
+    return rows
+
+
+def _iter_candidate_records(root: str | Path) -> list[dict[str, Any]]:
+    return _read_jsonl_dicts(_candidates_path(root))
+
+
+def _iter_judge_decision_records(root: str | Path) -> list[dict[str, Any]]:
+    return _read_jsonl_dicts(_judge_decisions_path(root))
+
+
 def get_association_run(root: str | Path, run_id: str) -> dict[str, Any]:
     target = _clean_str(run_id)
     latest: dict[str, Any] | None = None
@@ -192,6 +220,259 @@ def latest_association_coverage(root: str | Path, bead_id: str) -> dict[str, Any
         "appended": int((latest.get("counts") or {}).get("appended") or 0),
         "deduped": int((latest.get("counts") or {}).get("deduped") or 0),
         "quarantined": int((latest.get("counts") or {}).get("quarantined") or 0),
+    }
+
+
+def _count_by(rows: list[dict[str, Any]], key: str) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for row in rows:
+        value = _clean_str(row.get(key)).lower() or "unknown"
+        counts[value] = counts.get(value, 0) + 1
+    return counts
+
+
+def _active_associations(index: dict[str, Any]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
+    for assoc in index.get("associations") or []:
+        if not isinstance(assoc, dict):
+            continue
+        status = _clean_str(assoc.get("status")).lower()
+        if status in ACTIVE_ASSOCIATION_STATUSES:
+            out.append(assoc)
+    return out
+
+
+def _eligible_bead_ids(index: dict[str, Any]) -> list[str]:
+    rows: list[tuple[str, str]] = []
+    for bid, bead in (index.get("beads") or {}).items():
+        if not isinstance(bead, dict):
+            continue
+        bead_id = _clean_str(bead.get("id") or bid)
+        if not bead_id:
+            continue
+        if _coverage_eligible({**bead, "id": bead_id}):
+            rows.append((_clean_str(bead.get("created_at")), bead_id))
+    rows.sort()
+    return [bid for _created, bid in rows]
+
+
+def _isolated_eligible_bead_ids(index: dict[str, Any]) -> list[str]:
+    eligible = _eligible_bead_ids(index)
+    associated: set[str] = set()
+    for assoc in _active_associations(index):
+        source = _clean_str(assoc.get("source_bead") or assoc.get("source_bead_id"))
+        target = _clean_str(assoc.get("target_bead") or assoc.get("target_bead_id"))
+        if source:
+            associated.add(source)
+        if target:
+            associated.add(target)
+    return [bid for bid in eligible if bid not in associated]
+
+
+def _candidate_status_for_action(action: str) -> str:
+    normalized = _clean_str(action).lower()
+    if normalized in {"accept", "modify", "invert", "replace", "add"}:
+        return "linked"
+    if normalized in {"reject", "no_link"}:
+        return "no_supported_links"
+    return ""
+
+
+def _candidate_observations(root: str | Path) -> list[dict[str, Any]]:
+    observations: list[dict[str, Any]] = []
+    for record in _iter_candidate_records(root):
+        base = {
+            "run_id": _clean_str(record.get("run_id")),
+            "trigger": _clean_str(record.get("trigger")),
+            "policy_version": _clean_str(record.get("policy_version")),
+            "prompt_version": _clean_str(record.get("prompt_version")),
+            "rubric_version": _clean_str(record.get("rubric_version")),
+            "graph_revision": _clean_str(record.get("graph_revision")),
+            "recorded_at": _clean_str(record.get("recorded_at")),
+            "candidate_generation_version": _clean_str(record.get("candidate_generation_version")),
+        }
+        candidates = [x for x in (record.get("candidates") or []) if isinstance(x, dict)]
+        for candidate in candidates:
+            row = {**base, **candidate}
+            row.setdefault("status", "pending_judge")
+            observations.append(row)
+        if _clean_str(record.get("candidate_id")):
+            row = {**record}
+            row.pop("candidates", None)
+            row.setdefault("status", "pending_judge")
+            observations.append(row)
+    return observations
+
+
+def _candidate_status_updates(root: str | Path) -> dict[str, dict[str, Any]]:
+    updates: dict[str, dict[str, Any]] = {}
+
+    def update(candidate_id: str, status: str, row: dict[str, Any]) -> None:
+        cid = _clean_str(candidate_id)
+        state = _clean_str(status).lower()
+        if not cid or not state:
+            return
+        updates[cid] = {
+            "status": state,
+            "recorded_at": _clean_str(row.get("recorded_at")),
+            "run_id": _clean_str(row.get("run_id")),
+            "decision": dict(row.get("decision") or {}) if isinstance(row.get("decision"), dict) else None,
+        }
+
+    for record in _iter_judge_decision_records(root):
+        record_status = _clean_str(record.get("status")).lower()
+        if record_status in {"pending_judge", "judge_failed", "coverage_failed"}:
+            for cid in record.get("candidate_ids") or []:
+                update(_clean_str(cid), record_status, record)
+        for decision in [x for x in (record.get("decisions") or []) if isinstance(x, dict)]:
+            status = _candidate_status_for_action(_clean_str(decision.get("action")))
+            if status:
+                update(_clean_str(decision.get("candidate_id")), status, {**record, "decision": decision})
+
+    for record in _iter_candidate_records(root):
+        cid = _clean_str(record.get("candidate_id"))
+        status = _clean_str(record.get("status")).lower()
+        if cid and status:
+            update(cid, status, record)
+    return updates
+
+
+def _normalized_candidate_rows(root: str | Path) -> tuple[list[dict[str, Any]], int]:
+    index = _load_index(root)
+    beads = index.get("beads") or {}
+    observations = _candidate_observations(root)
+    status_updates = _candidate_status_updates(root)
+    by_id: dict[str, dict[str, Any]] = {}
+
+    for observation in observations:
+        candidate_id = _clean_str(observation.get("candidate_id"))
+        if not candidate_id:
+            continue
+        existing = by_id.get(candidate_id)
+        row = dict(existing or {})
+        if not row:
+            row = dict(observation)
+            row["first_seen_at"] = _clean_str(observation.get("recorded_at"))
+            row["rediscovery_count"] = 0
+            row["rediscovery_observations"] = []
+            row["run_ids"] = []
+            row["triggers"] = []
+            row["trigger_counts"] = {}
+
+        row["rediscovery_count"] = int(row.get("rediscovery_count") or 0) + 1
+        row["latest_seen_at"] = _clean_str(observation.get("recorded_at")) or _clean_str(row.get("latest_seen_at"))
+        if _clean_str(observation.get("recorded_at")):
+            row["recorded_at"] = _clean_str(observation.get("recorded_at"))
+        for key, value in observation.items():
+            if value not in (None, "", [], {}) and key not in {"rediscovery_observations"}:
+                row[key] = value
+        run_id = _clean_str(observation.get("run_id"))
+        if run_id and run_id not in row["run_ids"]:
+            row["run_ids"].append(run_id)
+        trigger = _clean_str(observation.get("trigger"))
+        if trigger and trigger not in row["triggers"]:
+            row["triggers"].append(trigger)
+        if trigger:
+            counts = row["trigger_counts"]
+            counts[trigger] = int(counts.get(trigger) or 0) + 1
+        row["rediscovery_observations"].append({
+            "run_id": run_id,
+            "trigger": trigger,
+            "recorded_at": _clean_str(observation.get("recorded_at")),
+        })
+        by_id[candidate_id] = row
+
+    for candidate_id, update in status_updates.items():
+        row = by_id.get(candidate_id)
+        if row is None:
+            row = {
+                "candidate_id": candidate_id,
+                "first_seen_at": _clean_str(update.get("recorded_at")),
+                "latest_seen_at": _clean_str(update.get("recorded_at")),
+                "recorded_at": _clean_str(update.get("recorded_at")),
+                "run_ids": [],
+                "triggers": [],
+                "trigger_counts": {},
+                "rediscovery_count": 0,
+                "rediscovery_observations": [],
+            }
+        row["status"] = _clean_str(update.get("status")) or "pending_judge"
+        if _clean_str(update.get("run_id")) and _clean_str(update.get("run_id")) not in row["run_ids"]:
+            row["run_ids"].append(_clean_str(update.get("run_id")))
+        by_id[candidate_id] = row
+
+    for row in by_id.values():
+        row.setdefault("status", "pending_judge")
+        source = _clean_str(row.get("source_bead"))
+        target = _clean_str(row.get("target_bead"))
+        source_bead = beads.get(source) if source else None
+        target_bead = beads.get(target) if target else None
+        if isinstance(source_bead, dict):
+            row.setdefault("source_title", _clean_str(source_bead.get("title")) or source)
+            row.setdefault("source_type", _clean_str(source_bead.get("type")))
+        if isinstance(target_bead, dict):
+            row.setdefault("target_title", _clean_str(target_bead.get("title")) or target)
+            row.setdefault("target_type", _clean_str(target_bead.get("type")))
+
+    rows = list(by_id.values())
+    rows.sort(key=lambda item: _clean_str(item.get("latest_seen_at") or item.get("recorded_at")), reverse=True)
+    return rows, len(observations)
+
+
+def list_association_candidates(
+    root: str | Path,
+    *,
+    status: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    rows, observation_count = _normalized_candidate_rows(root)
+    status_n = _clean_str(status).lower()
+    if status_n:
+        rows = [row for row in rows if _clean_str(row.get("status")).lower() == status_n]
+    limit_n = max(1, int(limit))
+    return {
+        "ok": True,
+        "contract": ASSOCIATION_CANDIDATES_CONTRACT,
+        "status": status_n or None,
+        "count": len(rows),
+        "observation_count": observation_count,
+        "results": rows[:limit_n],
+    }
+
+
+def association_coverage_summary(
+    root: str | Path,
+    *,
+    limit: int = 10,
+) -> dict[str, Any]:
+    index = _load_index(root)
+    eligible = _eligible_bead_ids(index)
+    isolated = _isolated_eligible_bead_ids(index)
+    active_associations = _active_associations(index)
+    candidates, observation_count = _normalized_candidate_rows(root)
+    runs = _iter_run_records(root)
+    latest_runs = sorted(
+        [dict(row) for row in runs],
+        key=lambda item: _clean_str(item.get("recorded_at") or item.get("created_at")),
+        reverse=True,
+    )[: max(1, int(limit))]
+    candidate_status_counts = _count_by(candidates, "status")
+    pending_judge_count = int(candidate_status_counts.get("pending_judge") or 0)
+    return {
+        "ok": True,
+        "contract": ASSOCIATION_COVERAGE_SUMMARY_CONTRACT,
+        "graph_revision": _graph_revision(index),
+        "eligible_bead_count": len(eligible),
+        "active_association_count": len(active_associations),
+        "isolated_eligible_bead_count": len(isolated),
+        "isolated_eligible_bead_ids": isolated[: max(1, int(limit))],
+        "candidate_count": len(candidates),
+        "candidate_observation_count": observation_count,
+        "candidate_status_counts": candidate_status_counts,
+        "pending_judge_count": pending_judge_count,
+        "runs_by_status": _count_by(runs, "status"),
+        "runs_by_trigger": _count_by(runs, "trigger"),
+        "latest_runs": latest_runs,
     }
 
 
@@ -1061,6 +1342,60 @@ def _apply_judge_result(
     }
 
 
+def _select_sweep_bead_ids(
+    root: str | Path,
+    index: dict[str, Any],
+    *,
+    sweep_mode: str | None = None,
+    sweep_cursor: str | None = None,
+    sweep_limit: int | None = None,
+) -> dict[str, Any]:
+    mode = _clean_str(sweep_mode).lower() or "incomplete"
+    if mode not in {"all", "isolated", "incomplete"}:
+        mode = "incomplete"
+    limit_n = max(1, int(sweep_limit or DEFAULT_MAX_CANDIDATES))
+    eligible = _eligible_bead_ids(index)
+    isolated = _isolated_eligible_bead_ids(index)
+
+    if mode == "all":
+        selected_pool = eligible
+    elif mode == "isolated":
+        selected_pool = isolated
+    else:
+        incomplete: list[str] = []
+        for bead_id in eligible:
+            state = _clean_str(latest_association_coverage(root, bead_id).get("state")).lower()
+            if state in {"", "unknown"} or state in INCOMPLETE_STATES:
+                incomplete.append(bead_id)
+        selected_pool = list(dict.fromkeys([*isolated, *incomplete]))
+
+    cursor = _clean_str(sweep_cursor)
+    start_index = 0
+    if cursor and cursor in selected_pool:
+        start_index = selected_pool.index(cursor) + 1
+    selected = selected_pool[start_index : start_index + limit_n]
+    remaining_after = selected_pool[start_index + limit_n :]
+    return {
+        "sweep": True,
+        "sweep_mode": mode,
+        "sweep_cursor": cursor or None,
+        "sweep_limit": limit_n,
+        "selected_bead_ids": selected,
+        "next_sweep_cursor": selected[-1] if remaining_after and selected else None,
+        "sweep_complete": not remaining_after,
+        "eligible_bead_count": len(eligible),
+        "isolated_eligible_bead_count": len(isolated),
+    }
+
+
+def _with_sweep_fields(out: dict[str, Any], sweep_info: dict[str, Any] | None) -> dict[str, Any]:
+    if not sweep_info:
+        return out
+    for key in ("sweep", "sweep_mode", "sweep_cursor", "sweep_limit", "next_sweep_cursor", "sweep_complete"):
+        out[key] = sweep_info.get(key)
+    return out
+
+
 def enqueue_association_coverage(
     root: str | Path,
     *,
@@ -1075,15 +1410,51 @@ def enqueue_association_coverage(
     rubric_version: str = JUDGE_RUBRIC_VERSION,
     graph_revision: str | None = None,
     judge: Any | None = None,
+    sweep: bool = False,
+    sweep_mode: str | None = None,
+    sweep_cursor: str | None = None,
+    sweep_limit: int | None = None,
 ) -> dict[str, Any]:
     index = _load_index(root)
     resolved_ids = [_clean_str(x) for x in (bead_ids or []) if _clean_str(x)]
     if not resolved_ids and _clean_str(session_id):
         resolved_ids = _resolve_session_bead_ids(index, session_id)
+    sweep_info: dict[str, Any] | None = None
+    if bool(sweep) and not resolved_ids:
+        sweep_info = _select_sweep_bead_ids(
+            root,
+            index,
+            sweep_mode=sweep_mode,
+            sweep_cursor=sweep_cursor,
+            sweep_limit=sweep_limit,
+        )
+        resolved_ids = list(sweep_info.get("selected_bead_ids") or [])
     resolved_ids = [bid for bid in dict.fromkeys(resolved_ids) if bid in (index.get("beads") or {})]
     skipped_ids = [bid for bid in resolved_ids if not _coverage_eligible((index.get("beads") or {}).get(bid))]
     eligible_ids = [bid for bid in resolved_ids if bid not in set(skipped_ids)]
     if not resolved_ids:
+        if sweep_info is not None:
+            run_id = f"arun-{uuid.uuid4().hex[:12]}"
+            out = {
+                "ok": True,
+                "error": None,
+                "contract": "memory.association_run.v1",
+                "run_id": run_id,
+                "status": "completed",
+                "trigger": _normalize_trigger(trigger),
+                "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+                "prompt_version": _clean_str(prompt_version) or JUDGE_PROMPT_VERSION,
+                "rubric_version": _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION,
+                "graph_revision": _clean_str(graph_revision) or _graph_revision(index),
+                "session_id": _clean_str(session_id),
+                "bead_ids": [],
+                "skipped_bead_ids": [],
+                "association_state_by_bead": {},
+                "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": 0},
+            }
+            _with_sweep_fields(out, sweep_info)
+            _append_run_record(root, out)
+            return out
         return {
             "ok": False,
             "error": "association_run_requires_bead_ids_or_session_id",
@@ -1116,6 +1487,7 @@ def enqueue_association_coverage(
             "association_state_by_bead": initial_states,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
         }
+        _with_sweep_fields(out, sweep_info)
         _append_run_record(root, out)
         return out
 
@@ -1134,6 +1506,7 @@ def enqueue_association_coverage(
             graph_revision=graph_rev,
             judge=judge,
             skipped_bead_ids=skipped_ids,
+            sweep_info=sweep_info,
         )
 
     bead_set_sig = _bead_set_signature(eligible_ids)
@@ -1167,30 +1540,35 @@ def enqueue_association_coverage(
             "rubric_version": rubric_v,
             "graph_revision": graph_rev,
             "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
+            "sweep": bool((sweep_info or {}).get("sweep")),
+            "sweep_mode": (sweep_info or {}).get("sweep_mode"),
+            "sweep_cursor": (sweep_info or {}).get("sweep_cursor"),
+            "sweep_limit": (sweep_info or {}).get("sweep_limit"),
+            "next_sweep_cursor": (sweep_info or {}).get("next_sweep_cursor"),
+            "sweep_complete": (sweep_info or {}).get("sweep_complete"),
         },
         idempotency_key=idempotency_key,
     )
-    _append_run_record(
-        root,
-        {
-            "run_id": run_id,
-            "status": "queued" if queue.get("ok") else "failed",
-            "trigger": trigger_n,
-            "policy_version": _clean_str(policy_version) or POLICY_VERSION,
-            "prompt_version": prompt_v,
-            "rubric_version": rubric_v,
-            "graph_revision": graph_rev,
-            "session_id": _clean_str(session_id),
-            "bead_ids": eligible_ids,
-            "skipped_bead_ids": skipped_ids,
-            "association_state_by_bead": initial_states,
-            "queued_job_id": _clean_str(queue.get("id")),
-            "queue": queue,
-            "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
-            "contract": "memory.association_run.v1",
-        },
-    )
-    return {
+    queued_record = {
+        "run_id": run_id,
+        "status": "queued" if queue.get("ok") else "failed",
+        "trigger": trigger_n,
+        "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+        "prompt_version": prompt_v,
+        "rubric_version": rubric_v,
+        "graph_revision": graph_rev,
+        "session_id": _clean_str(session_id),
+        "bead_ids": eligible_ids,
+        "skipped_bead_ids": skipped_ids,
+        "association_state_by_bead": initial_states,
+        "queued_job_id": _clean_str(queue.get("id")),
+        "queue": queue,
+        "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
+        "contract": "memory.association_run.v1",
+    }
+    _with_sweep_fields(queued_record, sweep_info)
+    _append_run_record(root, queued_record)
+    queued_out = {
         "ok": bool(queue.get("ok")),
         "contract": "memory.association_run.v1",
         "run_id": run_id,
@@ -1202,6 +1580,8 @@ def enqueue_association_coverage(
         "association_queued": bool(queue.get("ok")),
         "queue": queue,
     }
+    _with_sweep_fields(queued_out, sweep_info)
+    return queued_out
 
 
 def on_bead_committed(
@@ -1277,6 +1657,7 @@ def run_association_coverage(
     graph_revision: str | None = None,
     judge: Any | None = None,
     skipped_bead_ids: list[str] | None = None,
+    sweep_info: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     run_id_final = _clean_str(run_id) or f"arun-{uuid.uuid4().hex[:12]}"
     trigger_n = _normalize_trigger(trigger)
@@ -1305,6 +1686,7 @@ def run_association_coverage(
             "association_state_by_bead": {},
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
         }
+        _with_sweep_fields(out, sweep_info)
         _append_run_record(root, out)
         return out
 
@@ -1326,29 +1708,29 @@ def run_association_coverage(
             "association_state_by_bead": state_by_bead,
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
         }
+        _with_sweep_fields(out, sweep_info)
         _append_run_record(root, out)
         return out
 
     pending_states = {bid: "pending_judge" for bid in eligible_ids}
     pending_states.update({bid: "skipped_ineligible" for bid in skipped_ids})
-    _append_run_record(
-        root,
-        {
-            "run_id": run_id_final,
-            "status": "running",
-            "trigger": trigger_n,
-            "policy_version": _clean_str(policy_version) or POLICY_VERSION,
-            "prompt_version": prompt_v,
-            "rubric_version": rubric_v,
-            "graph_revision": graph_rev,
-            "session_id": _clean_str(session_id),
-            "bead_ids": eligible_ids,
-            "skipped_bead_ids": skipped_ids,
-            "association_state_by_bead": pending_states,
-            "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
-            "contract": "memory.association_run.v1",
-        },
-    )
+    running_record = {
+        "run_id": run_id_final,
+        "status": "running",
+        "trigger": trigger_n,
+        "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+        "prompt_version": prompt_v,
+        "rubric_version": rubric_v,
+        "graph_revision": graph_rev,
+        "session_id": _clean_str(session_id),
+        "bead_ids": eligible_ids,
+        "skipped_bead_ids": skipped_ids,
+        "association_state_by_bead": pending_states,
+        "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
+        "contract": "memory.association_run.v1",
+    }
+    _with_sweep_fields(running_record, sweep_info)
+    _append_run_record(root, running_record)
 
     explicit_candidates = [_clean_str(x) for x in (candidate_bead_ids or []) if _clean_str(x)]
     candidates: list[dict[str, Any]] = []
@@ -1427,6 +1809,7 @@ def run_association_coverage(
             },
             "warning": _clean_str(exc),
         }
+        _with_sweep_fields(out, sweep_info)
         _append_judge_decision_record(
             root,
             {
@@ -1461,6 +1844,7 @@ def run_association_coverage(
             "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": len(eligible_ids), "skipped": len(skipped_ids)},
             "error": _clean_str(exc),
         }
+        _with_sweep_fields(out, sweep_info)
         _append_judge_decision_record(
             root,
             {
@@ -1532,8 +1916,167 @@ def run_association_coverage(
         "counts": counts,
         "errors": errors,
     }
+    _with_sweep_fields(out, sweep_info)
     _append_run_record(root, out)
     return out
+
+
+def decide_association_candidate(
+    root: str | Path,
+    *,
+    candidate_id: str,
+    action: str,
+    run_id: str | None = None,
+    session_id: str | None = None,
+    reviewer: str | None = None,
+    reason_text: str | None = None,
+    truth_basis: str | None = None,
+    confidence: float | None = None,
+    relationship: str | None = None,
+    source_bead: str | None = None,
+    target_bead: str | None = None,
+    evidence_refs: list[Any] | None = None,
+    evidence_bead_ids: list[Any] | None = None,
+    judge_model: str | None = None,
+    prompt_version: str | None = None,
+    rubric_version: str | None = None,
+) -> dict[str, Any]:
+    cid = _clean_str(candidate_id)
+    action_n = _clean_str(action).lower()
+    if not cid:
+        return {"ok": False, "contract": ASSOCIATION_CANDIDATE_DECISION_CONTRACT, "error": "missing_candidate_id"}
+    if action_n not in JUDGE_ACTIONS:
+        return {
+            "ok": False,
+            "contract": ASSOCIATION_CANDIDATE_DECISION_CONTRACT,
+            "candidate_id": cid,
+            "error": "invalid_association_candidate_action",
+        }
+
+    candidates, _observation_count = _normalized_candidate_rows(root)
+    candidate = next((row for row in candidates if _clean_str(row.get("candidate_id")) == cid), None)
+    if candidate is None:
+        return {
+            "ok": False,
+            "contract": ASSOCIATION_CANDIDATE_DECISION_CONTRACT,
+            "candidate_id": cid,
+            "error": "association_candidate_not_found",
+        }
+
+    index = _load_index(root)
+    run_id_final = _clean_str(run_id) or _clean_str(candidate.get("run_id")) or f"arun-review-{uuid.uuid4().hex[:12]}"
+    prompt_v = _clean_str(prompt_version) or _clean_str(candidate.get("prompt_version")) or JUDGE_PROMPT_VERSION
+    rubric_v = _clean_str(rubric_version) or _clean_str(candidate.get("rubric_version")) or JUDGE_RUBRIC_VERSION
+    source = _clean_str(source_bead) or _clean_str(candidate.get("source_bead"))
+    target = _clean_str(target_bead) or _clean_str(candidate.get("target_bead"))
+    rel = _clean_str(relationship) or _clean_str(candidate.get("proposed_relationship"))
+    decision: dict[str, Any] = {
+        "candidate_id": cid,
+        "action": action_n,
+        "source_bead": source,
+        "target_bead": target,
+        "relationship": rel,
+        "reason_text": _clean_str(reason_text) or _clean_str(candidate.get("system_rationale")),
+        "truth_basis": _clean_str(truth_basis) or "operator_review",
+        "reviewer": _clean_str(reviewer),
+        "evidence_refs": list(evidence_refs or candidate.get("evidence_refs") or []),
+        "evidence_bead_ids": list(evidence_bead_ids or candidate.get("evidence_bead_ids") or []),
+    }
+    if confidence is not None:
+        decision["confidence"] = float(confidence)
+    elif candidate.get("confidence_prior") is not None:
+        decision["confidence"] = float(candidate.get("confidence_prior") or 0.0)
+
+    state = "no_supported_links" if action_n in {"reject", "no_link"} else "linked"
+    judge_context = _build_judge_context(
+        index=index,
+        run_id=run_id_final,
+        trigger="operator",
+        source_bead_ids=[source] if source else [],
+        candidates=[candidate],
+        policy_version=POLICY_VERSION,
+        prompt_version=prompt_v,
+        rubric_version=rubric_v,
+    )
+    applied = _apply_judge_result(
+        root,
+        index=index,
+        run_id=run_id_final,
+        session_id=session_id,
+        source_bead_ids=[source] if source else [],
+        candidates=[candidate],
+        judge_context=judge_context,
+        judge_result={
+            "contract": ASSOCIATION_JUDGE_CONTRACT,
+            "run_id": run_id_final,
+            "judge_model": _clean_str(judge_model) or "operator-review",
+            "prompt_version": prompt_v,
+            "rubric_version": rubric_v,
+            "decisions": [decision],
+            "reviewed_beads": [{"bead_id": source, "association_state": state}] if source else [],
+        },
+        policy_version=POLICY_VERSION,
+        prompt_version=prompt_v,
+        rubric_version=rubric_v,
+    )
+    failed = int(applied.get("failed") or 0) + len(applied.get("errors") or [])
+    quarantined = int(applied.get("quarantined") or 0)
+    final_status = "failed" if failed else ("quarantined" if quarantined else state)
+    state_by_bead = dict(applied.get("association_state_by_bead") or {})
+    if source and source not in state_by_bead:
+        state_by_bead[source] = final_status
+    counts = {
+        "accepted": int(applied.get("accepted") or 0),
+        "rejected": int(applied.get("rejected") or 0),
+        "appended": int(applied.get("appended") or 0),
+        "deduped": int(applied.get("deduped") or 0),
+        "quarantined": quarantined,
+        "failed": failed,
+    }
+    run_record = {
+        "run_id": run_id_final,
+        "status": "completed" if final_status in {"linked", "no_supported_links"} else final_status,
+        "trigger": "operator",
+        "policy_version": POLICY_VERSION,
+        "prompt_version": prompt_v,
+        "rubric_version": rubric_v,
+        "graph_revision": _graph_revision(_load_index(root)),
+        "session_id": _clean_str(session_id),
+        "bead_ids": [source] if source else [],
+        "association_state_by_bead": state_by_bead,
+        "association_ids": list(applied.get("association_ids") or []),
+        "candidate_count": 1,
+        "counts": counts,
+        "errors": list(applied.get("errors") or []),
+        "contract": ASSOCIATION_CANDIDATE_DECISION_CONTRACT,
+    }
+    _append_run_record(root, run_record)
+    _append_candidate_record(
+        root,
+        {
+            "candidate_id": cid,
+            "status": final_status,
+            "run_id": run_id_final,
+            "trigger": "operator",
+            "graph_revision": run_record["graph_revision"],
+            "source_bead": source,
+            "target_bead": target,
+            "proposed_relationship": rel,
+            "decision": decision,
+            "association_ids": list(applied.get("association_ids") or []),
+        },
+    )
+    return {
+        "ok": final_status in {"linked", "no_supported_links"},
+        "contract": ASSOCIATION_CANDIDATE_DECISION_CONTRACT,
+        "candidate_id": cid,
+        "run_id": run_id_final,
+        "status": final_status,
+        "association_state_by_bead": state_by_bead,
+        "association_ids": list(applied.get("association_ids") or []),
+        "counts": counts,
+        "errors": list(applied.get("errors") or []),
+    }
 
 
 def apply_association_proposals(
@@ -1674,12 +2217,18 @@ def apply_association_proposals(
 
 
 __all__ = [
+    "ASSOCIATION_CANDIDATE_DECISION_CONTRACT",
+    "ASSOCIATION_CANDIDATES_CONTRACT",
+    "ASSOCIATION_COVERAGE_SUMMARY_CONTRACT",
     "ASSOCIATION_RUNS_SCHEMA",
     "POLICY_VERSION",
     "apply_association_proposals",
+    "association_coverage_summary",
+    "decide_association_candidate",
     "enqueue_association_coverage",
     "get_association_run",
     "latest_association_coverage",
+    "list_association_candidates",
     "on_bead_committed",
     "run_association_coverage",
 ]

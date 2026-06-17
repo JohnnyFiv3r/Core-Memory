@@ -34,8 +34,11 @@ from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, lis
 from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.runtime.associations.coverage import (
     apply_association_proposals,
+    association_coverage_summary,
+    decide_association_candidate,
     enqueue_association_coverage,
     get_association_run,
+    list_association_candidates,
 )
 from core_memory.management import (
     maintain as maintain_memory,
@@ -327,6 +330,10 @@ class AssociationRunRequest(BaseModel):
     graph_revision: str = ""
     prompt_version: str = "association_judge.v1"
     rubric_version: str = "association_truth.v1"
+    sweep: bool = False
+    sweep_mode: str = "incomplete"
+    sweep_cursor: str = ""
+    sweep_limit: int = 250
 
 
 class AssociationProposalRequest(BaseModel):
@@ -334,6 +341,25 @@ class AssociationProposalRequest(BaseModel):
     run_id: str = ""
     session_id: Optional[str] = None
     associations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AssociationCandidateDecisionRequest(BaseModel):
+    root: Optional[str] = None
+    action: str
+    run_id: str = ""
+    session_id: Optional[str] = None
+    reviewer: str = ""
+    reason_text: str = ""
+    truth_basis: str = ""
+    confidence: Optional[float] = None
+    relationship: str = ""
+    source_bead: str = ""
+    target_bead: str = ""
+    evidence_refs: list[Any] = Field(default_factory=list)
+    evidence_bead_ids: list[Any] = Field(default_factory=list)
+    judge_model: str = ""
+    prompt_version: str = "association_judge.v1"
+    rubric_version: str = "association_truth.v1"
 
 
 class MCPQueryCurrentStateRequest(BaseModel):
@@ -1505,6 +1531,71 @@ async def memory_recall(
     return maybe or out
 
 
+@app.get("/v1/memory/association-coverage/summary")
+async def memory_association_coverage_summary(
+    root: Optional[str] = None,
+    limit: int = 10,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return association_coverage_summary(
+        root=_resolve_root(root, x_tenant_id),
+        limit=max(1, int(limit)),
+    )
+
+
+@app.get("/v1/memory/association-candidates")
+async def memory_association_candidates(
+    root: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return list_association_candidates(
+        root=_resolve_root(root, x_tenant_id),
+        status=status,
+        limit=max(1, int(limit)),
+    )
+
+
+@app.post("/v1/memory/association-candidates/{candidate_id}/decide")
+async def memory_association_candidate_decide(
+    candidate_id: str,
+    payload: AssociationCandidateDecisionRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = decide_association_candidate(
+        root=_resolve_root(payload.root, x_tenant_id),
+        candidate_id=str(candidate_id or ""),
+        action=str(payload.action or ""),
+        run_id=str(payload.run_id or ""),
+        session_id=(str(payload.session_id or "").strip() or None),
+        reviewer=str(payload.reviewer or ""),
+        reason_text=str(payload.reason_text or ""),
+        truth_basis=str(payload.truth_basis or ""),
+        confidence=payload.confidence,
+        relationship=str(payload.relationship or ""),
+        source_bead=str(payload.source_bead or ""),
+        target_bead=str(payload.target_bead or ""),
+        evidence_refs=list(payload.evidence_refs or []),
+        evidence_bead_ids=list(payload.evidence_bead_ids or []),
+        judge_model=str(payload.judge_model or ""),
+        prompt_version=str(payload.prompt_version or "association_judge.v1"),
+        rubric_version=str(payload.rubric_version or "association_truth.v1"),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
 @app.post("/v1/memory/association-runs")
 async def memory_association_runs(
     payload: AssociationRunRequest,
@@ -1524,6 +1615,10 @@ async def memory_association_runs(
         graph_revision=str(payload.graph_revision or ""),
         prompt_version=str(payload.prompt_version or "association_judge.v1"),
         rubric_version=str(payload.rubric_version or "association_truth.v1"),
+        sweep=bool(payload.sweep),
+        sweep_mode=str(payload.sweep_mode or "incomplete"),
+        sweep_cursor=str(payload.sweep_cursor or ""),
+        sweep_limit=max(1, int(payload.sweep_limit or payload.max_candidates or 250)),
     )
     if not out.get("ok") and str(out.get("status") or "") not in {"judge_failed", "quarantined"}:
         return JSONResponse(status_code=400, content=out)

@@ -6,8 +6,11 @@ from pathlib import Path
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.associations.coverage import (
     apply_association_proposals,
+    association_coverage_summary,
+    decide_association_candidate,
     enqueue_association_coverage,
     get_association_run,
+    list_association_candidates,
     on_bead_committed,
     run_association_coverage,
 )
@@ -491,6 +494,85 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual("queued", coverage.get("status"))
             self.assertTrue(coverage.get("run_id"))
 
+    def test_association_summary_candidates_and_decision_contract(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            run = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+            )
+            self.assertTrue(run.get("ok"), run)
+            self.assertEqual("pending_judge", run.get("status"))
+
+            pending = list_association_candidates(td, status="pending_judge", limit=10)
+            self.assertTrue(pending.get("ok"), pending)
+            self.assertGreaterEqual(pending.get("count"), 1)
+            candidate = pending["results"][0]
+            self.assertEqual("Second", candidate.get("source_title"))
+            self.assertEqual("First", candidate.get("target_title"))
+
+            summary = association_coverage_summary(td, limit=10)
+            self.assertTrue(summary.get("ok"), summary)
+            self.assertEqual(2, summary.get("eligible_bead_count"))
+            self.assertEqual(0, summary.get("active_association_count"))
+            self.assertEqual(2, summary.get("isolated_eligible_bead_count"))
+            self.assertGreaterEqual((summary.get("candidate_status_counts") or {}).get("pending_judge") or 0, 1)
+
+            decided = decide_association_candidate(
+                td,
+                candidate_id=str(candidate.get("candidate_id") or ""),
+                action="accept",
+                truth_basis="unit_test_operator_review",
+                reviewer="qa",
+            )
+            self.assertTrue(decided.get("ok"), decided)
+            self.assertEqual("linked", decided.get("status"))
+            self.assertTrue(decided.get("association_ids"))
+
+            linked = list_association_candidates(td, status="linked", limit=10)
+            self.assertEqual(1, linked.get("count"))
+            after = association_coverage_summary(td, limit=10)
+            self.assertEqual(1, after.get("active_association_count"))
+            self.assertLess(after.get("isolated_eligible_bead_count"), 2)
+
+    def test_sweep_mode_selects_eligible_beads_without_client_ids(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = enqueue_association_coverage(
+                td,
+                trigger="operator",
+                run_inline=True,
+                sweep=True,
+                sweep_mode="all",
+                sweep_limit=1,
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertTrue(out.get("sweep"))
+            self.assertEqual("all", out.get("sweep_mode"))
+            self.assertEqual(1, len(out.get("bead_ids") or []))
+            self.assertIn((out.get("bead_ids") or [])[0], {first, second})
+            self.assertFalse(out.get("sweep_complete"))
+            self.assertTrue(out.get("next_sweep_cursor"))
+
+            done = enqueue_association_coverage(
+                td,
+                trigger="operator",
+                run_inline=True,
+                sweep=True,
+                sweep_mode="all",
+                sweep_cursor=str(out.get("next_sweep_cursor") or ""),
+                sweep_limit=10,
+            )
+            self.assertTrue(done.get("ok"), done)
+            self.assertTrue(done.get("sweep_complete"))
+
     def test_http_association_endpoints(self):
         try:
             from fastapi.testclient import TestClient
@@ -519,10 +601,29 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual(200, fetched.status_code)
             self.assertEqual(run_id, (fetched.json().get("run") or {}).get("run_id"))
 
+            summary = client.get("/v1/memory/association-coverage/summary", params={"root": root})
+            self.assertEqual(200, summary.status_code)
+            self.assertEqual("memory.association_coverage_summary.v1", summary.json().get("contract"))
+
+            candidates = client.get(
+                "/v1/memory/association-candidates",
+                params={"root": root, "status": "pending_judge", "limit": 10},
+            )
+            self.assertEqual(200, candidates.status_code)
+            self.assertGreaterEqual(candidates.json().get("count"), 1)
+
+            candidate_id = ((candidates.json().get("results") or [{}])[0] or {}).get("candidate_id")
+            decided = client.post(
+                f"/v1/memory/association-candidates/{candidate_id}/decide",
+                json={"root": root, "action": "reject", "truth_basis": "unit_test_no_link"},
+            )
+            self.assertEqual(200, decided.status_code)
+            self.assertEqual("no_supported_links", decided.json().get("status"))
+
             inspect = client.get(f"/v1/memory/inspect/beads/{second}", params={"root": root})
             self.assertEqual(200, inspect.status_code)
             coverage = ((inspect.json().get("bead") or {}).get("association_coverage") or {})
-            self.assertEqual("pending_judge", coverage.get("state"))
+            self.assertEqual("no_supported_links", coverage.get("state"))
 
     def test_on_bead_committed_store_hook_records_deferred_coverage(self):
         with tempfile.TemporaryDirectory() as td:
