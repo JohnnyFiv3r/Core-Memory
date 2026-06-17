@@ -141,7 +141,7 @@
       "authRequired": "conditional",
       "requestSchema": "query params",
       "requiredFields": [],
-      "response": {"ok": "bool", "contract": "memory.association_coverage_summary.v1", "graph_revision": "string", "eligible_bead_count": "int", "active_association_count": "int", "isolated_eligible_bead_ids": "array", "candidate_status_counts": "object", "latest_runs": "array"},
+      "response": {"ok": "bool", "contract": "memory.association_coverage_summary.v1", "graph_revision": "string", "eligible_bead_count": "int", "active_association_count": "int", "isolated_eligible_bead_ids": "array", "candidate_status_counts": "object", "source_ingest_envelope_summary": "object", "source_ingest_envelope_refs": "array", "latest_runs": "array"},
       "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     },
     {
@@ -166,9 +166,9 @@
       "method": "POST",
       "path": "/v1/memory/association-runs",
       "authRequired": "conditional",
-      "requestSchema": "AssociationRunRequest",
+      "requestSchema": "AssociationRunRequest { source_ingest_envelope?: object }",
       "requiredFields": ["bead_ids|session_id|sweep"],
-      "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object", "candidate_count": "int?", "judge_model": "string?", "sweep_complete": "bool?"},
+      "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object", "candidate_count": "int?", "judge_model": "string?", "source_ingest_envelope_refs": "array", "source_ingest_batch_ids": "array", "sweep_complete": "bool?"},
       "notes": ["Deterministic/source-local coverage emits candidates only; active association edges require judge-approved decisions.", "States include deferred, pending_judge, linked, no_supported_links, quarantined, judge_failed, failed, skipped_ineligible."],
       "errors": ["400 association_run_requires_bead_ids_or_session_id", "401 unauthorized", "400 invalid_tenant_id"]
     },

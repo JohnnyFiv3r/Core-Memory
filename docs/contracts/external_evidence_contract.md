@@ -194,3 +194,40 @@ treated as `linked`.
 Replayed `already_exists` events do not enqueue another association run. Changed
 source-object versions still write the new bead and let coverage generate
 judge-reviewed candidates for version lineage.
+
+## Source-ingest envelope
+
+Connectors may include `source_ingest_envelope` on any external-evidence write
+to identify the coherent import/capture boundary that produced the bead. Core
+Memory also derives a best-effort envelope from existing source fields when this
+object is omitted.
+
+Useful fields:
+
+```json
+{
+  "boundary_type": "DocumentImported | MediaImported | TranscriptCaptured | StructuredDatasetImported | RelationalSnapshotCommitted | RelationalDeltaCommitted | AgentArtifactCaptured | OperationalEventCaptured | StateAssertionCaptured",
+  "ingest_batch_id": "stable-source-batch-id",
+  "workspace_id": "host workspace id",
+  "source_type": "google_drive",
+  "source_object_id": "provider object id",
+  "source_version": "etag / sha / version",
+  "source_uri": "hydration or provider URI",
+  "source_event_id": "provider delivery/event id",
+  "actor_id": "optional user or app actor",
+  "agent_id": "optional agent/runtime actor",
+  "timestamp": "2026-06-17T00:00:00Z",
+  "authority_class": "source_attributed",
+  "hydration_refs": [{"store": "supabase", "ref": "raw/doc_001"}],
+  "parent_artifact": {"document_id": "doc_001"},
+  "local_refs": {"section_refs": [{"section_id": "security"}]}
+}
+```
+
+Core Memory persists the full envelope on the bead and propagates compact
+`source_ingest_envelope_ref` values through association coverage runs,
+candidate rows, judge receipts, and accepted associations. Deterministic
+source-local structure, such as document sections, row order, transcript
+continuity, or supersession, is treated as candidate evidence and provenance,
+not active semantic graph truth. Active edges are still written only by the
+association judge path.

@@ -376,6 +376,78 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual(judged["run_id"], part_of[0]["association_run_id"])
             self.assertTrue(part_of[0].get("candidate_ids"))
 
+    def test_source_ingest_envelope_propagates_from_ingest_to_judged_association(self):
+        with tempfile.TemporaryDirectory() as td:
+            envelope = {
+                "boundary_type": "DocumentImported",
+                "ingest_batch_id": "drive-import-42",
+                "workspace_id": "workspace-1",
+                "source_type": "google_drive",
+                "source_object_id": "doc_001",
+                "source_event_id": "drive-event-42",
+                "source_uri": "gdrive://doc_001",
+                "authority_class": "source_attributed",
+            }
+            whole = ingest_document_reference(
+                td,
+                _document_payload(source_ingest_envelope=envelope),
+                session_id="external",
+            )
+            section = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_event_id="evt_doc_terms",
+                    title="Vendor Contract - Terms",
+                    summary=["Terms section from the vendor contract."],
+                    section_refs=[{"section_id": "terms", "chunk_ref": "chunk_terms"}],
+                    source_ingest_envelope={
+                        **envelope,
+                        "local_refs": {"section_refs": [{"section_id": "terms", "chunk_ref": "chunk_terms"}]},
+                    },
+                ),
+                session_id="external",
+            )
+
+            idx = _index(td)
+            section_bead = idx["beads"][section["bead_id"]]
+            bead_ref = section_bead.get("source_ingest_envelope_ref") or {}
+            self.assertEqual("drive-import-42", bead_ref.get("ingest_batch_id"))
+            self.assertEqual("google_drive", bead_ref.get("source_type"))
+
+            candidates = list_association_candidates(td, status="pending_judge", limit=20)
+            candidate = next(
+                row for row in candidates.get("results") or []
+                if row.get("reason_code") == "document_section_part_of_document"
+            )
+            self.assertIn("drive-import-42", candidate.get("source_ingest_batch_ids") or [])
+            self.assertTrue(candidate.get("source_microbatch_key"))
+
+            summary = association_coverage_summary(td)
+            envelope_summary = summary.get("source_ingest_envelope_summary") or {}
+            self.assertIn("drive-import-42", envelope_summary.get("batch_ids") or [])
+
+            decided = decide_association_candidate(
+                td,
+                candidate_id=candidate["candidate_id"],
+                action="accept",
+                truth_basis="host_reviewed_source_envelope_candidate",
+            )
+            self.assertTrue(decided.get("ok"), decided)
+            self.assertEqual("linked", decided.get("status"))
+            self.assertIn("drive-import-42", decided.get("source_ingest_batch_ids") or [])
+
+            part_of = _assocs(td, "part_of")
+            self.assertEqual(1, len(part_of))
+            self.assertEqual(section["bead_id"], part_of[0]["source_bead"])
+            self.assertEqual(whole["bead_id"], part_of[0]["target_bead"])
+            self.assertIn("drive-import-42", part_of[0].get("source_ingest_batch_ids") or [])
+            assoc_refs = part_of[0].get("source_ingest_envelope_refs") or []
+            self.assertTrue(any((ref or {}).get("source_type") == "google_drive" for ref in assoc_refs))
+
+            decision_rows = _jsonl_rows(td, "association-judge-decisions.jsonl")
+            latest_decision = decision_rows[-1]
+            self.assertIn("drive-import-42", latest_decision.get("source_ingest_batch_ids") or [])
+
     def test_state_assertion_links_derived_from_source_bead_after_judge_approval(self):
         with tempfile.TemporaryDirectory() as td:
             source = ingest_structured_observation(td, _structured_payload(), session_id="external")
