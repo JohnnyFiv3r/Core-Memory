@@ -208,6 +208,38 @@ class TestExternalEvidenceIngest(unittest.TestCase):
             self.assertEqual({"store": "ragie", "ref": "ragie_doc_001"}, bead["hydration_ref"])
             self.assertEqual("termination clause", bead["section_refs"][0]["label"])
 
+    def test_document_reference_carries_source_ingest_envelope(self):
+        with tempfile.TemporaryDirectory() as td:
+            receipt = ingest_document_reference(
+                td,
+                _document_payload(
+                    ingest_batch_id="batch-doc-001",
+                    source_ingest_envelope={
+                        "boundary_type": "DocumentImported",
+                        "ingest_batch_id": "batch-doc-001",
+                        "source_type": "document",
+                        "source_object_id": "doc_001",
+                        "source_version": "v1",
+                        "authority_class": "uploaded_source",
+                    },
+                ),
+                session_id="external-source",
+            )
+            self.assertEqual("batch-doc-001", receipt["source_ingest_batch_id"])
+            self.assertTrue(receipt["source_ingest_envelope_id"].startswith("env-"))
+            self.assertEqual("batch-doc-001", receipt["source_ingest_envelope_ref"]["ingest_batch_id"])
+
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][receipt["bead_id"]]
+            envelope = bead["source_ingest_envelope"]
+            self.assertEqual("core_memory.source_ingest_envelope.v1", envelope["schema"])
+            self.assertEqual("DocumentImported", envelope["boundary_type"])
+            self.assertEqual("batch-doc-001", envelope["ingest_batch_id"])
+            self.assertEqual("doc_001", envelope["source_object_id"])
+            self.assertEqual("uploaded_source", envelope["authority_class"])
+            self.assertEqual("termination clause", envelope["local_refs"]["section_refs"][0]["label"])
+            self.assertEqual("batch-doc-001", bead["source_ingest_batch_id"])
+
     def test_state_assertion_writes_derived_business_state(self):
         with tempfile.TemporaryDirectory() as td:
             receipt = ingest_state_assertion(td, _state_assertion_payload(), session_id="external-source")

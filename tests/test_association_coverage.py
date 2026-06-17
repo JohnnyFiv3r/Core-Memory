@@ -72,6 +72,15 @@ class AcceptingFakeAssociationJudge:
         }
 
 
+class ContextCapturingAssociationJudge(AcceptingFakeAssociationJudge):
+    def __init__(self):
+        self.contexts = []
+
+    def review(self, context):
+        self.contexts.append(context)
+        return super().review(context)
+
+
 class RejectingFakeAssociationJudge:
     def review(self, context):
         return {
@@ -205,12 +214,13 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual("pending_judge", section["association_state"])
             self.assertEqual([], _assocs(td, "part_of"))
 
+            judge = ContextCapturingAssociationJudge()
             judged = run_association_coverage(
                 td,
                 bead_ids=[section["bead_id"]],
                 candidate_bead_ids=[whole["bead_id"]],
                 trigger="operator",
-                judge=AcceptingFakeAssociationJudge(),
+                judge=judge,
             )
             self.assertTrue(judged.get("ok"), judged)
             part_of = _assocs(td, "part_of")
@@ -220,6 +230,18 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual("fake-accepting", part_of[0]["judge_model"])
             self.assertEqual(judged["run_id"], part_of[0]["association_run_id"])
             self.assertTrue(part_of[0].get("candidate_ids"))
+            self.assertTrue(part_of[0].get("source_ingest_envelope_refs"))
+            self.assertIn("evt_doc_terms", part_of[0].get("source_ingest_batch_ids") or [])
+
+            self.assertTrue(judge.contexts)
+            context = judge.contexts[-1]
+            self.assertTrue(context.get("source_ingest_envelope_refs"))
+            self.assertTrue(context.get("source_ingest_envelopes"))
+            self.assertTrue(context.get("source_microbatches"))
+            candidate_rows = _jsonl_rows(td, "association-candidates.jsonl")
+            latest_candidates = candidate_rows[-1]["candidates"]
+            self.assertTrue(latest_candidates[0].get("source_ingest_envelope_refs"))
+            self.assertTrue(latest_candidates[0].get("source_microbatch_key"))
 
     def test_state_assertion_links_derived_from_source_bead_after_judge_approval(self):
         with tempfile.TemporaryDirectory() as td:
@@ -284,6 +306,40 @@ class TestAssociationCoverage(unittest.TestCase):
             )
             self.assertTrue(rerun.get("ok"), rerun)
             self.assertEqual(1, len(_assocs(td, "precedes")))
+
+    def test_queued_association_pass_preserves_source_ingest_envelope_refs(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+            envelope_ref = {
+                "schema": "core_memory.source_ingest_envelope.v1",
+                "envelope_id": "env-queued",
+                "boundary_type": "DocumentImported",
+                "ingest_batch_id": "batch-queued",
+                "source_type": "document",
+                "source_object_id": "doc-queued",
+            }
+
+            enqueued = enqueue_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="typed_ingest",
+                source_ingest_envelope_refs=[envelope_ref],
+            )
+            self.assertTrue(enqueued.get("ok"), enqueued)
+            self.assertEqual(["batch-queued"], enqueued.get("source_ingest_batch_ids"))
+
+            ran = run_async_jobs(td, run_semantic=False, max_compaction=0, max_side_effects=5)
+            self.assertTrue(ran.get("ok"), ran)
+            candidate_rows = _jsonl_rows(td, "association-candidates.jsonl")
+            self.assertTrue(candidate_rows)
+            latest = candidate_rows[-1]
+            self.assertEqual(["batch-queued"], latest.get("source_ingest_batch_ids"))
+            candidate = (latest.get("candidates") or [])[0]
+            self.assertEqual(["batch-queued"], candidate.get("source_ingest_batch_ids"))
+            self.assertEqual("batch:batch-queued", candidate.get("source_microbatch_key"))
 
     def test_rejecting_judge_records_no_supported_links_without_edge(self):
         with tempfile.TemporaryDirectory() as td:
