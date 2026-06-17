@@ -22,6 +22,10 @@ from core_memory.schema.normalization import (
     normalize_assertion_kind,
 )
 from core_memory.runtime.associations.coverage import on_bead_committed
+from core_memory.runtime.source_envelope import (
+    normalize_source_ingest_envelope,
+    source_ingest_envelope_ref,
+)
 
 
 def _clean_str(value: Any) -> str:
@@ -362,7 +366,14 @@ def _validate_external_payload(bead_type: str, payload: dict[str, Any], hydratio
             raise ValueError("external_evidence: state_assertion requires effective_from or observed_at")
 
 
-def _bead_payload(payload: dict[str, Any], *, bead_type: str, source_kind: str, hydration_ref: dict[str, Any]) -> dict[str, Any]:
+def _bead_payload(
+    payload: dict[str, Any],
+    *,
+    bead_type: str,
+    source_kind: str,
+    hydration_ref: dict[str, Any],
+    source_ingest_envelope: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     summary = _coerce_summary(payload.get("summary"))
     entities = _coerce_str_list(payload.get("entities") or payload.get("entity_refs"))
     topics = _coerce_str_list(payload.get("topics"))
@@ -408,6 +419,13 @@ def _bead_payload(payload: dict[str, Any], *, bead_type: str, source_kind: str, 
         "core_memory_unifying_id": _clean_str(payload.get("core_memory_unifying_id")),
         "hydration_ref": hydration_ref,
     }
+    envelope_ref = source_ingest_envelope_ref(source_ingest_envelope)
+    if source_ingest_envelope:
+        out["source_ingest_envelope"] = dict(source_ingest_envelope)
+    if envelope_ref:
+        out["source_ingest_envelope_ref"] = envelope_ref
+        out["source_ingest_envelope_id"] = _clean_str(envelope_ref.get("envelope_id"))
+        out["source_ingest_batch_id"] = _clean_str(envelope_ref.get("ingest_batch_id"))
     out.update(_typed_fields(bead_type, payload))
     return {k: v for k, v in out.items() if v is not None}
 
@@ -441,6 +459,13 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
     source_kind = _default_source_kind(bead_type, merged)
     hydration_ref = _hydration_ref(merged)
     _validate_external_payload(bead_type, merged, hydration_ref)
+    source_ingest_envelope = normalize_source_ingest_envelope(
+        merged,
+        bead_type=bead_type,
+        source_kind=source_kind,
+        hydration_ref=hydration_ref,
+    )
+    source_envelope_ref = source_ingest_envelope_ref(source_ingest_envelope)
 
     store = MemoryStore(root=root)
     predecessor_id = ""
@@ -463,12 +488,21 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
                 "type": bead_type,
                 "source_event_id": _clean_str(merged.get("source_event_id")),
                 "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
+                "source_ingest_envelope_ref": source_envelope_ref,
+                "source_ingest_envelope_id": _clean_str(source_envelope_ref.get("envelope_id")),
+                "source_ingest_batch_id": _clean_str(source_envelope_ref.get("ingest_batch_id")),
             }
         # Same source object, new event, changed content: the source was
         # adjusted. Write the new version; close the old one below.
         predecessor_id = bead_id
 
-    bead = _bead_payload(merged, bead_type=bead_type, source_kind=source_kind, hydration_ref=hydration_ref)
+    bead = _bead_payload(
+        merged,
+        bead_type=bead_type,
+        source_kind=source_kind,
+        hydration_ref=hydration_ref,
+        source_ingest_envelope=source_ingest_envelope,
+    )
     if predecessor_id:
         supersedes = _coerce_str_list(bead.get("supersedes"))
         if predecessor_id not in supersedes:
@@ -506,6 +540,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
             "source_system": _clean_str(merged.get("source_system")),
             "source_kind": source_kind,
             "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
+            "source_ingest_envelope_ref": source_envelope_ref,
         },
     )
     receipt = {
@@ -520,6 +555,9 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         "type": bead_type,
         "source_event_id": _clean_str(merged.get("source_event_id")),
         "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
+        "source_ingest_envelope_ref": source_envelope_ref,
+        "source_ingest_envelope_id": _clean_str(source_envelope_ref.get("envelope_id")),
+        "source_ingest_batch_id": _clean_str(source_envelope_ref.get("ingest_batch_id")),
     }
     if predecessor_id:
         receipt["status"] = "version_superseded"
@@ -533,6 +571,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
             trigger=coverage_trigger,
             source="external_evidence",
             run_inline=True,
+            source_ingest_envelope=source_ingest_envelope,
         )
     except Exception as exc:  # pragma: no cover - defensive integration boundary
         coverage = {"ok": False, "error": str(exc), "association_state_by_bead": {bead_id: "failed"}}

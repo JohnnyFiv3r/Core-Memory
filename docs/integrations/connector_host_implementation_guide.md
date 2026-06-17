@@ -295,7 +295,7 @@ Reference docs: `docs/integrations/external_data_schemas.md`,
    payload or nothing.
 3. **Payload builder** → set the correct schema (`data_type_flag`), the identity
    fields (§4), `hydration_ref` back into the host, `core_memory_unifying_id`,
-   and `grounding` only when parsing/deriving.
+   `source_ingest_envelope`, and `grounding` only when parsing/deriving.
 4. **HTTP client** → POST to the matching endpoint with auth header; branch on
    receipt `status` (§3); persist the returned `bead_id` keyed by your event.
    For newly accepted beads, also persist `association_run_id` and inspect
@@ -319,3 +319,29 @@ Reference docs: `docs/integrations/external_data_schemas.md`,
 
 Start with one connector end-to-end (HubSpot or GitHub) against the reference
 implementation, then replicate the pattern.
+
+### Source-ingest envelope checklist
+
+For each coherent source batch or capture boundary, send one normalized
+`source_ingest_envelope` with every bead-worthy payload from that boundary.
+Use it for document imports, media imports, transcript snapshots, structured
+dataset snapshots/deltas, operational events, agent artifacts, and state
+assertions. At minimum, include:
+
+- `boundary_type`
+- `ingest_batch_id`
+- `workspace_id`
+- `source_type`
+- `source_object_id`
+- `source_event_id`
+- `source_uri` or `hydration_refs`
+- `authority_class`
+- local refs such as `section_refs`, `turn_refs`, `row_ref`, `frame_refs`, or
+  `chunk_refs` when the bead is section-scoped or otherwise local to an
+  artifact
+
+Core Memory persists the full envelope on beads and carries compact envelope
+refs into association candidates, coverage runs, judge receipts, and accepted
+association provenance. Source-local deterministic links are useful candidate
+evidence only; they do not become active graph edges unless the association
+judge accepts them.
