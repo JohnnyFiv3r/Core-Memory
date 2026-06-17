@@ -358,7 +358,7 @@ def _expected_shape(query: str) -> dict[str, Any]:
     relations: list[str] = []
     if any(term in q for term in ["decision", "decide", "decided", "rationale"]):
         bead_types.extend(["decision", "rationale"])
-        relations.extend(["superseded_by", "resolves", "supports"])
+        relations.extend(["supersedes", "resolves", "supports"])
     if any(term in q for term in ["why", "cause", "caused", "because", "led to"]):
         relations.extend(["causes", "leads_to", "supports"])
     if any(term in q for term in ["goal", "finished", "done", "outcome", "resolved"]):

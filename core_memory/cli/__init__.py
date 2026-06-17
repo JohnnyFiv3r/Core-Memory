@@ -232,6 +232,9 @@ def main():
     ops_sub.add_parser("rebuild", help="Rebuild index from events")
     ops_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index")
     ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
+    ops_relation_canonicalize = ops_sub.add_parser("canonicalize-relations", help="Rewrite inverse-direction association labels to active canonical edges")
+    ops_relation_canonicalize.add_argument("--apply", action="store_true", help="Apply the rewrite; default is dry-run")
+    ops_relation_canonicalize.add_argument("--limit", type=int, help="Maximum associations to rewrite in one pass")
 
     semantic_parser = subparsers.add_parser("semantic", help="Inspect and operate semantic indexing")
     semantic_sub = semantic_parser.add_subparsers(dest="semantic_cmd")

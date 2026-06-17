@@ -21,8 +21,8 @@ TIMESTAMP_PRIORITY = (
     "last_activated_at",
 )
 
-UPSTREAM_FROM_SOURCE = {"blocked_by", "derived_from", "superseded_by", "documented_by", "informed_by"}
-UPSTREAM_FROM_TARGET = {"causes", "leads_to", "enabled", "enables", "unblocks", "supports", "resolves", "diagnoses"}
+UPSTREAM_FROM_SOURCE = {"derived_from", "documented_by", "informed_by"}
+UPSTREAM_FROM_TARGET = {"causes", "leads_to", "enabled", "enables", "blocks", "unblocks", "supports", "resolves", "diagnoses", "supersedes"}
 BIDIRECTIONAL_WEAK = {"associated_with", "related_to", "shared_entity", "refines", "applies_pattern_of", "similar_pattern"}
 CONFLICT_RELATIONS = {"contradicts", "invalidates", "conflicts_with"}
 
@@ -32,7 +32,7 @@ RELATION_PRIOR_COST = {
     "enabled": 0.15,
     "enables": 0.15,
     "unblocks": 0.15,
-    "blocked_by": 0.18,
+    "blocks": 0.18,
     "blocks_unblocks": 0.18,
     "supports": 0.35,
     "derived_from": 0.25,
@@ -41,7 +41,6 @@ RELATION_PRIOR_COST = {
     "resolves": 0.32,
     "diagnoses": 0.32,
     "supersedes": 0.45,
-    "superseded_by": 0.45,
     "refines": 0.50,
     "associated_with": 0.75,
     "similar_pattern": 0.75,

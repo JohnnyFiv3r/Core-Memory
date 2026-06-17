@@ -1,10 +1,12 @@
 {
   "caused_by": "causes",
   "causes": "causes",
+  "blocked_by": "blocks",
+  "blocks": "blocks",
   "supports": "supports",
   "derived_from": "derived_from",
   "supersedes": "supersedes",
-  "superseded_by": "superseded_by",
+  "superseded_by": "supersedes",
   "contradicts": "contradicts",
   "resolves": "resolves"
 }

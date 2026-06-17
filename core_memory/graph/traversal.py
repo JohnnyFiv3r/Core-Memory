@@ -177,7 +177,7 @@ def causal_traverse(
     Args:
         root: Memory root path
         start_bead_ids: Starting bead IDs
-        direction: "forward" (follows/causes) or "backward" (leads_to/causes)
+        direction: "forward" (precedes/causes) or "backward" (leads_to/causes)
         max_depth: Max traversal depth
         include_types: Optional filter by bead types
     """

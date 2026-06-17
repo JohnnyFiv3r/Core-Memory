@@ -367,7 +367,7 @@ class TestHopScoring(unittest.TestCase):
         self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["supports"],
                            _RELATIONSHIP_HOP_WEIGHT["associated_with"])
         self.assertGreater(_RELATIONSHIP_HOP_WEIGHT["associated_with"],
-                           _RELATIONSHIP_HOP_WEIGHT["follows"])
+                           _RELATIONSHIP_HOP_WEIGHT["precedes"])
 
     def test_competitive_hop_ranked_before_weak_vector_in_output(self):
         """A causal hop with score > weak_vector must appear before it in out list.

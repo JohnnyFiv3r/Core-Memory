@@ -36,7 +36,7 @@ from core_memory.config.feature_flags import (
 from .catalog import build_catalog
 
 
-NON_FULL_GROUNDING_RELATIONSHIPS = {"follows", "precedes", "associated_with"}
+NON_FULL_GROUNDING_RELATIONSHIPS = {"precedes", "associated_with"}
 
 
 def _env_int(name: str, default: int) -> int:
@@ -418,12 +418,12 @@ def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tup
 def _has_non_temporal_structural_edge(chains: list[dict[str, Any]]) -> bool:
     """True when at least one chain includes a non-temporal structural edge.
 
-    v2.1 policy: follows/associated_with-only paths are not sufficient for
+    v2.1 policy: temporal/associated_with-only paths are not sufficient for
     grounding=full.
     """
     for chain in (chains or []):
         for edge in (chain.get("edges") or []):
-            rel = str((edge or {}).get("rel") or "").strip().lower()
+            rel = normalize_relation_type(str((edge or {}).get("rel") or "").strip().lower())
             edge_class = str((edge or {}).get("class") or (edge or {}).get("edge_class") or "").strip().lower()
             is_structural = (not edge_class) or edge_class == "structural"
             if is_structural and rel and rel not in NON_FULL_GROUNDING_RELATIONSHIPS:
@@ -455,9 +455,6 @@ def _relation_summary_from_index(index_payload: dict[str, Any]) -> dict[str, dic
         if rel == "supersedes":
             out[src]["supersedes_count"] += 1
             out[dst]["superseded_by_count"] += 1
-        elif rel == "superseded_by":
-            out[src]["superseded_by_count"] += 1
-            out[dst]["supersedes_count"] += 1
         elif rel == "contradicts":
             out[src]["contradicts_count"] += 1
             out[dst]["contradicts_count"] += 1

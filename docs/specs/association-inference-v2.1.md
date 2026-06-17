@@ -15,11 +15,10 @@ Legacy rows remain readable for compatibility.
 
 ## Canonical temporal relationships
 
-- Canonical temporal edges: `follows`, `precedes`
-- Semantics: `source follows target` means source happened after target.
+- Canonical temporal edge: `precedes`
 - Semantics: `source precedes target` means source happened before target.
-- Traversal from a selected/current bead may walk `follows` edges into antecedent context.
-- System must not auto-normalize `precedes` to `follows` or reverse source and target.
+- Legacy `follows` inputs are accepted only as inverse-direction aliases and are
+  rewritten by swapping endpoints to `precedes`.
 
 ---
 
@@ -32,15 +31,13 @@ The inference surface accepts the shared canonical relation vocabulary defined i
 - `leads_to`
 - `supports`
 - `supersedes`
-- `superseded_by`
 - `refines`
-- `blocked_by`
+- `blocks`
 - `unblocks`
 - `blocks_unblocks`
 - `enables`
 - `derived_from`
 - `part_of`
-- `follows`
 - `precedes`
 - `contradicts`
 - `invalidates`
@@ -59,27 +56,26 @@ spelling only; it never rewrites source/target direction.
 
 - `causes`: source is evidence/cause for the affected target.
 - `leads_to`: process/progression edge, not generic causal proof.
-- `blocked_by`: source is prevented by the target blocker in current stored
-  Core Memory usage.
+- `blocks`: source prevents or blocks target.
 - `unblocks`: source removes a blocking condition for target.
 - `blocks_unblocks`: legacy compound relation, accepted but discouraged for new
   model-authored associations unless the transition itself is being represented.
 - `supports`: source meaningfully supports target. Do not use it as a fallback
   for unknown semantics.
 
-Accepted aliases such as `caused_by`, `led_to`, `blocked`, `unblocked`,
-`enabled`, `conflicts_with`, `related_to`, `reinforces`, `mirrors`,
+Accepted aliases such as `caused_by`, `led_to`, `unblocked`, `enabled`,
+`conflicts_with`, `related_to`, `reinforces`, `mirrors`,
 `structural_symmetry`, `solves_same_mechanism`, `transferable_lesson`,
-`violates_pattern_of`, and `blocks->unblocks` normalize to the existing
-canonical relation labels without changing direction.
+`violates_pattern_of`, and `blocks->unblocks` normalize to canonical relation
+labels.
+
+Inverse labels `blocked_by`, `superseded_by`, `follows`, and `specializes`
+normalize to active canonical labels and swap source/target before validation.
 
 Dreamer-specific pattern-family labels may appear as `relationship_signal`
 metadata on candidates, but they are not canonical graph relation labels.
 
-The active label `blocks` is intentionally noncanonical for inference writes in
-this version. Mapping `source blocks target` to `source blocked_by target` would
-invert current Core Memory read semantics unless the system also rewrote
-endpoints, which this contract does not do.
+New model-authored writes should emit active labels directly when possible.
 
 ---
 
@@ -151,6 +147,6 @@ Recommended quarantine dedupe key:
 
 ## Grounding rule for temporal edges
 
-- `follows` is traversable and can contribute context.
-- `follows`-only paths are not sufficient for `grounding=full`.
+- `precedes` is traversable and can contribute context.
+- `precedes`-only paths are not sufficient for `grounding=full`.
 - `grounding=full` requires at least one non-temporal structural relation in the chain.

@@ -1014,16 +1014,17 @@ def decide_dreamer_candidate(
 
         from core_memory.runtime.engine import process_turn_finalized
         from core_memory.schema.turn import Turn
-        from core_memory.schema.normalization import normalize_relation_type, relation_kind
+        from core_memory.schema.normalization import canonicalize_association_edge, relation_kind
         from core_memory.policy.association_inference_v21 import CANONICAL_INFERENCE_RELATIONSHIPS
 
         src = str(target.get("source_bead_id") or "")
         tgt = str(target.get("target_bead_id") or "")
         rel_raw = str(target.get("relationship") or "associated_with")
-        rel_norm = normalize_relation_type(rel_raw)
-        if rel_norm == "superseded_by":
-            rel_apply = "supersedes"
-        elif rel_norm in CANONICAL_INFERENCE_RELATIONSHIPS:
+        edge = canonicalize_association_edge(src, tgt, rel_raw)
+        src = str(edge.get("source_bead") or "")
+        tgt = str(edge.get("target_bead") or "")
+        rel_norm = str(edge.get("relationship") or "")
+        if rel_norm in CANONICAL_INFERENCE_RELATIONSHIPS:
             rel_apply = rel_norm
         elif relation_kind(rel_norm) == "canonical":
             # Dreamer canonical relations can be richer than strict inference set;

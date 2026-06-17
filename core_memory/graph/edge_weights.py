@@ -27,7 +27,7 @@ RELATIONSHIP_HOP_WEIGHT: dict[str, float] = {
     # Weak / generic
     "associated_with": 0.60, "related_to": 0.60, "shared_entity": 0.55,
     # Temporal — low signal (adjacency, not topical relevance)
-    "follows": 0.35, "precedes": 0.35, "sequential_turn": 0.35,
+    "precedes": 0.35, "sequential_turn": 0.35,
     "continues": 0.45, "next_turn": 0.35, "prev_turn": 0.35,
 }
 DEFAULT_HOP_WEIGHT: float = 0.70    # unknown / generic relationship

@@ -10,7 +10,7 @@ def test_trace_follows_only_is_not_full_grounding():
         s = MemoryStore(td)
         a = s.add_bead(type="decision", title="A", summary=["a"], session_id="main", source_turn_ids=["t1"])
         b = s.add_bead(type="context", title="B", summary=["b"], session_id="main", source_turn_ids=["t2"])
-        s.link(a, b, "follows", "temporal")
+        s.link(a, b, "precedes", "temporal")
 
         out = trace_request(root=td, anchor_ids=[a], intent="causal", query="", k=5)
         g = out.get("grounding") or {}
@@ -49,7 +49,7 @@ def test_canonical_execute_respects_temporal_only_guard():
         s = MemoryStore(td)
         a = s.add_bead(type="decision", title="A", summary=["a"], session_id="main", source_turn_ids=["t1"])
         b = s.add_bead(type="context", title="B", summary=["b"], session_id="main", source_turn_ids=["t2"])
-        s.link(a, b, "follows", "temporal")
+        s.link(a, b, "precedes", "temporal")
 
         out = canonical_execute_request(
             root=td,
@@ -65,4 +65,3 @@ def test_canonical_execute_respects_temporal_only_guard():
         g = out.get("grounding") or {}
         assert g.get("level") == "partial"
         assert g.get("reason") == "non_temporal_structural_missing"
-

@@ -144,7 +144,7 @@ class TestClassifierFallback(unittest.TestCase):
         self.assertTrue(len(rel) > 0)
         self.assertIsInstance(reason_code, str)
         # The two beads share tags and session — classifier should produce something specific
-        canonical = {"supports", "leads_to", "causes", "associated_with", "precedes", "follows"}
+        canonical = {"supports", "leads_to", "causes", "associated_with", "precedes", "blocks"}
         self.assertIn(rel, canonical)
 
     def test_classifier_fills_provenance(self):

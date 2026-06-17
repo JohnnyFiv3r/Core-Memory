@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from ..persistence.io_utils import append_jsonl, atomic_write_json
-from ..schema.normalization import normalize_relation_type
+from ..schema.normalization import canonicalize_association_edge, normalize_relation_type
 
-STRUCTURAL_RELS = {"causes", "supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+STRUCTURAL_RELS = {"causes", "supports", "derived_from", "supersedes", "contradicts", "resolves", "blocks"}
 
 
 def _paths(root: Path) -> tuple[Path, Path, Path]:
@@ -168,6 +168,22 @@ def _load_structural_relation_map() -> dict[str, str]:
     return {r: r for r in sorted(STRUCTURAL_RELS)}
 
 
+def _canonical_structural_assoc(a: dict, rel_map: dict[str, str]) -> tuple[str, str, str]:
+    src0 = str(a.get("source_bead") or "").strip()
+    dst0 = str(a.get("target_bead") or "").strip()
+    rel0 = str(a.get("relationship") or "").strip()
+    edge = canonicalize_association_edge(src0, dst0, rel0)
+    src = str(edge.get("source_bead") or "").strip()
+    dst = str(edge.get("target_bead") or "").strip()
+    rel = str(edge.get("relationship") or "").strip()
+    if rel not in STRUCTURAL_RELS and rel0 in rel_map:
+        edge = canonicalize_association_edge(src0, dst0, rel_map.get(rel0))
+        src = str(edge.get("source_bead") or "").strip()
+        dst = str(edge.get("target_bead") or "").strip()
+        rel = str(edge.get("relationship") or "").strip()
+    return src, dst, rel
+
+
 def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[int, int]:
     beads = index.get("beads") or {}
     assocs = index.get("associations") or []
@@ -182,15 +198,12 @@ def _sync_associations_to_links(index: dict, rel_map: dict[str, str]) -> tuple[i
         status = str(a.get("status") or "active").strip().lower() or "active"
         if status in {"retracted", "superseded", "inactive"}:
             continue
-        rel0 = str(a.get("relationship") or "").strip()
-        rel = normalize_relation_type(rel_map.get(rel0, rel0))
+        src, dst, rel = _canonical_structural_assoc(a, rel_map)
         if rel not in STRUCTURAL_RELS:
             continue
         edge_class = str(a.get("edge_class") or "").strip().lower()
         if edge_class in {"derived", "weak", "auto"}:
             continue
-        src = str(a.get("source_bead") or "").strip()
-        dst = str(a.get("target_bead") or "").strip()
         if not src or not dst or src not in beads or dst not in beads:
             continue
         scanned += 1
@@ -408,12 +421,9 @@ def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = 
     for a in assocs2:
         if not isinstance(a, dict):
             continue
-        rel0 = str(a.get("relationship") or "").strip()
-        rel = normalize_relation_type(rel_map.get(rel0, rel0))
+        src, dst, rel = _canonical_structural_assoc(a, rel_map)
         if rel not in STRUCTURAL_RELS:
             continue
-        src = str(a.get("source_bead") or "").strip()
-        dst = str(a.get("target_bead") or "").strip()
         if src not in beads2 or dst not in beads2:
             continue
         links = beads2[src].get("links") or []
@@ -854,7 +864,7 @@ def causal_traverse(
 
     def _rel_time_expectation(rel: str) -> str:
         r = normalize_relation_type(rel)
-        if r in {"causes", "leads_to", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
+        if r in {"causes", "leads_to", "enables", "blocks", "blocks_unblocks", "supersedes"}:
             return "forward"
         if r in {"diagnoses"}:
             return "backward_ok"
@@ -864,7 +874,7 @@ def causal_traverse(
         if not path_edges:
             return 0.7
         rels = [normalize_relation_type(str(e.get("rel") or "")) for e in path_edges]
-        causal_rels = {"causes", "leads_to", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by", "follows", "precedes"}
+        causal_rels = {"causes", "leads_to", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks", "blocks_unblocks", "supersedes", "precedes"}
         rel_score = sum(1 for r in rels if r in causal_rels) / max(1, len(rels))
 
         temporal_penalty = 0.0

@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence import events
+from core_memory.schema.normalization import normalize_relation_type
 
 
 def association_mix_stats(updates: dict[str, Any] | None) -> dict[str, int]:
@@ -16,10 +17,11 @@ def association_mix_stats(updates: dict[str, Any] | None) -> dict[str, int]:
         if not isinstance(row, dict):
             continue
         total += 1
-        rel = str(row.get("relationship") or "").strip().lower()
+        rel_raw = str(row.get("relationship") or "").strip().lower()
+        rel = normalize_relation_type(rel_raw) if rel_raw else ""
         if rel == "shared_tag":
             shared_tag += 1
-        elif rel in {"follows", "precedes"}:
+        elif rel in {"precedes"}:
             temporal += 1
         elif rel:
             semantic += 1

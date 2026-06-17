@@ -22,6 +22,7 @@ from core_memory.claim.turn_integration import extract_and_attach_claims
 from core_memory.claim.outcomes import classify_memory_outcome
 from core_memory.claim.update_policy import emit_claim_updates
 from core_memory.persistence.store_claim_ops import write_memory_outcome_to_bead
+from core_memory.schema.normalization import normalize_relation_type
 from ..association.crawler_contract import (
     build_crawler_context,
     merge_crawler_updates,
@@ -407,12 +408,13 @@ def _non_temporal_semantic_association_count(updates: dict[str, Any]) -> int:
     # Keep generic/temporal/noise preview labels out of semantic-count gating.
     # Rich canonical relations emitted by association.preview (for example
     # causes/leads_to/supports) intentionally remain counted.
-    excluded = {"follows", "precedes", "shared_tag", "associated_with"}
+    excluded = {"precedes", "shared_tag", "associated_with"}
     count = 0
     for row in associations:
         if not isinstance(row, dict):
             continue
-        rel = str(row.get("relationship") or "").strip().lower()
+        rel_raw = str(row.get("relationship") or "").strip().lower()
+        rel = normalize_relation_type(rel_raw) if rel_raw else ""
         if rel and rel not in excluded:
             count += 1
     return count

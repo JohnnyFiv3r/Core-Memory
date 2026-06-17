@@ -81,10 +81,10 @@ class TestScoreEdge(unittest.TestCase):
 
 class TestConstants(unittest.TestCase):
     def test_causal_weights_higher_than_temporal(self):
-        self.assertGreater(RELATIONSHIP_HOP_WEIGHT["causes"], RELATIONSHIP_HOP_WEIGHT["follows"])
+        self.assertGreater(RELATIONSHIP_HOP_WEIGHT["causes"], RELATIONSHIP_HOP_WEIGHT["precedes"])
 
     def test_semantic_weights_between_causal_and_temporal(self):
-        self.assertGreater(RELATIONSHIP_HOP_WEIGHT["supports"], RELATIONSHIP_HOP_WEIGHT["follows"])
+        self.assertGreater(RELATIONSHIP_HOP_WEIGHT["supports"], RELATIONSHIP_HOP_WEIGHT["precedes"])
         self.assertLess(RELATIONSHIP_HOP_WEIGHT["supports"], RELATIONSHIP_HOP_WEIGHT["causes"])
 
     def test_hop_decay_is_subunit(self):

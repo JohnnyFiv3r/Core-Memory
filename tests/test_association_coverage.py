@@ -264,7 +264,7 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual(1, side_effect.get("processed"), ran)
             self.assertEqual(0, side_effect.get("failed"), ran)
             self.assertEqual(0, side_effect.get("queue_depth"), ran)
-            self.assertEqual([], _assocs(td, "follows"))
+            self.assertEqual([], _assocs(td, "precedes"))
             candidate_rows = _jsonl_rows(td, "association-candidates.jsonl")
             self.assertTrue(candidate_rows)
             latest = get_association_run(td, (candidate_rows[-1] or {}).get("run_id"))
@@ -279,7 +279,7 @@ class TestAssociationCoverage(unittest.TestCase):
                 judge=AcceptingFakeAssociationJudge(),
             )
             self.assertTrue(rerun.get("ok"), rerun)
-            self.assertEqual(1, len(_assocs(td, "follows")))
+            self.assertEqual(1, len(_assocs(td, "precedes")))
 
     def test_rejecting_judge_records_no_supported_links_without_edge(self):
         with tempfile.TemporaryDirectory() as td:
@@ -296,7 +296,7 @@ class TestAssociationCoverage(unittest.TestCase):
             )
             self.assertTrue(out.get("ok"), out)
             self.assertEqual("no_supported_links", (out.get("association_state_by_bead") or {}).get(second))
-            self.assertEqual([], _assocs(td, "follows"))
+            self.assertEqual([], _assocs(td, "precedes"))
             decision_rows = _jsonl_rows(td, "association-judge-decisions.jsonl")
             self.assertTrue(decision_rows)
             self.assertEqual(1, ((decision_rows[-1].get("counts") or {}).get("rejected") or 0))

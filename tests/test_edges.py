@@ -24,7 +24,12 @@ class TestCoreAssociations(unittest.TestCase):
         self.assertTrue(assoc.startswith("assoc-"))
 
         idx = self.store._read_json(self.store.beads_dir / "index.json")
-        self.assertTrue(any(x.get("source_bead") == b and x.get("target_bead") == a for x in idx["associations"]))
+        self.assertTrue(any(
+            x.get("source_bead") == a
+            and x.get("target_bead") == b
+            and x.get("relationship") == "precedes"
+            for x in idx["associations"]
+        ))
 
     def test_recall_updates_counts(self):
         bead = self.store.add_bead(type="lesson", title="L", session_id="s", because=["learned in test"])

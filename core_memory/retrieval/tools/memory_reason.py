@@ -110,7 +110,7 @@ def _parse_iso(ts: str) -> datetime | None:
 
 def _rel_time_expectation(rel: str) -> str:
     r = normalize_relation_type(rel)
-    if r in {"causes", "leads_to", "enables", "blocks_unblocks", "supersedes", "superseded_by"}:
+    if r in {"causes", "leads_to", "enables", "blocks", "blocks_unblocks", "supersedes"}:
         return "forward"
     if r in {"diagnoses"}:
         return "backward_ok"
@@ -137,7 +137,7 @@ def _chain_coherence(chain: dict) -> tuple[float, dict]:
     if "context" in types and any(t in {"decision", "precedent"} for t in types):
         type_prog += 0.1
 
-    causal_rels = {"causes", "leads_to", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks_unblocks", "supersedes", "superseded_by"}
+    causal_rels = {"causes", "leads_to", "enables", "supports", "resolves", "derived_from", "refines", "diagnoses", "blocks", "blocks_unblocks", "supersedes"}
     rel_continuity = min(0.3, 0.3 * (sum(1 for r in rels if r in causal_rels) / max(1, len(rels))))
 
     temporal_penalty = 0.0
@@ -190,7 +190,7 @@ def _chain_confidence(chain: dict) -> float:
 def _chain_why_priority(chain: dict) -> float:
     edges = chain.get("edges") or []
     beads = chain.get("beads") or []
-    has_struct = any(str(e.get("class") or "") == "structural" or str(e.get("rel") or "") in {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves", "causes", "enables"} for e in edges)
+    has_struct = any(str(e.get("class") or "") == "structural" or normalize_relation_type(str(e.get("rel") or "")) in {"supports", "derived_from", "supersedes", "contradicts", "resolves", "causes", "enables"} for e in edges)
     types = {str(b.get("type") or "") for b in beads}
     has_dec = bool(types.intersection({"decision", "precedent"}))
     has_evd = bool(types.intersection({"evidence", "lesson", "outcome"}))
@@ -373,7 +373,7 @@ def _radius1_structural_fallback(store: MemoryStore, anchor_ids: list[str], limi
     idx = store._read_json(store.beads_dir / "index.json")
     beads = idx.get("beads") or {}
     out = []
-    allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+    allowed = {"supports", "derived_from", "supersedes", "contradicts", "resolves"}
 
     # Prefer graph structural heads (immutable) when available.
     graph_file = store.beads_dir / "bead_graph.json"
@@ -600,7 +600,7 @@ def _plan_why(store: MemoryStore, root_p: Path, query: str, k: int, debug: bool 
     if not out_chains:
         out_chains = _select_diverse_chains(sorted(all_fallback, key=lambda c: _chain_why_priority(c), reverse=True), top_n=3, tie_seed=tie_seed)
     else:
-        allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+        allowed = {"supports", "derived_from", "supersedes", "contradicts", "resolves"}
         has_struct = any(
             any((str(e.get("class") or "") == "structural") or (str(e.get("rel") or "") in allowed) for e in (c.get("edges") or []))
             for c in out_chains
@@ -687,7 +687,7 @@ def _plan_changed(store: MemoryStore, root_p: Path, query: str, k: int) -> dict:
         links = b.get("links") or []
         supers = []
         for l in links:
-            if isinstance(l, dict) and str(l.get("type") or "") in {"supersedes", "superseded_by"}:
+            if isinstance(l, dict) and normalize_relation_type(str(l.get("type") or "")) in {"supersedes"}:
                 supers.append(str(l.get("bead_id") or ""))
         path = [bid] + [x for x in supers if x]
         beads = [_hydrate_bead(store, x) for x in path]
@@ -741,7 +741,7 @@ def _causal_intent(query: str) -> bool:
 
 
 def _has_structural_chain(result: dict) -> bool:
-    allowed = {"supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves", "causes", "leads_to"}
+    allowed = {"supports", "derived_from", "supersedes", "contradicts", "resolves", "causes", "leads_to"}
     for c in (result.get("chains") or []):
         for e in (c.get("edges") or []):
             if str(e.get("class") or "") == "structural":

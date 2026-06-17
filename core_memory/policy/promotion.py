@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from core_memory.policy.promotion_contract import current_promotion_state
+from core_memory.schema.normalization import normalize_relation_type
 
 # Type-prior scores for promotion
 BEAD_TYPE_PRIORS = {
@@ -105,7 +106,7 @@ def _reinforcement_signals(index: dict, bead: dict) -> dict:
             continue
         edge_class = str(a.get("edge_class") or "").lower()
         rel = str(a.get("relationship") or "").lower()
-        if edge_class == "derived" and rel in {"shared_tag", "related", "follows"}:
+        if edge_class == "derived" and normalize_relation_type(rel) in {"shared_tag", "related", "precedes"}:
             continue
         assoc_deg += 1
 
