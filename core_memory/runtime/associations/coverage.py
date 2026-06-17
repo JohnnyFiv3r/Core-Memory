@@ -33,6 +33,10 @@ JUDGE_PROMPT_VERSION = "association_judge.v1"
 JUDGE_RUBRIC_VERSION = "association_truth.v1"
 CANDIDATE_GENERATION_VERSION = "association_candidates.v1"
 DEFAULT_MAX_CANDIDATES = 40
+DEFAULT_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS = 1800
+DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS = 16000
+DEFAULT_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_CANDIDATE = 220
+DEFAULT_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_SOURCE_BEAD = 40
 ALLOWED_TRIGGERS = {
     "bead_committed",
     "pre_commit",
@@ -966,6 +970,59 @@ class AssociationJudgeUnavailable(RuntimeError):
     pass
 
 
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(str(os.environ.get(name) or "").strip() or default)
+    except (TypeError, ValueError):
+        return default
+
+
+def _association_judge_max_tokens(context: dict[str, Any]) -> int:
+    candidates = len([x for x in (context.get("candidates") or []) if isinstance(x, dict)])
+    source_beads = len([x for x in (context.get("source_bead_ids") or []) if _clean_str(x)])
+    minimum = max(1, _env_int("CORE_MEMORY_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS", DEFAULT_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS))
+    maximum = max(minimum, _env_int("CORE_MEMORY_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS", DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS))
+    per_candidate = max(
+        1,
+        _env_int(
+            "CORE_MEMORY_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_CANDIDATE",
+            DEFAULT_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_CANDIDATE,
+        ),
+    )
+    per_source = max(
+        0,
+        _env_int(
+            "CORE_MEMORY_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_SOURCE_BEAD",
+            DEFAULT_ASSOCIATION_JUDGE_OUTPUT_TOKENS_PER_SOURCE_BEAD,
+        ),
+    )
+    requested = minimum + candidates * per_candidate + source_beads * per_source
+    return min(maximum, max(minimum, requested))
+
+
+def _parse_association_judge_json(text: str) -> dict[str, Any]:
+    raw = _clean_str(text)
+    if raw.startswith("```"):
+        lines = raw.splitlines()
+        if lines and lines[0].lstrip("`").strip().lower() in {"json", "javascript", "js"}:
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        raw = "\n".join(lines).strip()
+    try:
+        obj = json.loads(raw)
+    except json.JSONDecodeError:
+        start = raw.find("{")
+        end = raw.rfind("}")
+        if start >= 0 and end > start:
+            obj = json.loads(raw[start : end + 1])
+        else:
+            raise
+    if not isinstance(obj, dict):
+        raise ValueError("association_judge_returned_non_object")
+    return obj
+
+
 class LLMAssociationJudge:
     def review(self, context: dict[str, Any]) -> dict[str, Any]:
         from core_memory.llm_client import chat_complete
@@ -978,13 +1035,12 @@ class LLMAssociationJudge:
             "Do not approve unsupported links. linked/no_supported_links require your decision.\n\n"
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
-        raw = chat_complete(prompt, max_tokens=1800, temperature=0)
-        text = _clean_str(raw)
-        if text.startswith("```"):
-            text = text.strip("`")
-            if text.lower().startswith("json"):
-                text = text[4:].strip()
-        return json.loads(text)
+        max_tokens = _association_judge_max_tokens(context)
+        try:
+            raw = chat_complete(prompt, max_tokens=max_tokens, temperature=0, json_mode=True)
+        except Exception:
+            raw = chat_complete(prompt, max_tokens=max_tokens, temperature=0)
+        return _parse_association_judge_json(raw)
 
 
 def _configured_association_judge() -> Any | None:
@@ -1751,6 +1807,13 @@ def run_association_coverage(
             )
         )
     candidates = _dedupe_candidate_rows(candidates)
+    candidate_source_ids = {
+        _clean_str(candidate.get("source_bead"))
+        for candidate in candidates
+        if isinstance(candidate, dict) and _clean_str(candidate.get("source_bead"))
+    }
+    no_candidate_ids = [bid for bid in eligible_ids if bid not in candidate_source_ids]
+    judge_source_ids = [bid for bid in eligible_ids if bid in candidate_source_ids]
     _append_candidate_record(
         root,
         {
@@ -1762,6 +1825,7 @@ def run_association_coverage(
             "graph_revision": graph_rev,
             "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
             "source_bead_ids": eligible_ids,
+            "no_candidate_source_bead_ids": no_candidate_ids,
             "explicit_candidate_bead_ids": explicit_candidates,
             "max_candidates": max(1, int(max_candidates)),
             "candidate_count": len(candidates),
@@ -1769,11 +1833,60 @@ def run_association_coverage(
         },
     )
 
+    if not candidates:
+        state_by_bead = {bid: "no_supported_links" for bid in eligible_ids}
+        state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
+        out = {
+            "ok": True,
+            "contract": "memory.association_run.v1",
+            "run_id": run_id_final,
+            "status": "completed",
+            "trigger": trigger_n,
+            "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+            "prompt_version": prompt_v,
+            "rubric_version": rubric_v,
+            "graph_revision": graph_rev,
+            "session_id": _clean_str(session_id),
+            "bead_ids": eligible_ids,
+            "skipped_bead_ids": skipped_ids,
+            "association_state_by_bead": state_by_bead,
+            "candidate_count": 0,
+            "counts": {
+                "appended": 0,
+                "deduped": 0,
+                "quarantined": 0,
+                "failed": 0,
+                "pending_judge": 0,
+                "no_supported_links": len(eligible_ids),
+                "skipped": len(skipped_ids),
+                "candidates": 0,
+            },
+        }
+        _with_sweep_fields(out, sweep_info)
+        _append_judge_decision_record(
+            root,
+            {
+                "contract": ASSOCIATION_JUDGE_CONTRACT,
+                "run_id": run_id_final,
+                "status": "completed",
+                "candidate_ids": [],
+                "source_bead_ids": eligible_ids,
+                "reviewed_beads": [
+                    {"bead_id": bid, "association_state": "no_supported_links"}
+                    for bid in eligible_ids
+                ],
+                "counts": {"no_supported_links": len(eligible_ids)},
+                "reason": "no_candidate_proposals",
+            },
+        )
+        _append_run_record(root, out)
+        return out
+
     judge_context = _build_judge_context(
         index=index,
         run_id=run_id_final,
         trigger=trigger_n,
-        source_bead_ids=eligible_ids,
+        source_bead_ids=judge_source_ids,
         candidates=candidates,
         policy_version=_clean_str(policy_version) or POLICY_VERSION,
         prompt_version=prompt_v,
@@ -1782,7 +1895,8 @@ def run_association_coverage(
     try:
         judge_result = _invoke_association_judge(judge_context, judge=judge)
     except AssociationJudgeUnavailable as exc:
-        state_by_bead = {bid: "pending_judge" for bid in eligible_ids}
+        state_by_bead = {bid: "pending_judge" for bid in judge_source_ids}
+        state_by_bead.update({bid: "no_supported_links" for bid in no_candidate_ids})
         state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
         out = {
             "ok": True,
@@ -1804,7 +1918,8 @@ def run_association_coverage(
                 "deduped": 0,
                 "quarantined": 0,
                 "failed": 0,
-                "pending_judge": len(eligible_ids),
+                "pending_judge": len(judge_source_ids),
+                "no_supported_links": len(no_candidate_ids),
                 "skipped": len(skipped_ids),
             },
             "warning": _clean_str(exc),
@@ -1819,12 +1934,14 @@ def run_association_coverage(
                 "warning": _clean_str(exc),
                 "candidate_ids": [_clean_str(c.get("candidate_id")) for c in candidates],
                 "source_bead_ids": eligible_ids,
+                "no_candidate_source_bead_ids": no_candidate_ids,
             },
         )
         _append_run_record(root, out)
         return out
     except Exception as exc:
-        state_by_bead = {bid: "judge_failed" for bid in eligible_ids}
+        state_by_bead = {bid: "judge_failed" for bid in judge_source_ids}
+        state_by_bead.update({bid: "no_supported_links" for bid in no_candidate_ids})
         state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
         out = {
             "ok": False,
@@ -1841,7 +1958,14 @@ def run_association_coverage(
             "skipped_bead_ids": skipped_ids,
             "association_state_by_bead": state_by_bead,
             "candidate_count": len(candidates),
-            "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": len(eligible_ids), "skipped": len(skipped_ids)},
+            "counts": {
+                "appended": 0,
+                "deduped": 0,
+                "quarantined": 0,
+                "failed": len(judge_source_ids),
+                "no_supported_links": len(no_candidate_ids),
+                "skipped": len(skipped_ids),
+            },
             "error": _clean_str(exc),
         }
         _with_sweep_fields(out, sweep_info)
@@ -1854,6 +1978,7 @@ def run_association_coverage(
                 "error": _clean_str(exc),
                 "candidate_ids": [_clean_str(c.get("candidate_id")) for c in candidates],
                 "source_bead_ids": eligible_ids,
+                "no_candidate_source_bead_ids": no_candidate_ids,
             },
         )
         _append_run_record(root, out)
@@ -1864,7 +1989,7 @@ def run_association_coverage(
         index=index,
         run_id=run_id_final,
         session_id=session_id,
-        source_bead_ids=eligible_ids,
+        source_bead_ids=judge_source_ids,
         candidates=candidates,
         judge_context=judge_context,
         judge_result=judge_result,
@@ -1873,12 +1998,14 @@ def run_association_coverage(
         rubric_version=rubric_v,
     )
     state_by_bead = dict(applied.get("association_state_by_bead") or {})
-    for bid in eligible_ids:
+    for bid in judge_source_ids:
         state_by_bead.setdefault(bid, "pending_judge")
+    for bid in no_candidate_ids:
+        state_by_bead.setdefault(bid, "no_supported_links")
     state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
     failed = int(applied.get("failed") or 0)
     quarantined = int(applied.get("quarantined") or 0)
-    unresolved_ids = [bid for bid in eligible_ids if state_by_bead.get(bid) == "pending_judge"]
+    unresolved_ids = [bid for bid in judge_source_ids if state_by_bead.get(bid) == "pending_judge"]
     errors = list(applied.get("errors") or [])
     for bid in unresolved_ids:
         errors.append({"code": "unresolved_judge_decision", "bead_id": bid})
@@ -1892,6 +2019,7 @@ def run_association_coverage(
         "quarantined": quarantined,
         "failed": effective_failed,
         "pending_judge": len(unresolved_ids),
+        "no_supported_links": len(no_candidate_ids),
         "skipped": len(skipped_ids),
         "candidates": len(candidates),
     }
