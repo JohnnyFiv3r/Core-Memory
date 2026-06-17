@@ -7,6 +7,12 @@ import json
 from typing import Any
 
 from core_memory.integrations.mcp.tools.ingest import ingest_handler
+from core_memory.integrations.mcp.tools.transcript_snapshot_state import (
+    complete_transcript_snapshot,
+    fail_transcript_snapshot,
+    reserve_transcript_snapshot,
+    snapshot_id_for_key,
+)
 from core_memory.runtime.associations.coverage import enqueue_association_coverage
 
 _CHECKPOINT_LIST_FIELDS = ("durable_facts", "decisions", "preferences", "open_threads")
@@ -116,6 +122,98 @@ def _resolve_transcript_id(payload: dict[str, Any], *, source_system: str, sourc
     return ""
 
 
+def _resolve_idempotency_key(
+    payload: dict[str, Any],
+    *,
+    transcript_id: str,
+    transcript_hash: str,
+    snapshot_mode: str,
+    source_system: str,
+    source_client: str,
+) -> str:
+    explicit = str(payload.get("idempotency_key") or "").strip()
+    if explicit:
+        return explicit
+    return "mcp-snapshot:" + _stable_hash(
+        {
+            "transcript_id": transcript_id,
+            "conversation_id": str(payload.get("conversation_id") or ""),
+            "session_id": str(payload.get("session_id") or ""),
+            "transcript_hash": transcript_hash,
+            "snapshot_mode": snapshot_mode,
+            "source_system": source_system,
+            "source_client": source_client,
+        }
+    )
+
+
+def _idempotency_fingerprint(
+    payload: dict[str, Any],
+    *,
+    transcript_id: str,
+    transcript_hash: str,
+    snapshot_mode: str,
+    source_system: str,
+    source_client: str,
+) -> str:
+    return _stable_hash(
+        {
+            "transcript_id": transcript_id,
+            "transcript_hash": transcript_hash,
+            "snapshot_mode": snapshot_mode,
+            "source_system": source_system,
+            "source_client": source_client,
+            "conversation_id": str(payload.get("conversation_id") or ""),
+            "session_id": str(payload.get("session_id") or ""),
+        }
+    )
+
+
+def _snapshot_state_metadata(
+    payload: dict[str, Any],
+    *,
+    transcript_id: str,
+    transcript_hash: str,
+    snapshot_mode: str,
+    source_system: str,
+    source_client: str,
+) -> dict[str, Any]:
+    return {
+        "transcript_id": transcript_id,
+        "transcript_hash": transcript_hash,
+        "snapshot_mode": snapshot_mode,
+        "snapshot_reason": _snapshot_reason(payload),
+        "conversation_id": str(payload.get("conversation_id") or ""),
+        "conversation_label": str(payload.get("conversation_label") or ""),
+        "session_id": str(payload.get("session_id") or ""),
+        "source_system": source_system,
+        "source_client": source_client or source_system,
+    }
+
+
+def _apply_snapshot_record_fields(
+    result: dict[str, Any],
+    *,
+    idempotency_key: str,
+    snapshot_id: str,
+    duplicate: bool,
+    accepted: bool,
+    created: bool,
+    status: str,
+    last_capture_at: str = "",
+) -> dict[str, Any]:
+    out = dict(result or {})
+    out.setdefault("ok", True)
+    out["accepted"] = bool(accepted)
+    out["duplicate"] = bool(duplicate)
+    out["created"] = bool(created)
+    out["idempotency_key"] = idempotency_key
+    out["snapshot_id"] = snapshot_id
+    out["idempotency_status"] = status
+    out["last_capture_at"] = last_capture_at or None
+    return out
+
+
 def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     """Replay a visible transcript snapshot through canonical ingest semantics.
 
@@ -186,6 +284,71 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
             received={field: payload.get(field) for field in _STABLE_ID_FIELDS if payload.get(field) is not None},
         )
 
+    root = str(payload.get("root") or ".")
+    idempotency_key = _resolve_idempotency_key(
+        payload,
+        transcript_id=transcript_id,
+        transcript_hash=transcript_hash,
+        snapshot_mode=snapshot_mode,
+        source_system=source_system,
+        source_client=source_client,
+    )
+    fingerprint = _idempotency_fingerprint(
+        payload,
+        transcript_id=transcript_id,
+        transcript_hash=transcript_hash,
+        snapshot_mode=snapshot_mode,
+        source_system=source_system,
+        source_client=source_client,
+    )
+    reservation = reserve_transcript_snapshot(
+        root,
+        idempotency_key=idempotency_key,
+        fingerprint=fingerprint,
+        metadata=_snapshot_state_metadata(
+            payload,
+            transcript_id=transcript_id,
+            transcript_hash=transcript_hash,
+            snapshot_mode=snapshot_mode,
+            source_system=source_system,
+            source_client=source_client,
+        ),
+    )
+    if not reservation.get("ok"):
+        err = reservation.get("error")
+        if isinstance(err, dict):
+            return {"ok": False, "error": err}
+        return _error("cm.snapshot_idempotency_invalid", "could not reserve transcript snapshot idempotency key")
+    if reservation.get("duplicate"):
+        record = dict(reservation.get("record") or {})
+        if str(reservation.get("status") or "") == "done":
+            replay = dict(record.get("result") or {})
+            return _apply_snapshot_record_fields(
+                replay,
+                idempotency_key=idempotency_key,
+                snapshot_id=str(record.get("snapshot_id") or snapshot_id_for_key(idempotency_key)),
+                duplicate=True,
+                accepted=True,
+                created=False,
+                status="duplicate",
+                last_capture_at=str(record.get("completed_at") or ""),
+            )
+        return _apply_snapshot_record_fields(
+            {
+                "ok": True,
+                "tool": "sync_transcript_snapshot",
+                "transcript_hash": transcript_hash,
+                "snapshot_mode": snapshot_mode,
+            },
+            idempotency_key=idempotency_key,
+            snapshot_id=str(record.get("snapshot_id") or snapshot_id_for_key(idempotency_key)),
+            duplicate=True,
+            accepted=False,
+            created=False,
+            status="pending",
+            last_capture_at="",
+        )
+
     metadata.setdefault("source_system", source_system)
     metadata.setdefault("source_client", source_client or source_system)
     if payload.get("conversation_id") is not None:
@@ -213,7 +376,7 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
         "mode": payload.get("mode") or "group",
         "window_size": payload.get("window_size") or 10,
         "metadata": metadata,
-        "root": payload.get("root"),
+        "root": root,
     }
     if has_messages and snapshot_mode == "full":
         ingest_payload["messages"] = source_rows
@@ -223,9 +386,16 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
     result = ingest_handler({k: v for k, v in ingest_payload.items() if v is not None})
     result = dict(result or {})
     if not result.get("ok"):
+        fail_transcript_snapshot(root, idempotency_key=idempotency_key, error=result.get("error") or result)
         err = result.get("error")
         if isinstance(err, dict) and isinstance(err.get("data"), dict):
             err["data"]["tool"] = "sync_transcript_snapshot"
+        result["accepted"] = False
+        result["duplicate"] = False
+        result["created"] = False
+        result["idempotency_key"] = idempotency_key
+        result["snapshot_id"] = snapshot_id_for_key(idempotency_key)
+        result["idempotency_status"] = "failed"
     result["tool"] = "sync_transcript_snapshot"
     result["transcript_hash"] = transcript_hash
     result["snapshot_mode"] = snapshot_mode
@@ -243,4 +413,16 @@ def sync_transcript_snapshot_handler(payload: dict[str, Any] | None = None) -> d
         result["association_coverage"] = coverage
         result["association_run_id"] = str(coverage.get("run_id") or "")
         result["association_trigger"] = "periodic_transcript_push"
+    if result.get("ok"):
+        snapshot_record = complete_transcript_snapshot(root, idempotency_key=idempotency_key, result=result)
+        result = _apply_snapshot_record_fields(
+            result,
+            idempotency_key=idempotency_key,
+            snapshot_id=str(snapshot_record.get("snapshot_id") or snapshot_id_for_key(idempotency_key)),
+            duplicate=False,
+            accepted=True,
+            created=True,
+            status="recorded",
+            last_capture_at=str(snapshot_record.get("completed_at") or ""),
+        )
     return result

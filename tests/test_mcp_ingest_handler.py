@@ -7,6 +7,7 @@ from unittest.mock import patch
 from core_memory.integrations.mcp.registry import call_tool
 from core_memory.integrations.mcp.tools.capture_session import capture_session_handler
 from core_memory.integrations.mcp.tools.ingest import ingest_handler
+from core_memory.integrations.mcp.tools.status import status_handler
 
 
 class MCPIngestHandlerTests(unittest.TestCase):
@@ -86,13 +87,14 @@ class MCPIngestHandlerTests(unittest.TestCase):
             {"role": "user", "content": "Remember that V1 uses transcript snapshots."},
             {"role": "assistant", "content": "Recorded as a snapshot."},
         ]
-        with patch(
+        with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
             return_value={"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": []},
         ) as spy:
             out = call_tool(
                 "sync_transcript_snapshot",
                 {
+                    "root": str(Path(td) / "store"),
                     "turns": turns,
                     "user_opted_in": True,
                     "conversation_id": "chatgpt-thread-123",
@@ -105,6 +107,11 @@ class MCPIngestHandlerTests(unittest.TestCase):
         self.assertTrue(out["ok"])
         self.assertEqual("sync_transcript_snapshot", out["tool"])
         self.assertEqual("full", out["snapshot_mode"])
+        self.assertEqual("recorded", out["idempotency_status"])
+        self.assertFalse(out["duplicate"])
+        self.assertTrue(out["accepted"])
+        self.assertTrue(out["created"])
+        self.assertTrue(str(out["snapshot_id"]).startswith("snap_"))
         self.assertEqual(64, len(out["transcript_hash"]))
         payload = spy.call_args.args[0]
         self.assertEqual("end_only", payload["flush_policy"])
@@ -123,7 +130,7 @@ class MCPIngestHandlerTests(unittest.TestCase):
         self.assertTrue(metadata["user_opted_in"])
 
     def test_sync_transcript_snapshot_runs_periodic_association_coverage_for_beads(self):
-        with patch(
+        with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
             return_value={"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": ["bead-1"]},
         ), patch(
@@ -137,6 +144,7 @@ class MCPIngestHandlerTests(unittest.TestCase):
             out = call_tool(
                 "sync_transcript_snapshot",
                 {
+                    "root": str(Path(td) / "store"),
                     "turns": [{"role": "user", "content": "hello"}],
                     "user_opted_in": True,
                     "conversation_id": "thread-123",
@@ -179,13 +187,14 @@ class MCPIngestHandlerTests(unittest.TestCase):
         self.assertEqual("cm.snapshot_opt_in_required", out["error"]["code"])
 
     def test_sync_transcript_snapshot_checkpoint_fallback(self):
-        with patch(
+        with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
             return_value={"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": []},
         ) as spy:
             out = call_tool(
                 "sync_transcript_snapshot",
                 {
+                    "root": str(Path(td) / "store"),
                     "recent_turns": [{"role": "user", "content": "The full transcript is too long."}],
                     "user_opted_in": True,
                     "session_id": "thread-checkpoint",
@@ -203,7 +212,7 @@ class MCPIngestHandlerTests(unittest.TestCase):
         self.assertEqual("model_authored", payload["metadata"]["checkpoint_kind"])
 
     def test_sync_transcript_snapshot_default_id_is_stable_across_growing_snapshots(self):
-        with patch(
+        with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
             side_effect=[
                 {"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": []},
@@ -213,6 +222,7 @@ class MCPIngestHandlerTests(unittest.TestCase):
             first = call_tool(
                 "sync_transcript_snapshot",
                 {
+                    "root": str(Path(td) / "store"),
                     "conversation_id": "thread-stable",
                     "user_opted_in": True,
                     "turns": [
@@ -224,6 +234,7 @@ class MCPIngestHandlerTests(unittest.TestCase):
             second = call_tool(
                 "sync_transcript_snapshot",
                 {
+                    "root": str(Path(td) / "store"),
                     "conversation_id": "thread-stable",
                     "user_opted_in": True,
                     "turns": [
@@ -240,6 +251,93 @@ class MCPIngestHandlerTests(unittest.TestCase):
         second_payload = spy.call_args_list[1].args[0]
         self.assertEqual(first_payload["transcript_id"], second_payload["transcript_id"])
         self.assertNotEqual(first["transcript_hash"], second["transcript_hash"])
+
+    def test_sync_transcript_snapshot_idempotency_key_replays_duplicate_result(self):
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
+            return_value={"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": []},
+        ) as spy:
+            payload = {
+                "root": str(Path(td) / "store"),
+                "conversation_id": "thread-idem",
+                "user_opted_in": True,
+                "idempotency_key": "chatgpt-thread-idem-snapshot-1",
+                "turns": [
+                    {"role": "user", "content": "We chose explicit idempotency."},
+                    {"role": "assistant", "content": "I will reuse the same key for replay."},
+                ],
+            }
+            first = call_tool("sync_transcript_snapshot", payload)
+            second = call_tool("sync_transcript_snapshot", payload)
+
+        self.assertTrue(first["ok"])
+        self.assertTrue(second["ok"])
+        self.assertEqual(1, spy.call_count)
+        self.assertFalse(first["duplicate"])
+        self.assertTrue(second["duplicate"])
+        self.assertFalse(second["created"])
+        self.assertEqual(first["snapshot_id"], second["snapshot_id"])
+        self.assertEqual(first["transcript_hash"], second["transcript_hash"])
+
+    def test_sync_transcript_snapshot_idempotency_key_rejects_conflicting_content(self):
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
+            return_value={"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": []},
+        ):
+            root = str(Path(td) / "store")
+            key = "chatgpt-thread-conflict"
+            first = call_tool(
+                "sync_transcript_snapshot",
+                {
+                    "root": root,
+                    "conversation_id": "thread-conflict",
+                    "user_opted_in": True,
+                    "idempotency_key": key,
+                    "turns": [{"role": "user", "content": "First snapshot"}],
+                },
+            )
+            second = call_tool(
+                "sync_transcript_snapshot",
+                {
+                    "root": root,
+                    "conversation_id": "thread-conflict",
+                    "user_opted_in": True,
+                    "idempotency_key": key,
+                    "turns": [{"role": "user", "content": "Different snapshot"}],
+                },
+            )
+
+        self.assertTrue(first["ok"])
+        self.assertFalse(second["ok"])
+        self.assertEqual("cm.snapshot_idempotency_conflict", second["error"]["code"])
+
+    def test_status_reports_snapshot_state_and_queue_contract_fields(self):
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
+            return_value={"ok": True, "session_id": "s", "turns_ingested": 2, "bead_ids": []},
+        ):
+            root = str(Path(td) / "store")
+            snapshot = call_tool(
+                "sync_transcript_snapshot",
+                {
+                    "root": root,
+                    "conversation_id": "thread-status",
+                    "source_client": "chatgpt",
+                    "user_opted_in": True,
+                    "turns": [{"role": "user", "content": "Status should show this snapshot."}],
+                },
+            )
+            status = status_handler({"root": root})
+
+        self.assertTrue(snapshot["ok"])
+        self.assertTrue(status["ok"])
+        self.assertTrue(status["writable"])
+        self.assertEqual(snapshot["snapshot_id"], status["last_snapshot_id"])
+        self.assertEqual("chatgpt", status["last_snapshot_source"])
+        self.assertEqual("thread-status", status["last_snapshot_conversation_id"])
+        self.assertIsInstance(status["queue_depth"], int)
+        self.assertEqual("transcript_snapshot.v1", status["schema_version"])
+        self.assertGreaterEqual(status["advertised_tools_count"], 1)
 
 
 if __name__ == "__main__":
