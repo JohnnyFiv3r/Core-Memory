@@ -68,8 +68,13 @@ spelling only; it never rewrites source/target direction.
   for unknown semantics.
 
 Accepted aliases such as `causes`, `leads_to`, `blocked`, `unblocked`,
-`enabled`, `conflicts_with`, `related_to`, and `blocks->unblocks` normalize to
-the existing canonical relation labels without changing direction.
+`enabled`, `conflicts_with`, `related_to`, `reinforces`, `mirrors`,
+`structural_symmetry`, `solves_same_mechanism`, `transferable_lesson`,
+`violates_pattern_of`, and `blocks->unblocks` normalize to the existing
+canonical relation labels without changing direction.
+
+Dreamer-specific pattern-family labels may appear as `relationship_signal`
+metadata on candidates, but they are not canonical graph relation labels.
 
 The active label `blocks` is intentionally noncanonical for inference writes in
 this version. Mapping `source blocks target` to `source blocked_by target` would

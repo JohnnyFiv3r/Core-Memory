@@ -173,7 +173,7 @@ def _is_policy_reuse_candidate(candidate: dict[str, Any]) -> bool:
     ht = str(candidate.get("hypothesis_type") or "").strip().lower()
     if ht in {"retrieval_value_candidate", "entity_merge_candidate"}:
         return False
-    rel = str(candidate.get("relationship") or "").strip().lower()
+    rel = str(candidate.get("relationship_signal") or candidate.get("relationship_raw") or candidate.get("relationship") or "").strip().lower()
     if rel in {"transferable_lesson", "generalizes", "structural_symmetry"}:
         return True
     names = _signal_names(candidate)
@@ -243,6 +243,7 @@ def _label_summary(scoped: list[dict[str, Any]], labels_by_candidate: dict[str, 
             "candidate_id": str(c.get("id") or ""),
             "hypothesis_type": str(c.get("hypothesis_type") or ""),
             "relationship": str(c.get("relationship") or ""),
+            "relationship_signal": str(c.get("relationship_signal") or c.get("relationship_raw") or ""),
             "source_bead_id": str(c.get("source_bead_id") or ""),
             "target_bead_id": str(c.get("target_bead_id") or ""),
             "status": str(c.get("status") or ""),

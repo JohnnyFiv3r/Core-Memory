@@ -11,14 +11,15 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, Any
 
+from core_memory.schema.normalization import normalize_relation_type
+
 
 RELATIONSHIP_TYPES = {
     "similar_pattern",
-    "transferable_lesson",
     "contradicts",
-    "reinforces",
+    "supports",
+    "applies_pattern_of",
     "generalizes",
-    "structural_symmetry",
     "reveals_bias",
 }
 
@@ -268,8 +269,18 @@ def _structural_signal_pack(bead1: dict, bead2: dict) -> tuple[float, list[dict[
     return score, signals, by_name
 
 
-def _expected_decision_impact(relationship: str) -> str:
-    rel = str(relationship or "similar_pattern")
+def _relationship_signal(row_or_relationship: Any, fallback: str = "") -> str:
+    if isinstance(row_or_relationship, dict):
+        for key in ("relationship_signal", "relationship_raw", "relationship"):
+            value = str(row_or_relationship.get(key) or "").strip().lower()
+            if value:
+                return value
+        return str(fallback or "").strip().lower()
+    return str(row_or_relationship or fallback or "").strip().lower()
+
+
+def _expected_decision_impact(relationship: str, relationship_signal: str = "") -> str:
+    rel = _relationship_signal(relationship_signal or relationship or "similar_pattern")
     if rel == "contradicts":
         return "Flag this as a contradiction checkpoint before repeating the same policy choice."
     if rel == "transferable_lesson":
@@ -288,7 +299,7 @@ def score_association(bead1: dict, bead2: dict, distance: float) -> dict:
     summary1 = _summary_text(bead1)
     summary2 = _summary_text(bead2)
 
-    relationship = "similar_pattern"
+    relationship_signal = "similar_pattern"
 
     s1 = summary1
     s2 = summary2
@@ -306,23 +317,23 @@ def score_association(bead1: dict, bead2: dict, distance: float) -> dict:
     # Check for contradiction
     if any(w in s1 for w in ["not", "no", "don't", "never"]):
         if any(w in s2 for w in ["yes", "always", "do", "need"]):
-            relationship = "contradicts"
+            relationship_signal = "contradicts"
             contradiction_signal = max(contradiction_signal, 0.18)
 
     elif (any(w in s1 for w in absolute_cues) and any(w in s2 for w in generalization_cues)) or (
         any(w in s2 for w in absolute_cues) and any(w in s1 for w in generalization_cues)
     ):
-        relationship = "generalizes"
+        relationship_signal = "generalizes"
 
     elif transfer_signal >= 0.24 or (any(w in s1 for w in transfer_cues) and any(w in s2 for w in transfer_cues)):
-        relationship = "transferable_lesson"
+        relationship_signal = "transferable_lesson"
 
     elif structural_score >= 0.55:
-        relationship = "structural_symmetry"
+        relationship_signal = "structural_symmetry"
 
     # Check for reinforcement
     elif bool(set(s1.split()) & set(s2.split())):
-        relationship = "reinforces"
+        relationship_signal = "reinforces"
 
     session_cross = str(bead1.get("session_id") or "") != str(bead2.get("session_id") or "")
     cross_session_signal = float(structural_map.get("cross_session_recurrence", 0.0))
@@ -343,14 +354,17 @@ def score_association(bead1: dict, bead2: dict, distance: float) -> dict:
     grounding = min(1.0, 0.45 + 0.35 * lexical_overlap + 0.30 * structural_score)
     confidence = min(0.95, 0.48 + 0.30 * grounding + 0.22 * structural_score + (0.05 if session_cross else 0.0))
 
+    relationship = normalize_relation_type(relationship_signal)
     return {
         "relationship": relationship,
+        "relationship_signal": relationship_signal,
+        "relationship_raw": relationship_signal if relationship_signal != relationship else "",
         "novelty": novelty,
         "confidence": confidence,
         "grounding": grounding,
         "structural_score": structural_score,
         "structural_signals": structural_signals,
-        "expected_decision_impact": _expected_decision_impact(relationship),
+        "expected_decision_impact": _expected_decision_impact(relationship, relationship_signal),
     }
 
 
@@ -448,6 +462,8 @@ def run_analysis(
                     "source_title": bead1.get("title"),
                     "target_title": bead2.get("title"),
                     "relationship": score["relationship"],
+                    "relationship_signal": score.get("relationship_signal") or score["relationship"],
+                    "relationship_raw": score.get("relationship_raw") or "",
                     "novelty": score["novelty"],
                     "confidence": score["confidence"],
                     "grounding": score["grounding"],
@@ -575,10 +591,10 @@ def synthesize_themes(root: str | Path) -> list[dict[str, Any]]:
     except Exception:
         pass
 
-    # Index: relationship → bead_id → list of candidates containing that bead
+    # Index: relationship signal → bead_id → list of candidates containing that bead
     rel_bead_index: dict[str, dict[str, list[dict[str, Any]]]] = defaultdict(lambda: defaultdict(list))
     for c in qualifying:
-        rel = str(c.get("relationship") or "similar_pattern")
+        rel = _relationship_signal(c, "similar_pattern")
         for bead_id in filter(None, [
             str(c.get("source_bead_id") or "").strip(),
             str(c.get("target_bead_id") or "").strip(),
@@ -637,7 +653,9 @@ def synthesize_themes(root: str | Path) -> list[dict[str, Any]]:
                 "benchmark_tags": ["causal_mechanism"],
                 "related_bead_ids": related_bead_ids,
                 "source_candidates": source_candidate_ids,
-                "relationship": rel,
+                "relationship": normalize_relation_type(rel),
+                "relationship_signal": rel,
+                "relationship_raw": rel if normalize_relation_type(rel) != rel else "",
                 "confidence": mean_confidence,
                 "rationale": rationale,
                 "expected_decision_impact": (

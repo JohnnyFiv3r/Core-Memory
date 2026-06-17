@@ -89,7 +89,7 @@ def _has_structural_signal(candidate: dict[str, Any]) -> bool:
     score = float(raw.get("structural_score") or 0.0)
     if score >= 0.25:
         return True
-    rel = str(candidate.get("relationship") or "").strip().lower()
+    rel = str(candidate.get("relationship_signal") or candidate.get("relationship_raw") or candidate.get("relationship") or "").strip().lower()
     if rel in {"structural_symmetry", "transferable_lesson", "contradicts"}:
         return True
     return False

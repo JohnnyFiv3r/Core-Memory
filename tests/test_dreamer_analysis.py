@@ -96,7 +96,8 @@ class TestDreamerAnalysisSlice62A(unittest.TestCase):
         out = dreamer.score_association(b1, b2, 0.8)
         self.assertGreater(float(out.get("structural_score") or 0.0), 0.25)
         self.assertTrue((out.get("structural_signals") or []))
-        self.assertIn(out.get("relationship"), {"transferable_lesson", "structural_symmetry"})
+        self.assertIn(out.get("relationship_signal"), {"transferable_lesson", "structural_symmetry"})
+        self.assertIn(out.get("relationship"), {"applies_pattern_of", "similar_pattern"})
         self.assertTrue(str(out.get("expected_decision_impact") or ""))
 
     def test_failure_recovery_signal_present(self):

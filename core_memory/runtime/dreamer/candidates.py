@@ -7,6 +7,7 @@ from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any
 
+from core_memory.schema.normalization import normalize_relation_type
 
 
 def _now() -> str:
@@ -42,8 +43,18 @@ def _write_candidates(root: str | Path, rows: list[dict[str, Any]]) -> None:
     p.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
 
 
-def _hypothesis_type(relationship: str) -> str:
-    rel = str(relationship or "").strip().lower()
+def _relationship_signal(row_or_relationship: Any, fallback: str = "") -> str:
+    if isinstance(row_or_relationship, dict):
+        for key in ("relationship_signal", "relationship_raw", "relationship"):
+            value = str(row_or_relationship.get(key) or "").strip().lower()
+            if value:
+                return value
+        return str(fallback or "").strip().lower()
+    return str(row_or_relationship or fallback or "").strip().lower()
+
+
+def _hypothesis_type(relationship: str, relationship_signal: str = "") -> str:
+    rel = _relationship_signal(relationship_signal or relationship)
     if rel == "transferable_lesson":
         return "transferable_lesson_candidate"
     if rel == "contradicts":
@@ -139,13 +150,14 @@ def _candidate_key(row: dict[str, Any]) -> str:
     ht = str(row.get("hypothesis_type") or "")
     if ht == "proposed_theme_candidate":
         related = sorted(str(b) for b in (row.get("related_bead_ids") or []) if str(b))
-        return "|".join(["proposed_theme_candidate", str(row.get("relationship") or ""), *related])
+        return "|".join(["proposed_theme_candidate", _relationship_signal(row), *related])
     return "|".join(
         [
             ht,
             str(row.get("source_bead_id") or ""),
             str(row.get("target_bead_id") or ""),
             str(row.get("relationship") or ""),
+            str(row.get("relationship_signal") or ""),
             str(row.get("source_entity_id") or ""),
             str(row.get("target_entity_id") or ""),
         ]
@@ -155,7 +167,9 @@ def _candidate_key(row: dict[str, Any]) -> str:
 def _make_candidate_row(*, now: str, run_meta: dict[str, Any], association: dict[str, Any], hypothesis_type: str, rationale: str, expected_decision_impact: str, extras: dict[str, Any] | None = None) -> dict[str, Any]:
     src = str(association.get("source") or association.get("source_bead_id") or "").strip()
     tgt = str(association.get("target") or association.get("target_bead_id") or "").strip()
-    rel = str(association.get("relationship") or "similar_pattern").strip() or "similar_pattern"
+    rel_raw = str(association.get("relationship") or "similar_pattern").strip() or "similar_pattern"
+    rel = normalize_relation_type(rel_raw)
+    signal = _relationship_signal(association, rel_raw)
 
     row = {
         "id": f"dc-{uuid.uuid4().hex[:12]}",
@@ -167,6 +181,8 @@ def _make_candidate_row(*, now: str, run_meta: dict[str, Any], association: dict
         "source_bead_id": src,
         "target_bead_id": tgt,
         "relationship": rel,
+        "relationship_signal": signal,
+        "relationship_raw": rel_raw if rel_raw.lower() != rel else str(association.get("relationship_raw") or ""),
         "novelty": float(association.get("novelty") or 0.0),
         "grounding": float(association.get("grounding") or 0.0),
         "confidence": float(association.get("confidence") or 0.0),
@@ -253,21 +269,28 @@ def enqueue_dreamer_candidates(
         if not src or not tgt:
             continue
         rel = str(a.get("relationship") or "similar_pattern").strip() or "similar_pattern"
-        feedback = _feedback_for_association(src, tgt, rel)
+        rel_canonical = normalize_relation_type(rel)
+        signal = _relationship_signal(a, rel)
+        a_norm = dict(a)
+        a_norm["relationship"] = rel_canonical
+        a_norm["relationship_signal"] = signal
+        if str(rel).strip().lower() != rel_canonical:
+            a_norm["relationship_raw"] = rel
+        feedback = _feedback_for_association(src, tgt, rel_canonical)
 
         base = _make_candidate_row(
             now=now,
             run_meta=run_meta,
-            association=a,
-            hypothesis_type=_hypothesis_type(rel),
-            rationale=str(a.get("insight") or a.get("rationale") or f"Dreamer suggested {rel} based on structural similarity."),
+            association=a_norm,
+            hypothesis_type=_hypothesis_type(rel_canonical, signal),
+            rationale=str(a.get("insight") or a.get("rationale") or f"Dreamer suggested {signal or rel_canonical} based on structural similarity."),
             expected_decision_impact=str(
                 a.get("decision_impact")
                 or a.get("expected_decision_impact")
                 or _expected_decision_impact(
                     str(a.get("source_title") or ""),
                     str(a.get("target_title") or ""),
-                    rel,
+                    signal or rel_canonical,
                 )
             ),
             extras={"retrieval_feedback": feedback},
@@ -284,7 +307,7 @@ def enqueue_dreamer_candidates(
             rv = _make_candidate_row(
                 now=now,
                 run_meta=run_meta,
-                association=a,
+                association=a_norm,
                 hypothesis_type="retrieval_value_candidate",
                 rationale=(
                     f"High-confidence {rel} candidate may improve retrieval ordering when this edge is weighted"
