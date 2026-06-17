@@ -5,6 +5,7 @@ Status: Canonical
 ## Goal
 Activate Core Memory lifecycle listeners in OpenClaw:
 - `agent_end` -> finalized-turn ingestion (`emit_turn_finalized` via bridge)
+- `message_received` + `message_sent` -> finalized-turn fallback for streaming channels that do not dispatch `agent_end`
 - `memory_search` -> canonical read-path dispatch (`memory.execute` via read bridge) **[enabled by default]**
 - `before_compaction` / `after_compaction` -> flush processor (`process_flush`)
 
@@ -19,6 +20,18 @@ OpenClaw's memory search lifecycle and routes it through `core_memory.integratio
 
 To opt out (keep OpenClaw's default search while still using Core Memory write/flush paths), set
 `enableMemorySearch: false` in the plugin config.
+
+### Streaming message fallback
+
+Some OpenClaw streaming channels can deliver replies without dispatching the typed `agent_end` hook.
+The bridge keeps `agent_end` as the primary write path, but also listens to `message_received` and
+`message_sent` by default. When an inbound user message is followed by an outbound delivered message
+and no `agent_end` appears for that session/run after a short delay, the bridge sends the paired
+user/assistant text through the same `core_memory.integrations.openclaw.agent_end_bridge` Python
+entrypoint.
+
+To opt out, set `enableMessageTurnFallback: false`. To tune the duplicate-suppression delay, set
+`messageTurnFallbackDelayMs` or `CORE_MEMORY_MESSAGE_TURN_FALLBACK_DELAY_MS`.
 
 ## Coexist vs Replace
 You can run in two modes:
@@ -103,6 +116,7 @@ Use runtime signals instead:
 ## Notes
 - Bridge shell-outs to Python modules:
   - `core_memory.integrations.openclaw.agent_end_bridge`
-  - `core_memory.integrations.openclaw.compaction_bridge`
+  - `core_memory.integrations.openclaw.read_bridge`
+  - `core_memory.integrations.openclaw.compaction_queue`
 - `CORE_MEMORY_ROOT` controls where Core Memory durable artifacts are written.
 - `CORE_MEMORY_ENABLED=0` cleanly no-ops bridge turn ingest/flush paths (safe rollback switch).

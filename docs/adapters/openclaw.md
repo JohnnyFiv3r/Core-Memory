@@ -19,6 +19,8 @@ Use the OpenClaw plugin bridge under `plugins/openclaw-core-memory-bridge/` and 
 - `enableAgentEnd`: enables finalized-turn writes.
 - `enableMemorySearch`: enables OpenClaw memory search routing.
 - `enableCompactionFlush`: enables compaction queue hook wiring.
+- `enableMessageTurnFallback`: enables message-delivery fallback writes when streaming channels do not dispatch `agent_end`.
+- `messageTurnFallbackDelayMs`: delay before fallback write, allowing a real `agent_end` to arrive first.
 
 The plugin also declares the `core-memory` skill and injects `docs/integrations/openclaw/core-memory-skill-instructions.md` as an OpenClaw memory prompt supplement when the host exposes that API.
 
@@ -28,6 +30,7 @@ The plugin also declares the `core-memory` skill and injects `docs/integrations/
 |---|---|---|---|
 | Gateway/plugin registration | prompt/context setup | `registerMemoryPromptSupplement` | Loads Core Memory skill instructions into the agent path. |
 | `agent_end` | `on_turn_end` | `process_turn_finalized` via `finalize_and_process_turn` | Extracts last user/assistant messages, creates stable ids, dedupes, then writes through canonical runtime. |
+| `message_received` + `message_sent` | `on_turn_end` fallback | `process_turn_finalized` via `finalize_and_process_turn` | Pairs inbound user text with delivered outbound text when streaming runtimes do not dispatch `agent_end`. |
 | `memory_search` | retrieval surface | `memory.execute` via `openclaw.read_bridge` | Read path, not one of the three write lifecycle hooks. |
 | `after_compaction` when enabled | `on_session_end` enqueue | `openclaw.compaction_queue` | Queues flush work; drain happens asynchronously from `agent_end`. |
 | Compaction queue drain | `on_session_end` | `process_flush` | Thin Python bridge owns queue mechanics; runtime owns compaction semantics. |
@@ -41,13 +44,14 @@ See `plugins/openclaw-core-memory-bridge/openclaw.plugin.json` and `docs/integra
 Important operational toggles:
 
 - `enableAgentEnd !== false` keeps the turn-write hook active.
+- `enableMessageTurnFallback !== false` keeps streaming-channel message fallback active.
 - `enableMemorySearch !== false` keeps read routing active.
 - `enableCompactionFlush === true` enables compaction enqueue from `after_compaction`.
 
 ## Verification
 
 - Check plugin smoke CI for `bridge-smoke`.
-- Inspect `/tmp/core-memory-bridge-hook.log` for `agent_end` activity.
+- Inspect `/tmp/core-memory-bridge-hook.log` for `agent_end` activity or `message_sent fallback_result`.
 - Confirm `.beads/events/memory-events.jsonl` appends after completed OpenClaw turns.
 - Confirm no warning like `core-memory-bridge: agent_end emit failed` appears in Gateway logs.
 
