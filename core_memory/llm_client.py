@@ -14,7 +14,14 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], *, ti
         return json.loads(resp.read().decode("utf-8"))
 
 
-def chat_complete(prompt: str, *, config: ProviderConfig | None = None, max_tokens: int = 700, temperature: float = 0) -> str:
+def chat_complete(
+    prompt: str,
+    *,
+    config: ProviderConfig | None = None,
+    max_tokens: int = 700,
+    temperature: float = 0,
+    json_mode: bool = False,
+) -> str:
     cfg = config or resolve_chat_config()
     adapter = cfg.adapter
     if not cfg.provider:
@@ -25,11 +32,15 @@ def chat_complete(prompt: str, *, config: ProviderConfig | None = None, max_toke
         if not cfg.model:
             raise RuntimeError("missing_chat_model")
         headers = {"Authorization": f"Bearer {cfg.api_key or 'local'}"}
-        body = _post_json(
-            cfg.base_url.rstrip("/") + "/chat/completions",
-            {"model": cfg.model, "temperature": temperature, "max_tokens": max_tokens, "messages": [{"role": "user", "content": prompt}]},
-            headers,
-        )
+        payload: dict[str, Any] = {
+            "model": cfg.model,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        body = _post_json(cfg.base_url.rstrip("/") + "/chat/completions", payload, headers)
         return str((((body.get("choices") or [{}])[0].get("message") or {}).get("content") or ""))
     if adapter == "anthropic":
         if not cfg.api_key:

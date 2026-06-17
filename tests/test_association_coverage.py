@@ -2,9 +2,11 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.associations.coverage import (
+    LLMAssociationJudge,
     apply_association_proposals,
     association_coverage_summary,
     decide_association_candidate,
@@ -185,6 +187,85 @@ def _structured_payload(**overrides):
 
 
 class TestAssociationCoverage(unittest.TestCase):
+    def test_llm_association_judge_uses_json_mode_and_scales_output_budget(self):
+        context = {
+            "run_id": "arun-json-budget",
+            "prompt_version": "association_judge.v1",
+            "rubric_version": "association_truth.v1",
+            "source_bead_ids": [f"bead-{i}" for i in range(12)],
+            "candidates": [
+                {
+                    "candidate_id": f"cand-{i}",
+                    "source_bead": f"bead-{i}",
+                    "target_bead": f"bead-target-{i}",
+                    "proposed_relationship": "related_to",
+                }
+                for i in range(24)
+            ],
+        }
+        calls = []
+
+        def fake_chat_complete(prompt, *, max_tokens=700, temperature=0, json_mode=False, **_kwargs):
+            calls.append({"prompt": prompt, "max_tokens": max_tokens, "temperature": temperature, "json_mode": json_mode})
+            return json.dumps({
+                "contract": "memory.association_judge.v1",
+                "run_id": "arun-json-budget",
+                "decisions": [],
+                "reviewed_beads": [],
+            })
+
+        with patch("core_memory.llm_client.chat_complete", fake_chat_complete):
+            out = LLMAssociationJudge().review(context)
+
+        self.assertEqual("memory.association_judge.v1", out.get("contract"))
+        self.assertEqual(1, len(calls))
+        self.assertTrue(calls[0]["json_mode"])
+        self.assertGreater(calls[0]["max_tokens"], 1800)
+        self.assertEqual(0, calls[0]["temperature"])
+
+    def test_llm_association_judge_falls_back_when_json_mode_is_unsupported(self):
+        context = {
+            "run_id": "arun-json-fallback",
+            "prompt_version": "association_judge.v1",
+            "rubric_version": "association_truth.v1",
+            "source_bead_ids": ["bead-1"],
+            "candidates": [],
+        }
+        calls = []
+
+        def fake_chat_complete(_prompt, *, max_tokens=700, temperature=0, json_mode=False, **_kwargs):
+            calls.append({"max_tokens": max_tokens, "temperature": temperature, "json_mode": json_mode})
+            if json_mode:
+                raise RuntimeError("response_format_unsupported")
+            return """```json
+{"contract":"memory.association_judge.v1","run_id":"arun-json-fallback","decisions":[],"reviewed_beads":[]}
+```"""
+
+        with patch("core_memory.llm_client.chat_complete", fake_chat_complete):
+            out = LLMAssociationJudge().review(context)
+
+        self.assertEqual("memory.association_judge.v1", out.get("contract"))
+        self.assertEqual([True, False], [call["json_mode"] for call in calls])
+
+    def test_bead_without_candidate_proposals_completes_without_judge_failure(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            bead = _add_test_bead(store, type="context", title="Only", summary=["only"], session_id="s1", source_turn_ids=["t1"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[bead],
+                trigger="operator",
+                judge=InvalidFakeAssociationJudge(),
+            )
+
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("completed", out.get("status"))
+            self.assertEqual("no_supported_links", (out.get("association_state_by_bead") or {}).get(bead))
+            self.assertEqual(0, (out.get("counts") or {}).get("pending_judge"))
+            self.assertEqual(1, (out.get("counts") or {}).get("no_supported_links"))
+            self.assertEqual([], _assocs(td, "follows"))
+
     def test_section_document_bead_links_part_of_whole_document_after_judge_approval(self):
         with tempfile.TemporaryDirectory() as td:
             whole = ingest_document_reference(td, _document_payload(), session_id="external")
