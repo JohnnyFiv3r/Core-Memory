@@ -1530,12 +1530,18 @@ def _invoke_association_judge(
 def _bead_context(bead: dict[str, Any]) -> dict[str, Any]:
     keys = [
         "id", "type", "title", "summary", "detail", "session_id", "source_turn_ids",
-        "tags", "entities", "topics", "created_at", "prev_bead_id", "next_bead_id",
+        "tags", "entities", "entity_refs", "topics", "created_at", "prev_bead_id", "next_bead_id",
         "source_id", "source_event_id", "source_system", "source_kind",
         "core_memory_unifying_id", "document_id", "ragie_document_id",
         "raw_source_object_id", "section_refs", "source_record_id",
-        "business_object_id", "transcript_id", "conversation_id", "supersedes",
-        "derived_from", "derived_from_bead_ids", "evidence_refs",
+        "source_table", "business_object_type", "business_object_id",
+        "record_action", "record_grain", "metric_name", "metric_value",
+        "metric_unit", "change_pct", "currency", "attribute_tags",
+        "as_of_timestamp", "observed_at", "effective_from", "effective_to",
+        "state_change", "claims", "supporting_facts", "because", "actor",
+        "assertion_kind", "assertion_subject", "assertion_predicate", "assertion_value",
+        "transcript_id", "conversation_id", "source_thread_id", "message_refs",
+        "speaker_refs", "supersedes", "derived_from", "derived_from_bead_ids", "evidence_refs",
     ]
     out: dict[str, Any] = {}
     for key in keys:

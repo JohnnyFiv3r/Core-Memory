@@ -162,6 +162,40 @@ class TestExternalEvidenceIngest(unittest.TestCase):
             self.assertEqual("QB-98231", bead["source_record_id"])
             self.assertEqual("2026-05-04T15:00:00Z", bead["as_of_timestamp"])
 
+    def test_llm_judge_authors_external_semantics_without_unifying_id(self):
+        judged = json.dumps({
+            "title": "LLM-authored QuickBooks COGS variance",
+            "summary": ["The QuickBooks row shows COGS 38% above baseline."],
+            "detail": "Fresh Produce LLC is the named vendor in the COGS variance evidence.",
+            "entities": ["Fresh Produce LLC", "COGS"],
+            "topics": ["financial variance"],
+            "supporting_facts": ["COGS was 38% above baseline."],
+            "evidence_refs": [{"source_event_id": "evt_structured_001"}],
+            "confidence": 0.91,
+            "authority": "llm_source_evidence_review",
+        })
+        payload = _structured_payload(core_memory_unifying_id="")
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_EXTERNAL_EVIDENCE_BEAD_JUDGE_MODE": "llm"},
+            clear=False,
+        ), patch(
+            "core_memory.runtime.ingest.external_evidence.chat_complete",
+            return_value=judged,
+        ):
+            receipt = ingest_structured_observation(td, payload, session_id="external-source")
+
+            self.assertTrue(receipt["ok"])
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][receipt["bead_id"]]
+            self.assertEqual("LLM-authored QuickBooks COGS variance", bead["title"])
+            self.assertEqual(["The QuickBooks row shows COGS 38% above baseline."], bead["summary"])
+            self.assertFalse(bead.get("core_memory_unifying_id"))
+            self.assertIn("llm_judged", bead["tags"])
+            self.assertIn("external_evidence_bead_judge", bead["tags"])
+            self.assertEqual("qbo_expenses", bead["source_table"])
+            self.assertEqual("QB-98231", bead["source_record_id"])
+
     def test_document_reference_writes_artifact_anchor(self):
         with tempfile.TemporaryDirectory() as td:
             receipt = ingest_document_reference(td, _document_payload(), session_id="external-source")

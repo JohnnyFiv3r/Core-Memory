@@ -6,12 +6,17 @@ such as Ragie, Snowflake, Supabase, or another hydration backend.
 """
 from __future__ import annotations
 
+import json
+import os
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.llm_client import chat_complete
 from core_memory.persistence import events
 from core_memory.persistence.store import MemoryStore
+from core_memory.provider_config import resolve_chat_config
 from core_memory.schema.normalization import (
     EXTERNAL_BEAD_TYPES,
     EXTERNAL_DOCUMENT_FLAGS as DOCUMENT_FLAGS,
@@ -26,6 +31,11 @@ from core_memory.runtime.associations.coverage import on_bead_committed
 
 def _clean_str(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _clean_mode(value: Any, *, default: str = "off") -> str:
+    mode = _clean_str(value).lower()
+    return mode if mode in {"off", "auto", "llm", "model"} else default
 
 
 def _coerce_list(value: Any) -> list[Any]:
@@ -45,6 +55,47 @@ def _coerce_str_list(value: Any) -> list[str]:
 def _coerce_summary(value: Any) -> list[str]:
     items = _coerce_str_list(value)
     return [x[:220] for x in items[:3]]
+
+
+def _json_object(text: str) -> dict[str, Any] | None:
+    raw = _clean_str(text)
+    if raw.startswith("```"):
+        raw = raw.strip("`").strip()
+        if raw.lower().startswith("json"):
+            raw = raw[4:].strip()
+    try:
+        obj = json.loads(raw)
+    except Exception:
+        return None
+    return obj if isinstance(obj, dict) else None
+
+
+def _bounded_snapshot(value: Any, *, depth: int = 0) -> Any:
+    if depth >= 4:
+        return _clean_str(value)[:400]
+    if isinstance(value, dict):
+        out: dict[str, Any] = {}
+        for key, item in sorted(value.items(), key=lambda row: str(row[0]))[:80]:
+            text_key = _clean_str(key)
+            if text_key:
+                out[text_key] = _bounded_snapshot(item, depth=depth + 1)
+        return out
+    if isinstance(value, list):
+        return [_bounded_snapshot(item, depth=depth + 1) for item in value[:40]]
+    if isinstance(value, tuple):
+        return [_bounded_snapshot(item, depth=depth + 1) for item in list(value)[:40]]
+    if isinstance(value, str):
+        return value[:1800]
+    return value
+
+
+def _chat_config_with_model(*env_names: str):
+    cfg = resolve_chat_config()
+    for name in env_names:
+        model = _clean_str(os.environ.get(name))
+        if model:
+            return replace(cfg, model=model)
+    return cfg
 
 
 def _section_ref_key(value: Any) -> tuple[str, ...]:
@@ -330,7 +381,7 @@ def _typed_fields(bead_type: str, payload: dict[str, Any]) -> dict[str, Any]:
 def _validate_external_payload(bead_type: str, payload: dict[str, Any], hydration_ref: dict[str, Any]) -> None:
     _require(payload, ("title", "summary"))
     if bead_type != "state_assertion":
-        _require(payload, ("source_id", "source_event_id", "source_system", "core_memory_unifying_id"))
+        _require(payload, ("source_id", "source_event_id", "source_system"))
     if bead_type != "state_assertion" and not hydration_ref:
         raise ValueError("external_evidence: missing required fields: hydration_ref")
 
@@ -412,6 +463,107 @@ def _bead_payload(payload: dict[str, Any], *, bead_type: str, source_kind: str, 
     return {k: v for k, v in out.items() if v is not None}
 
 
+def _external_bead_judge_mode(payload: dict[str, Any]) -> str:
+    explicit = _clean_mode(payload.get("_bead_judge") or payload.get("bead_judge"), default="")
+    if explicit:
+        return explicit
+    return _clean_mode(os.getenv("CORE_MEMORY_EXTERNAL_EVIDENCE_BEAD_JUDGE_MODE"), default="off")
+
+
+def _normalize_judged_external_fields(obj: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    title = _clean_str(obj.get("title"))[:200]
+    summary = _coerce_summary(obj.get("summary"))
+    detail = _clean_str(obj.get("detail") or obj.get("content"))[:1200]
+    if title:
+        out["title"] = title
+    if summary:
+        out["summary"] = summary
+    if detail:
+        out["detail"] = detail
+
+    for field, limit in (
+        ("entities", 32),
+        ("topics", 32),
+        ("supporting_facts", 12),
+        ("because", 12),
+        ("attribute_tags", 32),
+    ):
+        values = _coerce_str_list(obj.get(field))
+        if values:
+            out[field] = values[:limit]
+
+    for field in ("state_change", "validity", "effective_from", "effective_to", "observed_at", "authority"):
+        value = _clean_str(obj.get(field))
+        if value:
+            out[field] = value
+
+    if isinstance(obj.get("evidence_refs"), list):
+        out["evidence_refs"] = obj.get("evidence_refs")
+    confidence = _coerce_float(obj.get("confidence"))
+    if confidence is not None:
+        out["confidence"] = min(1.0, max(0.0, confidence))
+    return out
+
+
+def _judge_external_bead_fields(payload: dict[str, Any], *, bead_type: str, source_kind: str) -> dict[str, Any]:
+    prompt = (
+        "You are Core Memory's external-evidence bead writer. Author the semantic "
+        "fields for exactly one source-attributed memory bead. The caller has "
+        "already limited the bead to the schema type below; do not change it. "
+        "Use source payload facts only. Do not invent dates, entities, refs, or "
+        "causal claims. Return JSON only with: title, summary, detail, entities, "
+        "topics, supporting_facts, because, evidence_refs, state_change, validity, "
+        "effective_from, effective_to, observed_at, confidence, authority.\n\n"
+        f"schema_limited_type: {bead_type}\n"
+        f"source_kind: {source_kind}\n"
+        "source_payload:\n"
+        f"{json.dumps(_bounded_snapshot(payload), ensure_ascii=False, sort_keys=True)}"
+    )
+    raw = chat_complete(
+        prompt,
+        config=_chat_config_with_model(
+            "CORE_MEMORY_EXTERNAL_EVIDENCE_BEAD_FIELD_MODEL",
+            "CORE_MEMORY_BEAD_FIELD_MODEL",
+            "CORE_MEMORY_FRONTIER_MODEL",
+        ),
+        max_tokens=1400,
+        temperature=0,
+    )
+    obj = _json_object(raw)
+    if obj is None:
+        raise ValueError("external_evidence: bead_judge_returned_non_object")
+    normalized = _normalize_judged_external_fields(obj)
+    if not normalized.get("title") or not normalized.get("summary"):
+        raise ValueError("external_evidence: bead_judge_missing_title_or_summary")
+    return normalized
+
+
+def _apply_external_bead_judge(bead: dict[str, Any], payload: dict[str, Any], *, bead_type: str, source_kind: str) -> dict[str, Any]:
+    mode = _external_bead_judge_mode(payload)
+    if mode == "off":
+        return bead
+    try:
+        judged = _judge_external_bead_fields(payload, bead_type=bead_type, source_kind=source_kind)
+    except Exception:
+        if mode in {"llm", "model"}:
+            raise
+        return bead
+
+    out = dict(bead)
+    for field, value in judged.items():
+        if value not in (None, "", [], {}):
+            out[field] = value
+    tags = _coerce_str_list(out.get("tags"))
+    for tag in ("external_evidence_bead_judge", "llm_judged"):
+        if tag not in tags:
+            tags.append(tag)
+    out["tags"] = tags[:32]
+    out["type"] = bead_type
+    out["data_type_flag"] = _clean_str(bead.get("data_type_flag")) or source_kind
+    return out
+
+
 def _content_signature(record: dict[str, Any], bead_type: str) -> tuple:
     """Comparable content identity for idempotency vs. version decisions."""
     typed = _typed_fields(bead_type, record)
@@ -469,6 +621,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         predecessor_id = bead_id
 
     bead = _bead_payload(merged, bead_type=bead_type, source_kind=source_kind, hydration_ref=hydration_ref)
+    bead = _apply_external_bead_judge(bead, merged, bead_type=bead_type, source_kind=source_kind)
     if predecessor_id:
         supersedes = _coerce_str_list(bead.get("supersedes"))
         if predecessor_id not in supersedes:
