@@ -35,6 +35,7 @@ from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job,
 from core_memory.runtime.associations.coverage import (
     apply_association_proposals,
     association_coverage_summary,
+    decide_association_candidate,
     enqueue_association_coverage,
     get_association_run,
     list_association_candidates,
@@ -340,6 +341,25 @@ class AssociationProposalRequest(BaseModel):
     run_id: str = ""
     session_id: Optional[str] = None
     associations: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AssociationCandidateDecisionRequest(BaseModel):
+    root: Optional[str] = None
+    run_id: str = ""
+    session_id: Optional[str] = None
+    action: str
+    reviewer: str = ""
+    reason_text: str = ""
+    truth_basis: str = ""
+    confidence: Optional[float] = None
+    relationship: str = ""
+    source_bead: str = ""
+    target_bead: str = ""
+    evidence_refs: list[Any] = Field(default_factory=list)
+    evidence_bead_ids: list[Any] = Field(default_factory=list)
+    judge_model: str = ""
+    prompt_version: str = "association_judge.v1"
+    rubric_version: str = "association_truth.v1"
 
 
 class MCPQueryCurrentStateRequest(BaseModel):
@@ -1585,6 +1605,40 @@ async def memory_association_candidates(
         status=str(status or ""),
         limit=max(1, int(limit or 100)),
     )
+
+
+@app.post("/v1/memory/association-candidates/{candidate_id}/decide")
+async def memory_association_candidate_decide(
+    candidate_id: str,
+    payload: AssociationCandidateDecisionRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    out = decide_association_candidate(
+        root=_resolve_root(payload.root, x_tenant_id),
+        candidate_id=str(candidate_id or ""),
+        action=str(payload.action or ""),
+        run_id=str(payload.run_id or ""),
+        session_id=(str(payload.session_id or "").strip() or None),
+        reviewer=str(payload.reviewer or ""),
+        reason_text=str(payload.reason_text or ""),
+        truth_basis=str(payload.truth_basis or ""),
+        confidence=payload.confidence,
+        relationship=str(payload.relationship or ""),
+        source_bead=str(payload.source_bead or ""),
+        target_bead=str(payload.target_bead or ""),
+        evidence_refs=list(payload.evidence_refs or []),
+        evidence_bead_ids=list(payload.evidence_bead_ids or []),
+        judge_model=str(payload.judge_model or ""),
+        prompt_version=str(payload.prompt_version or "association_judge.v1"),
+        rubric_version=str(payload.rubric_version or "association_truth.v1"),
+    )
+    if not out.get("ok"):
+        code = str(out.get("error") or "")
+        return JSONResponse(status_code=404 if code == "association_candidate_not_found" else 400, content=out)
+    return out
 
 
 @app.post("/v1/memory/association-proposals")

@@ -57,7 +57,7 @@ TRIGGER_ALIASES = {
     "operator_rereview": "operator_review",
 }
 INCOMPLETE_STATES = {"deferred", "pending_judge", "judge_failed", "quarantined", "failed"}
-JUDGE_ACTIONS = {"accept", "reject", "modify", "invert", "replace", "add", "no_link"}
+JUDGE_ACTIONS = {"accept", "reject", "modify", "invert", "replace", "add", "no_link", "defer"}
 
 
 def _now() -> str:
@@ -275,8 +275,12 @@ def _candidate_status_from_action(action: str) -> str:
     action_n = _clean_str(action).lower()
     if action_n in {"accept", "modify", "invert", "replace", "add"}:
         return "linked"
-    if action_n in {"reject", "no_link"}:
+    if action_n == "no_link":
+        return "no_supported_links"
+    if action_n == "reject":
         return "rejected"
+    if action_n == "defer":
+        return "deferred"
     return ""
 
 
@@ -285,6 +289,7 @@ def _candidate_decision_statuses(root: str | Path) -> dict[str, str]:
     priority = {
         "pending_judge": 1,
         "deferred": 2,
+        "no_supported_links": 3,
         "rejected": 3,
         "judge_failed": 4,
         "quarantined": 5,
@@ -502,6 +507,230 @@ def list_association_candidates(
         "count": len(rows),
         "observation_count": observation_count,
         "results": rows[: max(1, int(limit))],
+    }
+
+
+def decide_association_candidate(
+    root: str | Path,
+    *,
+    candidate_id: str,
+    action: str,
+    run_id: str | None = None,
+    session_id: str | None = None,
+    reviewer: str | None = None,
+    reason_text: str | None = None,
+    truth_basis: str | None = None,
+    confidence: float | None = None,
+    relationship: str | None = None,
+    source_bead: str | None = None,
+    target_bead: str | None = None,
+    evidence_refs: list[Any] | None = None,
+    evidence_bead_ids: list[Any] | None = None,
+    judge_model: str | None = None,
+    prompt_version: str | None = None,
+    rubric_version: str | None = None,
+) -> dict[str, Any]:
+    """Apply a host/judge decision to a unique association candidate."""
+    cid = _clean_str(candidate_id)
+    action_n = _clean_str(action).lower()
+    if not cid:
+        return {
+            "ok": False,
+            "contract": "memory.association_candidate_decision.v1",
+            "error": "association_candidate_id_required",
+        }
+    if action_n not in JUDGE_ACTIONS:
+        return {
+            "ok": False,
+            "contract": "memory.association_candidate_decision.v1",
+            "error": "invalid_association_candidate_action",
+            "candidate_id": cid,
+            "action": action_n,
+            "allowed_actions": sorted(JUDGE_ACTIONS),
+        }
+
+    listing = list_association_candidates(root, limit=100000)
+    candidate = next(
+        (
+            row for row in (listing.get("results") or [])
+            if _clean_str((row or {}).get("candidate_id")) == cid
+        ),
+        None,
+    )
+    if not isinstance(candidate, dict):
+        return {
+            "ok": False,
+            "contract": "memory.association_candidate_decision.v1",
+            "error": "association_candidate_not_found",
+            "candidate_id": cid,
+        }
+
+    run_id_final = _clean_str(run_id) or f"association-candidate-decision-{uuid.uuid4().hex}"
+    prompt_v = _clean_str(prompt_version) or JUDGE_PROMPT_VERSION
+    rubric_v = _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION
+    reviewer_n = _clean_str(reviewer) or "host"
+    source = _clean_str(source_bead) or _clean_str(candidate.get("source_bead"))
+    target = _clean_str(target_bead) or _clean_str(candidate.get("target_bead"))
+    rel = _clean_str(relationship) or _clean_str(candidate.get("proposed_relationship"))
+    reason = (
+        _clean_str(reason_text)
+        or _clean_str(candidate.get("system_rationale"))
+        or "Association candidate reviewed by host."
+    )
+    basis = _clean_str(truth_basis)
+    if not basis and action_n in {"accept", "modify", "invert", "replace", "add"}:
+        basis = "host_reviewed_candidate"
+    elif not basis and action_n in {"reject", "no_link"}:
+        basis = "host_rejected_candidate"
+    elif not basis and action_n == "defer":
+        basis = "host_deferred_candidate"
+
+    decision = {
+        "candidate_id": cid,
+        "action": action_n,
+        "reviewer": reviewer_n,
+        "source_bead": source,
+        "target_bead": target,
+        "relationship": rel,
+        "confidence": confidence if confidence is not None else candidate.get("confidence_prior"),
+        "reason_text": reason,
+        "truth_basis": basis,
+        "reason_code": _clean_str(candidate.get("reason_code")),
+        "evidence_refs": list(evidence_refs if evidence_refs is not None else (candidate.get("evidence_refs") or [])),
+        "evidence_bead_ids": list(
+            evidence_bead_ids if evidence_bead_ids is not None else (candidate.get("evidence_bead_ids") or [])
+        ),
+    }
+
+    if action_n == "defer":
+        state_by_bead = {source: "deferred"} if source else {}
+        _append_judge_decision_record(
+            root,
+            {
+                "contract": ASSOCIATION_JUDGE_CONTRACT,
+                "run_id": run_id_final,
+                "session_id": _clean_str(session_id),
+                "status": "deferred",
+                "judge_model": _clean_str(judge_model) or "host-association-candidate-decision",
+                "prompt_version": prompt_v,
+                "rubric_version": rubric_v,
+                "candidate_ids": [cid],
+                "decisions": [decision],
+                "reviewed_beads": [
+                    {"bead_id": source, "association_state": "deferred"}
+                ] if source else [],
+                "counts": {"accepted": 0, "rejected": 0, "deferred": 1, "appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
+                "errors": [],
+            },
+        )
+        _append_run_record(
+            root,
+            {
+                "run_id": run_id_final,
+                "status": "deferred",
+                "trigger": "operator_review",
+                "contract": "memory.association_candidate_decision.v1",
+                "session_id": _clean_str(session_id),
+                "candidate_id": cid,
+                "candidate_ids": [cid],
+                "bead_ids": [bid for bid in [source] if bid],
+                "association_state_by_bead": state_by_bead,
+                "counts": {"accepted": 0, "rejected": 0, "deferred": 1, "appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
+                "errors": [],
+            },
+        )
+        return {
+            "ok": True,
+            "contract": "memory.association_candidate_decision.v1",
+            "candidate_id": cid,
+            "run_id": run_id_final,
+            "status": "deferred",
+            "association_state_by_bead": state_by_bead,
+            "association_ids": [],
+            "counts": {"accepted": 0, "rejected": 0, "deferred": 1, "appended": 0, "deduped": 0, "quarantined": 0, "failed": 0},
+            "errors": [],
+        }
+
+    index = _load_index(root)
+    judge_result = {
+        "contract": ASSOCIATION_JUDGE_CONTRACT,
+        "run_id": run_id_final,
+        "judge_model": _clean_str(judge_model) or "host-association-candidate-decision",
+        "prompt_version": prompt_v,
+        "rubric_version": rubric_v,
+        "decisions": [decision],
+        "reviewed_beads": [],
+    }
+    applied = _apply_judge_result(
+        root,
+        index=index,
+        run_id=run_id_final,
+        session_id=session_id,
+        source_bead_ids=[source] if source else [],
+        candidates=[candidate],
+        judge_context={
+            "run_id": run_id_final,
+            "candidates": [candidate],
+            "source_bead_ids": [source] if source else [],
+            "prompt_version": prompt_v,
+            "rubric_version": rubric_v,
+        },
+        judge_result=judge_result,
+        policy_version=POLICY_VERSION,
+        prompt_version=prompt_v,
+        rubric_version=rubric_v,
+    )
+    state_by_bead = dict(applied.get("association_state_by_bead") or {})
+    if action_n in {"reject", "no_link"} and source:
+        state_by_bead.setdefault(source, "no_supported_links")
+    failed = int(applied.get("failed") or 0)
+    quarantined = int(applied.get("quarantined") or 0)
+    if quarantined:
+        status = "quarantined"
+    elif failed:
+        status = "failed"
+    elif action_n in {"reject", "no_link"}:
+        status = "no_supported_links"
+    else:
+        status = "linked"
+    counts = {
+        "accepted": int(applied.get("accepted") or 0),
+        "rejected": int(applied.get("rejected") or 0),
+        "deferred": int(applied.get("deferred") or 0),
+        "appended": int(applied.get("appended") or 0),
+        "deduped": int(applied.get("deduped") or 0),
+        "quarantined": quarantined,
+        "failed": failed,
+    }
+    errors = list(applied.get("errors") or [])
+    association_ids = list(applied.get("association_ids") or [])
+    _append_run_record(
+        root,
+        {
+            "run_id": run_id_final,
+            "status": status,
+            "trigger": "operator_review",
+            "contract": "memory.association_candidate_decision.v1",
+            "session_id": _clean_str(session_id),
+            "candidate_id": cid,
+            "candidate_ids": [cid],
+            "bead_ids": [bid for bid in [source, target] if bid],
+            "association_state_by_bead": state_by_bead,
+            "association_ids": association_ids,
+            "counts": counts,
+            "errors": errors,
+        },
+    )
+    return {
+        "ok": status not in {"failed", "quarantined"},
+        "contract": "memory.association_candidate_decision.v1",
+        "candidate_id": cid,
+        "run_id": run_id_final,
+        "status": status,
+        "association_state_by_bead": state_by_bead,
+        "association_ids": association_ids,
+        "counts": counts,
+        "errors": errors,
     }
 
 
@@ -1380,7 +1609,7 @@ def _decision_state(value: Any) -> str:
     state = _clean_str(value).lower()
     if state in {"no_link", "none"}:
         return "no_supported_links"
-    if state in {"linked", "no_supported_links", "quarantined", "judge_failed", "failed", "pending_judge", "skipped_ineligible"}:
+    if state in {"linked", "no_supported_links", "quarantined", "judge_failed", "failed", "pending_judge", "deferred", "skipped_ineligible"}:
         return state
     return ""
 
@@ -1459,6 +1688,7 @@ def _apply_judge_result(
 
     accepted = 0
     rejected = 0
+    deferred = 0
     appended = 0
     deduped = 0
     quarantined = 0
@@ -1512,10 +1742,14 @@ def _apply_judge_result(
                 session_id=_clean_str(session_id),
             )
             continue
-        if action in {"reject", "no_link"}:
-            rejected += 1
+        if action in {"reject", "no_link", "defer"}:
+            if action != "defer":
+                rejected += 1
+            else:
+                deferred += 1
             candidate = candidate_by_id.get(_clean_str(decision.get("candidate_id"))) or {}
-            mark(_clean_str(decision.get("source_bead") or candidate.get("source_bead")), "no_supported_links")
+            state = "deferred" if action == "defer" else "no_supported_links"
+            mark(_clean_str(decision.get("source_bead") or candidate.get("source_bead")), state)
             continue
 
         assoc_payload, candidate_ids = _candidate_association_payload(decision, candidate_by_id)
@@ -1605,6 +1839,7 @@ def _apply_judge_result(
             "counts": {
                 "accepted": accepted,
                 "rejected": rejected,
+                "deferred": deferred,
                 "appended": appended,
                 "deduped": deduped,
                 "quarantined": quarantined,
@@ -1617,6 +1852,7 @@ def _apply_judge_result(
     return {
         "accepted": accepted,
         "rejected": rejected,
+        "deferred": deferred,
         "appended": appended,
         "deduped": deduped,
         "quarantined": quarantined,
@@ -2328,6 +2564,7 @@ __all__ = [
     "POLICY_VERSION",
     "apply_association_proposals",
     "association_coverage_summary",
+    "decide_association_candidate",
     "enqueue_association_coverage",
     "get_association_run",
     "latest_association_coverage",

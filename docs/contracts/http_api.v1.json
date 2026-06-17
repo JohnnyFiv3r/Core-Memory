@@ -175,6 +175,16 @@
     },
     {
       "method": "POST",
+      "path": "/v1/memory/association-candidates/{candidate_id}/decide",
+      "authRequired": "conditional",
+      "requestSchema": "AssociationCandidateDecisionRequest",
+      "requiredFields": ["candidate_id", "action"],
+      "response": {"ok": "bool", "contract": "memory.association_candidate_decision.v1", "candidate_id": "string", "run_id": "string", "status": "string", "association_state_by_bead": "object", "association_ids": "array", "counts": "object"},
+      "notes": ["Applies a judge/host decision to one unique candidate. Actions accept, modify, invert, replace, and add may write active associations. Actions reject, no_link, and defer do not write edges.", "Only linked means an active judge-approved association exists."],
+      "errors": ["400 invalid_association_candidate_action", "404 association_candidate_not_found", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
       "path": "/v1/memory/association-proposals",
       "authRequired": "conditional",
       "requestSchema": "AssociationProposalRequest",
