@@ -58,8 +58,11 @@ from .runtime.ingest import (
 )
 from .runtime.associations.coverage import (
     apply_association_proposals,
+    association_coverage_summary,
+    decide_association_candidate,
     enqueue_association_coverage,
     get_association_run,
+    list_association_candidates,
     on_bead_committed,
     run_association_coverage,
 )
@@ -150,8 +153,11 @@ __all__ = [
     "ingest_structured_observation",
     "ingest_document_reference",
     "apply_association_proposals",
+    "association_coverage_summary",
+    "decide_association_candidate",
     "enqueue_association_coverage",
     "get_association_run",
+    "list_association_candidates",
     "on_bead_committed",
     "run_association_coverage",
     "recall",

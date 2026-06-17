@@ -502,6 +502,14 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             rubric_version=str(p.get("rubric_version") or "association_truth.v1"),
             graph_revision=str(p.get("graph_revision") or ""),
             skipped_bead_ids=[str(x) for x in (p.get("skipped_bead_ids") or []) if str(x).strip()],
+            sweep_info={
+                "sweep": bool(p.get("sweep")),
+                "sweep_mode": str(p.get("sweep_mode") or ""),
+                "sweep_cursor": p.get("sweep_cursor"),
+                "sweep_limit": p.get("sweep_limit"),
+                "next_sweep_cursor": p.get("next_sweep_cursor"),
+                "sweep_complete": p.get("sweep_complete"),
+            } if p.get("sweep") else None,
         )
         return {
             "ok": bool(out.get("ok")),

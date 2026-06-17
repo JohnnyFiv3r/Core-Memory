@@ -136,12 +136,39 @@
       "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     },
     {
+      "method": "GET",
+      "path": "/v1/memory/association-coverage/summary",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "contract": "memory.association_coverage_summary.v1", "graph_revision": "string", "eligible_bead_count": "int", "active_association_count": "int", "isolated_eligible_bead_ids": "array", "candidate_status_counts": "object", "latest_runs": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/memory/association-candidates",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "contract": "memory.association_candidates.v1", "count": "int", "observation_count": "int", "results": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
+      "path": "/v1/memory/association-candidates/{candidate_id}/decide",
+      "authRequired": "conditional",
+      "requestSchema": "AssociationCandidateDecisionRequest",
+      "requiredFields": ["candidate_id", "action"],
+      "response": {"ok": "bool", "contract": "memory.association_candidate_decision.v1", "candidate_id": "string", "status": "string", "association_state_by_bead": "object", "association_ids": "array"},
+      "errors": ["400 association_candidate_not_found", "400 invalid_association_candidate_action", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
       "method": "POST",
       "path": "/v1/memory/association-runs",
       "authRequired": "conditional",
       "requestSchema": "AssociationRunRequest",
-      "requiredFields": ["bead_ids|session_id"],
-      "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object", "candidate_count": "int?", "judge_model": "string?"},
+      "requiredFields": ["bead_ids|session_id|sweep"],
+      "response": {"ok": "bool", "contract": "memory.association_run.v1", "run_id": "string", "status": "string", "association_state_by_bead": "object", "candidate_count": "int?", "judge_model": "string?", "sweep_complete": "bool?"},
       "notes": ["Deterministic/source-local coverage emits candidates only; active association edges require judge-approved decisions.", "States include deferred, pending_judge, linked, no_supported_links, quarantined, judge_failed, failed, skipped_ineligible."],
       "errors": ["400 association_run_requires_bead_ids_or_session_id", "401 unauthorized", "400 invalid_tenant_id"]
     },
