@@ -80,4 +80,5 @@ log "enable plugin"
 openclaw plugins enable "$PLUGIN_ID"
 
 log "done. restart gateway/container to apply runtime load"
-log "verify with: openclaw plugins list | grep -i $PLUGIN_ID"}
+log "then run: $REPO_ROOT_DEFAULT/scripts/openclaw_bridge_doctor.sh"
+log "do not rely on plugins list alone; verify hook register/module_check lines and .beads/events movement"

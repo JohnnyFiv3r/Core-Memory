@@ -1,6 +1,12 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 
+const AGENT_END_MODULE = "core_memory.integrations.openclaw.agent_end_bridge";
+const READ_BRIDGE_MODULE = "core_memory.integrations.openclaw.read_bridge";
+const COMPACTION_QUEUE_MODULE = "core_memory.integrations.openclaw.compaction_queue";
+const BRIDGE_MODULES = [AGENT_END_MODULE, READ_BRIDGE_MODULE, COMPACTION_QUEUE_MODULE];
+const BENIGN_SKIP_REASONS = new Set(["deduped", "memory_trigger_skip", "memory_origin_skip"]);
+
 const plugin = {
   id: "core-memory-bridge",
   name: "Core Memory Bridge",
@@ -23,7 +29,7 @@ const plugin = {
         appendFileSync('/tmp/core-memory-bridge-hook.log', `${new Date().toISOString()} ${line}\n`);
       } catch {}
     };
-    debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} enableAgentEnd=${cfg.enableAgentEnd} enableMemorySearch=${cfg.enableMemorySearch} enableCompactionFlush=${cfg.enableCompactionFlush}`);
+    debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} coreMemoryRepo=${cfg.coreMemoryRepo} pythonBin=${cfg.pythonBin} enableAgentEnd=${cfg.enableAgentEnd} enableMemorySearch=${cfg.enableMemorySearch} enableCompactionFlush=${cfg.enableCompactionFlush}`);
 
     const loadSkillInstructions = () => {
       try {
@@ -44,6 +50,38 @@ const plugin = {
           "",
         ]);
       }
+    }
+
+    const runPythonCheck = (moduleName) =>
+      new Promise((resolve) => {
+        const script = `import importlib; importlib.import_module(${JSON.stringify(moduleName)})`;
+        const child = spawn(cfg.pythonBin, ["-c", script], {
+          stdio: ["ignore", "ignore", "pipe"],
+          cwd: cfg.coreMemoryRepo,
+          env: { ...process.env, PYTHONPATH: `${cfg.coreMemoryRepo}:${process.env.PYTHONPATH || ""}` },
+        });
+        let stderr = "";
+        child.stderr.on("data", (d) => {
+          stderr += String(d || "");
+        });
+        child.on("error", (err) => {
+          resolve({ ok: false, moduleName, error: `spawn_error:${String(err)}`, stderr });
+        });
+        child.on("close", (code) => {
+          resolve({ ok: code === 0, moduleName, code, stderr });
+        });
+      });
+
+    for (const moduleName of BRIDGE_MODULES) {
+      runPythonCheck(moduleName).then((result) => {
+        debug(`module_check module=${moduleName} ok=${String(result.ok)} code=${String(result.code ?? "")} stderr=${String((result.stderr || result.error || "").slice(0, 180))}`);
+        if (!result.ok) {
+          api.logger?.warn?.(`core-memory-bridge: module import failed for ${moduleName}: ${String(result.stderr || result.error || "").slice(0, 500)}`);
+        }
+      }).catch((err) => {
+        debug(`module_check module=${moduleName} ok=false error=${String(err).slice(0, 180)}`);
+        api.logger?.warn?.(`core-memory-bridge: module import check error for ${moduleName}: ${String(err)}`);
+      });
     }
 
     const runBridge = (moduleName, payload, opts = {}) =>
@@ -125,6 +163,11 @@ const plugin = {
       }
     };
 
+    const bridgeResultSummary = (out) => {
+      const parsed = out?.parsed || {};
+      return `ok=${String(parsed.ok)} emitted=${String(parsed.emitted)} reason=${String(parsed.reason || "")} event_id=${String(parsed.event_id || "")} processed=${String(parsed.processed ?? "")} failed=${String(parsed.failed ?? "")} code=${String(out?.code)} stderr=${String((out?.stderr || "").slice(0, 180))}`;
+    };
+
     if (cfg.enableAgentEnd) {
       api.on("agent_end", async (event) => {
         try {
@@ -140,15 +183,18 @@ const plugin = {
             },
             root: cfg.coreMemoryRoot,
           };
-          const out = await runBridge("core_memory.integrations.openclaw_agent_end_bridge", payload);
-          debug(`agent_end result ok=${String(out?.parsed?.ok)} code=${String(out?.code)} stderr=${String((out?.stderr||'').slice(0,180))}`);
+          const out = await runBridge(AGENT_END_MODULE, payload);
+          const parsed = out?.parsed || {};
+          debug(`agent_end result ${bridgeResultSummary(out)}`);
           if (!out?.parsed?.ok) {
             api.logger?.warn?.(`core-memory-bridge: agent_end emit failed: ${JSON.stringify(out?.parsed || {})}`);
+          } else if (parsed.emitted === false && parsed.reason && !BENIGN_SKIP_REASONS.has(String(parsed.reason))) {
+            api.logger?.warn?.(`core-memory-bridge: agent_end skipped without bead write: ${JSON.stringify(parsed)}`);
           }
 
           // Non-blocking compaction queue drain: retries deferred compaction work without
           // holding lifecycle hook latency budget.
-          runBridgeDetached("core_memory.integrations.openclaw_compaction_queue", {
+          runBridgeDetached(COMPACTION_QUEUE_MODULE, {
             action: "drain",
             root: cfg.coreMemoryRoot,
             maxItems: 1,
@@ -172,7 +218,7 @@ const plugin = {
             explain: false,
             k: event?.k || 8,
           };
-          const out = await runBridge("core_memory.integrations.openclaw_read_bridge", payload);
+          const out = await runBridge(READ_BRIDGE_MODULE, payload);
           debug(`memory_search result ok=${String(out?.parsed?.ok)} code=${String(out?.code)} stderr=${String((out?.stderr || '').slice(0, 180))}`);
           if (!out?.parsed?.ok) {
             api.logger?.warn?.(`core-memory-bridge: memory_search failed: ${JSON.stringify(out?.parsed || {})}`);
@@ -201,7 +247,7 @@ const plugin = {
             },
             root: cfg.coreMemoryRoot,
           };
-          const out = await runBridge("core_memory.integrations.openclaw_compaction_queue", payload);
+          const out = await runBridge(COMPACTION_QUEUE_MODULE, payload);
           debug(`compaction enqueue ok=${String(out?.parsed?.ok)} code=${String(out?.code)}`);
           if (!out?.parsed?.ok) {
             api.logger?.warn?.(`core-memory-bridge: compaction enqueue failed: ${JSON.stringify(out?.parsed || {})}`);
