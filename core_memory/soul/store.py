@@ -158,6 +158,8 @@ def propose_soul_update(
     reason: str = "",
     evidence: list[dict[str, Any]] | None = None,
     requires_approval: bool = True,
+    semantic_task_refs: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a proposed SOUL revision (soul_revision.v1). When
     ``requires_approval`` is False (auto-eligible governance) it is applied
@@ -193,6 +195,8 @@ def propose_soul_update(
         "epistemic_status": epi,
         "reason": str(reason or ""),
         "evidence": [dict(e) for e in (evidence or []) if isinstance(e, dict)],
+        "semantic_task_refs": [dict(e) for e in (semantic_task_refs or []) if isinstance(e, dict)],
+        "metadata": dict(metadata or {}),
         "requires_approval": bool(requires_approval),
         "status": "applied" if auto else "proposed",
         "approver": "",
