@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -581,6 +582,7 @@ class TestMemoryManagement(unittest.TestCase):
             )
             self.assertIn("batch-maintain-source-1", run_record.get("source_ingest_batch_ids") or [])
 
+    @patch.dict(os.environ, {"CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "disabled"}, clear=False)
     def test_maintain_exposes_association_review_control_plane(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)

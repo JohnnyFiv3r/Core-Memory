@@ -27,6 +27,15 @@ from core_memory.runtime.queue.side_effect_queue import (
 )
 
 
+def _queued_payload_for_kind(root: str, kind: str) -> dict:
+    import json
+    queue = json.loads(_queue_path(root).read_text(encoding="utf-8"))
+    for item in queue:
+        if str((item or {}).get("kind") or "") == kind:
+            return dict((item or {}).get("payload") or {})
+    raise AssertionError(f"queued side effect kind not found: {kind}")
+
+
 class TestEnrichmentQueueRegistered(unittest.TestCase):
     """turn-enrichment is a valid side effect kind."""
 
@@ -69,9 +78,7 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             self.assertTrue(result["ok"])
             self.assertFalse(result.get("duplicate", False))
 
-            import json
-            queue = json.loads(_queue_path(td).read_text(encoding="utf-8"))
-            payload = queue[0]["payload"]
+            payload = _queued_payload_for_kind(td, "turn-enrichment")
             self.assertEqual("session_enrichment_delta.v1", payload["enrichment_delta"]["schema"])
             self.assertEqual("enrich-s1-t1", payload["enrichment_delta"]["source"]["idempotency_key"])
 
@@ -107,9 +114,7 @@ class TestEnqueueTurnEnrichment(unittest.TestCase):
             )
             self.assertTrue(result["ok"])
 
-            import json
-            queue = json.loads(_queue_path(td).read_text(encoding="utf-8"))
-            payload = queue[0]["payload"]
+            payload = _queued_payload_for_kind(td, "turn-enrichment")
             self.assertEqual([visible_bead], payload["reviewed_updates"]["promotions"])
             self.assertEqual([], payload["reviewed_updates"]["associations"])
             self.assertEqual(1, payload["enrichment_delta"]["diagnostics"]["quarantined_counts"]["associations"])

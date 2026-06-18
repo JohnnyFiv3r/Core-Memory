@@ -271,7 +271,7 @@ def add_bead_for_store(
                 source=association_coverage_source,
                 run_inline=False,
                 session_id=resolved_session_id,
-                enqueue=False,
+                enqueue=True,
             )
         except Exception:
             pass

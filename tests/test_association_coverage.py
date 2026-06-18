@@ -237,6 +237,15 @@ def _structured_payload(**overrides):
 
 
 class TestAssociationCoverage(unittest.TestCase):
+    def setUp(self):
+        self._env_patch = patch.dict(
+            "os.environ",
+            {"CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "disabled"},
+            clear=False,
+        )
+        self._env_patch.start()
+        self.addCleanup(self._env_patch.stop)
+
     def test_llm_association_judge_uses_json_mode_and_scales_output_budget(self):
         context = {
             "run_id": "arun-json-budget",
@@ -264,7 +273,11 @@ class TestAssociationCoverage(unittest.TestCase):
                 "reviewed_beads": [],
             })
 
-        with patch(
+        with patch.dict(
+            "os.environ",
+            {"CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider"},
+            clear=False,
+        ), patch(
             "core_memory.runtime.semantic_tasks.runtime.resolve_chat_config",
             return_value=_test_provider_config(),
         ), patch("core_memory.runtime.semantic_tasks.runtime.chat_complete", fake_chat_complete):
@@ -294,7 +307,11 @@ class TestAssociationCoverage(unittest.TestCase):
 {"contract":"memory.association_judge.v1","run_id":"arun-json-fallback","decisions":[],"reviewed_beads":[]}
 ```"""
 
-        with patch(
+        with patch.dict(
+            "os.environ",
+            {"CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider"},
+            clear=False,
+        ), patch(
             "core_memory.runtime.semantic_tasks.runtime.resolve_chat_config",
             return_value=_test_provider_config(),
         ), patch("core_memory.runtime.semantic_tasks.runtime.chat_complete", fake_chat_complete):
@@ -303,7 +320,7 @@ class TestAssociationCoverage(unittest.TestCase):
         self.assertEqual("memory.association_judge.v1", out.get("contract"))
         self.assertEqual([True, False], [call["json_mode"] for call in calls])
 
-    def test_configured_llm_association_judge_records_semantic_task_receipt(self):
+    def test_association_judge_records_semantic_task_receipt_by_default(self):
         calls = []
 
         def fake_chat_complete(prompt, *, max_tokens=700, temperature=0, json_mode=False, **_kwargs):
@@ -336,7 +353,6 @@ class TestAssociationCoverage(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             "os.environ",
             {
-                "CORE_MEMORY_ASSOCIATION_JUDGE_MODE": "llm",
                 "CORE_MEMORY_AGENT_MODEL_STANDARD": "standard-association-runtime",
                 "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider",
             },
@@ -374,11 +390,10 @@ class TestAssociationCoverage(unittest.TestCase):
         self.assertEqual("pending_judge", row.get("fallback_mode"))
         self.assertEqual("advisory", row.get("authority_boundary"))
 
-    def test_configured_llm_association_judge_unavailable_keeps_pending_judge_state(self):
+    def test_unavailable_semantic_association_judge_keeps_pending_judge_state(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             "os.environ",
             {
-                "CORE_MEMORY_ASSOCIATION_JUDGE_MODE": "llm",
                 "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "disabled",
             },
             clear=False,
@@ -989,17 +1004,23 @@ class TestAssociationCoverage(unittest.TestCase):
             coverage = ((inspect.json().get("bead") or {}).get("association_coverage") or {})
             self.assertEqual("no_supported_links", coverage.get("state"))
 
-    def test_on_bead_committed_store_hook_records_deferred_coverage(self):
+    def test_on_bead_committed_store_hook_queues_association_coverage(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
             bead = store.add_bead(type="context", title="Hooked", summary=["hooked"], session_id="s1", source_turn_ids=["t1"])
 
             runs = _jsonl_rows(td, "association-runs.jsonl")
             self.assertEqual(1, len(runs))
-            self.assertEqual("deferred", runs[0].get("status"))
+            self.assertEqual("queued", runs[0].get("status"))
             self.assertEqual([bead], runs[0].get("bead_ids"))
             self.assertEqual("bead_committed", runs[0].get("trigger"))
-            self.assertFalse(runs[0].get("association_queued"))
+            self.assertTrue(runs[0].get("association_queued"))
+
+            queue_path = Path(td) / ".beads" / "events" / "side-effects-queue.json"
+            queue = json.loads(queue_path.read_text(encoding="utf-8"))
+            self.assertEqual(1, len(queue))
+            self.assertEqual("association-pass", queue[0].get("kind"))
+            self.assertEqual([bead], (queue[0].get("payload") or {}).get("bead_ids"))
 
             extra = on_bead_committed(td, bead, trigger="operator", source="test", run_inline=True, judge=RejectingFakeAssociationJudge())
             self.assertTrue(extra.get("ok"), extra)
