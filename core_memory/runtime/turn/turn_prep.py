@@ -64,6 +64,6 @@ def normalize_turn_request(
     }
 
 
-def infer_semantic_bead_type(user_query: str, assistant_final: str) -> str:
+def infer_semantic_bead_type(user_query: str, assistant_final: str, *, root: str | None = None) -> str:
     """LLM-first bead type policy classifier with deterministic fallback."""
-    return classify_bead_type(user_query=user_query, assistant_final=assistant_final)
+    return classify_bead_type(user_query=user_query, assistant_final=assistant_final, root=root)

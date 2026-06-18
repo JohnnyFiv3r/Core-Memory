@@ -20,6 +20,7 @@ from core_memory.runtime.semantic_tasks import (
 from core_memory.runtime.semantic_tasks.contracts import (
     TASK_ASSOCIATION_DECISION,
     TASK_BEAD_FIELD_JUDGE,
+    TASK_BEAD_TYPE_CLASSIFIER,
     TASK_SOUL_PROPOSAL,
     TASK_VERIFIER,
 )
@@ -29,6 +30,7 @@ from core_memory.runtime.semantic_tasks.runtime import DisabledSemanticTaskRunti
 class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
     def test_task_profile_uses_expected_model_tiers(self):
         self.assertEqual("cheap", task_profile("bead_field_judge").model_tier)
+        self.assertEqual("cheap", task_profile(TASK_BEAD_TYPE_CLASSIFIER).model_tier)
         self.assertEqual("standard", task_profile("association_decision").model_tier)
         self.assertEqual("frontier", task_profile("dreamer_research").model_tier)
         self.assertEqual("candidate_only", task_profile("dreamer_research").authority_boundary)
