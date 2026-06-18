@@ -46,7 +46,7 @@ the older entries above.
 | `dreamer-continuity-engine.md` | Dreamer V3 — scientific continuity engine, assembly depth, storyline projection, future vectors; V4 target-states + agency backlog | **Draft v3** |
 | `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Draft v2** |
 | `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Draft v1** |
-| `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend instructions for connector-host SOUL continuity dials | Draft |
+| `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend instructions for host-app SOUL continuity dials | Draft |
 
 ## Implementation status & deferred work
 

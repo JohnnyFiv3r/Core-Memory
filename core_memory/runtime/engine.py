@@ -106,11 +106,23 @@ def _field_present(row: dict[str, Any], field: str) -> bool:
     return bool(str(value).strip())
 
 
-def _maybe_apply_judge_fallback(row: dict[str, Any], user_query: str, assistant_final: str, *, req: dict[str, Any] | None = None) -> dict[str, Any]:
+def _maybe_apply_judge_fallback(
+    row: dict[str, Any],
+    user_query: str,
+    assistant_final: str,
+    *,
+    req: dict[str, Any] | None = None,
+    root: str | None = None,
+) -> dict[str, Any]:
     if not _judge_fallback_enabled(req):
         return row
     out = dict(row)
-    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final, mode=_req_judge_directive(req))
+    judged = judge_bead_fields(
+        user_query=user_query,
+        assistant_final=assistant_final,
+        mode=_req_judge_directive(req),
+        root=root,
+    )
     for field in SEMANTIC_FIELDS:
         if not _field_present(out, field) and judged.get(field) is not None:
             out[field] = judged.get(field)
@@ -193,9 +205,14 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
     }
 
 
-def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
+def _judged_turn_bead(req: dict[str, Any], *, root: str | None = None) -> dict[str, Any]:
     user_query, assistant_final = _turn_judge_inputs(req)
-    judged = judge_bead_fields(user_query=user_query, assistant_final=assistant_final, mode=_req_judge_directive(req))
+    judged = judge_bead_fields(
+        user_query=user_query,
+        assistant_final=assistant_final,
+        mode=_req_judge_directive(req),
+        root=root,
+    )
     req["_judged_claims"] = list(judged.get("claims") or [])
     return {
         "type": str(judged.get("type") or "context"),
@@ -213,13 +230,18 @@ def _judged_turn_bead(req: dict[str, Any]) -> dict[str, Any]:
         "effective_from": judged.get("effective_from"),
         "effective_to": judged.get("effective_to"),
         "observed_at": judged.get("observed_at"),
-        "tags": ["crawler_reviewed", "turn_finalized", "bead_judge_fallback", "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"],
+        "tags": [
+            "crawler_reviewed",
+            "turn_finalized",
+            "bead_judge_fallback",
+            "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged",
+        ],
         "detail": str(judged.get("detail") or "")[:1200],
     }
 
 
-def _default_crawler_updates(req: dict[str, Any]) -> dict[str, Any]:
-    bead = _judged_turn_bead(req) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
+def _default_crawler_updates(req: dict[str, Any], *, root: str | None = None) -> dict[str, Any]:
+    bead = _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
     return {"beads_create": [bead]}
 
 
@@ -280,6 +302,7 @@ def _default_entities_from_text(*texts: str, limit: int = 16) -> list[str]:
 def _resolve_reviewed_updates(
     req: dict[str, Any],
     *,
+    root: str | None = None,
     source_override: str | None = None,
     invocation_diag: dict[str, Any] | None = None,
     max_create_per_turn: int | None = None,
@@ -311,7 +334,7 @@ def _resolve_reviewed_updates(
                 if fail_open:
                     gate["source"] = "default_fallback"
                     gate["used_fallback"] = True
-                    fallback = _default_crawler_updates(req)
+                    fallback = _default_crawler_updates(req, root=root)
                     for key in ("beads_create", "creations", "associations"):
                         if isinstance(reviewed.get(key), list):
                             fallback[key] = list(reviewed.get(key) or [])
@@ -334,7 +357,7 @@ def _resolve_reviewed_updates(
 
     gate["source"] = "default_fallback"
     gate["used_fallback"] = True
-    return _default_crawler_updates(req), gate
+    return _default_crawler_updates(req, root=root), gate
 
 
 def _enforce_structural_invariants(root: str, req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
@@ -379,13 +402,13 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
             continue
         rows[i] = _enforce_structural_invariants(root, req, row)
         user_query, assistant_final = _turn_judge_inputs(req)
-        rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final, req=req)
+        rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final, req=req, root=root)
         src = [str(x) for x in (rows[i].get("source_turn_ids") or []) if str(x)]
         if turn_id and turn_id in src:
             has_turn = True
 
     if not has_turn:
-        bead = _judged_turn_bead(req) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
+        bead = _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
         bead["source_turn_ids"] = [turn_id]
         bead["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
         rows.append(bead)
@@ -463,7 +486,7 @@ def process_turn_finalized(
         maybe_emit_finalize_memory_event=maybe_emit_finalize_memory_event,
         build_crawler_context=build_crawler_context,
         invoke_turn_crawler_agent=invoke_turn_crawler_agent,
-        resolve_reviewed_updates=_resolve_reviewed_updates,
+        resolve_reviewed_updates=lambda req, **kwargs: _resolve_reviewed_updates(req, root=root, **kwargs),
         emit_agent_turn_quality_metric=_emit_agent_turn_quality_metric,
         session_visible_bead_ids=_session_visible_bead_ids,
         non_temporal_semantic_association_count=_non_temporal_semantic_association_count,
@@ -471,7 +494,7 @@ def process_turn_finalized(
         try_claim_memory_pass=try_claim_memory_pass,
         mark_memory_pass=mark_memory_pass,
         process_memory_event=process_memory_event,
-        default_crawler_updates=_default_crawler_updates,
+        default_crawler_updates=lambda req: _default_crawler_updates(req, root=root),
         ensure_turn_creation_update=_ensure_turn_creation_update,
         run_association_pass=run_association_pass,
         queue_preview_associations=_queue_preview_associations,
