@@ -513,7 +513,10 @@ def process_turn_finalized(
     if result.get("ok") and result.get("enrichment_queued"):
         try:
             from core_memory.runtime.queue.side_effect_queue import drain_side_effect_queue
-            drain_out = drain_side_effect_queue(root=root, max_items=1)
+            # Automatic bead-commit hooks can enqueue association-pass work
+            # before this turn-enrichment item. Drain a small bounded batch so
+            # the post-turn enrichment job is not starved by earlier hook jobs.
+            drain_out = drain_side_effect_queue(root=root, max_items=10)
             result["enrichment_drain"] = drain_out
             for item in list(drain_out.get("results") or []):
                 if not isinstance(item, dict) or item.get("kind") != "turn-enrichment":

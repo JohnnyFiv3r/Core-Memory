@@ -1250,9 +1250,9 @@ class LLMAssociationJudge:
 
 def _configured_association_judge(*, root: str | Path | None = None) -> Any | None:
     mode = _clean_str(os.environ.get("CORE_MEMORY_ASSOCIATION_JUDGE_MODE")).lower()
-    if mode in {"llm", "model"}:
-        return LLMAssociationJudge(root=root)
-    return None
+    if mode in {"off", "disabled", "none", "false", "0", "deterministic"}:
+        return None
+    return LLMAssociationJudge(root=root)
 
 
 def _invoke_association_judge(
@@ -1895,6 +1895,7 @@ def enqueue_association_coverage(
         "source_ingest_envelope_refs": run_envelope_refs,
         "source_ingest_batch_ids": source_ingest_batch_ids(run_envelope_refs),
         "queued_job_id": _clean_str(queue.get("id")),
+        "association_queued": bool(queue.get("ok")),
         "queue": queue,
         "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": len(skipped_ids)},
         "contract": "memory.association_run.v1",
