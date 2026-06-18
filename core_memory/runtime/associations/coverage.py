@@ -24,6 +24,8 @@ from core_memory.runtime.source_envelope import (
     source_ingest_envelope_ref,
     source_microbatch_key,
 )
+from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
+from core_memory.runtime.semantic_tasks.contracts import TASK_ASSOCIATION_DECISION
 from core_memory.retrieval.lifecycle import mark_trace_dirty
 
 
@@ -1188,10 +1190,12 @@ def _parse_association_judge_json(text: str) -> dict[str, Any]:
 
 
 class LLMAssociationJudge:
-    def review(self, context: dict[str, Any]) -> dict[str, Any]:
-        from core_memory.llm_client import chat_complete
+    def __init__(self, *, root: str | Path | None = None):
+        self.root = str(root) if root is not None else None
 
-        prompt = (
+    @staticmethod
+    def _prompt(context: dict[str, Any]) -> str:
+        return (
             "You are Core Memory's association judge. Review candidate bead associations "
             "against the supplied bead content, metadata, provenance, and evidence refs. "
             "Return only JSON matching contract memory.association_judge.v1. "
@@ -1202,23 +1206,62 @@ class LLMAssociationJudge:
             "values only. Do not approve unsupported links.\n\n"
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
+
+    def _run_task(self, context: dict[str, Any], *, json_mode: bool) -> dict[str, Any]:
         max_tokens = _association_judge_max_tokens(context)
+        result = get_semantic_task_runtime().run(
+            SemanticTaskRequest(
+                task_type=TASK_ASSOCIATION_DECISION,
+                root=self.root,
+                prompt=self._prompt(context),
+                payload=context,
+                prompt_version=_clean_str(context.get("prompt_version")) or JUDGE_PROMPT_VERSION,
+                rubric_version=_clean_str(context.get("rubric_version")) or JUDGE_RUBRIC_VERSION,
+                output_schema=ASSOCIATION_JUDGE_CONTRACT,
+                max_tokens=max_tokens,
+                temperature=0,
+                json_mode=bool(json_mode),
+                fallback_mode="pending_judge",
+                authority_boundary="advisory",
+                evidence_refs=list(context.get("source_ingest_envelope_refs") or []),
+                metadata={
+                    "policy": "association_coverage",
+                    "run_id": _clean_str(context.get("run_id")),
+                    "candidate_count": len([x for x in (context.get("candidates") or []) if isinstance(x, dict)]),
+                },
+            )
+        )
+        if not result.ok:
+            if result.status == "unavailable":
+                raise AssociationJudgeUnavailable(result.error or "association_judge_unavailable")
+            raise RuntimeError(result.error or result.status or "association_judge_failed")
+        if isinstance(result.output_json, dict):
+            return result.output_json
+        return _parse_association_judge_json(result.output_text)
+
+    def review(self, context: dict[str, Any]) -> dict[str, Any]:
         try:
-            raw = chat_complete(prompt, max_tokens=max_tokens, temperature=0, json_mode=True)
+            return self._run_task(context, json_mode=True)
+        except AssociationJudgeUnavailable:
+            raise
         except Exception:
-            raw = chat_complete(prompt, max_tokens=max_tokens, temperature=0)
-        return _parse_association_judge_json(raw)
+            return self._run_task(context, json_mode=False)
 
 
-def _configured_association_judge() -> Any | None:
+def _configured_association_judge(*, root: str | Path | None = None) -> Any | None:
     mode = _clean_str(os.environ.get("CORE_MEMORY_ASSOCIATION_JUDGE_MODE")).lower()
     if mode in {"llm", "model"}:
-        return LLMAssociationJudge()
+        return LLMAssociationJudge(root=root)
     return None
 
 
-def _invoke_association_judge(context: dict[str, Any], judge: Any | None = None) -> dict[str, Any]:
-    active = judge if judge is not None else _configured_association_judge()
+def _invoke_association_judge(
+    context: dict[str, Any],
+    judge: Any | None = None,
+    *,
+    root: str | Path | None = None,
+) -> dict[str, Any]:
+    active = judge if judge is not None else _configured_association_judge(root=root)
     if active is None:
         raise AssociationJudgeUnavailable("association_judge_not_configured")
     if hasattr(active, "review"):
@@ -2166,7 +2209,7 @@ def run_association_coverage(
         rubric_version=rubric_v,
     )
     try:
-        judge_result = _invoke_association_judge(judge_context, judge=judge)
+        judge_result = _invoke_association_judge(judge_context, judge=judge, root=root)
     except AssociationJudgeUnavailable as exc:
         state_by_bead = {bid: "pending_judge" for bid in judge_source_ids}
         state_by_bead.update({bid: "no_supported_links" for bid in no_candidate_ids})
