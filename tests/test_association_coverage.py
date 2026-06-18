@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
+from core_memory.provider_config import ProviderConfig
 from core_memory.runtime.associations.coverage import (
     LLMAssociationJudge,
     apply_association_proposals,
@@ -23,6 +24,7 @@ from core_memory.runtime.ingest.external_evidence import (
     ingest_structured_observation,
 )
 from core_memory.runtime.queue.jobs import enqueue_async_job, run_async_jobs
+from core_memory.runtime.semantic_tasks import list_semantic_task_runs
 
 
 def _index(root: str) -> dict:
@@ -47,6 +49,18 @@ def _jsonl_rows(root: str, name: str) -> list[dict]:
 def _add_test_bead(store: MemoryStore, **kwargs):
     kwargs.setdefault("_association_coverage", False)
     return store.add_bead(**kwargs)
+
+
+def _test_provider_config(model: str = "standard-association-model") -> ProviderConfig:
+    return ProviderConfig(
+        kind="chat",
+        provider="openai",
+        base_url="https://example.test/v1",
+        api_key="test",
+        model=model,
+        source="unit",
+        explicit=True,
+    )
 
 
 class AcceptingFakeAssociationJudge:
@@ -250,7 +264,10 @@ class TestAssociationCoverage(unittest.TestCase):
                 "reviewed_beads": [],
             })
 
-        with patch("core_memory.llm_client.chat_complete", fake_chat_complete):
+        with patch(
+            "core_memory.runtime.semantic_tasks.runtime.resolve_chat_config",
+            return_value=_test_provider_config(),
+        ), patch("core_memory.runtime.semantic_tasks.runtime.chat_complete", fake_chat_complete):
             out = LLMAssociationJudge().review(context)
 
         self.assertEqual("memory.association_judge.v1", out.get("contract"))
@@ -277,11 +294,113 @@ class TestAssociationCoverage(unittest.TestCase):
 {"contract":"memory.association_judge.v1","run_id":"arun-json-fallback","decisions":[],"reviewed_beads":[]}
 ```"""
 
-        with patch("core_memory.llm_client.chat_complete", fake_chat_complete):
+        with patch(
+            "core_memory.runtime.semantic_tasks.runtime.resolve_chat_config",
+            return_value=_test_provider_config(),
+        ), patch("core_memory.runtime.semantic_tasks.runtime.chat_complete", fake_chat_complete):
             out = LLMAssociationJudge().review(context)
 
         self.assertEqual("memory.association_judge.v1", out.get("contract"))
         self.assertEqual([True, False], [call["json_mode"] for call in calls])
+
+    def test_configured_llm_association_judge_records_semantic_task_receipt(self):
+        calls = []
+
+        def fake_chat_complete(prompt, *, max_tokens=700, temperature=0, json_mode=False, **_kwargs):
+            calls.append({"prompt": prompt, "max_tokens": max_tokens, "temperature": temperature, "json_mode": json_mode})
+            context = json.loads(prompt.split("\n\n", 1)[1])
+            candidate = (context.get("candidates") or [])[0]
+            return json.dumps(
+                {
+                    "contract": "memory.association_judge.v1",
+                    "run_id": context["run_id"],
+                    "judge_model": "standard-association-runtime",
+                    "prompt_version": context["prompt_version"],
+                    "rubric_version": context["rubric_version"],
+                    "decisions": [
+                        {
+                            "candidate_id": candidate["candidate_id"],
+                            "action": "accept",
+                            "confidence": candidate.get("confidence_prior", 0.9),
+                            "reason_text": "Accepted through semantic task runtime.",
+                            "truth_basis": "semantic_task_association_review",
+                        }
+                    ],
+                    "reviewed_beads": [
+                        {"bead_id": bid, "association_state": "linked"}
+                        for bid in context.get("source_bead_ids", [])
+                    ],
+                }
+            )
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_ASSOCIATION_JUDGE_MODE": "llm",
+                "CORE_MEMORY_AGENT_MODEL_STANDARD": "standard-association-runtime",
+                "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider",
+            },
+            clear=False,
+        ), patch(
+            "core_memory.runtime.semantic_tasks.runtime.resolve_chat_config",
+            return_value=_test_provider_config(),
+        ), patch("core_memory.runtime.semantic_tasks.runtime.chat_complete", fake_chat_complete):
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+            )
+            rows = list_semantic_task_runs(td, task_type="association_decision")
+            assoc_count = len(_assocs(td, "follows"))
+
+        self.assertTrue(out.get("ok"), out)
+        self.assertEqual("completed", out.get("status"))
+        self.assertEqual(1, assoc_count)
+        self.assertEqual(1, len(calls))
+        self.assertTrue(calls[0]["json_mode"])
+        self.assertEqual(1, rows.get("count"))
+        row = (rows.get("results") or [{}])[0]
+        self.assertEqual("association_decision", row.get("task_type"))
+        self.assertEqual("succeeded", row.get("status"))
+        self.assertEqual("standard", row.get("model_tier"))
+        self.assertEqual("association_judge.v1", row.get("prompt_version"))
+        self.assertEqual("association_truth.v1", row.get("rubric_version"))
+        self.assertEqual("memory.association_judge.v1", row.get("output_schema"))
+        self.assertEqual("pending_judge", row.get("fallback_mode"))
+        self.assertEqual("advisory", row.get("authority_boundary"))
+
+    def test_configured_llm_association_judge_unavailable_keeps_pending_judge_state(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_ASSOCIATION_JUDGE_MODE": "llm",
+                "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "disabled",
+            },
+            clear=False,
+        ):
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+            )
+            rows = list_semantic_task_runs(td, task_type="association_decision", status="unavailable")
+
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("pending_judge", out.get("status"))
+            self.assertEqual("semantic_task_runtime_disabled", out.get("warning"))
+            self.assertEqual([], _assocs(td, "follows"))
+            self.assertEqual(1, rows.get("count"))
+            self.assertEqual("pending_judge", (rows.get("results") or [{}])[0].get("fallback_mode"))
 
     def test_bead_without_candidate_proposals_completes_without_judge_failure(self):
         with tempfile.TemporaryDirectory() as td:
