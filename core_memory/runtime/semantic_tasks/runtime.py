@@ -40,7 +40,11 @@ def _env_first(*names: str) -> tuple[str, str]:
 
 
 def semantic_task_runtime_mode() -> str:
-    mode = str(os.environ.get("CORE_MEMORY_SEMANTIC_TASK_RUNTIME") or "auto").strip().lower()
+    mode = str(
+        os.environ.get("CORE_MEMORY_SEMANTIC_TASK_RUNTIME")
+        or os.environ.get("CORE_MEMORY_SEMANTIC_RUNTIME")
+        or "auto"
+    ).strip().lower()
     if mode in {"", "auto", "provider", "llm", "pydanticai", "pydantic-ai", "disabled", "off"}:
         return "pydanticai" if mode == "pydantic-ai" else (mode or "auto")
     return "auto"

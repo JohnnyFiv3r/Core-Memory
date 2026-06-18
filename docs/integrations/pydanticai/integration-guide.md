@@ -85,11 +85,17 @@ Continuity semantics:
 - `CORE_MEMORY_TRANSCRIPT_HYDRATION` (default `1`)
 - `CORE_MEMORY_DEFAULT_HYDRATE_TOOLS` (default `0`)
 - `CORE_MEMORY_DEFAULT_ADJACENT_TURNS` (default `0`)
+- `CORE_MEMORY_SEMANTIC_TASK_RUNTIME` (`auto`, `provider`, `pydanticai`, or `disabled`)
+- `CORE_MEMORY_AGENT_MODEL_CHEAP` for bead/rationale/verifier semantic tasks
+- `CORE_MEMORY_AGENT_MODEL_STANDARD` for association and recall semantic tasks
+- `CORE_MEMORY_AGENT_MODEL_FRONTIER` for Dreamer/SOUL proposal semantic tasks
 
 Notes:
 - Archive writes are gated by `CORE_MEMORY_TRANSCRIPT_ARCHIVE`.
 - Hydration APIs are gated by `CORE_MEMORY_TRANSCRIPT_HYDRATION`.
 - PydanticAI adapter metadata includes a `core_memory_flags` snapshot for diagnostics.
+- `CORE_MEMORY_SEMANTIC_RUNTIME` is accepted as a legacy alias for
+  `CORE_MEMORY_SEMANTIC_TASK_RUNTIME`; prefer the longer name in new deployments.
 
 ## Trace passthrough
 `run_with_memory(...)` and `run_with_memory_sync(...)` support optional:
