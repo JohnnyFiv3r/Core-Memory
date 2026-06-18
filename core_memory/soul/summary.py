@@ -25,6 +25,7 @@ SOUL_SUMMARY_SCHEMA = "soul_summary.v1"
 _ENDORSED_GOAL_STATES = {"endorsed", "active"}
 _TERMINAL_TENSION_STATUSES = {"resolved", "superseded", "inactive", "retracted"}
 _TENSION_RATE_WINDOW_DAYS = 30.0
+_INACTIVE_ASSOC_STATUSES = {"retracted", "superseded", "inactive"}
 
 
 def _now() -> str:
@@ -220,6 +221,10 @@ def _age_days(first_seen: datetime | None, now: datetime) -> float | None:
     return round(max(0.0, (now - first_seen).total_seconds() / 86400.0), 6)
 
 
+def _evidence_refs_for_beads(bead_ids: list[str]) -> list[dict[str, str]]:
+    return [{"type": "bead", "id": str(bid)} for bid in bead_ids if str(bid)]
+
+
 def _persistence_qualified(*, sessions: list[str], periods: list[str], source_refs: list[str]) -> bool:
     return len(set(sessions)) >= 2 or len(set(periods)) >= 2 or len(set(source_refs)) >= 2
 
@@ -313,6 +318,67 @@ def _status_from_limitations(limitations: list[str], *, unavailable: bool = Fals
     return "partial" if limitations else "complete"
 
 
+def _association_dependency_count(index: dict[str, Any], bead_ids: list[str]) -> int:
+    members = {str(bid) for bid in bead_ids if str(bid)}
+    if len(members) < 2:
+        return 0
+    count = 0
+    for assoc in index.get("associations") or []:
+        if not isinstance(assoc, dict):
+            continue
+        status = str(assoc.get("status") or "active").strip().lower() or "active"
+        if status in _INACTIVE_ASSOC_STATUSES:
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "")
+        tgt = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "")
+        if src in members and tgt in members and src != tgt:
+            count += 1
+    return count
+
+
+def _storyline_binding_report(storyline: dict[str, Any], index: dict[str, Any]) -> dict[str, Any] | None:
+    backbone = storyline.get("backbone") if isinstance(storyline.get("backbone"), dict) else {}
+    bead_ids = [str(b) for b in (backbone.get("bead_ids") or []) if str(b)]
+    if not bead_ids:
+        return None
+    span_days = _span_days(backbone.get("span") or {})
+    overlay_count = len(storyline.get("overlays") or [])
+    tension_count = len(storyline.get("tensions") or [])
+    causal_count = _association_dependency_count(index, bead_ids)
+    length_factor = min(1.0, len(bead_ids) / 5.0)
+    span_factor = min(1.0, float(span_days or 0.0) / 365.0)
+    overlay_factor = min(1.0, overlay_count / 3.0)
+    tension_factor = min(1.0, tension_count / 3.0)
+    assembly_depth = round(
+        (length_factor * 0.45)
+        + (span_factor * 0.25)
+        + (overlay_factor * 0.2)
+        + (tension_factor * 0.1),
+        6,
+    )
+    binding_mass = round(assembly_depth * (1.0 + causal_count + overlay_count + tension_count), 6)
+    return {
+        "kind": "storyline",
+        "storyline_id": str(storyline.get("id") or ""),
+        "worldline_id": str(backbone.get("id") or ""),
+        "worldline_kind": str(backbone.get("kind") or ""),
+        "label": str(backbone.get("label") or ""),
+        "bead_ids": bead_ids,
+        "span_days": span_days,
+        "storyline_span_days": span_days,
+        "assembly_depth": assembly_depth,
+        "binding_mass_component": binding_mass,
+        "causal_dependency_count": causal_count,
+        "overlay_count": overlay_count,
+        "tension_count": tension_count,
+        "evidence_refs": _evidence_refs_for_beads(bead_ids),
+        "source_refs": _source_refs_for_beads(
+            index.get("beads") if isinstance(index.get("beads"), dict) else {},
+            bead_ids,
+        ),
+    }
+
+
 def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> dict[str, Any]:
     beads = index.get("beads") if isinstance(index.get("beads"), dict) else {}
     limitations: list[str] = []
@@ -321,6 +387,7 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
     goals_payload = list_goals(str(root), subject=subject, include_terminal=False)
     goals = list(goals_payload.get("goals") or []) if goals_payload.get("ok") else []
     endorsed_goals = [g for g in goals if str(g.get("state") or "") in _ENDORSED_GOAL_STATES]
+    candidate_goals = [g for g in goals if str(g.get("state") or "") not in _ENDORSED_GOAL_STATES]
 
     if not endorsed_goals:
         limitations.append("no_endorsed_or_active_goals")
@@ -350,6 +417,31 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
                 "state": str(goal.get("state") or ""),
                 "subject_scope": scope,
                 "target_horizon_days": horizon,
+                "contributes_to_primary_horizon": True,
+                "evidence_refs": _evidence_refs_for_beads([bid]),
+                "source_refs": _source_refs_for_beads(beads, [bid]),
+            }
+        )
+    for goal in candidate_goals:
+        bid = str(goal.get("bead_id") or "")
+        bead = beads.get(bid) if isinstance(beads.get(bid), dict) else {}
+        breakdown.append(
+            {
+                "kind": "goal",
+                "goal_id": str(goal.get("goal_id") or ""),
+                "bead_id": bid,
+                "title": str(goal.get("title") or ""),
+                "state": str(goal.get("state") or ""),
+                "subject_scope": str(
+                    bead.get("subject_scope")
+                    or bead.get("goal_subject_scope")
+                    or bead.get("scope")
+                    or "project"
+                ),
+                "target_horizon_days": _goal_horizon_days(bead),
+                "contributes_to_primary_horizon": False,
+                "evidence_refs": _evidence_refs_for_beads([bid]),
+                "source_refs": _source_refs_for_beads(beads, [bid]),
             }
         )
 
@@ -376,10 +468,30 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
                         "label": str(wl.get("label") or ""),
                         "span_days": span,
                         "bead_ids": list(wl.get("bead_ids") or []),
+                        "evidence_refs": _evidence_refs_for_beads(list(wl.get("bead_ids") or [])),
+                        "source_refs": _source_refs_for_beads(beads, list(wl.get("bead_ids") or [])),
                     }
                 )
     if worldlines and not spans:
         limitations.append("worldline_span_timestamps_unavailable")
+
+    try:
+        storylines = list(derive_storylines(root).get("storylines") or [])
+    except Exception:
+        storylines = []
+        limitations.append("storyline_projection_unavailable")
+
+    storyline_spans: list[float] = []
+    storyline_binding_values: list[float] = []
+    for storyline in storylines:
+        report = _storyline_binding_report(storyline, index)
+        if not report:
+            continue
+        if report.get("storyline_span_days") is not None:
+            storyline_spans.append(float(report["storyline_span_days"]))
+        storyline_binding_values.append(float(report.get("binding_mass_component") or 0.0))
+        if len(breakdown) < 25:
+            breakdown.append(report)
 
     try:
         total_goals = max(
@@ -399,7 +511,7 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
         reports = []
         limitations.append("goal_assembly_depth_unavailable")
 
-    binding_values: list[float] = []
+    goal_binding_values: list[float] = []
     for rep in reports:
         tid = str(rep.get("target_id") or "")
         if tid not in {str(g.get("bead_id") or "") for g in endorsed_goals}:
@@ -410,14 +522,25 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
         myelinated = float(raw.get("myelinated_path_support") or 0.0)
         survival = float(raw.get("supersession_survival") or 0.0)
         mass = depth * (1.0 + causal + myelinated + survival)
-        binding_values.append(mass)
+        goal_binding_values.append(mass)
+        for row in breakdown:
+            if row.get("kind") == "goal" and row.get("bead_id") == tid:
+                row["assembly_depth"] = round(depth, 6)
+                row["binding_mass_component"] = round(mass, 6)
+                row["causal_dependency_count"] = causal
+                row["myelinated_path_support"] = myelinated
+                row["supersession_survival"] = survival
+                break
+    binding_values = goal_binding_values + storyline_binding_values
     binding_mass = round(sum(binding_values), 6) if binding_values else 0.0
-    if endorsed_goals and not binding_values:
+    if endorsed_goals and not goal_binding_values:
         limitations.append("endorsed_goal_binding_mass_unavailable")
-    limitations.append("non_bead_assembly_depth_unavailable")
+    if not storyline_binding_values:
+        limitations.append("non_bead_assembly_depth_unavailable")
 
     horizon = _p90(horizons)
     worldline_span = _p90(spans)
+    storyline_span = _p90(storyline_spans)
     spatial = len(scopes)
     light_cone_index = _clamp01(
         (min(1.0, spatial / 3.0) * 0.34)
@@ -431,6 +554,7 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
         "spatial_scope_count": spatial,
         "temporal_horizon_days_p90": horizon,
         "worldline_span_days_p90": worldline_span,
+        "storyline_span_days_p90": storyline_span,
         "binding_mass": binding_mass,
         "breakdown": breakdown,
         "limitations": sorted(set(limitations)),

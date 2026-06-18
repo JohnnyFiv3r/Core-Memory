@@ -66,13 +66,59 @@ class TestSoulSummary(unittest.TestCase):
             out = build_soul_summary(td)
             light = out["light_cone_breadth"]
 
-            self.assertEqual("partial", light["status"])
+            self.assertEqual("complete", light["status"])
             self.assertEqual(180.0, light["temporal_horizon_days_p90"])
             self.assertEqual(1, light["spatial_scope_count"])
             self.assertGreater(light["light_cone_index"], 0.0)
             self.assertIsInstance(light["binding_mass"], float)
-            self.assertIn("non_bead_assembly_depth_unavailable", light["limitations"])
+            self.assertNotIn("non_bead_assembly_depth_unavailable", light["limitations"])
             self.assertEqual("g-continuity", light["breakdown"][0]["goal_id"])
+
+    def test_light_cone_reports_candidate_goals_without_inflating_horizon(self):
+        with tempfile.TemporaryDirectory() as td:
+            endorsed = propose_goal(td, title="Ship near-term continuity", goal_id="g-endorsed")
+            candidate = propose_goal(td, title="Someday span the whole company", goal_id="g-candidate")
+            self.assertTrue(approve_goal(td, goal_id="g-endorsed")["ok"])
+            _update_bead(td, endorsed["bead_id"], target_horizon_days=90)
+            _update_bead(td, candidate["bead_id"], target_horizon_days=1000)
+
+            light = build_soul_summary(td)["light_cone_breadth"]
+            rows = {row["goal_id"]: row for row in light["breakdown"] if row["kind"] == "goal"}
+
+            self.assertEqual(90.0, light["temporal_horizon_days_p90"])
+            self.assertTrue(rows["g-endorsed"]["contributes_to_primary_horizon"])
+            self.assertFalse(rows["g-candidate"]["contributes_to_primary_horizon"])
+            self.assertEqual(1000.0, rows["g-candidate"]["target_horizon_days"])
+
+    def test_light_cone_uses_storyline_projection_as_non_bead_binding_mass(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            b1 = store.add_bead(
+                type="decision",
+                title="Choose architecture",
+                summary=["s"],
+                entities=["Acme"],
+                session_id="s1",
+                created_at="2026-01-01T00:00:00+00:00",
+            )
+            b2 = store.add_bead(
+                type="outcome",
+                title="Architecture stabilized",
+                summary=["s"],
+                entities=["Acme"],
+                session_id="s2",
+                created_at="2026-03-01T00:00:00+00:00",
+            )
+            store.link(b1, b2, "supports")
+
+            light = build_soul_summary(td)["light_cone_breadth"]
+            storyline_rows = [row for row in light["breakdown"] if row["kind"] == "storyline"]
+
+            self.assertGreater(light["binding_mass"], 0.0)
+            self.assertGreater(light["storyline_span_days_p90"], 0.0)
+            self.assertGreaterEqual(len(storyline_rows), 1)
+            self.assertGreater(storyline_rows[0]["binding_mass_component"], 0.0)
+            self.assertNotIn("non_bead_assembly_depth_unavailable", light["limitations"])
 
     def test_observed_endorsed_divergence_summarizes_value_and_identity_candidates(self):
         with tempfile.TemporaryDirectory() as td:
