@@ -15,6 +15,7 @@ from typing import Any
 from core_memory.runtime.dreamer.candidates import _read_candidates, _write_candidates
 from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
 from core_memory.runtime.semantic_tasks.contracts import TASK_DREAMER_RESEARCH
+from core_memory.runtime.semantic_tasks.verifier import verify_semantic_task_output
 
 DREAMER_RESEARCH_CONTRACT = "memory.dreamer_research.v1"
 DREAMER_RESEARCH_PROMPT_VERSION = "dreamer_research.v1"
@@ -245,6 +246,7 @@ def _apply_candidate_refinements(
     refinements: list[dict[str, Any]],
     task_id: str,
     receipt_id: str,
+    verification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if not refinements:
         return {"applied": 0, "unknown_candidate_ids": []}
@@ -255,6 +257,15 @@ def _apply_candidate_refinements(
     applied = 0
     recorded_at = _now()
     ref = _semantic_task_ref(task_id=task_id, receipt_id=receipt_id)
+    verifier_ref = (verification or {}).get("task_ref") if isinstance((verification or {}).get("task_ref"), dict) else {}
+    verification_summary = {
+        "status": str((verification or {}).get("status") or ""),
+        "decision": str((verification or {}).get("decision") or ""),
+        "warnings": list((verification or {}).get("warnings") or []),
+        "blocking_errors": list((verification or {}).get("blocking_errors") or []),
+        "task_id": str((verification or {}).get("task_id") or ""),
+        "receipt_id": str((verification or {}).get("receipt_id") or ""),
+    }
 
     for refinement in refinements:
         cid = str(refinement.get("candidate_id") or "").strip()
@@ -272,6 +283,7 @@ def _apply_candidate_refinements(
             "suggested_review_priority": str(refinement.get("suggested_review_priority") or "normal"),
             "evidence_limitations": list(refinement.get("evidence_limitations") or []),
             "falsifiability": str(refinement.get("falsifiability") or ""),
+            "verification": verification_summary,
         }
         if "confidence" in refinement:
             entry["confidence"] = refinement["confidence"]
@@ -279,6 +291,8 @@ def _apply_candidate_refinements(
         existing.append(entry)
         row["operator_research"] = existing[-5:]
         _append_unique_semantic_ref(row, ref)
+        if verifier_ref:
+            _append_unique_semantic_ref(row, verifier_ref)
         applied += 1
 
     if applied:
@@ -325,7 +339,8 @@ def run_dreamer_research(
         if str(c.get("candidate_id") or "")
     ]
 
-    result = get_semantic_task_runtime().run(
+    runtime = get_semantic_task_runtime()
+    result = runtime.run(
         SemanticTaskRequest(
             root=str(root),
             task_type=TASK_DREAMER_RESEARCH,
@@ -368,12 +383,42 @@ def run_dreamer_research(
         out["status"] = "succeeded_unparsed"
         return out
 
+    verification = verify_semantic_task_output(
+        root=str(root),
+        source_task_type=TASK_DREAMER_RESEARCH,
+        source_task_id=str(result.task_id or ""),
+        source_receipt_id=str(result.receipt_id or ""),
+        output_schema=DREAMER_RESEARCH_OUTPUT_SCHEMA,
+        output_json=payload_out,
+        authority_boundary="candidate_only",
+        evidence_refs=evidence_refs,
+        required_top_level_fields=["candidate_refinements"],
+        policy_rubric="Dreamer research may annotate candidate findings only; it cannot create beads, activate edges, write SOUL, or omit evidence limitations for claims.",
+        require_semantic_verifier=False,
+        runtime=runtime,
+    )
+    out["verification"] = {
+        "ok": bool(verification.get("ok")),
+        "status": str(verification.get("status") or ""),
+        "decision": str(verification.get("decision") or ""),
+        "task_id": str(verification.get("task_id") or ""),
+        "receipt_id": str(verification.get("receipt_id") or ""),
+        "warnings": list(verification.get("warnings") or []),
+        "blocking_errors": list(verification.get("blocking_errors") or []),
+    }
+    if not verification.get("ok"):
+        out["ok"] = False
+        out["status"] = "blocked_by_verifier"
+        out["error"] = "dreamer_research_verifier_blocked_output"
+        return out
+
     refinements = _normalize_refinements(payload_out)
     applied = _apply_candidate_refinements(
         root,
         refinements=refinements,
         task_id=str(result.task_id or ""),
         receipt_id=str(result.receipt_id or ""),
+        verification=verification,
     )
     suggested = payload_out.get("suggested_hypotheses")
     out.update(

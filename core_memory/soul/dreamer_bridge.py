@@ -29,6 +29,7 @@ from typing import Any
 from core_memory.runtime.dreamer.candidates import _read_candidates
 from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
 from core_memory.runtime.semantic_tasks.contracts import TASK_SOUL_PROPOSAL
+from core_memory.runtime.semantic_tasks.verifier import verify_semantic_task_output
 from core_memory.soul.store import propose_soul_update, soul_history
 
 SOUL_PROPOSAL_CONTRACT = "memory.soul_proposal.v1"
@@ -182,7 +183,8 @@ def _run_soul_proposal_task(
         return {"ok": True, "status": "skipped", "reason": "no_eligible_findings", "drafts": {}}
 
     payload = _proposal_payload(findings, subject=subject)
-    result = get_semantic_task_runtime().run(
+    runtime = get_semantic_task_runtime()
+    result = runtime.run(
         SemanticTaskRequest(
             root=str(root),
             task_type=TASK_SOUL_PROPOSAL,
@@ -230,6 +232,36 @@ def _run_soul_proposal_task(
     if not result.ok or not isinstance(result.output_json, dict):
         if result.ok:
             out["status"] = "succeeded_unparsed"
+        return out
+
+    verification = verify_semantic_task_output(
+        root=str(root),
+        source_task_type=TASK_SOUL_PROPOSAL,
+        source_task_id=str(result.task_id or ""),
+        source_receipt_id=str(result.receipt_id or ""),
+        output_schema=SOUL_PROPOSAL_OUTPUT_SCHEMA,
+        output_json=result.output_json,
+        authority_boundary="candidate_only",
+        evidence_refs=list(result.evidence_refs or []),
+        required_top_level_fields=["proposal_drafts"],
+        policy_rubric="SOUL proposal output may draft proposed revisions only; it cannot approve, apply, reject, write rendered SOUL files, or claim endorsed truth.",
+        require_semantic_verifier=True,
+        runtime=runtime,
+    )
+    out["verification"] = {
+        "ok": bool(verification.get("ok")),
+        "status": str(verification.get("status") or ""),
+        "decision": str(verification.get("decision") or ""),
+        "task_id": str(verification.get("task_id") or ""),
+        "receipt_id": str(verification.get("receipt_id") or ""),
+        "warnings": list(verification.get("warnings") or []),
+        "blocking_errors": list(verification.get("blocking_errors") or []),
+        "task_ref": dict(verification.get("task_ref") or {}),
+    }
+    if not verification.get("ok"):
+        out["status"] = "blocked_by_verifier"
+        out["drafted"] = 0
+        out["error"] = "soul_proposal_verifier_blocked_output"
         return out
 
     eligible_keys = {
@@ -320,6 +352,8 @@ def propose_soul_from_dreamer(
     proposal_task = _run_soul_proposal_task(root, subject=subject, findings=eligible)
     drafts = proposal_task.get("drafts") if isinstance(proposal_task.get("drafts"), dict) else {}
     task_ref = proposal_task.get("task_ref") if isinstance(proposal_task.get("task_ref"), dict) else {}
+    verification = proposal_task.get("verification") if isinstance(proposal_task.get("verification"), dict) else {}
+    verifier_ref = verification.get("task_ref") if isinstance(verification.get("task_ref"), dict) else {}
 
     proposed = 0
     revision_ids: list[str] = []
@@ -339,8 +373,16 @@ def propose_soul_from_dreamer(
             "used_operator_draft": bool(draft.get("content")),
             "operator_review_notes": list(draft.get("review_notes") or []),
             "operator_evidence_limitations": list(draft.get("evidence_limitations") or []),
+            "operator_verification": {
+                "status": str(verification.get("status") or ""),
+                "decision": str(verification.get("decision") or ""),
+                "warnings": list(verification.get("warnings") or []),
+                "blocking_errors": list(verification.get("blocking_errors") or []),
+                "task_id": str(verification.get("task_id") or ""),
+                "receipt_id": str(verification.get("receipt_id") or ""),
+            },
         }
-        semantic_refs = [task_ref] if task_ref else []
+        semantic_refs = [ref for ref in (task_ref, verifier_ref) if ref]
 
         out = propose_soul_update(
             root,
@@ -379,6 +421,13 @@ def propose_soul_from_dreamer(
             "receipt_id": str(proposal_task.get("receipt_id") or ""),
             "drafted": int(proposal_task.get("drafted") or 0),
             "authority_boundary": str(proposal_task.get("authority_boundary") or "candidate_only"),
+            "verification": {
+                "ok": bool(verification.get("ok")) if verification else True,
+                "status": str(verification.get("status") or ""),
+                "decision": str(verification.get("decision") or ""),
+                "task_id": str(verification.get("task_id") or ""),
+                "receipt_id": str(verification.get("receipt_id") or ""),
+            },
             **({"error": str(proposal_task.get("error"))} if proposal_task.get("error") else {}),
         },
     }
