@@ -15,6 +15,7 @@ from typing import Any
 from core_memory.graph.storylines import derive_storylines
 from core_memory.graph.worldlines import derive_worldlines
 from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
+from core_memory.runtime.dreamer.identity_value_research import detect_identity_value_findings
 from core_memory.runtime.dreamer.tension_discovery import detect_goal_conflicts
 from core_memory.soul.goals import list_goals
 from core_memory.soul.store import current_soul_entries
@@ -449,7 +450,9 @@ def _candidate_base(row: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _build_divergence(root: str | Path, subject: str) -> dict[str, Any]:
+def _build_divergence(root: str | Path, subject: str, index: dict[str, Any]) -> dict[str, Any]:
+    beads = index.get("beads") if isinstance(index.get("beads"), dict) else {}
+    limitations: list[str] = []
     candidates = [
         row
         for row in _read_dreamer_candidates(root)
@@ -461,26 +464,97 @@ def _build_divergence(root: str | Path, subject: str) -> dict[str, Any]:
     for row in candidates:
         ht = str(row.get("hypothesis_type") or "")
         if ht == "value_candidate":
+            bead_ids = [str(b) for b in (row.get("supporting_bead_ids") or []) if str(b)]
+            sessions = _sessions_for_beads(beads, bead_ids)
             positive.append(
                 {
                     **_candidate_base(row),
+                    "source": "dreamer_candidate",
                     "value_theme": str(row.get("value_theme") or ""),
                     "occurrence_count": int(row.get("occurrence_count") or 0),
                     "session_count": int(row.get("session_count") or 0),
+                    "sessions": sessions,
+                    "source_refs": _source_refs_for_beads(beads, bead_ids),
                 }
             )
         elif ht == "identity_divergence_candidate":
+            bead_ids = [str(b) for b in (row.get("supporting_bead_ids") or []) if str(b)]
+            sessions = _sessions_for_beads(beads, bead_ids)
             negative.append(
                 {
                     **_candidate_base(row),
+                    "source": "dreamer_candidate",
                     "identity_entry_key": str(row.get("identity_entry_key") or ""),
                     "source_revision_id": str(row.get("source_revision_id") or ""),
+                    "session_count": len(sessions),
+                    "sessions": sessions,
+                    "source_refs": _source_refs_for_beads(beads, bead_ids),
                 }
             )
 
+    candidate_value_keys = {str(row.get("value_theme") or "") for row in positive}
+    candidate_identity_keys = {str(row.get("identity_entry_key") or "") for row in negative}
+    try:
+        findings = detect_identity_value_findings(root, subject=subject)
+    except Exception:
+        findings = []
+        limitations.append("identity_value_detection_unavailable")
+
+    for finding in findings:
+        kind = str(finding.get("finding") or "")
+        if kind == "value_candidate":
+            theme = str(finding.get("value_theme") or "")
+            if not theme or theme in candidate_value_keys:
+                continue
+            bead_ids = [str(b) for b in (finding.get("supporting_bead_ids") or []) if str(b)]
+            sessions = _sessions_for_beads(beads, bead_ids)
+            positive.append(
+                {
+                    "candidate_id": "",
+                    "source": "deterministic_projection",
+                    "status": "observed",
+                    "hypothesis_type": "value_candidate",
+                    "statement": str(finding.get("statement") or ""),
+                    "supporting_bead_ids": bead_ids,
+                    "created_at": "",
+                    "grounding": 1.0,
+                    "confidence": None,
+                    "value_theme": theme,
+                    "occurrence_count": int(finding.get("occurrence_count") or len(bead_ids)),
+                    "session_count": int(finding.get("session_count") or len(sessions)),
+                    "sessions": sessions,
+                    "source_refs": _source_refs_for_beads(beads, bead_ids),
+                }
+            )
+            candidate_value_keys.add(theme)
+        elif kind == "identity_divergence_candidate":
+            key = str(finding.get("identity_entry_key") or "")
+            if not key or key in candidate_identity_keys:
+                continue
+            bead_ids = [str(b) for b in (finding.get("supporting_bead_ids") or []) if str(b)]
+            sessions = _sessions_for_beads(beads, bead_ids)
+            negative.append(
+                {
+                    "candidate_id": "",
+                    "source": "deterministic_projection",
+                    "status": "observed",
+                    "hypothesis_type": "identity_divergence_candidate",
+                    "statement": str(finding.get("statement") or ""),
+                    "supporting_bead_ids": bead_ids,
+                    "created_at": "",
+                    "grounding": 1.0,
+                    "confidence": None,
+                    "identity_entry_key": key,
+                    "source_revision_id": str(finding.get("source_revision_id") or ""),
+                    "session_count": len(sessions),
+                    "sessions": sessions,
+                    "source_refs": _source_refs_for_beads(beads, bead_ids),
+                }
+            )
+            candidate_identity_keys.add(key)
+
     raw_weight = sum(max(1, int(p.get("session_count") or 1)) for p in positive)
     raw_weight += len(negative)
-    limitations: list[str] = []
     try:
         current_soul_entries(root, file_name="IDENTITY.md", subject=subject)
     except Exception:
@@ -698,7 +772,7 @@ def build_soul_summary(root: str | Path, *, subject: str = "self") -> dict[str, 
         "generated_at": _now(),
         "measurements_are_evidence": False,
         "light_cone_breadth": _build_light_cone(root, str(subject or "self"), index),
-        "observed_endorsed_divergence": _build_divergence(root, str(subject or "self")),
+        "observed_endorsed_divergence": _build_divergence(root, str(subject or "self"), index),
         "persistent_tensions": _build_tensions(root, str(subject or "self"), index),
     }
 

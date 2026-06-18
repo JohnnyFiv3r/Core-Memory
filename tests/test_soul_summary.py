@@ -103,6 +103,55 @@ class TestSoulSummary(unittest.TestCase):
                 [row["identity_entry_key"] for row in div["negative_endorsed_not_observed"]],
             )
 
+    def test_divergence_projects_live_findings_without_enqueuing_candidates(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            for i, session in enumerate(["s1", "s2", "s3", "s4"]):
+                _decision(store, f"Reliable path {i}", ["reliability"], session)
+            propose_soul_update(
+                td,
+                target_file="IDENTITY.md",
+                entry_key="Craftsmanship",
+                content="I value careful craftsmanship.",
+                source="agent",
+                epistemic_status="endorsed",
+                requires_approval=False,
+            )
+
+            div = build_soul_summary(td)["observed_endorsed_divergence"]
+
+            self.assertEqual(
+                ["reliability"],
+                [row["value_theme"] for row in div["positive_observed_not_endorsed"]],
+            )
+            self.assertEqual("deterministic_projection", div["positive_observed_not_endorsed"][0]["source"])
+            self.assertEqual(4, div["positive_observed_not_endorsed"][0]["session_count"])
+            self.assertEqual(
+                ["Craftsmanship"],
+                [row["identity_entry_key"] for row in div["negative_endorsed_not_observed"]],
+            )
+            self.assertEqual("deterministic_projection", div["negative_endorsed_not_observed"][0]["source"])
+            self.assertFalse((Path(td) / ".beads" / "events" / "dreamer-candidates.json").exists())
+
+    def test_divergence_does_not_flag_supported_endorsed_identity(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            _decision(store, "Choose simplicity", ["simplicity"], "s1")
+            propose_soul_update(
+                td,
+                target_file="IDENTITY.md",
+                entry_key="Simplicity",
+                content="I value simplicity in product decisions.",
+                source="agent",
+                epistemic_status="endorsed",
+                requires_approval=False,
+            )
+
+            div = build_soul_summary(td)["observed_endorsed_divergence"]
+
+            self.assertEqual([], div["negative_endorsed_not_observed"])
+            self.assertEqual([], div["positive_observed_not_endorsed"])
+
     def test_persistent_tensions_include_multi_session_goal_conflicts(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(root=td)
