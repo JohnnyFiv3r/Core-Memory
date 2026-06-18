@@ -18,18 +18,25 @@ from core_memory.runtime.semantic_tasks.receipts import record_semantic_task_run
 
 
 class FakeDreamerResearchRuntime:
-    def __init__(self, output_json: dict):
+    def __init__(self, output_json: dict, verifier_json: dict | None = None):
         self.output_json = output_json
+        self.verifier_json = verifier_json or {
+            "contract": "memory.semantic_task_verifier.v1",
+            "decision": "pass",
+            "warnings": [],
+            "blocking_errors": [],
+        }
         self.requests: list[SemanticTaskRequest] = []
 
     def run(self, request: SemanticTaskRequest) -> SemanticTaskResult:
         self.requests.append(request)
+        output_json = self.verifier_json if request.task_type == "verifier" else self.output_json
         result = SemanticTaskResult(
-            task_id="dreamer-research-task-1",
+            task_id="dreamer-verifier-task-1" if request.task_type == "verifier" else "dreamer-research-task-1",
             task_type=request.task_type,
             ok=True,
             status="succeeded",
-            output_json=self.output_json,
+            output_json=output_json,
             prompt_version=request.prompt_version,
             rubric_version=request.rubric_version,
             output_schema=request.output_schema,
@@ -89,7 +96,7 @@ class TestDreamerResearchSemanticTask(unittest.TestCase):
             self.assertEqual(1, out.get("refined"))
             self.assertEqual(["missing"], out.get("unknown_candidate_ids"))
             self.assertEqual(1, out.get("suggested_hypotheses"))
-            self.assertEqual(1, len(runtime.requests))
+            self.assertEqual(["dreamer_research", "verifier"], [r.task_type for r in runtime.requests])
             request = runtime.requests[0]
             self.assertEqual("dreamer_research", request.task_type)
             self.assertEqual("candidate_only", request.authority_boundary)
@@ -111,6 +118,52 @@ class TestDreamerResearchSemanticTask(unittest.TestCase):
             receipt = (receipts.get("results") or [{}])[0]
             self.assertEqual("frontier", receipt.get("model_tier"))
             self.assertEqual("candidate_only", receipt.get("authority_boundary"))
+            verifier_receipts = list_semantic_task_runs(td, task_type="verifier")
+            self.assertEqual(1, verifier_receipts.get("count"))
+            self.assertEqual("cheap", (verifier_receipts.get("results") or [{}])[0].get("model_tier"))
+
+    def test_verifier_block_prevents_dreamer_annotation(self):
+        with tempfile.TemporaryDirectory(prefix="cm-dreamer-research-") as td:
+            _write_candidates(
+                td,
+                [
+                    {
+                        "id": "dc-1",
+                        "created_at": "2026-06-18T00:00:00+00:00",
+                        "status": "pending",
+                        "hypothesis_type": "goal_candidate",
+                        "statement": "Repeated behavior suggests a goal.",
+                    }
+                ],
+            )
+            runtime = FakeDreamerResearchRuntime(
+                {
+                    "contract": "memory.dreamer_research.v1",
+                    "candidate_refinements": [
+                        {
+                            "candidate_id": "dc-1",
+                            "research_note": "This overreaches.",
+                            "suggested_review_priority": "high",
+                        }
+                    ],
+                },
+                verifier_json={
+                    "contract": "memory.semantic_task_verifier.v1",
+                    "decision": "block",
+                    "warnings": [],
+                    "blocking_errors": ["unsupported inference"],
+                },
+            )
+
+            with patch("core_memory.runtime.dreamer.research.get_semantic_task_runtime", return_value=runtime):
+                out = run_dreamer_research(td, run_id="dream-run-blocked", source="unit")
+
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("blocked_by_verifier", out.get("status"))
+            self.assertEqual(0, out.get("refined"))
+            self.assertNotIn("operator_research", _read_candidates(td)[0])
+            verifier_receipts = list_semantic_task_runs(td, task_type="verifier")
+            self.assertEqual(1, verifier_receipts.get("count"))
 
     def test_disabled_runtime_records_unavailable_without_candidate_mutation(self):
         with tempfile.TemporaryDirectory(prefix="cm-dreamer-research-") as td:

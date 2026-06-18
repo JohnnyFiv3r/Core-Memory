@@ -12,6 +12,7 @@ from .contracts import (
 )
 from .receipts import list_semantic_task_runs, record_semantic_task_run, semantic_task_runs_path
 from .runtime import get_semantic_task_runtime, resolve_model_profile, semantic_task_runtime_mode, task_profile
+from .verifier import verify_semantic_task_output
 
 __all__ = [
     "SEMANTIC_TASK_RUNS_CONTRACT",
@@ -29,4 +30,5 @@ __all__ = [
     "semantic_task_runs_path",
     "semantic_task_runtime_mode",
     "task_profile",
+    "verify_semantic_task_output",
 ]
