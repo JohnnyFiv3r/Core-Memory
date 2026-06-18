@@ -135,6 +135,85 @@ class TestSoulSummary(unittest.TestCase):
             self.assertTrue(rows[0]["persistence_qualified"])
             self.assertEqual(sorted(["s1", "s2"]), rows[0]["sessions"])
 
+    def test_same_session_goal_conflicts_do_not_qualify_as_persistent(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            g1 = store.add_bead(
+                type="goal",
+                title="Move fast",
+                summary=["s"],
+                goal_id="g1",
+                session_id="s1",
+            )
+            g2 = store.add_bead(
+                type="goal",
+                title="Avoid irreversible mistakes",
+                summary=["s"],
+                goal_id="g2",
+                session_id="s1",
+            )
+            store.link(g1, g2, "contradicts")
+
+            tensions = build_soul_summary(td)["persistent_tensions"]
+
+            rows = [
+                row
+                for row in tensions["tensions"]
+                if row["source"] == "goal_conflict_detection"
+            ]
+            self.assertEqual(1, len(rows))
+            self.assertFalse(rows[0]["persistence_qualified"])
+            self.assertEqual(["s1"], rows[0]["sessions"])
+            self.assertEqual(1, rows[0]["periods_spanned"])
+            self.assertEqual(0, tensions["persistence_qualified_count"])
+
+    def test_soul_tension_rows_expose_timing_source_refs_and_churn_rates(self):
+        with tempfile.TemporaryDirectory() as td:
+            propose_soul_update(
+                td,
+                target_file="TENSIONS.md",
+                entry_key="Speed versus care",
+                content="Speed creates pressure against careful review.",
+                source="dreamer",
+                epistemic_status="inferred",
+                requires_approval=False,
+                evidence=[{"type": "document", "id": "doc-a"}],
+                metadata={"first_seen_at": "2026-01-01T00:00:00+00:00"},
+            )
+            propose_soul_update(
+                td,
+                target_file="TENSIONS.md",
+                entry_key="Resolved: unclear ownership",
+                content="resolved after ownership was clarified.",
+                source="dreamer",
+                epistemic_status="inferred",
+                requires_approval=False,
+                evidence=[{"type": "source_object", "id": "obj-b"}],
+                metadata={
+                    "first_seen_at": "2026-01-05T00:00:00+00:00",
+                    "resolved_at": "2026-01-10T00:00:00+00:00",
+                },
+            )
+
+            tensions = build_soul_summary(td)["persistent_tensions"]
+            rows = {row["title"]: row for row in tensions["tensions"]}
+
+            active = rows["Speed versus care"]
+            self.assertEqual("active", active["status"])
+            self.assertIn("document:doc-a", active["source_refs"])
+            self.assertEqual("2026-01-01T00:00:00+00:00", active["first_seen_at"])
+            self.assertGreaterEqual(active["age_days"], 0.0)
+
+            resolved = rows["Resolved: unclear ownership"]
+            self.assertEqual("resolved", resolved["status"])
+            self.assertEqual("2026-01-10T00:00:00+00:00", resolved["resolved_at"])
+            self.assertIn("source_object:obj-b", resolved["source_refs"])
+
+            self.assertIsNotNone(tensions["new_tension_rate"])
+            self.assertIsNotNone(tensions["resolution_rate"])
+            self.assertIsNotNone(tensions["churn"])
+            self.assertNotIn("tension_churn_history_unavailable", tensions["limitations"])
+
     def test_dreamer_candidate_reader_does_not_create_event_directory(self):
         with tempfile.TemporaryDirectory() as td:
             MemoryStore(root=td).add_bead(
