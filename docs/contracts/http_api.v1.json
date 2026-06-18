@@ -155,6 +155,15 @@
     },
     {
       "method": "GET",
+      "path": "/v1/memory/semantic-task-runs/summary",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "contract": "memory.semantic_task_summary.v1", "total_runs": "int", "latest_run_at": "string?", "latest_run": "object?", "counts": "object", "attention": "object", "errors": "object", "latency_ms": "object", "token_usage": "object", "recent": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
       "path": "/v1/memory/association-candidates",
       "authRequired": "conditional",
       "requestSchema": "query params",

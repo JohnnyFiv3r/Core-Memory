@@ -162,6 +162,7 @@ HTTP memory read surfaces:
 - `GET /v1/memory/projection/worldlines?kinds=&min_length=&include_membership=` — worldline projection
 - `GET /v1/memory/projection/storylines?kinds=&min_length=&include_superseded=` — storyline projection over worldline backbones plus accepted overlays
 - `GET /v1/soul/summary?subject=` — read-only continuity measurement summary for light-cone breadth, observed-vs-endorsed divergence, and persistent tensions. Measurements are not evidence and never mutate SOUL, beads, claims, associations, myelination, or Dreamer state.
+- `GET /v1/memory/semantic-task-runs` / `GET /v1/memory/semantic-task-runs/summary` — semantic operator receipts and aggregate activity telemetry for task/status/model-tier observability. Receipts are audit metadata and never apply graph, SOUL, or bead changes.
 
 HTTP inspect read surfaces:
 - `GET /v1/memory/inspect/state`
