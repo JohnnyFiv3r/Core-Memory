@@ -10,6 +10,7 @@ Status: Canonical landing page
 ## Canonical sources
 - `canonical_contract.md`  ← single canonical contract path
 - `core-memory-skill-instructions.md`
+- `openclaw-v2026.6.8-install.md`
 - `plugin-setup.md`
 - `validation.md`
 - `troubleshooting.md`
@@ -27,6 +28,7 @@ Status: Canonical landing page
 - Forward retrieval story is `search` / `trace` / `execute` (`execute` preferred by default policy).
 - Hydration is optional post-selection source recovery, not the primary retrieval mode.
 - For plugin `api.on(...)` lifecycle listeners, do **not** rely solely on `openclaw hooks list --json`.
+- For OpenClaw v2026.6.8+, keep `plugins.entries.core-memory-bridge.hooks.allowConversationAccess=true`; allowlisting alone is not enough.
 - Primary runtime signals are:
   - `/tmp/core-memory-bridge-hook.log` movement
   - `.beads/events/memory-events.jsonl` append progression

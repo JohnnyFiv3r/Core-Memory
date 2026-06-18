@@ -61,7 +61,7 @@ def main() -> None:
                 "agentId": "demo-agent",
             },
         }
-        write_result = _run_bridge("core_memory.integrations.openclaw_agent_end_bridge", write_payload)
+        write_result = _run_bridge("core_memory.integrations.openclaw.agent_end_bridge", write_payload)
         print(f"  emitted: {write_result.get('emitted')}")
         print(f"  session: {write_result.get('session_id')}")
         print(f"  turn: {write_result.get('turn_id')}")
@@ -69,7 +69,7 @@ def main() -> None:
         # --- 2. Read: search via the read bridge ---
         print("\n=== Read Bridge (search) ===")
         search_result = _run_bridge(
-            "core_memory.integrations.openclaw_read_bridge",
+            "core_memory.integrations.openclaw.read_bridge",
             {"action": "search", "query": "event-sourcing", "root": root},
         )
         results = search_result.get("results") or []
@@ -80,7 +80,7 @@ def main() -> None:
         # --- 3. Read: causal trace ---
         print("\n=== Read Bridge (trace) ===")
         trace_result = _run_bridge(
-            "core_memory.integrations.openclaw_read_bridge",
+            "core_memory.integrations.openclaw.read_bridge",
             {"action": "trace", "query": "why event-sourcing?", "root": root},
         )
         print(f"  ok: {trace_result.get('ok')}")
@@ -90,7 +90,7 @@ def main() -> None:
         # --- 4. Read: execute ---
         print("\n=== Read Bridge (execute) ===")
         exec_result = _run_bridge(
-            "core_memory.integrations.openclaw_read_bridge",
+            "core_memory.integrations.openclaw.read_bridge",
             {
                 "action": "execute",
                 "query": "why event-sourcing?",
@@ -104,7 +104,7 @@ def main() -> None:
         # --- 5. Read: continuity injection ---
         print("\n=== Read Bridge (continuity) ===")
         cont_result = _run_bridge(
-            "core_memory.integrations.openclaw_read_bridge",
+            "core_memory.integrations.openclaw.read_bridge",
             {"action": "continuity", "root": root, "max_items": 10},
         )
         print(f"  authority: {cont_result.get('authority')}")

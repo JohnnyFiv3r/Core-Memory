@@ -42,15 +42,24 @@ Common causes:
 - plugin bridge timeout too low for current corpus/turn load
 - session extraction failure collapsing writes into `session_id=main`
 - streaming channel path delivered a reply but did not dispatch typed `agent_end`
+- OpenClaw v2026.6.8+ blocked conversation access because `plugins.entries.core-memory-bridge.hooks.allowConversationAccess` is missing
+- installed plugin still calls stale flat module paths such as `core_memory.integrations.openclaw_agent_end_bridge`
 
 Checks:
 - `/tmp/core-memory-bridge-hook.log` shows non-empty `agent_end session=...`, or streaming fallback lines like `message_received captured`, `message_sent observed`, and `message_sent fallback_result`
 - bridge register line includes `enableMessageTurnFallback=true` unless intentionally disabled
+- `scripts/openclaw_bridge_doctor.sh` passes the entry check for `hooks.allowConversationAccess=true` and `config.coreMemoryRepo`
+- `scripts/openclaw_bridge_doctor.sh` confirms the installed plugin uses `core_memory.integrations.openclaw.*` module paths
 - no recurring `bridge_timeout:...:12000` after patch/restart
 
 For Telegram or other streaming channels, `agent_end` may be absent even though replies are delivered.
 In that case, verify the message fallback path appends to `.beads/events/memory-events.jsonl` after
 `message_sent fallback_result ok=true emitted=true`.
+
+If `openclaw plugins list` says the bridge is enabled but no hook line fires, rerun
+`core-memory openclaw onboard`, restart the gateway/container, then rerun the doctor. On v2026.6.8+
+do not remove the bridge entry; missing conversation access can make the plugin look installed while
+preventing the lifecycle hook from seeing the completed conversation.
 
 ### 6) Transcript hydration returns nothing
 Checks:

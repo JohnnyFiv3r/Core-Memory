@@ -93,9 +93,15 @@ openclaw gateway restart
 "$CORE_MEMORY_REPO/scripts/openclaw_bridge_doctor.sh"
 ```
 
+For OpenClaw v2026.6.8 and newer, the installer keeps
+`plugins.entries.core-memory-bridge` and sets `hooks.allowConversationAccess: true`.
+See `openclaw-v2026.6.8-install.md` for the required config shape.
+
 ## What onboarding does
 - Installs plugin from `plugins/openclaw-core-memory-bridge`
 - Enables plugin id `core-memory-bridge`
+- Ensures `plugins.entries.core-memory-bridge.hooks.allowConversationAccess=true`
+- Stores `pythonBin`, `coreMemoryRoot`, and `coreMemoryRepo` in the plugin entry config
 - Keeps `memory-core` enabled (coexist mode) or disables it (replace mode)
 - Runs `openclaw status --deep` for immediate verification
 
@@ -118,5 +124,6 @@ Use runtime signals instead:
   - `core_memory.integrations.openclaw.agent_end_bridge`
   - `core_memory.integrations.openclaw.read_bridge`
   - `core_memory.integrations.openclaw.compaction_queue`
+- The plugin loads prompt/skill instructions from `coreMemoryRepo/docs/integrations/openclaw/`.
 - `CORE_MEMORY_ROOT` controls where Core Memory durable artifacts are written.
 - `CORE_MEMORY_ENABLED=0` cleanly no-ops bridge turn ingest/flush paths (safe rollback switch).

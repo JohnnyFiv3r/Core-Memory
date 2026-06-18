@@ -33,6 +33,16 @@ def test_openclaw_plugin_registers_streaming_message_fallback_hooks():
     assert "fallback_result" in text
 
 
+def test_openclaw_plugin_loads_skill_instructions_from_core_memory_repo():
+    repo_root = Path(__file__).resolve().parents[1]
+    plugin_path = repo_root / "plugins" / "openclaw-core-memory-bridge" / "index.js"
+    text = plugin_path.read_text(encoding="utf-8")
+
+    assert "cfg.coreMemoryRepo" in text
+    assert "docs\", \"integrations\", \"openclaw\", \"core-memory-skill-instructions.md\"" in text
+    assert "../../docs/integrations/openclaw/core-memory-skill-instructions.md" not in text
+
+
 def test_openclaw_plugin_manifest_allows_message_fallback_config():
     repo_root = Path(__file__).resolve().parents[1]
     manifest_path = repo_root / "plugins" / "openclaw-core-memory-bridge" / "openclaw.plugin.json"

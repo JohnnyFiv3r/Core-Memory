@@ -51,7 +51,7 @@ def test_onboard_preserves_memory_core_in_coexist_dry_run():
     assert out["config_path"] == "/tmp/openclaw-test.json"
 
 
-def test_harden_openclaw_plugin_config_removes_stale_entry_and_enforces_allow(tmp_path: Path):
+def test_harden_openclaw_plugin_config_sets_entry_and_enforces_allow(tmp_path: Path):
     cfg_path = tmp_path / "openclaw.json"
     cfg_path.write_text(
         json.dumps(
@@ -70,12 +70,17 @@ def test_harden_openclaw_plugin_config_removes_stale_entry_and_enforces_allow(tm
 
     out = harden_openclaw_plugin_config(config_path=cfg_path)
     assert out["ok"] is True
-    assert out["removed_stale_entry"] is True
+    assert out["set_entry"] is True
+    assert out["set_allow_conversation_access"] is True
     assert out["added_allow"] is True
 
     updated = json.loads(cfg_path.read_text(encoding="utf-8"))
     plugins = updated["plugins"]
-    assert "core-memory-bridge" not in plugins["entries"]
+    bridge_entry = plugins["entries"]["core-memory-bridge"]
+    assert bridge_entry["enabled"] is True
+    assert bridge_entry["hooks"]["allowConversationAccess"] is True
+    assert bridge_entry["config"]["coreMemoryRepo"]
+    assert bridge_entry["config"]["pythonBin"] == "python3"
     assert "telegram" in plugins["entries"]
     assert plugins["allow"] == ["telegram", "core-memory-bridge"]
 

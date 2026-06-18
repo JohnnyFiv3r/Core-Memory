@@ -26,6 +26,10 @@ def _run(cmd: list[str], dry_run: bool = False, *, allow_failure: bool = False) 
     }
 
 
+def _core_memory_repo_root() -> Path:
+    return Path(__file__).resolve().parents[3]
+
+
 def default_openclaw_config_path() -> Path:
     if os.environ.get("OPENCLAW_CONFIG_PATH"):
         return Path(str(os.environ["OPENCLAW_CONFIG_PATH"]))
@@ -35,17 +39,23 @@ def default_openclaw_config_path() -> Path:
 def harden_openclaw_plugin_config(
     *,
     config_path: str | Path | None = None,
+    core_memory_repo: str | Path | None = None,
+    core_memory_root: str | Path | None = None,
+    python_bin: str | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     cfg_path = Path(config_path) if config_path else default_openclaw_config_path()
     cmd = ["patch_openclaw_config", str(cfg_path)]
+    repo_root = Path(core_memory_repo) if core_memory_repo else _core_memory_repo_root()
+    root = Path(core_memory_root) if core_memory_root else Path(os.environ.get("CORE_MEMORY_ROOT") or repo_root)
+    python = python_bin or os.environ.get("CORE_MEMORY_PYTHON") or "python3"
     if dry_run:
         return {
             "ok": True,
             "dry_run": True,
             "cmd": cmd,
             "config_path": str(cfg_path),
-            "stdout": f"would remove stale plugins.entries.{PLUGIN_ID} and enforce plugins.allow",
+            "stdout": f"would set plugins.entries.{PLUGIN_ID}.hooks.allowConversationAccess and enforce plugins.allow",
         }
     if not cfg_path.exists():
         return {
@@ -67,10 +77,36 @@ def harden_openclaw_plugin_config(
 
     plugins = cfg.setdefault("plugins", {})
     entries = plugins.get("entries")
-    removed_stale_entry = False
-    if isinstance(entries, dict):
-        removed_stale_entry = PLUGIN_ID in entries
-        entries.pop(PLUGIN_ID, None)
+    if not isinstance(entries, dict):
+        entries = {}
+
+    existing_entry = entries.get(PLUGIN_ID) if isinstance(entries.get(PLUGIN_ID), dict) else {}
+    existing_config = existing_entry.get("config") if isinstance(existing_entry.get("config"), dict) else {}
+    existing_hooks = existing_entry.get("hooks") if isinstance(existing_entry.get("hooks"), dict) else {}
+    previous_allow_conversation_access = existing_hooks.get("allowConversationAccess")
+
+    entry_config = {
+        "pythonBin": python,
+        "coreMemoryRoot": str(root),
+        "coreMemoryRepo": str(repo_root),
+        "enableAgentEnd": existing_config.get("enableAgentEnd", True),
+        "enableMemorySearch": existing_config.get("enableMemorySearch", True),
+        "enableCompactionFlush": existing_config.get("enableCompactionFlush", False),
+        "enableMessageTurnFallback": existing_config.get("enableMessageTurnFallback", True),
+    }
+    if "messageTurnFallbackDelayMs" in existing_config:
+        entry_config["messageTurnFallbackDelayMs"] = existing_config["messageTurnFallbackDelayMs"]
+
+    entries[PLUGIN_ID] = {
+        **existing_entry,
+        "enabled": existing_entry.get("enabled", True),
+        "hooks": {
+            **existing_hooks,
+            "allowConversationAccess": True,
+        },
+        "config": entry_config,
+    }
+    plugins["entries"] = entries
 
     allow = plugins.get("allow")
     if allow is None:
@@ -90,7 +126,8 @@ def harden_openclaw_plugin_config(
         "ok": True,
         "cmd": cmd,
         "config_path": str(cfg_path),
-        "removed_stale_entry": removed_stale_entry,
+        "set_entry": True,
+        "set_allow_conversation_access": previous_allow_conversation_access is not True,
         "added_allow": added_allow,
         "stdout": f"updated {cfg_path}",
     }
@@ -104,7 +141,7 @@ def run_openclaw_onboard(
     replace_memory_core: bool | None = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
-    repo_root = Path(__file__).resolve().parents[3]
+    repo_root = _core_memory_repo_root()
     default_plugin_dir = repo_root / "plugins" / "openclaw-core-memory-bridge"
     plugin_path = Path(plugin_dir) if plugin_dir else default_plugin_dir
 
@@ -115,7 +152,7 @@ def run_openclaw_onboard(
 
     steps.append(_run([openclaw_bin, "plugins", "uninstall", PLUGIN_ID], dry_run=dry_run, allow_failure=True))
     steps.append(_run([openclaw_bin, "plugins", "install", str(plugin_path)], dry_run=dry_run))
-    steps.append(harden_openclaw_plugin_config(config_path=config_path, dry_run=dry_run))
+    steps.append(harden_openclaw_plugin_config(config_path=config_path, core_memory_repo=repo_root, dry_run=dry_run))
     steps.append(_run([openclaw_bin, "plugins", "enable", PLUGIN_ID], dry_run=dry_run))
 
     if replace_memory_core:
