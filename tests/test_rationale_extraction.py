@@ -1,6 +1,6 @@
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from core_memory.policy.bead_typing import classify_bead_type, is_retrieval_turn
 from core_memory.policy.bead_judge import judge_bead_fields
@@ -104,12 +104,10 @@ class TestRationaleExtraction(unittest.TestCase):
         for text in cases:
             with self.subTest(text=text):
                 self.assertTrue(is_retrieval_turn(text))
-                with patch("core_memory.policy.bead_typing._classify_anthropic") as anthropic, patch(
-                    "core_memory.policy.bead_typing._classify_openai"
-                ) as openai:
+                runtime_factory = Mock()
+                with patch("core_memory.policy.bead_typing.get_semantic_task_runtime", runtime_factory):
                     self.assertEqual("context", classify_bead_type(text, ""))
-                    anthropic.assert_not_called()
-                    openai.assert_not_called()
+                    runtime_factory.assert_not_called()
 
     def test_declarative_capture_imperatives_are_not_forced_context(self):
         self.assertFalse(is_retrieval_turn("Record that PostgreSQL won because JSONB was faster"))

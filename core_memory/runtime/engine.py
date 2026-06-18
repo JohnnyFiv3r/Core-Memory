@@ -170,7 +170,7 @@ def _turn_judge_inputs(req: dict[str, Any]) -> tuple[str, str]:
     return user_query, assistant_final
 
 
-def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine") -> dict[str, Any]:
+def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine", root: str | None = None) -> dict[str, Any]:
     user_query, assistant_final = _turn_judge_inputs(req)
     text = (user_query or assistant_final or "turn memory").strip()
     title = (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory"
@@ -184,7 +184,7 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine")
     if not durable:
         tags.append("semantic_fallback_disabled")
     return {
-        "type": _infer_semantic_bead_type(user_query, assistant_final),
+        "type": _infer_semantic_bead_type(user_query, assistant_final, root=root),
         "title": title,
         "summary": summary,
         "because": [],
@@ -241,7 +241,7 @@ def _judged_turn_bead(req: dict[str, Any], *, root: str | None = None) -> dict[s
 
 
 def _default_crawler_updates(req: dict[str, Any], *, root: str | None = None) -> dict[str, Any]:
-    bead = _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
+    bead = _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req, root=root)
     return {"beads_create": [bead]}
 
 
@@ -408,7 +408,7 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
             has_turn = True
 
     if not has_turn:
-        bead = _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req)
+        bead = _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req, root=root)
         bead["source_turn_ids"] = [turn_id]
         bead["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
         rows.append(bead)

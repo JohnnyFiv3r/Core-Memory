@@ -201,7 +201,7 @@ def _fallback_bead_fields(user_query: str, assistant_final: str = "", *, root: s
     summary = [_clean_text(text, limit=240) or "turn memory"]
     durable = bool(text.strip()) and not is_retrieval_turn(uq)
     return {
-        "type": classify_bead_type(user_query=uq, assistant_final=af),
+        "type": classify_bead_type(user_query=uq, assistant_final=af, root=root),
         "title": title,
         "summary": summary,
         "detail": _clean_text(af or text, limit=1200),
@@ -278,16 +278,23 @@ def _normalize_judged_fields(
     mode: str,
     root: str | None = None,
 ) -> dict[str, Any]:
-    fallback = _fallback_bead_fields(user_query, assistant_final, root=root)
+    fallback: dict[str, Any] | None = None
+
+    def fallback_fields() -> dict[str, Any]:
+        nonlocal fallback
+        if fallback is None:
+            fallback = _fallback_bead_fields(user_query, assistant_final, root=root)
+        return fallback
+
     forced_context = is_retrieval_turn(user_query)
     btype = _clean_text(obj.get("type"), limit=80).lower()
     if forced_context:
         btype = "context"
     elif btype not in _ALLOWED_TYPES:
-        btype = str(fallback.get("type") or "context")
-    title = _clean_text(obj.get("title"), limit=160) or str(fallback.get("title") or "Turn memory")
-    summary = _clean_list(obj.get("summary"), limit=3, item_limit=240) or list(fallback.get("summary") or [])
-    detail = _clean_text(obj.get("detail"), limit=1200) or str(fallback.get("detail") or "")
+        btype = str(fallback_fields().get("type") or "context")
+    title = _clean_text(obj.get("title"), limit=160) or str(fallback_fields().get("title") or "Turn memory")
+    summary = _clean_list(obj.get("summary"), limit=3, item_limit=240) or list(fallback_fields().get("summary") or [])
+    detail = _clean_text(obj.get("detail"), limit=1200) or str(fallback_fields().get("detail") or "")
     because_candidates: list[str] = []
     for row in list(obj.get("because") or []):
         if isinstance(row, dict):

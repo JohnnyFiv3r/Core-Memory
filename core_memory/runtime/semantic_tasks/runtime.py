@@ -19,6 +19,7 @@ from .contracts import (
     MODEL_TIERS,
     SEMANTIC_TASK_TYPES,
     TASK_BEAD_FIELD_JUDGE,
+    TASK_BEAD_TYPE_CLASSIFIER,
     TASK_RATIONALE_EXTRACTOR,
     ModelProfile,
     SemanticTaskRequest,
@@ -73,6 +74,13 @@ def _model_for_task(task_type: str, tier: str) -> tuple[str, str]:
                 "CORE_MEMORY_BECAUSE_MODEL",
                 "CORE_MEMORY_BEAD_TYPE_MODEL",
                 "CORE_MEMORY_BEAD_FIELD_MODEL",
+            )
+        if task == TASK_BEAD_TYPE_CLASSIFIER:
+            return _env_first(
+                "CORE_MEMORY_AGENT_MODEL_CHEAP",
+                "CORE_MEMORY_BEAD_TYPE_MODEL",
+                "CORE_MEMORY_BEAD_FIELD_MODEL",
+                "CORE_MEMORY_BECAUSE_MODEL",
             )
         if task == TASK_BEAD_FIELD_JUDGE:
             return _env_first(
