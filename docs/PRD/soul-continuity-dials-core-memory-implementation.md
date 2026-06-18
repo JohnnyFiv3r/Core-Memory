@@ -55,6 +55,7 @@ The response should be deterministic for a fixed store state and should include:
     "spatial_scope_count": 0,
     "temporal_horizon_days_p90": null,
     "worldline_span_days_p90": null,
+    "storyline_span_days_p90": null,
     "binding_mass": 0.0,
     "breakdown": [],
     "limitations": []
