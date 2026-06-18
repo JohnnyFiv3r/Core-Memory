@@ -40,6 +40,7 @@ from core_memory.runtime.associations.coverage import (
     get_association_run,
     list_association_candidates,
 )
+from core_memory.runtime.semantic_tasks import list_semantic_task_runs
 from core_memory.management import (
     maintain as maintain_memory,
     remove_beads as remove_memory_beads,
@@ -1544,6 +1545,25 @@ async def memory_association_coverage_summary(
     _check_auth(authorization, x_memory_token)
     return association_coverage_summary(
         root=_resolve_root(root, x_tenant_id),
+        limit=max(1, int(limit)),
+    )
+
+
+@app.get("/v1/memory/semantic-task-runs")
+async def memory_semantic_task_runs(
+    root: Optional[str] = None,
+    task_type: Optional[str] = None,
+    status: Optional[str] = None,
+    limit: int = 100,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    _check_auth(authorization, x_memory_token)
+    return list_semantic_task_runs(
+        root=_resolve_root(root, x_tenant_id),
+        task_type=task_type,
+        status=status,
         limit=max(1, int(limit)),
     )
 

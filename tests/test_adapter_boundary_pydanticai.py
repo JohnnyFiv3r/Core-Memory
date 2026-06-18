@@ -22,6 +22,9 @@ pytestmark = pytest.mark.pydanticai
 CORE_MODULES = (
     "core_memory",
     "core_memory.runtime",
+    "core_memory.runtime.semantic_tasks",
+    "core_memory.runtime.semantic_tasks.contracts",
+    "core_memory.runtime.semantic_tasks.runtime",
     "core_memory.runtime.engine",
     "core_memory.retrieval",
     "core_memory.persistence",
