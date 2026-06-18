@@ -6,8 +6,32 @@ from core_memory.policy.bead_typing import classify_bead_type, is_retrieval_turn
 from core_memory.policy.bead_judge import judge_bead_fields
 from core_memory.policy.rationale import extract_causal_because, sanitize_because_for_turn
 from core_memory.persistence.store import MemoryStore
+from core_memory.provider_config import ProviderConfig
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.queue.worker import SidecarPolicy
+from core_memory.runtime.semantic_tasks import SemanticTaskResult, list_semantic_task_runs
+
+
+class FakeSemanticTaskRuntime:
+    def __init__(self, output_json=None, *, ok=True, status="succeeded"):
+        self.output_json = output_json or {}
+        self.ok = ok
+        self.status = status
+        self.requests = []
+
+    def run(self, request):
+        self.requests.append(request)
+        return SemanticTaskResult(
+            task_id=request.task_id or "fake-semantic-task",
+            task_type=request.task_type,
+            ok=self.ok,
+            status=self.status,
+            output_json=dict(self.output_json or {}),
+            prompt_version=request.prompt_version,
+            output_schema=request.output_schema,
+            fallback_mode=request.fallback_mode,
+            authority_boundary=request.authority_boundary,
+        )
 
 
 class TestRationaleExtraction(unittest.TestCase):
@@ -19,6 +43,51 @@ class TestRationaleExtraction(unittest.TestCase):
             "We chose PostgreSQL over MySQL because JSONB support and 2x better performance made it the clear winner."
         )
         self.assertEqual(["JSONB support and 2x better performance made it the clear winner"], out)
+
+    def test_llm_rationale_extractor_records_semantic_task_receipt(self):
+        cfg = ProviderConfig(
+            kind="chat",
+            provider="openai",
+            base_url="https://example.test/v1",
+            api_key="test",
+            model="fallback-model",
+            source="unit",
+            explicit=True,
+        )
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_BECAUSE_EXTRACTOR_MODE": "llm",
+                "CORE_MEMORY_AGENT_MODEL_CHEAP": "cheap-rationale-model",
+                "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider",
+            },
+            clear=False,
+        ), patch(
+            "core_memory.runtime.semantic_tasks.runtime.resolve_chat_config",
+            return_value=cfg,
+        ), patch(
+            "core_memory.runtime.semantic_tasks.runtime.chat_complete",
+            return_value='{"because":["JSONB support"]}',
+        ) as complete:
+            out = extract_causal_because(
+                "Record decision: PostgreSQL because JSONB support",
+                bead_type="decision",
+                root=td,
+            )
+            rows = list_semantic_task_runs(td, task_type="rationale_extractor")
+
+        self.assertEqual(["JSONB support"], out)
+        complete.assert_called_once()
+        self.assertEqual("cheap-rationale-model", complete.call_args.kwargs["config"].model)
+        self.assertEqual(1, rows.get("count"))
+        row = (rows.get("results") or [{}])[0]
+        self.assertEqual("rationale_extractor", row.get("task_type"))
+        self.assertEqual("succeeded", row.get("status"))
+        self.assertEqual("cheap", row.get("model_tier"))
+        self.assertEqual("rationale_extractor.v1", row.get("prompt_version"))
+        self.assertEqual("memory.rationale_extractor.v1", row.get("output_schema"))
+        self.assertEqual("heuristic", row.get("fallback_mode"))
+        self.assertEqual("advisory", row.get("authority_boundary"))
 
     def test_questions_are_not_rationale(self):
         self.assertEqual([], extract_causal_because("Why did we choose PostgreSQL?"))
@@ -35,7 +104,9 @@ class TestRationaleExtraction(unittest.TestCase):
         for text in cases:
             with self.subTest(text=text):
                 self.assertTrue(is_retrieval_turn(text))
-                with patch("core_memory.policy.bead_typing._classify_anthropic") as anthropic, patch("core_memory.policy.bead_typing._classify_openai") as openai:
+                with patch("core_memory.policy.bead_typing._classify_anthropic") as anthropic, patch(
+                    "core_memory.policy.bead_typing._classify_openai"
+                ) as openai:
                     self.assertEqual("context", classify_bead_type(text, ""))
                     anthropic.assert_not_called()
                     openai.assert_not_called()
@@ -45,29 +116,15 @@ class TestRationaleExtraction(unittest.TestCase):
         self.assertFalse(is_retrieval_turn("Remember that we learned representative benchmarks catch regressions"))
 
     def test_llm_judge_keeps_short_grounded_support_that_overlaps_user_text(self):
-        with patch.dict(
-            "os.environ",
+        runtime = FakeSemanticTaskRuntime(
             {
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
-                "ANTHROPIC_API_KEY": "test-key",
-                "OPENAI_API_KEY": "",
-            },
-            clear=False,
-        ), patch(
-            "core_memory.policy.bead_judge._llm_judge_anthropic",
-            return_value={
                 "type": "decision",
                 "title": "Use PostgreSQL",
                 "summary": ["Use PostgreSQL"],
                 "because": [{"text": "JSONB support", "source_span": "JSONB support", "stated": "direct"}],
                 "retrieval_eligible": True,
-            },
-        ):
-            out = judge_bead_fields("Record decision: PostgreSQL because JSONB support", "")
-        self.assertEqual("decision", out.get("type"))
-        self.assertEqual(["JSONB support"], out.get("because"))
-
-    def test_llm_judge_cannot_promote_retrieval_question_as_precedent(self):
+            }
+        )
         with patch.dict(
             "os.environ",
             {
@@ -77,16 +134,38 @@ class TestRationaleExtraction(unittest.TestCase):
             },
             clear=False,
         ), patch(
-            "core_memory.policy.bead_judge._llm_judge_anthropic",
-            return_value={
+            "core_memory.policy.bead_judge.get_semantic_task_runtime",
+            return_value=runtime,
+        ):
+            out = judge_bead_fields("Record decision: PostgreSQL because JSONB support", "")
+        self.assertEqual(1, len(runtime.requests))
+        self.assertEqual("decision", out.get("type"))
+        self.assertEqual(["JSONB support"], out.get("because"))
+
+    def test_llm_judge_cannot_promote_retrieval_question_as_precedent(self):
+        runtime = FakeSemanticTaskRuntime(
+            {
                 "type": "precedent",
                 "title": "Benchmark precedent",
                 "summary": ["Question about benchmark precedent"],
                 "because": [{"text": "the user asked why", "source_span": "why", "stated": "direct"}],
                 "retrieval_eligible": True,
+            }
+        )
+        with patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
+                "ANTHROPIC_API_KEY": "test-key",
+                "OPENAI_API_KEY": "",
             },
+            clear=False,
+        ), patch(
+            "core_memory.policy.bead_judge.get_semantic_task_runtime",
+            return_value=runtime,
         ):
             out = judge_bead_fields("Why did we decide to always benchmark representative workloads?", "")
+        self.assertEqual(1, len(runtime.requests))
         self.assertEqual("context", out.get("type"))
         self.assertEqual([], out.get("because"))
         self.assertFalse(out.get("retrieval_eligible"))

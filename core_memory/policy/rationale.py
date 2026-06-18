@@ -7,6 +7,8 @@ import re
 from typing import Any
 
 from .bead_typing import is_retrieval_turn
+from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
+from core_memory.runtime.semantic_tasks.contracts import TASK_RATIONALE_EXTRACTOR
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +44,23 @@ USER: {user_query}
 ASSISTANT: {assistant_final}
 BEAD_TYPE: {bead_type}
 """
+_PROMPT_VERSION = "rationale_extractor.v1"
+_OUTPUT_SCHEMA = "memory.rationale_extractor.v1"
+
+
+def _render_prompt(
+    template: str,
+    *,
+    user_query: str,
+    assistant_final: str,
+    bead_type: str | None,
+) -> str:
+    return (
+        str(template or "")
+        .replace("{user_query}", str(user_query or ""))
+        .replace("{assistant_final}", str(assistant_final or ""))
+        .replace("{bead_type}", str(bead_type or ""))
+    )
 
 
 def is_question_turn(text: str) -> bool:
@@ -145,63 +164,73 @@ def _heuristic_extract(user_query: str, assistant_final: str = "", bead_type: st
     return _dedupe_reasons(reasons, source_text=user_query)
 
 
-def _llm_extract_anthropic(user_query: str, assistant_final: str, bead_type: str | None) -> list[str] | None:
-    key = os.getenv("ANTHROPIC_API_KEY")
-    if not key:
-        return None
+def _parse_json(text: str) -> dict[str, Any] | None:
+    raw = str(text or "").strip()
+    if raw.startswith("```"):
+        parts = raw.split("```")
+        raw = parts[1] if len(parts) > 1 else raw
+        if raw.strip().startswith("json"):
+            raw = raw.strip()[4:]
     try:
-        import anthropic  # type: ignore
-
-        client = anthropic.Anthropic(api_key=key)
-        model = os.getenv("CORE_MEMORY_BECAUSE_MODEL") or os.getenv("CORE_MEMORY_BEAD_TYPE_MODEL") or "claude-haiku-4-5-20251001"
-        resp = client.messages.create(
-            model=model,
-            max_tokens=160,
-            temperature=0,
-            messages=[{"role": "user", "content": _PROMPT.format(user_query=user_query, assistant_final=assistant_final, bead_type=bead_type or "")}],
-        )
-        text = resp.content[0].text.strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-            text = text.strip()
-        obj = json.loads(text)
-        return _dedupe_reasons([str(x) for x in list(obj.get("because") or [])], source_text=user_query)
-    except Exception as exc:
-        logger.debug("anthropic because extraction failed: %s", exc)
+        obj = json.loads(raw.strip())
+    except Exception:
         return None
+    return obj if isinstance(obj, dict) else None
 
 
-def _llm_extract_openai(user_query: str, assistant_final: str, bead_type: str | None) -> list[str] | None:
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        return None
+def _llm_extract_semantic_task(
+    user_query: str,
+    assistant_final: str,
+    bead_type: str | None,
+    *,
+    root: str | None = None,
+) -> list[str] | None:
+    prompt = _render_prompt(
+        _PROMPT,
+        user_query=user_query,
+        assistant_final=assistant_final,
+        bead_type=bead_type,
+    )
     try:
-        from openai import OpenAI  # type: ignore
-
-        client = OpenAI(api_key=key)
-        model = os.getenv("CORE_MEMORY_BECAUSE_MODEL") or os.getenv("CORE_MEMORY_BEAD_TYPE_MODEL") or "gpt-4o-mini"
-        resp = client.chat.completions.create(
-            model=model,
-            temperature=0,
-            max_tokens=160,
-            messages=[{"role": "user", "content": _PROMPT.format(user_query=user_query, assistant_final=assistant_final, bead_type=bead_type or "")}],
+        result = get_semantic_task_runtime().run(
+            SemanticTaskRequest(
+                task_type=TASK_RATIONALE_EXTRACTOR,
+                root=root,
+                prompt=prompt,
+                payload={
+                    "user_query": user_query,
+                    "assistant_final": assistant_final,
+                    "bead_type": bead_type or "",
+                },
+                prompt_version=_PROMPT_VERSION,
+                output_schema=_OUTPUT_SCHEMA,
+                max_tokens=160,
+                temperature=0,
+                json_mode=True,
+                fallback_mode="heuristic",
+                authority_boundary="advisory",
+                metadata={"policy": "rationale"},
+            )
         )
-        text = (resp.choices[0].message.content or "").strip()
-        if text.startswith("```"):
-            text = text.split("```")[1]
-            if text.startswith("json"):
-                text = text[4:]
-            text = text.strip()
-        obj = json.loads(text)
-        return _dedupe_reasons([str(x) for x in list(obj.get("because") or [])], source_text=user_query)
-    except Exception as exc:
-        logger.debug("openai because extraction failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("semantic task because extraction failed: %s", exc)
         return None
+    if not result.ok:
+        logger.debug("semantic task because extraction unavailable status=%s error=%s", result.status, result.error)
+        return None
+    obj = result.output_json if isinstance(result.output_json, dict) else _parse_json(result.output_text)
+    if not isinstance(obj, dict):
+        return None
+    return _dedupe_reasons([str(x) for x in list(obj.get("because") or [])], source_text=user_query)
 
 
-def extract_causal_because(user_query: str, assistant_final: str = "", bead_type: str | None = None) -> list[str]:
+def extract_causal_because(
+    user_query: str,
+    assistant_final: str = "",
+    bead_type: str | None = None,
+    *,
+    root: str | None = None,
+) -> list[str]:
     """Return grounded causal rationale points for the bead `because` field.
 
     This intentionally differs from the old fallback behavior: if no causal
@@ -212,9 +241,7 @@ def extract_causal_because(user_query: str, assistant_final: str = "", bead_type
     """
     mode = str(os.getenv("CORE_MEMORY_BECAUSE_EXTRACTOR_MODE") or "heuristic").strip().lower()
     if mode in {"llm", "auto"} and not is_retrieval_turn(user_query):
-        out = _llm_extract_anthropic(user_query, assistant_final, bead_type)
-        if out is None:
-            out = _llm_extract_openai(user_query, assistant_final, bead_type)
+        out = _llm_extract_semantic_task(user_query, assistant_final, bead_type, root=root)
         if out:
             return out
         if mode == "llm":
@@ -222,7 +249,14 @@ def extract_causal_because(user_query: str, assistant_final: str = "", bead_type
     return _heuristic_extract(user_query, assistant_final, bead_type)
 
 
-def sanitize_because_for_turn(candidates: list[Any] | None, *, user_query: str, assistant_final: str = "", bead_type: str | None = None) -> list[str]:
+def sanitize_because_for_turn(
+    candidates: list[Any] | None,
+    *,
+    user_query: str,
+    assistant_final: str = "",
+    bead_type: str | None = None,
+    root: str | None = None,
+) -> list[str]:
     """Keep legitimate support, remove obvious poison, and backfill when empty.
 
     `because` is free-text support for applied semantic labels/state. It may
@@ -235,7 +269,12 @@ def sanitize_because_for_turn(candidates: list[Any] | None, *, user_query: str, 
     cleaned = _dedupe_reasons(rows, source_text=user_query)
     if cleaned:
         return cleaned
-    return extract_causal_because(user_query=user_query, assistant_final=assistant_final, bead_type=bead_type)
+    return extract_causal_because(
+        user_query=user_query,
+        assistant_final=assistant_final,
+        bead_type=bead_type,
+        root=root,
+    )
 
 
 __all__ = ["extract_causal_because", "sanitize_because_for_turn", "is_question_turn"]

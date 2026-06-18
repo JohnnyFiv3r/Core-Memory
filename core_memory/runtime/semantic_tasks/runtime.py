@@ -18,6 +18,8 @@ from .contracts import (
     MODEL_TIER_STANDARD,
     MODEL_TIERS,
     SEMANTIC_TASK_TYPES,
+    TASK_BEAD_FIELD_JUDGE,
+    TASK_RATIONALE_EXTRACTOR,
     ModelProfile,
     SemanticTaskRequest,
     SemanticTaskResult,
@@ -61,9 +63,24 @@ def task_profile(
     )
 
 
-def _model_for_tier(tier: str) -> tuple[str, str]:
+def _model_for_task(task_type: str, tier: str) -> tuple[str, str]:
     normalized = str(tier or "").strip().lower()
     if normalized == MODEL_TIER_CHEAP:
+        task = str(task_type or "").strip()
+        if task == TASK_RATIONALE_EXTRACTOR:
+            return _env_first(
+                "CORE_MEMORY_AGENT_MODEL_CHEAP",
+                "CORE_MEMORY_BECAUSE_MODEL",
+                "CORE_MEMORY_BEAD_TYPE_MODEL",
+                "CORE_MEMORY_BEAD_FIELD_MODEL",
+            )
+        if task == TASK_BEAD_FIELD_JUDGE:
+            return _env_first(
+                "CORE_MEMORY_AGENT_MODEL_CHEAP",
+                "CORE_MEMORY_BEAD_FIELD_MODEL",
+                "CORE_MEMORY_BECAUSE_MODEL",
+                "CORE_MEMORY_BEAD_TYPE_MODEL",
+            )
         return _env_first("CORE_MEMORY_AGENT_MODEL_CHEAP", "CORE_MEMORY_BEAD_FIELD_MODEL", "CORE_MEMORY_BECAUSE_MODEL")
     if normalized == MODEL_TIER_FRONTIER:
         return _env_first("CORE_MEMORY_AGENT_MODEL_FRONTIER", "CORE_MEMORY_DREAMER_MODEL")
@@ -85,7 +102,7 @@ def resolve_model_profile(
     tier = str(model_tier or DEFAULT_TASK_MODEL_TIERS.get(str(task_type or ""), MODEL_TIER_STANDARD)).strip().lower()
     if tier not in MODEL_TIERS:
         tier = MODEL_TIER_STANDARD
-    model, source = _model_for_tier(tier)
+    model, source = _model_for_task(task_type, tier)
     if not model:
         model = cfg.model
         source = cfg.source

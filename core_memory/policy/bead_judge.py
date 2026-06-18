@@ -8,12 +8,14 @@ from typing import Any
 
 from .bead_typing import CLASSIFIABLE_TYPES, classify_bead_type, is_retrieval_turn
 from .rationale import extract_causal_because, sanitize_because_for_turn, is_question_turn
-from core_memory.llm_client import chat_complete
-from core_memory.provider_config import resolve_chat_config
+from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
+from core_memory.runtime.semantic_tasks.contracts import TASK_BEAD_FIELD_JUDGE
 
 logger = logging.getLogger(__name__)
 
 _ALLOWED_TYPES = set(CLASSIFIABLE_TYPES)
+_PROMPT_VERSION = "bead_field_judge.v1"
+_OUTPUT_SCHEMA = "memory.bead_field_judge.v1"
 
 _PROMPT = """You are the Core Memory bead-field judge. Author every semantic field for one memory bead from this finalized conversation turn.
 
@@ -79,6 +81,14 @@ def _prompt_template() -> str:
             logger.warning("bead_judge.prompt_file_unreadable path=%s error=%s", prompt_file, exc)
     prompt = str(os.getenv("CORE_MEMORY_BEAD_FIELD_PROMPT") or "").strip()
     return prompt or _PROMPT
+
+
+def _render_prompt(template: str, *, user_query: str, assistant_final: str) -> str:
+    return (
+        str(template or "")
+        .replace("{user_query}", str(user_query or ""))
+        .replace("{assistant_final}", str(assistant_final or ""))
+    )
 
 
 def _clean_list(value: Any, *, limit: int = 6, item_limit: int = 240) -> list[str]:
@@ -183,7 +193,7 @@ def _normalize_judged_claims(raw: Any) -> list[dict[str, Any]]:
     return out
 
 
-def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[str, Any]:
+def _fallback_bead_fields(user_query: str, assistant_final: str = "", *, root: str | None = None) -> dict[str, Any]:
     uq = str(user_query or "").strip()
     af = str(assistant_final or "").strip()
     text = uq or af or "turn memory"
@@ -195,7 +205,7 @@ def _fallback_bead_fields(user_query: str, assistant_final: str = "") -> dict[st
         "title": title,
         "summary": summary,
         "detail": _clean_text(af or text, limit=1200),
-        "because": extract_causal_because(user_query=uq, assistant_final=af),
+        "because": extract_causal_because(user_query=uq, assistant_final=af, root=root),
         "supporting_facts": [],
         "evidence_refs": [],
         "entities": _heuristic_entities(uq, af),
@@ -225,66 +235,50 @@ def _parse_json(text: str) -> dict[str, Any] | None:
         return None
 
 
-
-def _llm_judge_provider_neutral(user_query: str, assistant_final: str) -> dict[str, Any] | None:
-    cfg = resolve_chat_config()
-    if not cfg.provider:
-        return None
+def _llm_judge_semantic_task(
+    user_query: str,
+    assistant_final: str,
+    *,
+    root: str | None = None,
+) -> dict[str, Any] | None:
+    prompt = _render_prompt(_prompt_template(), user_query=user_query, assistant_final=assistant_final)
     try:
-        text = chat_complete(
-            _prompt_template().format(user_query=user_query, assistant_final=assistant_final),
-            config=cfg,
-            max_tokens=1100,
-            temperature=0,
+        result = get_semantic_task_runtime().run(
+            SemanticTaskRequest(
+                task_type=TASK_BEAD_FIELD_JUDGE,
+                root=root,
+                prompt=prompt,
+                payload={"user_query": user_query, "assistant_final": assistant_final},
+                prompt_version=_PROMPT_VERSION,
+                output_schema=_OUTPUT_SCHEMA,
+                max_tokens=1100,
+                temperature=0,
+                json_mode=True,
+                fallback_mode="heuristic",
+                authority_boundary="advisory",
+                metadata={"policy": "bead_judge"},
+            )
         )
-        return _parse_json(text)
-    except Exception as exc:
-        logger.debug("provider-neutral bead-field judge failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.debug("semantic task bead-field judge failed: %s", exc)
         return None
-
-
-def _llm_judge_anthropic(user_query: str, assistant_final: str) -> dict[str, Any] | None:
-    key = os.getenv("ANTHROPIC_API_KEY")
-    if not key:
+    if not result.ok:
+        logger.debug("semantic task bead-field judge unavailable status=%s error=%s", result.status, result.error)
         return None
-    try:
-        import anthropic  # type: ignore
-        client = anthropic.Anthropic(api_key=key)
-        model = os.getenv("CORE_MEMORY_BEAD_FIELD_MODEL") or os.getenv("CORE_MEMORY_BECAUSE_MODEL") or os.getenv("CORE_MEMORY_BEAD_TYPE_MODEL") or "claude-haiku-4-5-20251001"
-        resp = client.messages.create(
-            model=model,
-            max_tokens=1100,
-            temperature=0,
-            messages=[{"role": "user", "content": _prompt_template().format(user_query=user_query, assistant_final=assistant_final)}],
-        )
-        return _parse_json(resp.content[0].text)
-    except Exception as exc:
-        logger.debug("anthropic bead-field judge failed: %s", exc)
-        return None
+    if isinstance(result.output_json, dict):
+        return result.output_json
+    return _parse_json(result.output_text)
 
 
-def _llm_judge_openai(user_query: str, assistant_final: str) -> dict[str, Any] | None:
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        return None
-    try:
-        from openai import OpenAI  # type: ignore
-        client = OpenAI(api_key=key)
-        model = os.getenv("CORE_MEMORY_BEAD_FIELD_MODEL") or os.getenv("CORE_MEMORY_BECAUSE_MODEL") or os.getenv("CORE_MEMORY_BEAD_TYPE_MODEL") or "gpt-4o-mini"
-        resp = client.chat.completions.create(
-            model=model,
-            temperature=0,
-            max_tokens=1100,
-            messages=[{"role": "user", "content": _prompt_template().format(user_query=user_query, assistant_final=assistant_final)}],
-        )
-        return _parse_json(resp.choices[0].message.content or "")
-    except Exception as exc:
-        logger.debug("openai bead-field judge failed: %s", exc)
-        return None
-
-
-def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_final: str, mode: str) -> dict[str, Any]:
-    fallback = _fallback_bead_fields(user_query, assistant_final)
+def _normalize_judged_fields(
+    obj: dict[str, Any],
+    *,
+    user_query: str,
+    assistant_final: str,
+    mode: str,
+    root: str | None = None,
+) -> dict[str, Any]:
+    fallback = _fallback_bead_fields(user_query, assistant_final, root=root)
     forced_context = is_retrieval_turn(user_query)
     btype = _clean_text(obj.get("type"), limit=80).lower()
     if forced_context:
@@ -310,6 +304,7 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
         user_query=user_query,
         assistant_final=assistant_final,
         bead_type=btype,
+        root=root,
     )
     if forced_context or (is_question_turn(user_query) and btype == "context"):
         because = []
@@ -334,7 +329,13 @@ def _normalize_judged_fields(obj: dict[str, Any], *, user_query: str, assistant_
     }
 
 
-def judge_bead_fields(user_query: str, assistant_final: str = "", *, mode: str | None = None) -> dict[str, Any]:
+def judge_bead_fields(
+    user_query: str,
+    assistant_final: str = "",
+    *,
+    mode: str | None = None,
+    root: str | None = None,
+) -> dict[str, Any]:
     """LLM-first semantic bead-field judge with deterministic fallback.
 
     The normal write path should use this to author every semantic field. The
@@ -350,20 +351,16 @@ def judge_bead_fields(user_query: str, assistant_final: str = "", *, mode: str |
     if mode not in {"auto", "llm", "heuristic", "off"}:
         mode = "auto"
     if mode in {"auto", "llm"}:
-        obj = _llm_judge_provider_neutral(uq, af)
-        if obj is None:
-            obj = _llm_judge_anthropic(uq, af)
-        if obj is None:
-            obj = _llm_judge_openai(uq, af)
+        obj = _llm_judge_semantic_task(uq, af, root=root)
         if isinstance(obj, dict):
-            return _normalize_judged_fields(obj, user_query=uq, assistant_final=af, mode="llm")
+            return _normalize_judged_fields(obj, user_query=uq, assistant_final=af, mode="llm", root=root)
         if mode == "llm":
-            out = _fallback_bead_fields(uq, af)
+            out = _fallback_bead_fields(uq, af, root=root)
             judge = dict(out.get("judge") or {})
             judge["mode"] = "llm_failed_fallback"
             out["judge"] = judge
             return out
-    out = _fallback_bead_fields(uq, af)
+    out = _fallback_bead_fields(uq, af, root=root)
     judge = dict(out.get("judge") or {})
     judge["mode"] = "heuristic"
     out["judge"] = judge
