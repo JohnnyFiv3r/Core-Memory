@@ -14,6 +14,7 @@ from core_memory.runtime.semantic_tasks import (
     list_semantic_task_runs,
     record_semantic_task_run,
     resolve_model_profile,
+    semantic_task_runtime_mode,
     summarize_semantic_task_runs,
     task_profile,
 )
@@ -72,6 +73,21 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
         self.assertEqual("standard", profile.tier)
         self.assertEqual("recall-model", profile.model)
         self.assertEqual("CORE_MEMORY_RECALL_MODEL", profile.source)
+
+    def test_runtime_mode_accepts_legacy_env_alias(self):
+        with patch.dict(os.environ, {"CORE_MEMORY_SEMANTIC_RUNTIME": "pydantic-ai"}, clear=True):
+            self.assertEqual("pydanticai", semantic_task_runtime_mode())
+
+    def test_runtime_mode_prefers_current_env_name_over_legacy_alias(self):
+        with patch.dict(
+            os.environ,
+            {
+                "CORE_MEMORY_SEMANTIC_RUNTIME": "pydanticai",
+                "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "disabled",
+            },
+            clear=True,
+        ):
+            self.assertEqual("disabled", semantic_task_runtime_mode())
 
     def test_disabled_runtime_writes_unavailable_receipt(self):
         with tempfile.TemporaryDirectory() as td:

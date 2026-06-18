@@ -299,12 +299,15 @@ The core runtime imports the interface, not the implementation. Hosted
 deployments can configure:
 
 ```text
-CORE_MEMORY_SEMANTIC_RUNTIME=pydanticai
+CORE_MEMORY_SEMANTIC_TASK_RUNTIME=pydanticai
 CORE_MEMORY_AGENT_MODEL_CHEAP=...
 CORE_MEMORY_AGENT_MODEL_STANDARD=...
 CORE_MEMORY_AGENT_MODEL_FRONTIER=...
 CORE_MEMORY_AGENT_MODEL_VERIFIER=...
 ```
+
+`CORE_MEMORY_SEMANTIC_RUNTIME` remains accepted as a legacy alias, but
+`CORE_MEMORY_SEMANTIC_TASK_RUNTIME` is the canonical deployment flag.
 
 If unavailable, Core Memory falls back to provider-neutral or heuristic behavior
 according to task policy.
