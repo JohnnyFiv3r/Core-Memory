@@ -2,7 +2,7 @@
 ## PydanticAI Operator Harness, Model Routing, and Sub-Agent Delegation
 
 **Status:** Draft v1
-**Owner surface:** Core Memory semantic runtime; Satorid operator experience
+**Owner surface:** Core Memory semantic runtime; hosted operator experience
 **Related:** `03a-pydanticai-boundary.md`, `dreamer-continuity-engine.md`,
 `myelination-reinforcement.md`, `soul-files.md`, `external-data-bead-ingest.md`
 
@@ -25,10 +25,10 @@ canonical governed write or review surfaces.
 The preferred hosted implementation is a **PydanticAI operator harness**. It acts
 as Core Memory's semantic operator: cheap sub-agents handle high-volume judging
 and classification; stronger models handle uncertain association decisions; a
-frontier model handles Dreamer research and SOUL-adjacent synthesis. Satorid then
-becomes the operator seat for this agent: the agent performs semantic work, Core
-Memory audits and governs it, and the user leads, reviews, redirects, and grants
-authority.
+frontier model handles Dreamer research and SOUL-adjacent synthesis. A hosted
+operator UI then becomes the operator seat for this agent: the agent performs
+semantic work, Core Memory audits and governs it, and the user leads, reviews,
+redirects, and grants authority.
 
 Core Memory remains the deterministic memory kernel. The operator harness does
 not directly mutate memory, rewrite truth, or bypass governance. It produces
@@ -40,9 +40,10 @@ candidate decisions, Dreamer candidate review, SOUL proposals, and `maintain`.
 
 ## 2. Product Thesis
 
-Satorid should not feel like a passive database with background scripts. It
-should feel like a working memory operator. The user is the leader and partner;
-the agent is the semantic operator that performs memory labor:
+A hosted memory application should not feel like a passive database with
+background scripts. It should feel like a working memory operator. The user is
+the leader and partner; the agent is the semantic operator that performs memory
+labor:
 
 - judges what a turn means,
 - writes richly typed bead proposals,
@@ -75,9 +76,9 @@ governed.
    inputs, output schemas, fallback modes, and provenance.
 5. Preserve all Core Memory authority boundaries: model output is never truth by
    itself.
-6. Make Satorid able to show operator work as first-class activity: task started,
-   sub-agent chosen, evidence read, candidates produced, decisions awaiting
-   review, writes applied.
+6. Make hosted operator surfaces able to show operator work as first-class
+   activity: task started, sub-agent chosen, evidence read, candidates produced,
+   decisions awaiting review, writes applied.
 7. Improve cost/performance by making cheap tasks cheap and expensive tasks
    deliberately expensive.
 8. Make semantic work inspectable, replayable, benchmarkable, and tunable.
@@ -92,7 +93,8 @@ governed.
 3. Do not collapse user authority into model authority.
 4. Do not replace deterministic fallbacks where they are needed for degraded
    operation.
-5. Do not require Satorid to expose every low-level task to the user.
+5. Do not require hosted operator surfaces to expose every low-level task to the
+   user.
 6. Do not create a general-purpose autonomous agent loop that can perform
    arbitrary tool calls against memory.
 7. Do not merge Dreamer findings, SOUL statements, and association edges into a
@@ -293,8 +295,8 @@ through an integration module such as:
 core_memory.integrations.pydanticai.semantic_tasks
 ```
 
-The core runtime imports the interface, not the implementation. Hosted Satorid
-deployment can configure:
+The core runtime imports the interface, not the implementation. Hosted
+deployments can configure:
 
 ```text
 CORE_MEMORY_SEMANTIC_RUNTIME=pydanticai
@@ -618,7 +620,7 @@ Only some classes can write to active truth. For example:
 
 ### 9.2 Maintain as the operator control plane
 
-The `maintain()` facade should become the primary control surface for Satorid's
+The `maintain()` facade should become the primary control surface for a hosted
 operator agent:
 
 - inspect coverage,
@@ -662,9 +664,9 @@ Each row should include:
 - error category,
 - resulting candidate/write ids.
 
-### 10.2 Satorid activity surface
+### 10.2 Hosted activity surface
 
-Satorid should be able to render:
+Hosted operator surfaces should be able to render:
 
 - "Judged 18 document sections"
 - "Generated 42 association candidates"
@@ -818,7 +820,7 @@ Rationale:
 - Dreamer/SOUL migration happens after receipts, routing, and review surfaces are
   stable.
 
-### Phase 5 — Satorid operator surface
+### Phase 5 — hosted operator surface
 
 1. Display semantic task activity in Settings/Explore activity surfaces.
 2. Group activity by source, run, and task type.
@@ -878,7 +880,8 @@ Rationale:
 5. Task receipts are written for successful, failed, and fallback semantic tasks.
 6. Structured outputs are schema-validated before application.
 7. Mutating semantic results flow through existing governed surfaces.
-8. Satorid can inspect recent semantic task runs and show model/task status.
+8. Hosted operator surfaces can inspect recent semantic task runs and show
+   model/task status.
 9. Test coverage proves no authority bypass and no hard optional dependency leak.
 
 ---
@@ -892,7 +895,7 @@ Rationale:
    specialized frontier sub-agents?
 4. Should verifier be mandatory for all frontier outputs or only SOUL/Dreamer
    outputs?
-5. Should model routing policy live in Core Memory config, Satorid workspace
+5. Should model routing policy live in Core Memory config, hosted workspace
    config, or both?
 6. How much of sub-agent reasoning should be persisted versus summarized?
 7. Should task receipts become first-class external evidence for later audit and
@@ -918,14 +921,16 @@ Rationale:
 
 The final system should feel like this:
 
-1. A document, transcript, or connector event enters Satorid.
+1. A document, transcript, or connector event enters the hosted memory
+   application.
 2. Core Memory creates deterministic source/provenance scaffolding.
 3. The operator harness dispatches cheap semantic agents to author fields,
    claims, entities, and candidate edges.
 4. Core Memory validates and queues anything requiring judgment.
 5. The operator harness dispatches stronger agents for ambiguous graph decisions
    and frontier Dreamer research.
-6. Satorid shows the user what the operator did and what needs leadership.
+6. The hosted operator UI shows the user what the operator did and what needs
+   leadership.
 7. The user approves, rejects, or redirects.
 8. Core Memory applies only governed changes, leaving a full audit trail.
 

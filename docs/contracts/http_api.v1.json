@@ -146,6 +146,15 @@
     },
     {
       "method": "GET",
+      "path": "/v1/memory/semantic-task-runs",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "contract": "memory.semantic_task_runs.v1", "count": "int", "total_matching": "int", "results": "array"},
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
       "path": "/v1/memory/association-candidates",
       "authRequired": "conditional",
       "requestSchema": "query params",
