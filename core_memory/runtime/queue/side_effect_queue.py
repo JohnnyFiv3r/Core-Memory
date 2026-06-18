@@ -291,6 +291,21 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             identity_value_out = {"ok": False, "error": "identity_value_research_failed"}
 
+        # Frontier/operator Dreamer research: advisory refinement only. The
+        # semantic task runtime may annotate pending candidates and writes a
+        # receipt, but it cannot create graph truth or apply SOUL revisions.
+        dreamer_research_out: dict[str, Any] = {"ok": True, "status": "skipped", "refined": 0}
+        try:
+            from core_memory.runtime.dreamer.research import run_dreamer_research
+            dreamer_research_out = run_dreamer_research(
+                root,
+                run_id=run_id,
+                source="side_effect_queue",
+                subject=soul_subject,
+            )
+        except Exception:
+            dreamer_research_out = {"ok": False, "error": "dreamer_research_failed"}
+
         # Dreamer → SOUL bridge: turn eligible pending findings into proposed
         # (human-approval-gated) SOUL revisions. Dreamer never writes SOUL
         # directly (SOUL §8.2); this only enqueues proposals for agent review.
@@ -330,6 +345,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "goal_discovery": goal_discovery_out,
             "projection": projection_out,
             "identity_value": identity_value_out,
+            "dreamer_research": dreamer_research_out,
             "soul_bridge": soul_bridge_out,
             "geometry": geometry_out,
         }
