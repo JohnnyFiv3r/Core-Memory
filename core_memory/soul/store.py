@@ -119,6 +119,12 @@ def _current_entries(revisions: list[dict[str, Any]], target_file: str) -> "Orde
                 "epistemic_status": str(r.get("epistemic_status") or "inferred"),
                 "source": str(r.get("source") or "agent"),
                 "revision_id": str(r.get("id") or ""),
+                "created_at": str(r.get("created_at") or ""),
+                "decided_at": str(r.get("decided_at") or ""),
+                "reason": str(r.get("reason") or ""),
+                "evidence": [dict(e) for e in (r.get("evidence") or []) if isinstance(e, dict)],
+                "metadata": dict(r.get("metadata") or {}),
+                "supersedes_revision_id": str(r.get("supersedes_revision_id") or ""),
             }
     return entries
 
@@ -318,9 +324,10 @@ def current_soul_entries(root: str | Path, *, file_name: str, subject: str = DEF
     """Folded current entries for one SOUL file as structured data.
 
     Returns ``{ok, subject, file_name, entries: {entry_key: {content,
-    epistemic_status, source, revision_id}}}``. Unlike ``read_soul_file`` (which
-    renders markdown), this exposes per-entry metadata for analysis surfaces
-    (e.g. the Dreamer identity/value research detector).
+    epistemic_status, source, revision_id, created_at, decided_at, evidence,
+    metadata}}}``. Unlike ``read_soul_file`` (which renders markdown), this
+    exposes per-entry metadata for analysis surfaces (e.g. the Dreamer
+    identity/value research detector).
     """
     tf = _normalize_target_file(file_name)
     if tf is None:

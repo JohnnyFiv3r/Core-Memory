@@ -23,6 +23,7 @@ SOUL_SUMMARY_SCHEMA = "soul_summary.v1"
 
 _ENDORSED_GOAL_STATES = {"endorsed", "active"}
 _TERMINAL_TENSION_STATUSES = {"resolved", "superseded", "inactive", "retracted"}
+_TENSION_RATE_WINDOW_DAYS = 30.0
 
 
 def _now() -> str:
@@ -127,6 +128,166 @@ def _sessions_for_beads(beads: dict[str, Any], bead_ids: list[str]) -> list[str]
             if sess:
                 sessions.add(sess)
     return sorted(sessions)
+
+
+def _timestamps_for_beads(beads: dict[str, Any], bead_ids: list[str]) -> list[datetime]:
+    out: list[datetime] = []
+    for bid in bead_ids:
+        row = beads.get(str(bid))
+        if not isinstance(row, dict):
+            continue
+        for field in ("observed_at", "recorded_at", "created_at"):
+            dt = _parse_time(row.get(field))
+            if dt:
+                out.append(dt)
+                break
+    return out
+
+
+def _periods_for_timestamps(timestamps: list[datetime]) -> list[str]:
+    return sorted({dt.astimezone(timezone.utc).date().isoformat() for dt in timestamps})
+
+
+def _source_ref_token(kind: str, value: Any) -> str:
+    s = str(value or "").strip()
+    return f"{kind}:{s}" if s else ""
+
+
+def _source_refs_from_rows(rows: list[Any]) -> list[str]:
+    refs: set[str] = set()
+    for row in rows:
+        if isinstance(row, str):
+            token = _source_ref_token("source_ref", row)
+            if token:
+                refs.add(token)
+            continue
+        if not isinstance(row, dict):
+            continue
+        kind = str(row.get("source_kind") or row.get("kind") or row.get("type") or "source").strip()
+        ref = (
+            row.get("source_ref")
+            or row.get("external_id")
+            or row.get("id")
+            or row.get("url")
+            or row.get("path")
+        )
+        token = _source_ref_token(kind, ref)
+        if token:
+            refs.add(token)
+    return sorted(refs)
+
+
+def _source_refs_for_beads(beads: dict[str, Any], bead_ids: list[str]) -> list[str]:
+    refs: set[str] = set()
+    scalar_fields = (
+        "source_ref",
+        "source_id",
+        "source_event_id",
+        "raw_source_object_id",
+        "document_id",
+        "ragie_document_id",
+        "conversation_id",
+        "transcript_id",
+        "source_session_id",
+    )
+    for bid in bead_ids:
+        row = beads.get(str(bid))
+        if not isinstance(row, dict):
+            continue
+        for field in scalar_fields:
+            token = _source_ref_token(field, row.get(field))
+            if token:
+                refs.add(token)
+        refs.update(_source_refs_from_rows(list(row.get("source_refs") or [])))
+        attr = row.get("source_attribution")
+        if isinstance(attr, dict):
+            refs.update(_source_refs_from_rows([attr]))
+    return sorted(refs)
+
+
+def _source_refs_from_evidence(evidence: list[Any]) -> list[str]:
+    return _source_refs_from_rows(evidence)
+
+
+def _iso(dt: datetime | None) -> str:
+    return dt.astimezone(timezone.utc).isoformat() if dt else ""
+
+
+def _age_days(first_seen: datetime | None, now: datetime) -> float | None:
+    if not first_seen:
+        return None
+    return round(max(0.0, (now - first_seen).total_seconds() / 86400.0), 6)
+
+
+def _persistence_qualified(*, sessions: list[str], periods: list[str], source_refs: list[str]) -> bool:
+    return len(set(sessions)) >= 2 or len(set(periods)) >= 2 or len(set(source_refs)) >= 2
+
+
+def _tension_observation_fields(
+    *,
+    beads: dict[str, Any],
+    bead_ids: list[str],
+    now: datetime,
+    created_at: Any = None,
+    latest_at: Any = None,
+    resolved_at: Any = None,
+    source_refs: list[str] | None = None,
+) -> dict[str, Any]:
+    timestamps = _timestamps_for_beads(beads, bead_ids)
+    for raw in (created_at, latest_at, resolved_at):
+        dt = _parse_time(raw)
+        if dt:
+            timestamps.append(dt)
+    first_seen = min(timestamps) if timestamps else None
+    latest_seen = max(timestamps) if timestamps else None
+    periods = _periods_for_timestamps(timestamps)
+    refs = sorted(set(source_refs or []) | set(_source_refs_for_beads(beads, bead_ids)))
+    return {
+        "source_refs": refs,
+        "periods": periods,
+        "periods_spanned": len(periods),
+        "first_seen_at": _iso(first_seen),
+        "latest_seen_at": _iso(latest_seen),
+        "resolved_at": _iso(_parse_time(resolved_at)),
+        "age_days": _age_days(first_seen, now),
+        "persistence_qualified": _persistence_qualified(
+            sessions=_sessions_for_beads(beads, bead_ids),
+            periods=periods,
+            source_refs=refs,
+        ),
+    }
+
+
+def _compute_tension_rates(
+    tension_rows: list[dict[str, Any]],
+    now: datetime,
+) -> tuple[float | None, float | None, float | None, list[str]]:
+    dated_created = [_parse_time(row.get("first_seen_at")) for row in tension_rows]
+    dated_created = [dt for dt in dated_created if dt]
+    terminal_rows = [
+        row
+        for row in tension_rows
+        if str(row.get("status") or "").lower() in _TERMINAL_TENSION_STATUSES
+    ]
+    dated_resolved = [
+        _parse_time(row.get("resolved_at")) or _parse_time(row.get("latest_seen_at"))
+        for row in terminal_rows
+    ]
+    dated_resolved = [dt for dt in dated_resolved if dt]
+
+    if len(dated_created) < 2 and not dated_resolved:
+        return None, None, None, ["tension_churn_history_unavailable"] if tension_rows else []
+
+    all_dates = dated_created + dated_resolved
+    start = min(all_dates) if all_dates else now
+    end = max(max(all_dates), now) if all_dates else now
+    period_days = max(1.0, (end - start).total_seconds() / 86400.0)
+    new_count = sum(1 for row in tension_rows if _parse_time(row.get("first_seen_at")))
+    resolved_count = len(dated_resolved)
+    new_rate = round((new_count / period_days) * _TENSION_RATE_WINDOW_DAYS, 6)
+    resolution_rate = round((resolved_count / period_days) * _TENSION_RATE_WINDOW_DAYS, 6)
+    churn = round(((new_count + resolved_count) / period_days) * _TENSION_RATE_WINDOW_DAYS, 6)
+    return new_rate, resolution_rate, churn, []
 
 
 def _assembly_depth_value(value: Any) -> float:
@@ -347,6 +508,7 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
     beads = index.get("beads") if isinstance(index.get("beads"), dict) else {}
     tensions: list[dict[str, Any]] = []
     limitations: list[str] = []
+    now = datetime.now(timezone.utc)
 
     try:
         entries = current_soul_entries(root, file_name="TENSIONS.md", subject=subject).get("entries") or {}
@@ -356,6 +518,18 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
 
     for key, entry in entries.items():
         status = _tension_status_from_entry(str(key), entry or {})
+        entry = entry or {}
+        metadata = entry.get("metadata") if isinstance(entry.get("metadata"), dict) else {}
+        resolved_at = metadata.get("resolved_at") or (entry.get("decided_at") if status in _TERMINAL_TENSION_STATUSES else "")
+        obs = _tension_observation_fields(
+            beads=beads,
+            bead_ids=[],
+            now=now,
+            created_at=metadata.get("first_seen_at") or entry.get("created_at"),
+            latest_at=entry.get("decided_at") or entry.get("created_at"),
+            resolved_at=resolved_at,
+            source_refs=_source_refs_from_evidence(list(entry.get("evidence") or [])),
+        )
         tensions.append(
             {
                 "id": f"soul:{key}",
@@ -363,18 +537,18 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
                 "status": status,
                 "kind": "soul_tension",
                 "title": str(key),
-                "statement": str((entry or {}).get("content") or ""),
+                "statement": str(entry.get("content") or ""),
                 "recurrence_count": 1,
                 "sessions": [],
-                "periods_spanned": 0,
                 "assembly_depth": 0.0,
-                "persistence_qualified": False,
                 "related_goals": [],
                 "related_worldlines": [],
                 "related_identity_entries": [],
                 "evidence_refs": [
-                    {"type": "soul_revision", "id": str((entry or {}).get("revision_id") or "")}
+                    {"type": "soul_revision", "id": str(entry.get("revision_id") or "")},
+                    *[dict(e) for e in (entry.get("evidence") or []) if isinstance(e, dict)],
                 ],
+                **obs,
             }
         )
 
@@ -384,7 +558,13 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
         bead_ids = [str(b) for b in (row.get("supporting_bead_ids") or []) if str(b)]
         sessions = _sessions_for_beads(beads, bead_ids)
         depth = _assembly_depth_value(row.get("assembly_depth"))
-        persistence = len(sessions) >= 2
+        obs = _tension_observation_fields(
+            beads=beads,
+            bead_ids=bead_ids,
+            now=now,
+            created_at=row.get("created_at"),
+            source_refs=_source_refs_from_rows(list(row.get("source_refs") or [])),
+        )
         tensions.append(
             {
                 "id": str(row.get("id") or ""),
@@ -395,9 +575,7 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
                 "statement": str(row.get("statement") or row.get("rationale") or ""),
                 "recurrence_count": len(bead_ids),
                 "sessions": sessions,
-                "periods_spanned": len(sessions),
                 "assembly_depth": depth,
-                "persistence_qualified": persistence,
                 "related_goals": [
                     str(b)
                     for b in (row.get("conflict_bead_a"), row.get("conflict_bead_b"))
@@ -406,6 +584,7 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
                 "related_worldlines": [],
                 "related_identity_entries": [],
                 "evidence_refs": [{"type": "bead", "id": bid} for bid in bead_ids],
+                **obs,
             }
         )
 
@@ -419,6 +598,7 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
         backbone = storyline.get("backbone") or {}
         bead_ids = [str(b) for b in (backbone.get("bead_ids") or []) if str(b)]
         sessions = _sessions_for_beads(beads, bead_ids)
+        obs = _tension_observation_fields(beads=beads, bead_ids=bead_ids, now=now)
         for idx, tension in enumerate(storyline.get("tensions") or []):
             tensions.append(
                 {
@@ -430,13 +610,12 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
                     "statement": str(tension.get("detail") or ""),
                     "recurrence_count": len(bead_ids),
                     "sessions": sessions,
-                    "periods_spanned": len(sessions),
                     "assembly_depth": 0.0,
-                    "persistence_qualified": len(sessions) >= 2,
                     "related_goals": [],
                     "related_worldlines": [str(backbone.get("id") or "")],
                     "related_identity_entries": [],
                     "evidence_refs": [{"type": "bead", "id": bid} for bid in bead_ids],
+                    **obs,
                 }
             )
 
@@ -448,6 +627,7 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
                 if str(b or "")
             ]
             sessions = _sessions_for_beads(beads, bead_ids)
+            obs = _tension_observation_fields(beads=beads, bead_ids=bead_ids, now=now)
             tensions.append(
                 {
                     "id": str(det.get("tension_key") or ""),
@@ -458,13 +638,12 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
                     "statement": str(det.get("statement") or ""),
                     "recurrence_count": len(bead_ids),
                     "sessions": sessions,
-                    "periods_spanned": len(sessions),
                     "assembly_depth": _assembly_depth_value(det.get("assembly_depth")),
-                    "persistence_qualified": len(sessions) >= 2,
                     "related_goals": bead_ids,
                     "related_worldlines": [],
                     "related_identity_entries": [],
                     "evidence_refs": [{"type": "bead", "id": bid} for bid in bead_ids],
+                    **obs,
                 }
             )
     except Exception:
@@ -491,16 +670,19 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
         6,
     )
     persistence_count = sum(1 for t in active_rows if bool(t.get("persistence_qualified")))
-    if tension_rows:
-        limitations.append("tension_churn_history_unavailable")
+    new_tension_rate, resolution_rate, churn, rate_limitations = _compute_tension_rates(
+        tension_rows,
+        now,
+    )
+    limitations.extend(rate_limitations)
 
     return {
         "status": _status_from_limitations(limitations),
         "active_load": active_load,
         "persistence_qualified_count": persistence_count,
-        "new_tension_rate": None,
-        "resolution_rate": None,
-        "churn": None,
+        "new_tension_rate": new_tension_rate,
+        "resolution_rate": resolution_rate,
+        "churn": churn,
         "tensions": tension_rows,
         "limitations": sorted(set(limitations)),
     }
