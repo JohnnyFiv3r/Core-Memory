@@ -86,11 +86,10 @@ class TestReqJudgeDirective(unittest.TestCase):
         self.assertEqual("heuristic", kwargs.get("mode"))
 
     def test_judge_bead_fields_mode_kwarg_overrides_env(self):
-        with patch("core_memory.policy.bead_judge._llm_judge_provider_neutral", return_value=None), \
-             patch("core_memory.policy.bead_judge._llm_judge_anthropic", return_value=None), \
-             patch("core_memory.policy.bead_judge._llm_judge_openai", return_value=None), \
+        with patch("core_memory.policy.bead_judge.get_semantic_task_runtime") as runtime, \
              patch.dict("os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm"}, clear=False):
             out = judge_bead_fields("q", "a", mode="heuristic")
+        runtime.assert_not_called()
         self.assertEqual("heuristic", (out.get("judge") or {}).get("mode"))
 
 
