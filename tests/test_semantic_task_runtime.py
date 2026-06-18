@@ -13,7 +13,7 @@ from core_memory.runtime.semantic_tasks import (
     resolve_model_profile,
     task_profile,
 )
-from core_memory.runtime.semantic_tasks.contracts import TASK_ASSOCIATION_DECISION, TASK_BEAD_FIELD_JUDGE
+from core_memory.runtime.semantic_tasks.contracts import TASK_ASSOCIATION_DECISION, TASK_BEAD_FIELD_JUDGE, TASK_SOUL_PROPOSAL
 from core_memory.runtime.semantic_tasks.runtime import DisabledSemanticTaskRuntime, ProviderSemanticTaskRuntime
 
 
@@ -23,6 +23,8 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
         self.assertEqual("standard", task_profile("association_decision").model_tier)
         self.assertEqual("frontier", task_profile("dreamer_research").model_tier)
         self.assertEqual("candidate_only", task_profile("dreamer_research").authority_boundary)
+        self.assertEqual("frontier", task_profile(TASK_SOUL_PROPOSAL).model_tier)
+        self.assertEqual("candidate_only", task_profile(TASK_SOUL_PROPOSAL).authority_boundary)
 
     def test_model_profile_uses_agent_tier_env_aliases(self):
         cfg = ProviderConfig(

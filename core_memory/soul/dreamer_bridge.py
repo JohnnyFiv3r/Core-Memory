@@ -22,11 +22,19 @@ already covers, so repeated runs never churn duplicate proposals.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 from core_memory.runtime.dreamer.candidates import _read_candidates
+from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
+from core_memory.runtime.semantic_tasks.contracts import TASK_SOUL_PROPOSAL
 from core_memory.soul.store import propose_soul_update, soul_history
+
+SOUL_PROPOSAL_CONTRACT = "memory.soul_proposal.v1"
+SOUL_PROPOSAL_PROMPT_VERSION = "soul_proposal.v1"
+SOUL_PROPOSAL_RUBRIC_VERSION = "soul_proposal_candidate_only.v1"
+SOUL_PROPOSAL_OUTPUT_SCHEMA = SOUL_PROPOSAL_CONTRACT
 
 # Candidate hypothesis_type → (target_file, entry_key prefix). The prefix keeps
 # distinct finding families from colliding inside a shared file (goal_candidate
@@ -71,6 +79,170 @@ def _evidence_from(candidate: dict[str, Any]) -> list[dict[str, Any]]:
     return refs
 
 
+def _clean_text(value: Any, *, max_len: int = 1200) -> str:
+    text = " ".join(str(value or "").split())
+    if len(text) > max_len:
+        return text[: max(0, max_len - 3)].rstrip() + "..."
+    return text
+
+
+def _proposal_prompt() -> str:
+    return (
+        "You are the Core Memory SOUL proposal assistant. Draft review-ready "
+        "SOUL revision text from Dreamer findings. Return JSON only.\n\n"
+        "Authority boundary: candidate_only. You may draft or clarify proposed "
+        "SOUL entries, but you must not approve, apply, reject, or claim to "
+        "modify SOUL files. Every output remains human/governance review work.\n\n"
+        "Return this shape:\n"
+        "{\n"
+        '  "contract": "memory.soul_proposal.v1",\n'
+        '  "subject": "self",\n'
+        '  "proposal_drafts": [\n'
+        "    {\n"
+        '      "candidate_id": "dc-...",\n'
+        '      "target_file": "GOALS.md",\n'
+        '      "entry_key": "goal:example",\n'
+        '      "content": "concise proposed SOUL entry",\n'
+        '      "reason": "why this should be reviewed",\n'
+        '      "review_notes": ["what a reviewer should inspect"],\n'
+        '      "evidence_limitations": ["what evidence is missing or weak"]\n'
+        "    }\n"
+        "  ]\n"
+        "}\n\n"
+        "Only reference candidate_ids from the input. Keep content concise, "
+        "inferred, and explicitly grounded in the supplied finding."
+    )
+
+
+def _proposal_payload(findings: list[dict[str, Any]], *, subject: str) -> dict[str, Any]:
+    return {
+        "contract": SOUL_PROPOSAL_CONTRACT,
+        "subject": str(subject or "self"),
+        "finding_count": len(findings),
+        "findings": [
+            {
+                "candidate_id": str(f.get("candidate_id") or ""),
+                "hypothesis_type": str(f.get("hypothesis_type") or ""),
+                "target_file": str(f.get("target_file") or ""),
+                "entry_key": str(f.get("entry_key") or ""),
+                "statement": _clean_text(f.get("statement") or "", max_len=900),
+                "evidence": list(f.get("evidence") or []),
+            }
+            for f in findings
+        ],
+    }
+
+
+def _normalize_drafts(
+    payload: dict[str, Any],
+    *,
+    eligible_keys: set[tuple[str, str, str]],
+) -> dict[str, dict[str, Any]]:
+    raw = payload.get("proposal_drafts")
+    if not isinstance(raw, list):
+        return {}
+    out: dict[str, dict[str, Any]] = {}
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        cid = str(item.get("candidate_id") or "").strip()
+        target_file = str(item.get("target_file") or "").strip()
+        entry_key = str(item.get("entry_key") or "").strip()
+        content = _clean_text(item.get("content") or "", max_len=1400)
+        if not cid or not content:
+            continue
+        if (cid, target_file, entry_key) not in eligible_keys:
+            continue
+        out[cid] = {
+            "target_file": target_file,
+            "entry_key": entry_key,
+            "content": content,
+            "reason": _clean_text(item.get("reason") or "", max_len=700),
+            "review_notes": [
+                _clean_text(note, max_len=240)
+                for note in list(item.get("review_notes") or [])
+                if _clean_text(note, max_len=240)
+            ][:6],
+            "evidence_limitations": [
+                _clean_text(note, max_len=240)
+                for note in list(item.get("evidence_limitations") or [])
+                if _clean_text(note, max_len=240)
+            ][:6],
+        }
+    return out
+
+
+def _run_soul_proposal_task(
+    root: str | Path,
+    *,
+    subject: str,
+    findings: list[dict[str, Any]],
+) -> dict[str, Any]:
+    if not findings:
+        return {"ok": True, "status": "skipped", "reason": "no_eligible_findings", "drafts": {}}
+
+    payload = _proposal_payload(findings, subject=subject)
+    result = get_semantic_task_runtime().run(
+        SemanticTaskRequest(
+            root=str(root),
+            task_type=TASK_SOUL_PROPOSAL,
+            prompt=_proposal_prompt() + "\n\nContext JSON:\n" + json.dumps(payload, ensure_ascii=False, sort_keys=True),
+            payload=payload,
+            idempotency_key=f"soul_proposal:{subject}:{','.join(str(f.get('candidate_id') or '') for f in findings)}",
+            prompt_version=SOUL_PROPOSAL_PROMPT_VERSION,
+            rubric_version=SOUL_PROPOSAL_RUBRIC_VERSION,
+            output_schema=SOUL_PROPOSAL_OUTPUT_SCHEMA,
+            max_tokens=1600,
+            temperature=0.1,
+            json_mode=True,
+            fallback_mode="deterministic_soul_bridge",
+            authority_boundary="candidate_only",
+            evidence_refs=[
+                {"type": "dreamer_candidate", "candidate_id": str(f.get("candidate_id") or "")}
+                for f in findings
+                if str(f.get("candidate_id") or "")
+            ],
+            metadata={
+                "subject": str(subject or "self"),
+                "candidate_ids": [str(f.get("candidate_id") or "") for f in findings],
+                "finding_count": len(findings),
+            },
+        )
+    )
+
+    task_ref = {
+        "task_type": TASK_SOUL_PROPOSAL,
+        "task_id": str(result.task_id or ""),
+        "receipt_id": str(result.receipt_id or ""),
+        "role": "soul_proposal_draft",
+    }
+    out: dict[str, Any] = {
+        "ok": bool(result.ok),
+        "status": str(result.status or ""),
+        "task_id": str(result.task_id or ""),
+        "receipt_id": str(result.receipt_id or ""),
+        "authority_boundary": str(result.authority_boundary or "candidate_only"),
+        "task_ref": task_ref if task_ref["task_id"] or task_ref["receipt_id"] else {},
+        "drafts": {},
+    }
+    if result.error:
+        out["error"] = result.error
+    if not result.ok or not isinstance(result.output_json, dict):
+        if result.ok:
+            out["status"] = "succeeded_unparsed"
+        return out
+
+    eligible_keys = {
+        (str(f.get("candidate_id") or ""), str(f.get("target_file") or ""), str(f.get("entry_key") or ""))
+        for f in findings
+    }
+    drafts = _normalize_drafts(result.output_json, eligible_keys=eligible_keys)
+    out["drafts"] = drafts
+    out["drafted"] = len(drafts)
+    out["contract"] = str(result.output_json.get("contract") or SOUL_PROPOSAL_CONTRACT)
+    return out
+
+
 def _covered_keys(root: str | Path, subject: str) -> set[tuple[str, str]]:
     """Existing SOUL coverage by stable key, regardless of source. A prior
     Dreamer revision (proposed/applied/rejected) means a finding is already in
@@ -100,9 +272,8 @@ def propose_soul_from_dreamer(
     candidates = _read_candidates(root)
     covered = _covered_keys(root, subject)
 
-    proposed = 0
+    eligible: list[dict[str, Any]] = []
     skipped = 0
-    revision_ids: list[str] = []
     for cand in candidates:
         if not isinstance(cand, dict):
             continue
@@ -132,6 +303,45 @@ def propose_soul_from_dreamer(
             skipped += 1
             continue
 
+        eligible.append(
+            {
+                "candidate": cand,
+                "candidate_id": str(cand.get("id") or ""),
+                "hypothesis_type": ht,
+                "target_file": target_file,
+                "entry_key": entry_key,
+                "statement": content,
+                "evidence": _evidence_from(cand),
+            }
+        )
+        if len(eligible) >= max(1, int(limit)):
+            break
+
+    proposal_task = _run_soul_proposal_task(root, subject=subject, findings=eligible)
+    drafts = proposal_task.get("drafts") if isinstance(proposal_task.get("drafts"), dict) else {}
+    task_ref = proposal_task.get("task_ref") if isinstance(proposal_task.get("task_ref"), dict) else {}
+
+    proposed = 0
+    revision_ids: list[str] = []
+    for finding in eligible:
+        cand = finding["candidate"]
+        ht = str(finding.get("hypothesis_type") or "")
+        target_file = str(finding.get("target_file") or "")
+        entry_key = str(finding.get("entry_key") or "")
+        draft = drafts.get(str(finding.get("candidate_id") or "")) if isinstance(drafts, dict) else None
+        draft = draft if isinstance(draft, dict) else {}
+        content = str(draft.get("content") or finding.get("statement") or "").strip()
+        reason = str(draft.get("reason") or f"Dreamer finding ({ht}) surfaced for self-model review.")
+        metadata = {
+            "dreamer_candidate_id": str(finding.get("candidate_id") or ""),
+            "dreamer_hypothesis_type": ht,
+            "proposal_task_status": str(proposal_task.get("status") or ""),
+            "used_operator_draft": bool(draft.get("content")),
+            "operator_review_notes": list(draft.get("review_notes") or []),
+            "operator_evidence_limitations": list(draft.get("evidence_limitations") or []),
+        }
+        semantic_refs = [task_ref] if task_ref else []
+
         out = propose_soul_update(
             root,
             target_file=target_file,
@@ -141,9 +351,11 @@ def propose_soul_from_dreamer(
             subject=subject,
             source="dreamer",
             epistemic_status="inferred",
-            reason=f"Dreamer finding ({ht}) surfaced for self-model review.",
-            evidence=_evidence_from(cand),
+            reason=reason,
+            evidence=list(finding.get("evidence") or []),
             requires_approval=True,
+            semantic_task_refs=semantic_refs,
+            metadata=metadata,
         )
         if out.get("ok"):
             proposed += 1
@@ -154,15 +366,21 @@ def propose_soul_from_dreamer(
         else:
             skipped += 1
 
-        if proposed >= max(1, int(limit)):
-            break
-
     return {
         "ok": True,
         "subject": subject,
         "proposed": proposed,
         "skipped": skipped,
         "revision_ids": revision_ids,
+        "soul_proposal": {
+            "ok": bool(proposal_task.get("ok", True)),
+            "status": str(proposal_task.get("status") or ""),
+            "task_id": str(proposal_task.get("task_id") or ""),
+            "receipt_id": str(proposal_task.get("receipt_id") or ""),
+            "drafted": int(proposal_task.get("drafted") or 0),
+            "authority_boundary": str(proposal_task.get("authority_boundary") or "candidate_only"),
+            **({"error": str(proposal_task.get("error"))} if proposal_task.get("error") else {}),
+        },
     }
 
 
