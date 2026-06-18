@@ -110,6 +110,11 @@ cannot derive reliably today:
 - Do not let unendorsed aspirational goals inflate horizon metrics. Candidate
   goals may appear in the breakdown but must not contribute to the primary
   horizon score.
+- Breakdown rows may include read-side proxy projections for `storyline`,
+  `tension`, and `identity_entry` non-bead targets. These rows explain breadth
+  and binding measurements only; they are not graph edges, SOUL approvals, or
+  evidence. Tension and identity rows must explicitly avoid contributing to the
+  endorsed-goal horizon.
 
 Acceptance criteria:
 
@@ -119,6 +124,8 @@ Acceptance criteria:
   an inflated endorsed horizon.
 - A store without non-bead assembly support returns partial status with an
   explicit limitation instead of zeroing `binding_mass`.
+- Endorsed identity entries and active/persistent tensions can contribute
+  non-bead binding mass without enqueueing Dreamer candidates or mutating SOUL.
 
 ## Dial 2: Observed-vs-Endorsed Divergence
 

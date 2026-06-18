@@ -8,6 +8,7 @@ and do not alter graph truth.
 from __future__ import annotations
 
 import json
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,25 @@ _ENDORSED_GOAL_STATES = {"endorsed", "active"}
 _TERMINAL_TENSION_STATUSES = {"resolved", "superseded", "inactive", "retracted"}
 _TENSION_RATE_WINDOW_DAYS = 30.0
 _INACTIVE_ASSOC_STATUSES = {"retracted", "superseded", "inactive"}
+_LIGHT_CONE_STOPWORDS = {
+    "about",
+    "after",
+    "against",
+    "and",
+    "because",
+    "been",
+    "being",
+    "between",
+    "from",
+    "have",
+    "into",
+    "that",
+    "their",
+    "this",
+    "through",
+    "value",
+    "with",
+}
 
 
 def _now() -> str:
@@ -225,6 +245,67 @@ def _evidence_refs_for_beads(bead_ids: list[str]) -> list[dict[str, str]]:
     return [{"type": "bead", "id": str(bid)} for bid in bead_ids if str(bid)]
 
 
+def _evidence_refs_for_soul_entry(entry: dict[str, Any]) -> list[dict[str, Any]]:
+    refs: list[dict[str, Any]] = []
+    rid = str(entry.get("revision_id") or "").strip()
+    if rid:
+        refs.append({"type": "soul_revision", "id": rid})
+    refs.extend([dict(e) for e in (entry.get("evidence") or []) if isinstance(e, dict)])
+    return refs
+
+
+def _flatten_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return " ".join(_flatten_text(v) for v in value.values())
+    if isinstance(value, (list, tuple, set)):
+        return " ".join(_flatten_text(v) for v in value)
+    return str(value)
+
+
+def _tokens_for_text(*values: Any) -> set[str]:
+    text = " ".join(_flatten_text(value) for value in values).lower()
+    return {
+        token
+        for token in re.findall(r"[a-z0-9][a-z0-9_-]{2,}", text)
+        if len(token) >= 4 and token not in _LIGHT_CONE_STOPWORDS
+    }
+
+
+def _bead_tokens(bead: dict[str, Any]) -> set[str]:
+    return _tokens_for_text(
+        bead.get("title"),
+        bead.get("summary"),
+        bead.get("detail"),
+        bead.get("because"),
+        bead.get("topics"),
+        bead.get("entities"),
+        bead.get("type"),
+    )
+
+
+def _supporting_beads_for_text(
+    beads: dict[str, Any],
+    *values: Any,
+    limit: int = 12,
+) -> list[str]:
+    target = _tokens_for_text(*values)
+    if not target:
+        return []
+    scored: list[tuple[int, str]] = []
+    for bid, bead in beads.items():
+        if not isinstance(bead, dict):
+            continue
+        score = len(target & _bead_tokens(bead))
+        if score > 0:
+            scored.append((score, str(bid)))
+    scored.sort(key=lambda item: (-item[0], item[1]))
+    return [bid for _, bid in scored[: max(1, limit)]]
+
+
 def _persistence_qualified(*, sessions: list[str], periods: list[str], source_refs: list[str]) -> bool:
     return len(set(sessions)) >= 2 or len(set(periods)) >= 2 or len(set(source_refs)) >= 2
 
@@ -379,7 +460,152 @@ def _storyline_binding_report(storyline: dict[str, Any], index: dict[str, Any]) 
     }
 
 
-def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> dict[str, Any]:
+def _identity_light_cone_reports(
+    root: str | Path,
+    subject: str,
+    beads: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[str]]:
+    limitations: list[str] = []
+    try:
+        entries = (
+            current_soul_entries(root, file_name="IDENTITY.md", subject=subject).get("entries")
+            or {}
+        )
+    except Exception:
+        return [], ["identity_projection_unavailable"]
+
+    reports: list[dict[str, Any]] = []
+    for key, entry in sorted(entries.items(), key=lambda item: str(item[0])):
+        if not isinstance(entry, dict):
+            continue
+        epistemic_status = str(entry.get("epistemic_status") or "").strip().lower()
+        if epistemic_status != "endorsed":
+            continue
+        content = str(entry.get("content") or "")
+        supporting_bead_ids = _supporting_beads_for_text(beads, key, content)
+        sessions = _sessions_for_beads(beads, supporting_bead_ids)
+        source_refs = sorted(
+            set(_source_refs_from_evidence(list(entry.get("evidence") or [])))
+            | set(_source_refs_for_beads(beads, supporting_bead_ids))
+        )
+        support_factor = min(1.0, len(supporting_bead_ids) / 4.0)
+        session_factor = min(1.0, len(sessions) / 3.0)
+        source_factor = min(1.0, len(source_refs) / 3.0)
+        assembly_depth = round(
+            (support_factor * 0.45)
+            + (session_factor * 0.25)
+            + (source_factor * 0.15)
+            + 0.15,
+            6,
+        )
+        binding_mass = round(
+            assembly_depth * (1.0 + len(supporting_bead_ids) + len(source_refs)),
+            6,
+        )
+        reports.append(
+            {
+                "kind": "identity_entry",
+                "source": "soul_file",
+                "entry_key": str(key),
+                "epistemic_status": epistemic_status,
+                "revision_id": str(entry.get("revision_id") or ""),
+                "content": content,
+                "supporting_bead_ids": supporting_bead_ids,
+                "session_count": len(sessions),
+                "sessions": sessions,
+                "assembly_depth": assembly_depth,
+                "binding_mass_component": binding_mass,
+                "contributes_to_primary_horizon": False,
+                "evidence_refs": _evidence_refs_for_soul_entry(entry),
+                "source_refs": source_refs,
+            }
+        )
+
+    return reports, limitations
+
+
+def _tension_light_cone_reports(
+    root: str | Path,
+    subject: str,
+    index: dict[str, Any],
+    tension_summary: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    if tension_summary is None:
+        try:
+            summary = _build_tensions(root, subject, index)
+        except Exception:
+            return [], ["tension_projection_unavailable"]
+    else:
+        summary = tension_summary
+
+    reports: list[dict[str, Any]] = []
+    for row in summary.get("tensions") or []:
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "").strip().lower()
+        if status in _TERMINAL_TENSION_STATUSES:
+            continue
+        recurrence_count = max(1, int(row.get("recurrence_count") or 1))
+        periods_spanned = int(row.get("periods_spanned") or 0)
+        source_refs = [str(ref) for ref in (row.get("source_refs") or []) if str(ref)]
+        source_factor = min(1.0, len(source_refs) / 3.0)
+        recurrence_factor = min(1.0, recurrence_count / 3.0)
+        period_factor = min(1.0, periods_spanned / 3.0)
+        persisted = bool(row.get("persistence_qualified"))
+        base_depth = max(0.1, _assembly_depth_value(row.get("assembly_depth")))
+        assembly_depth = round(
+            min(
+                1.0,
+                (base_depth * 0.5)
+                + (recurrence_factor * 0.18)
+                + (period_factor * 0.12)
+                + (source_factor * 0.1)
+                + (0.1 if persisted else 0.0),
+            ),
+            6,
+        )
+        binding_mass = round(
+            assembly_depth * (1.0 + recurrence_count + periods_spanned + len(source_refs)),
+            6,
+        )
+        reports.append(
+            {
+                "kind": "tension",
+                "source": row.get("source"),
+                "tension_id": str(row.get("id") or ""),
+                "status": status,
+                "tension_kind": str(row.get("kind") or ""),
+                "title": str(row.get("title") or ""),
+                "statement": str(row.get("statement") or ""),
+                "recurrence_count": recurrence_count,
+                "persistence_qualified": persisted,
+                "periods_spanned": periods_spanned,
+                "sessions": list(row.get("sessions") or []),
+                "assembly_depth": assembly_depth,
+                "binding_mass_component": binding_mass,
+                "related_goals": list(row.get("related_goals") or []),
+                "related_worldlines": list(row.get("related_worldlines") or []),
+                "related_identity_entries": list(row.get("related_identity_entries") or []),
+                "contributes_to_primary_horizon": False,
+                "evidence_refs": list(row.get("evidence_refs") or []),
+                "source_refs": source_refs,
+            }
+        )
+
+    limitations = [
+        str(item)
+        for item in (summary.get("limitations") or [])
+        if str(item) and str(item) != "tension_churn_history_unavailable"
+    ]
+    return reports, limitations
+
+
+def _build_light_cone(
+    root: str | Path,
+    subject: str,
+    index: dict[str, Any],
+    tension_summary: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     beads = index.get("beads") if isinstance(index.get("beads"), dict) else {}
     limitations: list[str] = []
     breakdown: list[dict[str, Any]] = []
@@ -493,6 +719,27 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
         if len(breakdown) < 25:
             breakdown.append(report)
 
+    tension_binding_values: list[float] = []
+    tension_reports, tension_limitations = _tension_light_cone_reports(
+        root,
+        subject,
+        index,
+        tension_summary=tension_summary,
+    )
+    limitations.extend(tension_limitations)
+    for report in tension_reports:
+        tension_binding_values.append(float(report.get("binding_mass_component") or 0.0))
+        if len(breakdown) < 25:
+            breakdown.append(report)
+
+    identity_binding_values: list[float] = []
+    identity_reports, identity_limitations = _identity_light_cone_reports(root, subject, beads)
+    limitations.extend(identity_limitations)
+    for report in identity_reports:
+        identity_binding_values.append(float(report.get("binding_mass_component") or 0.0))
+        if len(breakdown) < 25:
+            breakdown.append(report)
+
     try:
         total_goals = max(
             1,
@@ -531,11 +778,16 @@ def _build_light_cone(root: str | Path, subject: str, index: dict[str, Any]) -> 
                 row["myelinated_path_support"] = myelinated
                 row["supersession_survival"] = survival
                 break
-    binding_values = goal_binding_values + storyline_binding_values
+    binding_values = (
+        goal_binding_values
+        + storyline_binding_values
+        + tension_binding_values
+        + identity_binding_values
+    )
     binding_mass = round(sum(binding_values), 6) if binding_values else 0.0
     if endorsed_goals and not goal_binding_values:
         limitations.append("endorsed_goal_binding_mass_unavailable")
-    if not storyline_binding_values:
+    if not (storyline_binding_values or tension_binding_values or identity_binding_values):
         limitations.append("non_bead_assembly_depth_unavailable")
 
     horizon = _p90(horizons)
@@ -889,15 +1141,22 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
 def build_soul_summary(root: str | Path, *, subject: str = "self") -> dict[str, Any]:
     """Build the read-only SOUL continuity summary for ``subject``."""
     index = _read_index(root)
+    subject_key = str(subject or "self")
+    persistent_tensions = _build_tensions(root, subject_key, index)
     return {
         "ok": True,
         "schema": SOUL_SUMMARY_SCHEMA,
-        "subject": str(subject or "self"),
+        "subject": subject_key,
         "generated_at": _now(),
         "measurements_are_evidence": False,
-        "light_cone_breadth": _build_light_cone(root, str(subject or "self"), index),
-        "observed_endorsed_divergence": _build_divergence(root, str(subject or "self"), index),
-        "persistent_tensions": _build_tensions(root, str(subject or "self"), index),
+        "light_cone_breadth": _build_light_cone(
+            root,
+            subject_key,
+            index,
+            tension_summary=persistent_tensions,
+        ),
+        "observed_endorsed_divergence": _build_divergence(root, subject_key, index),
+        "persistent_tensions": persistent_tensions,
     }
 
 

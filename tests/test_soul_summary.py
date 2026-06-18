@@ -120,6 +120,60 @@ class TestSoulSummary(unittest.TestCase):
             self.assertGreater(storyline_rows[0]["binding_mass_component"], 0.0)
             self.assertNotIn("non_bead_assembly_depth_unavailable", light["limitations"])
 
+    def test_light_cone_includes_persistent_tensions_as_non_bead_binding_mass(self):
+        with tempfile.TemporaryDirectory() as td:
+            propose_soul_update(
+                td,
+                target_file="TENSIONS.md",
+                entry_key="Speed versus care",
+                content="Speed creates pressure against careful review.",
+                source="dreamer",
+                epistemic_status="inferred",
+                requires_approval=False,
+                evidence=[{"type": "document", "id": "doc-a"}],
+                metadata={"first_seen_at": "2026-01-01T00:00:00+00:00"},
+            )
+
+            light = build_soul_summary(td)["light_cone_breadth"]
+            rows = [row for row in light["breakdown"] if row["kind"] == "tension"]
+
+            self.assertEqual(1, len(rows))
+            self.assertEqual("Speed versus care", rows[0]["title"])
+            self.assertEqual("active", rows[0]["status"])
+            self.assertFalse(rows[0]["contributes_to_primary_horizon"])
+            self.assertGreater(rows[0]["binding_mass_component"], 0.0)
+            self.assertGreater(light["binding_mass"], 0.0)
+            self.assertIn("document:doc-a", rows[0]["source_refs"])
+            self.assertNotIn("non_bead_assembly_depth_unavailable", light["limitations"])
+
+    def test_light_cone_includes_endorsed_identity_entries_without_candidate_writes(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bead_id = _decision(store, "Choose simplicity", ["simplicity"], "s1")
+            propose_soul_update(
+                td,
+                target_file="IDENTITY.md",
+                entry_key="Simplicity",
+                content="I value simplicity in product decisions.",
+                source="agent",
+                epistemic_status="endorsed",
+                requires_approval=False,
+                evidence=[{"type": "document", "id": "identity-doc"}],
+            )
+
+            light = build_soul_summary(td)["light_cone_breadth"]
+            rows = [row for row in light["breakdown"] if row["kind"] == "identity_entry"]
+
+            self.assertEqual(1, len(rows))
+            self.assertEqual("Simplicity", rows[0]["entry_key"])
+            self.assertEqual("endorsed", rows[0]["epistemic_status"])
+            self.assertFalse(rows[0]["contributes_to_primary_horizon"])
+            self.assertIn(bead_id, rows[0]["supporting_bead_ids"])
+            self.assertGreater(rows[0]["binding_mass_component"], 0.0)
+            self.assertGreater(light["binding_mass"], 0.0)
+            self.assertIn("document:identity-doc", rows[0]["source_refs"])
+            self.assertFalse((Path(td) / ".beads" / "events" / "dreamer-candidates.json").exists())
+
     def test_observed_endorsed_divergence_summarizes_value_and_identity_candidates(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(root=td)
