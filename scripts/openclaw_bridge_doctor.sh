@@ -49,6 +49,18 @@ fi
 
 if [ -d "$INSTALL_PATH" ]; then
   pass "plugin install path exists at $INSTALL_PATH"
+  if [ -f "$INSTALL_PATH/index.js" ] \
+    && grep -q "core_memory.integrations.openclaw.agent_end_bridge" "$INSTALL_PATH/index.js" \
+    && grep -q "core_memory.integrations.openclaw.read_bridge" "$INSTALL_PATH/index.js" \
+    && grep -q "core_memory.integrations.openclaw.compaction_queue" "$INSTALL_PATH/index.js" \
+    && ! grep -q "core_memory.integrations.openclaw_agent_end_bridge" "$INSTALL_PATH/index.js" \
+    && ! grep -q "core_memory.integrations.openclaw_read_bridge" "$INSTALL_PATH/index.js" \
+    && ! grep -q "core_memory.integrations.openclaw_compaction_queue" "$INSTALL_PATH/index.js"; then
+    pass "installed plugin uses canonical bridge Python module paths"
+  else
+    fail "installed plugin has stale bridge Python module paths; rerun core-memory openclaw onboard or scripts/openclaw_bridge_install.sh"
+    status=1
+  fi
 else
   fail "plugin install path missing at $INSTALL_PATH"
   status=1
@@ -82,15 +94,22 @@ entries = plugins.get("entries") or {}
 allow = plugins.get("allow") or []
 if not isinstance(allow, list):
     allow = [allow]
-if "core-memory-bridge" in entries:
+entry = entries.get("core-memory-bridge") if isinstance(entries, dict) else None
+if not isinstance(entry, dict):
     raise SystemExit(1)
-if "core-memory-bridge" not in allow:
+hooks = entry.get("hooks") if isinstance(entry.get("hooks"), dict) else {}
+if hooks.get("allowConversationAccess") is not True:
     raise SystemExit(2)
+config = entry.get("config") if isinstance(entry.get("config"), dict) else {}
+if not config.get("coreMemoryRepo"):
+    raise SystemExit(3)
+if "core-memory-bridge" not in allow:
+    raise SystemExit(4)
 PY
   then
-    pass "config has no stale plugins.entries.$PLUGIN_ID and allows $PLUGIN_ID"
+    pass "config has plugins.entries.$PLUGIN_ID with hooks.allowConversationAccess, coreMemoryRepo, and plugins.allow"
   else
-    fail "config hardening incomplete: remove stale plugins.entries.$PLUGIN_ID and ensure plugins.allow includes $PLUGIN_ID"
+    fail "config hardening incomplete: set plugins.entries.$PLUGIN_ID.hooks.allowConversationAccess=true, config.coreMemoryRepo, and plugins.allow"
     status=1
   fi
 else
@@ -99,11 +118,11 @@ else
 fi
 
 logs="$(openclaw logs --limit 200 --plain 2>&1 || true)"
-if grep -Eqi 'blocked plugin candidate|stale config entry ignored' <<<"$logs"; then
-  fail "recent logs contain blocked/stale plugin warnings"
+if grep -Eqi "($PLUGIN_ID.*(blocked plugin candidate|stale config entry ignored))|((blocked plugin candidate|stale config entry ignored).*$PLUGIN_ID)" <<<"$logs"; then
+  fail "recent logs contain $PLUGIN_ID blocked/stale plugin warnings"
   status=1
 else
-  pass "no blocked/stale plugin warnings in recent logs"
+  pass "no $PLUGIN_ID blocked/stale plugin warnings in recent logs"
 fi
 if grep -qi "$PLUGIN_ID" <<<"$logs"; then
   pass "recent OpenClaw logs mention $PLUGIN_ID"

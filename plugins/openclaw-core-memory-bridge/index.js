@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const AGENT_END_MODULE = "core_memory.integrations.openclaw.agent_end_bridge";
 const READ_BRIDGE_MODULE = "core_memory.integrations.openclaw.read_bridge";
@@ -38,8 +39,8 @@ const plugin = {
 
     const loadSkillInstructions = () => {
       try {
-        const url = new URL("../../docs/integrations/openclaw/core-memory-skill-instructions.md", import.meta.url);
-        return readFileSync(url, "utf8").trim();
+        const path = join(cfg.coreMemoryRepo, "docs", "integrations", "openclaw", "core-memory-skill-instructions.md");
+        return readFileSync(path, "utf8").trim();
       } catch (err) {
         api.logger?.warn?.(`core-memory-bridge: failed to load skill instructions: ${String(err)}`);
         return "";

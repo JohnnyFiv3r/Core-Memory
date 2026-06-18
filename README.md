@@ -128,6 +128,8 @@ Use Core Memory as a memory backend directly within your agent harness:
 | SpringAI   | — | [Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/springai/quickstart.md) | [Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/springai/integration-guide.md) | [API Reference](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/springai/api-reference.md) | [Adapter Spec](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/springai_adapter.md) |
 | LangChain  | — | [Quickstart](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/langchain/quickstart.md) | [Guide](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/langchain/integration-guide.md) | [API Reference](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/langchain/api-reference.md) | [Adapter Spec](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/adapters/langchain.md) |
 
+OpenClaw v2026.6.8+ requires `plugins.entries.core-memory-bridge.hooks.allowConversationAccess=true`; see the [runtime install notes](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/integrations/openclaw/openclaw-v2026.6.8-install.md).
+
 ---
 
 <p align="center">
