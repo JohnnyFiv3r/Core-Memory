@@ -8,8 +8,13 @@ from typing import Any
 
 from core_memory.graph.edge_weights import CAUSAL_RELS
 from core_memory.graph.root_cause import normalize_causal_hints, root_cause_trace
-from core_memory.provider_config import resolve_chat_config
 from core_memory.retrieval.contracts import RecallResult, RecallStep
+from core_memory.runtime.semantic_tasks import SemanticTaskRequest, SemanticTaskResult, get_semantic_task_runtime
+from core_memory.runtime.semantic_tasks.contracts import TASK_CAUSAL_RECALL_EXECUTE
+
+
+_EXECUTE_PROMPT_VERSION = "causal_recall_execute.v1"
+_EXECUTE_OUTPUT_SCHEMA = "core_memory.execute_decision.v1"
 
 
 def _text(value: Any) -> str:
@@ -345,18 +350,25 @@ def _fallback_execute_decision(
     }
 
 
-def execute_state_packet(*, state_packet: dict[str, Any], trace_package: dict[str, Any]) -> dict[str, Any]:
-    cfg = resolve_chat_config()
-    llm_diag = {
-        "available": bool(cfg.provider),
-        "provider": cfg.adapter or cfg.provider,
-        "model": cfg.model,
-        "config_source": cfg.source,
+def _semantic_task_llm_diag(result: SemanticTaskResult | None, *, available: bool) -> dict[str, Any]:
+    profile = result.model_profile if result and result.model_profile else None
+    return {
+        "available": bool(available),
+        "provider": (profile.adapter or profile.provider) if profile else "",
+        "model": profile.model if profile else "",
+        "config_source": profile.source if profile else "",
+        "semantic_task": {
+            "task_type": TASK_CAUSAL_RECALL_EXECUTE,
+            "task_id": result.task_id if result else "",
+            "receipt_id": result.receipt_id if result else "",
+            "status": result.status if result else "unavailable",
+            "runtime": profile.runtime if profile else "",
+        },
     }
-    if not cfg.provider:
-        return _fallback_execute_decision(state_packet=state_packet, trace_package=trace_package, llm_diag=llm_diag, warning="execute_llm_unavailable")
 
-    prompt = (
+
+def _execute_prompt(*, state_packet: dict[str, Any], trace_package: dict[str, Any]) -> str:
+    return (
         "You are the Execute phase of Core Memory causal recall. Return strict JSON only.\n"
         "Rules: use only the provided trace_package and state_packet; do not invent causes; "
         "distinguish historical from current-truth claims; cite bead ids, claim ids, and source citations.\n\n"
@@ -368,13 +380,42 @@ def execute_state_packet(*, state_packet: dict[str, Any], trace_package: dict[st
         "\"root_causes\": [{\"bead_id\": string, \"role\": string, \"confidence\": string}], "
         "\"confidence\": \"high|moderate|low\", \"citations\": [object], \"open_questions\": [string]}."
     )
+
+
+def execute_state_packet(
+    *,
+    state_packet: dict[str, Any],
+    trace_package: dict[str, Any],
+    root: str | Path | None = None,
+) -> dict[str, Any]:
+    prompt = _execute_prompt(state_packet=state_packet, trace_package=trace_package)
     try:
-        from core_memory.llm_client import chat_complete
-        raw = chat_complete(prompt, config=cfg, max_tokens=900, temperature=0)
-    except Exception:
+        result = get_semantic_task_runtime().run(
+            SemanticTaskRequest(
+                task_type=TASK_CAUSAL_RECALL_EXECUTE,
+                root=str(root) if root is not None else None,
+                prompt=prompt,
+                payload={"trace_package": trace_package, "state_packet": state_packet},
+                prompt_version=_EXECUTE_PROMPT_VERSION,
+                output_schema=_EXECUTE_OUTPUT_SCHEMA,
+                max_tokens=900,
+                temperature=0,
+                json_mode=True,
+                fallback_mode="deterministic_execute",
+                authority_boundary="advisory",
+                evidence_refs=list(state_packet.get("source_citations") or [])[:8],
+                metadata={"pipeline": "causal_recall", "phase": "execute"},
+            )
+        )
+    except Exception:  # noqa: BLE001
+        llm_diag = _semantic_task_llm_diag(None, available=False)
         return _fallback_execute_decision(state_packet=state_packet, trace_package=trace_package, llm_diag=llm_diag, warning="execute_llm_unavailable")
 
-    parsed = _extract_json_object(raw)
+    llm_diag = _semantic_task_llm_diag(result, available=bool(result.ok))
+    if not result.ok:
+        return _fallback_execute_decision(state_packet=state_packet, trace_package=trace_package, llm_diag=llm_diag, warning="execute_llm_unavailable")
+
+    parsed = result.output_json if isinstance(result.output_json, dict) else _extract_json_object(result.output_text)
     if not parsed:
         return _fallback_execute_decision(state_packet=state_packet, trace_package=trace_package, llm_diag=llm_diag, warning="execute_llm_parse_failed")
 
@@ -390,7 +431,7 @@ def execute_state_packet(*, state_packet: dict[str, Any], trace_package: dict[st
         "confidence": _text(parsed.get("confidence") or "moderate"),
         "citations": [dict(x) for x in _clean_list(parsed.get("citations")) if isinstance(x, dict)] or list(state_packet.get("source_citations") or [])[:8],
         "open_questions": [_text(x) for x in _clean_list(parsed.get("open_questions")) if _text(x)],
-        "llm": {**llm_diag, "available": True},
+        "llm": llm_diag,
         "warnings": [],
     }
 
@@ -510,7 +551,7 @@ def attach_causal_recall_pipeline(
     state_packet = build_state_packet(root=root, query=query, result=result, attribution=attribution, hints=normalized_hints)
     result.state_packet = state_packet
     result.source_citations = list(state_packet.get("source_citations") or [])
-    decision = execute_state_packet(state_packet=state_packet, trace_package=result.trace_package)
+    decision = execute_state_packet(state_packet=state_packet, trace_package=result.trace_package, root=root)
     result.execute_decision = decision
 
     causal_paths = [p for p in _clean_list(attribution.get("causal_paths")) if isinstance(p, dict)]

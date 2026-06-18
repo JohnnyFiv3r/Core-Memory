@@ -21,6 +21,7 @@ from core_memory.runtime.semantic_tasks.contracts import (
     TASK_ASSOCIATION_DECISION,
     TASK_BEAD_FIELD_JUDGE,
     TASK_BEAD_TYPE_CLASSIFIER,
+    TASK_CAUSAL_RECALL_EXECUTE,
     TASK_SOUL_PROPOSAL,
     TASK_VERIFIER,
 )
@@ -32,6 +33,7 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
         self.assertEqual("cheap", task_profile("bead_field_judge").model_tier)
         self.assertEqual("cheap", task_profile(TASK_BEAD_TYPE_CLASSIFIER).model_tier)
         self.assertEqual("standard", task_profile("association_decision").model_tier)
+        self.assertEqual("standard", task_profile(TASK_CAUSAL_RECALL_EXECUTE).model_tier)
         self.assertEqual("frontier", task_profile("dreamer_research").model_tier)
         self.assertEqual("candidate_only", task_profile("dreamer_research").authority_boundary)
         self.assertEqual("frontier", task_profile(TASK_SOUL_PROPOSAL).model_tier)
@@ -54,6 +56,22 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
         self.assertEqual("cheap", profile.tier)
         self.assertEqual("cheap-model", profile.model)
         self.assertEqual("CORE_MEMORY_AGENT_MODEL_CHEAP", profile.source)
+
+    def test_causal_recall_execute_uses_recall_model_alias(self):
+        cfg = ProviderConfig(
+            kind="chat",
+            provider="openai",
+            base_url="https://example.test/v1",
+            api_key="test",
+            model="fallback-model",
+            source="unit",
+            explicit=True,
+        )
+        with patch.dict(os.environ, {"CORE_MEMORY_RECALL_MODEL": "recall-model"}, clear=False):
+            profile = resolve_model_profile(TASK_CAUSAL_RECALL_EXECUTE, config=cfg)
+        self.assertEqual("standard", profile.tier)
+        self.assertEqual("recall-model", profile.model)
+        self.assertEqual("CORE_MEMORY_RECALL_MODEL", profile.source)
 
     def test_disabled_runtime_writes_unavailable_receipt(self):
         with tempfile.TemporaryDirectory() as td:
