@@ -275,6 +275,16 @@
       "requiredFields": ["candidate_id", "decision"],
       "response": {"ok": "bool", "candidate_id": "string", "status": "accepted|rejected", "applied": "object?"},
       "errors": ["400 invalid_decision", "400 candidate_not_found", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/soul/summary",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "schema": "soul_summary.v1", "subject": "string", "measurements_are_evidence": "bool", "light_cone_breadth": "object", "observed_endorsed_divergence": "object", "persistent_tensions": "object"},
+      "notes": ["Read-only SOUL-adjacent continuity measurements. Measurements are not evidence and do not mutate SOUL, beads, claims, associations, myelination, or Dreamer state.", "Dial statuses include complete, partial, and unavailable; limitations describe missing backend support such as non-bead assembly depth or churn history."],
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
     }
   ]
 }

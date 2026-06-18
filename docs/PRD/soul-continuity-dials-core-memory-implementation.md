@@ -2,11 +2,11 @@
 
 ## Summary
 
-Satorid will render three read-only SOUL continuity dials: light-cone breadth,
-observed-vs-endorsed divergence, and persistent-tension set. Core Memory should
-provide stable read surfaces and evidence breakdowns for those dials without
-treating measurements as evidence, altering beads, changing association truth,
-or auto-applying SOUL revisions.
+A connector host may render three read-only SOUL continuity dials: light-cone
+breadth, observed-vs-endorsed divergence, and persistent-tension set. Core
+Memory should provide stable read surfaces and evidence breakdowns for those
+dials without treating measurements as evidence, altering beads, changing
+association truth, or auto-applying SOUL revisions.
 
 Current Core Memory already exposes SOUL files, goal lifecycle reads, worldline
 and storyline projections, Dreamer geometry, myelination reports, bead-scoped
@@ -80,14 +80,14 @@ The response should be deterministic for a fixed store state and should include:
 ```
 
 Every item in a breakdown array must carry evidence identifiers or source
-references sufficient for Satorid to explain where the number came from. Missing
-or unavailable metrics should return `status: "partial"` with limitations, not
-silently zero.
+references sufficient for a connector host to explain where the number came
+from. Missing or unavailable metrics should return `status: "partial"` with
+limitations, not silently zero.
 
 ## Dial 1: Light-Cone Breadth
 
-Implement Core Memory support for the light-cone inputs Satorid cannot derive
-reliably today:
+Implement Core Memory support for the light-cone inputs connector hosts cannot
+derive reliably today:
 
 - Extend assembly-depth reporting beyond bead targets or add a sibling
   read-side projection for non-bead targets:
@@ -199,7 +199,7 @@ Acceptance criteria:
 
 ## Non-Goals
 
-- Do not implement Satorid UI rendering in Core Memory.
+- Do not implement connector-host UI rendering in Core Memory.
 - Do not auto-apply SOUL updates from divergence or tension metrics.
 - Do not use dial values for retrieval ranking, backbone derivation, association
   truth, or myelination rewards.

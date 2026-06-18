@@ -986,6 +986,21 @@ async def soul_history_endpoint(
     return soul_history(_resolve_root(root, x_tenant_id), subject=subject, limit=int(limit))
 
 
+@app.get("/v1/soul/summary")
+async def soul_summary_endpoint(
+    root: Optional[str] = None,
+    subject: str = "self",
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Return read-only continuity measurements for SOUL-adjacent surfaces."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import build_soul_summary
+
+    return build_soul_summary(_resolve_root(root, x_tenant_id), subject=subject)
+
+
 @app.get("/v1/dreamer/geometry")
 @app.get("/v1/memory/projection/geometry")
 async def dreamer_geometry(
