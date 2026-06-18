@@ -20,6 +20,7 @@ from .contracts import (
     SEMANTIC_TASK_TYPES,
     TASK_BEAD_FIELD_JUDGE,
     TASK_BEAD_TYPE_CLASSIFIER,
+    TASK_CAUSAL_RECALL_EXECUTE,
     TASK_RATIONALE_EXTRACTOR,
     ModelProfile,
     SemanticTaskRequest,
@@ -92,6 +93,14 @@ def _model_for_task(task_type: str, tier: str) -> tuple[str, str]:
         return _env_first("CORE_MEMORY_AGENT_MODEL_CHEAP", "CORE_MEMORY_BEAD_FIELD_MODEL", "CORE_MEMORY_BECAUSE_MODEL")
     if normalized == MODEL_TIER_FRONTIER:
         return _env_first("CORE_MEMORY_AGENT_MODEL_FRONTIER", "CORE_MEMORY_DREAMER_MODEL")
+    task = str(task_type or "").strip()
+    if task == TASK_CAUSAL_RECALL_EXECUTE:
+        return _env_first(
+            "CORE_MEMORY_AGENT_MODEL_STANDARD",
+            "CORE_MEMORY_RECALL_MODEL",
+            "CORE_MEMORY_CHAT_MODEL",
+            "CORE_MEMORY_ASSOCIATION_JUDGE_MODEL",
+        )
     return _env_first(
         "CORE_MEMORY_AGENT_MODEL_STANDARD",
         "CORE_MEMORY_ASSOCIATION_JUDGE_MODEL",
