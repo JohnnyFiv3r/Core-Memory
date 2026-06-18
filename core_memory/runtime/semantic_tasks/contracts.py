@@ -7,6 +7,7 @@ from typing import Any, Protocol
 
 SEMANTIC_TASK_RUNS_SCHEMA = "core_memory.semantic_task_runs.v1"
 SEMANTIC_TASK_RUNS_CONTRACT = "memory.semantic_task_runs.v1"
+SEMANTIC_TASK_SUMMARY_CONTRACT = "memory.semantic_task_summary.v1"
 
 TASK_BEAD_FIELD_JUDGE = "bead_field_judge"
 TASK_RATIONALE_EXTRACTOR = "rationale_extractor"

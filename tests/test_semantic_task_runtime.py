@@ -7,10 +7,14 @@ from unittest.mock import patch
 
 from core_memory.provider_config import ProviderConfig
 from core_memory.runtime.semantic_tasks import (
+    ModelProfile,
     SemanticTaskRequest,
+    SemanticTaskResult,
     get_semantic_task_runtime,
     list_semantic_task_runs,
+    record_semantic_task_run,
     resolve_model_profile,
+    summarize_semantic_task_runs,
     task_profile,
 )
 from core_memory.runtime.semantic_tasks.contracts import (
@@ -134,6 +138,65 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
             all_rows = list_semantic_task_runs(td)
             self.assertEqual(["b", "a"], [row.get("task_id") for row in all_rows.get("results") or []])
 
+    def test_summarize_semantic_task_runs_counts_activity_and_attention(self):
+        with tempfile.TemporaryDirectory() as td:
+            DisabledSemanticTaskRuntime().run(
+                SemanticTaskRequest(
+                    root=td,
+                    task_type=TASK_BEAD_FIELD_JUDGE,
+                    task_id="judge-unavailable",
+                    fallback_mode="heuristic",
+                    metadata={"runtime_mode": "disabled"},
+                )
+            )
+            record_semantic_task_run(
+                td,
+                SemanticTaskRequest(root=td, task_type=TASK_ASSOCIATION_DECISION, task_id="assoc-ok"),
+                SemanticTaskResult(
+                    task_id="assoc-ok",
+                    task_type=TASK_ASSOCIATION_DECISION,
+                    ok=True,
+                    status="succeeded",
+                    model_profile=ModelProfile(tier="standard", model="standard-test", runtime="provider"),
+                    latency_ms=40,
+                    token_usage={"input_tokens": 10, "output_tokens": 5},
+                    metadata={"runtime_mode": "provider"},
+                ),
+            )
+            record_semantic_task_run(
+                td,
+                SemanticTaskRequest(root=td, task_type=TASK_VERIFIER, task_id="verifier-failed"),
+                SemanticTaskResult(
+                    task_id="verifier-failed",
+                    task_type=TASK_VERIFIER,
+                    ok=False,
+                    status="failed",
+                    model_profile=ModelProfile(tier="cheap", model="cheap-test", runtime="provider"),
+                    latency_ms=20,
+                    token_usage={"input_tokens": 7},
+                    error="model_timeout",
+                    metadata={"runtime_mode": "provider", "source_task_type": TASK_ASSOCIATION_DECISION},
+                ),
+            )
+
+            summary = summarize_semantic_task_runs(td, limit=2)
+
+            self.assertTrue(summary.get("ok"))
+            self.assertEqual("memory.semantic_task_summary.v1", summary.get("contract"))
+            self.assertEqual(3, summary.get("total_runs"))
+            self.assertEqual("verifier-failed", (summary.get("latest_run") or {}).get("task_id"))
+            counts = summary.get("counts") or {}
+            self.assertEqual(1, (counts.get("by_task_type") or {}).get(TASK_ASSOCIATION_DECISION))
+            self.assertEqual(1, (counts.get("by_status") or {}).get("failed"))
+            self.assertEqual(2, (counts.get("by_model_tier") or {}).get("cheap"))
+            self.assertEqual(2, (counts.get("by_runtime_mode") or {}).get("provider"))
+            self.assertEqual(2, (summary.get("attention") or {}).get("count"))
+            self.assertEqual("verifier-failed", ((summary.get("attention") or {}).get("recent") or [{}])[0].get("task_id"))
+            self.assertEqual(2, (summary.get("errors") or {}).get("count"))
+            self.assertEqual(1, ((summary.get("errors") or {}).get("by_error") or {}).get("model_timeout"))
+            self.assertEqual(17, ((summary.get("token_usage") or {}).get("total") or {}).get("input_tokens"))
+            self.assertEqual(30, (summary.get("latency_ms") or {}).get("avg"))
+
     def test_http_semantic_task_runs_endpoint(self):
         try:
             from fastapi.testclient import TestClient
@@ -155,6 +218,29 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
             self.assertEqual("memory.semantic_task_runs.v1", data.get("contract"))
             self.assertGreaterEqual(data.get("count"), 1)
             self.assertEqual(TASK_BEAD_FIELD_JUDGE, (data.get("results") or [{}])[0].get("task_type"))
+
+    def test_http_semantic_task_runs_summary_endpoint(self):
+        try:
+            from fastapi.testclient import TestClient
+            from core_memory.integrations.http.server import app
+        except Exception as exc:  # noqa: BLE001
+            self.skipTest(f"fastapi stack unavailable: {exc}")
+
+        with tempfile.TemporaryDirectory() as td:
+            DisabledSemanticTaskRuntime().run(
+                SemanticTaskRequest(root=td, task_type=TASK_BEAD_FIELD_JUDGE, task_id="http-summary-task")
+            )
+
+            client = TestClient(app)
+            response = client.get(
+                "/v1/memory/semantic-task-runs/summary",
+                params={"root": td, "limit": 5},
+            )
+            self.assertEqual(200, response.status_code)
+            data = response.json()
+            self.assertEqual("memory.semantic_task_summary.v1", data.get("contract"))
+            self.assertEqual(1, data.get("total_runs"))
+            self.assertEqual("http-summary-task", (data.get("latest_run") or {}).get("task_id"))
 
     def test_factory_returns_provider_runtime_by_default(self):
         with patch.dict(os.environ, {}, clear=True):
