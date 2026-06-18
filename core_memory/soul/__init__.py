@@ -29,11 +29,13 @@ from core_memory.soul.store import (
     reject_soul_update,
     soul_history,
 )
+from core_memory.soul.summary import SOUL_SUMMARY_SCHEMA, build_soul_summary
 
 __all__ = [
     "DEFAULT_SUBJECT",
     "SOUL_FILES",
     "SOUL_REVISION_SCHEMA",
+    "SOUL_SUMMARY_SCHEMA",
     "abandon_goal",
     "approve_goal",
     "complete_goal",
@@ -55,4 +57,5 @@ __all__ = [
     "soul_injection",
     "soul_integrity_check",
     "soul_integrity_repair",
+    "build_soul_summary",
 ]
