@@ -3,9 +3,10 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 const AGENT_END_MODULE = "core_memory.integrations.openclaw.agent_end_bridge";
+const HOSTED_CAPTURE_MODULE = "core_memory.integrations.openclaw.hosted_capture_bridge";
 const READ_BRIDGE_MODULE = "core_memory.integrations.openclaw.read_bridge";
 const COMPACTION_QUEUE_MODULE = "core_memory.integrations.openclaw.compaction_queue";
-const BRIDGE_MODULES = [AGENT_END_MODULE, READ_BRIDGE_MODULE, COMPACTION_QUEUE_MODULE];
+const BRIDGE_MODULES = [AGENT_END_MODULE, HOSTED_CAPTURE_MODULE, READ_BRIDGE_MODULE, COMPACTION_QUEUE_MODULE];
 const BENIGN_SKIP_REASONS = new Set(["deduped", "memory_trigger_skip", "memory_origin_skip"]);
 const DEFAULT_MESSAGE_TURN_FALLBACK_DELAY_MS = 4000;
 const MESSAGE_TURN_FALLBACK_TTL_MS = 15 * 60 * 1000;
@@ -19,11 +20,21 @@ const plugin = {
     const entryCfg = api?.config?.plugins?.entries?.[api.id];
     const cfgIn = api?.pluginConfig ?? entryCfg?.config ?? {};
     const fallbackDelayRaw = Number(cfgIn?.messageTurnFallbackDelayMs ?? process.env.CORE_MEMORY_MESSAGE_TURN_FALLBACK_DELAY_MS ?? DEFAULT_MESSAGE_TURN_FALLBACK_DELAY_MS);
+    const hostedCoreMemoryUrl = cfgIn?.hostedCoreMemoryUrl || process.env.SATORID_OPENCLAW_CORE_MEMORY_URL || process.env.CORE_MEMORY_HOSTED_TURN_FINALIZED_URL || process.env.CORE_MEMORY_HOSTED_API_BASE_URL || "";
+    const hostedCoreMemoryToken = cfgIn?.hostedCoreMemoryToken || process.env.SATORID_GATEWAY_KEY || process.env.SATORID_CORE_MEMORY_HTTP_TOKEN || process.env.CORE_MEMORY_HOSTED_HTTP_TOKEN || "";
+    const hostedTimeoutRaw = Number(cfgIn?.hostedCoreMemoryTimeoutMs ?? process.env.CORE_MEMORY_HOSTED_HTTP_TIMEOUT_MS ?? 12000);
+    const localWriteEnv = String(process.env.CORE_MEMORY_BRIDGE_ENABLE_LOCAL_WRITE ?? "").trim().toLowerCase();
     const cfg = {
       pythonBin: cfgIn?.pythonBin || process.env.CORE_MEMORY_PYTHON || "python3",
       coreMemoryRoot: cfgIn?.coreMemoryRoot || process.env.CORE_MEMORY_ROOT || ".",
       coreMemoryRepo: cfgIn?.coreMemoryRepo || process.env.CORE_MEMORY_REPO || process.cwd(),
       enableAgentEnd: cfgIn?.enableAgentEnd !== false,
+      enableHostedCoreMemoryClone: cfgIn?.enableHostedCoreMemoryClone === false ? false : (cfgIn?.enableHostedCoreMemoryClone === true || Boolean(hostedCoreMemoryUrl)),
+      hostedCoreMemoryUrl,
+      hostedCoreMemoryToken,
+      hostedCoreMemoryTenantId: cfgIn?.hostedCoreMemoryTenantId || process.env.SATORID_CORE_MEMORY_TENANT_ID || process.env.CORE_MEMORY_HOSTED_TENANT_ID || "",
+      hostedCoreMemoryTimeoutMs: Math.max(1000, Number.isFinite(hostedTimeoutRaw) ? hostedTimeoutRaw : 12000),
+      enableLocalCoreMemoryWrite: cfgIn?.enableLocalCoreMemoryWrite !== false && !["0", "false", "no", "off"].includes(localWriteEnv),
       enableMemorySearch: cfgIn?.enableMemorySearch !== false,
       enableCompactionFlush: cfgIn?.enableCompactionFlush === true,
       enableMessageTurnFallback: cfgIn?.enableMessageTurnFallback !== false,
@@ -35,7 +46,7 @@ const plugin = {
         appendFileSync('/tmp/core-memory-bridge-hook.log', `${new Date().toISOString()} ${line}\n`);
       } catch {}
     };
-    debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} coreMemoryRepo=${cfg.coreMemoryRepo} pythonBin=${cfg.pythonBin} enableAgentEnd=${cfg.enableAgentEnd} enableMemorySearch=${cfg.enableMemorySearch} enableCompactionFlush=${cfg.enableCompactionFlush} enableMessageTurnFallback=${cfg.enableMessageTurnFallback} messageTurnFallbackDelayMs=${cfg.messageTurnFallbackDelayMs}`);
+    debug(`register coreMemoryRoot=${cfg.coreMemoryRoot} coreMemoryRepo=${cfg.coreMemoryRepo} pythonBin=${cfg.pythonBin} enableAgentEnd=${cfg.enableAgentEnd} enableHostedCoreMemoryClone=${cfg.enableHostedCoreMemoryClone} hostedCoreMemoryUrl=${cfg.hostedCoreMemoryUrl ? "configured" : "missing"} hostedCoreMemoryToken=${cfg.hostedCoreMemoryToken ? "configured" : "missing"} enableLocalCoreMemoryWrite=${cfg.enableLocalCoreMemoryWrite} enableMemorySearch=${cfg.enableMemorySearch} enableCompactionFlush=${cfg.enableCompactionFlush} enableMessageTurnFallback=${cfg.enableMessageTurnFallback} messageTurnFallbackDelayMs=${cfg.messageTurnFallbackDelayMs}`);
 
     const loadSkillInstructions = () => {
       try {
@@ -171,7 +182,36 @@ const plugin = {
 
     const bridgeResultSummary = (out) => {
       const parsed = out?.parsed || {};
-      return `ok=${String(parsed.ok)} emitted=${String(parsed.emitted)} reason=${String(parsed.reason || "")} event_id=${String(parsed.event_id || "")} processed=${String(parsed.processed ?? "")} failed=${String(parsed.failed ?? "")} code=${String(out?.code)} stderr=${String((out?.stderr || "").slice(0, 180))}`;
+      return `ok=${String(parsed.ok)} emitted=${String(parsed.emitted)} reason=${String(parsed.reason || "")} event_id=${String(parsed.event_id || "")} processed=${String(parsed.processed ?? "")} failed=${String(parsed.failed ?? "")} http_status=${String(parsed.http_status ?? "")} code=${String(out?.code)} stderr=${String((out?.stderr || "").slice(0, 180))}`;
+    };
+
+    const hostedBridgePayload = (payload) => ({
+      ...payload,
+      hosted: {
+        url: cfg.hostedCoreMemoryUrl,
+        token: cfg.hostedCoreMemoryToken,
+        tenantId: cfg.hostedCoreMemoryTenantId,
+        timeout: Math.max(1, Math.ceil(cfg.hostedCoreMemoryTimeoutMs / 1000)),
+      },
+    });
+
+    const maybeEmitHostedClone = async (hookName, payload) => {
+      if (!cfg.enableHostedCoreMemoryClone) {
+        debug(`${hookName} hosted_clone skipped reason=disabled`);
+        return null;
+      }
+
+      const out = await runBridge(HOSTED_CAPTURE_MODULE, hostedBridgePayload(payload), {
+        timeoutMs: cfg.hostedCoreMemoryTimeoutMs + 1000,
+      });
+      const parsed = out?.parsed || {};
+      debug(`${hookName} hosted_clone ${bridgeResultSummary(out)}`);
+      if (!parsed.ok) {
+        api.logger?.warn?.(`core-memory-bridge: ${hookName} hosted clone failed: ${JSON.stringify(parsed)}`);
+      } else if (parsed.emitted === false && parsed.reason && !BENIGN_SKIP_REASONS.has(String(parsed.reason))) {
+        api.logger?.warn?.(`core-memory-bridge: ${hookName} hosted clone skipped: ${JSON.stringify(parsed)}`);
+      }
+      return out;
     };
 
     const extractText = (value) => {
@@ -433,19 +473,24 @@ const plugin = {
         root: cfg.coreMemoryRoot,
       };
       debug(`${hookName} fallback_emit session=${sessionKey} run=${payload.ctx.runId} inbound=${pending.inboundMessageId || ""} outbound=${outboundMessageId || ""} user_chars=${pending.userText.length} assistant_chars=${assistantText.length}`);
-      const out = await runBridge(AGENT_END_MODULE, payload);
-      const parsed = out?.parsed || {};
-      debug(`${hookName} fallback_result ${bridgeResultSummary(out)}`);
-      if (!parsed.ok) {
-        api.logger?.warn?.(`core-memory-bridge: ${hookName} fallback emit failed: ${JSON.stringify(parsed)}`);
-      } else if (parsed.emitted === false && parsed.reason && !BENIGN_SKIP_REASONS.has(String(parsed.reason))) {
-        api.logger?.warn?.(`core-memory-bridge: ${hookName} fallback skipped without bead write: ${JSON.stringify(parsed)}`);
+      await maybeEmitHostedClone(`${hookName} fallback`, payload);
+      if (cfg.enableLocalCoreMemoryWrite) {
+        const out = await runBridge(AGENT_END_MODULE, payload);
+        const parsed = out?.parsed || {};
+        debug(`${hookName} fallback_result ${bridgeResultSummary(out)}`);
+        if (!parsed.ok) {
+          api.logger?.warn?.(`core-memory-bridge: ${hookName} fallback emit failed: ${JSON.stringify(parsed)}`);
+        } else if (parsed.emitted === false && parsed.reason && !BENIGN_SKIP_REASONS.has(String(parsed.reason))) {
+          api.logger?.warn?.(`core-memory-bridge: ${hookName} fallback skipped without bead write: ${JSON.stringify(parsed)}`);
+        }
+        runBridgeDetached(COMPACTION_QUEUE_MODULE, {
+          action: "drain",
+          root: cfg.coreMemoryRoot,
+          maxItems: 1,
+        });
+      } else {
+        debug(`${hookName} fallback_result skipped reason=local_write_disabled`);
       }
-      runBridgeDetached(COMPACTION_QUEUE_MODULE, {
-        action: "drain",
-        root: cfg.coreMemoryRoot,
-        maxItems: 1,
-      });
     };
 
     const scheduleOutboundFallback = (event = {}, ctx = {}, hookName = "message_sent") => {
@@ -484,22 +529,27 @@ const plugin = {
             },
             root: cfg.coreMemoryRoot,
           };
-          const out = await runBridge(AGENT_END_MODULE, payload);
-          const parsed = out?.parsed || {};
-          debug(`agent_end result ${bridgeResultSummary(out)}`);
-          if (!out?.parsed?.ok) {
-            api.logger?.warn?.(`core-memory-bridge: agent_end emit failed: ${JSON.stringify(out?.parsed || {})}`);
-          } else if (parsed.emitted === false && parsed.reason && !BENIGN_SKIP_REASONS.has(String(parsed.reason))) {
-            api.logger?.warn?.(`core-memory-bridge: agent_end skipped without bead write: ${JSON.stringify(parsed)}`);
-          }
+          await maybeEmitHostedClone("agent_end", payload);
+          if (cfg.enableLocalCoreMemoryWrite) {
+            const out = await runBridge(AGENT_END_MODULE, payload);
+            const parsed = out?.parsed || {};
+            debug(`agent_end result ${bridgeResultSummary(out)}`);
+            if (!out?.parsed?.ok) {
+              api.logger?.warn?.(`core-memory-bridge: agent_end emit failed: ${JSON.stringify(out?.parsed || {})}`);
+            } else if (parsed.emitted === false && parsed.reason && !BENIGN_SKIP_REASONS.has(String(parsed.reason))) {
+              api.logger?.warn?.(`core-memory-bridge: agent_end skipped without bead write: ${JSON.stringify(parsed)}`);
+            }
 
-          // Non-blocking compaction queue drain: retries deferred compaction work without
-          // holding lifecycle hook latency budget.
-          runBridgeDetached(COMPACTION_QUEUE_MODULE, {
-            action: "drain",
-            root: cfg.coreMemoryRoot,
-            maxItems: 1,
-          });
+            // Non-blocking compaction queue drain: retries deferred compaction work without
+            // holding lifecycle hook latency budget.
+            runBridgeDetached(COMPACTION_QUEUE_MODULE, {
+              action: "drain",
+              root: cfg.coreMemoryRoot,
+              maxItems: 1,
+            });
+          } else {
+            debug("agent_end result skipped reason=local_write_disabled");
+          }
         } catch (err) {
           api.logger?.warn?.(`core-memory-bridge: agent_end hook error: ${String(err)}`);
         }

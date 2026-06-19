@@ -51,3 +51,6 @@ def test_openclaw_plugin_manifest_allows_message_fallback_config():
 
     assert props["enableMessageTurnFallback"]["type"] == "boolean"
     assert props["messageTurnFallbackDelayMs"]["type"] == "number"
+    assert props["enableHostedCoreMemoryClone"]["type"] == "boolean"
+    assert props["hostedCoreMemoryUrl"]["type"] == "string"
+    assert props["enableLocalCoreMemoryWrite"]["type"] == "boolean"
