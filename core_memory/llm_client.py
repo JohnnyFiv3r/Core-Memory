@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import urllib.request
 from typing import Any
 
@@ -12,6 +13,15 @@ def _post_json(url: str, payload: dict[str, Any], headers: dict[str, str], *, ti
     req = urllib.request.Request(url, data=data, headers={"Content-Type": "application/json", **headers}, method="POST")
     with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec - user/provider configured endpoint
         return json.loads(resp.read().decode("utf-8"))
+
+
+def _uses_max_completion_tokens(model: str) -> bool:
+    normalized = str(model or "").strip().lower()
+    return normalized.startswith("gpt-5") or re.match(r"^o\d", normalized) is not None
+
+
+def _supports_custom_temperature(model: str) -> bool:
+    return not _uses_max_completion_tokens(model)
 
 
 def chat_complete(
@@ -34,10 +44,14 @@ def chat_complete(
         headers = {"Authorization": f"Bearer {cfg.api_key or 'local'}"}
         payload: dict[str, Any] = {
             "model": cfg.model,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": prompt}],
         }
+        if _uses_max_completion_tokens(cfg.model):
+            payload["max_completion_tokens"] = max_tokens
+        else:
+            payload["max_tokens"] = max_tokens
+        if _supports_custom_temperature(cfg.model):
+            payload["temperature"] = temperature
         if json_mode:
             payload["response_format"] = {"type": "json_object"}
         body = _post_json(cfg.base_url.rstrip("/") + "/chat/completions", payload, headers)
