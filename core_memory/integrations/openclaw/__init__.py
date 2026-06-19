@@ -3,6 +3,7 @@
 Public entry points:
 - openclaw.runtime      — coordinator finalize hooks
 - openclaw.agent_end_bridge — agent-end write bridge
+- openclaw.hosted_capture_bridge — hosted HTTP turn-finalized clone bridge
 - openclaw.read_bridge  — read dispatch bridge
 - openclaw.compaction_bridge / compaction_queue — flush hooks
 - openclaw.onboard      — plugin installer

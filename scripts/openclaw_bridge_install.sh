@@ -97,15 +97,50 @@ if not isinstance(entries, dict):
 
 existing = entries.get(plugin_id) if isinstance(entries.get(plugin_id), dict) else {}
 existing_config = existing.get('config') if isinstance(existing.get('config'), dict) else {}
+hosted_url = (
+    os.environ.get('SATORID_OPENCLAW_CORE_MEMORY_URL')
+    or os.environ.get('CORE_MEMORY_HOSTED_TURN_FINALIZED_URL')
+    or os.environ.get('CORE_MEMORY_HOSTED_API_BASE_URL')
+    or existing_config.get('hostedCoreMemoryUrl')
+    or ''
+)
+hosted_token = (
+    os.environ.get('SATORID_GATEWAY_KEY')
+    or os.environ.get('SATORID_CORE_MEMORY_HTTP_TOKEN')
+    or os.environ.get('CORE_MEMORY_HOSTED_HTTP_TOKEN')
+    or existing_config.get('hostedCoreMemoryToken')
+    or ''
+)
+local_write_env = str(os.environ.get('CORE_MEMORY_BRIDGE_ENABLE_LOCAL_WRITE') or '').strip().lower()
+local_write_enabled = existing_config.get('enableLocalCoreMemoryWrite', True)
+if local_write_env in {'0', 'false', 'no', 'off'}:
+    local_write_enabled = False
 entry_config = {
     'pythonBin': os.environ.get('CORE_MEMORY_PYTHON') or existing_config.get('pythonBin') or 'python3',
     'coreMemoryRoot': os.environ.get('CORE_MEMORY_ROOT') or existing_config.get('coreMemoryRoot') or repo_root,
     'coreMemoryRepo': os.environ.get('CORE_MEMORY_REPO') or existing_config.get('coreMemoryRepo') or repo_root,
     'enableAgentEnd': existing_config.get('enableAgentEnd', True),
+    'enableHostedCoreMemoryClone': existing_config.get('enableHostedCoreMemoryClone', bool(hosted_url)),
+    'hostedCoreMemoryUrl': hosted_url,
+    'hostedCoreMemoryToken': hosted_token,
+    'hostedCoreMemoryTenantId': (
+        os.environ.get('SATORID_CORE_MEMORY_TENANT_ID')
+        or os.environ.get('CORE_MEMORY_HOSTED_TENANT_ID')
+        or existing_config.get('hostedCoreMemoryTenantId')
+        or ''
+    ),
+    'enableLocalCoreMemoryWrite': local_write_enabled,
     'enableMemorySearch': existing_config.get('enableMemorySearch', True),
     'enableCompactionFlush': existing_config.get('enableCompactionFlush', False),
     'enableMessageTurnFallback': existing_config.get('enableMessageTurnFallback', True),
 }
+if os.environ.get('CORE_MEMORY_HOSTED_HTTP_TIMEOUT_MS'):
+    try:
+        entry_config['hostedCoreMemoryTimeoutMs'] = float(os.environ['CORE_MEMORY_HOSTED_HTTP_TIMEOUT_MS'])
+    except ValueError:
+        pass
+elif 'hostedCoreMemoryTimeoutMs' in existing_config:
+    entry_config['hostedCoreMemoryTimeoutMs'] = existing_config['hostedCoreMemoryTimeoutMs']
 if os.environ.get('CORE_MEMORY_MESSAGE_TURN_FALLBACK_DELAY_MS'):
     try:
         entry_config['messageTurnFallbackDelayMs'] = float(os.environ['CORE_MEMORY_MESSAGE_TURN_FALLBACK_DELAY_MS'])

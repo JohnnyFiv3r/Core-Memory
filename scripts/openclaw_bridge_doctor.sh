@@ -11,6 +11,8 @@ INSTALL_PATH="${OPENCLAW_EXTENSIONS_DIR:-$OPENCLAW_HOME_DEFAULT/extensions}/${PL
 CORE_MEMORY_ROOT_ACTUAL="${CORE_MEMORY_ROOT:-$REPO_ROOT}"
 BEADS_ROOT="${CORE_MEMORY_BEADS_ROOT:-$CORE_MEMORY_ROOT_ACTUAL/.beads/events}"
 HOOK_LOG="${CORE_MEMORY_BRIDGE_HOOK_LOG:-/tmp/core-memory-bridge-hook.log}"
+HOSTED_CLONE_ENABLED="unknown"
+LOCAL_WRITE_ENABLED="true"
 
 pass() { printf 'PASS %s\n' "$*"; }
 warn() { printf 'WARN %s\n' "$*"; }
@@ -51,6 +53,7 @@ if [ -d "$INSTALL_PATH" ]; then
   pass "plugin install path exists at $INSTALL_PATH"
   if [ -f "$INSTALL_PATH/index.js" ] \
     && grep -q "core_memory.integrations.openclaw.agent_end_bridge" "$INSTALL_PATH/index.js" \
+    && grep -q "core_memory.integrations.openclaw.hosted_capture_bridge" "$INSTALL_PATH/index.js" \
     && grep -q "core_memory.integrations.openclaw.read_bridge" "$INSTALL_PATH/index.js" \
     && grep -q "core_memory.integrations.openclaw.compaction_queue" "$INSTALL_PATH/index.js" \
     && ! grep -q "core_memory.integrations.openclaw_agent_end_bridge" "$INSTALL_PATH/index.js" \
@@ -71,6 +74,7 @@ import importlib
 
 for module in (
     "core_memory.integrations.openclaw.agent_end_bridge",
+    "core_memory.integrations.openclaw.hosted_capture_bridge",
     "core_memory.integrations.openclaw.read_bridge",
     "core_memory.integrations.openclaw.compaction_queue",
 ):
@@ -84,8 +88,10 @@ else
 fi
 
 if [ -f "$CONFIG_PATH" ]; then
-  if python3 - <<PY
+  set +e
+  config_summary="$(python3 - <<PY
 import json
+import os
 from pathlib import Path
 
 cfg = json.loads(Path(${CONFIG_PATH@Q}).read_text())
@@ -105,11 +111,52 @@ if not config.get("coreMemoryRepo"):
     raise SystemExit(3)
 if "core-memory-bridge" not in allow:
     raise SystemExit(4)
+hosted_url = (
+    os.environ.get("SATORID_OPENCLAW_CORE_MEMORY_URL")
+    or os.environ.get("CORE_MEMORY_HOSTED_TURN_FINALIZED_URL")
+    or os.environ.get("CORE_MEMORY_HOSTED_API_BASE_URL")
+    or config.get("hostedCoreMemoryUrl")
+    or ""
+)
+hosted_token = (
+    os.environ.get("SATORID_GATEWAY_KEY")
+    or os.environ.get("SATORID_CORE_MEMORY_HTTP_TOKEN")
+    or os.environ.get("CORE_MEMORY_HOSTED_HTTP_TOKEN")
+    or config.get("hostedCoreMemoryToken")
+    or ""
+)
+hosted_enabled = bool(config.get("enableHostedCoreMemoryClone")) or bool(hosted_url)
+local_write_enabled = config.get("enableLocalCoreMemoryWrite", True) is not False
+if hosted_enabled and not hosted_url:
+    raise SystemExit(5)
+if hosted_enabled and not hosted_token:
+    raise SystemExit(6)
+print(f"HOSTED_CLONE_ENABLED={'true' if hosted_enabled else 'false'}")
+print(f"LOCAL_WRITE_ENABLED={'true' if local_write_enabled else 'false'}")
 PY
-  then
+)"
+  config_status=$?
+  set -e
+  if [ "$config_status" -eq 0 ]; then
+    while IFS='=' read -r key value; do
+      case "$key" in
+        HOSTED_CLONE_ENABLED) HOSTED_CLONE_ENABLED="$value" ;;
+        LOCAL_WRITE_ENABLED) LOCAL_WRITE_ENABLED="$value" ;;
+      esac
+    done <<<"$config_summary"
     pass "config has plugins.entries.$PLUGIN_ID with hooks.allowConversationAccess, coreMemoryRepo, and plugins.allow"
+    if [ "$HOSTED_CLONE_ENABLED" = "true" ]; then
+      pass "hosted Core Memory clone is configured"
+    else
+      warn "hosted Core Memory clone is not configured; set SATORID_OPENCLAW_CORE_MEMORY_URL and SATORID_GATEWAY_KEY for Satorid hosted capture"
+    fi
+    if [ "$LOCAL_WRITE_ENABLED" = "true" ]; then
+      pass "local Core Memory writes are enabled"
+    else
+      pass "local Core Memory writes are disabled; doctor will not require local .beads/events movement"
+    fi
   else
-    fail "config hardening incomplete: set plugins.entries.$PLUGIN_ID.hooks.allowConversationAccess=true, config.coreMemoryRepo, and plugins.allow"
+    fail "config hardening incomplete: set plugins.entries.$PLUGIN_ID.hooks.allowConversationAccess=true, config.coreMemoryRepo, plugins.allow, and hosted clone URL/token when enableHostedCoreMemoryClone=true"
     status=1
   fi
 else
@@ -144,6 +191,21 @@ if [ -f "$HOOK_LOG" ]; then
     fail "hook log missing successful agent_end module_check"
     status=1
   fi
+  if grep -q "module_check module=core_memory.integrations.openclaw.hosted_capture_bridge ok=true" "$HOOK_LOG"; then
+    pass "hook log has hosted_capture module_check ok"
+  else
+    fail "hook log missing successful hosted_capture module_check"
+    status=1
+  fi
+  if [ "$HOSTED_CLONE_ENABLED" = "true" ]; then
+    if grep -q "hosted_clone ok=true emitted=true" "$HOOK_LOG"; then
+      pass "hook log has hosted_clone emitted movement"
+    elif grep -q "hosted_clone" "$HOOK_LOG"; then
+      warn "hook log mentions hosted_clone but has no emitted hosted receipt yet"
+    else
+      warn "hook log has no hosted_clone movement yet; send a user turn after restart to verify hosted capture"
+    fi
+  fi
   if grep -q "agent_end session=" "$HOOK_LOG"; then
     pass "hook log has agent_end lifecycle movement"
   elif grep -q "fallback_result ok=true emitted=true" "$HOOK_LOG"; then
@@ -164,6 +226,8 @@ for f in memory-pass-status.jsonl memory-events.jsonl; do
   if [ -f "$p" ]; then
     pass "$f exists at $p"
     tail -n 2 "$p" || true
+  elif [ "$LOCAL_WRITE_ENABLED" = "false" ]; then
+    warn "$f missing at $p because local Core Memory writes are disabled"
   else
     fail "$f missing at $p"
     status=1
@@ -175,7 +239,7 @@ if [ "$status" -ne 0 ]; then
   printf '1. From the Core Memory repo, run: core-memory openclaw onboard\n'
   printf '2. Restart the OpenClaw gateway/container that owns Telegram/Codex traffic.\n'
   printf '3. Rerun: %s\n' "$0"
-  printf '4. Send a Telegram turn and confirm %s gets agent_end or message fallback movement plus .beads/events file movement under %s.\n' "$HOOK_LOG" "$BEADS_ROOT"
+  printf '4. Send a Telegram turn and confirm %s gets hosted_clone movement; if local writes are enabled, also confirm .beads/events file movement under %s.\n' "$HOOK_LOG" "$BEADS_ROOT"
 fi
 
 exit "$status"

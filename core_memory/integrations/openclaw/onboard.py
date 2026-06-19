@@ -55,7 +55,7 @@ def harden_openclaw_plugin_config(
             "dry_run": True,
             "cmd": cmd,
             "config_path": str(cfg_path),
-            "stdout": f"would set plugins.entries.{PLUGIN_ID}.hooks.allowConversationAccess and enforce plugins.allow",
+            "stdout": f"would set plugins.entries.{PLUGIN_ID}.hooks.allowConversationAccess, hosted clone settings, and enforce plugins.allow",
         }
     if not cfg_path.exists():
         return {
@@ -84,18 +84,53 @@ def harden_openclaw_plugin_config(
     existing_config = existing_entry.get("config") if isinstance(existing_entry.get("config"), dict) else {}
     existing_hooks = existing_entry.get("hooks") if isinstance(existing_entry.get("hooks"), dict) else {}
     previous_allow_conversation_access = existing_hooks.get("allowConversationAccess")
+    hosted_url = (
+        os.environ.get("SATORID_OPENCLAW_CORE_MEMORY_URL")
+        or os.environ.get("CORE_MEMORY_HOSTED_TURN_FINALIZED_URL")
+        or os.environ.get("CORE_MEMORY_HOSTED_API_BASE_URL")
+        or existing_config.get("hostedCoreMemoryUrl")
+        or ""
+    )
+    hosted_token = (
+        os.environ.get("SATORID_GATEWAY_KEY")
+        or os.environ.get("SATORID_CORE_MEMORY_HTTP_TOKEN")
+        or os.environ.get("CORE_MEMORY_HOSTED_HTTP_TOKEN")
+        or existing_config.get("hostedCoreMemoryToken")
+        or ""
+    )
+    local_write_env = str(os.environ.get("CORE_MEMORY_BRIDGE_ENABLE_LOCAL_WRITE") or "").strip().lower()
+    local_write_enabled = existing_config.get("enableLocalCoreMemoryWrite", True)
+    if local_write_env in {"0", "false", "no", "off"}:
+        local_write_enabled = False
 
     entry_config = {
         "pythonBin": python,
         "coreMemoryRoot": str(root),
         "coreMemoryRepo": str(repo_root),
         "enableAgentEnd": existing_config.get("enableAgentEnd", True),
+        "enableHostedCoreMemoryClone": existing_config.get("enableHostedCoreMemoryClone", bool(hosted_url)),
+        "hostedCoreMemoryUrl": hosted_url,
+        "hostedCoreMemoryToken": hosted_token,
+        "hostedCoreMemoryTenantId": (
+            os.environ.get("SATORID_CORE_MEMORY_TENANT_ID")
+            or os.environ.get("CORE_MEMORY_HOSTED_TENANT_ID")
+            or existing_config.get("hostedCoreMemoryTenantId")
+            or ""
+        ),
+        "enableLocalCoreMemoryWrite": local_write_enabled,
         "enableMemorySearch": existing_config.get("enableMemorySearch", True),
         "enableCompactionFlush": existing_config.get("enableCompactionFlush", False),
         "enableMessageTurnFallback": existing_config.get("enableMessageTurnFallback", True),
     }
     if "messageTurnFallbackDelayMs" in existing_config:
         entry_config["messageTurnFallbackDelayMs"] = existing_config["messageTurnFallbackDelayMs"]
+    if os.environ.get("CORE_MEMORY_HOSTED_HTTP_TIMEOUT_MS"):
+        try:
+            entry_config["hostedCoreMemoryTimeoutMs"] = float(os.environ["CORE_MEMORY_HOSTED_HTTP_TIMEOUT_MS"])
+        except ValueError:
+            pass
+    elif "hostedCoreMemoryTimeoutMs" in existing_config:
+        entry_config["hostedCoreMemoryTimeoutMs"] = existing_config["hostedCoreMemoryTimeoutMs"]
 
     entries[PLUGIN_ID] = {
         **existing_entry,
@@ -175,7 +210,7 @@ def run_openclaw_onboard(
         "config_path": str(Path(config_path) if config_path else default_openclaw_config_path()),
         "restart_required": True,
         "doctor_command": "scripts/openclaw_bridge_doctor.sh",
-        "remediation": "restart OpenClaw, rerun the bridge doctor, and verify /tmp/core-memory-bridge-hook.log plus memory event append movement",
+        "remediation": "restart OpenClaw, rerun the bridge doctor, and verify /tmp/core-memory-bridge-hook.log hosted_clone movement plus local memory event movement when local writes are enabled",
         "steps": steps,
     }
 
@@ -200,7 +235,7 @@ def render_onboard_report(payload: dict[str, Any]) -> str:
     if payload.get("restart_required"):
         lines.append("restart_required: true")
         lines.append("next: restart OpenClaw gateway/container, then run scripts/openclaw_bridge_doctor.sh")
-        lines.append("verify: /tmp/core-memory-bridge-hook.log has register/module_check lines and .beads/events files move after a turn")
+        lines.append("verify: /tmp/core-memory-bridge-hook.log has register/module_check lines, hosted_clone movement, and .beads/events files move after a turn when local writes are enabled")
     return "\n".join(lines)
 
 
