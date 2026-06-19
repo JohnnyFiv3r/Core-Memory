@@ -39,21 +39,17 @@ def _hosted_config(payload: dict[str, Any]) -> dict[str, Any]:
         "url": _first_nonempty(
             hosted.get("url"),
             hosted.get("coreMemoryUrl"),
-            os.environ.get("SATORID_OPENCLAW_CORE_MEMORY_URL"),
             os.environ.get("CORE_MEMORY_HOSTED_TURN_FINALIZED_URL"),
             os.environ.get("CORE_MEMORY_HOSTED_API_BASE_URL"),
         ),
         "token": _first_nonempty(
             hosted.get("token"),
             hosted.get("coreMemoryToken"),
-            os.environ.get("SATORID_GATEWAY_KEY"),
-            os.environ.get("SATORID_CORE_MEMORY_HTTP_TOKEN"),
             os.environ.get("CORE_MEMORY_HOSTED_HTTP_TOKEN"),
         ),
         "tenant_id": _first_nonempty(
             hosted.get("tenantId"),
             hosted.get("tenant_id"),
-            os.environ.get("SATORID_CORE_MEMORY_TENANT_ID"),
             os.environ.get("CORE_MEMORY_HOSTED_TENANT_ID"),
         ),
         "state_path": _first_nonempty(

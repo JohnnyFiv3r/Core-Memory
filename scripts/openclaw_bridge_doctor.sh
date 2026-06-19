@@ -148,7 +148,7 @@ PY
     if [ "$HOSTED_CLONE_ENABLED" = "true" ]; then
       pass "hosted Core Memory clone is configured"
     else
-      warn "hosted Core Memory clone is not configured; set SATORID_OPENCLAW_CORE_MEMORY_URL and SATORID_GATEWAY_KEY for Satorid hosted capture"
+      warn "hosted Core Memory clone is not configured; set CORE_MEMORY_HOSTED_TURN_FINALIZED_URL and CORE_MEMORY_HOSTED_HTTP_TOKEN for hosted capture"
     fi
     if [ "$LOCAL_WRITE_ENABLED" = "true" ]; then
       pass "local Core Memory writes are enabled"
