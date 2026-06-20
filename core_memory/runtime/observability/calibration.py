@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
@@ -52,7 +53,47 @@ def _edge_key(edge: dict[str, Any]) -> str:
     return f"{src}|{rel}|{dst}"
 
 
-def _confidence(edge_key: str, manifest: dict[str, Any], limitations: set[str]) -> float:
+def _judge_prior_by_edge_key(root: str | Path) -> dict[str, float]:
+    """Map ``edge_key -> stored association confidence`` (the judge_prior).
+
+    This mirrors the adjacency build in ``retrieval/agent.py`` so the calibration
+    X-axis is the same ``effective_confidence = clamp(judge_prior + bonus, 0, 1)``
+    the BFS actually traverses on. The myelination manifest only carries
+    ``bonus_by_edge_key`` (PRD-A); the per-edge judge_prior lives on the
+    association rows in ``index.json``, so it must be read here rather than
+    approximated by a single flat default for every edge.
+    """
+    path = Path(root) / ".beads" / "index.json"
+    if not path.exists():
+        return {}
+    try:
+        index = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+    out: dict[str, float] = {}
+    for assoc in index.get("associations") or []:
+        if not isinstance(assoc, dict):
+            continue
+        src = str(assoc.get("source_bead") or assoc.get("source_bead_id") or "").strip()
+        dst = str(assoc.get("target_bead") or assoc.get("target_bead_id") or "").strip()
+        rel = normalize_relation_type(assoc.get("relationship") or "")
+        if not src or not dst or not rel:
+            continue
+        raw_conf = assoc.get("confidence")
+        try:
+            judge_prior = max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else 0.85
+        except (TypeError, ValueError):
+            judge_prior = 0.85
+        out[f"{src}|{rel}|{dst}"] = judge_prior
+    return out
+
+
+def _confidence(
+    edge_key: str,
+    manifest: dict[str, Any],
+    judge_prior_by_edge_key: dict[str, float],
+    limitations: set[str],
+) -> float:
     explicit = dict(manifest.get("effective_confidence_by_edge_key") or {})
     if edge_key in explicit:
         try:
@@ -60,8 +101,12 @@ def _confidence(edge_key: str, manifest: dict[str, Any], limitations: set[str]) 
         except Exception:
             pass
     bonus = float(dict(manifest.get("bonus_by_edge_key") or {}).get(edge_key) or 0.0)
-    limitations.add("posterior_estimated_from_default_judge_prior")
-    return max(0.0, min(1.0, _float_env("CORE_MEMORY_CALIBRATION_DEFAULT_JUDGE_PRIOR", 0.85) + bonus))
+    if edge_key in judge_prior_by_edge_key:
+        judge_prior = judge_prior_by_edge_key[edge_key]
+    else:
+        judge_prior = _float_env("CORE_MEMORY_CALIBRATION_DEFAULT_JUDGE_PRIOR", 0.85)
+        limitations.add("judge_prior_unavailable_for_some_edges")
+    return max(0.0, min(1.0, judge_prior + bonus))
 
 
 def _band_slot(confidence: float) -> int:
@@ -149,6 +194,7 @@ def compute_calibration_curve(
 
     rows = read_retrieval_feedback(root, since=window, limit=_int_env("CORE_MEMORY_CALIBRATION_FEEDBACK_LIMIT", 5000))
     manifest = read_myelination_manifest(root)
+    judge_prior_by_edge_key = _judge_prior_by_edge_key(root)
     limitations: set[str] = set()
     if not manifest.get("present"):
         limitations.add("myelination_manifest_unavailable")
@@ -183,7 +229,7 @@ def compute_calibration_curve(
             continue
         row_dt = _parse_iso(str(row.get("created_at") or ""))
         for edge_key in sorted(edges):
-            conf = _confidence(edge_key, manifest, limitations)
+            conf = _confidence(edge_key, manifest, judge_prior_by_edge_key, limitations)
             slot = band_rows[_band_slot(conf)]
             slot["recall_count"] += 1
             slot["event_count"] += 1

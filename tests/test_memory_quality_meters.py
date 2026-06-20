@@ -40,6 +40,20 @@ def _record_feedback(root: str | Path, edge: tuple[str, str, str], *, ok: bool) 
     )
 
 
+def _write_index_associations(root: str | Path, associations: list[dict]) -> None:
+    p = Path(root) / ".beads" / "index.json"
+    p.parent.mkdir(parents=True, exist_ok=True)
+    index: dict = {}
+    if p.exists():
+        try:
+            index = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            index = {}
+    index.setdefault("beads", {})
+    index["associations"] = associations
+    p.write_text(json.dumps(index, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
 class TestMemoryQualityMeters(unittest.TestCase):
     def test_calibration_curve_uses_effective_confidence_bands(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
@@ -70,6 +84,65 @@ class TestMemoryQualityMeters(unittest.TestCase):
             self.assertEqual(2, out["event_count"])
             self.assertEqual(1.0, out["high_band_usefulness_rate"])
             self.assertGreaterEqual(float(out["spearman_rho"]), 0.7)
+
+    def test_calibration_uses_index_judge_prior_with_real_manifest_shape(self):
+        # The production manifest (PRD-A) only carries bonus_by_edge_key — it has
+        # no effective_confidence_by_edge_key field. The X-axis must therefore use
+        # each edge's stored judge_prior from index.json + the manifest bonus
+        # (mirroring the BFS), not a flat default prior for every edge.
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_CALIBRATION_MIN_EVENTS": "1"},
+            clear=False,
+        ):
+            _write_manifest(
+                td,
+                {
+                    "schema": "core_memory.myelination_manifest.v2",
+                    "enabled": True,
+                    "bonus_by_edge_key": {"c|supports|d": 0.03},
+                },
+            )
+            _write_index_associations(
+                td,
+                [
+                    {"source_bead": "a", "target_bead": "b", "relationship": "supports", "confidence": 0.45},
+                    {"source_bead": "c", "target_bead": "d", "relationship": "supports", "confidence": 0.92},
+                ],
+            )
+            _record_feedback(td, ("a", "supports", "b"), ok=False)
+            _record_feedback(td, ("c", "supports", "d"), ok=True)
+
+            out = compute_calibration_curve(td)
+            bands = {band["label"]: band for band in out["bands"]}
+
+            # judge_prior came from index.json, not a flat default.
+            self.assertNotIn("judge_prior_unavailable_for_some_edges", out["limitations"])
+            # a|supports|b -> 0.45 (band <0.6); c|supports|d -> 0.92 + 0.03 = 0.95 (band >=0.9).
+            self.assertEqual(1, bands["<0.6"]["recall_count"])
+            self.assertEqual(1, bands[">=0.9"]["recall_count"])
+            self.assertEqual(0.0, bands["<0.6"]["realized_usefulness_rate"])
+            self.assertEqual(1.0, bands[">=0.9"]["realized_usefulness_rate"])
+            self.assertEqual("good", out["status"])
+            self.assertEqual("open", out["auto_mode_gate"])
+
+    def test_calibration_flags_missing_judge_prior_for_unknown_edges(self):
+        # Edges that appear in feedback but not in index.json fall back to the
+        # default prior and the result advertises the limitation.
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_CALIBRATION_MIN_EVENTS": "1"},
+            clear=False,
+        ):
+            _write_manifest(
+                td,
+                {"schema": "core_memory.myelination_manifest.v2", "enabled": True, "bonus_by_edge_key": {}},
+            )
+            _record_feedback(td, ("x", "supports", "y"), ok=True)
+
+            out = compute_calibration_curve(td)
+
+            self.assertIn("judge_prior_unavailable_for_some_edges", out["limitations"])
 
     def test_tension_meter_flags_pending_accumulation(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
