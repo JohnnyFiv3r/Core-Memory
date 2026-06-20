@@ -91,7 +91,7 @@ class TestRemoteSemanticTaskRuntime(unittest.TestCase):
                         "adapter": "pydanticai",
                         "model": "gpt-standard",
                         "runtime": "remote",
-                        "source": "SATORID_AGENT_MODEL_STANDARD",
+                        "source": "AGENT_MODEL_STANDARD",
                     },
                     "input_hash": "input-hash",
                     "output_hash": "output-hash",

@@ -1,7 +1,9 @@
 """HTTP-delegated semantic task runtime.
 
 This adapter keeps Core Memory engine semantics local while delegating the LLM
-judgment call to an opaque HTTP endpoint such as the Satorid conductor.
+judgment call to an opaque, configurable HTTP endpoint (an external agent
+conductor). The endpoint is identified solely by env config; the engine never
+imports or names the deployment that hosts it.
 """
 
 from __future__ import annotations
