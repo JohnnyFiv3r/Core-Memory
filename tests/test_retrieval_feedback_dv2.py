@@ -6,7 +6,11 @@ from unittest.mock import patch
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates, list_dreamer_candidates
-from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback, summarize_retrieval_feedback
+from core_memory.runtime.observability.retrieval_feedback import (
+    read_retrieval_feedback,
+    record_retrieval_feedback,
+    summarize_retrieval_feedback,
+)
 
 
 class TestRetrievalFeedbackDV2(unittest.TestCase):
@@ -96,6 +100,26 @@ class TestRetrievalFeedbackDV2(unittest.TestCase):
             self.assertGreaterEqual(int(fb.get("source_bead_hits") or 0), 1)
             self.assertGreaterEqual(int(fb.get("target_bead_hits") or 0), 1)
             self.assertGreaterEqual(int(fb.get("edge_hits") or 0), 1)
+
+    def test_retrieval_feedback_records_usefulness_without_changing_success(self):
+        with tempfile.TemporaryDirectory() as td:
+            rec = record_retrieval_feedback(
+                td,
+                request={"raw_query": "where is auth", "intent": "remember", "k": 5},
+                response={
+                    "ok": True,
+                    "answer_outcome": "answer",
+                    "results": [{"bead_id": "b-auth", "score": 0.8}],
+                    "chains": [{"edges": [{"src": "a", "dst": "b-auth", "rel": "supports"}]}],
+                },
+                usefulness="helpful",
+            )
+            self.assertTrue(rec["success"])
+            rows = read_retrieval_feedback(td, since="")
+            self.assertEqual("helpful", rows[0]["response"]["usefulness"])
+
+            summary = summarize_retrieval_feedback(td, since="", limit=50)
+            self.assertEqual({"helpful": 1}, summary["usefulness_histogram"])
 
 
 if __name__ == "__main__":

@@ -365,6 +365,20 @@ class AssociationCandidateDecisionRequest(BaseModel):
     rubric_version: str = "association_truth.v1"
 
 
+class MyelinationRewardEventRequest(BaseModel):
+    root: Optional[str] = None
+    source_type: str
+    polarity: str
+    edge_keys: list[str] = Field(default_factory=list)
+    strength: Optional[float] = None
+    reward_tier: str = "traversal_marginal"
+    source_event_id: str = ""
+    supporting_bead_ids: list[str] = Field(default_factory=list)
+    supporting_claim_ids: list[str] = Field(default_factory=list)
+    supporting_candidate_ids: list[str] = Field(default_factory=list)
+    reason: str = ""
+
+
 class MCPQueryCurrentStateRequest(BaseModel):
     root: Optional[str] = None
     subject: str = "user"
@@ -1055,6 +1069,35 @@ async def myelination_report_endpoint(
     from core_memory.runtime.observability.myelination import myelination_report
 
     return myelination_report(_resolve_root(root, x_tenant_id), since=since, limit=limit, top=int(top))
+
+
+@app.post("/v1/myelination/reward-events")
+async def myelination_reward_event_endpoint(
+    payload: MyelinationRewardEventRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Append an audited myelination reward/decay event over concrete edge keys."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory.runtime.observability.myelination_rewards import emit_myelination_reward_event
+
+    out = emit_myelination_reward_event(
+        _resolve_root(payload.root, x_tenant_id),
+        source_type=payload.source_type,
+        polarity=payload.polarity,
+        edge_keys=payload.edge_keys,
+        strength=payload.strength,
+        reward_tier=payload.reward_tier,
+        source_event_id=payload.source_event_id,
+        supporting_bead_ids=payload.supporting_bead_ids,
+        supporting_claim_ids=payload.supporting_claim_ids,
+        supporting_candidate_ids=payload.supporting_candidate_ids,
+        reason=payload.reason,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
 
 
 @app.post("/v1/soul/propose-update")
