@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Semantic task runtime factory and provider-neutral implementation."""
+
+from __future__ import annotations
 
 import json
 import os
@@ -45,7 +45,20 @@ def semantic_task_runtime_mode() -> str:
         or os.environ.get("CORE_MEMORY_SEMANTIC_RUNTIME")
         or "auto"
     ).strip().lower()
-    if mode in {"", "auto", "provider", "llm", "pydanticai", "pydantic-ai", "disabled", "off"}:
+    if mode in {
+        "",
+        "auto",
+        "provider",
+        "llm",
+        "pydanticai",
+        "pydantic-ai",
+        "remote",
+        "delegated",
+        "disabled",
+        "off",
+    }:
+        if mode == "delegated":
+            return "remote"
         return "pydanticai" if mode == "pydantic-ai" else (mode or "auto")
     return "auto"
 
@@ -316,6 +329,13 @@ def get_semantic_task_runtime(*, mode: str | None = None) -> SemanticTaskRuntime
             return PydanticAISemanticTaskRuntime()
         except Exception:
             return DisabledSemanticTaskRuntime()
+    if resolved == "remote":
+        try:
+            from core_memory.integrations.remote.semantic_tasks import RemoteSemanticTaskRuntime
+
+            return RemoteSemanticTaskRuntime(fallback_runtime=ProviderSemanticTaskRuntime())
+        except Exception:
+            return ProviderSemanticTaskRuntime()
     return ProviderSemanticTaskRuntime()
 
 
