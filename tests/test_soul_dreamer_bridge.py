@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
 
@@ -217,6 +218,59 @@ class TestSoulDreamerBridge(unittest.TestCase):
             out = propose_soul_from_dreamer(td)
             self.assertTrue(out["ok"])
             self.assertEqual(0, out["proposed"])
+
+
+class TestSoulAuthorityGating(unittest.TestCase):
+    def test_confidence_gated_authority_tiers(self):
+        import core_memory.soul.dreamer_bridge as bridge
+
+        with tempfile.TemporaryDirectory() as td, patch.object(
+            bridge, "_auto_mode_paused", return_value=False
+        ):
+            _write_candidates(
+                td,
+                [
+                    {**_goal("dc-hi", "ship-fast"), "confidence": 0.95},     # >=0.90 -> auto_write
+                    {**_goal("dc-mid", "scope-care"), "confidence": 0.85},   # 0.80-0.90 -> candidate_only
+                    {**_goal("dc-lo", "vague-idea"), "confidence": 0.50},    # <0.80 -> not_surfaced
+                    {**_divergence("dc-div", "Careful"), "confidence": 0.99},  # contradiction -> candidate_only
+                ],
+            )
+
+            out = propose_soul_from_dreamer(td)
+
+            self.assertFalse(out["auto_mode_paused"])
+            self.assertEqual(1, out["auto_written"])      # only dc-hi
+            self.assertEqual(2, out["candidate_only"])    # dc-mid + dc-div
+            self.assertEqual(1, out["not_surfaced"])      # dc-lo dropped before LLM/store
+            self.assertEqual(3, out["proposed"])
+
+            by_key = {r["entry_key"]: r for r in (soul_history(td).get("revisions") or [])}
+            self.assertEqual("applied", by_key["goal:ship-fast"]["status"])
+            self.assertEqual("auto_write", by_key["goal:ship-fast"]["metadata"]["authority_tier"])
+            self.assertEqual("proposed", by_key["goal:scope-care"]["status"])
+            self.assertEqual("candidate_only", by_key["goal:scope-care"]["metadata"]["authority_tier"])
+            # Contradiction-shaped finding is human-reviewed even at 0.99.
+            self.assertEqual("proposed", by_key["divergence:Careful"]["status"])
+            self.assertTrue(by_key["divergence:Careful"]["metadata"]["contradiction_present"])
+            # not_surfaced never reaches the store.
+            self.assertNotIn("goal:vague-idea", by_key)
+
+    def test_auto_mode_paused_forces_candidate_only(self):
+        import core_memory.soul.dreamer_bridge as bridge
+
+        with tempfile.TemporaryDirectory() as td, patch.object(
+            bridge, "_auto_mode_paused", return_value=True
+        ):
+            _write_candidates(td, [{**_goal("dc-hi", "ship-fast"), "confidence": 0.99}])
+
+            out = propose_soul_from_dreamer(td)
+
+            self.assertTrue(out["auto_mode_paused"])
+            self.assertEqual(0, out["auto_written"])
+            by_key = {r["entry_key"]: r for r in (soul_history(td).get("revisions") or [])}
+            self.assertEqual("proposed", by_key["goal:ship-fast"]["status"])
+            self.assertEqual("candidate_only", by_key["goal:ship-fast"]["metadata"]["authority_tier"])
 
 
 if __name__ == "__main__":
