@@ -638,10 +638,26 @@ def _expand_via_association_hops(
         resolve_provenance_factor as _resolve_prov,
         SUPERSEDED_ENDPOINT_FACTOR as _superseded_factor,
     )
+    from core_memory.runtime.observability.myelination import (
+        _edge_key as _myelination_edge_key,
+        myelination_enabled as _myelination_enabled,
+    )
+    from core_memory.schema.normalization import normalize_relation_type as _normalize_rel
+
+    manifest_edge_bonus: dict[str, float] = {}
+    if _myelination_enabled():
+        manifest_edge_bonus = _read_myelination_edge_manifest(root)
 
     def _endpoint_superseded(bead_id: str) -> bool:
         bead = beads_map.get(bead_id)
         return isinstance(bead, dict) and str(bead.get("status") or "").strip().lower() == "superseded"
+
+    def _effective_confidence(src: str, rel: str, dst: str, judge_prior: float) -> float:
+        if not manifest_edge_bonus:
+            return judge_prior
+        edge_key = _myelination_edge_key(src, dst, _normalize_rel(rel))
+        bonus = float(manifest_edge_bonus.get(edge_key, 0.0))
+        return max(0.0, min(1.0, float(judge_prior) + bonus))
 
     adj: dict[str, list[tuple[str, float]]] = {}
     for assoc in assoc_list:
@@ -652,7 +668,8 @@ def _expand_via_association_hops(
         rel = str(assoc.get("relationship") or "").strip().lower()
         rel_weight = _RELATIONSHIP_HOP_WEIGHT.get(rel, _DEFAULT_HOP_WEIGHT)
         raw_conf = assoc.get("confidence")
-        conf = max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else 0.85
+        judge_prior = max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else 0.85
+        conf = _effective_confidence(src, rel, tgt, judge_prior)
         # Shared provenance resolution: low-trust provenances (preview
         # classifier / heuristic relationship fills) override the
         # edge_class="agent_judged" channel marker the crawler stamps on
@@ -744,12 +761,32 @@ def _expand_via_association_hops(
             content_excerpt=excerpt,
             score=round(score, 4),
             reason="association_hop",
+            metadata={"_myelination_bfs_reached": True},
         ))
         added += 1
     # Re-sort the full list so hop items with competitive scores rank above
     # weak vector matches rather than always landing after them in the list.
     out.sort(key=lambda e: float("-inf") if e.score is None else -e.score)
     return out
+
+
+def _read_myelination_edge_manifest(root: str) -> dict[str, float]:
+    try:
+        p = Path(root) / ".beads" / "events" / "myelination-manifest.json"
+        if not p.exists():
+            return {}
+        payload = json.loads(p.read_text(encoding="utf-8"))
+        out: dict[str, float] = {}
+        for k, v in (payload.get("bonus_by_edge_key") or {}).items():
+            try:
+                bonus = float(v)
+            except Exception:
+                continue
+            if abs(bonus) > 1e-9:
+                out[str(k)] = bonus
+        return out
+    except Exception:
+        return {}
 
 
 def _read_myelination_manifest(root: str) -> dict[str, float]:
@@ -771,6 +808,8 @@ def _apply_myelination_bonuses(result: RecallResult, bonus_by_bead_id: dict[str,
     if not bonus_by_bead_id:
         return
     for item in result.evidence:
+        if bool((item.metadata or {}).get("_myelination_bfs_reached")):
+            continue
         bonus = float(bonus_by_bead_id.get(str(item.bead_id) or "", 0.0))
         if abs(bonus) < 1e-9:
             continue

@@ -11,6 +11,8 @@ from core_memory.memory import confirm_bead
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
 from core_memory.runtime.observability.myelination_rewards import (
+    TRAVERSAL_MARGINAL_TIER,
+    VALIDATED_OUTCOME_TIER,
     emit_myelination_reward_event,
     read_reward_events,
     reward_bonus_by_edge_key,
@@ -50,8 +52,27 @@ class TestRewardEventGuardrail(unittest.TestCase):
             self.assertEqual(1, len(rows))
             self.assertEqual("myelination_reward_event.v1", rows[0]["schema"])
             self.assertIn("fingerprint", rows[0])
+            self.assertEqual(TRAVERSAL_MARGINAL_TIER, rows[0]["reward_tier"])
             self.assertEqual([_edge("a", "b")], rows[0]["edge_keys"])
             self.assertFalse(rows[0]["guardrails"]["mutates_beads"])
+
+    def test_validated_tier_uses_validated_default_strength(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_MYELINATION_VALIDATED_REWARD_STRENGTH": "0.11"},
+            clear=False,
+        ):
+            out = emit_myelination_reward_event(
+                td,
+                source_type="human_approval",
+                polarity="positive",
+                edge_keys=[_edge("a", "b")],
+                reward_tier=VALIDATED_OUTCOME_TIER,
+            )
+            self.assertTrue(out["ok"])
+            rows = read_reward_events(td)
+            self.assertEqual(VALIDATED_OUTCOME_TIER, rows[0]["reward_tier"])
+            self.assertAlmostEqual(0.11, rows[0]["strength"], places=6)
 
     def test_duplicate_fingerprint_dedupes(self):
         with tempfile.TemporaryDirectory() as td:
@@ -113,18 +134,53 @@ class TestRewardAggregation(unittest.TestCase):
             self.assertAlmostEqual(0.04, agg[ek]["bonus"], places=6)  # 0.04+0.04-0.04
             self.assertEqual(3, agg[ek]["count"])
 
+    def test_validated_tier_metadata_is_aggregated(self):
+        with tempfile.TemporaryDirectory() as td:
+            ek = _edge("a", "b")
+            emit_myelination_reward_event(
+                td,
+                source_type="human_approval",
+                polarity="positive",
+                edge_keys=[ek],
+                strength=0.04,
+                reward_tier=VALIDATED_OUTCOME_TIER,
+                source_event_id="evt-1",
+            )
+            emit_myelination_reward_event(
+                td,
+                source_type="retrieval_feedback",
+                polarity="negative",
+                edge_keys=[ek],
+                strength=0.01,
+                source_event_id="evt-2",
+            )
+            agg = reward_bonus_by_edge_key(td)
+            self.assertTrue(agg[ek]["has_validated_tier"])
+            self.assertEqual({VALIDATED_OUTCOME_TIER: 1, TRAVERSAL_MARGINAL_TIER: 1}, agg[ek]["by_tier"])
+            self.assertEqual(1, agg[ek]["validated_positive_count"])
+            self.assertEqual(0, agg[ek]["validated_negative_count"])
+
 
 class TestFusionIntoManifest(unittest.TestCase):
     def test_reward_only_edge_bypasses_min_hits(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
             ek = _edge("bX", "bY")
-            emit_myelination_reward_event(td, source_type="human_approval", polarity="positive", edge_keys=[ek], strength=0.05)
+            emit_myelination_reward_event(
+                td,
+                source_type="human_approval",
+                polarity="positive",
+                edge_keys=[ek],
+                strength=0.05,
+                reward_tier=VALIDATED_OUTCOME_TIER,
+            )
             m = compute_myelination_bonus_map(td)
             self.assertTrue(m["enabled"])
             self.assertEqual("core_memory.myelination_manifest.v2", m["schema"])
             self.assertIn(ek, m["bonus_by_edge_key"])
             self.assertAlmostEqual(0.05, m["bonus_by_edge_key"][ek], places=6)
             self.assertEqual({"human_approval": 1}, m["source_event_counts"])
+            self.assertTrue(m["has_validated_tier_by_edge_key"][ek])
+            self.assertEqual({"positive": 1, "negative": 0}, m["validated_reward_counts_by_edge_key"][ek])
 
     def test_cap_clamped(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
@@ -585,7 +641,75 @@ class TestManifestConsistency(unittest.TestCase):
             m = compute_myelination_bonus_map(td)
             self.assertEqual("core_memory.myelination_manifest.v2", m["schema"])
             self.assertEqual({}, m["source_event_counts"])
+            self.assertEqual({}, m["has_validated_tier_by_edge_key"])
+            self.assertEqual({}, m["validated_reward_counts_by_edge_key"])
             self.assertFalse(m["enabled"])
+
+
+class TestRetrievalBackpressure(unittest.TestCase):
+    def _write_index(self, root: str, associations: list[dict]):
+        p = Path(root) / ".beads" / "index.json"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(
+            json.dumps(
+                {
+                    "beads": {
+                        "seed": {"id": "seed", "title": "Seed", "summary": ["seed"]},
+                        "strong": {"id": "strong", "title": "Strong", "summary": ["strong"]},
+                        "weak": {"id": "weak", "title": "Weak", "summary": ["weak"]},
+                    },
+                    "associations": associations,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+    def test_edge_bonus_influences_bfs_effective_confidence(self):
+        from core_memory.retrieval.agent import _expand_via_association_hops
+        from core_memory.retrieval.contracts import EvidenceItem
+
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            self._write_index(
+                td,
+                [
+                    {"source_bead": "seed", "target_bead": "strong", "relationship": "supports", "confidence": 0.4},
+                    {"source_bead": "seed", "target_bead": "weak", "relationship": "supports", "confidence": 0.8},
+                ],
+            )
+            manifest_path = Path(td) / ".beads" / "events" / "myelination-manifest.json"
+            manifest_path.parent.mkdir(parents=True, exist_ok=True)
+            manifest_path.write_text(
+                json.dumps({"bonus_by_edge_key": {"seed|supports|strong": 0.5, "seed|supports|weak": -0.6}}),
+                encoding="utf-8",
+            )
+
+            evidence = [EvidenceItem(bead_id="seed", title="Seed", content_excerpt="seed", score=1.0)]
+            out = _expand_via_association_hops(td, evidence, hops=1, max_expansion=1)
+            hop_ids = [item.bead_id for item in out if item.reason == "association_hop"]
+            self.assertEqual(["strong"], hop_ids)
+            self.assertTrue(out[-1].metadata.get("_myelination_bfs_reached"))
+
+    def test_posthoc_bead_bonus_skips_bfs_reached_items(self):
+        from core_memory.retrieval.agent import _apply_myelination_bonuses
+        from core_memory.retrieval.contracts import EvidenceItem, RecallResult
+
+        result = RecallResult(
+            evidence=[
+                EvidenceItem(bead_id="direct", title="Direct", content_excerpt="d", score=0.2),
+                EvidenceItem(
+                    bead_id="hop",
+                    title="Hop",
+                    content_excerpt="h",
+                    score=0.2,
+                    reason="association_hop",
+                    metadata={"_myelination_bfs_reached": True},
+                ),
+            ],
+        )
+        _apply_myelination_bonuses(result, {"direct": 0.5, "hop": 0.5})
+        score_by_id = {item.bead_id: item.score for item in result.evidence}
+        self.assertAlmostEqual(0.7, score_by_id["direct"], places=6)
+        self.assertAlmostEqual(0.2, score_by_id["hop"], places=6)
 
 
 if __name__ == "__main__":

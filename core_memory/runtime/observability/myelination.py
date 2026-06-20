@@ -113,6 +113,8 @@ def compute_myelination_bonus_map(
             "enabled": False,
             "bonus_by_edge_key": {},
             "bonus_by_bead_id": {},
+            "has_validated_tier_by_edge_key": {},
+            "validated_reward_counts_by_edge_key": {},
             "stats": {"events": 0, "edges": 0, "beads": 0, "strengthened": 0, "weakened": 0},
             "source_event_counts": {},
             "config": {"since": since_v, "limit": limit_v},
@@ -177,6 +179,9 @@ def compute_myelination_bonus_map(
     # Audited events bypass the telemetry min-hits filter — they are explicit, not
     # noisy — but are still cap-clamped. bonus_by_bead_id stays a projection.
     source_event_counts: dict[str, int] = {}
+    validated_edge_keys: dict[str, bool] = {}
+    validated_positive_counts: dict[str, int] = {}
+    validated_negative_counts: dict[str, int] = {}
     # Lazy import avoids a module cycle (rewards imports from this module).
     from core_memory.runtime.observability.myelination_rewards import (
         reward_bonus_by_edge_key,
@@ -196,16 +201,33 @@ def compute_myelination_bonus_map(
                 edge_bonus[ek] = round(fused, 6)
             for st, n in dict(info.get("by_source") or {}).items():
                 source_event_counts[str(st)] = source_event_counts.get(str(st), 0) + int(n)
+            if bool(info.get("has_validated_tier")):
+                validated_edge_keys[ek] = True
+            positive_count = int(info.get("validated_positive_count") or 0)
+            negative_count = int(info.get("validated_negative_count") or 0)
+            if positive_count:
+                validated_positive_counts[ek] = validated_positive_counts.get(ek, 0) + positive_count
+            if negative_count:
+                validated_negative_counts[ek] = validated_negative_counts.get(ek, 0) + negative_count
 
     bead_bonus = _project_bead_bonus(edge_bonus, cap_neg, cap_pos)
     strengthened = sum(1 for v in edge_bonus.values() if v > 0)
     weakened = sum(1 for v in edge_bonus.values() if v < 0)
+    validated_count_keys = sorted(set(validated_positive_counts) | set(validated_negative_counts))
 
     return {
         "schema": "core_memory.myelination_manifest.v2",
         "enabled": True,
         "bonus_by_edge_key": edge_bonus,
         "bonus_by_bead_id": bead_bonus,
+        "has_validated_tier_by_edge_key": {ek: True for ek in sorted(validated_edge_keys)},
+        "validated_reward_counts_by_edge_key": {
+            ek: {
+                "positive": int(validated_positive_counts.get(ek, 0)),
+                "negative": int(validated_negative_counts.get(ek, 0)),
+            }
+            for ek in validated_count_keys
+        },
         "stats": {
             "events": len(rows),
             "edges": len(edge_bonus),

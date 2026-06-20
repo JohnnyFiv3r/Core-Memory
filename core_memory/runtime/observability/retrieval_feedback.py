@@ -79,6 +79,7 @@ def record_retrieval_feedback(
     request: dict[str, Any],
     response: dict[str, Any],
     source: str = "memory_execute",
+    usefulness: str | None = None,
 ) -> dict[str, Any]:
     req = dict(request or {})
     out = dict(response or {})
@@ -86,6 +87,9 @@ def record_retrieval_feedback(
     results = [dict(r or {}) for r in (out.get("results") or [])]
     top = results[0] if results else {}
     answer_outcome = str(out.get("answer_outcome") or "")
+    usefulness_n = str(usefulness or out.get("usefulness") or "").strip().lower()
+    if usefulness_n not in {"helpful", "not_helpful", "corrected"}:
+        usefulness_n = ""
 
     success = bool(out.get("ok")) and bool(results) and answer_outcome != "abstain"
 
@@ -104,6 +108,7 @@ def record_retrieval_feedback(
             "ok": bool(out.get("ok")),
             "answer_outcome": answer_outcome,
             "answer_reason": str(((out.get("answer_policy") or {}).get("decision_reason") or "")),
+            "usefulness": usefulness_n or None,
             "retrieval_mode": str(out.get("retrieval_mode") or ""),
             "result_count": int(len(results)),
             "top": {
@@ -180,6 +185,12 @@ def summarize_retrieval_feedback(root: str | Path, *, since: str = "30d", limit:
     edge_hits = Counter()
     slot_hits = Counter()
     anchor_reason_hits = Counter()
+    usefulness_hits = Counter()
+
+    for r in rows:
+        usefulness = str(((r.get("response") or {}).get("usefulness") or ""))
+        if usefulness:
+            usefulness_hits[usefulness] += 1
 
     for r in success_rows:
         resp = dict(r.get("response") or {})
@@ -218,4 +229,5 @@ def summarize_retrieval_feedback(root: str | Path, *, since: str = "30d", limit:
         "top_edges": top_edges,
         "top_slots": top_slots,
         "anchor_reason_histogram": dict(anchor_reason_hits),
+        "usefulness_histogram": dict(usefulness_hits),
     }

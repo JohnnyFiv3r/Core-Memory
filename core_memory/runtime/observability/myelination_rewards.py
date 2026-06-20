@@ -35,6 +35,9 @@ from core_memory.runtime.observability.retrieval_feedback import (
 from core_memory.schema.normalization import EVIDENTIAL_RELATION_TYPES, is_evidential_relation, normalize_relation_type
 
 REWARD_EVENT_SCHEMA = "myelination_reward_event.v1"
+TRAVERSAL_MARGINAL_TIER = "traversal_marginal"
+VALIDATED_OUTCOME_TIER = "validated_outcome"
+_VALID_REWARD_TIERS = {TRAVERSAL_MARGINAL_TIER, VALIDATED_OUTCOME_TIER}
 
 # Evidential relationships whose incident associations count as a bead's
 # concrete supporting edges (PRD §9.3).
@@ -80,6 +83,13 @@ def _rewards_path(root: str | Path) -> Path:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _normalized_reward_tier(value: Any) -> str:
+    tier = str(value or "").strip().lower()
+    if tier in _VALID_REWARD_TIERS:
+        return tier
+    return TRAVERSAL_MARGINAL_TIER
 
 
 def _index_path(root: str | Path) -> Path:
@@ -230,6 +240,7 @@ def emit_myelination_reward_event(
     polarity: str,
     edge_keys: list[str],
     strength: float | None = None,
+    reward_tier: str = TRAVERSAL_MARGINAL_TIER,
     source_event_id: str = "",
     supporting_bead_ids: list[str] | None = None,
     supporting_claim_ids: list[str] | None = None,
@@ -254,7 +265,12 @@ def emit_myelination_reward_event(
     if st not in _VALID_SOURCE_TYPES:
         return {"ok": False, "skipped": "bad_source_type"}
 
-    default_strength = _float_env("CORE_MEMORY_MYELINATION_REWARD_STRENGTH", 0.04)
+    tier = _normalized_reward_tier(reward_tier)
+    default_strength = (
+        _float_env("CORE_MEMORY_MYELINATION_VALIDATED_REWARD_STRENGTH", 0.10)
+        if tier == VALIDATED_OUTCOME_TIER
+        else _float_env("CORE_MEMORY_MYELINATION_REWARD_STRENGTH", 0.04)
+    )
     s = abs(float(strength)) if strength is not None else default_strength
     source_event_id_final = str(source_event_id or "").strip()
     fingerprint = reward_event_fingerprint(
@@ -272,6 +288,7 @@ def emit_myelination_reward_event(
         "source_event_id": source_event_id_final,
         "fingerprint": fingerprint,
         "polarity": pol,
+        "reward_tier": tier,
         "strength": round(float(s), 6),
         "edge_keys": eks,
         "supporting_bead_ids": [str(x) for x in (supporting_bead_ids or []) if str(x)],
@@ -305,9 +322,17 @@ def emit_myelination_reward_event(
                     "event_id": str(existing.get("id") or ""),
                     "edge_count": len(eks),
                     "fingerprint": fingerprint,
+                    "reward_tier": _normalized_reward_tier(existing.get("reward_tier")),
                 }
         append_jsonl(path, row)
-    return {"ok": True, "deduped": False, "event_id": row["id"], "edge_count": len(eks), "fingerprint": fingerprint}
+    return {
+        "ok": True,
+        "deduped": False,
+        "event_id": row["id"],
+        "edge_count": len(eks),
+        "fingerprint": fingerprint,
+        "reward_tier": tier,
+    }
 
 
 def reward_for_bead_decision(
@@ -331,6 +356,7 @@ def reward_for_bead_decision(
         source_type=source_type,
         polarity=polarity,
         edge_keys=eks,
+        reward_tier=VALIDATED_OUTCOME_TIER,
         source_event_id=str(source_event_id or "").strip() or str(bead_id),
         supporting_bead_ids=[str(bead_id)],
         reason=reason,
@@ -391,6 +417,7 @@ def reward_goal_resolution(
         source_type="goal_resolution",
         polarity="positive",
         edge_keys=[_edge_key(oid, gid, "resolves")],
+        reward_tier=VALIDATED_OUTCOME_TIER,
         source_event_id=str(source_event_id or "").strip() or f"goal_resolution:{oid}:{gid}",
         supporting_bead_ids=[oid, gid],
         reason="goal resolved",
@@ -436,6 +463,7 @@ def reward_dreamer_candidate_decision(
         source_type="dreamer_candidate_decision",
         polarity="positive" if decision_n == "accept" else "negative",
         edge_keys=[_edge_key(src, dst, rel)],
+        reward_tier=VALIDATED_OUTCOME_TIER,
         source_event_id=str(cand.get("id") or "").strip() or f"dreamer_candidate:{src}:{rel}:{dst}:{decision_n}",
         supporting_candidate_ids=[str(cand.get("id") or "")],
         reason=f"dreamer candidate {decision_n}",
@@ -513,6 +541,7 @@ def reward_claim_conflict_resolution(
             source_type="claim_conflict_resolution",
             polarity=pol,
             edge_keys=eks,
+            reward_tier=VALIDATED_OUTCOME_TIER,
             source_event_id=source_event_id_final,
             supporting_bead_ids=[carrier],
             supporting_claim_ids=[claim_id],
@@ -555,28 +584,50 @@ def read_reward_events(root: str | Path, *, since: str = "30d", limit: int = 200
 
 def reward_bonus_by_edge_key(root: str | Path, *, since: str = "30d", limit: int = 2000) -> dict[str, dict[str, Any]]:
     """Aggregate signed reward bonus and event count per edge key:
-    ``{edge_key: {"bonus": signed_sum, "count": n, "by_source": {...}}}``."""
+    ``{edge_key: {"bonus": signed_sum, "count": n, "by_source": {...}, "by_tier": {...}}}``."""
     out: dict[str, dict[str, Any]] = {}
     for row in read_reward_events(root, since=since, limit=limit):
         sign = 1.0 if str(row.get("polarity")) == "positive" else -1.0
         strength = float(row.get("strength") or 0.0)
         st = str(row.get("source_type") or "")
+        tier = _normalized_reward_tier(row.get("reward_tier"))
         for ek in (row.get("edge_keys") or []):
             k = str(ek).strip()
             if not k:
                 continue
-            slot = out.setdefault(k, {"bonus": 0.0, "count": 0, "by_source": Counter()})
+            slot = out.setdefault(
+                k,
+                {
+                    "bonus": 0.0,
+                    "count": 0,
+                    "by_source": Counter(),
+                    "by_tier": Counter(),
+                    "has_validated_tier": False,
+                    "validated_positive_count": 0,
+                    "validated_negative_count": 0,
+                },
+            )
             slot["bonus"] += sign * strength
             slot["count"] += 1
             slot["by_source"][st] += 1
+            slot["by_tier"][tier] += 1
+            if tier == VALIDATED_OUTCOME_TIER:
+                slot["has_validated_tier"] = True
+                if sign > 0:
+                    slot["validated_positive_count"] += 1
+                else:
+                    slot["validated_negative_count"] += 1
     for slot in out.values():
         slot["bonus"] = round(float(slot["bonus"]), 6)
         slot["by_source"] = dict(slot["by_source"])
+        slot["by_tier"] = dict(slot["by_tier"])
     return out
 
 
 __all__ = [
     "REWARD_EVENT_SCHEMA",
+    "TRAVERSAL_MARGINAL_TIER",
+    "VALIDATED_OUTCOME_TIER",
     "EVIDENTIAL_RELATIONSHIPS",
     "reward_events_enabled",
     "reward_event_fingerprint",
