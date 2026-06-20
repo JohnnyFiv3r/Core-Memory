@@ -62,6 +62,50 @@ class TestHttpSoulEndpointsComplete(unittest.TestCase):
             self.assertEqual(200, goals.status_code)
             self.assertEqual(1, goals.json()["count"])
 
+    def test_soul_file_entries_endpoint_returns_current_provenance(self):
+        from fastapi.testclient import TestClient
+        from core_memory.integrations.http.server import app
+        from core_memory.soul.store import propose_soul_update
+
+        with tempfile.TemporaryDirectory(prefix="cm-http-soul-entries-") as td:
+            root = str(Path(td) / "memory")
+            propose_soul_update(
+                root,
+                target_file="IDENTITY.md",
+                entry_key="operator-loop",
+                content="Favors explicit review loops before durable edits.",
+                source="agent",
+                epistemic_status="inferred",
+                reason="Observed settings workflow.",
+                evidence=[{"kind": "ui", "ref": "settings:self-model"}],
+                metadata={"confidence": 0.82},
+                requires_approval=False,
+            )
+            c = TestClient(app)
+
+            r = c.get(
+                "/v1/soul/files/IDENTITY.md/entries",
+                params={"root": root},
+            )
+            self.assertEqual(200, r.status_code)
+            body = r.json()
+            self.assertEqual("soul.entries.v1", body["contract"])
+            self.assertEqual("IDENTITY.md", body["file_name"])
+            self.assertIn("operator-loop", body["entries"])
+            entry = body["entries"]["operator-loop"]
+            self.assertEqual("inferred", entry["epistemic_status"])
+            self.assertEqual("agent", entry["source"])
+            self.assertEqual("Observed settings workflow.", entry["reason"])
+            self.assertEqual([{"kind": "ui", "ref": "settings:self-model"}], entry["evidence"])
+            self.assertEqual({"confidence": 0.82}, entry["metadata"])
+
+            invalid = c.get(
+                "/v1/soul/files/NOTES.md/entries",
+                params={"root": root},
+            )
+            self.assertEqual(400, invalid.status_code)
+            self.assertEqual("invalid_target_file", invalid.json()["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

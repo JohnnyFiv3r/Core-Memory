@@ -984,6 +984,29 @@ async def soul_file(
     return out
 
 
+@app.get("/v1/soul/files/{file_name}/entries")
+async def soul_file_entries(
+    file_name: str,
+    root: Optional[str] = None,
+    subject: str = "self",
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Return folded structured entries and provenance for one SOUL file."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import current_soul_entries
+
+    out = current_soul_entries(
+        _resolve_root(root, x_tenant_id),
+        file_name=file_name,
+        subject=subject,
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content={**out, "contract": "soul.entries.v1"})
+    return {**out, "contract": "soul.entries.v1"}
+
+
 @app.get("/v1/soul/history")
 async def soul_history_endpoint(
     root: Optional[str] = None,
