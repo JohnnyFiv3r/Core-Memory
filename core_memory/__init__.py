@@ -83,6 +83,9 @@ from .retrieval.contracts import (
 from .integrations.api import hydrate_bead_sources
 from .graph.worldlines import derive_worldlines, worldline_membership
 from .graph.storylines import derive_storylines
+from .runtime.observability.calibration import compute_calibration_curve
+from .runtime.observability.tension_meter import compute_tension_resolution_meter
+from .runtime.observability.self_model_drift import compute_self_model_drift
 from ._version import VERSION, __version__
 
 from .persistence.store import MemoryStore, DEFAULT_ROOT, DiagnosticError
@@ -188,6 +191,9 @@ __all__ = [
     "derive_worldlines",
     "derive_storylines",
     "worldline_membership",
+    "compute_calibration_curve",
+    "compute_tension_resolution_meter",
+    "compute_self_model_drift",
     "Bead",
     "BeadType",
     "Scope",
