@@ -1015,6 +1015,38 @@ async def soul_summary_endpoint(
     return build_soul_summary(_resolve_root(root, x_tenant_id), subject=subject)
 
 
+@app.get("/v1/soul/tension-meter")
+async def soul_tension_meter_endpoint(
+    root: Optional[str] = None,
+    subject: str = "self",
+    since: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Read-only meter for unresolved tension accumulation and resolution rate."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import compute_tension_resolution_meter
+
+    return compute_tension_resolution_meter(_resolve_root(root, x_tenant_id), subject=subject, since=since)
+
+
+@app.get("/v1/soul/self-model-drift")
+async def soul_self_model_drift_endpoint(
+    root: Optional[str] = None,
+    subject: str = "self",
+    since: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Read-only meter for ungrounded or contradictory SOUL identity revisions."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import compute_self_model_drift
+
+    return compute_self_model_drift(_resolve_root(root, x_tenant_id), subject=subject, since=since)
+
+
 @app.get("/v1/dreamer/geometry")
 @app.get("/v1/memory/projection/geometry")
 async def dreamer_geometry(
@@ -1069,6 +1101,26 @@ async def myelination_report_endpoint(
     from core_memory.runtime.observability.myelination import myelination_report
 
     return myelination_report(_resolve_root(root, x_tenant_id), since=since, limit=limit, top=int(top))
+
+
+@app.get("/v1/myelination/calibration")
+async def myelination_calibration_endpoint(
+    root: Optional[str] = None,
+    since: Optional[str] = None,
+    correction_window_hours: Optional[int] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Read-only calibration curve over effective confidence and recall usefulness."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory import compute_calibration_curve
+
+    return compute_calibration_curve(
+        _resolve_root(root, x_tenant_id),
+        since=since,
+        correction_window_hours=correction_window_hours,
+    )
 
 
 @app.post("/v1/myelination/reward-events")
