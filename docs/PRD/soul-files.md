@@ -386,6 +386,8 @@ applies them serially — one writer at a time.
 ### 13.1 Read
 `GET /v1/soul/files` — available SOUL files.
 `GET /v1/soul/files/{file_name}` — current contents (rendered markdown).
+`GET /v1/soul/files/{file_name}/entries` — folded structured entries with
+revision provenance for one SOUL file.
 `GET /v1/soul/history` — revision history across SOUL Files.
 
 ### 13.2 Proposal

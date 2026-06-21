@@ -23,14 +23,42 @@ already covers, so repeated runs never churn duplicate proposals.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from core_memory.runtime.dreamer.candidates import _read_candidates
+from core_memory.runtime.observability.myelination import read_myelination_manifest
 from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
 from core_memory.runtime.semantic_tasks.contracts import TASK_SOUL_PROPOSAL
 from core_memory.runtime.semantic_tasks.verifier import verify_semantic_task_output
 from core_memory.soul.store import propose_soul_update, soul_history
+
+AuthorityTier = Literal["auto_write", "candidate_only", "not_surfaced"]
+
+# Hypothesis types whose findings are inherently contradiction-shaped and must
+# ALWAYS route to human review (Decision #4), regardless of confidence. NOTE:
+# soul_integrity_check only detects empty/duplicate entries — it has no
+# contradiction code — so contradiction signal comes from the candidate family,
+# not from integrity checks (PRD-D §4.1/§4.3 assumed otherwise).
+_CONTRADICTION_HYPOTHESIS_TYPES = {
+    "identity_divergence_candidate",
+    "contradiction_pressure_candidate",
+}
+
+
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, str(default)) or default)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _bool_env(name: str, default: bool) -> bool:
+    raw = os.getenv(name)
+    if raw is None or not str(raw).strip():
+        return default
+    return str(raw).strip().lower() in {"1", "true", "yes", "on"}
 
 SOUL_PROPOSAL_CONTRACT = "memory.soul_proposal.v1"
 SOUL_PROPOSAL_PROMPT_VERSION = "soul_proposal.v1"
@@ -87,6 +115,168 @@ def _clean_text(value: Any, *, max_len: int = 1200) -> str:
     return text
 
 
+def _auto_mode_paused(root: str | Path) -> bool:
+    """Resolve the auto-write safety gate (Decision #8).
+
+    Auto-write is only permitted when calibration is healthy. We read PRD-B's
+    ``auto_mode_gate`` from the calibration meter; any non-``open`` value (or any
+    failure) pauses auto-write. ``SOUL_AUTO_MODE_PAUSED`` is an explicit operator
+    kill-switch that forces pause regardless of calibration.
+    """
+    if _bool_env("SOUL_AUTO_MODE_PAUSED", False):
+        return True
+    try:
+        from core_memory.runtime.observability.calibration import compute_calibration_curve
+
+        gate = str(compute_calibration_curve(root).get("auto_mode_gate") or "paused")
+        return gate != "open"
+    except Exception:
+        # No calibration signal available → safe default is paused.
+        return True
+
+
+def _bead_bonus_lookup(manifest: dict[str, Any]) -> dict[str, float]:
+    if not manifest.get("present"):
+        return {}
+    out: dict[str, float] = {}
+    for bead_id, value in dict(manifest.get("bonus_by_bead_id") or {}).items():
+        try:
+            out[str(bead_id)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def _enrich_findings_with_signals(
+    findings: list[dict[str, Any]],
+    *,
+    bead_bonus: dict[str, float],
+    auto_mode_paused: bool,
+) -> None:
+    """Annotate each eligible finding in place with the gate signals.
+
+    ``judge_prior`` is the candidate's write-time confidence. ``effective_confidence``
+    is the Myelination posterior (``clamp(judge_prior + max bead bonus, 0, 1)``),
+    computed exactly the way the BFS / calibration meter do it — judge_prior plus
+    the manifest bonus, never a flat default. It is ``None`` until a supporting
+    bead has manifest history (``min_hits_cleared``). The authority tier is then
+    classified from the staged gate.
+    """
+    for finding in findings:
+        cand = finding.get("candidate") or {}
+        raw_conf = cand.get("confidence")
+        try:
+            judge_prior: float | None = (
+                max(0.0, min(1.0, float(raw_conf))) if raw_conf is not None else None
+            )
+        except (TypeError, ValueError):
+            judge_prior = None
+
+        supporting = [str(b or "").strip() for b in (cand.get("supporting_bead_ids") or []) if str(b or "").strip()]
+        bonuses = [bead_bonus[b] for b in supporting if b in bead_bonus]
+        min_hits_cleared = bool(bonuses)
+        max_bonus = max(bonuses) if bonuses else 0.0
+        effective_confidence: float | None = (
+            max(0.0, min(1.0, judge_prior + max_bonus))
+            if (min_hits_cleared and judge_prior is not None)
+            else None
+        )
+        contradiction_present = (
+            str(finding.get("hypothesis_type") or "") in _CONTRADICTION_HYPOTHESIS_TYPES
+        )
+        tier = _classify_confidence(
+            judge_prior,
+            effective_confidence,
+            min_hits_cleared=min_hits_cleared,
+            contradiction_present=contradiction_present,
+            auto_mode_paused=auto_mode_paused,
+        )
+        finding["judge_prior"] = judge_prior
+        finding["effective_confidence"] = effective_confidence
+        finding["min_hits_cleared"] = min_hits_cleared
+        finding["contradiction_present"] = contradiction_present
+        finding["supporting_bead_count"] = len(supporting)
+        finding["authority_tier"] = tier
+
+
+def _classify_confidence(
+    judge_prior: float | None,
+    effective_confidence: float | None,
+    *,
+    min_hits_cleared: bool,
+    contradiction_present: bool,
+    auto_mode_paused: bool,
+) -> AuthorityTier:
+    """Staged confidence gate (shared model — identical to PRD-C).
+
+    Cold-start gates on ``judge_prior``; once a bead/edge clears MIN_HITS of
+    traversal/reward history, gate on ``effective_confidence`` (the Myelination
+    posterior). Contradictions and a paused auto-mode always force human review.
+    """
+    gate_value = (
+        effective_confidence if (min_hits_cleared and effective_confidence is not None) else judge_prior
+    )
+    if contradiction_present:
+        return "candidate_only"
+    if auto_mode_paused:
+        return "candidate_only"
+    if gate_value is None:
+        return "candidate_only"
+    if gate_value >= _float_env("SOUL_AUTO_WRITE_THRESHOLD", 0.90):
+        return "auto_write"
+    if gate_value >= _float_env("SOUL_CANDIDATE_THRESHOLD", 0.80):
+        return "candidate_only"
+    return "not_surfaced"
+
+
+def _maybe_auto_endorse_goal(root: str | Path, finding: dict[str, Any], *, subject: str) -> dict[str, Any]:
+    """Flag-gated Goal Bead ``candidate → endorsed`` escalation (PRD-D §4.4).
+
+    The riskiest auto-action in PRD-D, so it is OFF by default
+    (``SOUL_GOAL_AUTO_ENDORSE``). Even when enabled it only fires for a
+    ``goal_candidate`` that reached the ``auto_write`` tier with no contradiction
+    flag. Best-effort: never breaks the proposal flow.
+    """
+    if finding.get("hypothesis_type") != "goal_candidate":
+        return {"goal_auto_endorse": "not_applicable"}
+    if not _bool_env("SOUL_GOAL_AUTO_ENDORSE", False):
+        return {"goal_auto_endorse": "disabled"}
+    if finding.get("authority_tier") != "auto_write" or finding.get("contradiction_present"):
+        return {"goal_auto_endorse": "ineligible"}
+    try:
+        from core_memory.persistence.goal_lifecycle_v2 import transition_goal_state_for_store
+        from core_memory.persistence.store import MemoryStore
+        from core_memory.soul.goals import list_goals
+
+        theme = str((finding.get("candidate") or {}).get("goal_theme") or "").strip().lower()
+        goals = list_goals(str(root), subject=subject, include_terminal=False).get("goals") or []
+        match = next(
+            (
+                g
+                for g in goals
+                if str(g.get("state") or "").strip().lower() == "candidate"
+                and theme
+                and theme in {str(g.get("theme") or "").strip().lower(), str(g.get("title") or "").strip().lower()}
+            ),
+            None,
+        )
+        if not match:
+            return {"goal_auto_endorse": "no_candidate_goal_match"}
+        goal_bead_id = str(match.get("goal_bead_id") or match.get("bead_id") or match.get("id") or "")
+        if not goal_bead_id:
+            return {"goal_auto_endorse": "no_goal_bead_id"}
+        res = transition_goal_state_for_store(
+            MemoryStore(root=str(root)),
+            goal_bead_id=goal_bead_id,
+            to_state="endorsed",
+            reason="auto_write_soul_authoring",
+            actor="soul_dreamer_bridge",
+        )
+        return {"goal_auto_endorse": "endorsed" if res.get("ok") else "transition_failed", "goal_bead_id": goal_bead_id}
+    except Exception as exc:  # never break authoring on a goal-tie failure
+        return {"goal_auto_endorse": "error", "goal_auto_endorse_error": exc.__class__.__name__}
+
+
 def _proposal_prompt() -> str:
     return (
         "You are the Core Memory SOUL proposal assistant. Draft review-ready "
@@ -128,6 +318,11 @@ def _proposal_payload(findings: list[dict[str, Any]], *, subject: str) -> dict[s
                 "entry_key": str(f.get("entry_key") or ""),
                 "statement": _clean_text(f.get("statement") or "", max_len=900),
                 "evidence": list(f.get("evidence") or []),
+                "judge_prior": f.get("judge_prior"),
+                "effective_confidence": f.get("effective_confidence"),
+                "min_hits_cleared": bool(f.get("min_hits_cleared")),
+                "contradiction_present": bool(f.get("contradiction_present")),
+                "supporting_bead_count": int(f.get("supporting_bead_count") or 0),
             }
             for f in findings
         ],
@@ -349,19 +544,36 @@ def propose_soul_from_dreamer(
         if len(eligible) >= max(1, int(limit)):
             break
 
-    proposal_task = _run_soul_proposal_task(root, subject=subject, findings=eligible)
+    # Confidence-gated authority (PRD-D §4.2). Enrich findings with the staged
+    # gate signals, then drop anything below the surfacing threshold before it
+    # ever reaches the LLM or the store.
+    auto_mode_paused = _auto_mode_paused(root)
+    bead_bonus = _bead_bonus_lookup(read_myelination_manifest(root))
+    _enrich_findings_with_signals(eligible, bead_bonus=bead_bonus, auto_mode_paused=auto_mode_paused)
+    surfaced = [f for f in eligible if f.get("authority_tier") != "not_surfaced"]
+    skipped += len(eligible) - len(surfaced)
+
+    proposal_task = _run_soul_proposal_task(root, subject=subject, findings=surfaced)
     drafts = proposal_task.get("drafts") if isinstance(proposal_task.get("drafts"), dict) else {}
     task_ref = proposal_task.get("task_ref") if isinstance(proposal_task.get("task_ref"), dict) else {}
     verification = proposal_task.get("verification") if isinstance(proposal_task.get("verification"), dict) else {}
     verifier_ref = verification.get("task_ref") if isinstance(verification.get("task_ref"), dict) else {}
 
     proposed = 0
+    auto_written = 0
     revision_ids: list[str] = []
-    for finding in eligible:
+    for finding in surfaced:
         cand = finding["candidate"]
         ht = str(finding.get("hypothesis_type") or "")
         target_file = str(finding.get("target_file") or "")
         entry_key = str(finding.get("entry_key") or "")
+        tier = str(finding.get("authority_tier") or "candidate_only")
+        epistemic_status = "inferred"
+        # Auto-write only for the auto_write tier AND non-endorsed meaning.
+        # Endorsed always requires human approval (belt-and-suspenders: the store
+        # guardrail in apply_soul_update enforces this too).
+        requires_approval = not (tier == "auto_write" and epistemic_status != "endorsed")
+        goal_tie = _maybe_auto_endorse_goal(root, finding, subject=subject) if tier == "auto_write" else {}
         draft = drafts.get(str(finding.get("candidate_id") or "")) if isinstance(drafts, dict) else None
         draft = draft if isinstance(draft, dict) else {}
         content = str(draft.get("content") or finding.get("statement") or "").strip()
@@ -373,6 +585,14 @@ def propose_soul_from_dreamer(
             "used_operator_draft": bool(draft.get("content")),
             "operator_review_notes": list(draft.get("review_notes") or []),
             "operator_evidence_limitations": list(draft.get("evidence_limitations") or []),
+            # PRD-D §4.2 authority audit trail.
+            "authority_tier": tier,
+            "judge_prior": finding.get("judge_prior"),
+            "effective_confidence": finding.get("effective_confidence"),
+            "min_hits_cleared": bool(finding.get("min_hits_cleared")),
+            "contradiction_present": bool(finding.get("contradiction_present")),
+            "auto_mode_paused": auto_mode_paused,
+            **goal_tie,
             "operator_verification": {
                 "status": str(verification.get("status") or ""),
                 "decision": str(verification.get("decision") or ""),
@@ -392,15 +612,17 @@ def propose_soul_from_dreamer(
             op="upsert",
             subject=subject,
             source="dreamer",
-            epistemic_status="inferred",
+            epistemic_status=epistemic_status,
             reason=reason,
             evidence=list(finding.get("evidence") or []),
-            requires_approval=True,
+            requires_approval=requires_approval,
             semantic_task_refs=semantic_refs,
             metadata=metadata,
         )
         if out.get("ok"):
             proposed += 1
+            if not requires_approval:
+                auto_written += 1
             covered.add((target_file, entry_key))
             rid = str(out.get("revision_id") or "")
             if rid:
@@ -412,6 +634,10 @@ def propose_soul_from_dreamer(
         "ok": True,
         "subject": subject,
         "proposed": proposed,
+        "auto_written": auto_written,
+        "candidate_only": proposed - auto_written,
+        "not_surfaced": len(eligible) - len(surfaced),
+        "auto_mode_paused": auto_mode_paused,
         "skipped": skipped,
         "revision_ids": revision_ids,
         "soul_proposal": {

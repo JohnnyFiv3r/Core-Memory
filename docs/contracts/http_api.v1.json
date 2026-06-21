@@ -287,6 +287,36 @@
     },
     {
       "method": "GET",
+      "path": "/v1/soul/files",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "subject": "string", "files": "array"},
+      "notes": ["Read-only list of SOUL projection files and folded entry counts for the requested subject."],
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/soul/files/{file_name}",
+      "authRequired": "conditional",
+      "requestSchema": "path + query params",
+      "requiredFields": ["file_name"],
+      "response": {"ok": "bool", "subject": "string", "file_name": "string", "markdown": "string", "entry_count": "int"},
+      "notes": ["Read-only rendered markdown projection for one SOUL file."],
+      "errors": ["400 invalid_target_file", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
+      "path": "/v1/soul/files/{file_name}/entries",
+      "authRequired": "conditional",
+      "requestSchema": "path + query params",
+      "requiredFields": ["file_name"],
+      "response": {"ok": "bool", "contract": "soul.entries.v1", "subject": "string", "file_name": "string", "entries": "object"},
+      "notes": ["Read-only folded structured entries for one SOUL file, including source, epistemic status, evidence, metadata, and revision provenance."],
+      "errors": ["400 invalid_target_file", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
       "path": "/v1/soul/summary",
       "authRequired": "conditional",
       "requestSchema": "query params",
