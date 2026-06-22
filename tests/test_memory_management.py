@@ -699,5 +699,221 @@ class TestMemoryManagement(unittest.TestCase):
             self.assertEqual("maintain_authority_required", missing_authority.get("error"))
 
 
+class TestTombstoneBead(unittest.TestCase):
+    def _seed(self, td):
+        store = MemoryStore(td)
+        keeper = _add(store, type="context", title="Keep", summary=["keep"], session_id="s1")
+        mistake = _add(store, type="context", title="Mistake", summary=["wrong"], session_id="s1")
+        assoc_id = store.link(keeper, mistake, "supports", "test")
+        return store, keeper, mistake, assoc_id
+
+    def _authorized(self):
+        return {"actor": "operator", "user_confirmed": True}
+
+    def test_dry_run_previews_and_leaves_bead_active(self):
+        with tempfile.TemporaryDirectory() as td:
+            _store, _keeper, mistake, _assoc = self._seed(td)
+            preview = maintain(
+                root=td,
+                action="tombstone_bead",
+                targets={"bead_id": mistake},
+                decision={"reason": "mistaken bead"},
+                authority=self._authorized(),
+                idempotency_key="tomb-preview",
+                dry_run=True,
+            )
+            self.assertTrue(preview.get("ok"), preview)
+            self.assertEqual("tombstone_bead", preview.get("action"))
+            self.assertFalse(preview.get("applied"))
+            self.assertEqual("bead_removed", preview.get("tombstone_event"))
+            self.assertEqual(1, preview.get("matched_count"))
+            self.assertIn(mistake, (_index(td).get("beads") or {}))
+
+    def test_apply_without_authority_is_denied(self):
+        with tempfile.TemporaryDirectory() as td:
+            _store, _keeper, mistake, _assoc = self._seed(td)
+            out = maintain(
+                root=td,
+                action="tombstone_bead",
+                targets={"bead_id": mistake},
+                decision={"reason": "mistaken bead"},
+                authority={"actor": "operator"},  # actor present, but not confirmed/admin
+                idempotency_key="tomb-noauth",
+                dry_run=False,
+                apply=True,
+            )
+            self.assertFalse(out.get("ok"), out)
+            self.assertIn(mistake, (_index(td).get("beads") or {}))  # still active
+
+    def test_apply_removes_bead_and_associations_and_emits_tombstone_event(self):
+        with tempfile.TemporaryDirectory() as td:
+            store, keeper, mistake, assoc_id = self._seed(td)
+            out = maintain(
+                root=td,
+                action="tombstone_bead",
+                targets={"bead_id": mistake},
+                decision={"reason": "mistaken bead", "reviewer": "alice", "tombstone_type": "operator_error"},
+                authority=self._authorized(),
+                idempotency_key="tomb-apply",
+                dry_run=False,
+                apply=True,
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("tombstone_bead", out.get("action"))
+            self.assertTrue(out.get("applied"))
+            self.assertEqual([mistake], out.get("removed_bead_ids"))
+            self.assertEqual(1, out.get("matched_count"))
+            self.assertEqual("bead_removed", out.get("tombstone_event"))
+            self.assertEqual("alice", out.get("reviewer"))
+            self.assertEqual("operator_error", out.get("tombstone_type"))
+
+            idx = _index(td)
+            self.assertNotIn(mistake, idx.get("beads") or {})       # (3) removed from active index
+            self.assertIn(keeper, idx.get("beads") or {})
+            self.assertEqual([], idx.get("associations") or [])      # (4) associations pruned
+            self.assertIn(mistake, idx.get("removed_bead_ids") or [])
+
+            removed = [r for r in _event_rows(td) if r.get("event_type") == "bead_removed"]  # (5)
+            self.assertEqual(1, len(removed))
+            payload = removed[0].get("payload") or {}
+            self.assertEqual(mistake, payload.get("bead_id"))
+            self.assertEqual("mistaken bead", payload.get("reason"))
+            self.assertEqual("operator", payload.get("actor"))
+            self.assertEqual("tomb-apply", payload.get("idempotency_key"))
+            self.assertTrue(payload.get("bead"))  # bead snapshot preserved
+            self.assertIn(assoc_id, payload.get("removed_association_ids") or [])
+
+    def test_rebuild_index_still_excludes_tombstoned_bead(self):
+        with tempfile.TemporaryDirectory() as td:
+            store, _keeper, mistake, _assoc = self._seed(td)
+            maintain(
+                root=td,
+                action="tombstone_bead",
+                targets={"bead_id": mistake},
+                decision={"reason": "mistaken bead"},
+                authority=self._authorized(),
+                idempotency_key="tomb-rebuild",
+                dry_run=False,
+                apply=True,
+            )
+            rebuilt = store.rebuild_index()
+            self.assertNotIn(mistake, rebuilt.get("beads") or {})
+            self.assertIn(mistake, rebuilt.get("removed_bead_ids") or [])
+
+    def test_idempotent_replay_returns_same_result(self):
+        with tempfile.TemporaryDirectory() as td:
+            _store, _keeper, mistake, _assoc = self._seed(td)
+            args = dict(
+                root=td,
+                action="tombstone_bead",
+                targets={"bead_id": mistake},
+                decision={"reason": "mistaken bead"},
+                authority=self._authorized(),
+                idempotency_key="tomb-idem",
+                dry_run=False,
+                apply=True,
+            )
+            first = maintain(**args)
+            second = maintain(**args)
+            self.assertTrue(first.get("ok"), first)
+            self.assertTrue(second.get("ok"), second)
+            self.assertEqual(first.get("removed_bead_ids"), second.get("removed_bead_ids"))
+            # Replay must not append a second tombstone event.
+            removed = [r for r in _event_rows(td) if r.get("event_type") == "bead_removed"]
+            self.assertEqual(1, len(removed))
+
+    def test_same_idempotency_key_different_bead_returns_conflict(self):
+        with tempfile.TemporaryDirectory() as td:
+            store, _keeper, mistake, _assoc = self._seed(td)
+            other = _add(store, type="context", title="Other", summary=["other"], session_id="s1")
+            first = maintain(
+                root=td,
+                action="tombstone_bead",
+                targets={"bead_id": mistake},
+                decision={"reason": "mistaken bead"},
+                authority=self._authorized(),
+                idempotency_key="tomb-conflict",
+                dry_run=False,
+                apply=True,
+            )
+            self.assertTrue(first.get("ok"), first)
+            conflict = maintain(
+                root=td,
+                action="tombstone_bead",
+                targets={"bead_id": other},
+                decision={"reason": "different bead and reason"},
+                authority=self._authorized(),
+                idempotency_key="tomb-conflict",
+                dry_run=False,
+                apply=True,
+            )
+            self.assertFalse(conflict.get("ok"), conflict)
+            self.assertEqual("idempotency_key_conflict", conflict.get("error"))
+            self.assertIn(other, (_index(td).get("beads") or {}))  # untouched
+
+    def test_validation_requires_single_bead_id_and_reason(self):
+        with tempfile.TemporaryDirectory() as td:
+            store, _keeper, mistake, _assoc = self._seed(td)
+            other = _add(store, type="context", title="Other", summary=["other"], session_id="s1")
+
+            def codes(out):
+                return {e.get("code") for e in (out.get("validation_errors") or [])}
+
+            missing_bead = maintain(
+                root=td, action="tombstone_bead", targets={},
+                decision={"reason": "r"}, authority=self._authorized(),
+                idempotency_key="tomb-v1", dry_run=False, apply=True,
+            )
+            self.assertFalse(missing_bead.get("ok"))
+            self.assertIn("bead_id_required", codes(missing_bead))
+
+            missing_reason = maintain(
+                root=td, action="tombstone_bead", targets={"bead_id": mistake},
+                decision={}, authority=self._authorized(),
+                idempotency_key="tomb-v2", dry_run=False, apply=True,
+            )
+            self.assertFalse(missing_reason.get("ok"))
+            self.assertIn("reason_required", codes(missing_reason))
+
+            multi_bead = maintain(
+                root=td, action="tombstone_bead", targets={"bead_ids": [mistake, other]},
+                decision={"reason": "r"}, authority=self._authorized(),
+                idempotency_key="tomb-v3", dry_run=False, apply=True,
+            )
+            self.assertFalse(multi_bead.get("ok"))
+            self.assertIn("single_bead_only_use_remove_beads", codes(multi_bead))
+
+    def test_tombstone_aliases_normalize(self):
+        with tempfile.TemporaryDirectory() as td:
+            _store, _keeper, mistake, _assoc = self._seed(td)
+            for alias in ("tombstone", "tombstone_memory", "retire_bead"):
+                preview = maintain(
+                    root=td, action=alias, targets={"bead_id": mistake},
+                    decision={"reason": "mistaken bead"}, authority=self._authorized(),
+                    idempotency_key=f"tomb-alias-{alias}", dry_run=True,
+                )
+                self.assertEqual("tombstone_bead", preview.get("action"), alias)
+                self.assertTrue(preview.get("ok"), preview)
+
+    def test_remove_beads_behavior_unchanged(self):
+        with tempfile.TemporaryDirectory() as td:
+            _store, _keeper, mistake, _assoc = self._seed(td)
+            out = maintain(
+                root=td,
+                action="remove_beads",
+                targets={"bead_ids": [mistake]},
+                decision={"reason": "bulk removal"},
+                authority=self._authorized(),
+                idempotency_key="rb-unchanged",
+                dry_run=False,
+                apply=True,
+            )
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("remove_beads", out.get("action"))
+            self.assertEqual([mistake], out.get("removed_bead_ids"))
+            # remove_beads receipt is not annotated as a tombstone wrapper.
+            self.assertNotIn("tombstone_event", out)
+
+
 if __name__ == "__main__":
     unittest.main()

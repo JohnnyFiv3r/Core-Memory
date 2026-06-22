@@ -115,7 +115,14 @@ as `user_confirmed`, `admin_repair`, or the specific `allowed_authority` named
 by the action policy.
 
 Use `remove_beads` to prune mistaken memory from active recall, and
-`remove_source` for source-deletion cleanup. Source cleanup accepts
+`tombstone_bead` for the single-bead case — a governed semantic wrapper over the
+same machinery that retires one mistaken bead from active recall/graph truth
+while preserving audit history (the durable `bead_removed` tombstone, association
+pruning, and rebuild exclusion). It requires `targets.bead_id` and a reason
+(`decision.reason`), rejects multi-bead targets (use `remove_beads` for bulk),
+and accepts optional `decision.reviewer` / `decision.notes` /
+`decision.tombstone_type`. Use `remove_source` for source-deletion cleanup.
+Source cleanup accepts
 `targets.source.selector` for strong matching identifiers (`document_id`,
 `source_ref`, `ragie_document_id`, `raw_source_object_id`, `hydration_ref`,
 `core_memory_unifying_id`) and `targets.source.metadata` for audit-only fields;
