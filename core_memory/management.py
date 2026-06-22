@@ -76,6 +76,12 @@ ACTION_POLICIES: dict[str, ActionPolicy] = {
     "deactivate_association": ActionPolicy(("deactivate_association", "user_confirmed", "admin_repair"), True, True),
     "request_re_review": ActionPolicy(("run_association_judge", "queue_ops", "admin_repair"), True, True),
     "remove_beads": ActionPolicy(("remove_bead", "user_confirmed", "admin_repair"), True, True),
+    "tombstone_bead": ActionPolicy(
+        ("remove_bead", "user_confirmed", "admin_repair"),
+        actor_required=True,
+        mutating=True,
+        idempotency_required=True,
+    ),
     "remove_source": ActionPolicy(("remove_source", "event_hook", "admin_repair"), True, True, False, True),
 }
 
@@ -104,6 +110,9 @@ def _normalize_action(action: str) -> str:
         "remove_bead": "remove_beads",
         "prune_bead": "remove_beads",
         "prune_beads": "remove_beads",
+        "tombstone": "tombstone_bead",
+        "tombstone_memory": "tombstone_bead",
+        "retire_bead": "tombstone_bead",
         "source_removed": "remove_source",
         "remove_source_beads": "remove_source",
         "delete_source": "remove_source",
@@ -317,6 +326,16 @@ def _validate_action(
     if action == "remove_beads":
         if not _bead_ids_from_targets(targets):
             errors.append(_validation_error("targets.bead_ids", "bead_ids_required"))
+        if not _clean_str(decision.get("reason") or proposal.get("reason") or targets.get("reason")):
+            errors.append(_validation_error("decision.reason", "reason_required"))
+    elif action == "tombstone_bead":
+        bead_ids = _bead_ids_from_targets(targets)
+        if not bead_ids:
+            errors.append(_validation_error("targets.bead_id", "bead_id_required"))
+        elif len(bead_ids) > 1:
+            # tombstone_bead is the single-bead semantic action; bulk removal must
+            # go through remove_beads so the host opts into multi-bead intent.
+            errors.append(_validation_error("targets.bead_id", "single_bead_only_use_remove_beads"))
         if not _clean_str(decision.get("reason") or proposal.get("reason") or targets.get("reason")):
             errors.append(_validation_error("decision.reason", "reason_required"))
     elif action == "remove_source":
@@ -562,6 +581,69 @@ def remove_bead(
     )
 
 
+def _tombstone_bead_id(targets: dict[str, Any]) -> str:
+    ids = _bead_ids_from_targets(targets)
+    return ids[0] if ids else ""
+
+
+def _tombstone_receipt(
+    out: dict[str, Any],
+    *,
+    reviewer: str = "",
+    notes: str = "",
+    tombstone_type: str = "",
+) -> dict[str, Any]:
+    """Annotate a remove_beads receipt as a semantic single-bead tombstone.
+
+    The durable record stays the existing ``bead_removed`` event (reason, actor,
+    idempotency key, bead snapshot); this only surfaces the semantic mapping and
+    the optional review fields so hosts get a clear receipt.
+    """
+    result = dict(out)
+    result["tombstone_event"] = "bead_removed"
+    if reviewer:
+        result["reviewer"] = reviewer
+    if notes:
+        result["notes"] = notes
+    if tombstone_type:
+        result["tombstone_type"] = tombstone_type
+    return result
+
+
+def tombstone_bead(
+    *,
+    root: str = ".",
+    bead_id: str,
+    reason: str,
+    actor: str = "",
+    authority: dict[str, Any] | None = None,
+    dry_run: bool = True,
+    apply: bool = False,
+    idempotency_key: str = "",
+    reviewer: str = "",
+    notes: str = "",
+    tombstone_type: str = "",
+) -> dict[str, Any]:
+    """Governed single-bead tombstone: a semantic wrapper over ``remove_beads``.
+
+    Removes one mistaken bead from active recall/graph truth while preserving
+    audit history. Not a new deletion path — it delegates to the existing
+    ``remove_beads`` machinery (tombstone event, association pruning, index
+    metadata, semantic/trace dirty marking, graph/sync retraction, idempotency).
+    """
+    out = remove_beads(
+        root=root,
+        bead_ids=[bead_id],
+        reason=reason,
+        actor=actor,
+        authority=authority,
+        dry_run=dry_run,
+        apply=apply,
+        idempotency_key=idempotency_key,
+    )
+    return _tombstone_receipt(out, reviewer=reviewer, notes=notes, tombstone_type=tombstone_type)
+
+
 def remove_source(
     *,
     root: str = ".",
@@ -736,6 +818,21 @@ def maintain(
                 limit=int(targets_d.get("limit") or 1000),
             )
             return _augment(out, action=action_n, authority=authority_d, validation_errors=validation_errors)
+        if not validation_errors and action_n == "tombstone_bead":
+            out = tombstone_bead(
+                root=root_final,
+                bead_id=_tombstone_bead_id(targets_d),
+                reason=_clean_str(decision_d.get("reason") or proposal_d.get("reason") or targets_d.get("reason")),
+                actor=_clean_str(authority_d.get("actor")),
+                authority=authority_d,
+                dry_run=True,
+                apply=False,
+                idempotency_key=idempotency_key,
+                reviewer=_clean_str(decision_d.get("reviewer")),
+                notes=_clean_str(decision_d.get("notes")),
+                tombstone_type=_clean_str(decision_d.get("tombstone_type")),
+            )
+            return _augment(out, action=action_n, authority=authority_d, validation_errors=validation_errors)
         return _preview(
             action_n,
             root=root_final,
@@ -761,6 +858,22 @@ def maintain(
             dry_run=bool(dry_run),
             apply=bool(apply),
             idempotency_key=idempotency_key,
+        )
+        return _augment(out, action=action_n, authority=authority_d, validation_errors=validation_errors)
+
+    if action_n == "tombstone_bead":
+        out = tombstone_bead(
+            root=root_final,
+            bead_id=_tombstone_bead_id(targets_d),
+            reason=_clean_str(decision_d.get("reason") or proposal_d.get("reason") or targets_d.get("reason")),
+            actor=_clean_str(authority_d.get("actor")),
+            authority=authority_d,
+            dry_run=bool(dry_run),
+            apply=bool(apply),
+            idempotency_key=idempotency_key,
+            reviewer=_clean_str(decision_d.get("reviewer")),
+            notes=_clean_str(decision_d.get("notes")),
+            tombstone_type=_clean_str(decision_d.get("tombstone_type")),
         )
         return _augment(out, action=action_n, authority=authority_d, validation_errors=validation_errors)
 

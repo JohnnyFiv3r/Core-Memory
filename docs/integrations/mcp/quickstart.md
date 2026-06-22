@@ -106,9 +106,9 @@ Ingest normalizes transcript turns and routes them through `capture`; it does no
 ### `maintain`
 
 Governed control-plane tool for approval, cleanup, queue, association, and
-review workflows. Destructive actions such as `remove_beads` and
-`remove_source` default to dry-run; apply them only with explicit user
-confirmation or an authorized host event hook.
+review workflows. Destructive actions such as `remove_beads`, `tombstone_bead`
+(single-bead removal), and `remove_source` default to dry-run; apply them only
+with explicit user confirmation or an authorized host event hook.
 
 ### `status`
 
