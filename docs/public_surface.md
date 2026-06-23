@@ -168,6 +168,7 @@ HTTP memory read surfaces:
 
 HTTP inspect read surfaces:
 - `GET /v1/memory/inspect/state`
+- `GET /v1/beads/titles?ids=` — batch bead-title projection (read-only) for provenance labels; ids that are missing/untitled/removed are omitted so callers fall back to the raw id
 - `GET /v1/memory/inspect/beads/{bead_id}`
 - `GET /v1/memory/inspect/beads/{bead_id}/hydrate`
 - `GET /v1/memory/inspect/claim-slots/{subject}/{slot}`
