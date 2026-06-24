@@ -25,6 +25,7 @@ See `docs/status.md` for current completion state.
 
 | File | Topic | Status |
 |---|---|---|
+| `claim-history-replay.md` | Claim-slot `history()` replay verb (resolved-state series over the claim chain) | **Draft v1** |
 | `external-data-bead-ingest.md` | External data bead ingest contract | Done |
 | `multi-store-recall-fanout.md` | Multi-store recall fan-out (Ragie/PipeHouse) | Done |
 | `eval-benchmark-layer.md` | Eval and benchmark layer (LoCoMo) | Done |
