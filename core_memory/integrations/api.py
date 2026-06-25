@@ -512,6 +512,36 @@ def inspect_bead(*, root: Optional[str] = None, bead_id: str) -> dict[str, Any] 
     return out
 
 
+def bead_titles(*, root: Optional[str] = None, bead_ids: list[str], limit: int = 500) -> dict[str, Any]:
+    """Batch projection of bead titles by id from the active index (read-only).
+
+    A cheap provenance-label lookup for surfaces (e.g. the curation cockpit's
+    supporting-bead list) so they need not hydrate full beads. Returns
+    ``{ok, titles: {bead_id: title}}`` for ids that resolve to an active,
+    titled bead; ids that are missing, untitled, or tombstoned/removed are
+    simply absent from the map, so the caller falls back to the raw id. Never
+    mutates state.
+    """
+    root_path = Path(_resolve_root(root))
+    idx = _safe_load_index(root_path)
+    beads = dict(idx.get("beads") or {})
+    titles: dict[str, str] = {}
+    seen = 0
+    for raw in bead_ids or []:
+        bid = str(raw or "").strip()
+        if not bid or bid in titles:
+            continue
+        seen += 1
+        if seen > max(1, int(limit)):
+            break
+        hit = beads.get(bid)
+        if isinstance(hit, dict):
+            title = str(hit.get("title") or "").strip()
+            if title:
+                titles[bid] = title
+    return {"ok": True, "titles": titles}
+
+
 def inspect_bead_hydration(
     *,
     root: Optional[str] = None,

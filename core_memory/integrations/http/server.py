@@ -2112,6 +2112,22 @@ async def memory_inspect_state(
     return out
 
 
+@app.get("/v1/beads/titles")
+async def bead_titles_endpoint(
+    ids: str = "",
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Batch bead-title projection for provenance labels (read-only)."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory.integrations.api import bead_titles
+
+    id_list = [s.strip() for s in str(ids or "").split(",") if s.strip()]
+    return bead_titles(root=_resolve_root(root, x_tenant_id), bead_ids=id_list)
+
+
 @app.get("/v1/memory/inspect/beads/{bead_id}")
 async def memory_inspect_bead(
     bead_id: str,

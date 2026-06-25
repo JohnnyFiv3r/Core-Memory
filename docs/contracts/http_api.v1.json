@@ -101,6 +101,16 @@
     },
     {
       "method": "GET",
+      "path": "/v1/beads/titles",
+      "authRequired": "conditional",
+      "requestSchema": "query params",
+      "requiredFields": [],
+      "response": {"ok": "bool", "titles": "object"},
+      "notes": ["Read-only batch bead-title projection (comma-separated ids); missing/untitled/removed ids are omitted so callers fall back to the raw id."],
+      "errors": ["401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "GET",
       "path": "/v1/memory/inspect/beads/{bead_id}",
       "authRequired": "conditional",
       "requestSchema": "path + query params",
