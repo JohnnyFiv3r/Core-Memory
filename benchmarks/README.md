@@ -9,6 +9,8 @@ This package contains in-repo benchmark tooling for long-conversation memory qua
 - `locomo_like/` — LOCOMO-shaped local harness and fixture pack (semantic QA)
 - `causal/` — causal-chain reconstruction harness with adversarial distractors
   (edge precision/recall, grounding, root-cause accuracy, distractor survival)
+- `causal_continuity/` — suite-level causal-continuity report harness; PR1
+  compares T1 Core Memory causal traversal against lexical/similarity baselines
 
 ## Quick start
 
@@ -34,6 +36,12 @@ Run the causal-chain reconstruction benchmark:
 
 ```bash
 python -m benchmarks.causal.runner --subset full
+```
+
+Run the causal-continuity PR1 strategy matrix:
+
+```bash
+python -m benchmarks.causal_continuity.runner --subset full
 ```
 
 ## Design notes
