@@ -1,0 +1,93 @@
+{
+  "schema": "causal_continuity.t4_fixture.v1",
+  "id": "longitudinal_continuity_self_model_stability",
+  "description": "Small deterministic longitudinal slice that verifies Dreamer-backed cross-session continuity lift, grounded self-model stability, and persistent goal threads.",
+  "since": "30d",
+  "targets": {
+    "min_continuity_lift": 0.01,
+    "max_self_model_drift_score": 0,
+    "min_goal_thread_persistence_rate": 1.0
+  },
+  "beads": [
+    {
+      "key": "rollout_policy",
+      "type": "decision",
+      "title": "Rollout policy",
+      "summary": ["Use canary-first rollout for risky deployments."],
+      "session_id": "t4-session-a",
+      "source_turn_ids": ["t4-a-1"],
+      "incident_keys": ["deploy-risk"],
+      "topics": ["deployment", "risk"]
+    },
+    {
+      "key": "cross_session_lesson",
+      "type": "lesson",
+      "title": "Cross-session rollout lesson",
+      "summary": ["The canary-first rollout lesson transfers to the next deployment review."],
+      "session_id": "t4-session-b",
+      "source_turn_ids": ["t4-b-1"],
+      "incident_keys": ["deploy-risk"],
+      "topics": ["deployment", "risk"]
+    },
+    {
+      "key": "same_session_outcome",
+      "type": "outcome",
+      "title": "Same-session staged rollout outcome",
+      "summary": ["The staged rollout caught a regression before broad release."],
+      "session_id": "t4-session-a",
+      "source_turn_ids": ["t4-a-2"],
+      "topics": ["deployment", "outcome"]
+    },
+    {
+      "key": "identity_evidence",
+      "type": "outcome",
+      "title": "Continuity practice evidence",
+      "summary": ["Reviewed behavior shows continuity-sensitive memory use without ungrounded identity edits."],
+      "session_id": "t4-session-c",
+      "source_turn_ids": ["t4-c-1"],
+      "topics": ["identity", "continuity"]
+    }
+  ],
+  "dreamer_candidates": [
+    {
+      "source_key": "rollout_policy",
+      "target_key": "same_session_outcome",
+      "relationship": "reinforces",
+      "novelty": 0.4,
+      "grounding": 0.7,
+      "confidence": 0.6,
+      "decision": "accept",
+      "apply": false
+    },
+    {
+      "source_key": "rollout_policy",
+      "target_key": "cross_session_lesson",
+      "relationship": "transferable_lesson",
+      "novelty": 0.8,
+      "grounding": 0.9,
+      "confidence": 0.8,
+      "structural_signals": [{"name": "transferability_cross_scope", "weight": 0.2}],
+      "decision": "accept",
+      "apply": true
+    }
+  ],
+  "downstream_recall_bead_keys": ["rollout_policy"],
+  "soul_updates": [
+    {
+      "target_file": "IDENTITY.md",
+      "entry_key": "Continuity Practice",
+      "content": "We preserve continuity claims only when grounded in reviewed behavior evidence.",
+      "epistemic_status": "endorsed",
+      "evidence_bead_keys": ["identity_evidence"]
+    }
+  ],
+  "goals": [
+    {
+      "goal_id": "t4-maintain-continuity",
+      "title": "Maintain longitudinal continuity",
+      "statement": "Keep a reviewed continuity thread alive across sessions.",
+      "success_criteria": ["Cross-session Dreamer structure remains reviewable.", "Identity updates stay grounded."],
+      "approve": true
+    }
+  ]
+}

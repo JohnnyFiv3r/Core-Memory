@@ -5,7 +5,9 @@ Status: causal-continuity suite harness
 This package composes construct-valid causal-continuity benchmark tasks into a
 single report. It wires the existing T1 causal-chain reconstruction benchmark
 into a strategy matrix and adds a T2 calibration-reliability task over the
-shipped myelination calibration meter plus a T3 temporal state-selection task.
+shipped myelination calibration meter, a T3 temporal state-selection task, and a
+T4 longitudinal continuity task over Dreamer lift, self-model drift, and goal
+thread persistence.
 
 ## T1 Strategies
 
@@ -51,6 +53,21 @@ Metrics:
 - Contradiction-surfaced rate: conflicts remain visible instead of being
   silently flattened.
 
+## T4 Longitudinal Continuity
+
+T4 seeds a deterministic multi-session store through Core Memory write and
+review paths, then scores the existing longitudinal and self-model quality
+meters:
+
+- Continuity lift: `core_with_dreamer_vs_no_memory_lift` from
+  `longitudinal_benchmark_v2()`.
+- Self-model drift score/status from `compute_self_model_drift()`.
+- Goal-thread persistence rate from current Goal Beads.
+
+The fixture requires one accepted/applied structural Dreamer candidate, a
+grounded endorsed identity revision, and a reviewed goal thread that stays
+active across the run.
+
 ## Quick Start
 
 Run the full suite:
@@ -77,6 +94,12 @@ Run only the T3 temporal state-selection task:
 python -m benchmarks.causal_continuity.runner --tasks t3
 ```
 
+Run only the T4 longitudinal continuity task:
+
+```bash
+python -m benchmarks.causal_continuity.runner --tasks t4
+```
+
 Emit a suite report:
 
 ```bash
@@ -94,10 +117,14 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   high-band usefulness, sample count, and pass/fail.
 - `headlines.t3_temporal_state_selection` — correct-state, as-of,
   supersession, and contradiction-surfacing rates.
+- `headlines.t4_longitudinal_continuity` — continuity lift, self-model drift,
+  goal-thread persistence, and applied structural candidate count.
 - `tasks.t1_causal_chain_reconstruction.strategy_matrix` — compact per-strategy
   rows for table generation.
 - `tasks.t2_calibration_reliability.metrics` — scored calibration metrics.
 - `tasks.t3_temporal_state_selection.metrics` — scored temporal state-selection
   metrics.
+- `tasks.t4_longitudinal_continuity.metrics` — scored longitudinal continuity,
+  self-model drift, and goal-thread persistence metrics.
 - `tasks.t1_causal_chain_reconstruction.strategy_reports` — the full existing
   causal benchmark report for each strategy.

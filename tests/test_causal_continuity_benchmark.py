@@ -9,6 +9,7 @@ from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks,
 from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
 from benchmarks.causal_continuity.t2 import run_t2_calibration
 from benchmarks.causal_continuity.t3 import run_t3_temporal_state
+from benchmarks.causal_continuity.t4 import run_t4_longitudinal_continuity
 
 _HERE = Path(__file__).resolve().parent.parent / "benchmarks" / "causal"
 _FIXTURES = _HERE / "fixtures"
@@ -29,10 +30,10 @@ class TestCausalContinuityT1(unittest.TestCase):
             _parse_strategies("unknown")
 
     def test_parse_tasks(self):
-        self.assertEqual(["t1", "t2", "t3"], _parse_tasks("all"))
+        self.assertEqual(["t1", "t2", "t3", "t4"], _parse_tasks("all"))
         self.assertEqual(["t2"], _parse_tasks("t2"))
         with self.assertRaises(ValueError):
-            _parse_tasks("t4")
+            _parse_tasks("t5")
 
     def test_t1_baseline_matrix_reports_faithful_strategy_rows(self):
         report = run_t1_matrix(
@@ -159,6 +160,41 @@ class TestCausalContinuityT1(unittest.TestCase):
         text = render_summary(report)
         self.assertIn("T3 temporal state selection", text)
         self.assertIn("supersession=", text)
+
+    def test_t4_longitudinal_continuity_scores_lift_drift_and_goal_persistence(self):
+        report = run_t4_longitudinal_continuity()
+
+        self.assertEqual("causal_continuity.t4_longitudinal_continuity.v1", report["schema_version"])
+        self.assertEqual("t4_longitudinal_continuity", report["task_id"])
+        self.assertTrue(report["metadata"]["faithfulness"]["is_faithful"])
+        self.assertTrue(report["pass"], report)
+
+        metrics = report["metrics"]
+        self.assertGreater(float(metrics["continuity_lift"]), 0.0)
+        self.assertEqual(0, metrics["self_model_drift_score"])
+        self.assertEqual("healthy", metrics["self_model_drift_status"])
+        self.assertEqual(1.0, metrics["goal_thread_persistence_rate"])
+        self.assertGreaterEqual(metrics["accepted_applied_structural_candidates"], 1)
+
+    def test_suite_report_includes_t4_headlines(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=["bm25"],
+            tasks=["t4"],
+            subset="local",
+            limit=1,
+        )
+
+        self.assertEqual("causal_continuity_report.v1", report["schema_version"])
+        self.assertIn("t4_longitudinal_continuity", report["tasks"])
+        self.assertNotIn("t1_causal_chain_reconstruction", report["tasks"])
+        self.assertIn("t4:longitudinal_continuity", report["faithfulness"]["by_scope"])
+        self.assertTrue(report["headlines"]["t4_longitudinal_continuity"]["pass"])
+
+        text = render_summary(report)
+        self.assertIn("T4 longitudinal continuity", text)
+        self.assertIn("goal_persistence=", text)
 
 
 if __name__ == "__main__":
