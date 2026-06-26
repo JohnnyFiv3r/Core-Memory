@@ -21,7 +21,26 @@ from benchmarks.causal.runner import (
 from benchmarks.causal.schema import CausalCase, CausalGold, build_cases
 from benchmarks.contracts import BenchmarkShortcutFlags
 
-_SUPPORTED_STRATEGIES = ("core_memory_full", "bm25", "similarity_only")
+_SUPPORTED_STRATEGIES = (
+    "core_memory_full",
+    "bm25",
+    "similarity_only",
+    "dense_vector",
+    "long_context_no_memory",
+    "external_memory_adapter",
+)
+_UNAVAILABLE_BASELINES: dict[str, dict[str, str]] = {
+    "long_context_no_memory": {
+        "baseline_kind": "long_context_no_memory",
+        "availability": "requires_llm_context_window_adapter",
+        "reason": "long_context_no_memory_adapter_not_configured",
+    },
+    "external_memory_adapter": {
+        "baseline_kind": "external_memory_adapter",
+        "availability": "requires_external_memory_adapter",
+        "reason": "external_memory_adapter_not_configured",
+    },
+}
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 
 
@@ -127,6 +146,36 @@ def _similarity_scores(query: str, docs: list[tuple[str, str, str]]) -> dict[str
     return scores
 
 
+def _unavailable_strategy_report(*, strategy: str, subset: str) -> dict[str, Any]:
+    info = dict(_UNAVAILABLE_BASELINES[strategy])
+    flags = _shortcut_block()
+    reason = str(info.get("reason") or "baseline_unavailable")
+    metadata = {
+        "runner": "causal_continuity.t1",
+        "task_id": "t1_causal_chain_reconstruction",
+        "strategy": strategy,
+        "status": "unavailable",
+        "baseline_kind": str(info.get("baseline_kind") or strategy),
+        "availability": str(info.get("availability") or "unavailable"),
+        "unavailable_reason": reason,
+        "uses_causal_traversal": False,
+        "leaderboard_claim": False,
+        "subset": subset,
+        "case_count": 0,
+        "commit": _repo_commit(),
+        "faithfulness": flags,
+        "shortcut_flags": flags,
+        "notes": [
+            "baseline_row_declared",
+            "not_executed",
+            "no_causal_edges_used_for_ranking",
+        ],
+    }
+    report = build_causal_report(metadata=metadata, case_results=[])
+    report["warnings"] = sorted(set(list(report.get("warnings") or []) + [reason]))
+    return report
+
+
 def _ranked_payload(
     *,
     case: CausalCase,
@@ -179,7 +228,7 @@ def _ranked_payload(
 def run_baseline_case(*, case: CausalCase, gold: CausalGold, strategy: str) -> dict[str, Any]:
     if strategy == "bm25":
         score_fn = _bm25_scores
-    elif strategy == "similarity_only":
+    elif strategy in {"similarity_only", "dense_vector"}:
         score_fn = _similarity_scores
     else:
         raise ValueError(f"unsupported_t1_baseline_strategy:{strategy}")
@@ -224,25 +273,44 @@ def run_t1_strategy(
     if strategy not in _SUPPORTED_STRATEGIES:
         raise ValueError(f"unsupported_t1_strategy:{strategy}")
 
+    if strategy in _UNAVAILABLE_BASELINES:
+        return _unavailable_strategy_report(strategy=strategy, subset=subset)
+
     if strategy == "core_memory_full":
         rows = [dict(run_core_memory_case(case=case, gold=gold), strategy=strategy) for case, gold in pairs]
         baseline_kind = "causal_memory"
+        status = "completed"
+        availability = "executed"
+        uses_causal_traversal = True
         notes = ["public_write_path", "causal_traversal", "adversarial_distractors"]
     else:
         rows = [run_baseline_case(case=case, gold=gold, strategy=strategy) for case, gold in pairs]
-        baseline_kind = "lexical" if strategy == "bm25" else "similarity_proxy"
+        baseline_kind = {
+            "bm25": "lexical",
+            "similarity_only": "similarity_proxy",
+            "dense_vector": "dense_vector_proxy",
+        }.get(strategy, "baseline")
+        status = "completed" if strategy != "dense_vector" else "proxy_executed"
+        availability = "executed" if strategy != "dense_vector" else "local_deterministic_proxy"
+        uses_causal_traversal = False
         notes = [
             "public_write_path_materialization",
             "no_causal_edges_used_for_ranking",
             "adversarial_distractors",
         ]
+        if strategy == "dense_vector":
+            notes.append("deterministic_similarity_proxy_for_dense_vector_row")
 
     flags = _shortcut_block()
     metadata = {
         "runner": "causal_continuity.t1",
         "task_id": "t1_causal_chain_reconstruction",
         "strategy": strategy,
+        "status": status,
         "baseline_kind": baseline_kind,
+        "availability": availability,
+        "uses_causal_traversal": bool(uses_causal_traversal),
+        "leaderboard_claim": False,
         "subset": subset,
         "case_count": len(rows),
         "commit": _repo_commit(),
@@ -254,11 +322,18 @@ def run_t1_strategy(
 
 
 def _strategy_matrix_row(report: dict[str, Any]) -> dict[str, Any]:
+    meta = dict(report.get("metadata") or {})
     totals = dict(report.get("totals") or {})
     cm = dict(report.get("causal_metrics") or {})
     ds = dict(report.get("distractor_survival") or {})
     lat = dict(report.get("latency_ms") or {})
     return {
+        "status": str(meta.get("status") or "completed"),
+        "baseline_kind": str(meta.get("baseline_kind") or ""),
+        "availability": str(meta.get("availability") or ""),
+        "unavailable_reason": str(meta.get("unavailable_reason") or ""),
+        "uses_causal_traversal": bool(meta.get("uses_causal_traversal")),
+        "leaderboard_claim": bool(meta.get("leaderboard_claim")),
         "cases": int(totals.get("cases") or 0),
         "pass": int(totals.get("pass") or 0),
         "accuracy": float(totals.get("accuracy") or 0.0),

@@ -92,6 +92,7 @@ def run_suite(
         "pr4_t4_longitudinal_continuity",
         "pr5_t5_thread_fidelity",
         "pr6_ablation_matrix",
+        "pr8_baseline_completion",
         "causal_survival_rate_headline",
         "faithfulness_flags_reported",
     ]

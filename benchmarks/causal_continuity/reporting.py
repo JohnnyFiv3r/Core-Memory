@@ -19,6 +19,14 @@ def _extract_t1_headlines(t1_report: dict[str, Any]) -> dict[str, Any]:
             name: float(row.get("edge_f1_mean") or 0.0)
             for name, row in matrix.items()
         },
+        "status_by_strategy": {
+            name: str(row.get("status") or "completed")
+            for name, row in matrix.items()
+        },
+        "availability_by_strategy": {
+            name: str(row.get("availability") or "")
+            for name, row in matrix.items()
+        },
     }
 
 
@@ -196,12 +204,15 @@ def render_summary(report: dict[str, Any]) -> str:
     if t1:
         lines.append("- T1 causal-chain reconstruction:")
         for name, row in sorted(matrix.items()):
+            status = str(row.get("status") or "completed")
+            status_suffix = "" if status == "completed" else f"  status={status}"
             lines.append(
                 "  - "
                 f"{name}: CSR={float(row.get('causal_survival_rate') or 0.0):.4f}  "
                 f"root={float(row.get('root_cause_accuracy') or 0.0):.4f}  "
                 f"edge_f1={float(row.get('edge_f1_mean') or 0.0):.4f}  "
                 f"cases={int(row.get('cases') or 0)}"
+                f"{status_suffix}"
             )
     if t2:
         metrics = dict(t2.get("metrics") or {})

@@ -11,7 +11,7 @@ package can support a paper-grade claim.
 
 | Area | Shipped | Remaining publishable gap |
 |---|---|---|
-| T1 causal-chain reconstruction | `benchmarks.causal_continuity.t1` strategy matrix with Core Memory full, BM25, and similarity-only rows | Add dense-vector, long-context/no-memory, and external-adapter comparator coverage or explicit unavailable status rows |
+| T1 causal-chain reconstruction | `benchmarks.causal_continuity.t1` strategy matrix with Core Memory full, BM25, similarity-only, dense-vector proxy, long-context/no-memory, and external-adapter rows | Replace unavailable/proxy comparator rows with executed adapters when publishable runs are available |
 | T2 calibration reliability | Scored task over effective confidence, Spearman rho, ECE, Brier, and high-band gate | Include in committed report artifact and repeat-run evidence |
 | T3 temporal state selection | Scored as-of, supersession, and contradiction-surfacing task | Include in committed report artifact and repeat-run evidence |
 | T4 longitudinal continuity | Scored continuity lift, self-model drift, and goal persistence task | Include in committed report artifact and repeat-run evidence |
@@ -50,8 +50,8 @@ Goal: make the T1 comparison set explicit enough for paper tables.
 
 Scope:
 
-- Add comparator rows for dense-vector retrieval, long-context/no-memory, and
-  external memory adapter baselines.
+- Add stable comparator rows for dense-vector retrieval, long-context/no-memory,
+  and external memory adapter baselines.
 - Keep CI/local operation deterministic: unavailable credentials or backends
   should produce `status: unavailable` with a reason, not a silent green result.
 - Preserve current BM25 and similarity-only rows as local baselines.

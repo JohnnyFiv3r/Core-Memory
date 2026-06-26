@@ -86,9 +86,10 @@ agent-judged associations), queried via `recall(intent="causal")`; the runner re
 `root_cause_attribution.causal_paths[].edges[]` to recover the traversed edges.
 - Per-case: `edge_precision/recall/f1`, `root_cause_correct`, `grounding_full`,
   `attribution_depth`, `distractor_survived`.
-- Aggregate headline: Causal Survival Rate across Core Memory, BM25, and
-  similarity-only rows. Dense-vector, long-context/no-memory, and external
-  adapter comparator rows remain closeout work.
+- Aggregate headline: Causal Survival Rate across Core Memory, BM25,
+  similarity-only, dense-vector proxy, long-context/no-memory, and external
+  adapter comparator rows. Rows that are not executable locally carry explicit
+  `status: unavailable` rather than being silently omitted.
 
 ### T2 — Calibration reliability  (C2) · **implemented: harness slice**
 The suite-level T2 task now seeds histories with known useful and misleading
@@ -263,7 +264,8 @@ closeout, tracked in `docs/eval/causal-continuity-closeout-plan.md`.
 
 Harness state:
 
-- [x] T1 CSR strategy matrix: Core Memory full, BM25, and similarity-only rows.
+- [x] T1 CSR strategy matrix: Core Memory full, BM25, similarity-only,
+  dense-vector proxy, long-context/no-memory, and external-adapter rows.
 - [x] T2 calibration task: scored rho/ECE/Brier over effective confidence.
 - [x] T3 as-of/supersession scoring task.
 - [x] T4 longitudinal lift + drift harness slice.
@@ -274,8 +276,8 @@ Harness state:
 
 Publishable evidence closeout:
 
-- [ ] Baseline completion: dense-vector, long-context/no-memory, and external
-  adapter comparator rows or explicit unavailable states.
+- [ ] Baseline completion: replace unavailable/proxy comparator rows with actual
+  adapter-backed runs where publishable comparison claims require them.
 - [ ] True ablation runs: no `needs_runtime_toggle` rows for minimum mechanism
   claims.
 - [ ] Real-data adapter completion: LongMemEval loader plus external-corpus run
