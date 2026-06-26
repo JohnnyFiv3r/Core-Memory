@@ -21,6 +21,12 @@ from benchmarks.causal.runner import (
 )
 from benchmarks.causal.schema import CausalCase, CausalGold, build_cases
 from benchmarks.contracts import BenchmarkShortcutFlags
+from benchmarks.causal_continuity.command_adapters import (
+    CommandAdapterError,
+    T1_ADAPTER_REQUEST_SCHEMA,
+    normalize_t1_adapter_response,
+    run_t1_command_adapter,
+)
 
 _SUPPORTED_STRATEGIES = (
     "core_memory_full",
@@ -159,21 +165,30 @@ def _long_context_proxy_scores(query: str, docs: list[tuple[str, str, str]]) -> 
     return scores
 
 
-def _unavailable_strategy_report(*, strategy: str, subset: str) -> dict[str, Any]:
-    info = dict(_UNAVAILABLE_BASELINES[strategy])
+def _unavailable_strategy_report(
+    *,
+    strategy: str,
+    subset: str,
+    reason: str | None = None,
+    baseline_kind: str | None = None,
+    availability: str | None = None,
+    execution_mode: str = "not_configured",
+    adapter_name: str = "",
+) -> dict[str, Any]:
+    info = dict(_UNAVAILABLE_BASELINES.get(strategy) or {})
     flags = _shortcut_block()
-    reason = str(info.get("reason") or "baseline_unavailable")
+    reason_final = str(reason or info.get("reason") or "baseline_unavailable")
     metadata = {
         "runner": "causal_continuity.t1",
         "task_id": "t1_causal_chain_reconstruction",
         "strategy": strategy,
         "status": "unavailable",
-        "baseline_kind": str(info.get("baseline_kind") or strategy),
-        "availability": str(info.get("availability") or "unavailable"),
-        "unavailable_reason": reason,
-        "execution_mode": "not_configured",
+        "baseline_kind": str(baseline_kind or info.get("baseline_kind") or strategy),
+        "availability": str(availability or info.get("availability") or "unavailable"),
+        "unavailable_reason": reason_final,
+        "execution_mode": execution_mode,
         "adapter_status": "unavailable",
-        "adapter_name": "",
+        "adapter_name": adapter_name,
         "uses_causal_traversal": False,
         "leaderboard_claim": False,
         "subset": subset,
@@ -188,8 +203,100 @@ def _unavailable_strategy_report(*, strategy: str, subset: str) -> dict[str, Any
         ],
     }
     report = build_causal_report(metadata=metadata, case_results=[])
+    report["warnings"] = sorted(set(list(report.get("warnings") or []) + [reason_final]))
+    return report
+
+
+def _failed_strategy_report(
+    *,
+    strategy: str,
+    subset: str,
+    reason: str,
+    baseline_kind: str,
+    execution_mode: str,
+    adapter_name: str = "command_adapter",
+) -> dict[str, Any]:
+    flags = _shortcut_block()
+    metadata = {
+        "runner": "causal_continuity.t1",
+        "task_id": "t1_causal_chain_reconstruction",
+        "strategy": strategy,
+        "status": "failed",
+        "baseline_kind": baseline_kind,
+        "availability": "configured_adapter_failed",
+        "unavailable_reason": "",
+        "failure_reason": reason,
+        "execution_mode": execution_mode,
+        "adapter_status": "failed",
+        "adapter_name": adapter_name,
+        "uses_causal_traversal": False,
+        "leaderboard_claim": False,
+        "subset": subset,
+        "case_count": 0,
+        "commit": _repo_commit(),
+        "faithfulness": flags,
+        "shortcut_flags": flags,
+        "notes": [
+            "adapter_configured",
+            "adapter_execution_failed",
+            "no_causal_edges_used_for_ranking",
+        ],
+    }
+    report = build_causal_report(metadata=metadata, case_results=[])
     report["warnings"] = sorted(set(list(report.get("warnings") or []) + [reason]))
     return report
+
+
+def _rankable_docs(case: CausalCase, key_to_id: dict[str, str]) -> list[tuple[str, str, str]]:
+    docs: list[tuple[str, str, str]] = []
+    for row in case.beads:
+        key = str(row.get("key") or "").strip()
+        bid = key_to_id.get(key, "")
+        if key and bid:
+            docs.append((key, bid, _bead_text(row)))
+    return docs
+
+
+def _adapter_documents(case: CausalCase) -> list[dict[str, Any]]:
+    docs: list[dict[str, Any]] = []
+    for row in case.beads:
+        key = str(row.get("key") or "").strip()
+        if not key:
+            continue
+        docs.append({
+            "key": key,
+            "title": str(row.get("title") or ""),
+            "text": _bead_text(row),
+            "metadata": {
+                "type": str(row.get("type") or "context"),
+                "session_id": str(row.get("session_id") or "main"),
+                "source_turn_ids": list(row.get("source_turn_ids") or []),
+                "entities": list(row.get("entities") or []),
+                "topics": list(row.get("topics") or []),
+                "tags": list(row.get("tags") or []),
+            },
+        })
+    return docs
+
+
+def _adapter_request(*, case: CausalCase, strategy: str) -> dict[str, Any]:
+    return {
+        "schema_version": T1_ADAPTER_REQUEST_SCHEMA,
+        "task_id": "t1_causal_chain_reconstruction",
+        "strategy": strategy,
+        "case_id": case.id,
+        "query": case.query,
+        "intent": case.intent,
+        "bucket_labels": list(case.bucket_labels),
+        "k": max(1, int(case.k)),
+        "documents": _adapter_documents(case),
+        "constraints": {
+            "includes_causal_edges": False,
+            "includes_gold_labels": False,
+            "uses_causal_traversal": False,
+            "leaderboard_claim": False,
+        },
+    }
 
 
 def _ranked_payload(
@@ -198,12 +305,7 @@ def _ranked_payload(
     key_to_id: dict[str, str],
     score_fn: Callable[[str, list[tuple[str, str, str]]], dict[str, float]],
 ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-    docs: list[tuple[str, str, str]] = []
-    for row in case.beads:
-        key = str(row.get("key") or "").strip()
-        bid = key_to_id.get(key, "")
-        if key and bid:
-            docs.append((key, bid, _bead_text(row)))
+    docs = _rankable_docs(case, key_to_id)
 
     scores = score_fn(case.query, docs)
     ranked = sorted(
@@ -239,6 +341,63 @@ def _ranked_payload(
         "warnings": [],
     }
     return payload, evidence
+
+
+def _adapter_payload(
+    *,
+    case: CausalCase,
+    key_to_id: dict[str, str],
+    response: dict[str, Any],
+) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+    normalized = normalize_t1_adapter_response(response)
+    docs_by_key = {key: (bid, text) for key, bid, text in _rankable_docs(case, key_to_id)}
+    warnings = list(normalized.get("warnings") or [])
+    unknown_count = 0
+
+    evidence: list[dict[str, Any]] = []
+    root_causes: list[dict[str, Any]] = []
+    for item in normalized.get("ranked_keys") or []:
+        key = str(item.get("key") or "").strip()
+        if key not in docs_by_key:
+            unknown_count += 1
+            continue
+        bid, text = docs_by_key[key]
+        rank = len(evidence) + 1
+        if rank > max(1, int(case.k)):
+            break
+        score = round(float(item.get("score") or 0.0), 6)
+        row = {
+            "bead_id": bid,
+            "title": key,
+            "content_excerpt": text[:240],
+            "score": score,
+            "rank": rank,
+        }
+        reason = str(item.get("reason") or "").strip()
+        if reason:
+            row["reason"] = reason[:240]
+        evidence.append(row)
+        root_causes.append({
+            "bead_id": bid,
+            "score": score,
+            "rank": rank,
+        })
+
+    if unknown_count:
+        warnings.append(f"adapter_returned_unknown_keys:{unknown_count}")
+    if not evidence:
+        raise CommandAdapterError("adapter_response_no_known_keys")
+
+    payload = {
+        "evidence": evidence,
+        "root_cause_attribution": {
+            "root_causes": root_causes,
+            "causal_paths": [],
+        },
+        "tier_path": ["adapter_command", "graph_blind_ranking"],
+        "warnings": sorted(set(warnings)),
+    }
+    return payload, evidence, normalized
 
 
 def run_baseline_case(*, case: CausalCase, gold: CausalGold, strategy: str) -> dict[str, Any]:
@@ -284,12 +443,82 @@ def run_baseline_case(*, case: CausalCase, gold: CausalGold, strategy: str) -> d
     }
 
 
+def run_command_adapter_case(
+    *,
+    case: CausalCase,
+    gold: CausalGold,
+    strategy: str,
+    command: str | list[str] | tuple[str, ...],
+) -> dict[str, Any]:
+    t0 = time.perf_counter()
+    td = tempfile.mkdtemp(prefix=f"cm-t1-{strategy}-command-")
+    try:
+        with _env_overrides(_benchmark_env()):
+            t_setup = time.perf_counter()
+            key_to_id = _materialize_case(td, case)
+            setup_ms = (time.perf_counter() - t_setup) * 1000.0
+
+            t_query = time.perf_counter()
+            response = run_t1_command_adapter(
+                command=command,
+                request=_adapter_request(case=case, strategy=strategy),
+            )
+            payload, _evidence, normalized = _adapter_payload(
+                case=case,
+                key_to_id=key_to_id,
+                response=response,
+            )
+            retrieval_ms = (time.perf_counter() - t_query) * 1000.0
+
+        metrics = _evaluate_case(case=case, gold=gold, payload=payload, key_to_id=key_to_id)
+    finally:
+        shutil.rmtree(td, ignore_errors=True)
+
+    return {
+        "case_id": case.id,
+        "bucket_labels": list(case.bucket_labels),
+        "query": case.query,
+        "expected_grounding": gold.expected_grounding,
+        "strategy": strategy,
+        "write_setup_ms": round(setup_ms, 3),
+        "retrieval_ms": round(retrieval_ms, 3),
+        "tier_path": list(payload.get("tier_path") or []),
+        "warnings": list(payload.get("warnings") or []),
+        "adapter_status": "completed",
+        "adapter_name": str(normalized.get("adapter_name") or "command_adapter"),
+        "adapter_response_schema": str(normalized.get("schema_version") or ""),
+        "execution_mode": "adapter_command",
+        "uses_causal_traversal": False,
+        "leaderboard_claim": False,
+        **metrics,
+        "latency_ms": round((time.perf_counter() - t0) * 1000.0, 3),
+    }
+
+
+def _configured_command(
+    value: str | list[str] | tuple[str, ...] | None,
+    env_name: str,
+) -> str | list[str]:
+    if isinstance(value, (list, tuple)):
+        return [str(part) for part in value if str(part).strip()]
+    return str(value or os.environ.get(env_name) or "").strip()
+
+
+def _has_command(value: str | list[str] | tuple[str, ...]) -> bool:
+    if isinstance(value, list):
+        return bool(value)
+    return bool(str(value or "").strip())
+
+
 def run_t1_strategy(
     *,
     pairs: list[tuple[CausalCase, CausalGold]],
     strategy: str,
     subset: str,
     external_memory_adapter: str | None = None,
+    external_memory_command: str | list[str] | tuple[str, ...] | None = None,
+    long_context_adapter: str | None = None,
+    long_context_command: str | list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     if strategy not in _SUPPORTED_STRATEGIES:
         raise ValueError(f"unsupported_t1_strategy:{strategy}")
@@ -297,6 +526,18 @@ def run_t1_strategy(
     configured_external_adapter = str(
         external_memory_adapter or os.environ.get("CORE_MEMORY_BENCHMARK_EXTERNAL_MEMORY_ADAPTER") or ""
     ).strip().lower()
+    configured_external_command = _configured_command(
+        external_memory_command,
+        "CORE_MEMORY_BENCHMARK_EXTERNAL_MEMORY_COMMAND",
+    )
+    configured_long_context_adapter = str(
+        long_context_adapter or os.environ.get("CORE_MEMORY_BENCHMARK_LONG_CONTEXT_ADAPTER") or ""
+    ).strip().lower()
+    configured_long_context_command = _configured_command(
+        long_context_command,
+        "CORE_MEMORY_BENCHMARK_LONG_CONTEXT_COMMAND",
+    )
+
     if strategy == "external_memory_adapter" and configured_external_adapter in {"fake", "fake_external_memory", "deterministic_fake"}:
         rows = [run_baseline_case(case=case, gold=gold, strategy=strategy) for case, gold in pairs]
         baseline_kind = "external_memory_adapter"
@@ -309,6 +550,92 @@ def run_t1_strategy(
         notes = [
             "external_memory_adapter_contract_exercised",
             "fake_adapter_for_offline_tests",
+            "no_causal_edges_used_for_ranking",
+        ]
+    elif strategy == "external_memory_adapter" and (
+        configured_external_adapter in {"command", "command_adapter"} or _has_command(configured_external_command)
+    ):
+        if not _has_command(configured_external_command):
+            return _unavailable_strategy_report(
+                strategy=strategy,
+                subset=subset,
+                reason="external_memory_command_not_configured",
+                baseline_kind="external_memory_adapter",
+                availability="requires_external_memory_command",
+                execution_mode="not_configured",
+                adapter_name="command_adapter",
+            )
+        try:
+            rows = [
+                run_command_adapter_case(
+                    case=case,
+                    gold=gold,
+                    strategy=strategy,
+                    command=configured_external_command,
+                )
+                for case, gold in pairs
+            ]
+        except CommandAdapterError as exc:
+            return _failed_strategy_report(
+                strategy=strategy,
+                subset=subset,
+                reason=str(exc),
+                baseline_kind="external_memory_adapter",
+                execution_mode="adapter_command",
+            )
+        baseline_kind = "external_memory_adapter"
+        status = "adapter_executed"
+        availability = "configured_command_adapter"
+        execution_mode = "adapter_command"
+        adapter_status = "completed"
+        adapter_name = str(rows[0].get("adapter_name") or "command_adapter") if rows else "command_adapter"
+        uses_causal_traversal = False
+        notes = [
+            "external_memory_adapter_contract_exercised",
+            "command_adapter_configured",
+            "no_causal_edges_used_for_ranking",
+        ]
+    elif strategy == "long_context_no_memory" and (
+        configured_long_context_adapter in {"command", "command_adapter"} or _has_command(configured_long_context_command)
+    ):
+        if not _has_command(configured_long_context_command):
+            return _unavailable_strategy_report(
+                strategy=strategy,
+                subset=subset,
+                reason="long_context_command_not_configured",
+                baseline_kind="long_context_provider_adapter",
+                availability="requires_long_context_command",
+                execution_mode="not_configured",
+                adapter_name="command_adapter",
+            )
+        try:
+            rows = [
+                run_command_adapter_case(
+                    case=case,
+                    gold=gold,
+                    strategy=strategy,
+                    command=configured_long_context_command,
+                )
+                for case, gold in pairs
+            ]
+        except CommandAdapterError as exc:
+            return _failed_strategy_report(
+                strategy=strategy,
+                subset=subset,
+                reason=str(exc),
+                baseline_kind="long_context_provider_adapter",
+                execution_mode="adapter_command",
+            )
+        baseline_kind = "long_context_provider_adapter"
+        status = "adapter_executed"
+        availability = "configured_command_adapter"
+        execution_mode = "adapter_command"
+        adapter_status = "completed"
+        adapter_name = str(rows[0].get("adapter_name") or "command_adapter") if rows else "command_adapter"
+        uses_causal_traversal = False
+        notes = [
+            "long_context_provider_adapter_contract_exercised",
+            "command_adapter_configured",
             "no_causal_edges_used_for_ranking",
         ]
     elif strategy in _UNAVAILABLE_BASELINES:
@@ -383,6 +710,7 @@ def _strategy_matrix_row(report: dict[str, Any]) -> dict[str, Any]:
         "baseline_kind": str(meta.get("baseline_kind") or ""),
         "availability": str(meta.get("availability") or ""),
         "unavailable_reason": str(meta.get("unavailable_reason") or ""),
+        "failure_reason": str(meta.get("failure_reason") or ""),
         "execution_mode": str(meta.get("execution_mode") or ""),
         "adapter_status": str(meta.get("adapter_status") or ""),
         "adapter_name": str(meta.get("adapter_name") or ""),
@@ -434,6 +762,9 @@ def run_t1_matrix(
     subset: str = "full",
     limit: int | None = None,
     external_memory_adapter: str | None = None,
+    external_memory_command: str | list[str] | tuple[str, ...] | None = None,
+    long_context_adapter: str | None = None,
+    long_context_command: str | list[str] | tuple[str, ...] | None = None,
 ) -> dict[str, Any]:
     pairs = _select_pairs(fixtures_dir=fixtures_dir, gold_dir=gold_dir, subset=subset, limit=limit)
     strategy_reports: dict[str, dict[str, Any]] = {}
@@ -446,6 +777,9 @@ def run_t1_matrix(
             strategy=normalized,
             subset=subset,
             external_memory_adapter=external_memory_adapter,
+            external_memory_command=external_memory_command,
+            long_context_adapter=long_context_adapter,
+            long_context_command=long_context_command,
         )
 
     return {

@@ -69,6 +69,9 @@ def run_suite(
     run_real_data_eval_smoke: bool = False,
     real_data_eval_limit: int = 1,
     external_memory_adapter: str = "",
+    external_memory_command: str = "",
+    long_context_adapter: str = "",
+    long_context_command: str = "",
     t5_judge: str = "deterministic",
 ) -> dict[str, Any]:
     selected = list(strategies or available_strategies())
@@ -86,6 +89,9 @@ def run_suite(
             subset=subset,
             limit=limit,
             external_memory_adapter=external_memory_adapter,
+            external_memory_command=external_memory_command,
+            long_context_adapter=long_context_adapter,
+            long_context_command=long_context_command,
         )
     if "t2" in selected_tasks:
         t2_report = run_t2_calibration(fixture_path=t2_fixture or default_fixture_path())
@@ -178,7 +184,10 @@ def main() -> int:
     p.add_argument("--real-data-eval-limit", type=int, default=1, help="Conversation/instance limit for --run-real-data-eval-smoke")
     p.add_argument("--locomo-corpus", default="", help="Optional path to user-supplied locomo10.json for external LoCoMo adapter readiness checks")
     p.add_argument("--longmemeval-corpus", default="", help="Optional path to user-supplied LongMemEval JSON/JSONL corpus for adapter readiness checks")
-    p.add_argument("--external-memory-adapter", default="", help="Optional external-memory T1 adapter name; 'fake' exercises the offline adapter contract")
+    p.add_argument("--external-memory-adapter", default="", help="Optional external-memory T1 adapter name; 'fake' exercises the offline adapter contract, 'command' uses --external-memory-command")
+    p.add_argument("--external-memory-command", default="", help="Optional command for the T1 external-memory adapter protocol")
+    p.add_argument("--long-context-adapter", default="", help="Optional long-context T1 adapter name; 'command' uses --long-context-command")
+    p.add_argument("--long-context-command", default="", help="Optional command for the T1 long-context/no-memory adapter protocol")
     p.add_argument("--t5-judge", default="deterministic", help="T5 answerability judge kind: deterministic, fake_llm, or llm")
     p.add_argument("--subset", choices=["local", "full"], default="full")
     p.add_argument("--limit", type=int, default=None)
@@ -211,6 +220,9 @@ def main() -> int:
         run_real_data_eval_smoke=bool(args.run_real_data_eval_smoke),
         real_data_eval_limit=int(args.real_data_eval_limit),
         external_memory_adapter=str(args.external_memory_adapter or ""),
+        external_memory_command=str(args.external_memory_command or ""),
+        long_context_adapter=str(args.long_context_adapter or ""),
+        long_context_command=str(args.long_context_command or ""),
         t5_judge=str(args.t5_judge or "deterministic"),
         locomo_corpus=(Path(args.locomo_corpus) if str(args.locomo_corpus or "").strip() else None),
         longmemeval_corpus=(Path(args.longmemeval_corpus) if str(args.longmemeval_corpus or "").strip() else None),
