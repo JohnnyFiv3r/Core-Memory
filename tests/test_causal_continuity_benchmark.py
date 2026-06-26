@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -24,6 +25,36 @@ from benchmarks.causal_continuity.t5 import run_t5_thread_fidelity
 _HERE = Path(__file__).resolve().parent.parent / "benchmarks" / "causal"
 _FIXTURES = _HERE / "fixtures"
 _GOLD = _HERE / "gold"
+
+
+def _write_t1_command_adapter(path: Path) -> Path:
+    script = r'''
+import json
+import sys
+
+request = json.load(sys.stdin)
+record_path = sys.argv[1]
+with open(record_path, "w", encoding="utf-8") as f:
+    json.dump(request, f, sort_keys=True)
+
+documents = request.get("documents") or []
+ranked = []
+for index, doc in enumerate(documents, start=1):
+    ranked.append({
+        "key": doc.get("key"),
+        "score": 1.0 / float(index),
+        "reason": "test command ranking",
+    })
+
+json.dump({
+    "schema_version": "causal_continuity.t1_adapter_response.v1",
+    "status": "completed",
+    "adapter_name": "test_command_adapter",
+    "ranked_keys": ranked,
+}, sys.stdout)
+'''
+    path.write_text(script, encoding="utf-8")
+    return path
 
 
 def _write_longmemeval_fixture(path: Path) -> Path:
@@ -162,6 +193,105 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertEqual("fake_external_memory_adapter", row["adapter_name"])
         self.assertEqual(1, row["cases"])
         self.assertFalse(row["uses_causal_traversal"])
+        self.assertFalse(row["leaderboard_claim"])
+
+    def test_t1_external_memory_command_adapter_executes_without_answer_key(self):
+        with tempfile.TemporaryDirectory() as td:
+            script = _write_t1_command_adapter(Path(td) / "adapter.py")
+            record = Path(td) / "request.json"
+
+            report = run_t1_matrix(
+                fixtures_dir=_FIXTURES,
+                gold_dir=_GOLD,
+                strategies=["external_memory_adapter"],
+                subset="local",
+                limit=1,
+                external_memory_adapter="command",
+                external_memory_command=[sys.executable, str(script), str(record)],
+            )
+
+            row = report["strategy_matrix"]["external_memory_adapter"]
+            self.assertEqual("adapter_executed", row["status"])
+            self.assertEqual("adapter_command", row["execution_mode"])
+            self.assertEqual("completed", row["adapter_status"])
+            self.assertEqual("test_command_adapter", row["adapter_name"])
+            self.assertEqual(1, row["cases"])
+            self.assertFalse(row["uses_causal_traversal"])
+            self.assertFalse(row["leaderboard_claim"])
+
+            request = json.loads(record.read_text(encoding="utf-8"))
+            self.assertEqual("causal_continuity.t1_adapter_request.v1", request["schema_version"])
+            self.assertNotIn("edges", request)
+            self.assertNotIn("gold", request)
+            self.assertFalse(request["constraints"]["includes_causal_edges"])
+            self.assertFalse(request["constraints"]["includes_gold_labels"])
+            self.assertTrue(request["documents"])
+            self.assertNotIn("bead_id", request["documents"][0])
+
+    def test_t1_long_context_command_adapter_overrides_local_proxy(self):
+        with tempfile.TemporaryDirectory() as td:
+            script = _write_t1_command_adapter(Path(td) / "adapter.py")
+            record = Path(td) / "request.json"
+
+            report = run_t1_matrix(
+                fixtures_dir=_FIXTURES,
+                gold_dir=_GOLD,
+                strategies=["long_context_no_memory"],
+                subset="local",
+                limit=1,
+                long_context_adapter="command",
+                long_context_command=[sys.executable, str(script), str(record)],
+            )
+
+            row = report["strategy_matrix"]["long_context_no_memory"]
+            self.assertEqual("adapter_executed", row["status"])
+            self.assertEqual("long_context_provider_adapter", row["baseline_kind"])
+            self.assertEqual("configured_command_adapter", row["availability"])
+            self.assertEqual("adapter_command", row["execution_mode"])
+            self.assertEqual("test_command_adapter", row["adapter_name"])
+            self.assertFalse(row["uses_causal_traversal"])
+            self.assertFalse(row["leaderboard_claim"])
+
+            request = json.loads(record.read_text(encoding="utf-8"))
+            self.assertEqual("long_context_no_memory", request["strategy"])
+            self.assertFalse(request["constraints"]["uses_causal_traversal"])
+            self.assertFalse(request["constraints"]["leaderboard_claim"])
+
+    def test_t1_command_adapter_missing_command_reports_unavailable(self):
+        report = run_t1_matrix(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=["long_context_no_memory"],
+            subset="local",
+            limit=1,
+            long_context_adapter="command",
+        )
+
+        row = report["strategy_matrix"]["long_context_no_memory"]
+        self.assertEqual("unavailable", row["status"])
+        self.assertEqual("long_context_command_not_configured", row["unavailable_reason"])
+        self.assertEqual("unavailable", row["adapter_status"])
+        self.assertEqual(0, row["cases"])
+        self.assertFalse(row["leaderboard_claim"])
+
+    def test_t1_command_adapter_failure_reports_failed_row(self):
+        report = run_t1_matrix(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=["external_memory_adapter"],
+            subset="local",
+            limit=1,
+            external_memory_adapter="command",
+            external_memory_command=[sys.executable, "-c", "import sys; sys.exit(3)"],
+        )
+
+        row = report["strategy_matrix"]["external_memory_adapter"]
+        self.assertEqual("failed", row["status"])
+        self.assertEqual("adapter_command", row["execution_mode"])
+        self.assertEqual("failed", row["adapter_status"])
+        self.assertEqual("configured_adapter_failed", row["availability"])
+        self.assertIn("adapter_command_failed:3", row["failure_reason"])
+        self.assertEqual(0, row["cases"])
         self.assertFalse(row["leaderboard_claim"])
 
     def test_suite_report_wraps_t1_with_headlines_and_faithfulness(self):

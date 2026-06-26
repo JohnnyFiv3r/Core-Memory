@@ -11,7 +11,7 @@ package can support a paper-grade claim.
 
 | Area | Shipped | Remaining publishable gap |
 |---|---|---|
-| T1 causal-chain reconstruction | `benchmarks.causal_continuity.t1` strategy matrix with Core Memory full, BM25, similarity-only, dense-vector proxy, executed long-context local proxy, and external-adapter rows | Provider-backed long-context or external-memory comparison claims require configured adapter runs |
+| T1 causal-chain reconstruction | `benchmarks.causal_continuity.t1` strategy matrix with Core Memory full, BM25, similarity-only, dense-vector proxy, executed long-context local proxy, external-adapter rows, and command-adapter execution hooks | Provider-backed long-context or external-memory comparison claims require configured adapter runs and documented external-system configuration |
 | T2 calibration reliability | Scored task over effective confidence, Spearman rho, ECE, Brier, and high-band gate in committed report artifact | None for local deterministic evidence |
 | T3 temporal state selection | Scored as-of, supersession, and contradiction-surfacing task in committed report artifact | None for local deterministic evidence |
 | T4 longitudinal continuity | Scored continuity lift, self-model drift, and goal persistence task in committed report artifact | None for local deterministic evidence |
@@ -67,8 +67,10 @@ Acceptance:
 - Existing T1 tests stay green and new tests cover unavailable-status behavior.
 
 Status: complete for local evidence. Long-context/no-memory now executes as a
-local proxy; external-memory remains unavailable unless a configured adapter is
-provided.
+local proxy by default. Both long-context and external-memory comparator rows
+can also execute a configured stdin/stdout command adapter; missing commands
+remain explicit `unavailable` rows and command failures remain explicit
+`failed` rows.
 
 ### PR-3: True Ablation Runs
 
@@ -147,8 +149,8 @@ shows stable headline metrics and stable T5 ordered top-k across five runs.
 
 ## Open Decisions
 
-- Which provider-backed long-context and external-memory adapters are worth
-  implementing for publication comparisons.
+- Which provider-backed long-context and external-memory systems are worth
+  running through the command adapter protocol for publication comparisons.
 - Whether T5 requires an external LLM judge for a future paper claim, or whether
   deterministic thread metrics remain primary and judge scoring stays secondary.
 

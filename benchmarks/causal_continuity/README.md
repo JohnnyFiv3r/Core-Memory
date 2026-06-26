@@ -21,11 +21,64 @@ The remaining paper-evidence closeout sequence is tracked in
 | `bm25` | Materializes the same histories, then ranks bead text with a deterministic lexical BM25 scorer. It does not inspect causal edges. |
 | `similarity_only` | Materializes the same histories, then ranks bead text with a deterministic token and character n-gram similarity proxy. It does not inspect causal edges. |
 | `dense_vector` | Emits the dense-vector comparator row using the deterministic local similarity proxy until an external vector baseline is configured. It is labeled `proxy_executed` and does not inspect causal edges. |
-| `long_context_no_memory` | Executes a deterministic local context-window proxy with no memory state or causal traversal. It is labeled `proxy_executed` and does not make provider-backed comparison claims. |
-| `external_memory_adapter` | Declares the external-memory comparator row as `unavailable` unless an adapter is configured. `--external-memory-adapter fake` exercises the offline contract path in tests. |
+| `long_context_no_memory` | Executes a deterministic local context-window proxy with no memory state or causal traversal. It is labeled `proxy_executed` and does not make provider-backed comparison claims. `--long-context-adapter command --long-context-command ...` runs a configured command adapter instead. |
+| `external_memory_adapter` | Declares the external-memory comparator row as `unavailable` unless an adapter is configured. `--external-memory-adapter fake` exercises the offline contract path in tests; `--external-memory-adapter command --external-memory-command ...` runs a configured command adapter. |
 
 The headline T1 metric remains **Causal Survival Rate**: in adversarial cases,
 the gold root cause must outrank every closest-text distractor.
+
+## T1 Command Adapter Protocol
+
+Configured T1 comparator commands read one JSON object from stdin and write one
+JSON object to stdout. The request is graph-blind and answer-key-free: it
+includes the query, fixture document keys, document text, and lightweight source
+metadata, but not causal edges, bead IDs, distractor labels, or gold answers.
+
+Request schema:
+
+```json
+{
+  "schema_version": "causal_continuity.t1_adapter_request.v1",
+  "task_id": "t1_causal_chain_reconstruction",
+  "strategy": "external_memory_adapter",
+  "case_id": "case-id",
+  "query": "why did the issue happen",
+  "intent": "causal",
+  "k": 8,
+  "documents": [
+    {
+      "key": "stable-fixture-key",
+      "title": "Document title",
+      "text": "Document text",
+      "metadata": {"type": "context"}
+    }
+  ],
+  "constraints": {
+    "includes_causal_edges": false,
+    "includes_gold_labels": false,
+    "uses_causal_traversal": false,
+    "leaderboard_claim": false
+  }
+}
+```
+
+Response schema:
+
+```json
+{
+  "schema_version": "causal_continuity.t1_adapter_response.v1",
+  "status": "completed",
+  "adapter_name": "my_comparator",
+  "ranked_keys": [
+    {"key": "stable-fixture-key", "score": 0.91, "reason": "optional"}
+  ],
+  "warnings": []
+}
+```
+
+Command adapter rows still carry `leaderboard_claim: false`; they prove the
+execution path and produce local comparison rows, but public external-system
+claims require an explicitly documented configured run.
 
 ## T2 Calibration
 
@@ -159,6 +212,18 @@ Run T1 with all declared comparator rows:
 python -m benchmarks.causal_continuity.runner --tasks t1 --subset local --limit 1 --strategies all
 ```
 
+Run T1 with a configured external-memory command adapter:
+
+```bash
+python -m benchmarks.causal_continuity.runner \
+  --tasks t1 \
+  --subset local \
+  --limit 1 \
+  --strategies external_memory_adapter \
+  --external-memory-adapter command \
+  --external-memory-command "python path/to/adapter.py"
+```
+
 Run only the T2 calibration task:
 
 ```bash
@@ -251,8 +316,8 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   query drift, and case count.
 - `tasks.t1_causal_chain_reconstruction.strategy_matrix` — compact per-strategy
   rows for table generation, including `status`, `availability`,
-  `execution_mode`, `adapter_status`, `adapter_name`, `uses_causal_traversal`,
-  and `leaderboard_claim`.
+  `unavailable_reason`, `failure_reason`, `execution_mode`, `adapter_status`,
+  `adapter_name`, `uses_causal_traversal`, and `leaderboard_claim`.
 - `tasks.t2_calibration_reliability.metrics` — scored calibration metrics.
 - `tasks.t3_temporal_state_selection.metrics` — scored temporal state-selection
   metrics.
