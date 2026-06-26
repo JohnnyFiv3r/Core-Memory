@@ -122,8 +122,9 @@ task scores. Given a query with a gold storyline thread + off-thread distractor 
 (did the assembled thread contain sufficient evidence to answer correctly?). Crucially,
 include "query-drift" probes: a thread that wanders to a higher-similarity but off-query
 subgraph must be penalized — the metric IR can't express. The suite-level T5 harness now
-ships a deterministic local proxy around `trace_request()` and storyline selection; the
-external LLM judge adapter remains a future extension.
+ships a deterministic local proxy around `trace_request()` and storyline selection, plus
+an optional supplemental answerability judge hook. The default local claim remains the
+deterministic thread metric.
 
 ---
 
@@ -210,8 +211,8 @@ telemetry, `observed_no_expected_drop` rows where a proxy ran but did not show t
 effect, and explicit `needs_runtime_toggle` rows for mechanisms that still require
 dedicated disabled-mode runs. `--run-ablation-toggles` is the heavier mode: it
 re-runs supported deterministic fixtures with manifest bonus, validated outcome
-feedback, and claim updates disabled, and folds the existing T1 similarity, T4
-Dreamer-off, and T5 one-shot baselines into the runtime matrix.
+feedback, claim updates, and T5 traversal disabled, and folds the existing T1
+similarity and T4 Dreamer-off baselines into the runtime matrix.
 
 ---
 
@@ -285,10 +286,10 @@ Publishable evidence closeout:
   `--run-ablation-toggles` removes `needs_runtime_toggle` rows for the current
   minimum mechanism matrix.
 - [x] Real-data adapter completion for contrast readiness: LongMemEval loader
-  plus supplied-corpus adapter-smoke paths.
+  plus supplied-corpus adapter-smoke and evaluation-smoke paths.
 - [x] Reproducibility appendix: exact commands, generated report bundle,
   repeated-run determinism notes, and dependency/degradation notes. Current
-  repeat-run result has stable headline metrics and unstable T5 ordered top-k.
+  repeat-run result has stable headline metrics and stable T5 ordered top-k.
 
 The minimum publishable core remains **T1 (CSR) + T2 (calibration) + the ablation
 matrix** with clean faithfulness flags and a dense retrieval baseline. T3-T5

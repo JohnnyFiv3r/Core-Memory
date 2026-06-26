@@ -16,6 +16,16 @@ The smoke command parses the corpus and converts instances into
 `BenchmarkConversation` objects. It does not ingest into Core Memory and does not
 make leaderboard claims.
 
+## Evaluation Smoke
+
+```bash
+python -m benchmarks.longmemeval --corpus path/to/longmemeval_s.json --limit 1 --eval-smoke --pretty
+```
+
+The evaluation smoke replays a bounded set of LongMemEval turns through Core
+Memory's lifecycle, scores answer/evidence through the adapter contract, and
+still reports `leaderboard_claim: false`.
+
 ## Supported Shape
 
 The loader expects the public LongMemEval v1 fields:

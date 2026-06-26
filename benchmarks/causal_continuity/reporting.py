@@ -285,6 +285,7 @@ def render_summary(report: dict[str, Any]) -> str:
             f"datasets={int(summary.get('dataset_count') or 0)}  "
             f"local_proxy={int(summary.get('local_proxy_count') or 0)}  "
             f"runnable={int(summary.get('runnable_count') or 0)}  "
+            f"eval_smoke={int(summary.get('external_eval_smoke_count') or 0)}  "
             f"leaderboard_claims={int(summary.get('leaderboard_claim_count') or 0)}"
         )
 

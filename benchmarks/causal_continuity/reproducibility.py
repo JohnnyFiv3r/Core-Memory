@@ -41,6 +41,11 @@ def _t5_ordered_outputs(report: dict[str, Any]) -> list[dict[str, Any]]:
     for case in list(t5.get("cases") or []):
         if not isinstance(case, dict):
             continue
+        key_by_id = {
+            str(k): str(v)
+            for k, v in dict(case.get("bead_key_by_id") or {}).items()
+            if str(k).strip() and str(v).strip()
+        }
         gold_ids = [str(x) for x in list(case.get("gold_thread_bead_ids") or [])]
         drift_ids = [str(x) for x in list(case.get("drift_thread_bead_ids") or [])]
         stable_by_id = {bid: f"gold:{i}" for i, bid in enumerate(gold_ids)}
@@ -54,22 +59,23 @@ def _t5_ordered_outputs(report: dict[str, Any]) -> list[dict[str, Any]]:
             out: list[str] = []
             for value in values:
                 bead_id = str(value or "")
-                out.append(stable_by_id.get(bead_id, "other"))
+                out.append(key_by_id.get(bead_id) or stable_by_id.get(bead_id, "other"))
             return out
 
         loop = dict(case.get("loop") or {})
         one_shot = dict(case.get("one_shot_anchor_baseline") or {})
         outputs.append({
             "case_id": str(case.get("case_id") or ""),
-            "returned_thread_order": stable_ids(list(case.get("returned_thread_bead_ids") or [])),
-            "one_shot_returned_order": stable_ids(list(one_shot.get("returned_bead_ids") or [])),
+            "returned_thread_order": list(case.get("returned_thread_keys") or stable_ids(list(case.get("returned_thread_bead_ids") or []))),
+            "one_shot_returned_order": list(one_shot.get("returned_keys") or stable_ids(list(one_shot.get("returned_bead_ids") or []))),
             "trace_steps": [
                 {
                     "step": int(step.get("step") or 0),
                     "trace_anchor_order": stable_ids(list(step.get("trace_anchor_ids") or [])),
                     "trace_order": stable_ids(list(step.get("trace_ids") or [])),
-                    "selected_storyline_id": str(
-                        (dict(step.get("selected_storyline") or {})).get("storyline_id") or ""
+                    "selected_storyline_key": "|".join(
+                        str(x)
+                        for x in list((dict(step.get("selected_storyline") or {})).get("bead_keys") or [])
                     ),
                 }
                 for step in list(loop.get("steps") or [])
@@ -118,7 +124,7 @@ def _run_local_report() -> dict[str, Any]:
     )
 
 
-def run_reproducibility_check(*, repeats: int = 3) -> dict[str, Any]:
+def run_reproducibility_check(*, repeats: int = 5) -> dict[str, Any]:
     repeats = max(2, int(repeats))
     runs: list[dict[str, Any]] = []
     warnings: set[str] = set()
@@ -179,7 +185,7 @@ def run_reproducibility_check(*, repeats: int = 3) -> dict[str, Any]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Run causal-continuity reproducibility checks")
-    p.add_argument("--repeats", type=int, default=3)
+    p.add_argument("--repeats", type=int, default=5)
     p.add_argument("--out", default="")
     p.add_argument("--pretty", action="store_true")
     p.add_argument("--require-pass", action="store_true")

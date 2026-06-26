@@ -1,6 +1,6 @@
 # Causal-Continuity Reproducibility Appendix
 
-Status: generated evidence bundle for source commit `5f2d72aa`.
+Status: generated evidence bundle for source commit `09657c12`.
 
 This appendix records the exact local commands and generated artifacts for the
 current causal-continuity benchmark package. The checked-in report is local,
@@ -9,7 +9,7 @@ external-memory leaderboard claims.
 
 ## Source
 
-- Source commit used to generate the artifacts: `5f2d72aa`
+- Source commit used to generate the artifacts: `09657c12`
 - Python: `3.14.0`
 - Platform recorded by the reproducibility report:
   `macOS-26.5.1-arm64-arm-64bit-Mach-O`
@@ -29,12 +29,13 @@ python3 -m benchmarks.causal_continuity.runner \
   --strategies all \
   --run-ablation-toggles \
   --include-real-data-contrast \
+  --run-real-data-local-proxy \
   --out benchmarks/reports/causal-continuity-local-report.json
 ```
 
 This command runs T1-T5, includes the runtime ablation matrix, and attaches the
-real-data contrast readiness rows. It requires no network and no vendored
-external corpus.
+real-data contrast rows with the checked-in local proxy executed. It requires
+no network and no vendored external corpus.
 
 ## Repeat-Run Check
 
@@ -42,24 +43,24 @@ The repeat-run evidence was generated with:
 
 ```bash
 python3 -m benchmarks.causal_continuity.reproducibility \
-  --repeats 3 \
+  --repeats 5 \
+  --require-pass \
   --out benchmarks/reports/causal-continuity-reproducibility.json
 ```
 
 Result:
 
 - `stable_headlines`: `true`
-- `stable_ordered_topk`: `false`
-- `status`: `unstable_ordered_topk`
-- `headline_digest`: `880ecbb4d46ce4b9`
-- `run_count`: `3`
+- `stable_ordered_topk`: `true`
+- `status`: `stable`
+- `headline_digest`: `a9af1b4525526f68`
+- `ordered_topk_digest`: `131494fbf0af51b6`
+- `run_count`: `5`
 
-Interpretation: the minimum headline metrics were stable across repeated local
-runs, but the T5 trace/storyline ordered top-k changed order among otherwise
-correct gold-thread beads. The current report is therefore suitable as local
-fixture evidence for the minimum T1/T2/ablation claim, while T5 ordered-top-k
-stability remains an evidence limitation for any paper claim that depends on
-ordered thread ranking.
+Interpretation: the deterministic local suite now has stable headline metrics
+and stable T5 ordered top-k across five repeated runs. The report is suitable as
+local fixture evidence for the T1-T5 and runtime-ablation claims it labels as
+local/proxy evidence.
 
 ## Current Report Snapshot
 
@@ -71,20 +72,22 @@ From `benchmarks/reports/causal-continuity-local-report.json`:
   - `bm25`: `CSR=0.0`
   - `similarity_only`: `CSR=0.0`
   - `dense_vector`: `CSR=0.0`, `status=proxy_executed`
+  - `long_context_no_memory`: `CSR=0.0`, `status=proxy_executed`
 - T2 calibration: `pass=true`, `rho=0.974679`, `samples=20`
 - T3 temporal state selection: `pass=true`
 - T4 longitudinal continuity: `pass=true`
 - T5 thread fidelity: `pass=true`
 - Ablation matrix:
   - `needs_runtime_toggle_rows=0`
-  - `observed_expected_drop_rows=5`
-  - `observed_no_expected_drop_rows=2`
+  - `observed_expected_drop_rows=7`
+  - `observed_no_expected_drop_rows=0`
   - `faithfulness_clean=true`
 - Real-data contrast:
   - `dataset_count=3`
   - `external_dataset_count=2`
   - `leaderboard_claim_count=0`
   - `external_adapter_smoke_count=0`
+  - `external_eval_smoke_count=0`
 
 ## Dependency And Degradation Notes
 
@@ -92,7 +95,6 @@ The local run recorded these warnings:
 
 - `execute_llm_unavailable`
 - `external_memory_adapter_not_configured`
-- `long_context_no_memory_adapter_not_configured`
 - `no_upstream_edges`
 - `semantic_backend_query_error:runtimeerror`
 - `semantic_backend_query_failed_lexical_fallback`
@@ -106,9 +108,10 @@ Observed environment degradation:
 - Kuzu graph backend was not installed; graph backend construction fell back to
   null where optional graph projection was attempted.
 - No external memory adapter was configured.
-- No long-context/no-memory adapter was configured.
-- No LoCoMo or LongMemEval corpus path was supplied for external-corpus smoke
-  execution.
+- Long-context/no-memory ran as a deterministic local proxy, not a public
+  provider-backed comparison.
+- No LoCoMo or LongMemEval corpus path was supplied for external-corpus smoke or
+  evaluation-smoke execution.
 
 These states are intentionally represented as warnings or unavailable contrast
 rows rather than silent successes.
@@ -125,6 +128,7 @@ python3 -m benchmarks.causal_continuity.runner \
   --limit 1 \
   --include-real-data-contrast \
   --run-real-data-adapter-smoke \
+  --run-real-data-eval-smoke \
   --locomo-corpus path/to/locomo10.json \
   --longmemeval-corpus path/to/longmemeval_s.json
 ```
@@ -135,17 +139,19 @@ Direct LongMemEval loader smoke:
 python3 -m benchmarks.longmemeval \
   --corpus path/to/longmemeval_s.json \
   --limit 1 \
+  --eval-smoke \
   --pretty
 ```
 
-These commands validate adapter readiness only. They do not create leaderboard
-claims and they do not vendor the corpora into this repository.
+These commands validate adapter readiness and bounded lifecycle evaluation
+smoke. They do not create leaderboard claims and they do not vendor the corpora
+into this repository.
 
 ## Remaining Evidence Limitations
 
-- Public comparison claims against long-context/no-memory or external-memory
-  systems still require actual configured adapter runs.
-- Real-data rows are contrast/readiness evidence until external corpora are
-  supplied and evaluated under their benchmark rules.
-- T5 ordered-top-k ranking is not stable across repeated local runs yet, even
-  though headline thread metrics are stable in this fixture.
+- Public comparison claims against provider-backed long-context/no-memory or
+  external-memory systems still require actual configured adapter runs.
+- Real-data rows are local contrast evidence until external corpora are supplied
+  and evaluated under their benchmark rules.
+- T5 LLM-judge answerability remains supplemental and opt-in; the default
+  checked-in claim is the deterministic thread-fidelity metric.

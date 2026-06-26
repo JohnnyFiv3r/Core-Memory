@@ -1,6 +1,6 @@
 # Causal-Continuity Closeout Implementation Plan
 
-Status: closeout plan after baseline, ablation, and real-data adapter slices.
+Status: closeout plan after evidence-gap hardening.
 
 This document converts the reference evaluation framework into the remaining
 implementation sequence. The framework remains the north star; this plan is the
@@ -11,14 +11,14 @@ package can support a paper-grade claim.
 
 | Area | Shipped | Remaining publishable gap |
 |---|---|---|
-| T1 causal-chain reconstruction | `benchmarks.causal_continuity.t1` strategy matrix with Core Memory full, BM25, similarity-only, dense-vector proxy, long-context/no-memory, and external-adapter rows | Replace unavailable/proxy comparator rows with executed adapters when publishable runs are available |
-| T2 calibration reliability | Scored task over effective confidence, Spearman rho, ECE, Brier, and high-band gate | Include in committed report artifact and repeat-run evidence |
-| T3 temporal state selection | Scored as-of, supersession, and contradiction-surfacing task | Include in committed report artifact and repeat-run evidence |
-| T4 longitudinal continuity | Scored continuity lift, self-model drift, and goal persistence task | Include in committed report artifact and repeat-run evidence |
-| T5 thread fidelity | Deterministic trace/storyline proxy with precision, recall, answerability, and drift metrics | Decide whether an external LLM judge is needed for the paper claim; otherwise label deterministic answerability as the supported local claim |
-| Ablation matrix | Optional `ablation_matrix` attachment plus `--run-ablation-toggles` disabled-mode fixture runs | Expand runtime toggles beyond the deterministic local fixture set if needed for paper evidence |
-| Real-data contrast | Optional `real_data_contrast` attachment with local proxy, LoCoMo readiness, LongMemEval readiness, and adapter-load smoke paths | Run full external-corpus benchmark jobs only when publishable corpora and comparison claims require them |
-| Reproducibility | Appendix and generated report bundle exist with exact commands, environment notes, repeat-run check, and source commit | Stabilize T5 ordered top-k before using ordered thread ranking as a paper claim |
+| T1 causal-chain reconstruction | `benchmarks.causal_continuity.t1` strategy matrix with Core Memory full, BM25, similarity-only, dense-vector proxy, executed long-context local proxy, and external-adapter rows | Provider-backed long-context or external-memory comparison claims require configured adapter runs |
+| T2 calibration reliability | Scored task over effective confidence, Spearman rho, ECE, Brier, and high-band gate in committed report artifact | None for local deterministic evidence |
+| T3 temporal state selection | Scored as-of, supersession, and contradiction-surfacing task in committed report artifact | None for local deterministic evidence |
+| T4 longitudinal continuity | Scored continuity lift, self-model drift, and goal persistence task in committed report artifact | None for local deterministic evidence |
+| T5 thread fidelity | Deterministic trace/storyline proxy with stable ordered top-k, optional supplemental judge hook, and drift metrics | LLM-judge scoring remains optional/supplemental |
+| Ablation matrix | `--run-ablation-toggles` disabled-mode fixture runs cover every minimum mechanism row with expected drops observed | Expand beyond deterministic fixtures only if paper scope grows |
+| Real-data contrast | Local proxy, LoCoMo/LongMemEval readiness, load-smoke, and bounded evaluation-smoke paths exist | Real corpus evaluation requires user-supplied corpora |
+| Reproducibility | Appendix and generated report bundle record exact commands, environment notes, five-run stable repeat check, and source commit | None for local deterministic evidence |
 
 ## Publishable Complete
 
@@ -42,7 +42,7 @@ A causal-continuity report is publishable when all of these are true:
   dependency/degradation notes, generated report path, repeated-run determinism
   result, and known unavailable external resources.
 
-## Remaining PR Sequence
+## Completed Local Evidence Sequence
 
 ### PR-2: Baseline Completion
 
@@ -66,6 +66,10 @@ Acceptance:
   actual adapter run.
 - Existing T1 tests stay green and new tests cover unavailable-status behavior.
 
+Status: complete for local evidence. Long-context/no-memory now executes as a
+local proxy; external-memory remains unavailable unless a configured adapter is
+provided.
+
 ### PR-3: True Ablation Runs
 
 Goal: turn the current ablation attachment from a coverage inventory into
@@ -87,6 +91,9 @@ Acceptance:
 - Minimum publishable mechanism rows no longer report `needs_runtime_toggle`.
 - Faithfulness flags remain clean for every headline ablation row.
 
+Status: complete for local evidence. The generated report records
+`observed_no_expected_drop_rows=0` and `needs_runtime_toggle_rows=0`.
+
 ### PR-4: Real-Data Adapter Completion
 
 Goal: finish the ecological-validity contrast path without weakening the
@@ -99,14 +106,18 @@ Scope:
   report.
 - Keep corpora out of the repository and fail clearly when paths are missing or
   malformed.
-- Run supplied-corpus adapter smokes as contrast-readiness checks, not leaderboard
-  evaluations.
+- Run supplied-corpus adapter smokes and bounded evaluation smokes as contrast
+  checks, not leaderboard evaluations.
 
 Acceptance:
 
-- Real-data contrast rows can run when external corpora are supplied.
+- Real-data contrast rows can run load smoke and evaluation smoke when external
+  corpora are supplied.
 - Missing corpora remain honest `dataset_required` or `path_missing` states.
 - Local proxy rows still carry `leaderboard_claim: false`.
+
+Status: complete for local evidence. Real corpus execution remains gated by
+user-supplied corpus paths and keeps `leaderboard_claim: false`.
 
 ### PR-5: Reproducibility Appendix
 
@@ -132,18 +143,14 @@ Acceptance:
 
 Implemented appendix: `docs/eval/causal-continuity-reproducibility-appendix.md`.
 The committed local report is under `benchmarks/reports/`. The repeat-run check
-shows stable headline metrics and unstable T5 ordered top-k; that limitation is
-tracked explicitly rather than hidden.
+shows stable headline metrics and stable T5 ordered top-k across five runs.
 
 ## Open Decisions
 
-- Whether the long-context/no-memory comparator should be an LLM-backed baseline
-  only, or whether a deterministic local proxy is acceptable for CI.
-- Which external memory adapters are worth implementing versus reporting as
-  optional comparison slots.
-- Whether T5 requires an external LLM judge for the minimum publishable claim, or
-  whether deterministic thread metrics are the primary claim and judge scoring is
-  explicitly secondary.
+- Which provider-backed long-context and external-memory adapters are worth
+  implementing for publication comparisons.
+- Whether T5 requires an external LLM judge for a future paper claim, or whether
+  deterministic thread metrics remain primary and judge scoring stays secondary.
 
 Defaults for the remaining PRs:
 

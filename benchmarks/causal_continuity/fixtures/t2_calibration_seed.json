@@ -46,8 +46,8 @@
       "source": "validated-support",
       "relationship": "supports",
       "target": "validated-answer",
-      "judge_prior": 0.92,
-      "manifest_bonus": 0.03,
+      "judge_prior": 0.7,
+      "manifest_bonus": 0.25,
       "outcomes": [true, true, true, true]
     }
   ]

@@ -78,6 +78,38 @@ def _run_locomo_adapter_smoke(*, corpus: Path, limit: int) -> dict[str, Any]:
     }
 
 
+def _run_locomo_evaluation_smoke(*, corpus: Path, limit: int) -> dict[str, Any]:
+    from benchmarks.contracts import BenchmarkShortcutFlags
+    from benchmarks.locomo.loader import load_locomo_corpus, locomo_samples_to_conversations
+    from benchmarks.locomo.runner import run_locomo_suite
+
+    try:
+        samples = load_locomo_corpus(corpus)
+        conversations = locomo_samples_to_conversations(samples, max_qa_per_sample=1)
+        report = run_locomo_suite(
+            conversations,
+            shortcut_flags=BenchmarkShortcutFlags(),
+            k=5,
+            max_qa_per_conversation=1,
+            limit=max(1, int(limit)),
+        )
+    except Exception as exc:  # pragma: no cover - requires external corpus
+        return {
+            "status": "failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    return {
+        "status": str(report.get("status") or "completed"),
+        "adapter": "locomo",
+        "schema_version": str(report.get("schema_version") or ""),
+        "config": dict(report.get("config") or {}),
+        "aggregate": dict(report.get("aggregate") or {}),
+        "conversation_count": len(list(report.get("conversations") or [])),
+        "leaderboard_claim": False,
+    }
+
+
 def _run_longmemeval_adapter_smoke(*, corpus: Path, limit: int) -> dict[str, Any]:
     from benchmarks.longmemeval.runner import run_adapter_smoke
 
@@ -97,18 +129,41 @@ def _run_longmemeval_adapter_smoke(*, corpus: Path, limit: int) -> dict[str, Any
     }
 
 
+def _run_longmemeval_evaluation_smoke(*, corpus: Path, limit: int) -> dict[str, Any]:
+    from benchmarks.longmemeval.runner import run_evaluation_smoke
+
+    try:
+        report = run_evaluation_smoke(corpus=corpus, limit=max(1, int(limit)), k=5)
+    except Exception as exc:  # pragma: no cover - defensive report path
+        return {
+            "status": "failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    return {
+        "status": str(report.get("status") or ""),
+        "adapter": str(report.get("adapter") or "longmemeval"),
+        "summary": dict(report.get("summary") or {}),
+        "aggregate": dict(report.get("aggregate") or {}),
+        "leaderboard_claim": False,
+    }
+
+
 def _leaderboard_claim_count(rows: list[dict[str, Any]]) -> int:
     return sum(1 for row in rows if bool(row.get("leaderboard_claim")))
 
 
-def _external_status(path_info: dict[str, Any], execution: dict[str, Any]) -> str:
+def _external_status(path_info: dict[str, Any], smoke_execution: dict[str, Any], eval_execution: dict[str, Any]) -> str:
     if not path_info["provided"]:
         return "dataset_required"
     if not path_info["exists"]:
         return "corpus_path_missing"
-    if execution.get("status") == "completed":
+    if eval_execution.get("status") == "completed":
+        return "evaluation_smoke_completed"
+    if eval_execution.get("status") == "failed":
+        return "evaluation_smoke_failed"
+    if smoke_execution.get("status") == "completed":
         return "adapter_smoke_completed"
-    if execution.get("status") == "failed":
+    if smoke_execution.get("status") == "failed":
         return "adapter_smoke_failed"
     return "dataset_available"
 
@@ -121,6 +176,8 @@ def build_real_data_contrast(
     local_proxy_limit: int = 1,
     run_external_adapter_smoke: bool = False,
     external_adapter_limit: int = 1,
+    run_external_eval_smoke: bool = False,
+    external_eval_limit: int = 1,
 ) -> dict[str, Any]:
     """Build the PRD real-data contrast attachment.
 
@@ -151,9 +208,19 @@ def build_real_data_contrast(
         if run_external_adapter_smoke and longmemeval_path["exists"]
         else {"status": "not_run"}
     )
+    locomo_eval_execution = (
+        _run_locomo_evaluation_smoke(corpus=Path(str(locomo_path["path"])), limit=external_eval_limit)
+        if run_external_eval_smoke and locomo_path["exists"]
+        else {"status": "not_run"}
+    )
+    longmemeval_eval_execution = (
+        _run_longmemeval_evaluation_smoke(corpus=Path(str(longmemeval_path["path"])), limit=external_eval_limit)
+        if run_external_eval_smoke and longmemeval_path["exists"]
+        else {"status": "not_run"}
+    )
 
-    locomo_external_status = _external_status(locomo_path, locomo_execution)
-    longmemeval_external_status = _external_status(longmemeval_path, longmemeval_execution)
+    locomo_external_status = _external_status(locomo_path, locomo_execution, locomo_eval_execution)
+    longmemeval_external_status = _external_status(longmemeval_path, longmemeval_execution, longmemeval_eval_execution)
 
     rows: list[dict[str, Any]] = [
         {
@@ -190,8 +257,11 @@ def build_real_data_contrast(
             "can_run": bool(locomo_path["exists"]),
             "dataset_path": locomo_path,
             "run_command": "python -m benchmarks.locomo --corpus <locomo10.json> --smoke",
+            "eval_smoke_command": "python -m benchmarks.locomo --corpus <locomo10.json> --smoke --limit 1 --max-qa 1",
             "licensing_note": "Corpus is not vendored; obtain it separately and pass --locomo-corpus.",
-            "execution": locomo_execution,
+            "execution": locomo_eval_execution if locomo_eval_execution.get("status") != "not_run" else locomo_execution,
+            "adapter_smoke_execution": locomo_execution,
+            "evaluation_smoke_execution": locomo_eval_execution,
         },
         {
             "dataset_id": "longmemeval_external",
@@ -208,8 +278,11 @@ def build_real_data_contrast(
             "can_run": bool(longmemeval_path["exists"]),
             "dataset_path": longmemeval_path,
             "run_command": "python -m benchmarks.longmemeval --corpus <longmemeval.json> --limit 1",
+            "eval_smoke_command": "python -m benchmarks.longmemeval --corpus <longmemeval.json> --limit 1 --eval-smoke",
             "licensing_note": "Corpus is not vendored; obtain it separately and pass --longmemeval-corpus.",
-            "execution": longmemeval_execution,
+            "execution": longmemeval_eval_execution if longmemeval_eval_execution.get("status") != "not_run" else longmemeval_execution,
+            "adapter_smoke_execution": longmemeval_execution,
+            "evaluation_smoke_execution": longmemeval_eval_execution,
         },
     ]
 
@@ -220,19 +293,27 @@ def build_real_data_contrast(
         warnings.append("locomo_external_corpus_path_missing")
     if locomo_external_status == "adapter_smoke_failed":
         warnings.append("locomo_external_adapter_smoke_failed")
+    if locomo_external_status == "evaluation_smoke_failed":
+        warnings.append("locomo_external_evaluation_smoke_failed")
     if longmemeval_external_status == "dataset_required":
         warnings.append("longmemeval_external_corpus_not_provided")
     if longmemeval_external_status == "corpus_path_missing":
         warnings.append("longmemeval_external_corpus_path_missing")
     if longmemeval_external_status == "adapter_smoke_failed":
         warnings.append("longmemeval_external_adapter_smoke_failed")
+    if longmemeval_external_status == "evaluation_smoke_failed":
+        warnings.append("longmemeval_external_evaluation_smoke_failed")
     if local_execution.get("status") == "failed":
         warnings.append("locomo_like_local_proxy_failed")
 
     if local_execution.get("status") == "failed":
         top_status = "local_proxy_failed"
+    elif any(row.get("status") == "evaluation_smoke_failed" for row in rows):
+        top_status = "external_evaluation_smoke_failed"
     elif any(row.get("status") == "adapter_smoke_failed" for row in rows):
         top_status = "external_adapter_smoke_failed"
+    elif any(row.get("status") == "evaluation_smoke_completed" for row in rows):
+        top_status = "ready_with_external_evaluation"
     elif any(row.get("status") == "adapter_smoke_completed" for row in rows):
         top_status = "ready_with_external_contrast"
     else:
@@ -258,7 +339,16 @@ def build_real_data_contrast(
             "external_dataset_count": sum(1 for row in rows if bool(row.get("external_dataset_required"))),
             "runnable_count": sum(1 for row in rows if bool(row.get("can_run"))),
             "external_adapter_smoke_count": sum(
-                1 for row in rows if dict(row.get("execution") or {}).get("status") == "completed"
+                1
+                for row in rows
+                if bool(row.get("external_dataset_required"))
+                and dict(row.get("adapter_smoke_execution") or {}).get("status") == "completed"
+            ),
+            "external_eval_smoke_count": sum(
+                1
+                for row in rows
+                if bool(row.get("external_dataset_required"))
+                and dict(row.get("evaluation_smoke_execution") or {}).get("status") == "completed"
             ),
             "leaderboard_claim_count": _leaderboard_claim_count(rows),
         },
