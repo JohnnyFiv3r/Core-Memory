@@ -63,9 +63,9 @@ def _write_index_associations(root: str | Path, edges: list[dict[str, Any]]) -> 
     )
 
 
-def _write_manifest(root: str | Path, edges: list[dict[str, Any]]) -> None:
+def _write_manifest(root: str | Path, edges: list[dict[str, Any]], *, manifest_bonus_enabled: bool = True) -> None:
     bonus_by_edge_key = {
-        _edge_key(edge): float(edge.get("manifest_bonus") or 0.0)
+        _edge_key(edge): (float(edge.get("manifest_bonus") or 0.0) if manifest_bonus_enabled else 0.0)
         for edge in edges
     }
     p = Path(root) / ".beads" / "events" / "myelination-manifest.json"
@@ -128,10 +128,18 @@ def _record_outcomes(root: str | Path, fixture: dict[str, Any]) -> list[dict[str
     return samples
 
 
-def _seed_fixture(root: str | Path, fixture: dict[str, Any]) -> list[dict[str, Any]]:
+def _seed_fixture(
+    root: str | Path,
+    fixture: dict[str, Any],
+    *,
+    manifest_bonus_enabled: bool = True,
+    record_validated_outcomes: bool = True,
+) -> list[dict[str, Any]]:
     edges = [dict(e) for e in (fixture.get("edges") or []) if isinstance(e, dict)]
     _write_index_associations(root, edges)
-    _write_manifest(root, edges)
+    _write_manifest(root, edges, manifest_bonus_enabled=manifest_bonus_enabled)
+    if not record_validated_outcomes:
+        return []
     return _record_outcomes(root, fixture)
 
 
@@ -153,6 +161,8 @@ def run_t2_calibration(
     *,
     fixture_path: Path | None = None,
     since: str = "",
+    manifest_bonus_enabled: bool = True,
+    record_validated_outcomes: bool = True,
 ) -> dict[str, Any]:
     fixture = _load_fixture(fixture_path)
     targets = dict(fixture.get("targets") or {})
@@ -166,7 +176,12 @@ def run_t2_calibration(
             "CORE_MEMORY_CALIBRATION_MIN_SPEARMAN_RHO": str(targets.get("min_spearman_rho") or 0.70),
         }
         with _env_overrides(env):
-            samples = _seed_fixture(td, fixture)
+            samples = _seed_fixture(
+                td,
+                fixture,
+                manifest_bonus_enabled=manifest_bonus_enabled,
+                record_validated_outcomes=record_validated_outcomes,
+            )
             curve = compute_calibration_curve(td, since=since)
     finally:
         shutil.rmtree(td, ignore_errors=True)
@@ -190,6 +205,10 @@ def run_t2_calibration(
                 "validated_outcome_feedback_seed",
                 "no_retrieval_time_gold_leakage",
             ],
+            "ablation_mode": {
+                "manifest_bonus_enabled": bool(manifest_bonus_enabled),
+                "record_validated_outcomes": bool(record_validated_outcomes),
+            },
         },
         "targets": targets,
         "metrics": {

@@ -7,6 +7,7 @@ from pathlib import Path
 from benchmarks.causal_continuity.ablations import build_ablation_matrix
 from benchmarks.causal_continuity.real_data import build_real_data_contrast
 from benchmarks.causal_continuity.reporting import render_summary
+from benchmarks.causal_continuity.runtime_ablations import run_runtime_ablation_toggles
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
 from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
 from benchmarks.causal_continuity.t2 import run_t2_calibration
@@ -147,6 +148,13 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertGreaterEqual(float(metrics["high_band_usefulness_rate"]), 0.8)
         self.assertEqual(20, metrics["sample_count"])
 
+    def test_t2_calibration_disabled_outcome_feedback_has_no_samples(self):
+        report = run_t2_calibration(record_validated_outcomes=False)
+
+        self.assertEqual(0, report["metrics"]["sample_count"])
+        self.assertFalse(report["pass"])
+        self.assertFalse(report["metadata"]["ablation_mode"]["record_validated_outcomes"])
+
     def test_suite_report_includes_t2_headlines(self):
         report = run_suite(
             fixtures_dir=_FIXTURES,
@@ -186,6 +194,14 @@ class TestCausalContinuityT1(unittest.TestCase):
         conflict = next(c for c in report["cases"] if c["case_id"] == "t3_conflicting_coding_preference_surfaced")
         self.assertEqual("conflict", conflict["actual"]["status"])
         self.assertIn("conflict_surfaced", conflict["checks"])
+
+    def test_t3_disabled_claim_updates_drops_supersession_and_conflict(self):
+        report = run_t3_temporal_state(apply_claim_updates=False)
+
+        self.assertFalse(report["pass"])
+        self.assertFalse(report["metadata"]["ablation_mode"]["apply_claim_updates"])
+        self.assertLess(float(report["metrics"]["supersession_respect_rate"] or 0.0), 1.0)
+        self.assertLess(float(report["metrics"]["contradiction_surfaced_rate"] or 0.0), 1.0)
 
     def test_suite_report_includes_t3_headlines(self):
         report = run_suite(
@@ -327,6 +343,44 @@ class TestCausalContinuityT1(unittest.TestCase):
         rows = {row["id"]: row for row in matrix["rows"]}
         self.assertIn(rows["minus_agentic_recall_loop"]["status"], {"observed", "observed_no_expected_drop"})
         self.assertIn("t5_thread_f1", rows["minus_agentic_recall_loop"]["scores"])
+
+    def test_runtime_ablation_toggles_overlay_disabled_mode_runs(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            tasks=["t1", "t2", "t3", "t4", "t5"],
+            subset="local",
+            limit=1,
+            run_ablation_toggles=True,
+        )
+
+        matrix = report["ablation_matrix"]
+        self.assertEqual("runtime_ablation_matrix", matrix["methodology"]["kind"])
+        self.assertEqual(0, matrix["coverage"]["needs_runtime_toggle_rows"])
+        self.assertEqual("causal_continuity.runtime_ablation_runs.v1", matrix["runtime_ablation_runs"]["schema_version"])
+
+        rows = {row["id"]: row for row in matrix["rows"]}
+        self.assertIn(rows["minus_myelination_backpressure"]["status"], {"observed", "observed_no_expected_drop"})
+        self.assertEqual("observed", rows["minus_validated_outcome_reward"]["status"])
+        self.assertEqual(0.0, rows["minus_validated_outcome_reward"]["scores"]["t2_sample_count"])
+        self.assertEqual("observed", rows["minus_supersession_temporal_filter"]["status"])
+        self.assertIn("runtime_run", rows["minus_supersession_temporal_filter"])
+
+    def test_runtime_ablation_helper_can_overlay_existing_report(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            tasks=["t1", "t2", "t3", "t4", "t5"],
+            subset="local",
+            limit=1,
+        )
+
+        runtime_runs = run_runtime_ablation_toggles(report)
+        matrix = build_ablation_matrix(report, runtime_runs=runtime_runs)
+        self.assertEqual(0, matrix["coverage"]["needs_runtime_toggle_rows"])
+        self.assertEqual(len(matrix["rows"]) - 1, runtime_runs["summary"]["row_count"])
 
     def test_real_data_contrast_declares_local_proxy_without_leaderboard_claim(self):
         report = build_real_data_contrast()

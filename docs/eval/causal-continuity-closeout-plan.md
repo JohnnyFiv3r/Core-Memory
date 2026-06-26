@@ -16,7 +16,7 @@ package can support a paper-grade claim.
 | T3 temporal state selection | Scored as-of, supersession, and contradiction-surfacing task | Include in committed report artifact and repeat-run evidence |
 | T4 longitudinal continuity | Scored continuity lift, self-model drift, and goal persistence task | Include in committed report artifact and repeat-run evidence |
 | T5 thread fidelity | Deterministic trace/storyline proxy with precision, recall, answerability, and drift metrics | Decide whether an external LLM judge is needed for the paper claim; otherwise label deterministic answerability as the supported local claim |
-| Ablation matrix | Optional `ablation_matrix` attachment with observed/proxy/gap states | Replace `needs_runtime_toggle` rows with dedicated runtime-toggle runs |
+| Ablation matrix | Optional `ablation_matrix` attachment plus `--run-ablation-toggles` disabled-mode fixture runs | Expand runtime toggles beyond the deterministic local fixture set if needed for paper evidence |
 | Real-data contrast | Optional `real_data_contrast` attachment with local proxy, LoCoMo readiness, and LongMemEval status | Add LongMemEval loader and run external-corpus paths when data is supplied |
 | Reproducibility | Runner commands exist | Commit appendix plus generated report bundle with exact commands, environment notes, determinism checks, and source commit |
 

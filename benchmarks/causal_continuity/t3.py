@@ -35,7 +35,7 @@ def _load_fixture(path: Path | None = None) -> dict[str, Any]:
     return payload
 
 
-def _materialize_case(root: str | Path, case: dict[str, Any]) -> dict[str, str]:
+def _materialize_case(root: str | Path, case: dict[str, Any], *, apply_claim_updates: bool = True) -> dict[str, str]:
     store = MemoryStore(str(root))
     setup = dict(case.get("setup") or {})
     bead_keys: dict[str, str] = {}
@@ -64,12 +64,13 @@ def _materialize_case(root: str | Path, case: dict[str, Any]) -> dict[str, str]:
         if bead_id:
             write_claims_to_bead(str(root), bead_id, list(group.get("rows") or []))
 
-    for group in list(setup.get("claim_updates") or []):
-        if not isinstance(group, dict):
-            continue
-        bead_id = bead_keys.get(str(group.get("bead_key") or "").strip()) or fallback_bead_id
-        if bead_id:
-            write_claim_updates_to_bead(str(root), bead_id, list(group.get("rows") or []))
+    if apply_claim_updates:
+        for group in list(setup.get("claim_updates") or []):
+            if not isinstance(group, dict):
+                continue
+            bead_id = bead_keys.get(str(group.get("bead_key") or "").strip()) or fallback_bead_id
+            if bead_id:
+                write_claim_updates_to_bead(str(root), bead_id, list(group.get("rows") or []))
 
     return bead_keys
 
@@ -170,7 +171,7 @@ def _any_check_rate(rows: list[dict[str, Any]], keys: set[str]) -> tuple[int, fl
     return len(scoped), round(sum(1 for r in scoped if _row_ok(r)) / float(len(scoped)), 4)
 
 
-def run_t3_temporal_state(*, fixture_path: Path | None = None) -> dict[str, Any]:
+def run_t3_temporal_state(*, fixture_path: Path | None = None, apply_claim_updates: bool = True) -> dict[str, Any]:
     fixture = _load_fixture(fixture_path)
     targets = dict(fixture.get("targets") or {})
     t0 = time.perf_counter()
@@ -186,7 +187,7 @@ def run_t3_temporal_state(*, fixture_path: Path | None = None) -> dict[str, Any]
                 "CORE_MEMORY_SEMANTIC_AUTODRAIN": "off",
                 "CORE_MEMORY_VECTOR_BACKEND": "local-faiss",
             }):
-                _materialize_case(td, case)
+                _materialize_case(td, case, apply_claim_updates=apply_claim_updates)
             setup_ms = (time.perf_counter() - t_setup) * 1000.0
 
             t_resolve = time.perf_counter()
@@ -241,6 +242,9 @@ def run_t3_temporal_state(*, fixture_path: Path | None = None) -> dict[str, Any]
                 "state_selection_not_answer_token_f1",
                 "resolver_as_of_and_claim_update_semantics",
             ],
+            "ablation_mode": {
+                "apply_claim_updates": bool(apply_claim_updates),
+            },
         },
         "targets": targets,
         "metrics": {
