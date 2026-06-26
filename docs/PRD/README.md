@@ -44,6 +44,7 @@ the older entries above.
 |---|---|---|
 | `soul-files.md` | SOUL Files — agent-authored self-model + goal hierarchy (supersedes `reports/soul-synthesis-spec.md`) | **Draft v3** |
 | `dreamer-continuity-engine.md` | Dreamer V3 — scientific continuity engine, assembly depth, storyline projection, future vectors; V4 target-states + agency backlog | **Draft v3** |
+| `storylines-structural-equivalence.md` | Storylines — structural-equivalence abstraction and earned semantics | **Draft v1** |
 | `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Draft v2** |
 | `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Draft v1** |
 | `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend instructions for host-app SOUL continuity dials | Draft |
