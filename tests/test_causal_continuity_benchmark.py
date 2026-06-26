@@ -10,6 +10,7 @@ from benchmarks.contracts import BenchmarkAdapter
 from benchmarks.causal_continuity.ablations import build_ablation_matrix
 from benchmarks.causal_continuity.real_data import build_real_data_contrast
 from benchmarks.causal_continuity.reporting import render_summary
+from benchmarks.causal_continuity.reproducibility import run_reproducibility_check
 from benchmarks.causal_continuity.runtime_ablations import run_runtime_ablation_toggles
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
 from benchmarks.longmemeval.loader import LongMemEvalAdapter, load_longmemeval_corpus
@@ -413,6 +414,15 @@ class TestCausalContinuityT1(unittest.TestCase):
         matrix = build_ablation_matrix(report, runtime_runs=runtime_runs)
         self.assertEqual(0, matrix["coverage"]["needs_runtime_toggle_rows"])
         self.assertEqual(len(matrix["rows"]) - 1, runtime_runs["summary"]["row_count"])
+
+    def test_reproducibility_check_records_stable_ordered_outputs(self):
+        report = run_reproducibility_check(repeats=2)
+
+        self.assertEqual("causal_continuity.reproducibility.v1", report["schema_version"])
+        self.assertTrue(report["determinism"]["stable_headlines"], report)
+        self.assertIn(report["determinism"]["status"], {"stable", "unstable_ordered_topk"})
+        self.assertEqual(2, report["determinism"]["run_count"])
+        self.assertTrue(report["runs"][0]["ordered_topk"])
 
     def test_real_data_contrast_declares_local_proxy_without_leaderboard_claim(self):
         report = build_real_data_contrast()
