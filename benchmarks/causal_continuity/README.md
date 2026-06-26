@@ -127,11 +127,14 @@ without turning local fixtures into public leaderboard claims. It reports:
 - the checked-in LOCOMO-like local proxy and its opt-in smoke command,
 - the existing external LoCoMo adapter surface, marked runnable only when a
   user-supplied corpus path is present, and
-- the LongMemEval row as adapter-contract-declared until a loader is added.
+- the LongMemEval adapter surface, marked runnable only when a user-supplied
+  corpus path is present.
 
 All rows carry `leaderboard_claim: false`. The local proxy can be run inside the
 attachment with `--run-real-data-local-proxy`, but that result remains a local
-contrast condition.
+contrast condition. Supplied external corpora can be load-smoked with
+`--run-real-data-adapter-smoke`; those rows validate adapter readiness without
+ingesting the corpus or making leaderboard claims.
 
 ## Quick Start
 
@@ -199,6 +202,20 @@ Emit a suite report with the real-data contrast readiness attachment:
 
 ```bash
 python -m benchmarks.causal_continuity.runner --subset local --strategies bm25 --limit 1 --include-real-data-contrast --out benchmarks/reports/causal-continuity-real-data.json
+```
+
+Load-smoke supplied external corpora inside that attachment:
+
+```bash
+python -m benchmarks.causal_continuity.runner \
+  --tasks t1 \
+  --subset local \
+  --strategies bm25 \
+  --limit 1 \
+  --include-real-data-contrast \
+  --run-real-data-adapter-smoke \
+  --locomo-corpus path/to/locomo10.json \
+  --longmemeval-corpus path/to/longmemeval_s.json
 ```
 
 Run the checked-in LOCOMO-like local proxy inside that attachment:

@@ -284,8 +284,8 @@ Publishable evidence closeout:
 - [x] True ablation runs for the deterministic local fixture set:
   `--run-ablation-toggles` removes `needs_runtime_toggle` rows for the current
   minimum mechanism matrix.
-- [ ] Real-data adapter completion: LongMemEval loader plus external-corpus run
-  paths when data is supplied.
+- [x] Real-data adapter completion for contrast readiness: LongMemEval loader
+  plus supplied-corpus adapter-smoke paths.
 - [ ] Reproducibility appendix: exact commands, generated report bundle,
   repeated-run determinism notes, and dependency/degradation notes.
 

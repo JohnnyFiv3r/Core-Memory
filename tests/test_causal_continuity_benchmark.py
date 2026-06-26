@@ -1,14 +1,19 @@
 """Tests for the causal-continuity suite harness."""
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
 from pathlib import Path
 
+from benchmarks.contracts import BenchmarkAdapter
 from benchmarks.causal_continuity.ablations import build_ablation_matrix
 from benchmarks.causal_continuity.real_data import build_real_data_contrast
 from benchmarks.causal_continuity.reporting import render_summary
 from benchmarks.causal_continuity.runtime_ablations import run_runtime_ablation_toggles
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
+from benchmarks.longmemeval.loader import LongMemEvalAdapter, load_longmemeval_corpus
+from benchmarks.longmemeval.runner import run_adapter_smoke
 from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
 from benchmarks.causal_continuity.t2 import run_t2_calibration
 from benchmarks.causal_continuity.t3 import run_t3_temporal_state
@@ -18,6 +23,33 @@ from benchmarks.causal_continuity.t5 import run_t5_thread_fidelity
 _HERE = Path(__file__).resolve().parent.parent / "benchmarks" / "causal"
 _FIXTURES = _HERE / "fixtures"
 _GOLD = _HERE / "gold"
+
+
+def _write_longmemeval_fixture(path: Path) -> Path:
+    payload = [
+        {
+            "question_id": "lme_test_001",
+            "question_type": "single-session-user",
+            "question": "Which project did Mira mention?",
+            "answer": "Northstar",
+            "question_date": "2025-02-03",
+            "haystack_session_ids": ["s1", "s2"],
+            "haystack_dates": ["2025-02-01", "2025-02-02"],
+            "answer_session_ids": ["s2"],
+            "haystack_sessions": [
+                [
+                    {"role": "user", "content": "Mira talked about garden plans."},
+                    {"role": "assistant", "content": "I noted the garden plan."},
+                ],
+                [
+                    {"role": "user", "content": "Mira said the project codename is Northstar.", "has_answer": True},
+                    {"role": "assistant", "content": "Northstar is now the project codename."},
+                ],
+            ],
+        }
+    ]
+    path.write_text(json.dumps(payload), encoding="utf-8")
+    return path
 
 
 class TestCausalContinuityT1(unittest.TestCase):
@@ -400,7 +432,51 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertFalse(rows["locomo_like_local_proxy"]["leaderboard_claim"])
         self.assertEqual("not_run", rows["locomo_like_local_proxy"]["execution"]["status"])
         self.assertEqual("implemented", rows["locomo_external"]["benchmark_adapter_protocol"])
-        self.assertEqual("adapter_contract_declared", rows["longmemeval_external"]["status"])
+        self.assertEqual("dataset_required", rows["longmemeval_external"]["status"])
+        self.assertEqual("implemented", rows["longmemeval_external"]["benchmark_adapter_protocol"])
+
+    def test_longmemeval_adapter_loads_public_shape_into_contract(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = _write_longmemeval_fixture(Path(td) / "longmemeval.json")
+
+            adapter = LongMemEvalAdapter()
+            conversations = load_longmemeval_corpus(path)
+
+            self.assertIsInstance(adapter, BenchmarkAdapter)
+            self.assertEqual(1, len(conversations))
+            conv = conversations[0]
+            self.assertEqual("longmemeval", conv.benchmark_name)
+            self.assertEqual(4, len(conv.turns))
+            self.assertEqual(1, len(conv.qa_cases))
+            self.assertEqual(["s2"], conv.qa_cases[0].gold_evidence)
+            self.assertIn("single-session-user", conv.qa_cases[0].bucket_labels)
+            self.assertEqual(1.0, adapter.score_answer(qa=conv.qa_cases[0], prediction="Northstar"))
+            self.assertEqual(
+                1.0,
+                adapter.score_evidence(qa=conv.qa_cases[0], retrieved_ids=["s2"], k=1)["recall@1"],
+            )
+
+    def test_longmemeval_adapter_smoke_and_contrast_run_when_path_supplied(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = _write_longmemeval_fixture(Path(td) / "longmemeval.json")
+
+            smoke = run_adapter_smoke(corpus=path, limit=1)
+            self.assertEqual("completed", smoke["status"])
+            self.assertFalse(smoke["leaderboard_claim"])
+            self.assertEqual(1, smoke["summary"]["conversation_count"])
+
+            report = build_real_data_contrast(
+                longmemeval_corpus=path,
+                run_external_adapter_smoke=True,
+                external_adapter_limit=1,
+            )
+            rows = {row["dataset_id"]: row for row in report["datasets"]}
+
+            self.assertEqual("ready_with_external_contrast", report["status"])
+            self.assertEqual("adapter_smoke_completed", rows["longmemeval_external"]["status"])
+            self.assertEqual("completed", rows["longmemeval_external"]["execution"]["status"])
+            self.assertEqual(1, report["summary"]["external_adapter_smoke_count"])
+            self.assertEqual(0, report["summary"]["leaderboard_claim_count"])
 
     def test_suite_report_attaches_real_data_contrast_when_requested(self):
         report = run_suite(
@@ -420,6 +496,24 @@ class TestCausalContinuityT1(unittest.TestCase):
         text = render_summary(report)
         self.assertIn("Real-data contrast", text)
         self.assertIn("leaderboard_claims=0", text)
+
+    def test_suite_report_can_smoke_longmemeval_corpus_path(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = _write_longmemeval_fixture(Path(td) / "longmemeval.json")
+            report = run_suite(
+                fixtures_dir=_FIXTURES,
+                gold_dir=_GOLD,
+                strategies=["bm25"],
+                tasks=["t1"],
+                subset="local",
+                limit=1,
+                include_real_data_contrast=True,
+                longmemeval_corpus=path,
+                run_real_data_adapter_smoke=True,
+            )
+
+            rows = {row["dataset_id"]: row for row in report["real_data_contrast"]["datasets"]}
+            self.assertEqual("adapter_smoke_completed", rows["longmemeval_external"]["status"])
 
 
 if __name__ == "__main__":

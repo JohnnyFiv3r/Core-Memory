@@ -63,6 +63,9 @@ def run_suite(
     run_real_data_local_proxy: bool = False,
     real_data_local_limit: int = 1,
     locomo_corpus: Path | None = None,
+    longmemeval_corpus: Path | None = None,
+    run_real_data_adapter_smoke: bool = False,
+    real_data_adapter_limit: int = 1,
 ) -> dict[str, Any]:
     selected = list(strategies or available_strategies())
     selected_tasks = list(tasks or ["t1", "t2", "t3", "t4", "t5"])
@@ -133,8 +136,11 @@ def run_suite(
     if include_real_data_contrast:
         report["real_data_contrast"] = build_real_data_contrast(
             locomo_corpus=locomo_corpus,
+            longmemeval_corpus=longmemeval_corpus,
             run_local_proxy=run_real_data_local_proxy,
             local_proxy_limit=real_data_local_limit,
+            run_external_adapter_smoke=run_real_data_adapter_smoke,
+            external_adapter_limit=real_data_adapter_limit,
         )
     return report
 
@@ -154,8 +160,11 @@ def main() -> int:
     p.add_argument("--run-ablation-toggles", action="store_true", help="Execute supported disabled-mode ablation runs and attach the runtime ablation matrix")
     p.add_argument("--include-real-data-contrast", action="store_true", help="Attach real-data contrast readiness without making leaderboard claims")
     p.add_argument("--run-real-data-local-proxy", action="store_true", help="Run the checked-in LOCOMO-like local proxy inside the real-data contrast attachment")
+    p.add_argument("--run-real-data-adapter-smoke", action="store_true", help="Load-smoke supplied external corpora inside the real-data contrast attachment")
     p.add_argument("--real-data-local-limit", type=int, default=1, help="Case limit for --run-real-data-local-proxy")
+    p.add_argument("--real-data-adapter-limit", type=int, default=1, help="Corpus instance limit for --run-real-data-adapter-smoke")
     p.add_argument("--locomo-corpus", default="", help="Optional path to user-supplied locomo10.json for external LoCoMo adapter readiness checks")
+    p.add_argument("--longmemeval-corpus", default="", help="Optional path to user-supplied LongMemEval JSON/JSONL corpus for adapter readiness checks")
     p.add_argument("--subset", choices=["local", "full"], default="full")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument(
@@ -182,7 +191,10 @@ def main() -> int:
         include_real_data_contrast=bool(args.include_real_data_contrast),
         run_real_data_local_proxy=bool(args.run_real_data_local_proxy),
         real_data_local_limit=int(args.real_data_local_limit),
+        run_real_data_adapter_smoke=bool(args.run_real_data_adapter_smoke),
+        real_data_adapter_limit=int(args.real_data_adapter_limit),
         locomo_corpus=(Path(args.locomo_corpus) if str(args.locomo_corpus or "").strip() else None),
+        longmemeval_corpus=(Path(args.longmemeval_corpus) if str(args.longmemeval_corpus or "").strip() else None),
     )
 
     print(render_summary(report))
