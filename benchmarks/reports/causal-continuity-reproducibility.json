@@ -1,0 +1,189 @@
+{
+  "schema_version": "causal_continuity.reproducibility.v1",
+  "run_at": "2026-06-26T20:08:56.047910+00:00",
+  "source_commit": "5f2d72aa",
+  "environment": {
+    "python": "3.14.0",
+    "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O"
+  },
+  "config": {
+    "repeats": 3,
+    "suite_command": "python -m benchmarks.causal_continuity.runner --subset local --limit 1 --strategies all --run-ablation-toggles --include-real-data-contrast"
+  },
+  "determinism": {
+    "passed": false,
+    "signature_digest": "3f35268484be2007",
+    "headline_digest": "880ecbb4d46ce4b9",
+    "ordered_topk_digest": "85583f0e22b185fe",
+    "stable_headlines": true,
+    "stable_ordered_topk": false,
+    "run_count": 3,
+    "status": "unstable_ordered_topk"
+  },
+  "runs": [
+    {
+      "run_index": 1,
+      "signature_digest": "3f35268484be2007",
+      "headline_digest": "880ecbb4d46ce4b9",
+      "ordered_topk_digest": "85583f0e22b185fe",
+      "ordered_topk": [
+        {
+          "case_id": "t5_checkout_latency_cache_rollout",
+          "returned_thread_order": [
+            "gold:2",
+            "gold:1",
+            "gold:0"
+          ],
+          "one_shot_returned_order": [
+            "gold:1",
+            "gold:2",
+            "gold:0"
+          ],
+          "trace_steps": [
+            {
+              "step": 1,
+              "trace_anchor_order": [
+                "gold:1",
+                "gold:2",
+                "gold:0",
+                "drift:2",
+                "drift:0"
+              ],
+              "trace_order": [
+                "gold:1",
+                "gold:2",
+                "gold:0",
+                "drift:2",
+                "drift:0",
+                "drift:1"
+              ],
+              "selected_storyline_id": "wl-entity-3c39881ca589"
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        "execute_llm_unavailable",
+        "external_memory_adapter_not_configured",
+        "long_context_no_memory_adapter_not_configured",
+        "no_upstream_edges",
+        "semantic_backend_query_error:runtimeerror",
+        "semantic_backend_query_failed_lexical_fallback",
+        "semantic_backend_unavailable_degraded",
+        "semantic_index_stale"
+      ]
+    },
+    {
+      "run_index": 2,
+      "signature_digest": "ae8bfcf4b102641e",
+      "headline_digest": "880ecbb4d46ce4b9",
+      "ordered_topk_digest": "774c1626ffea9691",
+      "ordered_topk": [
+        {
+          "case_id": "t5_checkout_latency_cache_rollout",
+          "returned_thread_order": [
+            "gold:2",
+            "gold:0",
+            "gold:1"
+          ],
+          "one_shot_returned_order": [
+            "gold:0",
+            "gold:2",
+            "gold:1"
+          ],
+          "trace_steps": [
+            {
+              "step": 1,
+              "trace_anchor_order": [
+                "gold:0",
+                "gold:2",
+                "gold:1",
+                "drift:2",
+                "drift:1"
+              ],
+              "trace_order": [
+                "gold:0",
+                "gold:2",
+                "gold:1",
+                "drift:2",
+                "drift:1",
+                "drift:0"
+              ],
+              "selected_storyline_id": "wl-entity-3c39881ca589"
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        "execute_llm_unavailable",
+        "external_memory_adapter_not_configured",
+        "long_context_no_memory_adapter_not_configured",
+        "no_upstream_edges",
+        "semantic_backend_query_error:runtimeerror",
+        "semantic_backend_query_failed_lexical_fallback",
+        "semantic_backend_unavailable_degraded"
+      ]
+    },
+    {
+      "run_index": 3,
+      "signature_digest": "7e5fd0b9f370e214",
+      "headline_digest": "880ecbb4d46ce4b9",
+      "ordered_topk_digest": "fd425912a6974c23",
+      "ordered_topk": [
+        {
+          "case_id": "t5_checkout_latency_cache_rollout",
+          "returned_thread_order": [
+            "gold:1",
+            "gold:0",
+            "gold:2"
+          ],
+          "one_shot_returned_order": [
+            "gold:0",
+            "gold:1",
+            "gold:2"
+          ],
+          "trace_steps": [
+            {
+              "step": 1,
+              "trace_anchor_order": [
+                "gold:0",
+                "gold:1",
+                "gold:2",
+                "drift:2",
+                "drift:0"
+              ],
+              "trace_order": [
+                "gold:0",
+                "gold:1",
+                "gold:2",
+                "drift:2",
+                "drift:0",
+                "drift:1"
+              ],
+              "selected_storyline_id": "wl-entity-3c39881ca589"
+            }
+          ]
+        }
+      ],
+      "warnings": [
+        "execute_llm_unavailable",
+        "external_memory_adapter_not_configured",
+        "long_context_no_memory_adapter_not_configured",
+        "no_upstream_edges",
+        "semantic_backend_query_error:runtimeerror",
+        "semantic_backend_query_failed_lexical_fallback",
+        "semantic_backend_unavailable_degraded"
+      ]
+    }
+  ],
+  "warnings": [
+    "execute_llm_unavailable",
+    "external_memory_adapter_not_configured",
+    "long_context_no_memory_adapter_not_configured",
+    "no_upstream_edges",
+    "semantic_backend_query_error:runtimeerror",
+    "semantic_backend_query_failed_lexical_fallback",
+    "semantic_backend_unavailable_degraded",
+    "semantic_index_stale"
+  ]
+}

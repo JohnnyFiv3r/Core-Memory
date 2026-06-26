@@ -286,8 +286,9 @@ Publishable evidence closeout:
   minimum mechanism matrix.
 - [x] Real-data adapter completion for contrast readiness: LongMemEval loader
   plus supplied-corpus adapter-smoke paths.
-- [ ] Reproducibility appendix: exact commands, generated report bundle,
-  repeated-run determinism notes, and dependency/degradation notes.
+- [x] Reproducibility appendix: exact commands, generated report bundle,
+  repeated-run determinism notes, and dependency/degradation notes. Current
+  repeat-run result has stable headline metrics and unstable T5 ordered top-k.
 
 The minimum publishable core remains **T1 (CSR) + T2 (calibration) + the ablation
 matrix** with clean faithfulness flags and a dense retrieval baseline. T3-T5
