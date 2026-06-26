@@ -205,6 +205,12 @@ mechanism. Expected drops in **bold**.
 Each row is one figure in the paper. The diagonal of bolded drops *is* the argument:
 each mechanism owns a capability no other mechanism recovers.
 
+Harness status: `benchmarks.causal_continuity.runner --include-ablations` now emits a
+suite-level ablation matrix with observed rows from current strategy/cohort/baseline
+telemetry, `observed_no_expected_drop` rows where a proxy ran but did not show the expected
+effect, and explicit `needs_runtime_toggle` rows for mechanisms that still require
+dedicated disabled-mode runs.
+
 ---
 
 ## 8. Datasets
@@ -259,7 +265,8 @@ the inversion is not an artifact of a weak distractor.
 - [ ] T3 as-of/supersession scoring reframe of `locomo_like` buckets.
 - [x] T4 longitudinal lift + drift harness slice.
 - [x] T5 thread-fidelity deterministic harness slice.
-- [ ] Ablation matrix (§7) run end-to-end with faithfulness flags clean.
+- [ ] Ablation matrix (§7) run end-to-end with faithfulness flags clean. Initial
+  report attachment shipped; dedicated runtime toggles still needed for every row.
 - [ ] Real-data adapter slice (LoCoMo/LongMemEval) as the contrast condition.
 - [ ] One reproducibility appendix: `python -m benchmarks.<task>.runner` → committed report.
 

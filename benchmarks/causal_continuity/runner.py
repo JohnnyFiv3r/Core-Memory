@@ -7,6 +7,7 @@ from typing import Any
 
 from benchmarks.causal.runner import _repo_commit
 
+from .ablations import build_ablation_matrix
 from .reporting import build_suite_report, render_summary
 from .t1 import available_strategies, run_t1_matrix
 from .t2 import default_fixture_path, run_t2_calibration
@@ -54,6 +55,7 @@ def run_suite(
     tasks: list[str] | tuple[str, ...] | None = None,
     subset: str = "full",
     limit: int | None = None,
+    include_ablations: bool = False,
 ) -> dict[str, Any]:
     selected = list(strategies or available_strategies())
     selected_tasks = list(tasks or ["t1", "t2", "t3", "t4", "t5"])
@@ -92,11 +94,12 @@ def run_suite(
             "pr3_t3_temporal_state_selection",
             "pr4_t4_longitudinal_continuity",
             "pr5_t5_thread_fidelity",
+            "pr6_ablation_matrix",
             "causal_survival_rate_headline",
             "faithfulness_flags_reported",
         ],
     }
-    return build_suite_report(
+    report = build_suite_report(
         metadata=metadata,
         t1_report=t1_report,
         t2_report=t2_report,
@@ -104,6 +107,9 @@ def run_suite(
         t4_report=t4_report,
         t5_report=t5_report,
     )
+    if include_ablations:
+        report["ablation_matrix"] = build_ablation_matrix(report)
+    return report
 
 
 def main() -> int:
@@ -117,6 +123,7 @@ def main() -> int:
     p.add_argument("--t4-fixture", default=str(default_t4_fixture_path()))
     p.add_argument("--t5-fixture", default=str(default_t5_fixture_path()))
     p.add_argument("--tasks", default="all", help="Comma-separated task list, or 'all'. Supported: t1, t2, t3, t4, t5")
+    p.add_argument("--include-ablations", action="store_true", help="Attach the PRD section 7 ablation matrix to the suite report")
     p.add_argument("--subset", choices=["local", "full"], default="full")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument(
@@ -138,6 +145,7 @@ def main() -> int:
         tasks=_parse_tasks(str(args.tasks)),
         subset=str(args.subset),
         limit=args.limit,
+        include_ablations=bool(args.include_ablations),
     )
 
     print(render_summary(report))

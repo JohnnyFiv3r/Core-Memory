@@ -252,6 +252,18 @@ def render_summary(report: dict[str, Any]) -> str:
             f"drift={float(metrics.get('query_drift_rate') or 0.0):.4f}  "
             f"cases={int(metrics.get('case_count') or 0)}"
         )
+    ablations = dict(report.get("ablation_matrix") or {})
+    if ablations:
+        coverage = dict(ablations.get("coverage") or {})
+        lines.append("- Ablation matrix:")
+        lines.append(
+            "  - "
+            f"observed={int(coverage.get('observed_rows') or 0)}  "
+            f"no_expected_drop={int(coverage.get('observed_no_expected_drop_rows') or 0)}  "
+            f"needs_toggle={int(coverage.get('needs_runtime_toggle_rows') or 0)}  "
+            f"faithful={str(bool(coverage.get('faithfulness_clean', True))).lower()}  "
+            f"all_observed={str(bool(coverage.get('all_rows_observed', False))).lower()}"
+        )
 
     warnings = list(report.get("warnings") or [])
     if warnings:
