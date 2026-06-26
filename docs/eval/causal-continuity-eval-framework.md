@@ -208,7 +208,10 @@ Harness status: `benchmarks.causal_continuity.runner --include-ablations` now em
 suite-level ablation matrix with observed rows from current strategy/cohort/baseline
 telemetry, `observed_no_expected_drop` rows where a proxy ran but did not show the expected
 effect, and explicit `needs_runtime_toggle` rows for mechanisms that still require
-dedicated disabled-mode runs. True runtime-toggle execution remains closeout work.
+dedicated disabled-mode runs. `--run-ablation-toggles` is the heavier mode: it
+re-runs supported deterministic fixtures with manifest bonus, validated outcome
+feedback, and claim updates disabled, and folds the existing T1 similarity, T4
+Dreamer-off, and T5 one-shot baselines into the runtime matrix.
 
 ---
 
@@ -278,8 +281,9 @@ Publishable evidence closeout:
 
 - [ ] Baseline completion: replace unavailable/proxy comparator rows with actual
   adapter-backed runs where publishable comparison claims require them.
-- [ ] True ablation runs: no `needs_runtime_toggle` rows for minimum mechanism
-  claims.
+- [x] True ablation runs for the deterministic local fixture set:
+  `--run-ablation-toggles` removes `needs_runtime_toggle` rows for the current
+  minimum mechanism matrix.
 - [ ] Real-data adapter completion: LongMemEval loader plus external-corpus run
   paths when data is supplied.
 - [ ] Reproducibility appendix: exact commands, generated report bundle,

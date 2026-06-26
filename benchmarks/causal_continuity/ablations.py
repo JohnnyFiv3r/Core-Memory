@@ -58,7 +58,22 @@ def _full_scores(report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def build_ablation_matrix(report: dict[str, Any]) -> dict[str, Any]:
+def _apply_runtime_runs(rows: list[dict[str, Any]], runtime_runs: dict[str, Any]) -> None:
+    runtime_rows = dict(runtime_runs.get("rows") or {})
+    for row in rows:
+        row_id = str(row.get("id") or "")
+        overlay = dict(runtime_rows.get(row_id) or {})
+        if not overlay:
+            continue
+        row["status"] = str(overlay.get("status") or row.get("status") or "")
+        row["scores"] = dict(overlay.get("scores") or row.get("scores") or {})
+        row["observed_delta_vs_full"] = dict(overlay.get("observed_delta_vs_full") or row.get("observed_delta_vs_full") or {})
+        row["evidence"] = list(overlay.get("evidence") or row.get("evidence") or [])
+        row["limitations"] = list(overlay.get("limitations") or row.get("limitations") or [])
+        row["runtime_run"] = dict(overlay.get("runtime_run") or {})
+
+
+def build_ablation_matrix(report: dict[str, Any], *, runtime_runs: dict[str, Any] | None = None) -> dict[str, Any]:
     """Build the PRD section 7 mechanism-ownership matrix from suite outputs.
 
     This is deliberately a report-layer matrix: it records which mechanism rows
@@ -205,19 +220,25 @@ def build_ablation_matrix(report: dict[str, Any]) -> dict[str, Any]:
         },
     ]
 
+    runtime_runs_payload = dict(runtime_runs or {})
+    if runtime_runs_payload:
+        _apply_runtime_runs(rows, runtime_runs_payload)
+
     statuses = [str(row.get("status") or "") for row in rows]
+    has_runtime_runs = bool(runtime_runs_payload)
     return {
         "schema_version": ABLATION_REPORT_SCHEMA,
         "methodology": {
-            "kind": "suite_report_ablation_matrix",
+            "kind": "runtime_ablation_matrix" if has_runtime_runs else "suite_report_ablation_matrix",
             "mechanism_rows": len(rows),
             "notes": [
                 "full row is the current suite output",
-                "observed rows come from existing strategy/cohort/baseline telemetry",
-                "needs_runtime_toggle rows are explicit instrumentation gaps",
+                "runtime rows are executed disabled-mode task fixtures" if has_runtime_runs else "observed rows come from existing strategy/cohort/baseline telemetry",
+                "remaining needs_runtime_toggle rows are explicit instrumentation gaps",
             ],
         },
         "faithfulness": dict(report.get("faithfulness") or {}),
+        "runtime_ablation_runs": runtime_runs_payload,
         "rows": rows,
         "coverage": {
             "observed_rows": sum(1 for status in statuses if status.startswith("observed")),

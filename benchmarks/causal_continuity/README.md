@@ -96,15 +96,28 @@ Metrics:
 
 ## Ablation Matrix
 
-The optional ablation attachment summarizes the PRD §7 mechanism-ownership rows
-from the same suite output. Rows with current telemetry are marked `observed`
-when the expected drop appears, `observed_no_expected_drop` when the proxy ran
-but did not show the expected effect, and `needs_runtime_toggle` when the row
-still needs a dedicated disabled-mode run.
+The optional ablation attachment has two modes. `--include-ablations` summarizes
+the PRD §7 mechanism-ownership rows from the same suite output. Rows with
+current telemetry are marked `observed` when the expected drop appears,
+`observed_no_expected_drop` when the proxy ran but did not show the expected
+effect, and `needs_runtime_toggle` when the row still needs a dedicated
+disabled-mode run.
 
 This keeps the report useful before every toggle exists: reviewers can see the
 full-system scores, the observed strategy/cohort/baseline deltas, and the
 remaining instrumentation gaps in one object.
+
+`--run-ablation-toggles` is the heavier paper-evidence mode. It re-runs the
+small deterministic fixtures with supported mechanisms disabled:
+
+- T2 without manifest bonus for myelination backpressure.
+- T2 without validated outcome feedback.
+- T3 without claim-update application for supersession/temporal filtering.
+- Existing T1 similarity, T4 Dreamer-off, and T5 one-shot baselines are folded
+  into the same runtime matrix.
+
+Rows still report `observed_no_expected_drop` when a disabled run executes but
+the current fixture does not show the expected drop.
 
 ## Real-Data Contrast
 
@@ -174,6 +187,12 @@ Emit a suite report with the ablation matrix:
 
 ```bash
 python -m benchmarks.causal_continuity.runner --subset local --strategies all --include-ablations --out benchmarks/reports/causal-continuity-ablations.json
+```
+
+Run supported disabled-mode ablations:
+
+```bash
+python -m benchmarks.causal_continuity.runner --subset local --strategies all --run-ablation-toggles --out benchmarks/reports/causal-continuity-runtime-ablations.json
 ```
 
 Emit a suite report with the real-data contrast readiness attachment:

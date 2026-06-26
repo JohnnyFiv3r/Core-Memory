@@ -10,6 +10,7 @@ from benchmarks.causal.runner import _repo_commit
 from .ablations import build_ablation_matrix
 from .real_data import build_real_data_contrast
 from .reporting import build_suite_report, render_summary
+from .runtime_ablations import run_runtime_ablation_toggles
 from .t1 import available_strategies, run_t1_matrix
 from .t2 import default_fixture_path, run_t2_calibration
 from .t3 import default_fixture_path as default_t3_fixture_path
@@ -57,6 +58,7 @@ def run_suite(
     subset: str = "full",
     limit: int | None = None,
     include_ablations: bool = False,
+    run_ablation_toggles: bool = False,
     include_real_data_contrast: bool = False,
     run_real_data_local_proxy: bool = False,
     real_data_local_limit: int = 1,
@@ -98,6 +100,8 @@ def run_suite(
     ]
     if include_real_data_contrast:
         notes.append("pr7_real_data_contrast")
+    if run_ablation_toggles:
+        notes.append("pr9_runtime_ablation_toggles")
 
     metadata = {
         "suite": "causal_continuity",
@@ -117,7 +121,14 @@ def run_suite(
         t4_report=t4_report,
         t5_report=t5_report,
     )
-    if include_ablations:
+    if run_ablation_toggles:
+        runtime_runs = run_runtime_ablation_toggles(
+            report,
+            t2_fixture=t2_fixture or default_fixture_path(),
+            t3_fixture=t3_fixture or default_t3_fixture_path(),
+        )
+        report["ablation_matrix"] = build_ablation_matrix(report, runtime_runs=runtime_runs)
+    elif include_ablations:
         report["ablation_matrix"] = build_ablation_matrix(report)
     if include_real_data_contrast:
         report["real_data_contrast"] = build_real_data_contrast(
@@ -140,6 +151,7 @@ def main() -> int:
     p.add_argument("--t5-fixture", default=str(default_t5_fixture_path()))
     p.add_argument("--tasks", default="all", help="Comma-separated task list, or 'all'. Supported: t1, t2, t3, t4, t5")
     p.add_argument("--include-ablations", action="store_true", help="Attach the PRD section 7 ablation matrix to the suite report")
+    p.add_argument("--run-ablation-toggles", action="store_true", help="Execute supported disabled-mode ablation runs and attach the runtime ablation matrix")
     p.add_argument("--include-real-data-contrast", action="store_true", help="Attach real-data contrast readiness without making leaderboard claims")
     p.add_argument("--run-real-data-local-proxy", action="store_true", help="Run the checked-in LOCOMO-like local proxy inside the real-data contrast attachment")
     p.add_argument("--real-data-local-limit", type=int, default=1, help="Case limit for --run-real-data-local-proxy")
@@ -166,6 +178,7 @@ def main() -> int:
         subset=str(args.subset),
         limit=args.limit,
         include_ablations=bool(args.include_ablations),
+        run_ablation_toggles=bool(args.run_ablation_toggles),
         include_real_data_contrast=bool(args.include_real_data_contrast),
         run_real_data_local_proxy=bool(args.run_real_data_local_proxy),
         real_data_local_limit=int(args.real_data_local_limit),
