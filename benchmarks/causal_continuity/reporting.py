@@ -37,10 +37,25 @@ def _extract_t2_headlines(t2_report: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _extract_t3_headlines(t3_report: dict[str, Any] | None) -> dict[str, Any]:
+    if not t3_report:
+        return {}
+    metrics = dict(t3_report.get("metrics") or {})
+    return {
+        "pass": bool(t3_report.get("pass")),
+        "correct_state_selection_rate": metrics.get("correct_state_selection_rate"),
+        "as_of_accuracy": metrics.get("as_of_accuracy"),
+        "supersession_respect_rate": metrics.get("supersession_respect_rate"),
+        "contradiction_surfaced_rate": metrics.get("contradiction_surfaced_rate"),
+        "case_count": int(metrics.get("case_count") or 0),
+    }
+
+
 def _faithfulness_by_scope(
     *,
     t1_report: dict[str, Any],
     t2_report: dict[str, Any] | None,
+    t3_report: dict[str, Any] | None,
 ) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for name, report in sorted((t1_report.get("strategy_reports") or {}).items()):
@@ -53,6 +68,11 @@ def _faithfulness_by_scope(
         flags = dict(meta.get("faithfulness") or meta.get("shortcut_flags") or {})
         if flags:
             out["t2:calibration_reliability"] = flags
+    if t3_report:
+        meta = dict(t3_report.get("metadata") or {})
+        flags = dict(meta.get("faithfulness") or meta.get("shortcut_flags") or {})
+        if flags:
+            out["t3:temporal_state_selection"] = flags
     return out
 
 
@@ -61,9 +81,10 @@ def build_suite_report(
     metadata: dict[str, Any],
     t1_report: dict[str, Any] | None = None,
     t2_report: dict[str, Any] | None = None,
+    t3_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     t1 = dict(t1_report or {})
-    by_scope = _faithfulness_by_scope(t1_report=t1, t2_report=t2_report)
+    by_scope = _faithfulness_by_scope(t1_report=t1, t2_report=t2_report, t3_report=t3_report)
     is_faithful = all(bool(v.get("is_faithful")) for v in by_scope.values()) if by_scope else True
 
     warnings: list[str] = []
@@ -78,6 +99,9 @@ def build_suite_report(
     if t2_report:
         tasks["t2_calibration_reliability"] = t2_report
         headlines["t2_calibration_reliability"] = _extract_t2_headlines(t2_report)
+    if t3_report:
+        tasks["t3_temporal_state_selection"] = t3_report
+        headlines["t3_temporal_state_selection"] = _extract_t3_headlines(t3_report)
 
     return {
         "schema_version": "causal_continuity_report.v1",
@@ -103,6 +127,7 @@ def render_summary(report: dict[str, Any]) -> str:
     faith = dict(report.get("faithfulness") or {})
     t1 = dict((report.get("tasks") or {}).get("t1_causal_chain_reconstruction") or {})
     t2 = dict((report.get("tasks") or {}).get("t2_calibration_reliability") or {})
+    t3 = dict((report.get("tasks") or {}).get("t3_temporal_state_selection") or {})
     matrix = dict(t1.get("strategy_matrix") or {})
 
     lines = [
@@ -132,6 +157,18 @@ def render_summary(report: dict[str, Any]) -> str:
             f"brier={float(metrics.get('brier_score') or 0.0):.4f}  "
             f"high_band={float(metrics.get('high_band_usefulness_rate') or 0.0):.4f}  "
             f"samples={int(metrics.get('sample_count') or 0)}"
+        )
+    if t3:
+        metrics = dict(t3.get("metrics") or {})
+        lines.append("- T3 temporal state selection:")
+        lines.append(
+            "  - "
+            f"pass={str(bool(t3.get('pass'))).lower()}  "
+            f"state={float(metrics.get('correct_state_selection_rate') or 0.0):.4f}  "
+            f"as_of={float(metrics.get('as_of_accuracy') or 0.0):.4f}  "
+            f"supersession={float(metrics.get('supersession_respect_rate') or 0.0):.4f}  "
+            f"conflict={float(metrics.get('contradiction_surfaced_rate') or 0.0):.4f}  "
+            f"cases={int(metrics.get('case_count') or 0)}"
         )
 
     warnings = list(report.get("warnings") or [])

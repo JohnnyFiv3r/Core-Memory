@@ -1,0 +1,217 @@
+{
+  "schema": "causal_continuity.t3_fixture.v1",
+  "id": "temporal_as_of_supersession",
+  "description": "Temporal/as-of, supersession, and contradiction-update cases scored as state selection rather than answer-token overlap.",
+  "targets": {
+    "min_correct_state_selection_rate": 1.0,
+    "min_as_of_accuracy": 1.0,
+    "min_supersession_respect_rate": 1.0,
+    "min_contradiction_surfaced_rate": 1.0
+  },
+  "cases": [
+    {
+      "id": "t3_historical_timezone_as_of",
+      "bucket_labels": ["historical_as_of", "contradiction_update"],
+      "query": "what was my timezone on January 5 2026",
+      "as_of": "2026-01-05T00:00:00Z",
+      "setup": {
+        "beads": [
+          {"key": "tz", "type": "context", "title": "Timezone timeline", "summary": ["Timezone changed over time"], "session_id": "t3"}
+        ],
+        "claims": [
+          {
+            "bead_key": "tz",
+            "rows": [
+              {
+                "id": "c_tz_old",
+                "claim_kind": "condition",
+                "subject": "user",
+                "slot": "timezone",
+                "value": "UTC",
+                "reason_text": "older timezone",
+                "confidence": 0.8,
+                "effective_from": "2026-01-01T00:00:00Z",
+                "effective_to": "2026-01-10T00:00:00Z"
+              },
+              {
+                "id": "c_tz_new",
+                "claim_kind": "condition",
+                "subject": "user",
+                "slot": "timezone",
+                "value": "America/Chicago",
+                "reason_text": "newer timezone",
+                "confidence": 0.9,
+                "effective_from": "2026-01-10T00:00:00Z"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "slot": "user:timezone",
+        "status": "active",
+        "value": "UTC"
+      }
+    },
+    {
+      "id": "t3_current_timezone_after_update",
+      "bucket_labels": ["current_state_factual", "historical_as_of"],
+      "query": "what is my timezone now",
+      "as_of": "2026-01-12T00:00:00Z",
+      "setup": {
+        "beads": [
+          {"key": "tz", "type": "context", "title": "Timezone timeline", "summary": ["Timezone changed over time"], "session_id": "t3"}
+        ],
+        "claims": [
+          {
+            "bead_key": "tz",
+            "rows": [
+              {
+                "id": "c_tz_old",
+                "claim_kind": "condition",
+                "subject": "user",
+                "slot": "timezone",
+                "value": "UTC",
+                "reason_text": "older timezone",
+                "confidence": 0.8,
+                "effective_from": "2026-01-01T00:00:00Z",
+                "effective_to": "2026-01-10T00:00:00Z"
+              },
+              {
+                "id": "c_tz_new",
+                "claim_kind": "condition",
+                "subject": "user",
+                "slot": "timezone",
+                "value": "America/Chicago",
+                "reason_text": "newer timezone",
+                "confidence": 0.9,
+                "effective_from": "2026-01-10T00:00:00Z"
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "slot": "user:timezone",
+        "status": "active",
+        "value": "America/Chicago",
+        "excluded_current_values": ["UTC"]
+      }
+    },
+    {
+      "id": "t3_superseded_policy_not_current",
+      "bucket_labels": ["contradiction_update", "preference_identity_policy_commitment_condition"],
+      "query": "what response format policy is current",
+      "setup": {
+        "beads": [
+          {"key": "policy", "type": "context", "title": "Response policy update", "summary": ["Response policy changed"], "session_id": "t3"}
+        ],
+        "claims": [
+          {
+            "bead_key": "policy",
+            "rows": [
+              {
+                "id": "c_policy_old",
+                "claim_kind": "policy",
+                "subject": "user",
+                "slot": "response_format",
+                "value": "bullet_lists",
+                "reason_text": "old policy",
+                "confidence": 0.82
+              },
+              {
+                "id": "c_policy_new",
+                "claim_kind": "policy",
+                "subject": "user",
+                "slot": "response_format",
+                "value": "plain_paragraphs",
+                "reason_text": "new policy",
+                "confidence": 0.9
+              }
+            ]
+          }
+        ],
+        "claim_updates": [
+          {
+            "bead_key": "policy",
+            "rows": [
+              {
+                "id": "u_policy_supersede",
+                "decision": "supersede",
+                "target_claim_id": "c_policy_old",
+                "replacement_claim_id": "c_policy_new",
+                "subject": "user",
+                "slot": "response_format",
+                "reason_text": "new policy supersedes old policy",
+                "confidence": 0.9
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "slot": "user:response_format",
+        "status": "active",
+        "value": "plain_paragraphs",
+        "excluded_current_claim_ids": ["c_policy_old"],
+        "excluded_current_values": ["bullet_lists"]
+      }
+    },
+    {
+      "id": "t3_conflicting_coding_preference_surfaced",
+      "bucket_labels": ["contradiction_update", "preference_identity_policy_commitment_condition"],
+      "query": "what editor do I prefer for coding",
+      "setup": {
+        "beads": [
+          {"key": "prefs", "type": "context", "title": "Coding preference conflict", "summary": ["Conflicting coding preferences"], "session_id": "t3"}
+        ],
+        "claims": [
+          {
+            "bead_key": "prefs",
+            "rows": [
+              {
+                "id": "c_pref_a",
+                "claim_kind": "preference",
+                "subject": "user",
+                "slot": "coding_editor",
+                "value": "Neovim",
+                "reason_text": "first stated preference",
+                "confidence": 0.86
+              },
+              {
+                "id": "c_pref_b",
+                "claim_kind": "preference",
+                "subject": "user",
+                "slot": "coding_editor",
+                "value": "VSCode",
+                "reason_text": "later conflicting preference",
+                "confidence": 0.84
+              }
+            ]
+          }
+        ],
+        "claim_updates": [
+          {
+            "bead_key": "prefs",
+            "rows": [
+              {
+                "id": "u_pref_conflict",
+                "decision": "conflict",
+                "target_claim_id": "c_pref_a",
+                "subject": "user",
+                "slot": "coding_editor",
+                "reason_text": "conflicting active preference",
+                "confidence": 0.8
+              }
+            ]
+          }
+        ]
+      },
+      "expected": {
+        "slot": "user:coding_editor",
+        "status": "conflict",
+        "conflict_claim_ids": ["c_pref_a"]
+      }
+    }
+  ]
+}
