@@ -14,6 +14,8 @@ from .t3 import default_fixture_path as default_t3_fixture_path
 from .t3 import run_t3_temporal_state
 from .t4 import default_fixture_path as default_t4_fixture_path
 from .t4 import run_t4_longitudinal_continuity
+from .t5 import default_fixture_path as default_t5_fixture_path
+from .t5 import run_t5_thread_fidelity
 
 
 def _parse_strategies(raw: str) -> list[str]:
@@ -31,9 +33,9 @@ def _parse_strategies(raw: str) -> list[str]:
 def _parse_tasks(raw: str) -> list[str]:
     value = str(raw or "").strip().lower()
     if not value or value == "all":
-        return ["t1", "t2", "t3", "t4"]
+        return ["t1", "t2", "t3", "t4", "t5"]
     requested = [s.strip() for s in value.split(",") if s.strip()]
-    supported = {"t1", "t2", "t3", "t4"}
+    supported = {"t1", "t2", "t3", "t4", "t5"}
     unknown = [s for s in requested if s not in supported]
     if unknown:
         raise ValueError(f"unsupported_task:{','.join(unknown)}")
@@ -47,17 +49,19 @@ def run_suite(
     t2_fixture: Path | None = None,
     t3_fixture: Path | None = None,
     t4_fixture: Path | None = None,
+    t5_fixture: Path | None = None,
     strategies: list[str] | tuple[str, ...] | None = None,
     tasks: list[str] | tuple[str, ...] | None = None,
     subset: str = "full",
     limit: int | None = None,
 ) -> dict[str, Any]:
     selected = list(strategies or available_strategies())
-    selected_tasks = list(tasks or ["t1", "t2", "t3", "t4"])
+    selected_tasks = list(tasks or ["t1", "t2", "t3", "t4", "t5"])
     t1_report: dict[str, Any] = {}
     t2_report: dict[str, Any] | None = None
     t3_report: dict[str, Any] | None = None
     t4_report: dict[str, Any] | None = None
+    t5_report: dict[str, Any] | None = None
     if "t1" in selected_tasks:
         t1_report = run_t1_matrix(
             fixtures_dir=fixtures_dir,
@@ -72,6 +76,8 @@ def run_suite(
         t3_report = run_t3_temporal_state(fixture_path=t3_fixture or default_t3_fixture_path())
     if "t4" in selected_tasks:
         t4_report = run_t4_longitudinal_continuity(fixture_path=t4_fixture or default_t4_fixture_path())
+    if "t5" in selected_tasks:
+        t5_report = run_t5_thread_fidelity(fixture_path=t5_fixture or default_t5_fixture_path())
     metadata = {
         "suite": "causal_continuity",
         "task_count": len(selected_tasks),
@@ -85,6 +91,7 @@ def run_suite(
             "pr2_t2_calibration_reliability",
             "pr3_t3_temporal_state_selection",
             "pr4_t4_longitudinal_continuity",
+            "pr5_t5_thread_fidelity",
             "causal_survival_rate_headline",
             "faithfulness_flags_reported",
         ],
@@ -95,6 +102,7 @@ def run_suite(
         t2_report=t2_report,
         t3_report=t3_report,
         t4_report=t4_report,
+        t5_report=t5_report,
     )
 
 
@@ -107,7 +115,8 @@ def main() -> int:
     p.add_argument("--t2-fixture", default=str(default_fixture_path()))
     p.add_argument("--t3-fixture", default=str(default_t3_fixture_path()))
     p.add_argument("--t4-fixture", default=str(default_t4_fixture_path()))
-    p.add_argument("--tasks", default="all", help="Comma-separated task list, or 'all'. Supported: t1, t2, t3, t4")
+    p.add_argument("--t5-fixture", default=str(default_t5_fixture_path()))
+    p.add_argument("--tasks", default="all", help="Comma-separated task list, or 'all'. Supported: t1, t2, t3, t4, t5")
     p.add_argument("--subset", choices=["local", "full"], default="full")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument(
@@ -124,6 +133,7 @@ def main() -> int:
         t2_fixture=Path(args.t2_fixture),
         t3_fixture=Path(args.t3_fixture),
         t4_fixture=Path(args.t4_fixture),
+        t5_fixture=Path(args.t5_fixture),
         strategies=_parse_strategies(str(args.strategies)),
         tasks=_parse_tasks(str(args.tasks)),
         subset=str(args.subset),

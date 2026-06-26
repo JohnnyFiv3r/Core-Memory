@@ -1,0 +1,116 @@
+{
+  "schema": "causal_continuity.t5_fixture.v1",
+  "id": "checkout_latency_storyline_thread",
+  "description": "Query-drift fixture for scoring whether trace-based recall returns the correct causal storyline segment instead of a high-similarity off-thread chain.",
+  "targets": {
+    "min_thread_precision": 0.75,
+    "min_thread_recall": 1.0,
+    "min_thread_f1": 0.85,
+    "min_answerability": 1.0,
+    "max_query_drift_rate": 0.25
+  },
+  "loop": {
+    "max_steps": 3,
+    "k": 5,
+    "max_depth": 3,
+    "max_chains": 8
+  },
+  "cases": [
+    {
+      "id": "t5_checkout_latency_cache_rollout",
+      "query": "Why did checkout latency persist after the cache rollout?",
+      "intent": "causal",
+      "gold_thread_keys": ["cache_rollout", "db_pool_limit", "checkout_latency"],
+      "required_answer_keys": ["db_pool_limit", "checkout_latency"],
+      "drift_thread_keys": ["pricing_launch", "pricing_copy", "pricing_latency"],
+      "beads": [
+        {
+          "key": "cache_rollout",
+          "type": "decision",
+          "title": "Checkout cache rollout",
+          "summary": ["A checkout cache rollout was shipped to reduce latency."],
+          "session_id": "t5-checkout-a",
+          "source_turn_ids": ["t5-a-1"],
+          "entities": ["checkout latency investigation"],
+          "tags": ["gold_thread"]
+        },
+        {
+          "key": "db_pool_limit",
+          "type": "state_assertion",
+          "title": "Checkout database pool limit remained low",
+          "summary": ["The checkout database pool limit stayed at ten connections after the cache rollout."],
+          "session_id": "t5-checkout-b",
+          "source_turn_ids": ["t5-b-1"],
+          "entities": ["checkout latency investigation"],
+          "tags": ["gold_thread"]
+        },
+        {
+          "key": "checkout_latency",
+          "type": "outcome",
+          "title": "Checkout latency persisted",
+          "summary": ["Checkout latency persisted because the database pool remained saturated."],
+          "session_id": "t5-checkout-c",
+          "source_turn_ids": ["t5-c-1"],
+          "entities": ["checkout latency investigation"],
+          "tags": ["gold_thread"]
+        },
+        {
+          "key": "pricing_launch",
+          "type": "decision",
+          "title": "Pricing page cache rollout",
+          "summary": ["A pricing page cache rollout changed launch-page rendering."],
+          "session_id": "t5-pricing-a",
+          "source_turn_ids": ["t5-p-1"],
+          "entities": ["pricing launch storyline"],
+          "tags": ["drift_thread"]
+        },
+        {
+          "key": "pricing_copy",
+          "type": "context",
+          "title": "Pricing copy review",
+          "summary": ["Pricing copy review mentioned launch messaging and cart performance."],
+          "session_id": "t5-pricing-b",
+          "source_turn_ids": ["t5-p-2"],
+          "entities": ["pricing launch storyline"],
+          "tags": ["drift_thread"]
+        },
+        {
+          "key": "pricing_latency",
+          "type": "outcome",
+          "title": "Pricing page latency improved",
+          "summary": ["Pricing page latency improved after static assets were cached."],
+          "session_id": "t5-pricing-c",
+          "source_turn_ids": ["t5-p-3"],
+          "entities": ["pricing launch storyline"],
+          "tags": ["drift_thread"]
+        }
+      ],
+      "edges": [
+        {
+          "source_key": "cache_rollout",
+          "target_key": "db_pool_limit",
+          "relationship": "supports",
+          "confidence": 0.9
+        },
+        {
+          "source_key": "db_pool_limit",
+          "target_key": "checkout_latency",
+          "relationship": "causes",
+          "confidence": 0.95
+        },
+        {
+          "source_key": "pricing_launch",
+          "target_key": "pricing_copy",
+          "relationship": "supports",
+          "confidence": 0.86
+        },
+        {
+          "source_key": "pricing_copy",
+          "target_key": "pricing_latency",
+          "relationship": "causes",
+          "confidence": 0.84
+        }
+      ]
+    }
+  ]
+}

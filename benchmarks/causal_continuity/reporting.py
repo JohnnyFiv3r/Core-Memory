@@ -65,12 +65,28 @@ def _extract_t4_headlines(t4_report: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def _extract_t5_headlines(t5_report: dict[str, Any] | None) -> dict[str, Any]:
+    if not t5_report:
+        return {}
+    metrics = dict(t5_report.get("metrics") or {})
+    return {
+        "pass": bool(t5_report.get("pass")),
+        "thread_precision": metrics.get("thread_precision"),
+        "thread_recall": metrics.get("thread_recall"),
+        "thread_f1": metrics.get("thread_f1"),
+        "answerability": metrics.get("answerability"),
+        "query_drift_rate": metrics.get("query_drift_rate"),
+        "case_count": int(metrics.get("case_count") or 0),
+    }
+
+
 def _faithfulness_by_scope(
     *,
     t1_report: dict[str, Any],
     t2_report: dict[str, Any] | None,
     t3_report: dict[str, Any] | None,
     t4_report: dict[str, Any] | None,
+    t5_report: dict[str, Any] | None,
 ) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for name, report in sorted((t1_report.get("strategy_reports") or {}).items()):
@@ -93,6 +109,11 @@ def _faithfulness_by_scope(
         flags = dict(meta.get("faithfulness") or meta.get("shortcut_flags") or {})
         if flags:
             out["t4:longitudinal_continuity"] = flags
+    if t5_report:
+        meta = dict(t5_report.get("metadata") or {})
+        flags = dict(meta.get("faithfulness") or meta.get("shortcut_flags") or {})
+        if flags:
+            out["t5:thread_fidelity"] = flags
     return out
 
 
@@ -103,9 +124,16 @@ def build_suite_report(
     t2_report: dict[str, Any] | None = None,
     t3_report: dict[str, Any] | None = None,
     t4_report: dict[str, Any] | None = None,
+    t5_report: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     t1 = dict(t1_report or {})
-    by_scope = _faithfulness_by_scope(t1_report=t1, t2_report=t2_report, t3_report=t3_report, t4_report=t4_report)
+    by_scope = _faithfulness_by_scope(
+        t1_report=t1,
+        t2_report=t2_report,
+        t3_report=t3_report,
+        t4_report=t4_report,
+        t5_report=t5_report,
+    )
     is_faithful = all(bool(v.get("is_faithful")) for v in by_scope.values()) if by_scope else True
 
     warnings: list[str] = []
@@ -126,6 +154,9 @@ def build_suite_report(
     if t4_report:
         tasks["t4_longitudinal_continuity"] = t4_report
         headlines["t4_longitudinal_continuity"] = _extract_t4_headlines(t4_report)
+    if t5_report:
+        tasks["t5_thread_fidelity"] = t5_report
+        headlines["t5_thread_fidelity"] = _extract_t5_headlines(t5_report)
 
     return {
         "schema_version": "causal_continuity_report.v1",
@@ -153,6 +184,7 @@ def render_summary(report: dict[str, Any]) -> str:
     t2 = dict((report.get("tasks") or {}).get("t2_calibration_reliability") or {})
     t3 = dict((report.get("tasks") or {}).get("t3_temporal_state_selection") or {})
     t4 = dict((report.get("tasks") or {}).get("t4_longitudinal_continuity") or {})
+    t5 = dict((report.get("tasks") or {}).get("t5_thread_fidelity") or {})
     matrix = dict(t1.get("strategy_matrix") or {})
 
     lines = [
@@ -206,6 +238,19 @@ def render_summary(report: dict[str, Any]) -> str:
             f"drift_status={str(metrics.get('self_model_drift_status') or '')}  "
             f"goal_persistence={float(metrics.get('goal_thread_persistence_rate') or 0.0):.4f}  "
             f"applied_structural={int(metrics.get('accepted_applied_structural_candidates') or 0)}"
+        )
+    if t5:
+        metrics = dict(t5.get("metrics") or {})
+        lines.append("- T5 thread fidelity:")
+        lines.append(
+            "  - "
+            f"pass={str(bool(t5.get('pass'))).lower()}  "
+            f"precision={float(metrics.get('thread_precision') or 0.0):.4f}  "
+            f"recall={float(metrics.get('thread_recall') or 0.0):.4f}  "
+            f"f1={float(metrics.get('thread_f1') or 0.0):.4f}  "
+            f"answerability={float(metrics.get('answerability') or 0.0):.4f}  "
+            f"drift={float(metrics.get('query_drift_rate') or 0.0):.4f}  "
+            f"cases={int(metrics.get('case_count') or 0)}"
         )
 
     warnings = list(report.get("warnings") or [])
