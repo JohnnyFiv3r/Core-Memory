@@ -55,15 +55,72 @@ def _run_locomo_like_local_proxy(*, limit: int) -> dict[str, Any]:
     }
 
 
+def _run_locomo_adapter_smoke(*, corpus: Path, limit: int) -> dict[str, Any]:
+    from benchmarks.locomo.loader import load_locomo_corpus, locomo_samples_to_conversations
+
+    try:
+        samples = load_locomo_corpus(corpus)
+        conversations = locomo_samples_to_conversations(samples, max_qa_per_sample=1)
+        conversations = conversations[: max(1, int(limit))]
+    except Exception as exc:  # pragma: no cover - defensive report path
+        return {
+            "status": "failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+
+    return {
+        "status": "completed",
+        "adapter": "locomo",
+        "conversation_count": len(conversations),
+        "turn_count": sum(len(c.turns) for c in conversations),
+        "qa_count": sum(len(c.qa_cases) for c in conversations),
+        "leaderboard_claim": False,
+    }
+
+
+def _run_longmemeval_adapter_smoke(*, corpus: Path, limit: int) -> dict[str, Any]:
+    from benchmarks.longmemeval.runner import run_adapter_smoke
+
+    try:
+        report = run_adapter_smoke(corpus=corpus, limit=max(1, int(limit)))
+    except Exception as exc:  # pragma: no cover - defensive report path
+        return {
+            "status": "failed",
+            "error": f"{type(exc).__name__}: {exc}",
+        }
+    return {
+        "status": str(report.get("status") or ""),
+        "adapter": str(report.get("adapter") or "longmemeval"),
+        "summary": dict(report.get("summary") or {}),
+        "sample": list(report.get("sample") or []),
+        "leaderboard_claim": False,
+    }
+
+
 def _leaderboard_claim_count(rows: list[dict[str, Any]]) -> int:
     return sum(1 for row in rows if bool(row.get("leaderboard_claim")))
+
+
+def _external_status(path_info: dict[str, Any], execution: dict[str, Any]) -> str:
+    if not path_info["provided"]:
+        return "dataset_required"
+    if not path_info["exists"]:
+        return "corpus_path_missing"
+    if execution.get("status") == "completed":
+        return "adapter_smoke_completed"
+    if execution.get("status") == "failed":
+        return "adapter_smoke_failed"
+    return "dataset_available"
 
 
 def build_real_data_contrast(
     *,
     locomo_corpus: Path | None = None,
+    longmemeval_corpus: Path | None = None,
     run_local_proxy: bool = False,
     local_proxy_limit: int = 1,
+    run_external_adapter_smoke: bool = False,
+    external_adapter_limit: int = 1,
 ) -> dict[str, Any]:
     """Build the PRD real-data contrast attachment.
 
@@ -73,6 +130,7 @@ def build_real_data_contrast(
     """
 
     locomo_path = _path_status(locomo_corpus)
+    longmemeval_path = _path_status(longmemeval_corpus)
     local_execution = (
         _run_locomo_like_local_proxy(limit=local_proxy_limit)
         if run_local_proxy
@@ -83,11 +141,19 @@ def build_real_data_contrast(
     if local_execution.get("status") == "failed":
         local_status = "failed"
 
-    locomo_external_status = "dataset_required"
-    if locomo_path["provided"] and locomo_path["exists"]:
-        locomo_external_status = "dataset_available"
-    elif locomo_path["provided"]:
-        locomo_external_status = "corpus_path_missing"
+    locomo_execution = (
+        _run_locomo_adapter_smoke(corpus=Path(str(locomo_path["path"])), limit=external_adapter_limit)
+        if run_external_adapter_smoke and locomo_path["exists"]
+        else {"status": "not_run"}
+    )
+    longmemeval_execution = (
+        _run_longmemeval_adapter_smoke(corpus=Path(str(longmemeval_path["path"])), limit=external_adapter_limit)
+        if run_external_adapter_smoke and longmemeval_path["exists"]
+        else {"status": "not_run"}
+    )
+
+    locomo_external_status = _external_status(locomo_path, locomo_execution)
+    longmemeval_external_status = _external_status(longmemeval_path, longmemeval_execution)
 
     rows: list[dict[str, Any]] = [
         {
@@ -125,23 +191,25 @@ def build_real_data_contrast(
             "dataset_path": locomo_path,
             "run_command": "python -m benchmarks.locomo --corpus <locomo10.json> --smoke",
             "licensing_note": "Corpus is not vendored; obtain it separately and pass --locomo-corpus.",
-            "execution": {"status": "not_run"},
+            "execution": locomo_execution,
         },
         {
             "dataset_id": "longmemeval_external",
             "label": "LongMemEval external corpus",
             "dataset_family": "longmemeval",
             "contrast_role": "external_benchmark_adapter",
-            "status": "adapter_contract_declared",
-            "availability": "adapter_not_implemented",
-            "adapter_surface": "",
-            "benchmark_adapter_protocol": "not_implemented",
+            "status": longmemeval_external_status,
+            "availability": "requires_user_supplied_corpus",
+            "adapter_surface": "benchmarks.longmemeval.LongMemEvalAdapter",
+            "benchmark_adapter_protocol": "implemented",
             "external_dataset_required": True,
             "network_required": False,
             "leaderboard_claim": False,
-            "can_run": False,
-            "run_command": "",
-            "execution": {"status": "not_run"},
+            "can_run": bool(longmemeval_path["exists"]),
+            "dataset_path": longmemeval_path,
+            "run_command": "python -m benchmarks.longmemeval --corpus <longmemeval.json> --limit 1",
+            "licensing_note": "Corpus is not vendored; obtain it separately and pass --longmemeval-corpus.",
+            "execution": longmemeval_execution,
         },
     ]
 
@@ -150,11 +218,25 @@ def build_real_data_contrast(
         warnings.append("locomo_external_corpus_not_provided")
     if locomo_external_status == "corpus_path_missing":
         warnings.append("locomo_external_corpus_path_missing")
-    warnings.append("longmemeval_adapter_not_implemented")
+    if locomo_external_status == "adapter_smoke_failed":
+        warnings.append("locomo_external_adapter_smoke_failed")
+    if longmemeval_external_status == "dataset_required":
+        warnings.append("longmemeval_external_corpus_not_provided")
+    if longmemeval_external_status == "corpus_path_missing":
+        warnings.append("longmemeval_external_corpus_path_missing")
+    if longmemeval_external_status == "adapter_smoke_failed":
+        warnings.append("longmemeval_external_adapter_smoke_failed")
     if local_execution.get("status") == "failed":
         warnings.append("locomo_like_local_proxy_failed")
 
-    top_status = "local_proxy_failed" if local_execution.get("status") == "failed" else "ready_with_local_proxy"
+    if local_execution.get("status") == "failed":
+        top_status = "local_proxy_failed"
+    elif any(row.get("status") == "adapter_smoke_failed" for row in rows):
+        top_status = "external_adapter_smoke_failed"
+    elif any(row.get("status") == "adapter_smoke_completed" for row in rows):
+        top_status = "ready_with_external_contrast"
+    else:
+        top_status = "ready_with_local_proxy"
 
     return {
         "schema_version": REAL_DATA_CONTRAST_SCHEMA,
@@ -175,6 +257,9 @@ def build_real_data_contrast(
             "local_proxy_count": sum(1 for row in rows if row.get("contrast_role") == "local_proxy"),
             "external_dataset_count": sum(1 for row in rows if bool(row.get("external_dataset_required"))),
             "runnable_count": sum(1 for row in rows if bool(row.get("can_run"))),
+            "external_adapter_smoke_count": sum(
+                1 for row in rows if dict(row.get("execution") or {}).get("status") == "completed"
+            ),
             "leaderboard_claim_count": _leaderboard_claim_count(rows),
         },
         "datasets": rows,

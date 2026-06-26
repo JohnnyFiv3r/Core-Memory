@@ -1,6 +1,6 @@
 # Causal-Continuity Closeout Implementation Plan
 
-Status: PR-1 closeout plan after `#288`.
+Status: closeout plan after baseline, ablation, and real-data adapter slices.
 
 This document converts the reference evaluation framework into the remaining
 implementation sequence. The framework remains the north star; this plan is the
@@ -17,7 +17,7 @@ package can support a paper-grade claim.
 | T4 longitudinal continuity | Scored continuity lift, self-model drift, and goal persistence task | Include in committed report artifact and repeat-run evidence |
 | T5 thread fidelity | Deterministic trace/storyline proxy with precision, recall, answerability, and drift metrics | Decide whether an external LLM judge is needed for the paper claim; otherwise label deterministic answerability as the supported local claim |
 | Ablation matrix | Optional `ablation_matrix` attachment plus `--run-ablation-toggles` disabled-mode fixture runs | Expand runtime toggles beyond the deterministic local fixture set if needed for paper evidence |
-| Real-data contrast | Optional `real_data_contrast` attachment with local proxy, LoCoMo readiness, and LongMemEval status | Add LongMemEval loader and run external-corpus paths when data is supplied |
+| Real-data contrast | Optional `real_data_contrast` attachment with local proxy, LoCoMo readiness, LongMemEval readiness, and adapter-load smoke paths | Run full external-corpus benchmark jobs only when publishable corpora and comparison claims require them |
 | Reproducibility | Runner commands exist | Commit appendix plus generated report bundle with exact commands, environment notes, determinism checks, and source commit |
 
 ## Publishable Complete
@@ -99,6 +99,8 @@ Scope:
   report.
 - Keep corpora out of the repository and fail clearly when paths are missing or
   malformed.
+- Run supplied-corpus adapter smokes as contrast-readiness checks, not leaderboard
+  evaluations.
 
 Acceptance:
 
