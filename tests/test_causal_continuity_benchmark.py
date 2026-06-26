@@ -5,6 +5,7 @@ import unittest
 from pathlib import Path
 
 from benchmarks.causal_continuity.ablations import build_ablation_matrix
+from benchmarks.causal_continuity.real_data import build_real_data_contrast
 from benchmarks.causal_continuity.reporting import render_summary
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
 from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
@@ -283,6 +284,45 @@ class TestCausalContinuityT1(unittest.TestCase):
         rows = {row["id"]: row for row in matrix["rows"]}
         self.assertIn(rows["minus_agentic_recall_loop"]["status"], {"observed", "observed_no_expected_drop"})
         self.assertIn("t5_thread_f1", rows["minus_agentic_recall_loop"]["scores"])
+
+    def test_real_data_contrast_declares_local_proxy_without_leaderboard_claim(self):
+        report = build_real_data_contrast()
+
+        self.assertEqual("causal_continuity.real_data_contrast.v1", report["schema_version"])
+        self.assertEqual(0, report["summary"]["leaderboard_claim_count"])
+        self.assertEqual(
+            ["load_conversations", "score_answer", "score_evidence"],
+            report["adapter_contract"]["required_methods"],
+        )
+
+        rows = {row["dataset_id"]: row for row in report["datasets"]}
+        self.assertIn("locomo_like_local_proxy", rows)
+        self.assertIn("locomo_external", rows)
+        self.assertIn("longmemeval_external", rows)
+        self.assertTrue(rows["locomo_like_local_proxy"]["can_run"])
+        self.assertFalse(rows["locomo_like_local_proxy"]["leaderboard_claim"])
+        self.assertEqual("not_run", rows["locomo_like_local_proxy"]["execution"]["status"])
+        self.assertEqual("implemented", rows["locomo_external"]["benchmark_adapter_protocol"])
+        self.assertEqual("adapter_contract_declared", rows["longmemeval_external"]["status"])
+
+    def test_suite_report_attaches_real_data_contrast_when_requested(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=["bm25"],
+            tasks=["t1"],
+            subset="local",
+            limit=1,
+            include_real_data_contrast=True,
+        )
+
+        self.assertIn("real_data_contrast", report)
+        self.assertEqual(0, report["real_data_contrast"]["summary"]["leaderboard_claim_count"])
+        self.assertIn("pr7_real_data_contrast", report["metadata"]["notes"])
+
+        text = render_summary(report)
+        self.assertIn("Real-data contrast", text)
+        self.assertIn("leaderboard_claims=0", text)
 
 
 if __name__ == "__main__":

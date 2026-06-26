@@ -267,7 +267,9 @@ the inversion is not an artifact of a weak distractor.
 - [x] T5 thread-fidelity deterministic harness slice.
 - [ ] Ablation matrix (§7) run end-to-end with faithfulness flags clean. Initial
   report attachment shipped; dedicated runtime toggles still needed for every row.
-- [ ] Real-data adapter slice (LoCoMo/LongMemEval) as the contrast condition.
+- [ ] Real-data adapter slice (LoCoMo/LongMemEval) as the contrast condition. Initial
+  readiness attachment shipped with checked-in local proxy and external adapter status;
+  full LongMemEval loader and external-corpus runs remain.
 - [ ] One reproducibility appendix: `python -m benchmarks.<task>.runner` → committed report.
 
 The minimum publishable core is **T1 (CSR) + T2 (calibration) + the ablation matrix** with

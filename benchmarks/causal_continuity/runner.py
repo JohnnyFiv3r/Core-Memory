@@ -8,6 +8,7 @@ from typing import Any
 from benchmarks.causal.runner import _repo_commit
 
 from .ablations import build_ablation_matrix
+from .real_data import build_real_data_contrast
 from .reporting import build_suite_report, render_summary
 from .t1 import available_strategies, run_t1_matrix
 from .t2 import default_fixture_path, run_t2_calibration
@@ -56,6 +57,10 @@ def run_suite(
     subset: str = "full",
     limit: int | None = None,
     include_ablations: bool = False,
+    include_real_data_contrast: bool = False,
+    run_real_data_local_proxy: bool = False,
+    real_data_local_limit: int = 1,
+    locomo_corpus: Path | None = None,
 ) -> dict[str, Any]:
     selected = list(strategies or available_strategies())
     selected_tasks = list(tasks or ["t1", "t2", "t3", "t4", "t5"])
@@ -80,6 +85,19 @@ def run_suite(
         t4_report = run_t4_longitudinal_continuity(fixture_path=t4_fixture or default_t4_fixture_path())
     if "t5" in selected_tasks:
         t5_report = run_t5_thread_fidelity(fixture_path=t5_fixture or default_t5_fixture_path())
+    notes = [
+        "pr1_t1_strategy_matrix",
+        "pr2_t2_calibration_reliability",
+        "pr3_t3_temporal_state_selection",
+        "pr4_t4_longitudinal_continuity",
+        "pr5_t5_thread_fidelity",
+        "pr6_ablation_matrix",
+        "causal_survival_rate_headline",
+        "faithfulness_flags_reported",
+    ]
+    if include_real_data_contrast:
+        notes.append("pr7_real_data_contrast")
+
     metadata = {
         "suite": "causal_continuity",
         "task_count": len(selected_tasks),
@@ -88,16 +106,7 @@ def run_suite(
         "subset": subset,
         "limit": limit,
         "commit": _repo_commit(),
-        "notes": [
-            "pr1_t1_strategy_matrix",
-            "pr2_t2_calibration_reliability",
-            "pr3_t3_temporal_state_selection",
-            "pr4_t4_longitudinal_continuity",
-            "pr5_t5_thread_fidelity",
-            "pr6_ablation_matrix",
-            "causal_survival_rate_headline",
-            "faithfulness_flags_reported",
-        ],
+        "notes": notes,
     }
     report = build_suite_report(
         metadata=metadata,
@@ -109,6 +118,12 @@ def run_suite(
     )
     if include_ablations:
         report["ablation_matrix"] = build_ablation_matrix(report)
+    if include_real_data_contrast:
+        report["real_data_contrast"] = build_real_data_contrast(
+            locomo_corpus=locomo_corpus,
+            run_local_proxy=run_real_data_local_proxy,
+            local_proxy_limit=real_data_local_limit,
+        )
     return report
 
 
@@ -124,6 +139,10 @@ def main() -> int:
     p.add_argument("--t5-fixture", default=str(default_t5_fixture_path()))
     p.add_argument("--tasks", default="all", help="Comma-separated task list, or 'all'. Supported: t1, t2, t3, t4, t5")
     p.add_argument("--include-ablations", action="store_true", help="Attach the PRD section 7 ablation matrix to the suite report")
+    p.add_argument("--include-real-data-contrast", action="store_true", help="Attach real-data contrast readiness without making leaderboard claims")
+    p.add_argument("--run-real-data-local-proxy", action="store_true", help="Run the checked-in LOCOMO-like local proxy inside the real-data contrast attachment")
+    p.add_argument("--real-data-local-limit", type=int, default=1, help="Case limit for --run-real-data-local-proxy")
+    p.add_argument("--locomo-corpus", default="", help="Optional path to user-supplied locomo10.json for external LoCoMo adapter readiness checks")
     p.add_argument("--subset", choices=["local", "full"], default="full")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument(
@@ -146,6 +165,10 @@ def main() -> int:
         subset=str(args.subset),
         limit=args.limit,
         include_ablations=bool(args.include_ablations),
+        include_real_data_contrast=bool(args.include_real_data_contrast),
+        run_real_data_local_proxy=bool(args.run_real_data_local_proxy),
+        real_data_local_limit=int(args.real_data_local_limit),
+        locomo_corpus=(Path(args.locomo_corpus) if str(args.locomo_corpus or "").strip() else None),
     )
 
     print(render_summary(report))

@@ -264,6 +264,18 @@ def render_summary(report: dict[str, Any]) -> str:
             f"faithful={str(bool(coverage.get('faithfulness_clean', True))).lower()}  "
             f"all_observed={str(bool(coverage.get('all_rows_observed', False))).lower()}"
         )
+    real_data = dict(report.get("real_data_contrast") or {})
+    if real_data:
+        summary = dict(real_data.get("summary") or {})
+        lines.append("- Real-data contrast:")
+        lines.append(
+            "  - "
+            f"status={str(real_data.get('status') or '')}  "
+            f"datasets={int(summary.get('dataset_count') or 0)}  "
+            f"local_proxy={int(summary.get('local_proxy_count') or 0)}  "
+            f"runnable={int(summary.get('runnable_count') or 0)}  "
+            f"leaderboard_claims={int(summary.get('leaderboard_claim_count') or 0)}"
+        )
 
     warnings = list(report.get("warnings") or [])
     if warnings:

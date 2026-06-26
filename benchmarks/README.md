@@ -12,7 +12,8 @@ This package contains in-repo benchmark tooling for long-conversation memory qua
 - `causal_continuity/` — suite-level causal-continuity report harness; compares
   T1 Core Memory causal traversal against lexical/similarity baselines and
   scores T2 calibration reliability, T3 temporal state selection, and T4
-  longitudinal continuity, plus T5 thread fidelity and optional ablation rows
+  longitudinal continuity, plus T5 thread fidelity, optional ablation rows, and
+  an optional real-data contrast readiness attachment
 
 ## Quick start
 
@@ -46,8 +47,15 @@ Run the causal-continuity PR1 strategy matrix:
 python -m benchmarks.causal_continuity.runner --subset full
 ```
 
+Attach the real-data contrast readiness report:
+
+```bash
+python -m benchmarks.causal_continuity.runner --subset local --limit 1 --strategies bm25 --include-real-data-contrast
+```
+
 ## Design notes
 
 - This harness uses checked-in fixtures with gold labels for deterministic local replay.
 - It does **not** hardcode benchmark answers in retrieval code.
-- If external benchmark datasets are used later, they should be loaded through the same schema/loader contracts.
+- External benchmark datasets should be loaded through `benchmarks.contracts.BenchmarkAdapter`.
+- Local proxy fixtures are contrast evidence, not public leaderboard claims.
