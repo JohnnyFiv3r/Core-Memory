@@ -115,14 +115,16 @@ Metrics: continuity **lift > 0** vs no-memory; drift score = 0 (no
 ungrounded/contradictory identity revisions) across the window; goal-thread persistence
 rate.
 
-### T5 — Thread fidelity under the agentic recall loop  (C5) · **gap: PRD-E**
+### T5 — Thread fidelity under the agentic recall loop  (C5) · **implemented: deterministic harness slice**
 PRD-E's iterative recall loop (semantic seed → reward-elected causal expansion → per-hop
 re-evaluation against the *original* query → answerability/stop gate) is the surface this
 task scores. Given a query with a gold storyline thread + off-thread distractor beads, score
 **thread precision/recall** of the returned segment and an **LLM-judge answerability** call
 (did the assembled thread contain sufficient evidence to answer correctly?). Crucially,
 include "query-drift" probes: a thread that wanders to a higher-similarity but off-query
-subgraph must be penalized — the metric IR can't express.
+subgraph must be penalized — the metric IR can't express. The suite-level T5 harness now
+ships a deterministic local proxy around `trace_request()` and storyline selection; the
+external LLM judge adapter remains a future extension.
 
 ---
 
@@ -256,7 +258,7 @@ the inversion is not an artifact of a weak distractor.
 - [ ] T2 calibration task: scored ρ/ECE/Brier (build on the PRD-B meter).
 - [ ] T3 as-of/supersession scoring reframe of `locomo_like` buckets.
 - [x] T4 longitudinal lift + drift harness slice.
-- [ ] T5 thread-fidelity task (needs PRD-E recall loop).
+- [x] T5 thread-fidelity deterministic harness slice.
 - [ ] Ablation matrix (§7) run end-to-end with faithfulness flags clean.
 - [ ] Real-data adapter slice (LoCoMo/LongMemEval) as the contrast condition.
 - [ ] One reproducibility appendix: `python -m benchmarks.<task>.runner` → committed report.

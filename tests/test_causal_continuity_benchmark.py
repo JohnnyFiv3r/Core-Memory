@@ -10,6 +10,7 @@ from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
 from benchmarks.causal_continuity.t2 import run_t2_calibration
 from benchmarks.causal_continuity.t3 import run_t3_temporal_state
 from benchmarks.causal_continuity.t4 import run_t4_longitudinal_continuity
+from benchmarks.causal_continuity.t5 import run_t5_thread_fidelity
 
 _HERE = Path(__file__).resolve().parent.parent / "benchmarks" / "causal"
 _FIXTURES = _HERE / "fixtures"
@@ -30,10 +31,10 @@ class TestCausalContinuityT1(unittest.TestCase):
             _parse_strategies("unknown")
 
     def test_parse_tasks(self):
-        self.assertEqual(["t1", "t2", "t3", "t4"], _parse_tasks("all"))
+        self.assertEqual(["t1", "t2", "t3", "t4", "t5"], _parse_tasks("all"))
         self.assertEqual(["t2"], _parse_tasks("t2"))
         with self.assertRaises(ValueError):
-            _parse_tasks("t5")
+            _parse_tasks("t6")
 
     def test_t1_baseline_matrix_reports_faithful_strategy_rows(self):
         report = run_t1_matrix(
@@ -195,6 +196,46 @@ class TestCausalContinuityT1(unittest.TestCase):
         text = render_summary(report)
         self.assertIn("T4 longitudinal continuity", text)
         self.assertIn("goal_persistence=", text)
+
+    def test_t5_thread_fidelity_scores_storyline_thread_and_query_drift(self):
+        report = run_t5_thread_fidelity()
+
+        self.assertEqual("causal_continuity.t5_thread_fidelity.v1", report["schema_version"])
+        self.assertEqual("t5_thread_fidelity", report["task_id"])
+        self.assertTrue(report["metadata"]["faithfulness"]["is_faithful"])
+        self.assertTrue(report["pass"], report)
+
+        metrics = report["metrics"]
+        self.assertEqual(1, metrics["case_count"])
+        self.assertGreaterEqual(metrics["thread_precision"], 0.75)
+        self.assertEqual(1.0, metrics["thread_recall"])
+        self.assertGreaterEqual(metrics["thread_f1"], 0.85)
+        self.assertEqual(1.0, metrics["answerability"])
+        self.assertLessEqual(metrics["query_drift_rate"], 0.25)
+
+        case = report["cases"][0]
+        self.assertTrue(case["loop"]["steps"])
+        self.assertEqual(set(case["gold_thread_bead_ids"]), set(case["returned_thread_bead_ids"]))
+
+    def test_suite_report_includes_t5_headlines(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=["bm25"],
+            tasks=["t5"],
+            subset="local",
+            limit=1,
+        )
+
+        self.assertEqual("causal_continuity_report.v1", report["schema_version"])
+        self.assertIn("t5_thread_fidelity", report["tasks"])
+        self.assertNotIn("t1_causal_chain_reconstruction", report["tasks"])
+        self.assertIn("t5:thread_fidelity", report["faithfulness"]["by_scope"])
+        self.assertTrue(report["headlines"]["t5_thread_fidelity"]["pass"])
+
+        text = render_summary(report)
+        self.assertIn("T5 thread fidelity", text)
+        self.assertIn("answerability=", text)
 
 
 if __name__ == "__main__":

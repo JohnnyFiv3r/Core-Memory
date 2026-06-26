@@ -7,7 +7,8 @@ single report. It wires the existing T1 causal-chain reconstruction benchmark
 into a strategy matrix and adds a T2 calibration-reliability task over the
 shipped myelination calibration meter, a T3 temporal state-selection task, and a
 T4 longitudinal continuity task over Dreamer lift, self-model drift, and goal
-thread persistence.
+thread persistence, plus a T5 thread-fidelity task over trace-backed storyline
+selection.
 
 ## T1 Strategies
 
@@ -68,6 +69,25 @@ The fixture requires one accepted/applied structural Dreamer candidate, a
 grounded endorsed identity revision, and a reviewed goal thread that stays
 active across the run.
 
+## T5 Thread Fidelity
+
+T5 scores whether query-anchored trace expansion returns the right storyline
+segment without drifting into a nearby off-thread chain. The checked-in fixture
+contains a gold causal storyline and a high-similarity distractor storyline.
+
+The local harness uses a deterministic proxy for the PRD-E agentic loop:
+
+- `trace_request()` supplies semantic seed plus causal expansion.
+- Storyline candidates are re-scored against the original query at each step.
+- Answerability is scored post-hoc from gold labels for stable CI; no external
+  LLM judge is invoked in this slice.
+
+Metrics:
+
+- Thread precision, recall, and F1 for the returned storyline segment.
+- Deterministic answerability proxy.
+- Query-drift rate for off-thread beads admitted into the segment.
+
 ## Quick Start
 
 Run the full suite:
@@ -100,6 +120,12 @@ Run only the T4 longitudinal continuity task:
 python -m benchmarks.causal_continuity.runner --tasks t4
 ```
 
+Run only the T5 thread-fidelity task:
+
+```bash
+python -m benchmarks.causal_continuity.runner --tasks t5
+```
+
 Emit a suite report:
 
 ```bash
@@ -119,6 +145,8 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   supersession, and contradiction-surfacing rates.
 - `headlines.t4_longitudinal_continuity` — continuity lift, self-model drift,
   goal-thread persistence, and applied structural candidate count.
+- `headlines.t5_thread_fidelity` — thread precision/recall/F1, answerability,
+  query drift, and case count.
 - `tasks.t1_causal_chain_reconstruction.strategy_matrix` — compact per-strategy
   rows for table generation.
 - `tasks.t2_calibration_reliability.metrics` — scored calibration metrics.
@@ -126,5 +154,7 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   metrics.
 - `tasks.t4_longitudinal_continuity.metrics` — scored longitudinal continuity,
   self-model drift, and goal-thread persistence metrics.
+- `tasks.t5_thread_fidelity.metrics` — scored storyline-thread precision,
+  recall, answerability, and drift metrics.
 - `tasks.t1_causal_chain_reconstruction.strategy_reports` — the full existing
   causal benchmark report for each strategy.
