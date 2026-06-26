@@ -100,6 +100,20 @@ This keeps the report useful before every toggle exists: reviewers can see the
 full-system scores, the observed strategy/cohort/baseline deltas, and the
 remaining instrumentation gaps in one object.
 
+## Real-Data Contrast
+
+The optional real-data contrast attachment records external-benchmark readiness
+without turning local fixtures into public leaderboard claims. It reports:
+
+- the checked-in LOCOMO-like local proxy and its opt-in smoke command,
+- the existing external LoCoMo adapter surface, marked runnable only when a
+  user-supplied corpus path is present, and
+- the LongMemEval row as adapter-contract-declared until a loader is added.
+
+All rows carry `leaderboard_claim: false`. The local proxy can be run inside the
+attachment with `--run-real-data-local-proxy`, but that result remains a local
+contrast condition.
+
 ## Quick Start
 
 Run the full suite:
@@ -150,6 +164,18 @@ Emit a suite report with the ablation matrix:
 python -m benchmarks.causal_continuity.runner --subset local --strategies all --include-ablations --out benchmarks/reports/causal-continuity-ablations.json
 ```
 
+Emit a suite report with the real-data contrast readiness attachment:
+
+```bash
+python -m benchmarks.causal_continuity.runner --subset local --strategies bm25 --limit 1 --include-real-data-contrast --out benchmarks/reports/causal-continuity-real-data.json
+```
+
+Run the checked-in LOCOMO-like local proxy inside that attachment:
+
+```bash
+python -m benchmarks.causal_continuity.runner --tasks t1 --subset local --strategies bm25 --limit 1 --include-real-data-contrast --run-real-data-local-proxy
+```
+
 ## Report Shape
 
 The top-level report uses `causal_continuity_report.v1` and includes:
@@ -176,5 +202,7 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   recall, answerability, and drift metrics.
 - `ablation_matrix` — optional PRD §7 mechanism rows when
   `--include-ablations` is passed.
+- `real_data_contrast` — optional `causal_continuity.real_data_contrast.v1`
+  readiness object when `--include-real-data-contrast` is passed.
 - `tasks.t1_causal_chain_reconstruction.strategy_reports` — the full existing
   causal benchmark report for each strategy.
