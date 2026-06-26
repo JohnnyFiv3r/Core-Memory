@@ -8,6 +8,7 @@ from benchmarks.causal_continuity.reporting import render_summary
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
 from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
 from benchmarks.causal_continuity.t2 import run_t2_calibration
+from benchmarks.causal_continuity.t3 import run_t3_temporal_state
 
 _HERE = Path(__file__).resolve().parent.parent / "benchmarks" / "causal"
 _FIXTURES = _HERE / "fixtures"
@@ -28,10 +29,10 @@ class TestCausalContinuityT1(unittest.TestCase):
             _parse_strategies("unknown")
 
     def test_parse_tasks(self):
-        self.assertEqual(["t1", "t2"], _parse_tasks("all"))
+        self.assertEqual(["t1", "t2", "t3"], _parse_tasks("all"))
         self.assertEqual(["t2"], _parse_tasks("t2"))
         with self.assertRaises(ValueError):
-            _parse_tasks("t3")
+            _parse_tasks("t4")
 
     def test_t1_baseline_matrix_reports_faithful_strategy_rows(self):
         report = run_t1_matrix(
@@ -118,6 +119,46 @@ class TestCausalContinuityT1(unittest.TestCase):
         text = render_summary(report)
         self.assertIn("T2 calibration reliability", text)
         self.assertIn("brier=", text)
+
+    def test_t3_temporal_state_scores_as_of_supersession_and_conflict(self):
+        report = run_t3_temporal_state()
+
+        self.assertEqual("causal_continuity.t3_temporal_state.v1", report["schema_version"])
+        self.assertEqual("t3_temporal_state_selection", report["task_id"])
+        self.assertTrue(report["metadata"]["faithfulness"]["is_faithful"])
+        self.assertTrue(report["pass"], report)
+
+        metrics = report["metrics"]
+        self.assertEqual(4, metrics["case_count"])
+        self.assertEqual(2, metrics["as_of_case_count"])
+        self.assertEqual(1.0, metrics["correct_state_selection_rate"])
+        self.assertEqual(1.0, metrics["as_of_accuracy"])
+        self.assertEqual(1.0, metrics["supersession_respect_rate"])
+        self.assertEqual(1.0, metrics["contradiction_surfaced_rate"])
+
+        conflict = next(c for c in report["cases"] if c["case_id"] == "t3_conflicting_coding_preference_surfaced")
+        self.assertEqual("conflict", conflict["actual"]["status"])
+        self.assertIn("conflict_surfaced", conflict["checks"])
+
+    def test_suite_report_includes_t3_headlines(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=["bm25"],
+            tasks=["t3"],
+            subset="local",
+            limit=1,
+        )
+
+        self.assertEqual("causal_continuity_report.v1", report["schema_version"])
+        self.assertIn("t3_temporal_state_selection", report["tasks"])
+        self.assertNotIn("t1_causal_chain_reconstruction", report["tasks"])
+        self.assertIn("t3:temporal_state_selection", report["faithfulness"]["by_scope"])
+        self.assertTrue(report["headlines"]["t3_temporal_state_selection"]["pass"])
+
+        text = render_summary(report)
+        self.assertIn("T3 temporal state selection", text)
+        self.assertIn("supersession=", text)
 
 
 if __name__ == "__main__":

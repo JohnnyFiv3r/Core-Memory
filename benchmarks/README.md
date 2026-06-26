@@ -11,7 +11,7 @@ This package contains in-repo benchmark tooling for long-conversation memory qua
   (edge precision/recall, grounding, root-cause accuracy, distractor survival)
 - `causal_continuity/` — suite-level causal-continuity report harness; compares
   T1 Core Memory causal traversal against lexical/similarity baselines and
-  scores T2 calibration reliability
+  scores T2 calibration reliability plus T3 temporal state selection
 
 ## Quick start
 
