@@ -198,6 +198,12 @@ Run supported disabled-mode ablations:
 python -m benchmarks.causal_continuity.runner --subset local --strategies all --run-ablation-toggles --out benchmarks/reports/causal-continuity-runtime-ablations.json
 ```
 
+Run the repeatability check used by the reproducibility appendix:
+
+```bash
+python -m benchmarks.causal_continuity.reproducibility --repeats 3 --out benchmarks/reports/causal-continuity-reproducibility.json
+```
+
 Emit a suite report with the real-data contrast readiness attachment:
 
 ```bash

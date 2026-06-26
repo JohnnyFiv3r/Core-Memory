@@ -18,7 +18,7 @@ package can support a paper-grade claim.
 | T5 thread fidelity | Deterministic trace/storyline proxy with precision, recall, answerability, and drift metrics | Decide whether an external LLM judge is needed for the paper claim; otherwise label deterministic answerability as the supported local claim |
 | Ablation matrix | Optional `ablation_matrix` attachment plus `--run-ablation-toggles` disabled-mode fixture runs | Expand runtime toggles beyond the deterministic local fixture set if needed for paper evidence |
 | Real-data contrast | Optional `real_data_contrast` attachment with local proxy, LoCoMo readiness, LongMemEval readiness, and adapter-load smoke paths | Run full external-corpus benchmark jobs only when publishable corpora and comparison claims require them |
-| Reproducibility | Runner commands exist | Commit appendix plus generated report bundle with exact commands, environment notes, determinism checks, and source commit |
+| Reproducibility | Appendix and generated report bundle exist with exact commands, environment notes, repeat-run check, and source commit | Stabilize T5 ordered top-k before using ordered thread ranking as a paper claim |
 
 ## Publishable Complete
 
@@ -129,6 +129,11 @@ Acceptance:
   when semantic/vector backends are unavailable.
 - The final PRD checklist separates completed harness work from remaining
   evidence limitations.
+
+Implemented appendix: `docs/eval/causal-continuity-reproducibility-appendix.md`.
+The committed local report is under `benchmarks/reports/`. The repeat-run check
+shows stable headline metrics and unstable T5 ordered top-k; that limitation is
+tracked explicitly rather than hidden.
 
 ## Open Decisions
 
