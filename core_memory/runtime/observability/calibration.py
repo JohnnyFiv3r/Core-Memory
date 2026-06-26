@@ -219,6 +219,8 @@ def compute_calibration_curve(
         }
         for label, lo, hi in _BANDS
     ]
+    predictions: list[float] = []
+    outcomes: list[float] = []
 
     for row in rows:
         response = dict(row.get("response") or {})
@@ -237,12 +239,17 @@ def compute_calibration_curve(
             corrected = _has_subsequent_correction(row_dt, edge_key, corrections)
             if corrected:
                 slot["negative_correction_count"] += 1
-            if bool(row.get("success")) and not corrected:
+            useful = bool(row.get("success")) and not corrected
+            predictions.append(float(conf))
+            outcomes.append(1.0 if useful else 0.0)
+            if useful:
                 slot["correction_free_count"] += 1
                 slot["positive_count"] += 1
 
     included_x: list[float] = []
     included_y: list[float] = []
+    ece = 0.0
+    sample_count = len(predictions)
     for band in band_rows:
         count = int(band["recall_count"])
         if count:
@@ -250,6 +257,8 @@ def compute_calibration_curve(
             band["realized_usefulness_rate"] = round(rate, 6)
             band["usefulness_rate"] = round(rate, 6)
             band["avg_effective_confidence"] = round(float(band["confidence_sum"]) / float(count), 6)
+            if sample_count:
+                ece += (count / float(sample_count)) * abs(float(band["avg_effective_confidence"]) - rate)
         band.pop("confidence_sum", None)
         if count >= min_band_count and band["realized_usefulness_rate"] is not None:
             upper = 1.0 if band["upper"] is None else float(band["upper"])
@@ -257,6 +266,9 @@ def compute_calibration_curve(
             included_y.append(float(band["realized_usefulness_rate"]))
 
     rho = _spearman(included_x, included_y)
+    brier = None
+    if predictions:
+        brier = sum((p - y) ** 2 for p, y in zip(predictions, outcomes)) / float(len(predictions))
     high = band_rows[-1]["realized_usefulness_rate"]
     if len(rows) < min_events or len(included_x) < 2:
         status = "insufficient_data"
@@ -271,9 +283,12 @@ def compute_calibration_curve(
         "generated_at": _now(),
         "status": status,
         "spearman_rho": rho,
+        "expected_calibration_error": round(float(ece), 6) if sample_count else None,
+        "brier_score": round(float(brier), 6) if brier is not None else None,
         "high_band_usefulness_rate": high,
         "band_count": len(_BANDS),
         "bands_included": len(included_x),
+        "sample_count": int(sample_count),
         "bands": band_rows,
         "event_count": len(rows),
         "correction_count": len(corrections),

@@ -82,6 +82,9 @@ class TestMemoryQualityMeters(unittest.TestCase):
             self.assertEqual("good", out["status"])
             self.assertEqual("open", out["auto_mode_gate"])
             self.assertEqual(2, out["event_count"])
+            self.assertEqual(2, out["sample_count"])
+            self.assertIsNotNone(out["expected_calibration_error"])
+            self.assertIsNotNone(out["brier_score"])
             self.assertEqual(1.0, out["high_band_usefulness_rate"])
             self.assertGreaterEqual(float(out["spearman_rho"]), 0.7)
 
@@ -123,6 +126,8 @@ class TestMemoryQualityMeters(unittest.TestCase):
             self.assertEqual(1, bands[">=0.9"]["recall_count"])
             self.assertEqual(0.0, bands["<0.6"]["realized_usefulness_rate"])
             self.assertEqual(1.0, bands[">=0.9"]["realized_usefulness_rate"])
+            self.assertLess(float(out["expected_calibration_error"]), 0.5)
+            self.assertLess(float(out["brier_score"]), 0.5)
             self.assertEqual("good", out["status"])
             self.assertEqual("open", out["auto_mode_gate"])
 
