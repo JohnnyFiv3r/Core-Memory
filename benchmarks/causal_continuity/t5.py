@@ -150,6 +150,14 @@ def _trace_bead_ids(trace: dict[str, Any]) -> list[str]:
     return _ordered_unique(ids)
 
 
+def _trace_anchor_ids(trace: dict[str, Any]) -> list[str]:
+    ids: list[Any] = []
+    for row in list(trace.get("anchors") or []):
+        if isinstance(row, dict):
+            ids.append(row.get("bead_id"))
+    return _ordered_unique(ids)
+
+
 def _storyline_rows(root: str | Path) -> list[dict[str, Any]]:
     out = derive_storylines(root, kinds=["entity", "goal", "claim"], min_length=2)
     rows: list[dict[str, Any]] = []
@@ -235,6 +243,7 @@ def _run_thread_loop(root: str | Path, case: dict[str, Any], loop_cfg: dict[str,
             max_chains=max_chains,
         )
         trace_ids = _trace_bead_ids(trace)
+        trace_anchor_ids = _trace_anchor_ids(trace)
         selected, scored = _select_storyline(
             storylines=storylines,
             query_tokens=query_tokens,
@@ -247,6 +256,7 @@ def _run_thread_loop(root: str | Path, case: dict[str, Any], loop_cfg: dict[str,
         steps.append({
             "step": step,
             "anchor_ids": list(anchor_ids or []),
+            "trace_anchor_ids": trace_anchor_ids,
             "trace_ids": trace_ids,
             "trace_grounding": dict(trace.get("grounding") or {}),
             "selected_storyline": selected,
@@ -283,25 +293,45 @@ def _safe_rate(num: int, den: int) -> float:
     return round(num / float(den), 4) if den > 0 else 0.0
 
 
-def _evaluate_case(case: dict[str, Any], *, bead_keys: dict[str, str], loop: dict[str, Any], targets: dict[str, Any]) -> dict[str, Any]:
-    returned = [str(x) for x in list(loop.get("returned_thread_ids") or []) if str(x).strip()]
+def _thread_metrics(returned: list[str], *, gold_ids: set[str], required_ids: set[str], drift_ids: set[str], max_query_drift_rate: float) -> dict[str, float]:
     returned_set = set(returned)
-    gold_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("gold_thread_keys") or [])] if k in bead_keys}
-    required_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("required_answer_keys") or [])] if k in bead_keys}
-    drift_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("drift_thread_keys") or [])] if k in bead_keys}
     true_positive = len(returned_set & gold_ids)
     precision = _safe_rate(true_positive, len(returned_set))
     recall = _safe_rate(true_positive, len(gold_ids))
     f1 = round((2 * precision * recall / (precision + recall)), 4) if (precision + recall) > 0 else 0.0
-    drift_hits = len(returned_set & drift_ids)
-    drift_rate = _safe_rate(drift_hits, len(returned_set))
-    answerability = 1.0 if required_ids.issubset(returned_set) and drift_rate <= float(targets.get("max_query_drift_rate") or 0.25) else 0.0
+    drift_rate = _safe_rate(len(returned_set & drift_ids), len(returned_set))
+    answerability = 1.0 if required_ids.issubset(returned_set) and drift_rate <= max_query_drift_rate else 0.0
+    return {
+        "thread_precision": precision,
+        "thread_recall": recall,
+        "thread_f1": f1,
+        "answerability": answerability,
+        "query_drift_rate": drift_rate,
+    }
+
+
+def _evaluate_case(case: dict[str, Any], *, bead_keys: dict[str, str], loop: dict[str, Any], targets: dict[str, Any]) -> dict[str, Any]:
+    returned = [str(x) for x in list(loop.get("returned_thread_ids") or []) if str(x).strip()]
+    gold_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("gold_thread_keys") or [])] if k in bead_keys}
+    required_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("required_answer_keys") or [])] if k in bead_keys}
+    drift_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("drift_thread_keys") or [])] if k in bead_keys}
+    max_drift = float(targets.get("max_query_drift_rate") or 0.25)
+    scored = _thread_metrics(returned, gold_ids=gold_ids, required_ids=required_ids, drift_ids=drift_ids, max_query_drift_rate=max_drift)
+    first_step = dict((loop.get("steps") or [{}])[0] or {})
+    one_shot_returned = list(first_step.get("trace_anchor_ids") or [])[: max(1, len(gold_ids))]
+    one_shot_scored = _thread_metrics(
+        one_shot_returned,
+        gold_ids=gold_ids,
+        required_ids=required_ids,
+        drift_ids=drift_ids,
+        max_query_drift_rate=max_drift,
+    )
     checks = {
-        "thread_precision": precision >= float(targets.get("min_thread_precision") or 0.0),
-        "thread_recall": recall >= float(targets.get("min_thread_recall") or 0.0),
-        "thread_f1": f1 >= float(targets.get("min_thread_f1") or 0.0),
-        "answerability": answerability >= float(targets.get("min_answerability") or 1.0),
-        "query_drift": drift_rate <= float(targets.get("max_query_drift_rate") or 0.25),
+        "thread_precision": scored["thread_precision"] >= float(targets.get("min_thread_precision") or 0.0),
+        "thread_recall": scored["thread_recall"] >= float(targets.get("min_thread_recall") or 0.0),
+        "thread_f1": scored["thread_f1"] >= float(targets.get("min_thread_f1") or 0.0),
+        "answerability": scored["answerability"] >= float(targets.get("min_answerability") or 1.0),
+        "query_drift": scored["query_drift_rate"] <= max_drift,
     }
     return {
         "case_id": str(case.get("id") or ""),
@@ -310,12 +340,10 @@ def _evaluate_case(case: dict[str, Any], *, bead_keys: dict[str, str], loop: dic
         "required_answer_bead_ids": sorted(required_ids),
         "drift_thread_bead_ids": sorted(drift_ids),
         "returned_thread_bead_ids": returned,
-        "metrics": {
-            "thread_precision": precision,
-            "thread_recall": recall,
-            "thread_f1": f1,
-            "answerability": answerability,
-            "query_drift_rate": drift_rate,
+        "metrics": scored,
+        "one_shot_anchor_baseline": {
+            "returned_bead_ids": one_shot_returned,
+            "metrics": one_shot_scored,
         },
         "checks": checks,
         "pass": all(checks.values()),
@@ -360,7 +388,19 @@ def run_t5_thread_fidelity(*, fixture_path: Path | None = None) -> dict[str, Any
         "thread_f1": _mean([float((row.get("metrics") or {}).get("thread_f1") or 0.0) for row in case_rows]),
         "answerability": _mean([float((row.get("metrics") or {}).get("answerability") or 0.0) for row in case_rows]),
         "query_drift_rate": _mean([float((row.get("metrics") or {}).get("query_drift_rate") or 0.0) for row in case_rows]),
+        "one_shot_thread_f1": _mean([
+            float(((row.get("one_shot_anchor_baseline") or {}).get("metrics") or {}).get("thread_f1") or 0.0)
+            for row in case_rows
+        ]),
+        "one_shot_query_drift_rate": _mean([
+            float(((row.get("one_shot_anchor_baseline") or {}).get("metrics") or {}).get("query_drift_rate") or 0.0)
+            for row in case_rows
+        ]),
     }
+    metrics["agentic_loop_thread_f1_lift"] = round(
+        float(metrics.get("thread_f1") or 0.0) - float(metrics.get("one_shot_thread_f1") or 0.0),
+        4,
+    )
     checks = {
         "thread_precision": metrics["thread_precision"] >= float(targets.get("min_thread_precision") or 0.0),
         "thread_recall": metrics["thread_recall"] >= float(targets.get("min_thread_recall") or 0.0),

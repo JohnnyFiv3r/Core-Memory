@@ -4,6 +4,7 @@ from __future__ import annotations
 import unittest
 from pathlib import Path
 
+from benchmarks.causal_continuity.ablations import build_ablation_matrix
 from benchmarks.causal_continuity.reporting import render_summary
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
 from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
@@ -212,6 +213,8 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertGreaterEqual(metrics["thread_f1"], 0.85)
         self.assertEqual(1.0, metrics["answerability"])
         self.assertLessEqual(metrics["query_drift_rate"], 0.25)
+        self.assertIn("one_shot_thread_f1", metrics)
+        self.assertIn("agentic_loop_thread_f1_lift", metrics)
 
         case = report["cases"][0]
         self.assertTrue(case["loop"]["steps"])
@@ -236,6 +239,50 @@ class TestCausalContinuityT1(unittest.TestCase):
         text = render_summary(report)
         self.assertIn("T5 thread fidelity", text)
         self.assertIn("answerability=", text)
+
+    def test_ablation_matrix_attaches_mechanism_rows_and_gaps(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            tasks=["t1", "t2", "t3", "t4", "t5"],
+            subset="local",
+            limit=1,
+            include_ablations=True,
+        )
+
+        matrix = report["ablation_matrix"]
+        self.assertEqual("causal_continuity.ablation_matrix.v1", matrix["schema_version"])
+        self.assertTrue(matrix["coverage"]["faithfulness_clean"])
+        self.assertGreaterEqual(matrix["coverage"]["observed_rows"], 3)
+        self.assertGreaterEqual(matrix["coverage"]["needs_runtime_toggle_rows"], 1)
+
+        rows = {row["id"]: row for row in matrix["rows"]}
+        self.assertIn("core_memory_full", rows)
+        self.assertIn("minus_causal_traversal", rows)
+        self.assertIn("minus_dreamer", rows)
+        self.assertIn("minus_agentic_recall_loop", rows)
+        self.assertIn(rows["minus_agentic_recall_loop"]["status"], {"observed", "observed_no_expected_drop"})
+        self.assertEqual("needs_runtime_toggle", rows["minus_myelination_backpressure"]["status"])
+
+        text = render_summary(report)
+        self.assertIn("Ablation matrix", text)
+        self.assertIn("needs_toggle=", text)
+
+    def test_ablation_matrix_can_be_built_from_report(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            tasks=["t4", "t5"],
+            subset="local",
+            limit=1,
+        )
+
+        matrix = build_ablation_matrix(report)
+        rows = {row["id"]: row for row in matrix["rows"]}
+        self.assertIn(rows["minus_agentic_recall_loop"]["status"], {"observed", "observed_no_expected_drop"})
+        self.assertIn("t5_thread_f1", rows["minus_agentic_recall_loop"]["scores"])
 
 
 if __name__ == "__main__":

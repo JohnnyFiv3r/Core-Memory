@@ -88,6 +88,18 @@ Metrics:
 - Deterministic answerability proxy.
 - Query-drift rate for off-thread beads admitted into the segment.
 
+## Ablation Matrix
+
+The optional ablation attachment summarizes the PRD §7 mechanism-ownership rows
+from the same suite output. Rows with current telemetry are marked `observed`
+when the expected drop appears, `observed_no_expected_drop` when the proxy ran
+but did not show the expected effect, and `needs_runtime_toggle` when the row
+still needs a dedicated disabled-mode run.
+
+This keeps the report useful before every toggle exists: reviewers can see the
+full-system scores, the observed strategy/cohort/baseline deltas, and the
+remaining instrumentation gaps in one object.
+
 ## Quick Start
 
 Run the full suite:
@@ -132,6 +144,12 @@ Emit a suite report:
 python -m benchmarks.causal_continuity.runner --subset full --out benchmarks/reports/causal-continuity.json
 ```
 
+Emit a suite report with the ablation matrix:
+
+```bash
+python -m benchmarks.causal_continuity.runner --subset local --strategies all --include-ablations --out benchmarks/reports/causal-continuity-ablations.json
+```
+
 ## Report Shape
 
 The top-level report uses `causal_continuity_report.v1` and includes:
@@ -156,5 +174,7 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   self-model drift, and goal-thread persistence metrics.
 - `tasks.t5_thread_fidelity.metrics` — scored storyline-thread precision,
   recall, answerability, and drift metrics.
+- `ablation_matrix` — optional PRD §7 mechanism rows when
+  `--include-ablations` is passed.
 - `tasks.t1_causal_chain_reconstruction.strategy_reports` — the full existing
   causal benchmark report for each strategy.
