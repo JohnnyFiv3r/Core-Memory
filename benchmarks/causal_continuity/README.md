@@ -20,6 +20,9 @@ The remaining paper-evidence closeout sequence is tracked in
 | `core_memory_full` | Materializes fixture histories through the public write path, then runs Core Memory recall with causal traversal enabled. |
 | `bm25` | Materializes the same histories, then ranks bead text with a deterministic lexical BM25 scorer. It does not inspect causal edges. |
 | `similarity_only` | Materializes the same histories, then ranks bead text with a deterministic token and character n-gram similarity proxy. It does not inspect causal edges. |
+| `dense_vector` | Emits the dense-vector comparator row using the deterministic local similarity proxy until an external vector baseline is configured. It is labeled `proxy_executed` and does not inspect causal edges. |
+| `long_context_no_memory` | Declares the long-context/no-memory comparator row as `unavailable` unless a future context-window adapter executes it. |
+| `external_memory_adapter` | Declares the external-memory comparator row as `unavailable` unless a future `BenchmarkAdapter` implementation executes it. |
 
 The headline T1 metric remains **Causal Survival Rate**: in adversarial cases,
 the gold root cause must outrank every closest-text distractor.
@@ -131,6 +134,12 @@ Run a fast local baseline-only smoke with T1 selected:
 python -m benchmarks.causal_continuity.runner --tasks t1 --subset local --limit 1 --strategies bm25,similarity_only
 ```
 
+Run T1 with all declared comparator rows:
+
+```bash
+python -m benchmarks.causal_continuity.runner --tasks t1 --subset local --limit 1 --strategies all
+```
+
 Run only the T2 calibration task:
 
 ```bash
@@ -185,7 +194,7 @@ The top-level report uses `causal_continuity_report.v1` and includes:
 
 - `faithfulness` — the benchmark shortcut flags rolled up by strategy.
 - `headlines.t1_causal_chain_reconstruction` — CSR, root-cause accuracy, and
-  edge-F1 by strategy.
+  edge-F1 by strategy, plus strategy status and availability maps.
 - `headlines.t2_calibration_reliability` — Spearman rho, ECE, Brier score,
   high-band usefulness, sample count, and pass/fail.
 - `headlines.t3_temporal_state_selection` — correct-state, as-of,
@@ -195,7 +204,8 @@ The top-level report uses `causal_continuity_report.v1` and includes:
 - `headlines.t5_thread_fidelity` — thread precision/recall/F1, answerability,
   query drift, and case count.
 - `tasks.t1_causal_chain_reconstruction.strategy_matrix` — compact per-strategy
-  rows for table generation.
+  rows for table generation, including `status`, `availability`,
+  `uses_causal_traversal`, and `leaderboard_claim`.
 - `tasks.t2_calibration_reliability.metrics` — scored calibration metrics.
 - `tasks.t3_temporal_state_selection.metrics` — scored temporal state-selection
   metrics.

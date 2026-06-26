@@ -22,13 +22,21 @@ _GOLD = _HERE / "gold"
 class TestCausalContinuityT1(unittest.TestCase):
     def test_available_strategies_include_pr1_matrix(self):
         self.assertEqual(
-            ("core_memory_full", "bm25", "similarity_only"),
+            (
+                "core_memory_full",
+                "bm25",
+                "similarity_only",
+                "dense_vector",
+                "long_context_no_memory",
+                "external_memory_adapter",
+            ),
             available_strategies(),
         )
 
     def test_parse_strategies(self):
         self.assertEqual(["bm25", "similarity_only"], _parse_strategies("bm25,similarity_only"))
         self.assertIn("core_memory_full", _parse_strategies("all"))
+        self.assertIn("dense_vector", _parse_strategies("all"))
         with self.assertRaises(ValueError):
             _parse_strategies("unknown")
 
@@ -56,12 +64,42 @@ class TestCausalContinuityT1(unittest.TestCase):
 
         for strategy in ("bm25", "similarity_only"):
             row = report["strategy_matrix"][strategy]
+            self.assertEqual("completed", row["status"])
             self.assertEqual(1, row["cases"])
             self.assertIn("causal_survival_rate", row)
             self.assertIn("edge_f1_mean", row)
+            self.assertFalse(row["uses_causal_traversal"])
 
             meta = report["strategy_reports"][strategy]["metadata"]
             self.assertEqual("causal_continuity.t1", meta["runner"])
+            self.assertTrue(meta["faithfulness"]["is_faithful"])
+            self.assertTrue(meta["shortcut_flags"]["is_faithful"])
+
+    def test_t1_matrix_declares_required_comparator_rows_with_honest_status(self):
+        report = run_t1_matrix(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            subset="local",
+            limit=1,
+        )
+
+        matrix = report["strategy_matrix"]
+        self.assertEqual(set(available_strategies()), set(matrix))
+
+        self.assertEqual("proxy_executed", matrix["dense_vector"]["status"])
+        self.assertEqual("dense_vector_proxy", matrix["dense_vector"]["baseline_kind"])
+        self.assertFalse(matrix["dense_vector"]["uses_causal_traversal"])
+        self.assertFalse(matrix["dense_vector"]["leaderboard_claim"])
+
+        for strategy in ("long_context_no_memory", "external_memory_adapter"):
+            row = matrix[strategy]
+            self.assertEqual("unavailable", row["status"])
+            self.assertEqual(0, row["cases"])
+            self.assertFalse(row["uses_causal_traversal"])
+            self.assertFalse(row["leaderboard_claim"])
+            self.assertTrue(row["unavailable_reason"])
+            meta = report["strategy_reports"][strategy]["metadata"]
             self.assertTrue(meta["faithfulness"]["is_faithful"])
             self.assertTrue(meta["shortcut_flags"]["is_faithful"])
 
@@ -83,11 +121,16 @@ class TestCausalContinuityT1(unittest.TestCase):
             "causal_survival_rate_by_strategy",
             report["headlines"]["t1_causal_chain_reconstruction"],
         )
+        self.assertIn(
+            "status_by_strategy",
+            report["headlines"]["t1_causal_chain_reconstruction"],
+        )
 
         text = render_summary(report)
         self.assertIn("Causal-Continuity Evaluation Suite", text)
         self.assertIn("bm25", text)
         self.assertIn("CSR=", text)
+        self.assertNotIn("status=unavailable", text)
 
     def test_t2_calibration_scores_meter_output(self):
         report = run_t2_calibration()
