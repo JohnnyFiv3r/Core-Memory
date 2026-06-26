@@ -1,0 +1,54 @@
+{
+  "schema": "causal_continuity.t2_fixture.v1",
+  "id": "monotonic_effective_confidence",
+  "description": "Synthetic calibration slice where effective confidence should order realized usefulness.",
+  "targets": {
+    "min_spearman_rho": 0.7,
+    "min_high_band_usefulness": 0.8,
+    "max_expected_calibration_error": 0.2,
+    "max_brier_score": 0.2,
+    "min_sample_count": 20
+  },
+  "edges": [
+    {
+      "source": "misleading-runbook",
+      "relationship": "supports",
+      "target": "failed-answer",
+      "judge_prior": 0.1,
+      "manifest_bonus": 0.0,
+      "outcomes": [false, false, false, false]
+    },
+    {
+      "source": "mixed-signal",
+      "relationship": "supports",
+      "target": "mixed-answer",
+      "judge_prior": 0.62,
+      "manifest_bonus": 0.03,
+      "outcomes": [true, true, false, false]
+    },
+    {
+      "source": "mostly-useful",
+      "relationship": "supports",
+      "target": "good-answer",
+      "judge_prior": 0.73,
+      "manifest_bonus": 0.02,
+      "outcomes": [true, true, true, false]
+    },
+    {
+      "source": "strong-support",
+      "relationship": "supports",
+      "target": "strong-answer",
+      "judge_prior": 0.83,
+      "manifest_bonus": 0.02,
+      "outcomes": [true, true, true, false]
+    },
+    {
+      "source": "validated-support",
+      "relationship": "supports",
+      "target": "validated-answer",
+      "judge_prior": 0.92,
+      "manifest_bonus": 0.03,
+      "outcomes": [true, true, true, true]
+    }
+  ]
+}

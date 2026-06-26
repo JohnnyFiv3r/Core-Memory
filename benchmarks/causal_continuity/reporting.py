@@ -22,23 +22,62 @@ def _extract_t1_headlines(t1_report: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _faithfulness_by_strategy(t1_report: dict[str, Any]) -> dict[str, dict[str, Any]]:
+def _extract_t2_headlines(t2_report: dict[str, Any] | None) -> dict[str, Any]:
+    if not t2_report:
+        return {}
+    metrics = dict(t2_report.get("metrics") or {})
+    return {
+        "pass": bool(t2_report.get("pass")),
+        "spearman_rho": metrics.get("spearman_rho"),
+        "expected_calibration_error": metrics.get("expected_calibration_error"),
+        "brier_score": metrics.get("brier_score"),
+        "high_band_usefulness_rate": metrics.get("high_band_usefulness_rate"),
+        "auto_mode_gate": metrics.get("auto_mode_gate"),
+        "sample_count": int(metrics.get("sample_count") or 0),
+    }
+
+
+def _faithfulness_by_scope(
+    *,
+    t1_report: dict[str, Any],
+    t2_report: dict[str, Any] | None,
+) -> dict[str, dict[str, Any]]:
     out: dict[str, dict[str, Any]] = {}
     for name, report in sorted((t1_report.get("strategy_reports") or {}).items()):
         meta = dict(report.get("metadata") or {})
         flags = dict(meta.get("faithfulness") or meta.get("shortcut_flags") or {})
         if flags:
-            out[str(name)] = flags
+            out[f"t1:{name}"] = flags
+    if t2_report:
+        meta = dict(t2_report.get("metadata") or {})
+        flags = dict(meta.get("faithfulness") or meta.get("shortcut_flags") or {})
+        if flags:
+            out["t2:calibration_reliability"] = flags
     return out
 
 
-def build_suite_report(*, metadata: dict[str, Any], t1_report: dict[str, Any]) -> dict[str, Any]:
-    by_strategy = _faithfulness_by_strategy(t1_report)
-    is_faithful = all(bool(v.get("is_faithful")) for v in by_strategy.values()) if by_strategy else True
+def build_suite_report(
+    *,
+    metadata: dict[str, Any],
+    t1_report: dict[str, Any] | None = None,
+    t2_report: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    t1 = dict(t1_report or {})
+    by_scope = _faithfulness_by_scope(t1_report=t1, t2_report=t2_report)
+    is_faithful = all(bool(v.get("is_faithful")) for v in by_scope.values()) if by_scope else True
 
     warnings: list[str] = []
-    for report in (t1_report.get("strategy_reports") or {}).values():
+    for report in (t1.get("strategy_reports") or {}).values():
         warnings.extend(str(w) for w in (report.get("warnings") or []))
+
+    tasks: dict[str, Any] = {}
+    headlines: dict[str, Any] = {}
+    if t1:
+        tasks["t1_causal_chain_reconstruction"] = t1
+        headlines["t1_causal_chain_reconstruction"] = _extract_t1_headlines(t1)
+    if t2_report:
+        tasks["t2_calibration_reliability"] = t2_report
+        headlines["t2_calibration_reliability"] = _extract_t2_headlines(t2_report)
 
     return {
         "schema_version": "causal_continuity_report.v1",
@@ -46,14 +85,15 @@ def build_suite_report(*, metadata: dict[str, Any], t1_report: dict[str, Any]) -
         "metadata": metadata,
         "faithfulness": {
             "is_faithful": bool(is_faithful),
-            "by_strategy": by_strategy,
+            "by_scope": by_scope,
+            "by_strategy": {
+                k.removeprefix("t1:"): v
+                for k, v in by_scope.items()
+                if k.startswith("t1:")
+            },
         },
-        "headlines": {
-            "t1_causal_chain_reconstruction": _extract_t1_headlines(t1_report),
-        },
-        "tasks": {
-            "t1_causal_chain_reconstruction": t1_report,
-        },
+        "headlines": headlines,
+        "tasks": tasks,
         "warnings": sorted(set(warnings)),
     }
 
@@ -62,22 +102,36 @@ def render_summary(report: dict[str, Any]) -> str:
     meta = dict(report.get("metadata") or {})
     faith = dict(report.get("faithfulness") or {})
     t1 = dict((report.get("tasks") or {}).get("t1_causal_chain_reconstruction") or {})
+    t2 = dict((report.get("tasks") or {}).get("t2_calibration_reliability") or {})
     matrix = dict(t1.get("strategy_matrix") or {})
 
     lines = [
         "Causal-Continuity Evaluation Suite",
         f"- suite: {meta.get('suite', 'causal_continuity')}  task_count: {meta.get('task_count', 1)}",
         f"- faithful: {str(bool(faith.get('is_faithful', True))).lower()}",
-        "- T1 causal-chain reconstruction:",
     ]
 
-    for name, row in sorted(matrix.items()):
+    if t1:
+        lines.append("- T1 causal-chain reconstruction:")
+        for name, row in sorted(matrix.items()):
+            lines.append(
+                "  - "
+                f"{name}: CSR={float(row.get('causal_survival_rate') or 0.0):.4f}  "
+                f"root={float(row.get('root_cause_accuracy') or 0.0):.4f}  "
+                f"edge_f1={float(row.get('edge_f1_mean') or 0.0):.4f}  "
+                f"cases={int(row.get('cases') or 0)}"
+            )
+    if t2:
+        metrics = dict(t2.get("metrics") or {})
+        lines.append("- T2 calibration reliability:")
         lines.append(
             "  - "
-            f"{name}: CSR={float(row.get('causal_survival_rate') or 0.0):.4f}  "
-            f"root={float(row.get('root_cause_accuracy') or 0.0):.4f}  "
-            f"edge_f1={float(row.get('edge_f1_mean') or 0.0):.4f}  "
-            f"cases={int(row.get('cases') or 0)}"
+            f"pass={str(bool(t2.get('pass'))).lower()}  "
+            f"rho={float(metrics.get('spearman_rho') or 0.0):.4f}  "
+            f"ece={float(metrics.get('expected_calibration_error') or 0.0):.4f}  "
+            f"brier={float(metrics.get('brier_score') or 0.0):.4f}  "
+            f"high_band={float(metrics.get('high_band_usefulness_rate') or 0.0):.4f}  "
+            f"samples={int(metrics.get('sample_count') or 0)}"
         )
 
     warnings = list(report.get("warnings") or [])
