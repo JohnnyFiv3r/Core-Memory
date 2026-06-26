@@ -14,9 +14,9 @@ This package contains in-repo benchmark tooling for long-conversation memory qua
   scores T2 calibration reliability, T3 temporal state selection, and T4
   longitudinal continuity, plus T5 thread fidelity, optional ablation rows, and
   an optional real-data contrast readiness attachment
-- `longmemeval/` — LongMemEval adapter-load smoke harness for user-supplied
-  JSON/JSONL corpora; validates the shared `BenchmarkAdapter` contract without
-  vendoring the dataset or making leaderboard claims
+- `longmemeval/` — LongMemEval adapter load/evaluation smoke harness for
+  user-supplied JSON/JSONL corpora; validates the shared `BenchmarkAdapter`
+  contract without vendoring the dataset or making leaderboard claims
 
 ## Quick start
 
@@ -60,6 +60,12 @@ Smoke a user-supplied LongMemEval corpus:
 
 ```bash
 python -m benchmarks.longmemeval --corpus path/to/longmemeval_s.json --limit 1 --pretty
+```
+
+Run a bounded LongMemEval lifecycle evaluation smoke:
+
+```bash
+python -m benchmarks.longmemeval --corpus path/to/longmemeval_s.json --limit 1 --eval-smoke --pretty
 ```
 
 ## Design notes

@@ -37,8 +37,8 @@
         {
           "key": "db_pool_limit",
           "type": "state_assertion",
-          "title": "Checkout database pool limit remained low",
-          "summary": ["The checkout database pool limit stayed at ten connections after the cache rollout."],
+          "title": "Database pool limit remained low",
+          "summary": ["The connection pool stayed at ten connections after the rollout."],
           "session_id": "t5-checkout-b",
           "source_turn_ids": ["t5-b-1"],
           "entities": ["checkout latency investigation"],

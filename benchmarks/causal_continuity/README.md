@@ -21,8 +21,8 @@ The remaining paper-evidence closeout sequence is tracked in
 | `bm25` | Materializes the same histories, then ranks bead text with a deterministic lexical BM25 scorer. It does not inspect causal edges. |
 | `similarity_only` | Materializes the same histories, then ranks bead text with a deterministic token and character n-gram similarity proxy. It does not inspect causal edges. |
 | `dense_vector` | Emits the dense-vector comparator row using the deterministic local similarity proxy until an external vector baseline is configured. It is labeled `proxy_executed` and does not inspect causal edges. |
-| `long_context_no_memory` | Declares the long-context/no-memory comparator row as `unavailable` unless a future context-window adapter executes it. |
-| `external_memory_adapter` | Declares the external-memory comparator row as `unavailable` unless a future `BenchmarkAdapter` implementation executes it. |
+| `long_context_no_memory` | Executes a deterministic local context-window proxy with no memory state or causal traversal. It is labeled `proxy_executed` and does not make provider-backed comparison claims. |
+| `external_memory_adapter` | Declares the external-memory comparator row as `unavailable` unless an adapter is configured. `--external-memory-adapter fake` exercises the offline contract path in tests. |
 
 The headline T1 metric remains **Causal Survival Rate**: in adversarial cases,
 the gold root cause must outrank every closest-text distractor.
@@ -85,8 +85,10 @@ The local harness uses a deterministic proxy for the PRD-E agentic loop:
 
 - `trace_request()` supplies semantic seed plus causal expansion.
 - Storyline candidates are re-scored against the original query at each step.
-- Answerability is scored post-hoc from gold labels for stable CI; no external
-  LLM judge is invoked in this slice.
+- Answerability is scored post-hoc from gold labels for stable CI.
+- Optional supplemental judges can be selected with `--t5-judge fake_llm` for
+  offline contract tests or `--t5-judge llm` with
+  `CORE_MEMORY_T5_LLM_JUDGE_COMMAND` configured.
 
 Metrics:
 
@@ -113,8 +115,8 @@ small deterministic fixtures with supported mechanisms disabled:
 - T2 without manifest bonus for myelination backpressure.
 - T2 without validated outcome feedback.
 - T3 without claim-update application for supersession/temporal filtering.
-- Existing T1 similarity, T4 Dreamer-off, and T5 one-shot baselines are folded
-  into the same runtime matrix.
+- Existing T1 similarity, T4 Dreamer-off, and the T5 traversal-disabled run are
+  folded into the same runtime matrix.
 
 Rows still report `observed_no_expected_drop` when a disabled run executes but
 the current fixture does not show the expected drop.
@@ -133,8 +135,9 @@ without turning local fixtures into public leaderboard claims. It reports:
 All rows carry `leaderboard_claim: false`. The local proxy can be run inside the
 attachment with `--run-real-data-local-proxy`, but that result remains a local
 contrast condition. Supplied external corpora can be load-smoked with
-`--run-real-data-adapter-smoke`; those rows validate adapter readiness without
-ingesting the corpus or making leaderboard claims.
+`--run-real-data-adapter-smoke` and bounded lifecycle evaluation-smoked with
+`--run-real-data-eval-smoke`; those rows validate adapter readiness/evaluation
+plumbing without making leaderboard claims.
 
 ## Quick Start
 
@@ -201,7 +204,7 @@ python -m benchmarks.causal_continuity.runner --subset local --strategies all --
 Run the repeatability check used by the reproducibility appendix:
 
 ```bash
-python -m benchmarks.causal_continuity.reproducibility --repeats 3 --out benchmarks/reports/causal-continuity-reproducibility.json
+python -m benchmarks.causal_continuity.reproducibility --repeats 5 --require-pass --out benchmarks/reports/causal-continuity-reproducibility.json
 ```
 
 Emit a suite report with the real-data contrast readiness attachment:
@@ -220,6 +223,7 @@ python -m benchmarks.causal_continuity.runner \
   --limit 1 \
   --include-real-data-contrast \
   --run-real-data-adapter-smoke \
+  --run-real-data-eval-smoke \
   --locomo-corpus path/to/locomo10.json \
   --longmemeval-corpus path/to/longmemeval_s.json
 ```
@@ -247,14 +251,15 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   query drift, and case count.
 - `tasks.t1_causal_chain_reconstruction.strategy_matrix` — compact per-strategy
   rows for table generation, including `status`, `availability`,
-  `uses_causal_traversal`, and `leaderboard_claim`.
+  `execution_mode`, `adapter_status`, `adapter_name`, `uses_causal_traversal`,
+  and `leaderboard_claim`.
 - `tasks.t2_calibration_reliability.metrics` — scored calibration metrics.
 - `tasks.t3_temporal_state_selection.metrics` — scored temporal state-selection
   metrics.
 - `tasks.t4_longitudinal_continuity.metrics` — scored longitudinal continuity,
   self-model drift, and goal-thread persistence metrics.
 - `tasks.t5_thread_fidelity.metrics` — scored storyline-thread precision,
-  recall, answerability, and drift metrics.
+  recall, answerability, judge answerability, and drift metrics.
 - `ablation_matrix` — optional PRD §7 mechanism rows when
   `--include-ablations` is passed.
 - `real_data_contrast` — optional `causal_continuity.real_data_contrast.v1`

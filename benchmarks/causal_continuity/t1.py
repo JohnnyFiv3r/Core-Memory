@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 import re
 import shutil
 import tempfile
@@ -30,11 +31,6 @@ _SUPPORTED_STRATEGIES = (
     "external_memory_adapter",
 )
 _UNAVAILABLE_BASELINES: dict[str, dict[str, str]] = {
-    "long_context_no_memory": {
-        "baseline_kind": "long_context_no_memory",
-        "availability": "requires_llm_context_window_adapter",
-        "reason": "long_context_no_memory_adapter_not_configured",
-    },
     "external_memory_adapter": {
         "baseline_kind": "external_memory_adapter",
         "availability": "requires_external_memory_adapter",
@@ -146,6 +142,23 @@ def _similarity_scores(query: str, docs: list[tuple[str, str, str]]) -> dict[str
     return scores
 
 
+def _long_context_proxy_scores(query: str, docs: list[tuple[str, str, str]]) -> dict[str, float]:
+    """Graph-blind local proxy for a context-window/no-memory baseline."""
+    q_terms = Counter(_tokens(query))
+    q_grams = _char_ngrams(query)
+    context_terms = Counter(_tokens(" ".join(text for _key, _bid, text in docs)))
+    scores: dict[str, float] = {}
+    for key, _bid, text in docs:
+        terms = Counter(_tokens(text))
+        term_score = _cosine(q_terms, terms)
+        gram_score = _cosine(q_grams, _char_ngrams(text))
+        context_presence = 0.0
+        if q_terms:
+            context_presence = sum(1.0 for term in q_terms if terms.get(term) and context_terms.get(term)) / float(len(q_terms))
+        scores[key] = float((0.55 * term_score) + (0.25 * gram_score) + (0.20 * context_presence))
+    return scores
+
+
 def _unavailable_strategy_report(*, strategy: str, subset: str) -> dict[str, Any]:
     info = dict(_UNAVAILABLE_BASELINES[strategy])
     flags = _shortcut_block()
@@ -158,6 +171,9 @@ def _unavailable_strategy_report(*, strategy: str, subset: str) -> dict[str, Any
         "baseline_kind": str(info.get("baseline_kind") or strategy),
         "availability": str(info.get("availability") or "unavailable"),
         "unavailable_reason": reason,
+        "execution_mode": "not_configured",
+        "adapter_status": "unavailable",
+        "adapter_name": "",
         "uses_causal_traversal": False,
         "leaderboard_claim": False,
         "subset": subset,
@@ -230,6 +246,10 @@ def run_baseline_case(*, case: CausalCase, gold: CausalGold, strategy: str) -> d
         score_fn = _bm25_scores
     elif strategy in {"similarity_only", "dense_vector"}:
         score_fn = _similarity_scores
+    elif strategy == "long_context_no_memory":
+        score_fn = _long_context_proxy_scores
+    elif strategy == "external_memory_adapter":
+        score_fn = _similarity_scores
     else:
         raise ValueError(f"unsupported_t1_baseline_strategy:{strategy}")
 
@@ -269,18 +289,38 @@ def run_t1_strategy(
     pairs: list[tuple[CausalCase, CausalGold]],
     strategy: str,
     subset: str,
+    external_memory_adapter: str | None = None,
 ) -> dict[str, Any]:
     if strategy not in _SUPPORTED_STRATEGIES:
         raise ValueError(f"unsupported_t1_strategy:{strategy}")
 
-    if strategy in _UNAVAILABLE_BASELINES:
+    configured_external_adapter = str(
+        external_memory_adapter or os.environ.get("CORE_MEMORY_BENCHMARK_EXTERNAL_MEMORY_ADAPTER") or ""
+    ).strip().lower()
+    if strategy == "external_memory_adapter" and configured_external_adapter in {"fake", "fake_external_memory", "deterministic_fake"}:
+        rows = [run_baseline_case(case=case, gold=gold, strategy=strategy) for case, gold in pairs]
+        baseline_kind = "external_memory_adapter"
+        status = "adapter_executed"
+        availability = "configured_test_adapter"
+        execution_mode = "adapter_fake"
+        adapter_status = "completed"
+        adapter_name = "fake_external_memory_adapter"
+        uses_causal_traversal = False
+        notes = [
+            "external_memory_adapter_contract_exercised",
+            "fake_adapter_for_offline_tests",
+            "no_causal_edges_used_for_ranking",
+        ]
+    elif strategy in _UNAVAILABLE_BASELINES:
         return _unavailable_strategy_report(strategy=strategy, subset=subset)
-
-    if strategy == "core_memory_full":
+    elif strategy == "core_memory_full":
         rows = [dict(run_core_memory_case(case=case, gold=gold), strategy=strategy) for case, gold in pairs]
         baseline_kind = "causal_memory"
         status = "completed"
         availability = "executed"
+        execution_mode = "core_memory"
+        adapter_status = "not_required"
+        adapter_name = ""
         uses_causal_traversal = True
         notes = ["public_write_path", "causal_traversal", "adversarial_distractors"]
     else:
@@ -289,9 +329,15 @@ def run_t1_strategy(
             "bm25": "lexical",
             "similarity_only": "similarity_proxy",
             "dense_vector": "dense_vector_proxy",
+            "long_context_no_memory": "long_context_local_proxy",
         }.get(strategy, "baseline")
-        status = "completed" if strategy != "dense_vector" else "proxy_executed"
+        status = "completed" if strategy not in {"dense_vector", "long_context_no_memory"} else "proxy_executed"
         availability = "executed" if strategy != "dense_vector" else "local_deterministic_proxy"
+        if strategy == "long_context_no_memory":
+            availability = "local_context_window_proxy"
+        execution_mode = "local_proxy" if strategy in {"dense_vector", "long_context_no_memory"} else "local_baseline"
+        adapter_status = "proxy_executed" if strategy in {"dense_vector", "long_context_no_memory"} else "not_required"
+        adapter_name = "local_long_context_no_memory_proxy" if strategy == "long_context_no_memory" else ""
         uses_causal_traversal = False
         notes = [
             "public_write_path_materialization",
@@ -300,6 +346,8 @@ def run_t1_strategy(
         ]
         if strategy == "dense_vector":
             notes.append("deterministic_similarity_proxy_for_dense_vector_row")
+        if strategy == "long_context_no_memory":
+            notes.append("deterministic_context_window_proxy_no_memory_state")
 
     flags = _shortcut_block()
     metadata = {
@@ -309,6 +357,9 @@ def run_t1_strategy(
         "status": status,
         "baseline_kind": baseline_kind,
         "availability": availability,
+        "execution_mode": execution_mode,
+        "adapter_status": adapter_status,
+        "adapter_name": adapter_name,
         "uses_causal_traversal": bool(uses_causal_traversal),
         "leaderboard_claim": False,
         "subset": subset,
@@ -332,6 +383,9 @@ def _strategy_matrix_row(report: dict[str, Any]) -> dict[str, Any]:
         "baseline_kind": str(meta.get("baseline_kind") or ""),
         "availability": str(meta.get("availability") or ""),
         "unavailable_reason": str(meta.get("unavailable_reason") or ""),
+        "execution_mode": str(meta.get("execution_mode") or ""),
+        "adapter_status": str(meta.get("adapter_status") or ""),
+        "adapter_name": str(meta.get("adapter_name") or ""),
         "uses_causal_traversal": bool(meta.get("uses_causal_traversal")),
         "leaderboard_claim": bool(meta.get("leaderboard_claim")),
         "cases": int(totals.get("cases") or 0),
@@ -379,6 +433,7 @@ def run_t1_matrix(
     strategies: list[str] | tuple[str, ...],
     subset: str = "full",
     limit: int | None = None,
+    external_memory_adapter: str | None = None,
 ) -> dict[str, Any]:
     pairs = _select_pairs(fixtures_dir=fixtures_dir, gold_dir=gold_dir, subset=subset, limit=limit)
     strategy_reports: dict[str, dict[str, Any]] = {}
@@ -390,6 +445,7 @@ def run_t1_matrix(
             pairs=pairs,
             strategy=normalized,
             subset=subset,
+            external_memory_adapter=external_memory_adapter,
         )
 
     return {

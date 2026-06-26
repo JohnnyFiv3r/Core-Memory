@@ -14,7 +14,7 @@ from benchmarks.causal_continuity.reproducibility import run_reproducibility_che
 from benchmarks.causal_continuity.runtime_ablations import run_runtime_ablation_toggles
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
 from benchmarks.longmemeval.loader import LongMemEvalAdapter, load_longmemeval_corpus
-from benchmarks.longmemeval.runner import run_adapter_smoke
+from benchmarks.longmemeval.runner import run_adapter_smoke, run_evaluation_smoke
 from benchmarks.causal_continuity.t1 import available_strategies, run_t1_matrix
 from benchmarks.causal_continuity.t2 import run_t2_calibration
 from benchmarks.causal_continuity.t3 import run_t3_temporal_state
@@ -109,7 +109,7 @@ class TestCausalContinuityT1(unittest.TestCase):
             self.assertTrue(meta["faithfulness"]["is_faithful"])
             self.assertTrue(meta["shortcut_flags"]["is_faithful"])
 
-    def test_t1_matrix_declares_required_comparator_rows_with_honest_status(self):
+    def test_t1_matrix_executes_long_context_proxy_and_keeps_external_adapter_honest(self):
         report = run_t1_matrix(
             fixtures_dir=_FIXTURES,
             gold_dir=_GOLD,
@@ -126,16 +126,43 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertFalse(matrix["dense_vector"]["uses_causal_traversal"])
         self.assertFalse(matrix["dense_vector"]["leaderboard_claim"])
 
-        for strategy in ("long_context_no_memory", "external_memory_adapter"):
-            row = matrix[strategy]
-            self.assertEqual("unavailable", row["status"])
-            self.assertEqual(0, row["cases"])
-            self.assertFalse(row["uses_causal_traversal"])
-            self.assertFalse(row["leaderboard_claim"])
-            self.assertTrue(row["unavailable_reason"])
-            meta = report["strategy_reports"][strategy]["metadata"]
-            self.assertTrue(meta["faithfulness"]["is_faithful"])
-            self.assertTrue(meta["shortcut_flags"]["is_faithful"])
+        long_context = matrix["long_context_no_memory"]
+        self.assertEqual("proxy_executed", long_context["status"])
+        self.assertEqual("long_context_local_proxy", long_context["baseline_kind"])
+        self.assertEqual("local_proxy", long_context["execution_mode"])
+        self.assertEqual("proxy_executed", long_context["adapter_status"])
+        self.assertEqual(1, long_context["cases"])
+        self.assertFalse(long_context["uses_causal_traversal"])
+        self.assertFalse(long_context["leaderboard_claim"])
+
+        external = matrix["external_memory_adapter"]
+        self.assertEqual("unavailable", external["status"])
+        self.assertEqual(0, external["cases"])
+        self.assertFalse(external["uses_causal_traversal"])
+        self.assertFalse(external["leaderboard_claim"])
+        self.assertTrue(external["unavailable_reason"])
+        meta = report["strategy_reports"]["external_memory_adapter"]["metadata"]
+        self.assertTrue(meta["faithfulness"]["is_faithful"])
+        self.assertTrue(meta["shortcut_flags"]["is_faithful"])
+
+    def test_t1_external_memory_fake_adapter_executes_contract(self):
+        report = run_t1_matrix(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=["external_memory_adapter"],
+            subset="local",
+            limit=1,
+            external_memory_adapter="fake",
+        )
+
+        row = report["strategy_matrix"]["external_memory_adapter"]
+        self.assertEqual("adapter_executed", row["status"])
+        self.assertEqual("adapter_fake", row["execution_mode"])
+        self.assertEqual("completed", row["adapter_status"])
+        self.assertEqual("fake_external_memory_adapter", row["adapter_name"])
+        self.assertEqual(1, row["cases"])
+        self.assertFalse(row["uses_causal_traversal"])
+        self.assertFalse(row["leaderboard_claim"])
 
     def test_suite_report_wraps_t1_with_headlines_and_faithfulness(self):
         report = run_suite(
@@ -308,10 +335,26 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertLessEqual(metrics["query_drift_rate"], 0.25)
         self.assertIn("one_shot_thread_f1", metrics)
         self.assertIn("agentic_loop_thread_f1_lift", metrics)
+        self.assertGreater(metrics["agentic_loop_thread_f1_lift"], 0.0)
 
         case = report["cases"][0]
         self.assertTrue(case["loop"]["steps"])
         self.assertEqual(set(case["gold_thread_bead_ids"]), set(case["returned_thread_bead_ids"]))
+        self.assertEqual(set(case["gold_thread_keys"]), set(case["returned_thread_keys"]))
+        self.assertEqual("deterministic", case["judge_kind"])
+        self.assertEqual("completed", case["judge_status"])
+        self.assertFalse(case["is_llm_judge"])
+
+    def test_t5_fake_llm_judge_records_supplemental_path(self):
+        report = run_t5_thread_fidelity(judge_kind="fake_llm")
+
+        self.assertTrue(report["pass"], report)
+        self.assertTrue(report["metadata"]["judge"]["is_llm_judge"])
+        case = report["cases"][0]
+        self.assertEqual("fake_llm", case["judge_kind"])
+        self.assertEqual("completed", case["judge_status"])
+        self.assertTrue(case["is_llm_judge"])
+        self.assertEqual(1.0, case["answerability_judge"]["answerability"])
 
     def test_suite_report_includes_t5_headlines(self):
         report = run_suite(
@@ -394,10 +437,12 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertEqual("causal_continuity.runtime_ablation_runs.v1", matrix["runtime_ablation_runs"]["schema_version"])
 
         rows = {row["id"]: row for row in matrix["rows"]}
-        self.assertIn(rows["minus_myelination_backpressure"]["status"], {"observed", "observed_no_expected_drop"})
+        self.assertEqual("observed", rows["minus_myelination_backpressure"]["status"])
         self.assertEqual("observed", rows["minus_validated_outcome_reward"]["status"])
         self.assertEqual(0.0, rows["minus_validated_outcome_reward"]["scores"]["t2_sample_count"])
         self.assertEqual("observed", rows["minus_supersession_temporal_filter"]["status"])
+        self.assertEqual("observed", rows["minus_agentic_recall_loop"]["status"])
+        self.assertEqual("observed", rows["minus_causal_traversal"]["status"])
         self.assertIn("runtime_run", rows["minus_supersession_temporal_filter"])
 
     def test_runtime_ablation_helper_can_overlay_existing_report(self):
@@ -420,7 +465,9 @@ class TestCausalContinuityT1(unittest.TestCase):
 
         self.assertEqual("causal_continuity.reproducibility.v1", report["schema_version"])
         self.assertTrue(report["determinism"]["stable_headlines"], report)
-        self.assertIn(report["determinism"]["status"], {"stable", "unstable_ordered_topk"})
+        self.assertTrue(report["determinism"]["stable_ordered_topk"], report)
+        self.assertTrue(report["determinism"]["passed"], report)
+        self.assertEqual("stable", report["determinism"]["status"])
         self.assertEqual(2, report["determinism"]["run_count"])
         self.assertTrue(report["runs"][0]["ordered_topk"])
 
@@ -475,17 +522,25 @@ class TestCausalContinuityT1(unittest.TestCase):
             self.assertFalse(smoke["leaderboard_claim"])
             self.assertEqual(1, smoke["summary"]["conversation_count"])
 
+            eval_smoke = run_evaluation_smoke(corpus=path, limit=1)
+            self.assertEqual("completed", eval_smoke["status"])
+            self.assertFalse(eval_smoke["leaderboard_claim"])
+            self.assertEqual(1, eval_smoke["summary"]["conversation_count"])
+
             report = build_real_data_contrast(
                 longmemeval_corpus=path,
                 run_external_adapter_smoke=True,
+                run_external_eval_smoke=True,
                 external_adapter_limit=1,
+                external_eval_limit=1,
             )
             rows = {row["dataset_id"]: row for row in report["datasets"]}
 
-            self.assertEqual("ready_with_external_contrast", report["status"])
-            self.assertEqual("adapter_smoke_completed", rows["longmemeval_external"]["status"])
+            self.assertEqual("ready_with_external_evaluation", report["status"])
+            self.assertEqual("evaluation_smoke_completed", rows["longmemeval_external"]["status"])
             self.assertEqual("completed", rows["longmemeval_external"]["execution"]["status"])
             self.assertEqual(1, report["summary"]["external_adapter_smoke_count"])
+            self.assertEqual(1, report["summary"]["external_eval_smoke_count"])
             self.assertEqual(0, report["summary"]["leaderboard_claim_count"])
 
     def test_suite_report_attaches_real_data_contrast_when_requested(self):
@@ -520,10 +575,12 @@ class TestCausalContinuityT1(unittest.TestCase):
                 include_real_data_contrast=True,
                 longmemeval_corpus=path,
                 run_real_data_adapter_smoke=True,
+                run_real_data_eval_smoke=True,
             )
 
             rows = {row["dataset_id"]: row for row in report["real_data_contrast"]["datasets"]}
-            self.assertEqual("adapter_smoke_completed", rows["longmemeval_external"]["status"])
+            self.assertEqual("evaluation_smoke_completed", rows["longmemeval_external"]["status"])
+            self.assertEqual(1, report["real_data_contrast"]["summary"]["external_eval_smoke_count"])
 
 
 if __name__ == "__main__":

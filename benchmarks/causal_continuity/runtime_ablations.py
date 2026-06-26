@@ -7,6 +7,8 @@ from .t2 import default_fixture_path as default_t2_fixture_path
 from .t2 import run_t2_calibration
 from .t3 import default_fixture_path as default_t3_fixture_path
 from .t3 import run_t3_temporal_state
+from .t5 import default_fixture_path as default_t5_fixture_path
+from .t5 import run_t5_thread_fidelity
 
 RUNTIME_ABLATION_RUNS_SCHEMA = "causal_continuity.runtime_ablation_runs.v1"
 
@@ -77,6 +79,7 @@ def run_runtime_ablation_toggles(
     *,
     t2_fixture: Path | None = None,
     t3_fixture: Path | None = None,
+    t5_fixture: Path | None = None,
 ) -> dict[str, Any]:
     """Execute supported disabled-mode ablation rows.
 
@@ -107,14 +110,19 @@ def run_runtime_ablation_toggles(
         fixture_path=t3_fixture or default_t3_fixture_path(),
         apply_claim_updates=False,
     )
+    t5_no_traversal = run_t5_thread_fidelity(
+        fixture_path=t5_fixture or default_t5_fixture_path(),
+        traversal_enabled=False,
+    )
 
     no_bonus_metrics = _metrics(t2_no_bonus)
     no_feedback_metrics = _metrics(t2_no_feedback)
     no_updates_metrics = _metrics(t3_no_updates)
     similarity_csr = _strategy_metric(t1, "similarity_only", "causal_survival_rate")
     dreamer_off_lift = _float(t4_without_dreamer_rates.get("quality_score"))
-    one_shot_t5_f1 = _float(t5_metrics.get("one_shot_thread_f1"))
-    one_shot_drift = _float(t5_metrics.get("one_shot_query_drift_rate"))
+    no_traversal_t5_metrics = _metrics(t5_no_traversal)
+    no_traversal_t5_f1 = _float(no_traversal_t5_metrics.get("thread_f1"))
+    no_traversal_t5_drift = _float(no_traversal_t5_metrics.get("query_drift_rate"))
 
     no_bonus_rho = _float(no_bonus_metrics.get("spearman_rho"))
     no_feedback_sample_count = _float(no_feedback_metrics.get("sample_count"))
@@ -134,14 +142,37 @@ def run_runtime_ablation_toggles(
 
     rows = {
         "minus_causal_traversal": {
-            "status": _drop_status(_delta(full.get("t1_causal_survival_rate"), similarity_csr)),
-            "scores": {"t1_causal_survival_rate": similarity_csr},
+            "status": _drop_status(max(
+                d
+                for d in [
+                    _delta(full.get("t1_causal_survival_rate"), similarity_csr),
+                    _delta(full.get("t5_thread_f1"), no_traversal_t5_f1),
+                    0.0,
+                ]
+                if d is not None
+            )),
+            "scores": {
+                "t1_causal_survival_rate": similarity_csr,
+                "t5_thread_f1": no_traversal_t5_f1,
+                "t5_query_drift_rate": no_traversal_t5_drift,
+            },
             "observed_delta_vs_full": {
                 "t1_causal_survival_rate": _delta(full.get("t1_causal_survival_rate"), similarity_csr),
+                "t5_thread_f1": _delta(full.get("t5_thread_f1"), no_traversal_t5_f1),
+                "t5_query_drift_rate": _delta(no_traversal_t5_drift, full.get("t5_query_drift_rate")),
             },
-            "evidence": ["t1_strategy_matrix.similarity_only"],
-            "runtime_run": {"kind": "strategy_baseline", "executed": True},
-            "limitations": ["t5_no_traversal_runtime_toggle_not_yet_instrumented"],
+            "evidence": [
+                "t1_strategy_matrix.similarity_only",
+                "runtime_ablation_runs.minus_causal_traversal.t5_traversal_disabled",
+            ],
+            "runtime_run": {
+                "kind": "task_fixture_disabled_mode",
+                "executed": True,
+                "task_id": "t5_thread_fidelity",
+                "traversal_enabled": False,
+                "report": t5_no_traversal,
+            },
+            "limitations": [],
         },
         "minus_myelination_backpressure": {
             "status": _drop_status(_delta(full.get("t2_spearman_rho"), no_bonus_rho)),
@@ -214,18 +245,27 @@ def run_runtime_ablation_toggles(
             "limitations": [],
         },
         "minus_agentic_recall_loop": {
-            "status": _drop_status(_delta(full.get("t5_thread_f1"), one_shot_t5_f1)),
+            "status": _drop_status(_delta(full.get("t5_thread_f1"), no_traversal_t5_f1)),
             "scores": {
-                "t5_thread_f1": one_shot_t5_f1,
-                "t5_query_drift_rate": one_shot_drift,
+                "t5_thread_f1": no_traversal_t5_f1,
+                "t5_query_drift_rate": no_traversal_t5_drift,
             },
             "observed_delta_vs_full": {
-                "t5_thread_f1": _delta(full.get("t5_thread_f1"), one_shot_t5_f1),
-                "t5_query_drift_rate": _delta(one_shot_drift, full.get("t5_query_drift_rate")),
+                "t5_thread_f1": _delta(full.get("t5_thread_f1"), no_traversal_t5_f1),
+                "t5_query_drift_rate": _delta(no_traversal_t5_drift, full.get("t5_query_drift_rate")),
             },
-            "evidence": ["t5.metrics.one_shot_anchor_baseline"],
-            "runtime_run": {"kind": "one_shot_baseline", "executed": True},
-            "limitations": [] if _delta(full.get("t5_thread_f1"), one_shot_t5_f1) else ["one_shot_anchor_proxy_did_not_show_expected_drop_on_current_fixture"],
+            "evidence": [
+                "t5.metrics.one_shot_anchor_baseline",
+                "runtime_ablation_runs.minus_agentic_recall_loop.t5_traversal_disabled",
+            ],
+            "runtime_run": {
+                "kind": "task_fixture_disabled_mode",
+                "executed": True,
+                "task_id": "t5_thread_fidelity",
+                "traversal_enabled": False,
+                "report": t5_no_traversal,
+            },
+            "limitations": [] if _delta(full.get("t5_thread_f1"), no_traversal_t5_f1) else ["one_shot_anchor_proxy_did_not_show_expected_drop_on_current_fixture"],
         },
     }
 

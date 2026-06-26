@@ -66,6 +66,10 @@ def run_suite(
     longmemeval_corpus: Path | None = None,
     run_real_data_adapter_smoke: bool = False,
     real_data_adapter_limit: int = 1,
+    run_real_data_eval_smoke: bool = False,
+    real_data_eval_limit: int = 1,
+    external_memory_adapter: str = "",
+    t5_judge: str = "deterministic",
 ) -> dict[str, Any]:
     selected = list(strategies or available_strategies())
     selected_tasks = list(tasks or ["t1", "t2", "t3", "t4", "t5"])
@@ -81,6 +85,7 @@ def run_suite(
             strategies=selected,
             subset=subset,
             limit=limit,
+            external_memory_adapter=external_memory_adapter,
         )
     if "t2" in selected_tasks:
         t2_report = run_t2_calibration(fixture_path=t2_fixture or default_fixture_path())
@@ -89,7 +94,10 @@ def run_suite(
     if "t4" in selected_tasks:
         t4_report = run_t4_longitudinal_continuity(fixture_path=t4_fixture or default_t4_fixture_path())
     if "t5" in selected_tasks:
-        t5_report = run_t5_thread_fidelity(fixture_path=t5_fixture or default_t5_fixture_path())
+        t5_report = run_t5_thread_fidelity(
+            fixture_path=t5_fixture or default_t5_fixture_path(),
+            judge_kind=t5_judge,
+        )
     notes = [
         "pr1_t1_strategy_matrix",
         "pr2_t2_calibration_reliability",
@@ -129,6 +137,7 @@ def run_suite(
             report,
             t2_fixture=t2_fixture or default_fixture_path(),
             t3_fixture=t3_fixture or default_t3_fixture_path(),
+            t5_fixture=t5_fixture or default_t5_fixture_path(),
         )
         report["ablation_matrix"] = build_ablation_matrix(report, runtime_runs=runtime_runs)
     elif include_ablations:
@@ -141,6 +150,8 @@ def run_suite(
             local_proxy_limit=real_data_local_limit,
             run_external_adapter_smoke=run_real_data_adapter_smoke,
             external_adapter_limit=real_data_adapter_limit,
+            run_external_eval_smoke=run_real_data_eval_smoke,
+            external_eval_limit=real_data_eval_limit,
         )
     return report
 
@@ -161,10 +172,14 @@ def main() -> int:
     p.add_argument("--include-real-data-contrast", action="store_true", help="Attach real-data contrast readiness without making leaderboard claims")
     p.add_argument("--run-real-data-local-proxy", action="store_true", help="Run the checked-in LOCOMO-like local proxy inside the real-data contrast attachment")
     p.add_argument("--run-real-data-adapter-smoke", action="store_true", help="Load-smoke supplied external corpora inside the real-data contrast attachment")
+    p.add_argument("--run-real-data-eval-smoke", action="store_true", help="Run bounded lifecycle evaluation smoke for supplied external corpora")
     p.add_argument("--real-data-local-limit", type=int, default=1, help="Case limit for --run-real-data-local-proxy")
     p.add_argument("--real-data-adapter-limit", type=int, default=1, help="Corpus instance limit for --run-real-data-adapter-smoke")
+    p.add_argument("--real-data-eval-limit", type=int, default=1, help="Conversation/instance limit for --run-real-data-eval-smoke")
     p.add_argument("--locomo-corpus", default="", help="Optional path to user-supplied locomo10.json for external LoCoMo adapter readiness checks")
     p.add_argument("--longmemeval-corpus", default="", help="Optional path to user-supplied LongMemEval JSON/JSONL corpus for adapter readiness checks")
+    p.add_argument("--external-memory-adapter", default="", help="Optional external-memory T1 adapter name; 'fake' exercises the offline adapter contract")
+    p.add_argument("--t5-judge", default="deterministic", help="T5 answerability judge kind: deterministic, fake_llm, or llm")
     p.add_argument("--subset", choices=["local", "full"], default="full")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument(
@@ -193,6 +208,10 @@ def main() -> int:
         real_data_local_limit=int(args.real_data_local_limit),
         run_real_data_adapter_smoke=bool(args.run_real_data_adapter_smoke),
         real_data_adapter_limit=int(args.real_data_adapter_limit),
+        run_real_data_eval_smoke=bool(args.run_real_data_eval_smoke),
+        real_data_eval_limit=int(args.real_data_eval_limit),
+        external_memory_adapter=str(args.external_memory_adapter or ""),
+        t5_judge=str(args.t5_judge or "deterministic"),
         locomo_corpus=(Path(args.locomo_corpus) if str(args.locomo_corpus or "").strip() else None),
         longmemeval_corpus=(Path(args.longmemeval_corpus) if str(args.longmemeval_corpus or "").strip() else None),
     )

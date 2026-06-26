@@ -16,6 +16,8 @@ from core_memory.retrieval.pipeline.canonical import trace_request
 from benchmarks.causal.runner import _env_overrides, _repo_commit
 from benchmarks.contracts import BenchmarkShortcutFlags
 
+from .judges import build_answerability_judge
+
 T5_FIXTURE_SCHEMA = "causal_continuity.t5_fixture.v1"
 T5_REPORT_SCHEMA = "causal_continuity.t5_thread_fidelity.v1"
 
@@ -73,6 +75,18 @@ def _tokens(text: Any) -> set[str]:
     return out
 
 
+def _stable_bead_key(bead: dict[str, Any], bead_id: str = "") -> str:
+    for tag in list(bead.get("tags") or []):
+        text = str(tag or "").strip()
+        if text.startswith("benchmark_key:"):
+            return text.split(":", 1)[1].strip() or bead_id
+    for src in list(bead.get("source_turn_ids") or []):
+        text = str(src or "").strip()
+        if text:
+            return text
+    return str(bead.get("title") or bead_id)
+
+
 def _materialize_case(root: str | Path, case: dict[str, Any]) -> dict[str, str]:
     store = MemoryStore(str(root))
     bead_keys: dict[str, str] = {}
@@ -80,6 +94,10 @@ def _materialize_case(root: str | Path, case: dict[str, Any]) -> dict[str, str]:
         if not isinstance(row, dict):
             continue
         key = str(row.get("key") or "").strip()
+        tags = list(row.get("tags") or ["benchmark_thread_fidelity"])
+        if key:
+            tags.append(f"benchmark_key:{key}")
+        tags = _ordered_unique(tags)
         bead_id = store.add_bead(
             type=str(row.get("type") or "context"),
             title=str(row.get("title") or "thread fidelity fixture bead"),
@@ -89,7 +107,7 @@ def _materialize_case(root: str | Path, case: dict[str, Any]) -> dict[str, str]:
             source_turn_ids=list(row.get("source_turn_ids") or [f"fx-{key or 'bead'}"]),
             entities=list(row.get("entities") or []),
             topics=list(row.get("topics") or []),
-            tags=list(row.get("tags") or ["benchmark_thread_fidelity"]),
+            tags=tags,
         )
         if key:
             bead_keys[key] = bead_id
@@ -176,6 +194,7 @@ def _score_storyline(
 ) -> dict[str, Any]:
     backbone = dict(storyline.get("backbone") or {})
     bead_ids = [str(x) for x in list(backbone.get("bead_ids") or []) if str(x).strip()]
+    bead_ids = sorted(bead_ids, key=lambda bid: _stable_bead_key(beads.get(bid, {}), bid))
     trace_set = set(trace_ids)
     text_by_bead = {bid: _tokens(_bead_text(beads.get(bid, {}))) for bid in bead_ids}
     union_tokens: set[str] = set()
@@ -195,6 +214,7 @@ def _score_storyline(
         "kind": str(backbone.get("kind") or ""),
         "label": str(backbone.get("label") or ""),
         "bead_ids": bead_ids,
+        "bead_keys": [_stable_bead_key(beads.get(bid, {}), bid) for bid in bead_ids],
         "coverage": round(coverage, 4),
         "mean_bead_overlap": round(mean_bead_overlap, 4),
         "trace_support": round(trace_support, 4),
@@ -215,6 +235,76 @@ def _select_storyline(
     ]
     scored.sort(key=lambda r: (-float(r.get("score") or 0.0), -float(r.get("trace_support") or 0.0), str(r.get("storyline_id") or "")))
     return (scored[0] if scored else {}, scored)
+
+
+def _one_shot_graph_blind_ids(case: dict[str, Any], bead_keys: dict[str, str], *, k: int) -> list[str]:
+    query_tokens = _tokens(case.get("query") or "")
+    rows: list[tuple[float, str, str]] = []
+    for row in list(case.get("beads") or []):
+        if not isinstance(row, dict):
+            continue
+        key = str(row.get("key") or "").strip()
+        bid = bead_keys.get(key, "")
+        if not key or not bid:
+            continue
+        text = " ".join([
+            str(row.get("title") or ""),
+            " ".join(str(x) for x in list(row.get("summary") or [])),
+            str(row.get("detail") or ""),
+        ])
+        row_tokens = _tokens(text)
+        overlap = (len(query_tokens & row_tokens) / float(len(query_tokens))) if query_tokens else 0.0
+        rows.append((overlap, key, bid))
+    rows.sort(key=lambda item: (-item[0], item[1]))
+    return [bid for _score, _key, bid in rows[: max(1, int(k))]]
+
+
+def _run_graph_blind_loop(root: str | Path, case: dict[str, Any], bead_keys: dict[str, str]) -> dict[str, Any]:
+    gold_count = max(1, len(list(case.get("gold_thread_keys") or [])))
+    returned = _one_shot_graph_blind_ids(case, bead_keys, k=gold_count)
+    key_by_id = {v: k for k, v in bead_keys.items()}
+    return {
+        "query": str(case.get("query") or ""),
+        "intent": str(case.get("intent") or "causal"),
+        "returned_thread_ids": returned,
+        "selected_storyline": {
+            "storyline_id": "graph_blind_one_shot",
+            "kind": "baseline",
+            "label": "graph_blind_one_shot",
+            "bead_ids": returned,
+            "bead_keys": [key_by_id.get(bid, bid) for bid in returned],
+            "score": None,
+        },
+        "storyline_candidate_count": 0,
+        "steps": [
+            {
+                "step": 1,
+                "anchor_ids": [],
+                "trace_anchor_ids": returned,
+                "trace_ids": returned,
+                "trace_grounding": {"mode": "disabled_traversal_graph_blind"},
+                "selected_storyline": {
+                    "storyline_id": "graph_blind_one_shot",
+                    "bead_ids": returned,
+                    "bead_keys": [key_by_id.get(bid, bid) for bid in returned],
+                },
+                "candidate_storylines": [],
+                "stop_gate": {
+                    "passed": True,
+                    "reason": "graph_blind_one_shot_baseline",
+                },
+            }
+        ],
+        "methodology": {
+            "kind": "graph_blind_one_shot_baseline",
+            "is_llm_judge": False,
+            "notes": [
+                "no trace_request",
+                "no causal traversal",
+                "lexical title_summary_detail ranking only",
+            ],
+        },
+    }
 
 
 def _run_thread_loop(root: str | Path, case: dict[str, Any], loop_cfg: dict[str, Any]) -> dict[str, Any]:
@@ -310,15 +400,25 @@ def _thread_metrics(returned: list[str], *, gold_ids: set[str], required_ids: se
     }
 
 
-def _evaluate_case(case: dict[str, Any], *, bead_keys: dict[str, str], loop: dict[str, Any], targets: dict[str, Any]) -> dict[str, Any]:
+def _evaluate_case(
+    case: dict[str, Any],
+    *,
+    bead_keys: dict[str, str],
+    loop: dict[str, Any],
+    targets: dict[str, Any],
+    judge_kind: str | None = None,
+) -> dict[str, Any]:
     returned = [str(x) for x in list(loop.get("returned_thread_ids") or []) if str(x).strip()]
-    gold_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("gold_thread_keys") or [])] if k in bead_keys}
-    required_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("required_answer_keys") or [])] if k in bead_keys}
-    drift_ids = {bead_keys[k] for k in [str(x) for x in list(case.get("drift_thread_keys") or [])] if k in bead_keys}
+    key_by_id = {v: k for k, v in bead_keys.items()}
+    gold_keys = [str(x) for x in list(case.get("gold_thread_keys") or []) if str(x) in bead_keys]
+    required_keys = [str(x) for x in list(case.get("required_answer_keys") or []) if str(x) in bead_keys]
+    drift_keys = [str(x) for x in list(case.get("drift_thread_keys") or []) if str(x) in bead_keys]
+    gold_ids = {bead_keys[k] for k in gold_keys}
+    required_ids = {bead_keys[k] for k in required_keys}
+    drift_ids = {bead_keys[k] for k in drift_keys}
     max_drift = float(targets.get("max_query_drift_rate") or 0.25)
     scored = _thread_metrics(returned, gold_ids=gold_ids, required_ids=required_ids, drift_ids=drift_ids, max_query_drift_rate=max_drift)
-    first_step = dict((loop.get("steps") or [{}])[0] or {})
-    one_shot_returned = list(first_step.get("trace_anchor_ids") or [])[: max(1, len(gold_ids))]
+    one_shot_returned = _one_shot_graph_blind_ids(case, bead_keys, k=max(1, len(gold_ids)))
     one_shot_scored = _thread_metrics(
         one_shot_returned,
         gold_ids=gold_ids,
@@ -333,16 +433,36 @@ def _evaluate_case(case: dict[str, Any], *, bead_keys: dict[str, str], loop: dic
         "answerability": scored["answerability"] >= float(targets.get("min_answerability") or 1.0),
         "query_drift": scored["query_drift_rate"] <= max_drift,
     }
+    judge = build_answerability_judge(judge_kind)
+    returned_keys = [key_by_id.get(bid, bid) for bid in returned]
+    judge_result = judge.judge_case(
+        case=case,
+        returned_keys=returned_keys,
+        required_keys=required_keys,
+        drift_keys=drift_keys,
+        deterministic_metrics=scored,
+    )
     return {
         "case_id": str(case.get("id") or ""),
         "query": str(case.get("query") or ""),
-        "gold_thread_bead_ids": sorted(gold_ids),
-        "required_answer_bead_ids": sorted(required_ids),
-        "drift_thread_bead_ids": sorted(drift_ids),
+        "bead_key_by_id": key_by_id,
+        "gold_thread_keys": gold_keys,
+        "required_answer_keys": required_keys,
+        "drift_thread_keys": drift_keys,
+        "returned_thread_keys": returned_keys,
+        "gold_thread_bead_ids": [bead_keys[k] for k in gold_keys],
+        "required_answer_bead_ids": [bead_keys[k] for k in required_keys],
+        "drift_thread_bead_ids": [bead_keys[k] for k in drift_keys],
         "returned_thread_bead_ids": returned,
         "metrics": scored,
+        "judge_kind": str(judge_result.get("judge_kind") or judge.kind),
+        "judge_status": str(judge_result.get("judge_status") or ""),
+        "is_llm_judge": bool(judge_result.get("is_llm_judge")),
+        "prompt_version": str(judge_result.get("prompt_version") or judge.prompt_version),
+        "answerability_judge": judge_result,
         "one_shot_anchor_baseline": {
             "returned_bead_ids": one_shot_returned,
+            "returned_keys": [key_by_id.get(bid, bid) for bid in one_shot_returned],
             "metrics": one_shot_scored,
         },
         "checks": checks,
@@ -356,7 +476,12 @@ def _mean(rows: list[float]) -> float:
     return round(sum(values) / float(len(values)), 4) if values else 0.0
 
 
-def run_t5_thread_fidelity(*, fixture_path: Path | None = None) -> dict[str, Any]:
+def run_t5_thread_fidelity(
+    *,
+    fixture_path: Path | None = None,
+    traversal_enabled: bool = True,
+    judge_kind: str | None = None,
+) -> dict[str, Any]:
     fixture = _load_fixture(fixture_path)
     targets = dict(fixture.get("targets") or {})
     loop_cfg = dict(fixture.get("loop") or {})
@@ -375,8 +500,8 @@ def run_t5_thread_fidelity(*, fixture_path: Path | None = None) -> dict[str, Any
                 "CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed",
             }):
                 bead_keys = _materialize_case(td, case)
-                loop = _run_thread_loop(td, case, loop_cfg)
-            case_rows.append(_evaluate_case(case, bead_keys=bead_keys, loop=loop, targets=targets))
+                loop = _run_thread_loop(td, case, loop_cfg) if traversal_enabled else _run_graph_blind_loop(td, case, bead_keys)
+            case_rows.append(_evaluate_case(case, bead_keys=bead_keys, loop=loop, targets=targets, judge_kind=judge_kind))
         finally:
             shutil.rmtree(td, ignore_errors=True)
 
@@ -387,6 +512,11 @@ def run_t5_thread_fidelity(*, fixture_path: Path | None = None) -> dict[str, Any
         "thread_recall": _mean([float((row.get("metrics") or {}).get("thread_recall") or 0.0) for row in case_rows]),
         "thread_f1": _mean([float((row.get("metrics") or {}).get("thread_f1") or 0.0) for row in case_rows]),
         "answerability": _mean([float((row.get("metrics") or {}).get("answerability") or 0.0) for row in case_rows]),
+        "judge_answerability": _mean([
+            float((row.get("answerability_judge") or {}).get("answerability") or 0.0)
+            for row in case_rows
+            if (row.get("answerability_judge") or {}).get("answerability") is not None
+        ]),
         "query_drift_rate": _mean([float((row.get("metrics") or {}).get("query_drift_rate") or 0.0) for row in case_rows]),
         "one_shot_thread_f1": _mean([
             float(((row.get("one_shot_anchor_baseline") or {}).get("metrics") or {}).get("thread_f1") or 0.0)
@@ -409,6 +539,8 @@ def run_t5_thread_fidelity(*, fixture_path: Path | None = None) -> dict[str, Any
         "query_drift": metrics["query_drift_rate"] <= float(targets.get("max_query_drift_rate") or 0.25),
     }
     flags = BenchmarkShortcutFlags().to_dict()
+    judge_statuses = sorted({str(row.get("judge_status") or "") for row in case_rows if str(row.get("judge_status") or "")})
+    judge_kinds = sorted({str(row.get("judge_kind") or "") for row in case_rows if str(row.get("judge_kind") or "")})
     return {
         "schema_version": T5_REPORT_SCHEMA,
         "task_id": "t5_thread_fidelity",
@@ -424,8 +556,17 @@ def run_t5_thread_fidelity(*, fixture_path: Path | None = None) -> dict[str, Any
             "notes": [
                 "trace_request_seed_plus_causal_expansion",
                 "storyline_selection_re_evaluated_against_original_query",
-                "deterministic_answerability_proxy_no_llm_judge",
+                "deterministic_answerability_proxy_is_default_ci_gate",
             ],
+            "ablation_mode": {
+                "traversal_enabled": bool(traversal_enabled),
+            },
+            "judge": {
+                "kind": judge_kinds[0] if len(judge_kinds) == 1 else ",".join(judge_kinds),
+                "status": judge_statuses[0] if len(judge_statuses) == 1 else ",".join(judge_statuses),
+                "is_llm_judge": any(bool(row.get("is_llm_judge")) for row in case_rows),
+                "prompt_version": str((case_rows[0] if case_rows else {}).get("prompt_version") or ""),
+            },
         },
         "targets": targets,
         "metrics": metrics,

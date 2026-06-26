@@ -1,6 +1,6 @@
 {
   "schema_version": "causal_continuity_report.v1",
-  "run_at": "2026-06-26T20:08:54.938241+00:00",
+  "run_at": "2026-06-26T21:00:59.797709+00:00",
   "metadata": {
     "suite": "causal_continuity",
     "task_count": 5,
@@ -21,7 +21,7 @@
     ],
     "subset": "local",
     "limit": 1,
-    "commit": "5f2d72aa",
+    "commit": "09657c12",
     "notes": [
       "pr1_t1_strategy_matrix",
       "pr2_t2_calibration_reliability",
@@ -202,7 +202,7 @@
         "core_memory_full": "completed",
         "dense_vector": "proxy_executed",
         "external_memory_adapter": "unavailable",
-        "long_context_no_memory": "unavailable",
+        "long_context_no_memory": "proxy_executed",
         "similarity_only": "completed"
       },
       "availability_by_strategy": {
@@ -210,7 +210,7 @@
         "core_memory_full": "executed",
         "dense_vector": "local_deterministic_proxy",
         "external_memory_adapter": "requires_external_memory_adapter",
-        "long_context_no_memory": "requires_llm_context_window_adapter",
+        "long_context_no_memory": "local_context_window_proxy",
         "similarity_only": "executed"
       }
     },
@@ -270,6 +270,9 @@
           "baseline_kind": "lexical",
           "availability": "executed",
           "unavailable_reason": "",
+          "execution_mode": "local_baseline",
+          "adapter_status": "not_required",
+          "adapter_name": "",
           "uses_causal_traversal": false,
           "leaderboard_claim": false,
           "cases": 1,
@@ -282,14 +285,17 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 19.423,
-          "retrieval_mean_ms": 0.134
+          "latency_mean_ms": 17.113,
+          "retrieval_mean_ms": 0.119
         },
         "core_memory_full": {
           "status": "completed",
           "baseline_kind": "causal_memory",
           "availability": "executed",
           "unavailable_reason": "",
+          "execution_mode": "core_memory",
+          "adapter_status": "not_required",
+          "adapter_name": "",
           "uses_causal_traversal": true,
           "leaderboard_claim": false,
           "cases": 1,
@@ -302,14 +308,17 @@
           "edge_precision_mean": 1.0,
           "edge_recall_mean": 1.0,
           "edge_f1_mean": 1.0,
-          "latency_mean_ms": 192.667,
-          "retrieval_mean_ms": 139.267
+          "latency_mean_ms": 120.129,
+          "retrieval_mean_ms": 83.603
         },
         "dense_vector": {
           "status": "proxy_executed",
           "baseline_kind": "dense_vector_proxy",
           "availability": "local_deterministic_proxy",
           "unavailable_reason": "",
+          "execution_mode": "local_proxy",
+          "adapter_status": "proxy_executed",
+          "adapter_name": "",
           "uses_causal_traversal": false,
           "leaderboard_claim": false,
           "cases": 1,
@@ -322,14 +331,17 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 17.769,
-          "retrieval_mean_ms": 0.193
+          "latency_mean_ms": 17.457,
+          "retrieval_mean_ms": 0.17
         },
         "external_memory_adapter": {
           "status": "unavailable",
           "baseline_kind": "external_memory_adapter",
           "availability": "requires_external_memory_adapter",
           "unavailable_reason": "external_memory_adapter_not_configured",
+          "execution_mode": "not_configured",
+          "adapter_status": "unavailable",
+          "adapter_name": "",
           "uses_causal_traversal": false,
           "leaderboard_claim": false,
           "cases": 0,
@@ -346,30 +358,13 @@
           "retrieval_mean_ms": 0.0
         },
         "long_context_no_memory": {
-          "status": "unavailable",
-          "baseline_kind": "long_context_no_memory",
-          "availability": "requires_llm_context_window_adapter",
-          "unavailable_reason": "long_context_no_memory_adapter_not_configured",
-          "uses_causal_traversal": false,
-          "leaderboard_claim": false,
-          "cases": 0,
-          "pass": 0,
-          "accuracy": 0.0,
-          "causal_survival_rate": 0.0,
-          "adversarial_case_count": 0,
-          "root_cause_accuracy": 0.0,
-          "grounding_full_rate": 0.0,
-          "edge_precision_mean": 0.0,
-          "edge_recall_mean": 0.0,
-          "edge_f1_mean": 0.0,
-          "latency_mean_ms": 0.0,
-          "retrieval_mean_ms": 0.0
-        },
-        "similarity_only": {
-          "status": "completed",
-          "baseline_kind": "similarity_proxy",
-          "availability": "executed",
+          "status": "proxy_executed",
+          "baseline_kind": "long_context_local_proxy",
+          "availability": "local_context_window_proxy",
           "unavailable_reason": "",
+          "execution_mode": "local_proxy",
+          "adapter_status": "proxy_executed",
+          "adapter_name": "local_long_context_no_memory_proxy",
           "uses_causal_traversal": false,
           "leaderboard_claim": false,
           "cases": 1,
@@ -382,8 +377,31 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 18.285,
-          "retrieval_mean_ms": 0.241
+          "latency_mean_ms": 17.673,
+          "retrieval_mean_ms": 0.218
+        },
+        "similarity_only": {
+          "status": "completed",
+          "baseline_kind": "similarity_proxy",
+          "availability": "executed",
+          "unavailable_reason": "",
+          "execution_mode": "local_baseline",
+          "adapter_status": "not_required",
+          "adapter_name": "",
+          "uses_causal_traversal": false,
+          "leaderboard_claim": false,
+          "cases": 1,
+          "pass": 0,
+          "accuracy": 0.0,
+          "causal_survival_rate": 0.0,
+          "adversarial_case_count": 1,
+          "root_cause_accuracy": 0.0,
+          "grounding_full_rate": 0.0,
+          "edge_precision_mean": 0.0,
+          "edge_recall_mean": 0.0,
+          "edge_f1_mean": 0.0,
+          "latency_mean_ms": 18.629,
+          "retrieval_mean_ms": 0.208
         }
       },
       "case_matrix": [
@@ -421,6 +439,13 @@
               "root_cause_correct": false,
               "distractor_survived": false,
               "attribution_depth": 0
+            },
+            "long_context_no_memory": {
+              "pass": false,
+              "edge_f1": 0.0,
+              "root_cause_correct": false,
+              "distractor_survived": false,
+              "attribution_depth": 0
             }
           }
         }
@@ -428,7 +453,7 @@
       "strategy_reports": {
         "core_memory_full": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T20:08:54.533878+00:00",
+          "generated_at": "2026-06-26T21:00:59.367113+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -436,11 +461,14 @@
             "status": "completed",
             "baseline_kind": "causal_memory",
             "availability": "executed",
+            "execution_mode": "core_memory",
+            "adapter_status": "not_required",
+            "adapter_name": "",
             "uses_causal_traversal": true,
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "5f2d72aa",
+            "commit": "09657c12",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -484,10 +512,10 @@
             "survival_rate": 1.0
           },
           "latency_ms": {
-            "mean": 192.667,
-            "p50": 192.667,
-            "p95": 192.667,
-            "retrieval_mean": 139.267
+            "mean": 120.129,
+            "p50": 120.129,
+            "p95": 120.129,
+            "retrieval_mean": 83.603
           },
           "per_bucket": {
             "adversarial": {
@@ -499,9 +527,10 @@
           "warnings": [
             "execute_llm_unavailable",
             "no_upstream_edges",
-            "semantic_backend_query_error:runtimeerror",
-            "semantic_backend_query_failed_lexical_fallback",
             "semantic_backend_unavailable_degraded",
+            "semantic_build_lock_held",
+            "semantic_index_missing_artifacts",
+            "semantic_index_rebuild_no_rows_failed",
             "semantic_index_stale"
           ],
           "cases": [
@@ -512,8 +541,8 @@
               ],
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
-              "write_setup_ms": 51.21,
-              "retrieval_ms": 139.267,
+              "write_setup_ms": 34.764,
+              "retrieval_ms": 83.603,
               "tier_path": [
                 "semantic",
                 "causal",
@@ -523,9 +552,10 @@
                 "source"
               ],
               "warnings": [
+                "semantic_index_missing_artifacts",
+                "semantic_build_lock_held",
                 "semantic_index_stale",
-                "semantic_backend_query_failed_lexical_fallback",
-                "semantic_backend_query_error:runtimeerror",
+                "semantic_index_rebuild_no_rows_failed",
                 "semantic_backend_unavailable_degraded",
                 "execute_llm_unavailable",
                 "no_upstream_edges"
@@ -543,10 +573,10 @@
               "distractor_survived": true,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-6BDCFD2A5D69",
-                "bead-BD089B2E1459"
+                "bead-519D4487A8C6",
+                "bead-3AFDAD9ACADD"
               ],
-              "gold_root_cause_id": "bead-6BDCFD2A5D69",
+              "gold_root_cause_id": "bead-519D4487A8C6",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": true,
@@ -555,14 +585,14 @@
                 "distractor_survived": true
               },
               "pass": true,
-              "latency_ms": 192.667,
+              "latency_ms": 120.129,
               "strategy": "core_memory_full"
             }
           ]
         },
         "bm25": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T20:08:54.567815+00:00",
+          "generated_at": "2026-06-26T21:00:59.397613+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -570,11 +600,14 @@
             "status": "completed",
             "baseline_kind": "lexical",
             "availability": "executed",
+            "execution_mode": "local_baseline",
+            "adapter_status": "not_required",
+            "adapter_name": "",
             "uses_causal_traversal": false,
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "5f2d72aa",
+            "commit": "09657c12",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -618,10 +651,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 19.423,
-            "p50": 19.423,
-            "p95": 19.423,
-            "retrieval_mean": 0.134
+            "mean": 17.113,
+            "p50": 17.113,
+            "p95": 17.113,
+            "retrieval_mean": 0.119
           },
           "per_bucket": {
             "adversarial": {
@@ -640,8 +673,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "bm25",
-              "write_setup_ms": 17.968,
-              "retrieval_ms": 0.134,
+              "write_setup_ms": 15.557,
+              "retrieval_ms": 0.119,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -659,12 +692,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-8CFBE1021F9B",
-                "bead-7EE392DE3F6F",
-                "bead-29C2FA0374EC",
-                "bead-71D2ED6165E8"
+                "bead-C3D23D199E3B",
+                "bead-57614E03EE3D",
+                "bead-371C2F3AA892",
+                "bead-6498A36AD398"
               ],
-              "gold_root_cause_id": "bead-29C2FA0374EC",
+              "gold_root_cause_id": "bead-371C2F3AA892",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -673,13 +706,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 19.423
+              "latency_ms": 17.113
             }
           ]
         },
         "similarity_only": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T20:08:54.600428+00:00",
+          "generated_at": "2026-06-26T21:00:59.429152+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -687,11 +720,14 @@
             "status": "completed",
             "baseline_kind": "similarity_proxy",
             "availability": "executed",
+            "execution_mode": "local_baseline",
+            "adapter_status": "not_required",
+            "adapter_name": "",
             "uses_causal_traversal": false,
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "5f2d72aa",
+            "commit": "09657c12",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -735,10 +771,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 18.285,
-            "p50": 18.285,
-            "p95": 18.285,
-            "retrieval_mean": 0.241
+            "mean": 18.629,
+            "p50": 18.629,
+            "p95": 18.629,
+            "retrieval_mean": 0.208
           },
           "per_bucket": {
             "adversarial": {
@@ -757,8 +793,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "similarity_only",
-              "write_setup_ms": 16.6,
-              "retrieval_ms": 0.241,
+              "write_setup_ms": 16.734,
+              "retrieval_ms": 0.208,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -776,12 +812,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-C9BA334D60A1",
-                "bead-DD0CB0E12D88",
-                "bead-0BAFE94CE2BA",
-                "bead-0E5BA40017EB"
+                "bead-BBF1A82327CF",
+                "bead-9D1A4BCCADCC",
+                "bead-4706F949BF13",
+                "bead-5C017ED3EBDC"
               ],
-              "gold_root_cause_id": "bead-0BAFE94CE2BA",
+              "gold_root_cause_id": "bead-4706F949BF13",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -790,13 +826,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 18.285
+              "latency_ms": 18.629
             }
           ]
         },
         "dense_vector": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T20:08:54.631526+00:00",
+          "generated_at": "2026-06-26T21:00:59.459729+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -804,11 +840,14 @@
             "status": "proxy_executed",
             "baseline_kind": "dense_vector_proxy",
             "availability": "local_deterministic_proxy",
+            "execution_mode": "local_proxy",
+            "adapter_status": "proxy_executed",
+            "adapter_name": "",
             "uses_causal_traversal": false,
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "5f2d72aa",
+            "commit": "09657c12",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -853,10 +892,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 17.769,
-            "p50": 17.769,
-            "p95": 17.769,
-            "retrieval_mean": 0.193
+            "mean": 17.457,
+            "p50": 17.457,
+            "p95": 17.457,
+            "retrieval_mean": 0.17
           },
           "per_bucket": {
             "adversarial": {
@@ -875,8 +914,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "dense_vector",
-              "write_setup_ms": 16.087,
-              "retrieval_ms": 0.193,
+              "write_setup_ms": 15.845,
+              "retrieval_ms": 0.17,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -894,12 +933,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-3D9DF32AF078",
-                "bead-5B5E4BCCA881",
-                "bead-D2B1172FCD1E",
-                "bead-E6F2E3A8B2FD"
+                "bead-6852909D3922",
+                "bead-4F176B76B1F6",
+                "bead-EE015EA2F4F0",
+                "bead-92B876C0E1C7"
               ],
-              "gold_root_cause_id": "bead-D2B1172FCD1E",
+              "gold_root_cause_id": "bead-EE015EA2F4F0",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -908,26 +947,28 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 17.769
+              "latency_ms": 17.457
             }
           ]
         },
         "long_context_no_memory": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T20:08:54.645136+00:00",
+          "generated_at": "2026-06-26T21:00:59.491260+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
             "strategy": "long_context_no_memory",
-            "status": "unavailable",
-            "baseline_kind": "long_context_no_memory",
-            "availability": "requires_llm_context_window_adapter",
-            "unavailable_reason": "long_context_no_memory_adapter_not_configured",
+            "status": "proxy_executed",
+            "baseline_kind": "long_context_local_proxy",
+            "availability": "local_context_window_proxy",
+            "execution_mode": "local_proxy",
+            "adapter_status": "proxy_executed",
+            "adapter_name": "local_long_context_no_memory_proxy",
             "uses_causal_traversal": false,
             "leaderboard_claim": false,
             "subset": "local",
-            "case_count": 0,
-            "commit": "5f2d72aa",
+            "case_count": 1,
+            "commit": "09657c12",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -945,15 +986,16 @@
               "is_faithful": true
             },
             "notes": [
-              "baseline_row_declared",
-              "not_executed",
-              "no_causal_edges_used_for_ranking"
+              "public_write_path_materialization",
+              "no_causal_edges_used_for_ranking",
+              "adversarial_distractors",
+              "deterministic_context_window_proxy_no_memory_state"
             ]
           },
           "totals": {
-            "cases": 0,
+            "cases": 1,
             "pass": 0,
-            "fail": 0,
+            "fail": 1,
             "accuracy": 0.0
           },
           "causal_metrics": {
@@ -966,25 +1008,73 @@
             "attribution_depth_max": 0
           },
           "distractor_survival": {
-            "adversarial_case_count": 0,
+            "adversarial_case_count": 1,
             "survived_count": 0,
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 0.0,
-            "p50": 0.0,
-            "p95": 0.0,
-            "retrieval_mean": 0.0
+            "mean": 17.673,
+            "p50": 17.673,
+            "p95": 17.673,
+            "retrieval_mean": 0.218
           },
-          "per_bucket": {},
-          "warnings": [
-            "long_context_no_memory_adapter_not_configured"
-          ],
-          "cases": []
+          "per_bucket": {
+            "adversarial": {
+              "total": 1,
+              "pass": 0,
+              "accuracy": 0.0
+            }
+          },
+          "warnings": [],
+          "cases": [
+            {
+              "case_id": "adversarial_distractor",
+              "bucket_labels": [
+                "adversarial"
+              ],
+              "query": "why was the api returning 500 errors",
+              "expected_grounding": "full",
+              "strategy": "long_context_no_memory",
+              "write_setup_ms": 15.8,
+              "retrieval_ms": 0.218,
+              "tier_path": [
+                "baseline_similarity"
+              ],
+              "warnings": [],
+              "edge_precision": 0.0,
+              "edge_recall": 0.0,
+              "edge_f1": 0.0,
+              "traversed_edge_count": 0,
+              "gold_edge_count": 2,
+              "matched_edge_count": 0,
+              "attribution_depth": 0,
+              "root_cause_correct": false,
+              "grounding_full": false,
+              "gold_root_reached": false,
+              "distractor_survived": false,
+              "distractor_count": 1,
+              "ranked_root_cause_ids": [
+                "bead-A6A8C9597E14",
+                "bead-EF899427EEAC",
+                "bead-F266F5DB40C0",
+                "bead-AE50FC9D877A"
+              ],
+              "gold_root_cause_id": "bead-F266F5DB40C0",
+              "gold_root_in_ranking": true,
+              "checks": {
+                "edge_recall_complete": false,
+                "root_cause_correct": false,
+                "grounding_full": false,
+                "distractor_survived": false
+              },
+              "pass": false,
+              "latency_ms": 17.673
+            }
+          ]
         },
         "external_memory_adapter": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T20:08:54.659004+00:00",
+          "generated_at": "2026-06-26T21:00:59.504925+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -993,11 +1083,14 @@
             "baseline_kind": "external_memory_adapter",
             "availability": "requires_external_memory_adapter",
             "unavailable_reason": "external_memory_adapter_not_configured",
+            "execution_mode": "not_configured",
+            "adapter_status": "unavailable",
+            "adapter_name": "",
             "uses_causal_traversal": false,
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 0,
-            "commit": "5f2d72aa",
+            "commit": "09657c12",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -1063,7 +1156,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
       "metadata": {
         "runner": "causal_continuity.t2",
-        "commit": "5f2d72aa",
+        "commit": "09657c12",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1119,7 +1212,7 @@
       "curve": {
         "schema": "calibration_curve.v1",
         "window": "30d",
-        "generated_at": "2026-06-26T20:08:54.662945+00:00",
+        "generated_at": "2026-06-26T21:00:59.509451+00:00",
         "status": "good",
         "spearman_rho": 0.974679,
         "expected_calibration_error": 0.08,
@@ -1263,7 +1356,7 @@
           "useful": true
         }
       ],
-      "latency_ms": 15.605
+      "latency_ms": 18.535
     },
     "t3_temporal_state_selection": {
       "schema_version": "causal_continuity.t3_temporal_state.v1",
@@ -1274,7 +1367,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
       "metadata": {
         "runner": "causal_continuity.t3",
-        "commit": "5f2d72aa",
+        "commit": "09657c12",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1356,8 +1449,8 @@
             "expected_conflict_claims": true
           },
           "pass": true,
-          "write_setup_ms": 3.25,
-          "resolve_ms": 0.133
+          "write_setup_ms": 3.673,
+          "resolve_ms": 0.163
         },
         {
           "case_id": "t3_current_timezone_after_update",
@@ -1389,8 +1482,8 @@
             "excluded_value_not_current": true
           },
           "pass": true,
-          "write_setup_ms": 3.491,
-          "resolve_ms": 0.195
+          "write_setup_ms": 3.398,
+          "resolve_ms": 0.179
         },
         {
           "case_id": "t3_historical_timezone_as_of",
@@ -1418,8 +1511,8 @@
             "value": true
           },
           "pass": true,
-          "write_setup_ms": 3.954,
-          "resolve_ms": 0.149
+          "write_setup_ms": 4.486,
+          "resolve_ms": 0.168
         },
         {
           "case_id": "t3_superseded_policy_not_current",
@@ -1455,11 +1548,11 @@
             "excluded_value_not_current": true
           },
           "pass": true,
-          "write_setup_ms": 3.858,
-          "resolve_ms": 0.173
+          "write_setup_ms": 3.907,
+          "resolve_ms": 0.163
         }
       ],
-      "latency_ms": 32.744
+      "latency_ms": 33.88
     },
     "t4_longitudinal_continuity": {
       "schema_version": "causal_continuity.t4_longitudinal_continuity.v1",
@@ -1470,7 +1563,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t4_longitudinal_continuity.json",
       "metadata": {
         "runner": "causal_continuity.t4",
-        "commit": "5f2d72aa",
+        "commit": "09657c12",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1517,14 +1610,14 @@
       "setup": {
         "bead_count": 4,
         "bead_keys": {
-          "rollout_policy": "bead-B7D40384D442",
-          "cross_session_lesson": "bead-68FCD8AFA6CA",
-          "same_session_outcome": "bead-38E864B0E9B5",
-          "identity_evidence": "bead-DDDAA1A97670"
+          "rollout_policy": "bead-D6B6BE32D075",
+          "cross_session_lesson": "bead-9E90B65F3D78",
+          "same_session_outcome": "bead-E73119DC2037",
+          "identity_evidence": "bead-0D4EE38DBE53"
         },
         "dreamer_decisions": [
           {
-            "candidate_id": "dc-714eba47f669",
+            "candidate_id": "dc-d354a63dba7f",
             "relationship": "supports",
             "relationship_signal": "reinforces",
             "hypothesis_type": "association_candidate",
@@ -1534,7 +1627,7 @@
             "applied": {}
           },
           {
-            "candidate_id": "dc-de35bc451f0c",
+            "candidate_id": "dc-85aa159f80be",
             "relationship": "applies_pattern_of",
             "relationship_signal": "transferable_lesson",
             "hypothesis_type": "transferable_lesson_candidate",
@@ -1545,7 +1638,7 @@
               "ok": true,
               "association_id": null,
               "canonical_entry": "process_turn_finalized",
-              "turn_id": "dreamer-apply-dc-de35bc451f0c",
+              "turn_id": "dreamer-apply-dc-85aa159f80be",
               "session_id": "t4-session-a",
               "relationship": "applies_pattern_of",
               "relationship_raw": "applies_pattern_of",
@@ -1555,12 +1648,12 @@
           }
         ],
         "downstream_recalled_bead_ids": [
-          "bead-B7D40384D442"
+          "bead-D6B6BE32D075"
         ],
         "soul_results": [
           {
             "ok": true,
-            "revision_id": "soul-c31b2d5ba0b0",
+            "revision_id": "soul-8d53f5c46385",
             "status": "applied",
             "subject": "self",
             "target_file": "IDENTITY.md"
@@ -1571,13 +1664,13 @@
             "proposed": {
               "ok": true,
               "goal_id": "t4-maintain-continuity",
-              "bead_id": "bead-3B6FE4E302E1",
+              "bead_id": "bead-475962F311AC",
               "status": "candidate",
               "subject": "self"
             },
             "approved": {
               "ok": true,
-              "bead_id": "bead-3B6FE4E302E1",
+              "bead_id": "bead-475962F311AC",
               "from_state": "candidate",
               "to_state": "endorsed"
             }
@@ -1586,7 +1679,7 @@
       },
       "longitudinal": {
         "schema": "core_memory.longitudinal_benchmark_v2.v1",
-        "root": "/var/folders/_6/5j2zqszn2c51jtglr5x76k_h0000gn/T/cm-t4-longitudinal-4g0o6ort",
+        "root": "/var/folders/_6/5j2zqszn2c51jtglr5x76k_h0000gn/T/cm-t4-longitudinal-g26letgm",
         "since": "30d",
         "methodology": {
           "kind": "candidate_quality_proxy",
@@ -1678,7 +1771,7 @@
       "self_model_drift": {
         "schema": "self_model_drift_meter.v1",
         "window": "30d",
-        "generated_at": "2026-06-26T20:08:54.869734+00:00",
+        "generated_at": "2026-06-26T21:00:59.725003+00:00",
         "status": "healthy",
         "drift_score": 0,
         "revision_count": 1,
@@ -1706,7 +1799,7 @@
         "goal_thread_persistence_rate": 1.0,
         "goals": [
           {
-            "bead_id": "bead-3B6FE4E302E1",
+            "bead_id": "bead-475962F311AC",
             "goal_id": "t4-maintain-continuity",
             "title": "Maintain longitudinal continuity",
             "state": "endorsed",
@@ -1714,12 +1807,12 @@
               "Cross-session Dreamer structure remains reviewable.",
               "Identity updates stay grounded."
             ],
-            "created_at": "2026-06-26T20:08:54.863161+00:00",
-            "goal_state_changed_at": "2026-06-26T20:08:54.866119+00:00"
+            "created_at": "2026-06-26T21:00:59.718511+00:00",
+            "goal_state_changed_at": "2026-06-26T21:00:59.721350+00:00"
           }
         ]
       },
-      "latency_ms": 177.937
+      "latency_ms": 182.244
     },
     "t5_thread_fidelity": {
       "schema_version": "causal_continuity.t5_thread_fidelity.v1",
@@ -1730,7 +1823,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
       "metadata": {
         "runner": "causal_continuity.t5",
-        "commit": "5f2d72aa",
+        "commit": "09657c12",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1750,8 +1843,17 @@
         "notes": [
           "trace_request_seed_plus_causal_expansion",
           "storyline_selection_re_evaluated_against_original_query",
-          "deterministic_answerability_proxy_no_llm_judge"
-        ]
+          "deterministic_answerability_proxy_is_default_ci_gate"
+        ],
+        "ablation_mode": {
+          "traversal_enabled": true
+        },
+        "judge": {
+          "kind": "deterministic",
+          "status": "completed",
+          "is_llm_judge": false,
+          "prompt_version": "t5_answerability_rubric.v1"
+        }
       },
       "targets": {
         "min_thread_precision": 0.75,
@@ -1767,10 +1869,11 @@
         "thread_recall": 1.0,
         "thread_f1": 1.0,
         "answerability": 1.0,
+        "judge_answerability": 1.0,
         "query_drift_rate": 0.0,
-        "one_shot_thread_f1": 1.0,
-        "one_shot_query_drift_rate": 0.0,
-        "agentic_loop_thread_f1_lift": 0.0
+        "one_shot_thread_f1": 0.6667,
+        "one_shot_query_drift_rate": 0.3333,
+        "agentic_loop_thread_f1_lift": 0.3333
       },
       "checks": {
         "thread_precision": true,
@@ -1784,24 +1887,51 @@
         {
           "case_id": "t5_checkout_latency_cache_rollout",
           "query": "Why did checkout latency persist after the cache rollout?",
+          "bead_key_by_id": {
+            "bead-79076C912456": "cache_rollout",
+            "bead-5AC944A520BE": "db_pool_limit",
+            "bead-6ED211A23EDF": "checkout_latency",
+            "bead-05AAA99A9A12": "pricing_launch",
+            "bead-5A77B05390B4": "pricing_copy",
+            "bead-FFD6F3A0143D": "pricing_latency"
+          },
+          "gold_thread_keys": [
+            "cache_rollout",
+            "db_pool_limit",
+            "checkout_latency"
+          ],
+          "required_answer_keys": [
+            "db_pool_limit",
+            "checkout_latency"
+          ],
+          "drift_thread_keys": [
+            "pricing_launch",
+            "pricing_copy",
+            "pricing_latency"
+          ],
+          "returned_thread_keys": [
+            "cache_rollout",
+            "checkout_latency",
+            "db_pool_limit"
+          ],
           "gold_thread_bead_ids": [
-            "bead-C40CF9302B80",
-            "bead-CAB64AA5D4C0",
-            "bead-E38FA10692F1"
+            "bead-79076C912456",
+            "bead-5AC944A520BE",
+            "bead-6ED211A23EDF"
           ],
           "required_answer_bead_ids": [
-            "bead-CAB64AA5D4C0",
-            "bead-E38FA10692F1"
+            "bead-5AC944A520BE",
+            "bead-6ED211A23EDF"
           ],
           "drift_thread_bead_ids": [
-            "bead-1EFE010C62F0",
-            "bead-60BBB9C5023A",
-            "bead-6C476DAAA709"
+            "bead-05AAA99A9A12",
+            "bead-5A77B05390B4",
+            "bead-FFD6F3A0143D"
           ],
           "returned_thread_bead_ids": [
-            "bead-C40CF9302B80",
-            "bead-E38FA10692F1",
-            "bead-CAB64AA5D4C0"
+            "bead-79076C912456",
+            "bead-6ED211A23EDF",
+            "bead-5AC944A520BE"
           ],
           "metrics": {
             "thread_precision": 1.0,
@@ -1810,18 +1940,35 @@
             "answerability": 1.0,
             "query_drift_rate": 0.0
           },
+          "judge_kind": "deterministic",
+          "judge_status": "completed",
+          "is_llm_judge": false,
+          "prompt_version": "t5_answerability_rubric.v1",
+          "answerability_judge": {
+            "judge_kind": "deterministic",
+            "judge_status": "completed",
+            "is_llm_judge": false,
+            "prompt_version": "t5_answerability_rubric.v1",
+            "answerability": 1.0,
+            "rationale": "deterministic_required_key_and_drift_gate"
+          },
           "one_shot_anchor_baseline": {
             "returned_bead_ids": [
-              "bead-E38FA10692F1",
-              "bead-C40CF9302B80",
-              "bead-CAB64AA5D4C0"
+              "bead-79076C912456",
+              "bead-6ED211A23EDF",
+              "bead-05AAA99A9A12"
+            ],
+            "returned_keys": [
+              "cache_rollout",
+              "checkout_latency",
+              "pricing_launch"
             ],
             "metrics": {
-              "thread_precision": 1.0,
-              "thread_recall": 1.0,
-              "thread_f1": 1.0,
-              "answerability": 1.0,
-              "query_drift_rate": 0.0
+              "thread_precision": 0.6667,
+              "thread_recall": 0.6667,
+              "thread_f1": 0.6667,
+              "answerability": 0.0,
+              "query_drift_rate": 0.3333
             }
           },
           "checks": {
@@ -1836,23 +1983,28 @@
             "query": "Why did checkout latency persist after the cache rollout?",
             "intent": "causal",
             "returned_thread_ids": [
-              "bead-C40CF9302B80",
-              "bead-E38FA10692F1",
-              "bead-CAB64AA5D4C0"
+              "bead-79076C912456",
+              "bead-6ED211A23EDF",
+              "bead-5AC944A520BE"
             ],
             "selected_storyline": {
               "storyline_id": "wl-entity-3c39881ca589",
               "kind": "entity",
               "label": "checkout latency investigation",
               "bead_ids": [
-                "bead-C40CF9302B80",
-                "bead-E38FA10692F1",
-                "bead-CAB64AA5D4C0"
+                "bead-79076C912456",
+                "bead-6ED211A23EDF",
+                "bead-5AC944A520BE"
+              ],
+              "bead_keys": [
+                "cache_rollout",
+                "checkout_latency",
+                "db_pool_limit"
               ],
               "coverage": 1.0,
-              "mean_bead_overlap": 0.7333,
+              "mean_bead_overlap": 0.6667,
               "trace_support": 1.0,
-              "score": 0.933333
+              "score": 0.916667
             },
             "storyline_candidate_count": 2,
             "steps": [
@@ -1860,19 +2012,19 @@
                 "step": 1,
                 "anchor_ids": [],
                 "trace_anchor_ids": [
-                  "bead-E38FA10692F1",
-                  "bead-C40CF9302B80",
-                  "bead-CAB64AA5D4C0",
-                  "bead-1EFE010C62F0",
-                  "bead-60BBB9C5023A"
+                  "bead-5AC944A520BE",
+                  "bead-79076C912456",
+                  "bead-6ED211A23EDF",
+                  "bead-FFD6F3A0143D",
+                  "bead-05AAA99A9A12"
                 ],
                 "trace_ids": [
-                  "bead-E38FA10692F1",
-                  "bead-C40CF9302B80",
-                  "bead-CAB64AA5D4C0",
-                  "bead-1EFE010C62F0",
-                  "bead-60BBB9C5023A",
-                  "bead-6C476DAAA709"
+                  "bead-5AC944A520BE",
+                  "bead-79076C912456",
+                  "bead-6ED211A23EDF",
+                  "bead-FFD6F3A0143D",
+                  "bead-05AAA99A9A12",
+                  "bead-5A77B05390B4"
                 ],
                 "trace_grounding": {
                   "required": true,
@@ -1885,14 +2037,19 @@
                   "kind": "entity",
                   "label": "checkout latency investigation",
                   "bead_ids": [
-                    "bead-C40CF9302B80",
-                    "bead-E38FA10692F1",
-                    "bead-CAB64AA5D4C0"
+                    "bead-79076C912456",
+                    "bead-6ED211A23EDF",
+                    "bead-5AC944A520BE"
+                  ],
+                  "bead_keys": [
+                    "cache_rollout",
+                    "checkout_latency",
+                    "db_pool_limit"
                   ],
                   "coverage": 1.0,
-                  "mean_bead_overlap": 0.7333,
+                  "mean_bead_overlap": 0.6667,
                   "trace_support": 1.0,
-                  "score": 0.933333
+                  "score": 0.916667
                 },
                 "candidate_storylines": [
                   {
@@ -1900,23 +2057,33 @@
                     "kind": "entity",
                     "label": "checkout latency investigation",
                     "bead_ids": [
-                      "bead-C40CF9302B80",
-                      "bead-E38FA10692F1",
-                      "bead-CAB64AA5D4C0"
+                      "bead-79076C912456",
+                      "bead-6ED211A23EDF",
+                      "bead-5AC944A520BE"
+                    ],
+                    "bead_keys": [
+                      "cache_rollout",
+                      "checkout_latency",
+                      "db_pool_limit"
                     ],
                     "coverage": 1.0,
-                    "mean_bead_overlap": 0.7333,
+                    "mean_bead_overlap": 0.6667,
                     "trace_support": 1.0,
-                    "score": 0.933333
+                    "score": 0.916667
                   },
                   {
                     "storyline_id": "wl-entity-885d3f10bf94",
                     "kind": "entity",
                     "label": "pricing launch storyline",
                     "bead_ids": [
-                      "bead-60BBB9C5023A",
-                      "bead-6C476DAAA709",
-                      "bead-1EFE010C62F0"
+                      "bead-5A77B05390B4",
+                      "bead-FFD6F3A0143D",
+                      "bead-05AAA99A9A12"
+                    ],
+                    "bead_keys": [
+                      "pricing_copy",
+                      "pricing_latency",
+                      "pricing_launch"
                     ],
                     "coverage": 0.6,
                     "mean_bead_overlap": 0.2,
@@ -1942,17 +2109,17 @@
           }
         }
       ],
-      "latency_ms": 40.462
+      "latency_ms": 44.279
     }
   },
   "warnings": [
     "execute_llm_unavailable",
     "external_memory_adapter_not_configured",
-    "long_context_no_memory_adapter_not_configured",
     "no_upstream_edges",
-    "semantic_backend_query_error:runtimeerror",
-    "semantic_backend_query_failed_lexical_fallback",
     "semantic_backend_unavailable_degraded",
+    "semantic_build_lock_held",
+    "semantic_index_missing_artifacts",
+    "semantic_index_rebuild_no_rows_failed",
     "semantic_index_stale"
   ],
   "ablation_matrix": {
@@ -2107,32 +2274,278 @@
         "minus_causal_traversal": {
           "status": "observed",
           "scores": {
-            "t1_causal_survival_rate": 0.0
+            "t1_causal_survival_rate": 0.0,
+            "t5_thread_f1": 0.6667,
+            "t5_query_drift_rate": 0.3333
           },
           "observed_delta_vs_full": {
-            "t1_causal_survival_rate": 1.0
+            "t1_causal_survival_rate": 1.0,
+            "t5_thread_f1": 0.3333,
+            "t5_query_drift_rate": 0.3333
           },
           "evidence": [
-            "t1_strategy_matrix.similarity_only"
+            "t1_strategy_matrix.similarity_only",
+            "runtime_ablation_runs.minus_causal_traversal.t5_traversal_disabled"
           ],
           "runtime_run": {
-            "kind": "strategy_baseline",
-            "executed": true
+            "kind": "task_fixture_disabled_mode",
+            "executed": true,
+            "task_id": "t5_thread_fidelity",
+            "traversal_enabled": false,
+            "report": {
+              "schema_version": "causal_continuity.t5_thread_fidelity.v1",
+              "task_id": "t5_thread_fidelity",
+              "capability": "C5_thread_fidelity_agentic_loop",
+              "case_id": "checkout_latency_storyline_thread",
+              "description": "Query-drift fixture for scoring whether trace-based recall returns the correct causal storyline segment instead of a high-similarity off-thread chain.",
+              "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
+              "metadata": {
+                "runner": "causal_continuity.t5",
+                "commit": "09657c12",
+                "faithfulness": {
+                  "synthetic_crawler_updates": false,
+                  "synthetic_temporal_edges": false,
+                  "bead_direct_ingest": false,
+                  "oracle_gold_used": false,
+                  "benchmark_aware_answer_prompt": false,
+                  "is_faithful": true
+                },
+                "shortcut_flags": {
+                  "synthetic_crawler_updates": false,
+                  "synthetic_temporal_edges": false,
+                  "bead_direct_ingest": false,
+                  "oracle_gold_used": false,
+                  "benchmark_aware_answer_prompt": false,
+                  "is_faithful": true
+                },
+                "notes": [
+                  "trace_request_seed_plus_causal_expansion",
+                  "storyline_selection_re_evaluated_against_original_query",
+                  "deterministic_answerability_proxy_is_default_ci_gate"
+                ],
+                "ablation_mode": {
+                  "traversal_enabled": false
+                },
+                "judge": {
+                  "kind": "deterministic",
+                  "status": "completed",
+                  "is_llm_judge": false,
+                  "prompt_version": "t5_answerability_rubric.v1"
+                }
+              },
+              "targets": {
+                "min_thread_precision": 0.75,
+                "min_thread_recall": 1.0,
+                "min_thread_f1": 0.85,
+                "min_answerability": 1.0,
+                "max_query_drift_rate": 0.25
+              },
+              "metrics": {
+                "case_count": 1,
+                "pass_count": 0,
+                "thread_precision": 0.6667,
+                "thread_recall": 0.6667,
+                "thread_f1": 0.6667,
+                "answerability": 0.0,
+                "judge_answerability": 0.0,
+                "query_drift_rate": 0.3333,
+                "one_shot_thread_f1": 0.6667,
+                "one_shot_query_drift_rate": 0.3333,
+                "agentic_loop_thread_f1_lift": 0.0
+              },
+              "checks": {
+                "thread_precision": false,
+                "thread_recall": false,
+                "thread_f1": false,
+                "answerability": false,
+                "query_drift": false
+              },
+              "pass": false,
+              "cases": [
+                {
+                  "case_id": "t5_checkout_latency_cache_rollout",
+                  "query": "Why did checkout latency persist after the cache rollout?",
+                  "bead_key_by_id": {
+                    "bead-E2B83C718ECC": "cache_rollout",
+                    "bead-4BD1856249C4": "db_pool_limit",
+                    "bead-AF1E5F28B527": "checkout_latency",
+                    "bead-E6D19D6D6AFD": "pricing_launch",
+                    "bead-1FA6CC74C747": "pricing_copy",
+                    "bead-8C66D37C1234": "pricing_latency"
+                  },
+                  "gold_thread_keys": [
+                    "cache_rollout",
+                    "db_pool_limit",
+                    "checkout_latency"
+                  ],
+                  "required_answer_keys": [
+                    "db_pool_limit",
+                    "checkout_latency"
+                  ],
+                  "drift_thread_keys": [
+                    "pricing_launch",
+                    "pricing_copy",
+                    "pricing_latency"
+                  ],
+                  "returned_thread_keys": [
+                    "cache_rollout",
+                    "checkout_latency",
+                    "pricing_launch"
+                  ],
+                  "gold_thread_bead_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-4BD1856249C4",
+                    "bead-AF1E5F28B527"
+                  ],
+                  "required_answer_bead_ids": [
+                    "bead-4BD1856249C4",
+                    "bead-AF1E5F28B527"
+                  ],
+                  "drift_thread_bead_ids": [
+                    "bead-E6D19D6D6AFD",
+                    "bead-1FA6CC74C747",
+                    "bead-8C66D37C1234"
+                  ],
+                  "returned_thread_bead_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-AF1E5F28B527",
+                    "bead-E6D19D6D6AFD"
+                  ],
+                  "metrics": {
+                    "thread_precision": 0.6667,
+                    "thread_recall": 0.6667,
+                    "thread_f1": 0.6667,
+                    "answerability": 0.0,
+                    "query_drift_rate": 0.3333
+                  },
+                  "judge_kind": "deterministic",
+                  "judge_status": "completed",
+                  "is_llm_judge": false,
+                  "prompt_version": "t5_answerability_rubric.v1",
+                  "answerability_judge": {
+                    "judge_kind": "deterministic",
+                    "judge_status": "completed",
+                    "is_llm_judge": false,
+                    "prompt_version": "t5_answerability_rubric.v1",
+                    "answerability": 0.0,
+                    "rationale": "deterministic_required_key_and_drift_gate"
+                  },
+                  "one_shot_anchor_baseline": {
+                    "returned_bead_ids": [
+                      "bead-E2B83C718ECC",
+                      "bead-AF1E5F28B527",
+                      "bead-E6D19D6D6AFD"
+                    ],
+                    "returned_keys": [
+                      "cache_rollout",
+                      "checkout_latency",
+                      "pricing_launch"
+                    ],
+                    "metrics": {
+                      "thread_precision": 0.6667,
+                      "thread_recall": 0.6667,
+                      "thread_f1": 0.6667,
+                      "answerability": 0.0,
+                      "query_drift_rate": 0.3333
+                    }
+                  },
+                  "checks": {
+                    "thread_precision": false,
+                    "thread_recall": false,
+                    "thread_f1": false,
+                    "answerability": false,
+                    "query_drift": false
+                  },
+                  "pass": false,
+                  "loop": {
+                    "query": "Why did checkout latency persist after the cache rollout?",
+                    "intent": "causal",
+                    "returned_thread_ids": [
+                      "bead-E2B83C718ECC",
+                      "bead-AF1E5F28B527",
+                      "bead-E6D19D6D6AFD"
+                    ],
+                    "selected_storyline": {
+                      "storyline_id": "graph_blind_one_shot",
+                      "kind": "baseline",
+                      "label": "graph_blind_one_shot",
+                      "bead_ids": [
+                        "bead-E2B83C718ECC",
+                        "bead-AF1E5F28B527",
+                        "bead-E6D19D6D6AFD"
+                      ],
+                      "bead_keys": [
+                        "cache_rollout",
+                        "checkout_latency",
+                        "pricing_launch"
+                      ],
+                      "score": null
+                    },
+                    "storyline_candidate_count": 0,
+                    "steps": [
+                      {
+                        "step": 1,
+                        "anchor_ids": [],
+                        "trace_anchor_ids": [
+                          "bead-E2B83C718ECC",
+                          "bead-AF1E5F28B527",
+                          "bead-E6D19D6D6AFD"
+                        ],
+                        "trace_ids": [
+                          "bead-E2B83C718ECC",
+                          "bead-AF1E5F28B527",
+                          "bead-E6D19D6D6AFD"
+                        ],
+                        "trace_grounding": {
+                          "mode": "disabled_traversal_graph_blind"
+                        },
+                        "selected_storyline": {
+                          "storyline_id": "graph_blind_one_shot",
+                          "bead_ids": [
+                            "bead-E2B83C718ECC",
+                            "bead-AF1E5F28B527",
+                            "bead-E6D19D6D6AFD"
+                          ],
+                          "bead_keys": [
+                            "cache_rollout",
+                            "checkout_latency",
+                            "pricing_launch"
+                          ]
+                        },
+                        "candidate_storylines": [],
+                        "stop_gate": {
+                          "passed": true,
+                          "reason": "graph_blind_one_shot_baseline"
+                        }
+                      }
+                    ],
+                    "methodology": {
+                      "kind": "graph_blind_one_shot_baseline",
+                      "is_llm_judge": false,
+                      "notes": [
+                        "no trace_request",
+                        "no causal traversal",
+                        "lexical title_summary_detail ranking only"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "latency_ms": 37.722
+            }
           },
-          "limitations": [
-            "t5_no_traversal_runtime_toggle_not_yet_instrumented"
-          ]
+          "limitations": []
         },
         "minus_myelination_backpressure": {
-          "status": "observed_no_expected_drop",
+          "status": "observed",
           "scores": {
-            "t2_spearman_rho": 0.974679,
+            "t2_spearman_rho": 0.8,
             "t2_sample_count": 20,
             "t4_continuity_lift": null,
             "t5_thread_f1": null
           },
           "observed_delta_vs_full": {
-            "t2_spearman_rho": 0.0
+            "t2_spearman_rho": 0.174679
           },
           "evidence": [
             "runtime_ablation_runs.minus_myelination_backpressure.t2_no_manifest_bonus"
@@ -2150,7 +2563,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
               "metadata": {
                 "runner": "causal_continuity.t2",
-                "commit": "5f2d72aa",
+                "commit": "09657c12",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2185,35 +2598,35 @@
                 "min_sample_count": 20
               },
               "metrics": {
-                "spearman_rho": 0.974679,
-                "expected_calibration_error": 0.08,
-                "brier_score": 0.13252,
-                "high_band_usefulness_rate": 1.0,
+                "spearman_rho": 0.8,
+                "expected_calibration_error": 0.124,
+                "brier_score": 0.14924,
+                "high_band_usefulness_rate": null,
                 "sample_count": 20,
                 "event_count": 20,
-                "bands_included": 5,
-                "auto_mode_gate": "open",
-                "status": "good"
+                "bands_included": 4,
+                "auto_mode_gate": "paused",
+                "status": "degraded"
               },
               "checks": {
                 "sufficient_data": true,
                 "rho": true,
-                "high_band_usefulness": true,
+                "high_band_usefulness": false,
                 "expected_calibration_error": true,
                 "brier_score": true
               },
-              "pass": true,
+              "pass": false,
               "curve": {
                 "schema": "calibration_curve.v1",
                 "window": "30d",
-                "generated_at": "2026-06-26T20:08:54.941434+00:00",
-                "status": "good",
-                "spearman_rho": 0.974679,
-                "expected_calibration_error": 0.08,
-                "brier_score": 0.13252,
-                "high_band_usefulness_rate": 1.0,
+                "generated_at": "2026-06-26T21:00:59.801315+00:00",
+                "status": "degraded",
+                "spearman_rho": 0.8,
+                "expected_calibration_error": 0.124,
+                "brier_score": 0.14924,
+                "high_band_usefulness_rate": null,
                 "band_count": 5,
-                "bands_included": 5,
+                "bands_included": 4,
                 "sample_count": 20,
                 "bands": [
                   {
@@ -2252,14 +2665,14 @@
                     "upper": 0.8,
                     "min": 0.7,
                     "max": 0.8,
-                    "recall_count": 4,
-                    "event_count": 4,
-                    "correction_free_count": 3,
-                    "positive_count": 3,
+                    "recall_count": 8,
+                    "event_count": 8,
+                    "correction_free_count": 7,
+                    "positive_count": 7,
                     "negative_correction_count": 0,
-                    "realized_usefulness_rate": 0.75,
-                    "usefulness_rate": 0.75,
-                    "avg_effective_confidence": 0.73
+                    "realized_usefulness_rate": 0.875,
+                    "usefulness_rate": 0.875,
+                    "avg_effective_confidence": 0.715
                   },
                   {
                     "label": "0.8-0.9",
@@ -2282,20 +2695,20 @@
                     "upper": null,
                     "min": 0.9,
                     "max": null,
-                    "recall_count": 4,
-                    "event_count": 4,
-                    "correction_free_count": 4,
-                    "positive_count": 4,
+                    "recall_count": 0,
+                    "event_count": 0,
+                    "correction_free_count": 0,
+                    "positive_count": 0,
                     "negative_correction_count": 0,
-                    "realized_usefulness_rate": 1.0,
-                    "usefulness_rate": 1.0,
-                    "avg_effective_confidence": 0.92
+                    "realized_usefulness_rate": null,
+                    "usefulness_rate": null,
+                    "avg_effective_confidence": null
                   }
                 ],
                 "event_count": 20,
                 "correction_count": 0,
                 "correction_event_count": 0,
-                "auto_mode_gate": "open",
+                "auto_mode_gate": "paused",
                 "limitations": []
               },
               "sample_preview": [
@@ -2350,7 +2763,7 @@
                   "useful": true
                 }
               ],
-              "latency_ms": 14.548
+              "latency_ms": 15.199
             }
           },
           "limitations": [
@@ -2383,7 +2796,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
               "metadata": {
                 "runner": "causal_continuity.t2",
-                "commit": "5f2d72aa",
+                "commit": "09657c12",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2439,7 +2852,7 @@
               "curve": {
                 "schema": "calibration_curve.v1",
                 "window": "30d",
-                "generated_at": "2026-06-26T20:08:54.953765+00:00",
+                "generated_at": "2026-06-26T21:00:59.813866+00:00",
                 "status": "insufficient_data",
                 "spearman_rho": null,
                 "expected_calibration_error": null,
@@ -2532,7 +2945,7 @@
                 "limitations": []
               },
               "sample_preview": [],
-              "latency_ms": 11.844
+              "latency_ms": 12.818
             }
           },
           "limitations": []
@@ -2582,7 +2995,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
               "metadata": {
                 "runner": "causal_continuity.t3",
-                "commit": "5f2d72aa",
+                "commit": "09657c12",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2662,8 +3075,8 @@
                     "expected_conflict_claims": false
                   },
                   "pass": false,
-                  "write_setup_ms": 3.385,
-                  "resolve_ms": 0.132
+                  "write_setup_ms": 3.316,
+                  "resolve_ms": 0.134
                 },
                 {
                   "case_id": "t3_current_timezone_after_update",
@@ -2695,8 +3108,8 @@
                     "excluded_value_not_current": true
                   },
                   "pass": true,
-                  "write_setup_ms": 3.317,
-                  "resolve_ms": 0.124
+                  "write_setup_ms": 3.376,
+                  "resolve_ms": 0.121
                 },
                 {
                   "case_id": "t3_historical_timezone_as_of",
@@ -2724,8 +3137,8 @@
                     "value": true
                   },
                   "pass": true,
-                  "write_setup_ms": 3.903,
-                  "resolve_ms": 0.178
+                  "write_setup_ms": 4.118,
+                  "resolve_ms": 0.165
                 },
                 {
                   "case_id": "t3_superseded_policy_not_current",
@@ -2761,35 +3174,277 @@
                     "excluded_value_not_current": false
                   },
                   "pass": false,
-                  "write_setup_ms": 3.146,
-                  "resolve_ms": 0.138
+                  "write_setup_ms": 3.361,
+                  "resolve_ms": 0.135
                 }
               ],
-              "latency_ms": 28.818
+              "latency_ms": 30.95
             }
           },
           "limitations": []
         },
         "minus_agentic_recall_loop": {
-          "status": "observed_no_expected_drop",
+          "status": "observed",
           "scores": {
-            "t5_thread_f1": 1.0,
-            "t5_query_drift_rate": 0.0
+            "t5_thread_f1": 0.6667,
+            "t5_query_drift_rate": 0.3333
           },
           "observed_delta_vs_full": {
-            "t5_thread_f1": 0.0,
-            "t5_query_drift_rate": 0.0
+            "t5_thread_f1": 0.3333,
+            "t5_query_drift_rate": 0.3333
           },
           "evidence": [
-            "t5.metrics.one_shot_anchor_baseline"
+            "t5.metrics.one_shot_anchor_baseline",
+            "runtime_ablation_runs.minus_agentic_recall_loop.t5_traversal_disabled"
           ],
           "runtime_run": {
-            "kind": "one_shot_baseline",
-            "executed": true
+            "kind": "task_fixture_disabled_mode",
+            "executed": true,
+            "task_id": "t5_thread_fidelity",
+            "traversal_enabled": false,
+            "report": {
+              "schema_version": "causal_continuity.t5_thread_fidelity.v1",
+              "task_id": "t5_thread_fidelity",
+              "capability": "C5_thread_fidelity_agentic_loop",
+              "case_id": "checkout_latency_storyline_thread",
+              "description": "Query-drift fixture for scoring whether trace-based recall returns the correct causal storyline segment instead of a high-similarity off-thread chain.",
+              "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
+              "metadata": {
+                "runner": "causal_continuity.t5",
+                "commit": "09657c12",
+                "faithfulness": {
+                  "synthetic_crawler_updates": false,
+                  "synthetic_temporal_edges": false,
+                  "bead_direct_ingest": false,
+                  "oracle_gold_used": false,
+                  "benchmark_aware_answer_prompt": false,
+                  "is_faithful": true
+                },
+                "shortcut_flags": {
+                  "synthetic_crawler_updates": false,
+                  "synthetic_temporal_edges": false,
+                  "bead_direct_ingest": false,
+                  "oracle_gold_used": false,
+                  "benchmark_aware_answer_prompt": false,
+                  "is_faithful": true
+                },
+                "notes": [
+                  "trace_request_seed_plus_causal_expansion",
+                  "storyline_selection_re_evaluated_against_original_query",
+                  "deterministic_answerability_proxy_is_default_ci_gate"
+                ],
+                "ablation_mode": {
+                  "traversal_enabled": false
+                },
+                "judge": {
+                  "kind": "deterministic",
+                  "status": "completed",
+                  "is_llm_judge": false,
+                  "prompt_version": "t5_answerability_rubric.v1"
+                }
+              },
+              "targets": {
+                "min_thread_precision": 0.75,
+                "min_thread_recall": 1.0,
+                "min_thread_f1": 0.85,
+                "min_answerability": 1.0,
+                "max_query_drift_rate": 0.25
+              },
+              "metrics": {
+                "case_count": 1,
+                "pass_count": 0,
+                "thread_precision": 0.6667,
+                "thread_recall": 0.6667,
+                "thread_f1": 0.6667,
+                "answerability": 0.0,
+                "judge_answerability": 0.0,
+                "query_drift_rate": 0.3333,
+                "one_shot_thread_f1": 0.6667,
+                "one_shot_query_drift_rate": 0.3333,
+                "agentic_loop_thread_f1_lift": 0.0
+              },
+              "checks": {
+                "thread_precision": false,
+                "thread_recall": false,
+                "thread_f1": false,
+                "answerability": false,
+                "query_drift": false
+              },
+              "pass": false,
+              "cases": [
+                {
+                  "case_id": "t5_checkout_latency_cache_rollout",
+                  "query": "Why did checkout latency persist after the cache rollout?",
+                  "bead_key_by_id": {
+                    "bead-E2B83C718ECC": "cache_rollout",
+                    "bead-4BD1856249C4": "db_pool_limit",
+                    "bead-AF1E5F28B527": "checkout_latency",
+                    "bead-E6D19D6D6AFD": "pricing_launch",
+                    "bead-1FA6CC74C747": "pricing_copy",
+                    "bead-8C66D37C1234": "pricing_latency"
+                  },
+                  "gold_thread_keys": [
+                    "cache_rollout",
+                    "db_pool_limit",
+                    "checkout_latency"
+                  ],
+                  "required_answer_keys": [
+                    "db_pool_limit",
+                    "checkout_latency"
+                  ],
+                  "drift_thread_keys": [
+                    "pricing_launch",
+                    "pricing_copy",
+                    "pricing_latency"
+                  ],
+                  "returned_thread_keys": [
+                    "cache_rollout",
+                    "checkout_latency",
+                    "pricing_launch"
+                  ],
+                  "gold_thread_bead_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-4BD1856249C4",
+                    "bead-AF1E5F28B527"
+                  ],
+                  "required_answer_bead_ids": [
+                    "bead-4BD1856249C4",
+                    "bead-AF1E5F28B527"
+                  ],
+                  "drift_thread_bead_ids": [
+                    "bead-E6D19D6D6AFD",
+                    "bead-1FA6CC74C747",
+                    "bead-8C66D37C1234"
+                  ],
+                  "returned_thread_bead_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-AF1E5F28B527",
+                    "bead-E6D19D6D6AFD"
+                  ],
+                  "metrics": {
+                    "thread_precision": 0.6667,
+                    "thread_recall": 0.6667,
+                    "thread_f1": 0.6667,
+                    "answerability": 0.0,
+                    "query_drift_rate": 0.3333
+                  },
+                  "judge_kind": "deterministic",
+                  "judge_status": "completed",
+                  "is_llm_judge": false,
+                  "prompt_version": "t5_answerability_rubric.v1",
+                  "answerability_judge": {
+                    "judge_kind": "deterministic",
+                    "judge_status": "completed",
+                    "is_llm_judge": false,
+                    "prompt_version": "t5_answerability_rubric.v1",
+                    "answerability": 0.0,
+                    "rationale": "deterministic_required_key_and_drift_gate"
+                  },
+                  "one_shot_anchor_baseline": {
+                    "returned_bead_ids": [
+                      "bead-E2B83C718ECC",
+                      "bead-AF1E5F28B527",
+                      "bead-E6D19D6D6AFD"
+                    ],
+                    "returned_keys": [
+                      "cache_rollout",
+                      "checkout_latency",
+                      "pricing_launch"
+                    ],
+                    "metrics": {
+                      "thread_precision": 0.6667,
+                      "thread_recall": 0.6667,
+                      "thread_f1": 0.6667,
+                      "answerability": 0.0,
+                      "query_drift_rate": 0.3333
+                    }
+                  },
+                  "checks": {
+                    "thread_precision": false,
+                    "thread_recall": false,
+                    "thread_f1": false,
+                    "answerability": false,
+                    "query_drift": false
+                  },
+                  "pass": false,
+                  "loop": {
+                    "query": "Why did checkout latency persist after the cache rollout?",
+                    "intent": "causal",
+                    "returned_thread_ids": [
+                      "bead-E2B83C718ECC",
+                      "bead-AF1E5F28B527",
+                      "bead-E6D19D6D6AFD"
+                    ],
+                    "selected_storyline": {
+                      "storyline_id": "graph_blind_one_shot",
+                      "kind": "baseline",
+                      "label": "graph_blind_one_shot",
+                      "bead_ids": [
+                        "bead-E2B83C718ECC",
+                        "bead-AF1E5F28B527",
+                        "bead-E6D19D6D6AFD"
+                      ],
+                      "bead_keys": [
+                        "cache_rollout",
+                        "checkout_latency",
+                        "pricing_launch"
+                      ],
+                      "score": null
+                    },
+                    "storyline_candidate_count": 0,
+                    "steps": [
+                      {
+                        "step": 1,
+                        "anchor_ids": [],
+                        "trace_anchor_ids": [
+                          "bead-E2B83C718ECC",
+                          "bead-AF1E5F28B527",
+                          "bead-E6D19D6D6AFD"
+                        ],
+                        "trace_ids": [
+                          "bead-E2B83C718ECC",
+                          "bead-AF1E5F28B527",
+                          "bead-E6D19D6D6AFD"
+                        ],
+                        "trace_grounding": {
+                          "mode": "disabled_traversal_graph_blind"
+                        },
+                        "selected_storyline": {
+                          "storyline_id": "graph_blind_one_shot",
+                          "bead_ids": [
+                            "bead-E2B83C718ECC",
+                            "bead-AF1E5F28B527",
+                            "bead-E6D19D6D6AFD"
+                          ],
+                          "bead_keys": [
+                            "cache_rollout",
+                            "checkout_latency",
+                            "pricing_launch"
+                          ]
+                        },
+                        "candidate_storylines": [],
+                        "stop_gate": {
+                          "passed": true,
+                          "reason": "graph_blind_one_shot_baseline"
+                        }
+                      }
+                    ],
+                    "methodology": {
+                      "kind": "graph_blind_one_shot_baseline",
+                      "is_llm_judge": false,
+                      "notes": [
+                        "no trace_request",
+                        "no causal traversal",
+                        "lexical title_summary_detail ranking only"
+                      ]
+                    }
+                  }
+                }
+              ],
+              "latency_ms": 37.722
+            }
           },
-          "limitations": [
-            "one_shot_anchor_proxy_did_not_show_expected_drop_on_current_fixture"
-          ]
+          "limitations": []
         }
       },
       "summary": {
@@ -2827,33 +3482,281 @@
         "status": "observed",
         "mechanism_removed": "causal_traversal",
         "scores": {
-          "t1_causal_survival_rate": 0.0
+          "t1_causal_survival_rate": 0.0,
+          "t5_thread_f1": 0.6667,
+          "t5_query_drift_rate": 0.3333
         },
         "expected_drop": {
           "t1_causal_survival_rate": "collapse",
           "t5_thread_f1": "collapse"
         },
         "observed_delta_vs_full": {
-          "t1_causal_survival_rate": 1.0
+          "t1_causal_survival_rate": 1.0,
+          "t5_thread_f1": 0.3333,
+          "t5_query_drift_rate": 0.3333
         },
         "evidence": [
-          "t1_strategy_matrix.similarity_only"
+          "t1_strategy_matrix.similarity_only",
+          "runtime_ablation_runs.minus_causal_traversal.t5_traversal_disabled"
         ],
         "limitations": [
           "t5_no_traversal_runtime_toggle_not_yet_instrumented"
         ],
         "runtime_run": {
-          "kind": "strategy_baseline",
-          "executed": true
+          "kind": "task_fixture_disabled_mode",
+          "executed": true,
+          "task_id": "t5_thread_fidelity",
+          "traversal_enabled": false,
+          "report": {
+            "schema_version": "causal_continuity.t5_thread_fidelity.v1",
+            "task_id": "t5_thread_fidelity",
+            "capability": "C5_thread_fidelity_agentic_loop",
+            "case_id": "checkout_latency_storyline_thread",
+            "description": "Query-drift fixture for scoring whether trace-based recall returns the correct causal storyline segment instead of a high-similarity off-thread chain.",
+            "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
+            "metadata": {
+              "runner": "causal_continuity.t5",
+              "commit": "09657c12",
+              "faithfulness": {
+                "synthetic_crawler_updates": false,
+                "synthetic_temporal_edges": false,
+                "bead_direct_ingest": false,
+                "oracle_gold_used": false,
+                "benchmark_aware_answer_prompt": false,
+                "is_faithful": true
+              },
+              "shortcut_flags": {
+                "synthetic_crawler_updates": false,
+                "synthetic_temporal_edges": false,
+                "bead_direct_ingest": false,
+                "oracle_gold_used": false,
+                "benchmark_aware_answer_prompt": false,
+                "is_faithful": true
+              },
+              "notes": [
+                "trace_request_seed_plus_causal_expansion",
+                "storyline_selection_re_evaluated_against_original_query",
+                "deterministic_answerability_proxy_is_default_ci_gate"
+              ],
+              "ablation_mode": {
+                "traversal_enabled": false
+              },
+              "judge": {
+                "kind": "deterministic",
+                "status": "completed",
+                "is_llm_judge": false,
+                "prompt_version": "t5_answerability_rubric.v1"
+              }
+            },
+            "targets": {
+              "min_thread_precision": 0.75,
+              "min_thread_recall": 1.0,
+              "min_thread_f1": 0.85,
+              "min_answerability": 1.0,
+              "max_query_drift_rate": 0.25
+            },
+            "metrics": {
+              "case_count": 1,
+              "pass_count": 0,
+              "thread_precision": 0.6667,
+              "thread_recall": 0.6667,
+              "thread_f1": 0.6667,
+              "answerability": 0.0,
+              "judge_answerability": 0.0,
+              "query_drift_rate": 0.3333,
+              "one_shot_thread_f1": 0.6667,
+              "one_shot_query_drift_rate": 0.3333,
+              "agentic_loop_thread_f1_lift": 0.0
+            },
+            "checks": {
+              "thread_precision": false,
+              "thread_recall": false,
+              "thread_f1": false,
+              "answerability": false,
+              "query_drift": false
+            },
+            "pass": false,
+            "cases": [
+              {
+                "case_id": "t5_checkout_latency_cache_rollout",
+                "query": "Why did checkout latency persist after the cache rollout?",
+                "bead_key_by_id": {
+                  "bead-E2B83C718ECC": "cache_rollout",
+                  "bead-4BD1856249C4": "db_pool_limit",
+                  "bead-AF1E5F28B527": "checkout_latency",
+                  "bead-E6D19D6D6AFD": "pricing_launch",
+                  "bead-1FA6CC74C747": "pricing_copy",
+                  "bead-8C66D37C1234": "pricing_latency"
+                },
+                "gold_thread_keys": [
+                  "cache_rollout",
+                  "db_pool_limit",
+                  "checkout_latency"
+                ],
+                "required_answer_keys": [
+                  "db_pool_limit",
+                  "checkout_latency"
+                ],
+                "drift_thread_keys": [
+                  "pricing_launch",
+                  "pricing_copy",
+                  "pricing_latency"
+                ],
+                "returned_thread_keys": [
+                  "cache_rollout",
+                  "checkout_latency",
+                  "pricing_launch"
+                ],
+                "gold_thread_bead_ids": [
+                  "bead-E2B83C718ECC",
+                  "bead-4BD1856249C4",
+                  "bead-AF1E5F28B527"
+                ],
+                "required_answer_bead_ids": [
+                  "bead-4BD1856249C4",
+                  "bead-AF1E5F28B527"
+                ],
+                "drift_thread_bead_ids": [
+                  "bead-E6D19D6D6AFD",
+                  "bead-1FA6CC74C747",
+                  "bead-8C66D37C1234"
+                ],
+                "returned_thread_bead_ids": [
+                  "bead-E2B83C718ECC",
+                  "bead-AF1E5F28B527",
+                  "bead-E6D19D6D6AFD"
+                ],
+                "metrics": {
+                  "thread_precision": 0.6667,
+                  "thread_recall": 0.6667,
+                  "thread_f1": 0.6667,
+                  "answerability": 0.0,
+                  "query_drift_rate": 0.3333
+                },
+                "judge_kind": "deterministic",
+                "judge_status": "completed",
+                "is_llm_judge": false,
+                "prompt_version": "t5_answerability_rubric.v1",
+                "answerability_judge": {
+                  "judge_kind": "deterministic",
+                  "judge_status": "completed",
+                  "is_llm_judge": false,
+                  "prompt_version": "t5_answerability_rubric.v1",
+                  "answerability": 0.0,
+                  "rationale": "deterministic_required_key_and_drift_gate"
+                },
+                "one_shot_anchor_baseline": {
+                  "returned_bead_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-AF1E5F28B527",
+                    "bead-E6D19D6D6AFD"
+                  ],
+                  "returned_keys": [
+                    "cache_rollout",
+                    "checkout_latency",
+                    "pricing_launch"
+                  ],
+                  "metrics": {
+                    "thread_precision": 0.6667,
+                    "thread_recall": 0.6667,
+                    "thread_f1": 0.6667,
+                    "answerability": 0.0,
+                    "query_drift_rate": 0.3333
+                  }
+                },
+                "checks": {
+                  "thread_precision": false,
+                  "thread_recall": false,
+                  "thread_f1": false,
+                  "answerability": false,
+                  "query_drift": false
+                },
+                "pass": false,
+                "loop": {
+                  "query": "Why did checkout latency persist after the cache rollout?",
+                  "intent": "causal",
+                  "returned_thread_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-AF1E5F28B527",
+                    "bead-E6D19D6D6AFD"
+                  ],
+                  "selected_storyline": {
+                    "storyline_id": "graph_blind_one_shot",
+                    "kind": "baseline",
+                    "label": "graph_blind_one_shot",
+                    "bead_ids": [
+                      "bead-E2B83C718ECC",
+                      "bead-AF1E5F28B527",
+                      "bead-E6D19D6D6AFD"
+                    ],
+                    "bead_keys": [
+                      "cache_rollout",
+                      "checkout_latency",
+                      "pricing_launch"
+                    ],
+                    "score": null
+                  },
+                  "storyline_candidate_count": 0,
+                  "steps": [
+                    {
+                      "step": 1,
+                      "anchor_ids": [],
+                      "trace_anchor_ids": [
+                        "bead-E2B83C718ECC",
+                        "bead-AF1E5F28B527",
+                        "bead-E6D19D6D6AFD"
+                      ],
+                      "trace_ids": [
+                        "bead-E2B83C718ECC",
+                        "bead-AF1E5F28B527",
+                        "bead-E6D19D6D6AFD"
+                      ],
+                      "trace_grounding": {
+                        "mode": "disabled_traversal_graph_blind"
+                      },
+                      "selected_storyline": {
+                        "storyline_id": "graph_blind_one_shot",
+                        "bead_ids": [
+                          "bead-E2B83C718ECC",
+                          "bead-AF1E5F28B527",
+                          "bead-E6D19D6D6AFD"
+                        ],
+                        "bead_keys": [
+                          "cache_rollout",
+                          "checkout_latency",
+                          "pricing_launch"
+                        ]
+                      },
+                      "candidate_storylines": [],
+                      "stop_gate": {
+                        "passed": true,
+                        "reason": "graph_blind_one_shot_baseline"
+                      }
+                    }
+                  ],
+                  "methodology": {
+                    "kind": "graph_blind_one_shot_baseline",
+                    "is_llm_judge": false,
+                    "notes": [
+                      "no trace_request",
+                      "no causal traversal",
+                      "lexical title_summary_detail ranking only"
+                    ]
+                  }
+                }
+              }
+            ],
+            "latency_ms": 37.722
+          }
         }
       },
       {
         "id": "minus_myelination_backpressure",
         "label": "- myelination backpressure (bonus_by_edge_key off)",
-        "status": "observed_no_expected_drop",
+        "status": "observed",
         "mechanism_removed": "myelination_backpressure",
         "scores": {
-          "t2_spearman_rho": 0.974679,
+          "t2_spearman_rho": 0.8,
           "t2_sample_count": 20,
           "t4_continuity_lift": null,
           "t5_thread_f1": null
@@ -2864,7 +3767,7 @@
           "t5_thread_f1": "drop"
         },
         "observed_delta_vs_full": {
-          "t2_spearman_rho": 0.0
+          "t2_spearman_rho": 0.174679
         },
         "evidence": [
           "runtime_ablation_runs.minus_myelination_backpressure.t2_no_manifest_bonus"
@@ -2885,7 +3788,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
             "metadata": {
               "runner": "causal_continuity.t2",
-              "commit": "5f2d72aa",
+              "commit": "09657c12",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -2920,35 +3823,35 @@
               "min_sample_count": 20
             },
             "metrics": {
-              "spearman_rho": 0.974679,
-              "expected_calibration_error": 0.08,
-              "brier_score": 0.13252,
-              "high_band_usefulness_rate": 1.0,
+              "spearman_rho": 0.8,
+              "expected_calibration_error": 0.124,
+              "brier_score": 0.14924,
+              "high_band_usefulness_rate": null,
               "sample_count": 20,
               "event_count": 20,
-              "bands_included": 5,
-              "auto_mode_gate": "open",
-              "status": "good"
+              "bands_included": 4,
+              "auto_mode_gate": "paused",
+              "status": "degraded"
             },
             "checks": {
               "sufficient_data": true,
               "rho": true,
-              "high_band_usefulness": true,
+              "high_band_usefulness": false,
               "expected_calibration_error": true,
               "brier_score": true
             },
-            "pass": true,
+            "pass": false,
             "curve": {
               "schema": "calibration_curve.v1",
               "window": "30d",
-              "generated_at": "2026-06-26T20:08:54.941434+00:00",
-              "status": "good",
-              "spearman_rho": 0.974679,
-              "expected_calibration_error": 0.08,
-              "brier_score": 0.13252,
-              "high_band_usefulness_rate": 1.0,
+              "generated_at": "2026-06-26T21:00:59.801315+00:00",
+              "status": "degraded",
+              "spearman_rho": 0.8,
+              "expected_calibration_error": 0.124,
+              "brier_score": 0.14924,
+              "high_band_usefulness_rate": null,
               "band_count": 5,
-              "bands_included": 5,
+              "bands_included": 4,
               "sample_count": 20,
               "bands": [
                 {
@@ -2987,14 +3890,14 @@
                   "upper": 0.8,
                   "min": 0.7,
                   "max": 0.8,
-                  "recall_count": 4,
-                  "event_count": 4,
-                  "correction_free_count": 3,
-                  "positive_count": 3,
+                  "recall_count": 8,
+                  "event_count": 8,
+                  "correction_free_count": 7,
+                  "positive_count": 7,
                   "negative_correction_count": 0,
-                  "realized_usefulness_rate": 0.75,
-                  "usefulness_rate": 0.75,
-                  "avg_effective_confidence": 0.73
+                  "realized_usefulness_rate": 0.875,
+                  "usefulness_rate": 0.875,
+                  "avg_effective_confidence": 0.715
                 },
                 {
                   "label": "0.8-0.9",
@@ -3017,20 +3920,20 @@
                   "upper": null,
                   "min": 0.9,
                   "max": null,
-                  "recall_count": 4,
-                  "event_count": 4,
-                  "correction_free_count": 4,
-                  "positive_count": 4,
+                  "recall_count": 0,
+                  "event_count": 0,
+                  "correction_free_count": 0,
+                  "positive_count": 0,
                   "negative_correction_count": 0,
-                  "realized_usefulness_rate": 1.0,
-                  "usefulness_rate": 1.0,
-                  "avg_effective_confidence": 0.92
+                  "realized_usefulness_rate": null,
+                  "usefulness_rate": null,
+                  "avg_effective_confidence": null
                 }
               ],
               "event_count": 20,
               "correction_count": 0,
               "correction_event_count": 0,
-              "auto_mode_gate": "open",
+              "auto_mode_gate": "paused",
               "limitations": []
             },
             "sample_preview": [
@@ -3085,7 +3988,7 @@
                 "useful": true
               }
             ],
-            "latency_ms": 14.548
+            "latency_ms": 15.199
           }
         }
       },
@@ -3125,7 +4028,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
             "metadata": {
               "runner": "causal_continuity.t2",
-              "commit": "5f2d72aa",
+              "commit": "09657c12",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -3181,7 +4084,7 @@
             "curve": {
               "schema": "calibration_curve.v1",
               "window": "30d",
-              "generated_at": "2026-06-26T20:08:54.953765+00:00",
+              "generated_at": "2026-06-26T21:00:59.813866+00:00",
               "status": "insufficient_data",
               "spearman_rho": null,
               "expected_calibration_error": null,
@@ -3274,7 +4177,7 @@
               "limitations": []
             },
             "sample_preview": [],
-            "latency_ms": 11.844
+            "latency_ms": 12.818
           }
         }
       },
@@ -3339,7 +4242,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
             "metadata": {
               "runner": "causal_continuity.t3",
-              "commit": "5f2d72aa",
+              "commit": "09657c12",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -3419,8 +4322,8 @@
                   "expected_conflict_claims": false
                 },
                 "pass": false,
-                "write_setup_ms": 3.385,
-                "resolve_ms": 0.132
+                "write_setup_ms": 3.316,
+                "resolve_ms": 0.134
               },
               {
                 "case_id": "t3_current_timezone_after_update",
@@ -3452,8 +4355,8 @@
                   "excluded_value_not_current": true
                 },
                 "pass": true,
-                "write_setup_ms": 3.317,
-                "resolve_ms": 0.124
+                "write_setup_ms": 3.376,
+                "resolve_ms": 0.121
               },
               {
                 "case_id": "t3_historical_timezone_as_of",
@@ -3481,8 +4384,8 @@
                   "value": true
                 },
                 "pass": true,
-                "write_setup_ms": 3.903,
-                "resolve_ms": 0.178
+                "write_setup_ms": 4.118,
+                "resolve_ms": 0.165
               },
               {
                 "case_id": "t3_superseded_policy_not_current",
@@ -3518,47 +4421,289 @@
                   "excluded_value_not_current": false
                 },
                 "pass": false,
-                "write_setup_ms": 3.146,
-                "resolve_ms": 0.138
+                "write_setup_ms": 3.361,
+                "resolve_ms": 0.135
               }
             ],
-            "latency_ms": 28.818
+            "latency_ms": 30.95
           }
         }
       },
       {
         "id": "minus_agentic_recall_loop",
         "label": "- agentic recall loop (one-shot recall)",
-        "status": "observed_no_expected_drop",
+        "status": "observed",
         "mechanism_removed": "agentic_recall_loop",
         "scores": {
-          "t5_thread_f1": 1.0,
-          "t5_query_drift_rate": 0.0
+          "t5_thread_f1": 0.6667,
+          "t5_query_drift_rate": 0.3333
         },
         "expected_drop": {
           "t5_thread_f1": "drop",
           "t5_query_drift_rate": "increase"
         },
         "observed_delta_vs_full": {
-          "t5_thread_f1": 0.0,
-          "t5_query_drift_rate": 0.0
+          "t5_thread_f1": 0.3333,
+          "t5_query_drift_rate": 0.3333
         },
         "evidence": [
-          "t5.metrics.one_shot_anchor_baseline"
+          "t5.metrics.one_shot_anchor_baseline",
+          "runtime_ablation_runs.minus_agentic_recall_loop.t5_traversal_disabled"
         ],
-        "limitations": [
-          "one_shot_anchor_proxy_did_not_show_expected_drop_on_current_fixture"
-        ],
+        "limitations": [],
         "runtime_run": {
-          "kind": "one_shot_baseline",
-          "executed": true
+          "kind": "task_fixture_disabled_mode",
+          "executed": true,
+          "task_id": "t5_thread_fidelity",
+          "traversal_enabled": false,
+          "report": {
+            "schema_version": "causal_continuity.t5_thread_fidelity.v1",
+            "task_id": "t5_thread_fidelity",
+            "capability": "C5_thread_fidelity_agentic_loop",
+            "case_id": "checkout_latency_storyline_thread",
+            "description": "Query-drift fixture for scoring whether trace-based recall returns the correct causal storyline segment instead of a high-similarity off-thread chain.",
+            "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
+            "metadata": {
+              "runner": "causal_continuity.t5",
+              "commit": "09657c12",
+              "faithfulness": {
+                "synthetic_crawler_updates": false,
+                "synthetic_temporal_edges": false,
+                "bead_direct_ingest": false,
+                "oracle_gold_used": false,
+                "benchmark_aware_answer_prompt": false,
+                "is_faithful": true
+              },
+              "shortcut_flags": {
+                "synthetic_crawler_updates": false,
+                "synthetic_temporal_edges": false,
+                "bead_direct_ingest": false,
+                "oracle_gold_used": false,
+                "benchmark_aware_answer_prompt": false,
+                "is_faithful": true
+              },
+              "notes": [
+                "trace_request_seed_plus_causal_expansion",
+                "storyline_selection_re_evaluated_against_original_query",
+                "deterministic_answerability_proxy_is_default_ci_gate"
+              ],
+              "ablation_mode": {
+                "traversal_enabled": false
+              },
+              "judge": {
+                "kind": "deterministic",
+                "status": "completed",
+                "is_llm_judge": false,
+                "prompt_version": "t5_answerability_rubric.v1"
+              }
+            },
+            "targets": {
+              "min_thread_precision": 0.75,
+              "min_thread_recall": 1.0,
+              "min_thread_f1": 0.85,
+              "min_answerability": 1.0,
+              "max_query_drift_rate": 0.25
+            },
+            "metrics": {
+              "case_count": 1,
+              "pass_count": 0,
+              "thread_precision": 0.6667,
+              "thread_recall": 0.6667,
+              "thread_f1": 0.6667,
+              "answerability": 0.0,
+              "judge_answerability": 0.0,
+              "query_drift_rate": 0.3333,
+              "one_shot_thread_f1": 0.6667,
+              "one_shot_query_drift_rate": 0.3333,
+              "agentic_loop_thread_f1_lift": 0.0
+            },
+            "checks": {
+              "thread_precision": false,
+              "thread_recall": false,
+              "thread_f1": false,
+              "answerability": false,
+              "query_drift": false
+            },
+            "pass": false,
+            "cases": [
+              {
+                "case_id": "t5_checkout_latency_cache_rollout",
+                "query": "Why did checkout latency persist after the cache rollout?",
+                "bead_key_by_id": {
+                  "bead-E2B83C718ECC": "cache_rollout",
+                  "bead-4BD1856249C4": "db_pool_limit",
+                  "bead-AF1E5F28B527": "checkout_latency",
+                  "bead-E6D19D6D6AFD": "pricing_launch",
+                  "bead-1FA6CC74C747": "pricing_copy",
+                  "bead-8C66D37C1234": "pricing_latency"
+                },
+                "gold_thread_keys": [
+                  "cache_rollout",
+                  "db_pool_limit",
+                  "checkout_latency"
+                ],
+                "required_answer_keys": [
+                  "db_pool_limit",
+                  "checkout_latency"
+                ],
+                "drift_thread_keys": [
+                  "pricing_launch",
+                  "pricing_copy",
+                  "pricing_latency"
+                ],
+                "returned_thread_keys": [
+                  "cache_rollout",
+                  "checkout_latency",
+                  "pricing_launch"
+                ],
+                "gold_thread_bead_ids": [
+                  "bead-E2B83C718ECC",
+                  "bead-4BD1856249C4",
+                  "bead-AF1E5F28B527"
+                ],
+                "required_answer_bead_ids": [
+                  "bead-4BD1856249C4",
+                  "bead-AF1E5F28B527"
+                ],
+                "drift_thread_bead_ids": [
+                  "bead-E6D19D6D6AFD",
+                  "bead-1FA6CC74C747",
+                  "bead-8C66D37C1234"
+                ],
+                "returned_thread_bead_ids": [
+                  "bead-E2B83C718ECC",
+                  "bead-AF1E5F28B527",
+                  "bead-E6D19D6D6AFD"
+                ],
+                "metrics": {
+                  "thread_precision": 0.6667,
+                  "thread_recall": 0.6667,
+                  "thread_f1": 0.6667,
+                  "answerability": 0.0,
+                  "query_drift_rate": 0.3333
+                },
+                "judge_kind": "deterministic",
+                "judge_status": "completed",
+                "is_llm_judge": false,
+                "prompt_version": "t5_answerability_rubric.v1",
+                "answerability_judge": {
+                  "judge_kind": "deterministic",
+                  "judge_status": "completed",
+                  "is_llm_judge": false,
+                  "prompt_version": "t5_answerability_rubric.v1",
+                  "answerability": 0.0,
+                  "rationale": "deterministic_required_key_and_drift_gate"
+                },
+                "one_shot_anchor_baseline": {
+                  "returned_bead_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-AF1E5F28B527",
+                    "bead-E6D19D6D6AFD"
+                  ],
+                  "returned_keys": [
+                    "cache_rollout",
+                    "checkout_latency",
+                    "pricing_launch"
+                  ],
+                  "metrics": {
+                    "thread_precision": 0.6667,
+                    "thread_recall": 0.6667,
+                    "thread_f1": 0.6667,
+                    "answerability": 0.0,
+                    "query_drift_rate": 0.3333
+                  }
+                },
+                "checks": {
+                  "thread_precision": false,
+                  "thread_recall": false,
+                  "thread_f1": false,
+                  "answerability": false,
+                  "query_drift": false
+                },
+                "pass": false,
+                "loop": {
+                  "query": "Why did checkout latency persist after the cache rollout?",
+                  "intent": "causal",
+                  "returned_thread_ids": [
+                    "bead-E2B83C718ECC",
+                    "bead-AF1E5F28B527",
+                    "bead-E6D19D6D6AFD"
+                  ],
+                  "selected_storyline": {
+                    "storyline_id": "graph_blind_one_shot",
+                    "kind": "baseline",
+                    "label": "graph_blind_one_shot",
+                    "bead_ids": [
+                      "bead-E2B83C718ECC",
+                      "bead-AF1E5F28B527",
+                      "bead-E6D19D6D6AFD"
+                    ],
+                    "bead_keys": [
+                      "cache_rollout",
+                      "checkout_latency",
+                      "pricing_launch"
+                    ],
+                    "score": null
+                  },
+                  "storyline_candidate_count": 0,
+                  "steps": [
+                    {
+                      "step": 1,
+                      "anchor_ids": [],
+                      "trace_anchor_ids": [
+                        "bead-E2B83C718ECC",
+                        "bead-AF1E5F28B527",
+                        "bead-E6D19D6D6AFD"
+                      ],
+                      "trace_ids": [
+                        "bead-E2B83C718ECC",
+                        "bead-AF1E5F28B527",
+                        "bead-E6D19D6D6AFD"
+                      ],
+                      "trace_grounding": {
+                        "mode": "disabled_traversal_graph_blind"
+                      },
+                      "selected_storyline": {
+                        "storyline_id": "graph_blind_one_shot",
+                        "bead_ids": [
+                          "bead-E2B83C718ECC",
+                          "bead-AF1E5F28B527",
+                          "bead-E6D19D6D6AFD"
+                        ],
+                        "bead_keys": [
+                          "cache_rollout",
+                          "checkout_latency",
+                          "pricing_launch"
+                        ]
+                      },
+                      "candidate_storylines": [],
+                      "stop_gate": {
+                        "passed": true,
+                        "reason": "graph_blind_one_shot_baseline"
+                      }
+                    }
+                  ],
+                  "methodology": {
+                    "kind": "graph_blind_one_shot_baseline",
+                    "is_llm_judge": false,
+                    "notes": [
+                      "no trace_request",
+                      "no causal traversal",
+                      "lexical title_summary_detail ranking only"
+                    ]
+                  }
+                }
+              }
+            ],
+            "latency_ms": 37.722
+          }
         }
       }
     ],
     "coverage": {
       "observed_rows": 7,
-      "observed_expected_drop_rows": 5,
-      "observed_no_expected_drop_rows": 2,
+      "observed_expected_drop_rows": 7,
+      "observed_no_expected_drop_rows": 0,
       "needs_runtime_toggle_rows": 0,
       "not_available_rows": 0,
       "all_rows_observed": true,
@@ -3589,6 +4734,7 @@
       "external_dataset_count": 2,
       "runnable_count": 1,
       "external_adapter_smoke_count": 0,
+      "external_eval_smoke_count": 0,
       "leaderboard_claim_count": 0
     },
     "datasets": [
@@ -3597,7 +4743,7 @@
         "label": "Checked-in LOCOMO-like local proxy",
         "dataset_family": "locomo_like",
         "contrast_role": "local_proxy",
-        "status": "available",
+        "status": "completed",
         "availability": "checked_in_fixture_pack",
         "adapter_surface": "benchmarks.locomo_like.runner.run_benchmark",
         "benchmark_adapter_protocol": "not_required_local_proxy",
@@ -3607,7 +4753,34 @@
         "can_run": true,
         "run_command": "python -m benchmarks.locomo_like.runner --subset local --limit 1",
         "execution": {
-          "status": "not_run"
+          "status": "completed",
+          "schema_version": "locomo_like_report.v1",
+          "metadata": {
+            "runner": "locomo_like",
+            "subset": "local",
+            "case_count": 1
+          },
+          "totals": {
+            "cases": 1,
+            "pass": 1,
+            "fail": 0,
+            "accuracy": 1.0,
+            "grounding_stable_rate": null,
+            "grounding_stability_cases": 0,
+            "slot_accuracy": null,
+            "slot_validation_cases": 0
+          },
+          "latency_ms": {
+            "mean": 249.246,
+            "p50": 249.246,
+            "p95": 249.246
+          },
+          "warnings": [
+            "semantic_backend_query_error:runtimeerror",
+            "semantic_backend_query_failed_lexical_fallback",
+            "semantic_backend_unavailable_degraded",
+            "semantic_index_missing_artifacts"
+          ]
         }
       },
       {
@@ -3629,8 +4802,15 @@
           "path": ""
         },
         "run_command": "python -m benchmarks.locomo --corpus <locomo10.json> --smoke",
+        "eval_smoke_command": "python -m benchmarks.locomo --corpus <locomo10.json> --smoke --limit 1 --max-qa 1",
         "licensing_note": "Corpus is not vendored; obtain it separately and pass --locomo-corpus.",
         "execution": {
+          "status": "not_run"
+        },
+        "adapter_smoke_execution": {
+          "status": "not_run"
+        },
+        "evaluation_smoke_execution": {
           "status": "not_run"
         }
       },
@@ -3653,8 +4833,15 @@
           "path": ""
         },
         "run_command": "python -m benchmarks.longmemeval --corpus <longmemeval.json> --limit 1",
+        "eval_smoke_command": "python -m benchmarks.longmemeval --corpus <longmemeval.json> --limit 1 --eval-smoke",
         "licensing_note": "Corpus is not vendored; obtain it separately and pass --longmemeval-corpus.",
         "execution": {
+          "status": "not_run"
+        },
+        "adapter_smoke_execution": {
+          "status": "not_run"
+        },
+        "evaluation_smoke_execution": {
           "status": "not_run"
         }
       }
