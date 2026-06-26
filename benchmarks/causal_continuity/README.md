@@ -10,6 +10,9 @@ T4 longitudinal continuity task over Dreamer lift, self-model drift, and goal
 thread persistence, plus a T5 thread-fidelity task over trace-backed storyline
 selection.
 
+The remaining paper-evidence closeout sequence is tracked in
+`docs/eval/causal-continuity-closeout-plan.md`.
+
 ## T1 Strategies
 
 | Strategy | What it does |

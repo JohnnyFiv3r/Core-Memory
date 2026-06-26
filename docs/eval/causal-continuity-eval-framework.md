@@ -77,35 +77,33 @@ each capability to a specific mechanism.
 
 ---
 
-## 3. Task suite (existing → framework, with gaps marked)
+## 3. Task suite (existing -> framework, with gaps marked)
 
-### T1 — Causal-chain reconstruction with adversarial distractors  (C1) · **exists**
+### T1 — Causal-chain reconstruction with adversarial distractors  (C1) · **implemented: strategy matrix; baseline completion remains**
 `benchmarks/causal/`. Synthetic histories with gold causal edges + a closest-text
 distractor off the chain. Materialized through the **public write path** (`add_bead` +
 agent-judged associations), queried via `recall(intent="causal")`; the runner reads
 `root_cause_attribution.causal_paths[].edges[]` to recover the traversed edges.
 - Per-case: `edge_precision/recall/f1`, `root_cause_correct`, `grounding_full`,
   `attribution_depth`, `distractor_survived`.
-- Aggregate headline: `distractor_survival_rate`.
+- Aggregate headline: Causal Survival Rate across Core Memory, BM25, and
+  similarity-only rows. Dense-vector, long-context/no-memory, and external
+  adapter comparator rows remain closeout work.
 
-### T2 — Calibration reliability  (C2) · **gap: meter exists, scored task missing**
-PRD-B ships the calibration *meter* (`/v1/myelination/calibration`) — it bins edges by
-`effective_confidence` and reports realized usefulness per band + Spearman ρ + an
-`auto_mode_gate`. Turn it into a *scored benchmark task*: seed histories with known
-"useful vs misleading" supporting edges, accumulate validated-outcome feedback, and score
-whether confidence orders usefulness. Metrics: **Spearman ρ**, **Expected Calibration
-Error (ECE)**, **Brier score** of `effective_confidence` vs realized usefulness; pass gate
-ρ ≥ 0.70 (the PRD-B threshold) and high-band usefulness ≥ 0.80. (Build note: the meter's
-X-axis must be real `effective_confidence = clamp(judge_prior + manifest_bonus)`, not a
-flat prior — see PRD-B calibration fix.)
+### T2 — Calibration reliability  (C2) · **implemented: harness slice**
+The suite-level T2 task now seeds histories with known useful and misleading
+supporting edges, scores the calibration meter, and reports **Spearman rho**,
+**Expected Calibration Error (ECE)**, **Brier score** of
+`effective_confidence` vs realized usefulness, high-band usefulness, and the
+auto-mode gate. The X-axis is the real
+`effective_confidence = clamp(judge_prior + manifest_bonus)`, not a flat prior.
 
-### T3 — Temporal/as-of + contradiction-update  (C3, C4) · **partial: locomo_like buckets**
-`benchmarks/locomo_like/` already buckets current-state, historical/as-of,
-contradiction/update, entity/coreference. Reframe scoring away from answer-token-F1 toward
-**correct-state-selection**: did recall return the state true *as-of* the query time, and
-did it *respect supersession* (not surface a retracted/superseded bead as active truth)?
-Metrics: as-of accuracy, supersession-respect rate, contradiction-surfaced rate (the system
-flags the conflict rather than silently choosing).
+### T3 — Temporal/as-of + contradiction-update  (C3, C4) · **implemented: harness slice**
+The suite-level T3 task reframes the LOCOMO-like temporal buckets away from
+answer-token-F1 toward **correct-state-selection**: did recall return the state
+true *as-of* the query time, and did it *respect supersession* rather than
+surface old truth as active truth? Metrics: as-of accuracy,
+supersession-respect rate, and contradiction-surfaced rate.
 
 ### T4 — Longitudinal continuity lift + self-model stability  (C4) · **implemented: harness slice**
 `eval/longitudinal_benchmark_v2.py` already compares a memory/dreamer cohort against a
@@ -209,7 +207,7 @@ Harness status: `benchmarks.causal_continuity.runner --include-ablations` now em
 suite-level ablation matrix with observed rows from current strategy/cohort/baseline
 telemetry, `observed_no_expected_drop` rows where a proxy ran but did not show the expected
 effect, and explicit `needs_runtime_toggle` rows for mechanisms that still require
-dedicated disabled-mode runs.
+dedicated disabled-mode runs. True runtime-toggle execution remains closeout work.
 
 ---
 
@@ -258,20 +256,34 @@ the inversion is not an artifact of a weak distractor.
 
 ---
 
-## 11. Paper-build checklist (what to land before submission)
+## 11. Implementation state and closeout checklist
 
-- [ ] T1 CSR table: Core Memory vs the 4 baselines (exists — extend `benchmarks/causal/`).
-- [ ] T2 calibration task: scored ρ/ECE/Brier (build on the PRD-B meter).
-- [ ] T3 as-of/supersession scoring reframe of `locomo_like` buckets.
+The initial suite harness is now shipped. The remaining work is paper-evidence
+closeout, tracked in `docs/eval/causal-continuity-closeout-plan.md`.
+
+Harness state:
+
+- [x] T1 CSR strategy matrix: Core Memory full, BM25, and similarity-only rows.
+- [x] T2 calibration task: scored rho/ECE/Brier over effective confidence.
+- [x] T3 as-of/supersession scoring task.
 - [x] T4 longitudinal lift + drift harness slice.
 - [x] T5 thread-fidelity deterministic harness slice.
-- [ ] Ablation matrix (§7) run end-to-end with faithfulness flags clean. Initial
-  report attachment shipped; dedicated runtime toggles still needed for every row.
-- [ ] Real-data adapter slice (LoCoMo/LongMemEval) as the contrast condition. Initial
-  readiness attachment shipped with checked-in local proxy and external adapter status;
-  full LongMemEval loader and external-corpus runs remain.
-- [ ] One reproducibility appendix: `python -m benchmarks.<task>.runner` → committed report.
+- [x] Initial ablation matrix attachment with observed/proxy/gap states.
+- [x] Initial real-data contrast readiness attachment with local proxy and
+  external adapter status.
 
-The minimum publishable core is **T1 (CSR) + T2 (calibration) + the ablation matrix** with
-clean faithfulness flags and the dense-RAG baseline — that alone substantiates "a construct
-LoCoMo doesn't measure, with a benchmark that isolates it." T3–T5 deepen it.
+Publishable evidence closeout:
+
+- [ ] Baseline completion: dense-vector, long-context/no-memory, and external
+  adapter comparator rows or explicit unavailable states.
+- [ ] True ablation runs: no `needs_runtime_toggle` rows for minimum mechanism
+  claims.
+- [ ] Real-data adapter completion: LongMemEval loader plus external-corpus run
+  paths when data is supplied.
+- [ ] Reproducibility appendix: exact commands, generated report bundle,
+  repeated-run determinism notes, and dependency/degradation notes.
+
+The minimum publishable core remains **T1 (CSR) + T2 (calibration) + the ablation
+matrix** with clean faithfulness flags and a dense retrieval baseline. T3-T5
+deepen the claim and should be included in the report, but they are not the
+minimum argument by themselves.
