@@ -107,12 +107,13 @@ did it *respect supersession* (not surface a retracted/superseded bead as active
 Metrics: as-of accuracy, supersession-respect rate, contradiction-surfaced rate (the system
 flags the conflict rather than silently choosing).
 
-### T4 — Longitudinal continuity lift + self-model stability  (C4) · **exists**
+### T4 — Longitudinal continuity lift + self-model stability  (C4) · **implemented: harness slice**
 `eval/longitudinal_benchmark_v2.py` already compares a memory/dreamer cohort against a
-no-memory baseline (`core_with_dreamer_vs_no_memory_lift`). Add **self-model drift** (the
-PRD-B drift meter) as a stability metric over the run. Metrics: continuity **lift > 0** vs
-no-memory; drift score = 0 (no ungrounded/contradictory identity revisions) across the
-window; goal-thread persistence rate.
+no-memory baseline (`core_with_dreamer_vs_no_memory_lift`). The suite-level T4 harness now
+adds **self-model drift** (the PRD-B drift meter) as a stability metric over the run.
+Metrics: continuity **lift > 0** vs no-memory; drift score = 0 (no
+ungrounded/contradictory identity revisions) across the window; goal-thread persistence
+rate.
 
 ### T5 — Thread fidelity under the agentic recall loop  (C5) · **gap: PRD-E**
 PRD-E's iterative recall loop (semantic seed → reward-elected causal expansion → per-hop
@@ -254,7 +255,7 @@ the inversion is not an artifact of a weak distractor.
 - [ ] T1 CSR table: Core Memory vs the 4 baselines (exists — extend `benchmarks/causal/`).
 - [ ] T2 calibration task: scored ρ/ECE/Brier (build on the PRD-B meter).
 - [ ] T3 as-of/supersession scoring reframe of `locomo_like` buckets.
-- [ ] T4 longitudinal lift + drift (exists — add drift metric).
+- [x] T4 longitudinal lift + drift harness slice.
 - [ ] T5 thread-fidelity task (needs PRD-E recall loop).
 - [ ] Ablation matrix (§7) run end-to-end with faithfulness flags clean.
 - [ ] Real-data adapter slice (LoCoMo/LongMemEval) as the contrast condition.
