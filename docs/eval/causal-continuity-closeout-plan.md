@@ -20,6 +20,7 @@ package can support a paper-grade claim.
 | Real-data contrast | Local proxy, LoCoMo/LongMemEval readiness, load-smoke, and bounded evaluation-smoke paths exist | Real corpus evaluation requires user-supplied corpora |
 | Reproducibility | Appendix and generated report bundle record exact commands, environment notes, five-run stable repeat check, and source commit | None for local deterministic evidence |
 | Evidence manifest | Report carries a machine-readable claim gate separating local deterministic, proxy, configured-adapter, external-corpus, and T5 judge evidence | Provider-backed and real-data public comparison gates remain closed until configured runs/corpora are supplied |
+| Claim certificate | `benchmarks.causal_continuity.claims` validates report claim scope from the evidence manifest and exits nonzero for unsupported scopes | None for local deterministic evidence |
 
 ## Publishable Complete
 
@@ -45,6 +46,8 @@ A causal-continuity report is publishable when all of these are true:
 - A reproducibility appendix records the exact command, commit, Python version,
   dependency/degradation notes, generated report path, repeated-run determinism
   result, and known unavailable external resources.
+- A claim certificate can be generated from the report and passes for
+  `local_fixture` while keeping unsupported external scopes blocked.
 
 ## Completed Local Evidence Sequence
 
@@ -171,6 +174,28 @@ Acceptance:
   comparison claims.
 - Configured command adapters are recorded as executed while still requiring
   explicit external-system documentation before public comparison claims.
+
+### PR-7: Claim Certificate
+
+Goal: make the manifest enforceable by CI, release notes, and appendix
+automation.
+
+Scope:
+
+- Add a report-only certificate command that reads
+  `causal_continuity.evidence_manifest.v1`.
+- Support claim scopes for `local_fixture`, `provider_backed_comparison`,
+  `real_data_leaderboard`, and `t5_llm_judge_primary`.
+- Exit nonzero when a requested scope is not supported by the manifest gates.
+- Keep blocked external scopes visible with specific blockers rather than
+  silently downgrading them to local evidence.
+
+Acceptance:
+
+- The committed local report certifies `local_fixture`.
+- Provider-backed, real-data leaderboard, and T5 LLM primary scopes remain
+  blocked unless future reports provide the necessary configured evidence.
+- The command reads existing reports only and does not create evidence.
 
 ## Open Decisions
 

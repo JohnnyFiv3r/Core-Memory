@@ -352,3 +352,32 @@ decide what the report can honestly claim. It exposes:
 
 The default local report should have `local_fixture_claim_ready: true` and keep
 provider, real-data leaderboard, and LLM-judge primary claim gates closed.
+
+## Claim Certificate
+
+Use the claim certificate command when CI, release notes, or a paper appendix
+need a deterministic pass/fail answer for a report's claim scope:
+
+```bash
+python -m benchmarks.causal_continuity.claims \
+  --report benchmarks/reports/causal-continuity-local-report.json \
+  --require local_fixture \
+  --pretty
+```
+
+The command reads an existing report only. It does not rerun benchmarks and it
+does not create new evidence. The default `local_fixture` scope passes only when
+the report's manifest has `local_fixture_claim_ready=true`.
+
+External scopes are intentionally stricter:
+
+```bash
+python -m benchmarks.causal_continuity.claims \
+  --report benchmarks/reports/causal-continuity-local-report.json \
+  --require provider_backed_comparison
+```
+
+That command exits nonzero until a configured provider-backed adapter run and
+the corresponding public-comparison gate are present. Available scopes are
+`local_fixture`, `provider_backed_comparison`, `real_data_leaderboard`, and
+`t5_llm_judge_primary`; `--require all` checks every scope.

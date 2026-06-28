@@ -114,6 +114,23 @@ Interpretation: the checked-in bundle is publishable as deterministic local
 fixture evidence, while provider-backed comparisons, official external-corpus
 claims, and LLM-judge primary claims remain visibly gated off.
 
+## Claim Certificate
+
+The local claim scope can be checked from the committed report without rerunning
+the suite:
+
+```bash
+python3 -m benchmarks.causal_continuity.claims \
+  --report benchmarks/reports/causal-continuity-local-report.json \
+  --require local_fixture \
+  --pretty
+```
+
+This command passes only for evidence scopes already supported by
+`evidence_manifest`. Requests for `provider_backed_comparison`,
+`real_data_leaderboard`, or `t5_llm_judge_primary` remain blocked for the
+checked-in local report.
+
 ## Dependency And Degradation Notes
 
 The local run recorded these warnings:

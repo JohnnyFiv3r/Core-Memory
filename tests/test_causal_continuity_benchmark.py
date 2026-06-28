@@ -9,6 +9,7 @@ from pathlib import Path
 
 from benchmarks.contracts import BenchmarkAdapter
 from benchmarks.causal_continuity.ablations import build_ablation_matrix
+from benchmarks.causal_continuity.claims import build_claim_certificate
 from benchmarks.causal_continuity.real_data import build_real_data_contrast
 from benchmarks.causal_continuity.reporting import render_summary
 from benchmarks.causal_continuity.reproducibility import run_reproducibility_check
@@ -628,6 +629,53 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertEqual(["external_memory_adapter"], adapter["command_adapter_rows"])
         self.assertFalse(manifest["claim_gates"]["provider_backed_comparison_ready"])
         self.assertIn("no_provider_leaderboard_claim_rows", adapter["blockers"])
+
+    def test_claim_certificate_accepts_local_fixture_scope(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            tasks=["t1", "t2", "t3", "t4", "t5"],
+            subset="local",
+            limit=1,
+            run_ablation_toggles=True,
+            include_real_data_contrast=True,
+        )
+
+        certificate = build_claim_certificate(report, required_scopes=["local_fixture"])
+
+        self.assertEqual("causal_continuity.claim_certificate.v1", certificate["schema_version"])
+        self.assertTrue(certificate["passed"])
+        self.assertEqual("ready", certificate["status"])
+        self.assertIn("local_fixture", certificate["supported_scopes"])
+        self.assertTrue(certificate["scopes"]["local_fixture"]["passed"])
+        self.assertEqual([], certificate["scopes"]["local_fixture"]["failed_gates"])
+
+    def test_claim_certificate_blocks_unbacked_external_scopes(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            tasks=["t1", "t2", "t3", "t4", "t5"],
+            subset="local",
+            limit=1,
+            run_ablation_toggles=True,
+            include_real_data_contrast=True,
+        )
+
+        certificate = build_claim_certificate(
+            report,
+            required_scopes=["provider_backed_comparison", "real_data_leaderboard"],
+        )
+
+        self.assertFalse(certificate["passed"])
+        self.assertEqual("blocked", certificate["status"])
+        provider = certificate["scopes"]["provider_backed_comparison"]
+        self.assertEqual(["provider_backed_comparison_ready"], provider["failed_gates"])
+        self.assertIn("no_provider_command_adapter_run", provider["blockers"])
+        real = certificate["scopes"]["real_data_leaderboard"]
+        self.assertEqual(["real_data_leaderboard_ready"], real["failed_gates"])
+        self.assertIn("no_external_corpus_eval_smoke", real["blockers"])
 
     def test_runtime_ablation_helper_can_overlay_existing_report(self):
         report = run_suite(
