@@ -23,6 +23,7 @@ from benchmarks.causal_continuity.t4 import run_t4_longitudinal_continuity
 from benchmarks.causal_continuity.t5 import run_t5_thread_fidelity
 
 _HERE = Path(__file__).resolve().parent.parent / "benchmarks" / "causal"
+_REPO = _HERE.parent.parent
 _FIXTURES = _HERE / "fixtures"
 _GOLD = _HERE / "gold"
 
@@ -600,6 +601,23 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertEqual("stable", report["determinism"]["status"])
         self.assertEqual(2, report["determinism"]["run_count"])
         self.assertTrue(report["runs"][0]["ordered_topk"])
+
+    def test_committed_reproducibility_artifacts_are_internally_consistent(self):
+        local = json.loads((_REPO / "benchmarks/reports/causal-continuity-local-report.json").read_text(encoding="utf-8"))
+        repro = json.loads((_REPO / "benchmarks/reports/causal-continuity-reproducibility.json").read_text(encoding="utf-8"))
+        appendix = (_REPO / "docs/eval/causal-continuity-reproducibility-appendix.md").read_text(encoding="utf-8")
+
+        source_commit = str(local["metadata"]["commit"])
+        self.assertEqual(source_commit, repro["source_commit"])
+        self.assertIn(f"source commit `{source_commit}`", appendix)
+        self.assertIn(f"Source commit used to generate the artifacts: `{source_commit}`", appendix)
+        self.assertTrue(repro["determinism"]["stable_headlines"])
+        self.assertTrue(repro["determinism"]["stable_ordered_topk"])
+
+        matrix = local["tasks"]["t1_causal_chain_reconstruction"]["strategy_matrix"]
+        self.assertTrue(matrix)
+        for row in matrix.values():
+            self.assertIn("failure_reason", row)
 
     def test_real_data_contrast_declares_local_proxy_without_leaderboard_claim(self):
         report = build_real_data_contrast()

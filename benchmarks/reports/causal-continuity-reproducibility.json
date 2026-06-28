@@ -1,7 +1,7 @@
 {
   "schema_version": "causal_continuity.reproducibility.v1",
-  "run_at": "2026-06-26T21:01:02.666228+00:00",
-  "source_commit": "09657c12",
+  "run_at": "2026-06-26T21:54:02.089952+00:00",
+  "source_commit": "b8da6ddb",
   "environment": {
     "python": "3.14.0",
     "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O"

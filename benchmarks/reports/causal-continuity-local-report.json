@@ -1,6 +1,6 @@
 {
   "schema_version": "causal_continuity_report.v1",
-  "run_at": "2026-06-26T21:00:59.797709+00:00",
+  "run_at": "2026-06-26T21:53:51.980455+00:00",
   "metadata": {
     "suite": "causal_continuity",
     "task_count": 5,
@@ -21,7 +21,7 @@
     ],
     "subset": "local",
     "limit": 1,
-    "commit": "09657c12",
+    "commit": "b8da6ddb",
     "notes": [
       "pr1_t1_strategy_matrix",
       "pr2_t2_calibration_reliability",
@@ -270,6 +270,7 @@
           "baseline_kind": "lexical",
           "availability": "executed",
           "unavailable_reason": "",
+          "failure_reason": "",
           "execution_mode": "local_baseline",
           "adapter_status": "not_required",
           "adapter_name": "",
@@ -285,7 +286,7 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 17.113,
+          "latency_mean_ms": 18.764,
           "retrieval_mean_ms": 0.119
         },
         "core_memory_full": {
@@ -293,6 +294,7 @@
           "baseline_kind": "causal_memory",
           "availability": "executed",
           "unavailable_reason": "",
+          "failure_reason": "",
           "execution_mode": "core_memory",
           "adapter_status": "not_required",
           "adapter_name": "",
@@ -308,14 +310,15 @@
           "edge_precision_mean": 1.0,
           "edge_recall_mean": 1.0,
           "edge_f1_mean": 1.0,
-          "latency_mean_ms": 120.129,
-          "retrieval_mean_ms": 83.603
+          "latency_mean_ms": 161.095,
+          "retrieval_mean_ms": 114.703
         },
         "dense_vector": {
           "status": "proxy_executed",
           "baseline_kind": "dense_vector_proxy",
           "availability": "local_deterministic_proxy",
           "unavailable_reason": "",
+          "failure_reason": "",
           "execution_mode": "local_proxy",
           "adapter_status": "proxy_executed",
           "adapter_name": "",
@@ -331,14 +334,15 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 17.457,
-          "retrieval_mean_ms": 0.17
+          "latency_mean_ms": 21.356,
+          "retrieval_mean_ms": 0.193
         },
         "external_memory_adapter": {
           "status": "unavailable",
           "baseline_kind": "external_memory_adapter",
           "availability": "requires_external_memory_adapter",
           "unavailable_reason": "external_memory_adapter_not_configured",
+          "failure_reason": "",
           "execution_mode": "not_configured",
           "adapter_status": "unavailable",
           "adapter_name": "",
@@ -362,6 +366,7 @@
           "baseline_kind": "long_context_local_proxy",
           "availability": "local_context_window_proxy",
           "unavailable_reason": "",
+          "failure_reason": "",
           "execution_mode": "local_proxy",
           "adapter_status": "proxy_executed",
           "adapter_name": "local_long_context_no_memory_proxy",
@@ -377,14 +382,15 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 17.673,
-          "retrieval_mean_ms": 0.218
+          "latency_mean_ms": 17.314,
+          "retrieval_mean_ms": 0.206
         },
         "similarity_only": {
           "status": "completed",
           "baseline_kind": "similarity_proxy",
           "availability": "executed",
           "unavailable_reason": "",
+          "failure_reason": "",
           "execution_mode": "local_baseline",
           "adapter_status": "not_required",
           "adapter_name": "",
@@ -400,8 +406,8 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 18.629,
-          "retrieval_mean_ms": 0.208
+          "latency_mean_ms": 17.754,
+          "retrieval_mean_ms": 0.263
         }
       },
       "case_matrix": [
@@ -453,7 +459,7 @@
       "strategy_reports": {
         "core_memory_full": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:00:59.367113+00:00",
+          "generated_at": "2026-06-26T21:53:51.547649+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -468,7 +474,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "09657c12",
+            "commit": "b8da6ddb",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -512,10 +518,10 @@
             "survival_rate": 1.0
           },
           "latency_ms": {
-            "mean": 120.129,
-            "p50": 120.129,
-            "p95": 120.129,
-            "retrieval_mean": 83.603
+            "mean": 161.095,
+            "p50": 161.095,
+            "p95": 161.095,
+            "retrieval_mean": 114.703
           },
           "per_bucket": {
             "adversarial": {
@@ -541,8 +547,8 @@
               ],
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
-              "write_setup_ms": 34.764,
-              "retrieval_ms": 83.603,
+              "write_setup_ms": 44.343,
+              "retrieval_ms": 114.703,
               "tier_path": [
                 "semantic",
                 "causal",
@@ -573,10 +579,10 @@
               "distractor_survived": true,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-519D4487A8C6",
-                "bead-3AFDAD9ACADD"
+                "bead-3F8E743AFE4E",
+                "bead-5297BC18BDA6"
               ],
-              "gold_root_cause_id": "bead-519D4487A8C6",
+              "gold_root_cause_id": "bead-3F8E743AFE4E",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": true,
@@ -585,14 +591,14 @@
                 "distractor_survived": true
               },
               "pass": true,
-              "latency_ms": 120.129,
+              "latency_ms": 161.095,
               "strategy": "core_memory_full"
             }
           ]
         },
         "bm25": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:00:59.397613+00:00",
+          "generated_at": "2026-06-26T21:53:51.580532+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -607,7 +613,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "09657c12",
+            "commit": "b8da6ddb",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -651,9 +657,9 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 17.113,
-            "p50": 17.113,
-            "p95": 17.113,
+            "mean": 18.764,
+            "p50": 18.764,
+            "p95": 18.764,
             "retrieval_mean": 0.119
           },
           "per_bucket": {
@@ -673,7 +679,7 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "bm25",
-              "write_setup_ms": 15.557,
+              "write_setup_ms": 17.157,
               "retrieval_ms": 0.119,
               "tier_path": [
                 "baseline_similarity"
@@ -692,12 +698,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-C3D23D199E3B",
-                "bead-57614E03EE3D",
-                "bead-371C2F3AA892",
-                "bead-6498A36AD398"
+                "bead-5CD99A0B1D71",
+                "bead-487C1AA2A9F7",
+                "bead-7953544B8145",
+                "bead-6C9CA65F733E"
               ],
-              "gold_root_cause_id": "bead-371C2F3AA892",
+              "gold_root_cause_id": "bead-7953544B8145",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -706,13 +712,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 17.113
+              "latency_ms": 18.764
             }
           ]
         },
         "similarity_only": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:00:59.429152+00:00",
+          "generated_at": "2026-06-26T21:53:51.613246+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -727,7 +733,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "09657c12",
+            "commit": "b8da6ddb",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -771,10 +777,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 18.629,
-            "p50": 18.629,
-            "p95": 18.629,
-            "retrieval_mean": 0.208
+            "mean": 17.754,
+            "p50": 17.754,
+            "p95": 17.754,
+            "retrieval_mean": 0.263
           },
           "per_bucket": {
             "adversarial": {
@@ -793,8 +799,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "similarity_only",
-              "write_setup_ms": 16.734,
-              "retrieval_ms": 0.208,
+              "write_setup_ms": 16.169,
+              "retrieval_ms": 0.263,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -812,12 +818,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-BBF1A82327CF",
-                "bead-9D1A4BCCADCC",
-                "bead-4706F949BF13",
-                "bead-5C017ED3EBDC"
+                "bead-59D65269FE2F",
+                "bead-34E848FBC3B6",
+                "bead-0BC7BF675139",
+                "bead-5EC85A69E470"
               ],
-              "gold_root_cause_id": "bead-4706F949BF13",
+              "gold_root_cause_id": "bead-0BC7BF675139",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -826,13 +832,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 18.629
+              "latency_ms": 17.754
             }
           ]
         },
         "dense_vector": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:00:59.459729+00:00",
+          "generated_at": "2026-06-26T21:53:51.648853+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -847,7 +853,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "09657c12",
+            "commit": "b8da6ddb",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -892,10 +898,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 17.457,
-            "p50": 17.457,
-            "p95": 17.457,
-            "retrieval_mean": 0.17
+            "mean": 21.356,
+            "p50": 21.356,
+            "p95": 21.356,
+            "retrieval_mean": 0.193
           },
           "per_bucket": {
             "adversarial": {
@@ -914,8 +920,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "dense_vector",
-              "write_setup_ms": 15.845,
-              "retrieval_ms": 0.17,
+              "write_setup_ms": 19.849,
+              "retrieval_ms": 0.193,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -933,12 +939,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-6852909D3922",
-                "bead-4F176B76B1F6",
-                "bead-EE015EA2F4F0",
-                "bead-92B876C0E1C7"
+                "bead-DAD112DEE09E",
+                "bead-7899112005FA",
+                "bead-AF09F957F954",
+                "bead-764D817F47DE"
               ],
-              "gold_root_cause_id": "bead-EE015EA2F4F0",
+              "gold_root_cause_id": "bead-AF09F957F954",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -947,13 +953,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 17.457
+              "latency_ms": 21.356
             }
           ]
         },
         "long_context_no_memory": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:00:59.491260+00:00",
+          "generated_at": "2026-06-26T21:53:51.679671+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -968,7 +974,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "09657c12",
+            "commit": "b8da6ddb",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -1013,10 +1019,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 17.673,
-            "p50": 17.673,
-            "p95": 17.673,
-            "retrieval_mean": 0.218
+            "mean": 17.314,
+            "p50": 17.314,
+            "p95": 17.314,
+            "retrieval_mean": 0.206
           },
           "per_bucket": {
             "adversarial": {
@@ -1035,8 +1041,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "long_context_no_memory",
-              "write_setup_ms": 15.8,
-              "retrieval_ms": 0.218,
+              "write_setup_ms": 15.828,
+              "retrieval_ms": 0.206,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -1054,12 +1060,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-A6A8C9597E14",
-                "bead-EF899427EEAC",
-                "bead-F266F5DB40C0",
-                "bead-AE50FC9D877A"
+                "bead-361DB079E62B",
+                "bead-4C49493A67B2",
+                "bead-BEB81F27C0D1",
+                "bead-1F57632416AE"
               ],
-              "gold_root_cause_id": "bead-F266F5DB40C0",
+              "gold_root_cause_id": "bead-BEB81F27C0D1",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -1068,13 +1074,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 17.673
+              "latency_ms": 17.314
             }
           ]
         },
         "external_memory_adapter": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:00:59.504925+00:00",
+          "generated_at": "2026-06-26T21:53:51.694678+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -1090,7 +1096,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 0,
-            "commit": "09657c12",
+            "commit": "b8da6ddb",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -1156,7 +1162,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
       "metadata": {
         "runner": "causal_continuity.t2",
-        "commit": "09657c12",
+        "commit": "b8da6ddb",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1212,7 +1218,7 @@
       "curve": {
         "schema": "calibration_curve.v1",
         "window": "30d",
-        "generated_at": "2026-06-26T21:00:59.509451+00:00",
+        "generated_at": "2026-06-26T21:53:51.698817+00:00",
         "status": "good",
         "spearman_rho": 0.974679,
         "expected_calibration_error": 0.08,
@@ -1356,7 +1362,7 @@
           "useful": true
         }
       ],
-      "latency_ms": 18.535
+      "latency_ms": 17.569
     },
     "t3_temporal_state_selection": {
       "schema_version": "causal_continuity.t3_temporal_state.v1",
@@ -1367,7 +1373,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
       "metadata": {
         "runner": "causal_continuity.t3",
-        "commit": "09657c12",
+        "commit": "b8da6ddb",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1449,8 +1455,8 @@
             "expected_conflict_claims": true
           },
           "pass": true,
-          "write_setup_ms": 3.673,
-          "resolve_ms": 0.163
+          "write_setup_ms": 3.247,
+          "resolve_ms": 0.129
         },
         {
           "case_id": "t3_current_timezone_after_update",
@@ -1482,8 +1488,8 @@
             "excluded_value_not_current": true
           },
           "pass": true,
-          "write_setup_ms": 3.398,
-          "resolve_ms": 0.179
+          "write_setup_ms": 3.087,
+          "resolve_ms": 0.116
         },
         {
           "case_id": "t3_historical_timezone_as_of",
@@ -1511,8 +1517,8 @@
             "value": true
           },
           "pass": true,
-          "write_setup_ms": 4.486,
-          "resolve_ms": 0.168
+          "write_setup_ms": 4.029,
+          "resolve_ms": 0.144
         },
         {
           "case_id": "t3_superseded_policy_not_current",
@@ -1548,11 +1554,11 @@
             "excluded_value_not_current": true
           },
           "pass": true,
-          "write_setup_ms": 3.907,
-          "resolve_ms": 0.163
+          "write_setup_ms": 3.298,
+          "resolve_ms": 0.161
         }
       ],
-      "latency_ms": 33.88
+      "latency_ms": 30.265
     },
     "t4_longitudinal_continuity": {
       "schema_version": "causal_continuity.t4_longitudinal_continuity.v1",
@@ -1563,7 +1569,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t4_longitudinal_continuity.json",
       "metadata": {
         "runner": "causal_continuity.t4",
-        "commit": "09657c12",
+        "commit": "b8da6ddb",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1610,14 +1616,14 @@
       "setup": {
         "bead_count": 4,
         "bead_keys": {
-          "rollout_policy": "bead-D6B6BE32D075",
-          "cross_session_lesson": "bead-9E90B65F3D78",
-          "same_session_outcome": "bead-E73119DC2037",
-          "identity_evidence": "bead-0D4EE38DBE53"
+          "rollout_policy": "bead-43365152D048",
+          "cross_session_lesson": "bead-2C8F54417775",
+          "same_session_outcome": "bead-C14BCC6CF86C",
+          "identity_evidence": "bead-CF30A3327280"
         },
         "dreamer_decisions": [
           {
-            "candidate_id": "dc-d354a63dba7f",
+            "candidate_id": "dc-e775aa3acd46",
             "relationship": "supports",
             "relationship_signal": "reinforces",
             "hypothesis_type": "association_candidate",
@@ -1627,7 +1633,7 @@
             "applied": {}
           },
           {
-            "candidate_id": "dc-85aa159f80be",
+            "candidate_id": "dc-4a5d9022bfef",
             "relationship": "applies_pattern_of",
             "relationship_signal": "transferable_lesson",
             "hypothesis_type": "transferable_lesson_candidate",
@@ -1638,7 +1644,7 @@
               "ok": true,
               "association_id": null,
               "canonical_entry": "process_turn_finalized",
-              "turn_id": "dreamer-apply-dc-85aa159f80be",
+              "turn_id": "dreamer-apply-dc-4a5d9022bfef",
               "session_id": "t4-session-a",
               "relationship": "applies_pattern_of",
               "relationship_raw": "applies_pattern_of",
@@ -1648,12 +1654,12 @@
           }
         ],
         "downstream_recalled_bead_ids": [
-          "bead-D6B6BE32D075"
+          "bead-43365152D048"
         ],
         "soul_results": [
           {
             "ok": true,
-            "revision_id": "soul-8d53f5c46385",
+            "revision_id": "soul-9b0ae7ef3c0f",
             "status": "applied",
             "subject": "self",
             "target_file": "IDENTITY.md"
@@ -1664,13 +1670,13 @@
             "proposed": {
               "ok": true,
               "goal_id": "t4-maintain-continuity",
-              "bead_id": "bead-475962F311AC",
+              "bead_id": "bead-1227D5AA8ED5",
               "status": "candidate",
               "subject": "self"
             },
             "approved": {
               "ok": true,
-              "bead_id": "bead-475962F311AC",
+              "bead_id": "bead-1227D5AA8ED5",
               "from_state": "candidate",
               "to_state": "endorsed"
             }
@@ -1679,7 +1685,7 @@
       },
       "longitudinal": {
         "schema": "core_memory.longitudinal_benchmark_v2.v1",
-        "root": "/var/folders/_6/5j2zqszn2c51jtglr5x76k_h0000gn/T/cm-t4-longitudinal-g26letgm",
+        "root": "/var/folders/_6/5j2zqszn2c51jtglr5x76k_h0000gn/T/cm-t4-longitudinal-rgrba128",
         "since": "30d",
         "methodology": {
           "kind": "candidate_quality_proxy",
@@ -1771,7 +1777,7 @@
       "self_model_drift": {
         "schema": "self_model_drift_meter.v1",
         "window": "30d",
-        "generated_at": "2026-06-26T21:00:59.725003+00:00",
+        "generated_at": "2026-06-26T21:53:51.904342+00:00",
         "status": "healthy",
         "drift_score": 0,
         "revision_count": 1,
@@ -1799,7 +1805,7 @@
         "goal_thread_persistence_rate": 1.0,
         "goals": [
           {
-            "bead_id": "bead-475962F311AC",
+            "bead_id": "bead-1227D5AA8ED5",
             "goal_id": "t4-maintain-continuity",
             "title": "Maintain longitudinal continuity",
             "state": "endorsed",
@@ -1807,12 +1813,12 @@
               "Cross-session Dreamer structure remains reviewable.",
               "Identity updates stay grounded."
             ],
-            "created_at": "2026-06-26T21:00:59.718511+00:00",
-            "goal_state_changed_at": "2026-06-26T21:00:59.721350+00:00"
+            "created_at": "2026-06-26T21:53:51.897125+00:00",
+            "goal_state_changed_at": "2026-06-26T21:53:51.900713+00:00"
           }
         ]
       },
-      "latency_ms": 182.244
+      "latency_ms": 177.812
     },
     "t5_thread_fidelity": {
       "schema_version": "causal_continuity.t5_thread_fidelity.v1",
@@ -1823,7 +1829,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
       "metadata": {
         "runner": "causal_continuity.t5",
-        "commit": "09657c12",
+        "commit": "b8da6ddb",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1888,12 +1894,12 @@
           "case_id": "t5_checkout_latency_cache_rollout",
           "query": "Why did checkout latency persist after the cache rollout?",
           "bead_key_by_id": {
-            "bead-79076C912456": "cache_rollout",
-            "bead-5AC944A520BE": "db_pool_limit",
-            "bead-6ED211A23EDF": "checkout_latency",
-            "bead-05AAA99A9A12": "pricing_launch",
-            "bead-5A77B05390B4": "pricing_copy",
-            "bead-FFD6F3A0143D": "pricing_latency"
+            "bead-F3F7E0C32529": "cache_rollout",
+            "bead-5639153BFEA2": "db_pool_limit",
+            "bead-318F4A89FC1F": "checkout_latency",
+            "bead-2699FED95A7B": "pricing_launch",
+            "bead-F3416346F0E5": "pricing_copy",
+            "bead-40927F1DCA8F": "pricing_latency"
           },
           "gold_thread_keys": [
             "cache_rollout",
@@ -1915,23 +1921,23 @@
             "db_pool_limit"
           ],
           "gold_thread_bead_ids": [
-            "bead-79076C912456",
-            "bead-5AC944A520BE",
-            "bead-6ED211A23EDF"
+            "bead-F3F7E0C32529",
+            "bead-5639153BFEA2",
+            "bead-318F4A89FC1F"
           ],
           "required_answer_bead_ids": [
-            "bead-5AC944A520BE",
-            "bead-6ED211A23EDF"
+            "bead-5639153BFEA2",
+            "bead-318F4A89FC1F"
           ],
           "drift_thread_bead_ids": [
-            "bead-05AAA99A9A12",
-            "bead-5A77B05390B4",
-            "bead-FFD6F3A0143D"
+            "bead-2699FED95A7B",
+            "bead-F3416346F0E5",
+            "bead-40927F1DCA8F"
           ],
           "returned_thread_bead_ids": [
-            "bead-79076C912456",
-            "bead-6ED211A23EDF",
-            "bead-5AC944A520BE"
+            "bead-F3F7E0C32529",
+            "bead-318F4A89FC1F",
+            "bead-5639153BFEA2"
           ],
           "metrics": {
             "thread_precision": 1.0,
@@ -1954,9 +1960,9 @@
           },
           "one_shot_anchor_baseline": {
             "returned_bead_ids": [
-              "bead-79076C912456",
-              "bead-6ED211A23EDF",
-              "bead-05AAA99A9A12"
+              "bead-F3F7E0C32529",
+              "bead-318F4A89FC1F",
+              "bead-2699FED95A7B"
             ],
             "returned_keys": [
               "cache_rollout",
@@ -1983,18 +1989,18 @@
             "query": "Why did checkout latency persist after the cache rollout?",
             "intent": "causal",
             "returned_thread_ids": [
-              "bead-79076C912456",
-              "bead-6ED211A23EDF",
-              "bead-5AC944A520BE"
+              "bead-F3F7E0C32529",
+              "bead-318F4A89FC1F",
+              "bead-5639153BFEA2"
             ],
             "selected_storyline": {
               "storyline_id": "wl-entity-3c39881ca589",
               "kind": "entity",
               "label": "checkout latency investigation",
               "bead_ids": [
-                "bead-79076C912456",
-                "bead-6ED211A23EDF",
-                "bead-5AC944A520BE"
+                "bead-F3F7E0C32529",
+                "bead-318F4A89FC1F",
+                "bead-5639153BFEA2"
               ],
               "bead_keys": [
                 "cache_rollout",
@@ -2012,19 +2018,19 @@
                 "step": 1,
                 "anchor_ids": [],
                 "trace_anchor_ids": [
-                  "bead-5AC944A520BE",
-                  "bead-79076C912456",
-                  "bead-6ED211A23EDF",
-                  "bead-FFD6F3A0143D",
-                  "bead-05AAA99A9A12"
+                  "bead-5639153BFEA2",
+                  "bead-F3F7E0C32529",
+                  "bead-318F4A89FC1F",
+                  "bead-40927F1DCA8F",
+                  "bead-2699FED95A7B"
                 ],
                 "trace_ids": [
-                  "bead-5AC944A520BE",
-                  "bead-79076C912456",
-                  "bead-6ED211A23EDF",
-                  "bead-FFD6F3A0143D",
-                  "bead-05AAA99A9A12",
-                  "bead-5A77B05390B4"
+                  "bead-5639153BFEA2",
+                  "bead-F3F7E0C32529",
+                  "bead-318F4A89FC1F",
+                  "bead-40927F1DCA8F",
+                  "bead-2699FED95A7B",
+                  "bead-F3416346F0E5"
                 ],
                 "trace_grounding": {
                   "required": true,
@@ -2037,9 +2043,9 @@
                   "kind": "entity",
                   "label": "checkout latency investigation",
                   "bead_ids": [
-                    "bead-79076C912456",
-                    "bead-6ED211A23EDF",
-                    "bead-5AC944A520BE"
+                    "bead-F3F7E0C32529",
+                    "bead-318F4A89FC1F",
+                    "bead-5639153BFEA2"
                   ],
                   "bead_keys": [
                     "cache_rollout",
@@ -2057,9 +2063,9 @@
                     "kind": "entity",
                     "label": "checkout latency investigation",
                     "bead_ids": [
-                      "bead-79076C912456",
-                      "bead-6ED211A23EDF",
-                      "bead-5AC944A520BE"
+                      "bead-F3F7E0C32529",
+                      "bead-318F4A89FC1F",
+                      "bead-5639153BFEA2"
                     ],
                     "bead_keys": [
                       "cache_rollout",
@@ -2076,9 +2082,9 @@
                     "kind": "entity",
                     "label": "pricing launch storyline",
                     "bead_ids": [
-                      "bead-5A77B05390B4",
-                      "bead-FFD6F3A0143D",
-                      "bead-05AAA99A9A12"
+                      "bead-F3416346F0E5",
+                      "bead-40927F1DCA8F",
+                      "bead-2699FED95A7B"
                     ],
                     "bead_keys": [
                       "pricing_copy",
@@ -2109,7 +2115,7 @@
           }
         }
       ],
-      "latency_ms": 44.279
+      "latency_ms": 45.291
     }
   },
   "warnings": [
@@ -2301,7 +2307,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
               "metadata": {
                 "runner": "causal_continuity.t5",
-                "commit": "09657c12",
+                "commit": "b8da6ddb",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2366,12 +2372,12 @@
                   "case_id": "t5_checkout_latency_cache_rollout",
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "bead_key_by_id": {
-                    "bead-E2B83C718ECC": "cache_rollout",
-                    "bead-4BD1856249C4": "db_pool_limit",
-                    "bead-AF1E5F28B527": "checkout_latency",
-                    "bead-E6D19D6D6AFD": "pricing_launch",
-                    "bead-1FA6CC74C747": "pricing_copy",
-                    "bead-8C66D37C1234": "pricing_latency"
+                    "bead-765B9C1B213E": "cache_rollout",
+                    "bead-DCE72C3C2391": "db_pool_limit",
+                    "bead-E32F714203A6": "checkout_latency",
+                    "bead-F107579CA323": "pricing_launch",
+                    "bead-4F985A9C9372": "pricing_copy",
+                    "bead-EB7B5215753C": "pricing_latency"
                   },
                   "gold_thread_keys": [
                     "cache_rollout",
@@ -2393,23 +2399,23 @@
                     "pricing_launch"
                   ],
                   "gold_thread_bead_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-4BD1856249C4",
-                    "bead-AF1E5F28B527"
+                    "bead-765B9C1B213E",
+                    "bead-DCE72C3C2391",
+                    "bead-E32F714203A6"
                   ],
                   "required_answer_bead_ids": [
-                    "bead-4BD1856249C4",
-                    "bead-AF1E5F28B527"
+                    "bead-DCE72C3C2391",
+                    "bead-E32F714203A6"
                   ],
                   "drift_thread_bead_ids": [
-                    "bead-E6D19D6D6AFD",
-                    "bead-1FA6CC74C747",
-                    "bead-8C66D37C1234"
+                    "bead-F107579CA323",
+                    "bead-4F985A9C9372",
+                    "bead-EB7B5215753C"
                   ],
                   "returned_thread_bead_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-AF1E5F28B527",
-                    "bead-E6D19D6D6AFD"
+                    "bead-765B9C1B213E",
+                    "bead-E32F714203A6",
+                    "bead-F107579CA323"
                   ],
                   "metrics": {
                     "thread_precision": 0.6667,
@@ -2432,9 +2438,9 @@
                   },
                   "one_shot_anchor_baseline": {
                     "returned_bead_ids": [
-                      "bead-E2B83C718ECC",
-                      "bead-AF1E5F28B527",
-                      "bead-E6D19D6D6AFD"
+                      "bead-765B9C1B213E",
+                      "bead-E32F714203A6",
+                      "bead-F107579CA323"
                     ],
                     "returned_keys": [
                       "cache_rollout",
@@ -2461,18 +2467,18 @@
                     "query": "Why did checkout latency persist after the cache rollout?",
                     "intent": "causal",
                     "returned_thread_ids": [
-                      "bead-E2B83C718ECC",
-                      "bead-AF1E5F28B527",
-                      "bead-E6D19D6D6AFD"
+                      "bead-765B9C1B213E",
+                      "bead-E32F714203A6",
+                      "bead-F107579CA323"
                     ],
                     "selected_storyline": {
                       "storyline_id": "graph_blind_one_shot",
                       "kind": "baseline",
                       "label": "graph_blind_one_shot",
                       "bead_ids": [
-                        "bead-E2B83C718ECC",
-                        "bead-AF1E5F28B527",
-                        "bead-E6D19D6D6AFD"
+                        "bead-765B9C1B213E",
+                        "bead-E32F714203A6",
+                        "bead-F107579CA323"
                       ],
                       "bead_keys": [
                         "cache_rollout",
@@ -2487,14 +2493,14 @@
                         "step": 1,
                         "anchor_ids": [],
                         "trace_anchor_ids": [
-                          "bead-E2B83C718ECC",
-                          "bead-AF1E5F28B527",
-                          "bead-E6D19D6D6AFD"
+                          "bead-765B9C1B213E",
+                          "bead-E32F714203A6",
+                          "bead-F107579CA323"
                         ],
                         "trace_ids": [
-                          "bead-E2B83C718ECC",
-                          "bead-AF1E5F28B527",
-                          "bead-E6D19D6D6AFD"
+                          "bead-765B9C1B213E",
+                          "bead-E32F714203A6",
+                          "bead-F107579CA323"
                         ],
                         "trace_grounding": {
                           "mode": "disabled_traversal_graph_blind"
@@ -2502,9 +2508,9 @@
                         "selected_storyline": {
                           "storyline_id": "graph_blind_one_shot",
                           "bead_ids": [
-                            "bead-E2B83C718ECC",
-                            "bead-AF1E5F28B527",
-                            "bead-E6D19D6D6AFD"
+                            "bead-765B9C1B213E",
+                            "bead-E32F714203A6",
+                            "bead-F107579CA323"
                           ],
                           "bead_keys": [
                             "cache_rollout",
@@ -2531,7 +2537,7 @@
                   }
                 }
               ],
-              "latency_ms": 37.722
+              "latency_ms": 35.656
             }
           },
           "limitations": []
@@ -2563,7 +2569,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
               "metadata": {
                 "runner": "causal_continuity.t2",
-                "commit": "09657c12",
+                "commit": "b8da6ddb",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2619,7 +2625,7 @@
               "curve": {
                 "schema": "calibration_curve.v1",
                 "window": "30d",
-                "generated_at": "2026-06-26T21:00:59.801315+00:00",
+                "generated_at": "2026-06-26T21:53:51.983997+00:00",
                 "status": "degraded",
                 "spearman_rho": 0.8,
                 "expected_calibration_error": 0.124,
@@ -2763,7 +2769,7 @@
                   "useful": true
                 }
               ],
-              "latency_ms": 15.199
+              "latency_ms": 17.287
             }
           },
           "limitations": [
@@ -2796,7 +2802,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
               "metadata": {
                 "runner": "causal_continuity.t2",
-                "commit": "09657c12",
+                "commit": "b8da6ddb",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2852,7 +2858,7 @@
               "curve": {
                 "schema": "calibration_curve.v1",
                 "window": "30d",
-                "generated_at": "2026-06-26T21:00:59.813866+00:00",
+                "generated_at": "2026-06-26T21:53:51.998916+00:00",
                 "status": "insufficient_data",
                 "spearman_rho": null,
                 "expected_calibration_error": null,
@@ -2945,7 +2951,7 @@
                 "limitations": []
               },
               "sample_preview": [],
-              "latency_ms": 12.818
+              "latency_ms": 13.952
             }
           },
           "limitations": []
@@ -2995,7 +3001,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
               "metadata": {
                 "runner": "causal_continuity.t3",
-                "commit": "09657c12",
+                "commit": "b8da6ddb",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -3075,8 +3081,8 @@
                     "expected_conflict_claims": false
                   },
                   "pass": false,
-                  "write_setup_ms": 3.316,
-                  "resolve_ms": 0.134
+                  "write_setup_ms": 3.794,
+                  "resolve_ms": 0.166
                 },
                 {
                   "case_id": "t3_current_timezone_after_update",
@@ -3108,8 +3114,8 @@
                     "excluded_value_not_current": true
                   },
                   "pass": true,
-                  "write_setup_ms": 3.376,
-                  "resolve_ms": 0.121
+                  "write_setup_ms": 4.047,
+                  "resolve_ms": 0.18
                 },
                 {
                   "case_id": "t3_historical_timezone_as_of",
@@ -3137,8 +3143,8 @@
                     "value": true
                   },
                   "pass": true,
-                  "write_setup_ms": 4.118,
-                  "resolve_ms": 0.165
+                  "write_setup_ms": 4.303,
+                  "resolve_ms": 0.168
                 },
                 {
                   "case_id": "t3_superseded_policy_not_current",
@@ -3174,11 +3180,11 @@
                     "excluded_value_not_current": false
                   },
                   "pass": false,
-                  "write_setup_ms": 3.361,
-                  "resolve_ms": 0.135
+                  "write_setup_ms": 3.52,
+                  "resolve_ms": 0.138
                 }
               ],
-              "latency_ms": 30.95
+              "latency_ms": 33.671
             }
           },
           "limitations": []
@@ -3211,7 +3217,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
               "metadata": {
                 "runner": "causal_continuity.t5",
-                "commit": "09657c12",
+                "commit": "b8da6ddb",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -3276,12 +3282,12 @@
                   "case_id": "t5_checkout_latency_cache_rollout",
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "bead_key_by_id": {
-                    "bead-E2B83C718ECC": "cache_rollout",
-                    "bead-4BD1856249C4": "db_pool_limit",
-                    "bead-AF1E5F28B527": "checkout_latency",
-                    "bead-E6D19D6D6AFD": "pricing_launch",
-                    "bead-1FA6CC74C747": "pricing_copy",
-                    "bead-8C66D37C1234": "pricing_latency"
+                    "bead-765B9C1B213E": "cache_rollout",
+                    "bead-DCE72C3C2391": "db_pool_limit",
+                    "bead-E32F714203A6": "checkout_latency",
+                    "bead-F107579CA323": "pricing_launch",
+                    "bead-4F985A9C9372": "pricing_copy",
+                    "bead-EB7B5215753C": "pricing_latency"
                   },
                   "gold_thread_keys": [
                     "cache_rollout",
@@ -3303,23 +3309,23 @@
                     "pricing_launch"
                   ],
                   "gold_thread_bead_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-4BD1856249C4",
-                    "bead-AF1E5F28B527"
+                    "bead-765B9C1B213E",
+                    "bead-DCE72C3C2391",
+                    "bead-E32F714203A6"
                   ],
                   "required_answer_bead_ids": [
-                    "bead-4BD1856249C4",
-                    "bead-AF1E5F28B527"
+                    "bead-DCE72C3C2391",
+                    "bead-E32F714203A6"
                   ],
                   "drift_thread_bead_ids": [
-                    "bead-E6D19D6D6AFD",
-                    "bead-1FA6CC74C747",
-                    "bead-8C66D37C1234"
+                    "bead-F107579CA323",
+                    "bead-4F985A9C9372",
+                    "bead-EB7B5215753C"
                   ],
                   "returned_thread_bead_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-AF1E5F28B527",
-                    "bead-E6D19D6D6AFD"
+                    "bead-765B9C1B213E",
+                    "bead-E32F714203A6",
+                    "bead-F107579CA323"
                   ],
                   "metrics": {
                     "thread_precision": 0.6667,
@@ -3342,9 +3348,9 @@
                   },
                   "one_shot_anchor_baseline": {
                     "returned_bead_ids": [
-                      "bead-E2B83C718ECC",
-                      "bead-AF1E5F28B527",
-                      "bead-E6D19D6D6AFD"
+                      "bead-765B9C1B213E",
+                      "bead-E32F714203A6",
+                      "bead-F107579CA323"
                     ],
                     "returned_keys": [
                       "cache_rollout",
@@ -3371,18 +3377,18 @@
                     "query": "Why did checkout latency persist after the cache rollout?",
                     "intent": "causal",
                     "returned_thread_ids": [
-                      "bead-E2B83C718ECC",
-                      "bead-AF1E5F28B527",
-                      "bead-E6D19D6D6AFD"
+                      "bead-765B9C1B213E",
+                      "bead-E32F714203A6",
+                      "bead-F107579CA323"
                     ],
                     "selected_storyline": {
                       "storyline_id": "graph_blind_one_shot",
                       "kind": "baseline",
                       "label": "graph_blind_one_shot",
                       "bead_ids": [
-                        "bead-E2B83C718ECC",
-                        "bead-AF1E5F28B527",
-                        "bead-E6D19D6D6AFD"
+                        "bead-765B9C1B213E",
+                        "bead-E32F714203A6",
+                        "bead-F107579CA323"
                       ],
                       "bead_keys": [
                         "cache_rollout",
@@ -3397,14 +3403,14 @@
                         "step": 1,
                         "anchor_ids": [],
                         "trace_anchor_ids": [
-                          "bead-E2B83C718ECC",
-                          "bead-AF1E5F28B527",
-                          "bead-E6D19D6D6AFD"
+                          "bead-765B9C1B213E",
+                          "bead-E32F714203A6",
+                          "bead-F107579CA323"
                         ],
                         "trace_ids": [
-                          "bead-E2B83C718ECC",
-                          "bead-AF1E5F28B527",
-                          "bead-E6D19D6D6AFD"
+                          "bead-765B9C1B213E",
+                          "bead-E32F714203A6",
+                          "bead-F107579CA323"
                         ],
                         "trace_grounding": {
                           "mode": "disabled_traversal_graph_blind"
@@ -3412,9 +3418,9 @@
                         "selected_storyline": {
                           "storyline_id": "graph_blind_one_shot",
                           "bead_ids": [
-                            "bead-E2B83C718ECC",
-                            "bead-AF1E5F28B527",
-                            "bead-E6D19D6D6AFD"
+                            "bead-765B9C1B213E",
+                            "bead-E32F714203A6",
+                            "bead-F107579CA323"
                           ],
                           "bead_keys": [
                             "cache_rollout",
@@ -3441,7 +3447,7 @@
                   }
                 }
               ],
-              "latency_ms": 37.722
+              "latency_ms": 35.656
             }
           },
           "limitations": []
@@ -3516,7 +3522,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
             "metadata": {
               "runner": "causal_continuity.t5",
-              "commit": "09657c12",
+              "commit": "b8da6ddb",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -3581,12 +3587,12 @@
                 "case_id": "t5_checkout_latency_cache_rollout",
                 "query": "Why did checkout latency persist after the cache rollout?",
                 "bead_key_by_id": {
-                  "bead-E2B83C718ECC": "cache_rollout",
-                  "bead-4BD1856249C4": "db_pool_limit",
-                  "bead-AF1E5F28B527": "checkout_latency",
-                  "bead-E6D19D6D6AFD": "pricing_launch",
-                  "bead-1FA6CC74C747": "pricing_copy",
-                  "bead-8C66D37C1234": "pricing_latency"
+                  "bead-765B9C1B213E": "cache_rollout",
+                  "bead-DCE72C3C2391": "db_pool_limit",
+                  "bead-E32F714203A6": "checkout_latency",
+                  "bead-F107579CA323": "pricing_launch",
+                  "bead-4F985A9C9372": "pricing_copy",
+                  "bead-EB7B5215753C": "pricing_latency"
                 },
                 "gold_thread_keys": [
                   "cache_rollout",
@@ -3608,23 +3614,23 @@
                   "pricing_launch"
                 ],
                 "gold_thread_bead_ids": [
-                  "bead-E2B83C718ECC",
-                  "bead-4BD1856249C4",
-                  "bead-AF1E5F28B527"
+                  "bead-765B9C1B213E",
+                  "bead-DCE72C3C2391",
+                  "bead-E32F714203A6"
                 ],
                 "required_answer_bead_ids": [
-                  "bead-4BD1856249C4",
-                  "bead-AF1E5F28B527"
+                  "bead-DCE72C3C2391",
+                  "bead-E32F714203A6"
                 ],
                 "drift_thread_bead_ids": [
-                  "bead-E6D19D6D6AFD",
-                  "bead-1FA6CC74C747",
-                  "bead-8C66D37C1234"
+                  "bead-F107579CA323",
+                  "bead-4F985A9C9372",
+                  "bead-EB7B5215753C"
                 ],
                 "returned_thread_bead_ids": [
-                  "bead-E2B83C718ECC",
-                  "bead-AF1E5F28B527",
-                  "bead-E6D19D6D6AFD"
+                  "bead-765B9C1B213E",
+                  "bead-E32F714203A6",
+                  "bead-F107579CA323"
                 ],
                 "metrics": {
                   "thread_precision": 0.6667,
@@ -3647,9 +3653,9 @@
                 },
                 "one_shot_anchor_baseline": {
                   "returned_bead_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-AF1E5F28B527",
-                    "bead-E6D19D6D6AFD"
+                    "bead-765B9C1B213E",
+                    "bead-E32F714203A6",
+                    "bead-F107579CA323"
                   ],
                   "returned_keys": [
                     "cache_rollout",
@@ -3676,18 +3682,18 @@
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "intent": "causal",
                   "returned_thread_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-AF1E5F28B527",
-                    "bead-E6D19D6D6AFD"
+                    "bead-765B9C1B213E",
+                    "bead-E32F714203A6",
+                    "bead-F107579CA323"
                   ],
                   "selected_storyline": {
                     "storyline_id": "graph_blind_one_shot",
                     "kind": "baseline",
                     "label": "graph_blind_one_shot",
                     "bead_ids": [
-                      "bead-E2B83C718ECC",
-                      "bead-AF1E5F28B527",
-                      "bead-E6D19D6D6AFD"
+                      "bead-765B9C1B213E",
+                      "bead-E32F714203A6",
+                      "bead-F107579CA323"
                     ],
                     "bead_keys": [
                       "cache_rollout",
@@ -3702,14 +3708,14 @@
                       "step": 1,
                       "anchor_ids": [],
                       "trace_anchor_ids": [
-                        "bead-E2B83C718ECC",
-                        "bead-AF1E5F28B527",
-                        "bead-E6D19D6D6AFD"
+                        "bead-765B9C1B213E",
+                        "bead-E32F714203A6",
+                        "bead-F107579CA323"
                       ],
                       "trace_ids": [
-                        "bead-E2B83C718ECC",
-                        "bead-AF1E5F28B527",
-                        "bead-E6D19D6D6AFD"
+                        "bead-765B9C1B213E",
+                        "bead-E32F714203A6",
+                        "bead-F107579CA323"
                       ],
                       "trace_grounding": {
                         "mode": "disabled_traversal_graph_blind"
@@ -3717,9 +3723,9 @@
                       "selected_storyline": {
                         "storyline_id": "graph_blind_one_shot",
                         "bead_ids": [
-                          "bead-E2B83C718ECC",
-                          "bead-AF1E5F28B527",
-                          "bead-E6D19D6D6AFD"
+                          "bead-765B9C1B213E",
+                          "bead-E32F714203A6",
+                          "bead-F107579CA323"
                         ],
                         "bead_keys": [
                           "cache_rollout",
@@ -3746,7 +3752,7 @@
                 }
               }
             ],
-            "latency_ms": 37.722
+            "latency_ms": 35.656
           }
         }
       },
@@ -3788,7 +3794,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
             "metadata": {
               "runner": "causal_continuity.t2",
-              "commit": "09657c12",
+              "commit": "b8da6ddb",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -3844,7 +3850,7 @@
             "curve": {
               "schema": "calibration_curve.v1",
               "window": "30d",
-              "generated_at": "2026-06-26T21:00:59.801315+00:00",
+              "generated_at": "2026-06-26T21:53:51.983997+00:00",
               "status": "degraded",
               "spearman_rho": 0.8,
               "expected_calibration_error": 0.124,
@@ -3988,7 +3994,7 @@
                 "useful": true
               }
             ],
-            "latency_ms": 15.199
+            "latency_ms": 17.287
           }
         }
       },
@@ -4028,7 +4034,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
             "metadata": {
               "runner": "causal_continuity.t2",
-              "commit": "09657c12",
+              "commit": "b8da6ddb",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -4084,7 +4090,7 @@
             "curve": {
               "schema": "calibration_curve.v1",
               "window": "30d",
-              "generated_at": "2026-06-26T21:00:59.813866+00:00",
+              "generated_at": "2026-06-26T21:53:51.998916+00:00",
               "status": "insufficient_data",
               "spearman_rho": null,
               "expected_calibration_error": null,
@@ -4177,7 +4183,7 @@
               "limitations": []
             },
             "sample_preview": [],
-            "latency_ms": 12.818
+            "latency_ms": 13.952
           }
         }
       },
@@ -4242,7 +4248,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
             "metadata": {
               "runner": "causal_continuity.t3",
-              "commit": "09657c12",
+              "commit": "b8da6ddb",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -4322,8 +4328,8 @@
                   "expected_conflict_claims": false
                 },
                 "pass": false,
-                "write_setup_ms": 3.316,
-                "resolve_ms": 0.134
+                "write_setup_ms": 3.794,
+                "resolve_ms": 0.166
               },
               {
                 "case_id": "t3_current_timezone_after_update",
@@ -4355,8 +4361,8 @@
                   "excluded_value_not_current": true
                 },
                 "pass": true,
-                "write_setup_ms": 3.376,
-                "resolve_ms": 0.121
+                "write_setup_ms": 4.047,
+                "resolve_ms": 0.18
               },
               {
                 "case_id": "t3_historical_timezone_as_of",
@@ -4384,8 +4390,8 @@
                   "value": true
                 },
                 "pass": true,
-                "write_setup_ms": 4.118,
-                "resolve_ms": 0.165
+                "write_setup_ms": 4.303,
+                "resolve_ms": 0.168
               },
               {
                 "case_id": "t3_superseded_policy_not_current",
@@ -4421,11 +4427,11 @@
                   "excluded_value_not_current": false
                 },
                 "pass": false,
-                "write_setup_ms": 3.361,
-                "resolve_ms": 0.135
+                "write_setup_ms": 3.52,
+                "resolve_ms": 0.138
               }
             ],
-            "latency_ms": 30.95
+            "latency_ms": 33.671
           }
         }
       },
@@ -4465,7 +4471,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
             "metadata": {
               "runner": "causal_continuity.t5",
-              "commit": "09657c12",
+              "commit": "b8da6ddb",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -4530,12 +4536,12 @@
                 "case_id": "t5_checkout_latency_cache_rollout",
                 "query": "Why did checkout latency persist after the cache rollout?",
                 "bead_key_by_id": {
-                  "bead-E2B83C718ECC": "cache_rollout",
-                  "bead-4BD1856249C4": "db_pool_limit",
-                  "bead-AF1E5F28B527": "checkout_latency",
-                  "bead-E6D19D6D6AFD": "pricing_launch",
-                  "bead-1FA6CC74C747": "pricing_copy",
-                  "bead-8C66D37C1234": "pricing_latency"
+                  "bead-765B9C1B213E": "cache_rollout",
+                  "bead-DCE72C3C2391": "db_pool_limit",
+                  "bead-E32F714203A6": "checkout_latency",
+                  "bead-F107579CA323": "pricing_launch",
+                  "bead-4F985A9C9372": "pricing_copy",
+                  "bead-EB7B5215753C": "pricing_latency"
                 },
                 "gold_thread_keys": [
                   "cache_rollout",
@@ -4557,23 +4563,23 @@
                   "pricing_launch"
                 ],
                 "gold_thread_bead_ids": [
-                  "bead-E2B83C718ECC",
-                  "bead-4BD1856249C4",
-                  "bead-AF1E5F28B527"
+                  "bead-765B9C1B213E",
+                  "bead-DCE72C3C2391",
+                  "bead-E32F714203A6"
                 ],
                 "required_answer_bead_ids": [
-                  "bead-4BD1856249C4",
-                  "bead-AF1E5F28B527"
+                  "bead-DCE72C3C2391",
+                  "bead-E32F714203A6"
                 ],
                 "drift_thread_bead_ids": [
-                  "bead-E6D19D6D6AFD",
-                  "bead-1FA6CC74C747",
-                  "bead-8C66D37C1234"
+                  "bead-F107579CA323",
+                  "bead-4F985A9C9372",
+                  "bead-EB7B5215753C"
                 ],
                 "returned_thread_bead_ids": [
-                  "bead-E2B83C718ECC",
-                  "bead-AF1E5F28B527",
-                  "bead-E6D19D6D6AFD"
+                  "bead-765B9C1B213E",
+                  "bead-E32F714203A6",
+                  "bead-F107579CA323"
                 ],
                 "metrics": {
                   "thread_precision": 0.6667,
@@ -4596,9 +4602,9 @@
                 },
                 "one_shot_anchor_baseline": {
                   "returned_bead_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-AF1E5F28B527",
-                    "bead-E6D19D6D6AFD"
+                    "bead-765B9C1B213E",
+                    "bead-E32F714203A6",
+                    "bead-F107579CA323"
                   ],
                   "returned_keys": [
                     "cache_rollout",
@@ -4625,18 +4631,18 @@
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "intent": "causal",
                   "returned_thread_ids": [
-                    "bead-E2B83C718ECC",
-                    "bead-AF1E5F28B527",
-                    "bead-E6D19D6D6AFD"
+                    "bead-765B9C1B213E",
+                    "bead-E32F714203A6",
+                    "bead-F107579CA323"
                   ],
                   "selected_storyline": {
                     "storyline_id": "graph_blind_one_shot",
                     "kind": "baseline",
                     "label": "graph_blind_one_shot",
                     "bead_ids": [
-                      "bead-E2B83C718ECC",
-                      "bead-AF1E5F28B527",
-                      "bead-E6D19D6D6AFD"
+                      "bead-765B9C1B213E",
+                      "bead-E32F714203A6",
+                      "bead-F107579CA323"
                     ],
                     "bead_keys": [
                       "cache_rollout",
@@ -4651,14 +4657,14 @@
                       "step": 1,
                       "anchor_ids": [],
                       "trace_anchor_ids": [
-                        "bead-E2B83C718ECC",
-                        "bead-AF1E5F28B527",
-                        "bead-E6D19D6D6AFD"
+                        "bead-765B9C1B213E",
+                        "bead-E32F714203A6",
+                        "bead-F107579CA323"
                       ],
                       "trace_ids": [
-                        "bead-E2B83C718ECC",
-                        "bead-AF1E5F28B527",
-                        "bead-E6D19D6D6AFD"
+                        "bead-765B9C1B213E",
+                        "bead-E32F714203A6",
+                        "bead-F107579CA323"
                       ],
                       "trace_grounding": {
                         "mode": "disabled_traversal_graph_blind"
@@ -4666,9 +4672,9 @@
                       "selected_storyline": {
                         "storyline_id": "graph_blind_one_shot",
                         "bead_ids": [
-                          "bead-E2B83C718ECC",
-                          "bead-AF1E5F28B527",
-                          "bead-E6D19D6D6AFD"
+                          "bead-765B9C1B213E",
+                          "bead-E32F714203A6",
+                          "bead-F107579CA323"
                         ],
                         "bead_keys": [
                           "cache_rollout",
@@ -4695,7 +4701,7 @@
                 }
               }
             ],
-            "latency_ms": 37.722
+            "latency_ms": 35.656
           }
         }
       }
@@ -4771,9 +4777,9 @@
             "slot_validation_cases": 0
           },
           "latency_ms": {
-            "mean": 249.246,
-            "p50": 249.246,
-            "p95": 249.246
+            "mean": 302.184,
+            "p50": 302.184,
+            "p95": 302.184
           },
           "warnings": [
             "semantic_backend_query_error:runtimeerror",

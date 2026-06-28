@@ -1,6 +1,6 @@
 # Causal-Continuity Reproducibility Appendix
 
-Status: generated evidence bundle for source commit `09657c12`.
+Status: generated evidence bundle for source commit `b8da6ddb`.
 
 This appendix records the exact local commands and generated artifacts for the
 current causal-continuity benchmark package. The checked-in report is local,
@@ -9,7 +9,7 @@ external-memory leaderboard claims.
 
 ## Source
 
-- Source commit used to generate the artifacts: `09657c12`
+- Source commit used to generate the artifacts: `b8da6ddb`
 - Python: `3.14.0`
 - Platform recorded by the reproducibility report:
   `macOS-26.5.1-arm64-arm-64bit-Mach-O`
@@ -73,6 +73,8 @@ From `benchmarks/reports/causal-continuity-local-report.json`:
   - `similarity_only`: `CSR=0.0`
   - `dense_vector`: `CSR=0.0`, `status=proxy_executed`
   - `long_context_no_memory`: `CSR=0.0`, `status=proxy_executed`
+  - `external_memory_adapter`: `status=unavailable`,
+    `availability=requires_external_memory_adapter`
 - T2 calibration: `pass=true`, `rho=0.974679`, `samples=20`
 - T3 temporal state selection: `pass=true`
 - T4 longitudinal continuity: `pass=true`
@@ -96,9 +98,10 @@ The local run recorded these warnings:
 - `execute_llm_unavailable`
 - `external_memory_adapter_not_configured`
 - `no_upstream_edges`
-- `semantic_backend_query_error:runtimeerror`
-- `semantic_backend_query_failed_lexical_fallback`
 - `semantic_backend_unavailable_degraded`
+- `semantic_build_lock_held`
+- `semantic_index_missing_artifacts`
+- `semantic_index_rebuild_no_rows_failed`
 - `semantic_index_stale`
 
 Observed environment degradation:
@@ -107,7 +110,8 @@ Observed environment degradation:
   used degraded lexical fallback.
 - Kuzu graph backend was not installed; graph backend construction fell back to
   null where optional graph projection was attempted.
-- No external memory adapter was configured.
+- No external memory adapter or provider-backed T1 command adapter was
+  configured.
 - Long-context/no-memory ran as a deterministic local proxy, not a public
   provider-backed comparison.
 - No LoCoMo or LongMemEval corpus path was supplied for external-corpus smoke or
@@ -150,7 +154,8 @@ into this repository.
 ## Remaining Evidence Limitations
 
 - Public comparison claims against provider-backed long-context/no-memory or
-  external-memory systems still require actual configured adapter runs.
+  external-memory systems still require actual configured command-adapter runs
+  and documented external-system configuration.
 - Real-data rows are local contrast evidence until external corpora are supplied
   and evaluated under their benchmark rules.
 - T5 LLM-judge answerability remains supplemental and opt-in; the default
