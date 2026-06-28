@@ -1,7 +1,7 @@
 {
   "schema_version": "causal_continuity.reproducibility.v1",
-  "run_at": "2026-06-26T21:54:02.089952+00:00",
-  "source_commit": "b8da6ddb",
+  "run_at": "2026-06-28T21:41:05.072805+00:00",
+  "source_commit": "8c2cb7d8",
   "environment": {
     "python": "3.14.0",
     "platform": "macOS-26.5.1-arm64-arm-64bit-Mach-O"
@@ -68,8 +68,7 @@
         "no_upstream_edges",
         "semantic_backend_query_error:runtimeerror",
         "semantic_backend_query_failed_lexical_fallback",
-        "semantic_backend_unavailable_degraded",
-        "semantic_index_stale"
+        "semantic_backend_unavailable_degraded"
       ]
     },
     {
@@ -279,7 +278,6 @@
     "no_upstream_edges",
     "semantic_backend_query_error:runtimeerror",
     "semantic_backend_query_failed_lexical_fallback",
-    "semantic_backend_unavailable_degraded",
-    "semantic_index_stale"
+    "semantic_backend_unavailable_degraded"
   ]
 }
