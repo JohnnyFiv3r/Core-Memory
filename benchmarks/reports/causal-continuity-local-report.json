@@ -1,6 +1,6 @@
 {
   "schema_version": "causal_continuity_report.v1",
-  "run_at": "2026-06-26T21:53:51.980455+00:00",
+  "run_at": "2026-06-28T21:40:55.034274+00:00",
   "metadata": {
     "suite": "causal_continuity",
     "task_count": 5,
@@ -21,7 +21,7 @@
     ],
     "subset": "local",
     "limit": 1,
-    "commit": "b8da6ddb",
+    "commit": "8c2cb7d8",
     "notes": [
       "pr1_t1_strategy_matrix",
       "pr2_t2_calibration_reliability",
@@ -286,8 +286,8 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 18.764,
-          "retrieval_mean_ms": 0.119
+          "latency_mean_ms": 19.688,
+          "retrieval_mean_ms": 0.136
         },
         "core_memory_full": {
           "status": "completed",
@@ -310,8 +310,8 @@
           "edge_precision_mean": 1.0,
           "edge_recall_mean": 1.0,
           "edge_f1_mean": 1.0,
-          "latency_mean_ms": 161.095,
-          "retrieval_mean_ms": 114.703
+          "latency_mean_ms": 121.248,
+          "retrieval_mean_ms": 59.855
         },
         "dense_vector": {
           "status": "proxy_executed",
@@ -334,8 +334,8 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 21.356,
-          "retrieval_mean_ms": 0.193
+          "latency_mean_ms": 18.531,
+          "retrieval_mean_ms": 0.18
         },
         "external_memory_adapter": {
           "status": "unavailable",
@@ -382,8 +382,8 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 17.314,
-          "retrieval_mean_ms": 0.206
+          "latency_mean_ms": 19.041,
+          "retrieval_mean_ms": 0.205
         },
         "similarity_only": {
           "status": "completed",
@@ -406,8 +406,8 @@
           "edge_precision_mean": 0.0,
           "edge_recall_mean": 0.0,
           "edge_f1_mean": 0.0,
-          "latency_mean_ms": 17.754,
-          "retrieval_mean_ms": 0.263
+          "latency_mean_ms": 18.405,
+          "retrieval_mean_ms": 0.247
         }
       },
       "case_matrix": [
@@ -459,7 +459,7 @@
       "strategy_reports": {
         "core_memory_full": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:53:51.547649+00:00",
+          "generated_at": "2026-06-28T21:40:54.517267+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -474,7 +474,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "b8da6ddb",
+            "commit": "8c2cb7d8",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -518,10 +518,10 @@
             "survival_rate": 1.0
           },
           "latency_ms": {
-            "mean": 161.095,
-            "p50": 161.095,
-            "p95": 161.095,
-            "retrieval_mean": 114.703
+            "mean": 121.248,
+            "p50": 121.248,
+            "p95": 121.248,
+            "retrieval_mean": 59.855
           },
           "per_bucket": {
             "adversarial": {
@@ -533,10 +533,9 @@
           "warnings": [
             "execute_llm_unavailable",
             "no_upstream_edges",
+            "semantic_backend_query_error:runtimeerror",
+            "semantic_backend_query_failed_lexical_fallback",
             "semantic_backend_unavailable_degraded",
-            "semantic_build_lock_held",
-            "semantic_index_missing_artifacts",
-            "semantic_index_rebuild_no_rows_failed",
             "semantic_index_stale"
           ],
           "cases": [
@@ -547,8 +546,8 @@
               ],
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
-              "write_setup_ms": 44.343,
-              "retrieval_ms": 114.703,
+              "write_setup_ms": 59.306,
+              "retrieval_ms": 59.855,
               "tier_path": [
                 "semantic",
                 "causal",
@@ -558,10 +557,9 @@
                 "source"
               ],
               "warnings": [
-                "semantic_index_missing_artifacts",
-                "semantic_build_lock_held",
                 "semantic_index_stale",
-                "semantic_index_rebuild_no_rows_failed",
+                "semantic_backend_query_failed_lexical_fallback",
+                "semantic_backend_query_error:runtimeerror",
                 "semantic_backend_unavailable_degraded",
                 "execute_llm_unavailable",
                 "no_upstream_edges"
@@ -579,10 +577,10 @@
               "distractor_survived": true,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-3F8E743AFE4E",
-                "bead-5297BC18BDA6"
+                "bead-14127CAC3F13",
+                "bead-7C82CBA8B81C"
               ],
-              "gold_root_cause_id": "bead-3F8E743AFE4E",
+              "gold_root_cause_id": "bead-14127CAC3F13",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": true,
@@ -591,14 +589,14 @@
                 "distractor_survived": true
               },
               "pass": true,
-              "latency_ms": 161.095,
+              "latency_ms": 121.248,
               "strategy": "core_memory_full"
             }
           ]
         },
         "bm25": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:53:51.580532+00:00",
+          "generated_at": "2026-06-28T21:40:54.550599+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -613,7 +611,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "b8da6ddb",
+            "commit": "8c2cb7d8",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -657,10 +655,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 18.764,
-            "p50": 18.764,
-            "p95": 18.764,
-            "retrieval_mean": 0.119
+            "mean": 19.688,
+            "p50": 19.688,
+            "p95": 19.688,
+            "retrieval_mean": 0.136
           },
           "per_bucket": {
             "adversarial": {
@@ -679,8 +677,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "bm25",
-              "write_setup_ms": 17.157,
-              "retrieval_ms": 0.119,
+              "write_setup_ms": 18.226,
+              "retrieval_ms": 0.136,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -698,12 +696,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-5CD99A0B1D71",
-                "bead-487C1AA2A9F7",
-                "bead-7953544B8145",
-                "bead-6C9CA65F733E"
+                "bead-3B7FE2B004B0",
+                "bead-A40F6F2F5FAB",
+                "bead-0E7F5941894C",
+                "bead-93263503B838"
               ],
-              "gold_root_cause_id": "bead-7953544B8145",
+              "gold_root_cause_id": "bead-0E7F5941894C",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -712,13 +710,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 18.764
+              "latency_ms": 19.688
             }
           ]
         },
         "similarity_only": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:53:51.613246+00:00",
+          "generated_at": "2026-06-28T21:40:54.584117+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -733,7 +731,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "b8da6ddb",
+            "commit": "8c2cb7d8",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -777,10 +775,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 17.754,
-            "p50": 17.754,
-            "p95": 17.754,
-            "retrieval_mean": 0.263
+            "mean": 18.405,
+            "p50": 18.405,
+            "p95": 18.405,
+            "retrieval_mean": 0.247
           },
           "per_bucket": {
             "adversarial": {
@@ -799,8 +797,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "similarity_only",
-              "write_setup_ms": 16.169,
-              "retrieval_ms": 0.263,
+              "write_setup_ms": 16.507,
+              "retrieval_ms": 0.247,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -818,12 +816,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-59D65269FE2F",
-                "bead-34E848FBC3B6",
-                "bead-0BC7BF675139",
-                "bead-5EC85A69E470"
+                "bead-088D4DADB166",
+                "bead-821396A4D50A",
+                "bead-653F6568FB7F",
+                "bead-C06CF4CE9277"
               ],
-              "gold_root_cause_id": "bead-0BC7BF675139",
+              "gold_root_cause_id": "bead-653F6568FB7F",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -832,13 +830,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 17.754
+              "latency_ms": 18.405
             }
           ]
         },
         "dense_vector": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:53:51.648853+00:00",
+          "generated_at": "2026-06-28T21:40:54.617102+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -853,7 +851,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "b8da6ddb",
+            "commit": "8c2cb7d8",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -898,10 +896,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 21.356,
-            "p50": 21.356,
-            "p95": 21.356,
-            "retrieval_mean": 0.193
+            "mean": 18.531,
+            "p50": 18.531,
+            "p95": 18.531,
+            "retrieval_mean": 0.18
           },
           "per_bucket": {
             "adversarial": {
@@ -920,8 +918,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "dense_vector",
-              "write_setup_ms": 19.849,
-              "retrieval_ms": 0.193,
+              "write_setup_ms": 16.902,
+              "retrieval_ms": 0.18,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -939,12 +937,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-DAD112DEE09E",
-                "bead-7899112005FA",
-                "bead-AF09F957F954",
-                "bead-764D817F47DE"
+                "bead-E1CB5308EBDF",
+                "bead-37CFC8F50FAB",
+                "bead-E540C32779AD",
+                "bead-C3A4DC9FE6C0"
               ],
-              "gold_root_cause_id": "bead-AF09F957F954",
+              "gold_root_cause_id": "bead-E540C32779AD",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -953,13 +951,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 21.356
+              "latency_ms": 18.531
             }
           ]
         },
         "long_context_no_memory": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:53:51.679671+00:00",
+          "generated_at": "2026-06-28T21:40:54.651645+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -974,7 +972,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 1,
-            "commit": "b8da6ddb",
+            "commit": "8c2cb7d8",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -1019,10 +1017,10 @@
             "survival_rate": 0.0
           },
           "latency_ms": {
-            "mean": 17.314,
-            "p50": 17.314,
-            "p95": 17.314,
-            "retrieval_mean": 0.206
+            "mean": 19.041,
+            "p50": 19.041,
+            "p95": 19.041,
+            "retrieval_mean": 0.205
           },
           "per_bucket": {
             "adversarial": {
@@ -1041,8 +1039,8 @@
               "query": "why was the api returning 500 errors",
               "expected_grounding": "full",
               "strategy": "long_context_no_memory",
-              "write_setup_ms": 15.828,
-              "retrieval_ms": 0.206,
+              "write_setup_ms": 17.412,
+              "retrieval_ms": 0.205,
               "tier_path": [
                 "baseline_similarity"
               ],
@@ -1060,12 +1058,12 @@
               "distractor_survived": false,
               "distractor_count": 1,
               "ranked_root_cause_ids": [
-                "bead-361DB079E62B",
-                "bead-4C49493A67B2",
-                "bead-BEB81F27C0D1",
-                "bead-1F57632416AE"
+                "bead-CEED2BD43B4E",
+                "bead-3612785375CF",
+                "bead-7934FF235FB8",
+                "bead-80DCD7FA314D"
               ],
-              "gold_root_cause_id": "bead-BEB81F27C0D1",
+              "gold_root_cause_id": "bead-7934FF235FB8",
               "gold_root_in_ranking": true,
               "checks": {
                 "edge_recall_complete": false,
@@ -1074,13 +1072,13 @@
                 "distractor_survived": false
               },
               "pass": false,
-              "latency_ms": 17.314
+              "latency_ms": 19.041
             }
           ]
         },
         "external_memory_adapter": {
           "schema_version": "causal_benchmark_report.v1",
-          "generated_at": "2026-06-26T21:53:51.694678+00:00",
+          "generated_at": "2026-06-28T21:40:54.665233+00:00",
           "metadata": {
             "runner": "causal_continuity.t1",
             "task_id": "t1_causal_chain_reconstruction",
@@ -1096,7 +1094,7 @@
             "leaderboard_claim": false,
             "subset": "local",
             "case_count": 0,
-            "commit": "b8da6ddb",
+            "commit": "8c2cb7d8",
             "faithfulness": {
               "synthetic_crawler_updates": false,
               "synthetic_temporal_edges": false,
@@ -1162,7 +1160,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
       "metadata": {
         "runner": "causal_continuity.t2",
-        "commit": "b8da6ddb",
+        "commit": "8c2cb7d8",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1218,7 +1216,7 @@
       "curve": {
         "schema": "calibration_curve.v1",
         "window": "30d",
-        "generated_at": "2026-06-26T21:53:51.698817+00:00",
+        "generated_at": "2026-06-28T21:40:54.669450+00:00",
         "status": "good",
         "spearman_rho": 0.974679,
         "expected_calibration_error": 0.08,
@@ -1362,7 +1360,7 @@
           "useful": true
         }
       ],
-      "latency_ms": 17.569
+      "latency_ms": 17.504
     },
     "t3_temporal_state_selection": {
       "schema_version": "causal_continuity.t3_temporal_state.v1",
@@ -1373,7 +1371,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
       "metadata": {
         "runner": "causal_continuity.t3",
-        "commit": "b8da6ddb",
+        "commit": "8c2cb7d8",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1455,8 +1453,8 @@
             "expected_conflict_claims": true
           },
           "pass": true,
-          "write_setup_ms": 3.247,
-          "resolve_ms": 0.129
+          "write_setup_ms": 3.352,
+          "resolve_ms": 0.144
         },
         {
           "case_id": "t3_current_timezone_after_update",
@@ -1488,8 +1486,8 @@
             "excluded_value_not_current": true
           },
           "pass": true,
-          "write_setup_ms": 3.087,
-          "resolve_ms": 0.116
+          "write_setup_ms": 3.182,
+          "resolve_ms": 0.139
         },
         {
           "case_id": "t3_historical_timezone_as_of",
@@ -1517,8 +1515,8 @@
             "value": true
           },
           "pass": true,
-          "write_setup_ms": 4.029,
-          "resolve_ms": 0.144
+          "write_setup_ms": 4.354,
+          "resolve_ms": 0.171
         },
         {
           "case_id": "t3_superseded_policy_not_current",
@@ -1554,11 +1552,11 @@
             "excluded_value_not_current": true
           },
           "pass": true,
-          "write_setup_ms": 3.298,
-          "resolve_ms": 0.161
+          "write_setup_ms": 3.548,
+          "resolve_ms": 0.152
         }
       ],
-      "latency_ms": 30.265
+      "latency_ms": 31.967
     },
     "t4_longitudinal_continuity": {
       "schema_version": "causal_continuity.t4_longitudinal_continuity.v1",
@@ -1569,7 +1567,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t4_longitudinal_continuity.json",
       "metadata": {
         "runner": "causal_continuity.t4",
-        "commit": "b8da6ddb",
+        "commit": "8c2cb7d8",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1616,14 +1614,14 @@
       "setup": {
         "bead_count": 4,
         "bead_keys": {
-          "rollout_policy": "bead-43365152D048",
-          "cross_session_lesson": "bead-2C8F54417775",
-          "same_session_outcome": "bead-C14BCC6CF86C",
-          "identity_evidence": "bead-CF30A3327280"
+          "rollout_policy": "bead-4E90AEF52BB7",
+          "cross_session_lesson": "bead-F847896DE618",
+          "same_session_outcome": "bead-FE1E6C530E1A",
+          "identity_evidence": "bead-436D256EFD9E"
         },
         "dreamer_decisions": [
           {
-            "candidate_id": "dc-e775aa3acd46",
+            "candidate_id": "dc-60448b26cb73",
             "relationship": "supports",
             "relationship_signal": "reinforces",
             "hypothesis_type": "association_candidate",
@@ -1633,7 +1631,7 @@
             "applied": {}
           },
           {
-            "candidate_id": "dc-4a5d9022bfef",
+            "candidate_id": "dc-4d20ff8b8f9f",
             "relationship": "applies_pattern_of",
             "relationship_signal": "transferable_lesson",
             "hypothesis_type": "transferable_lesson_candidate",
@@ -1644,7 +1642,7 @@
               "ok": true,
               "association_id": null,
               "canonical_entry": "process_turn_finalized",
-              "turn_id": "dreamer-apply-dc-4a5d9022bfef",
+              "turn_id": "dreamer-apply-dc-4d20ff8b8f9f",
               "session_id": "t4-session-a",
               "relationship": "applies_pattern_of",
               "relationship_raw": "applies_pattern_of",
@@ -1654,12 +1652,12 @@
           }
         ],
         "downstream_recalled_bead_ids": [
-          "bead-43365152D048"
+          "bead-4E90AEF52BB7"
         ],
         "soul_results": [
           {
             "ok": true,
-            "revision_id": "soul-9b0ae7ef3c0f",
+            "revision_id": "soul-9d7f7e53987c",
             "status": "applied",
             "subject": "self",
             "target_file": "IDENTITY.md"
@@ -1670,13 +1668,13 @@
             "proposed": {
               "ok": true,
               "goal_id": "t4-maintain-continuity",
-              "bead_id": "bead-1227D5AA8ED5",
+              "bead_id": "bead-E6B89EFAB4BC",
               "status": "candidate",
               "subject": "self"
             },
             "approved": {
               "ok": true,
-              "bead_id": "bead-1227D5AA8ED5",
+              "bead_id": "bead-E6B89EFAB4BC",
               "from_state": "candidate",
               "to_state": "endorsed"
             }
@@ -1685,7 +1683,7 @@
       },
       "longitudinal": {
         "schema": "core_memory.longitudinal_benchmark_v2.v1",
-        "root": "/var/folders/_6/5j2zqszn2c51jtglr5x76k_h0000gn/T/cm-t4-longitudinal-rgrba128",
+        "root": "/var/folders/_6/5j2zqszn2c51jtglr5x76k_h0000gn/T/cm-t4-longitudinal-s7v1drtf",
         "since": "30d",
         "methodology": {
           "kind": "candidate_quality_proxy",
@@ -1777,7 +1775,7 @@
       "self_model_drift": {
         "schema": "self_model_drift_meter.v1",
         "window": "30d",
-        "generated_at": "2026-06-26T21:53:51.904342+00:00",
+        "generated_at": "2026-06-28T21:40:54.954736+00:00",
         "status": "healthy",
         "drift_score": 0,
         "revision_count": 1,
@@ -1805,7 +1803,7 @@
         "goal_thread_persistence_rate": 1.0,
         "goals": [
           {
-            "bead_id": "bead-1227D5AA8ED5",
+            "bead_id": "bead-E6B89EFAB4BC",
             "goal_id": "t4-maintain-continuity",
             "title": "Maintain longitudinal continuity",
             "state": "endorsed",
@@ -1813,12 +1811,12 @@
               "Cross-session Dreamer structure remains reviewable.",
               "Identity updates stay grounded."
             ],
-            "created_at": "2026-06-26T21:53:51.897125+00:00",
-            "goal_state_changed_at": "2026-06-26T21:53:51.900713+00:00"
+            "created_at": "2026-06-28T21:40:54.946966+00:00",
+            "goal_state_changed_at": "2026-06-28T21:40:54.950759+00:00"
           }
         ]
       },
-      "latency_ms": 177.812
+      "latency_ms": 255.916
     },
     "t5_thread_fidelity": {
       "schema_version": "causal_continuity.t5_thread_fidelity.v1",
@@ -1829,7 +1827,7 @@
       "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
       "metadata": {
         "runner": "causal_continuity.t5",
-        "commit": "b8da6ddb",
+        "commit": "8c2cb7d8",
         "faithfulness": {
           "synthetic_crawler_updates": false,
           "synthetic_temporal_edges": false,
@@ -1894,12 +1892,12 @@
           "case_id": "t5_checkout_latency_cache_rollout",
           "query": "Why did checkout latency persist after the cache rollout?",
           "bead_key_by_id": {
-            "bead-F3F7E0C32529": "cache_rollout",
-            "bead-5639153BFEA2": "db_pool_limit",
-            "bead-318F4A89FC1F": "checkout_latency",
-            "bead-2699FED95A7B": "pricing_launch",
-            "bead-F3416346F0E5": "pricing_copy",
-            "bead-40927F1DCA8F": "pricing_latency"
+            "bead-B398C5813C98": "cache_rollout",
+            "bead-2B71AA357ECC": "db_pool_limit",
+            "bead-2F6518912B8C": "checkout_latency",
+            "bead-D410FF6FB9C8": "pricing_launch",
+            "bead-F94C37AE95EC": "pricing_copy",
+            "bead-128C350B1CBA": "pricing_latency"
           },
           "gold_thread_keys": [
             "cache_rollout",
@@ -1921,23 +1919,23 @@
             "db_pool_limit"
           ],
           "gold_thread_bead_ids": [
-            "bead-F3F7E0C32529",
-            "bead-5639153BFEA2",
-            "bead-318F4A89FC1F"
+            "bead-B398C5813C98",
+            "bead-2B71AA357ECC",
+            "bead-2F6518912B8C"
           ],
           "required_answer_bead_ids": [
-            "bead-5639153BFEA2",
-            "bead-318F4A89FC1F"
+            "bead-2B71AA357ECC",
+            "bead-2F6518912B8C"
           ],
           "drift_thread_bead_ids": [
-            "bead-2699FED95A7B",
-            "bead-F3416346F0E5",
-            "bead-40927F1DCA8F"
+            "bead-D410FF6FB9C8",
+            "bead-F94C37AE95EC",
+            "bead-128C350B1CBA"
           ],
           "returned_thread_bead_ids": [
-            "bead-F3F7E0C32529",
-            "bead-318F4A89FC1F",
-            "bead-5639153BFEA2"
+            "bead-B398C5813C98",
+            "bead-2F6518912B8C",
+            "bead-2B71AA357ECC"
           ],
           "metrics": {
             "thread_precision": 1.0,
@@ -1960,9 +1958,9 @@
           },
           "one_shot_anchor_baseline": {
             "returned_bead_ids": [
-              "bead-F3F7E0C32529",
-              "bead-318F4A89FC1F",
-              "bead-2699FED95A7B"
+              "bead-B398C5813C98",
+              "bead-2F6518912B8C",
+              "bead-D410FF6FB9C8"
             ],
             "returned_keys": [
               "cache_rollout",
@@ -1989,18 +1987,18 @@
             "query": "Why did checkout latency persist after the cache rollout?",
             "intent": "causal",
             "returned_thread_ids": [
-              "bead-F3F7E0C32529",
-              "bead-318F4A89FC1F",
-              "bead-5639153BFEA2"
+              "bead-B398C5813C98",
+              "bead-2F6518912B8C",
+              "bead-2B71AA357ECC"
             ],
             "selected_storyline": {
               "storyline_id": "wl-entity-3c39881ca589",
               "kind": "entity",
               "label": "checkout latency investigation",
               "bead_ids": [
-                "bead-F3F7E0C32529",
-                "bead-318F4A89FC1F",
-                "bead-5639153BFEA2"
+                "bead-B398C5813C98",
+                "bead-2F6518912B8C",
+                "bead-2B71AA357ECC"
               ],
               "bead_keys": [
                 "cache_rollout",
@@ -2018,19 +2016,19 @@
                 "step": 1,
                 "anchor_ids": [],
                 "trace_anchor_ids": [
-                  "bead-5639153BFEA2",
-                  "bead-F3F7E0C32529",
-                  "bead-318F4A89FC1F",
-                  "bead-40927F1DCA8F",
-                  "bead-2699FED95A7B"
+                  "bead-2B71AA357ECC",
+                  "bead-B398C5813C98",
+                  "bead-2F6518912B8C",
+                  "bead-128C350B1CBA",
+                  "bead-D410FF6FB9C8"
                 ],
                 "trace_ids": [
-                  "bead-5639153BFEA2",
-                  "bead-F3F7E0C32529",
-                  "bead-318F4A89FC1F",
-                  "bead-40927F1DCA8F",
-                  "bead-2699FED95A7B",
-                  "bead-F3416346F0E5"
+                  "bead-2B71AA357ECC",
+                  "bead-B398C5813C98",
+                  "bead-2F6518912B8C",
+                  "bead-128C350B1CBA",
+                  "bead-D410FF6FB9C8",
+                  "bead-F94C37AE95EC"
                 ],
                 "trace_grounding": {
                   "required": true,
@@ -2043,9 +2041,9 @@
                   "kind": "entity",
                   "label": "checkout latency investigation",
                   "bead_ids": [
-                    "bead-F3F7E0C32529",
-                    "bead-318F4A89FC1F",
-                    "bead-5639153BFEA2"
+                    "bead-B398C5813C98",
+                    "bead-2F6518912B8C",
+                    "bead-2B71AA357ECC"
                   ],
                   "bead_keys": [
                     "cache_rollout",
@@ -2063,9 +2061,9 @@
                     "kind": "entity",
                     "label": "checkout latency investigation",
                     "bead_ids": [
-                      "bead-F3F7E0C32529",
-                      "bead-318F4A89FC1F",
-                      "bead-5639153BFEA2"
+                      "bead-B398C5813C98",
+                      "bead-2F6518912B8C",
+                      "bead-2B71AA357ECC"
                     ],
                     "bead_keys": [
                       "cache_rollout",
@@ -2082,9 +2080,9 @@
                     "kind": "entity",
                     "label": "pricing launch storyline",
                     "bead_ids": [
-                      "bead-F3416346F0E5",
-                      "bead-40927F1DCA8F",
-                      "bead-2699FED95A7B"
+                      "bead-F94C37AE95EC",
+                      "bead-128C350B1CBA",
+                      "bead-D410FF6FB9C8"
                     ],
                     "bead_keys": [
                       "pricing_copy",
@@ -2115,17 +2113,16 @@
           }
         }
       ],
-      "latency_ms": 45.291
+      "latency_ms": 47.455
     }
   },
   "warnings": [
     "execute_llm_unavailable",
     "external_memory_adapter_not_configured",
     "no_upstream_edges",
+    "semantic_backend_query_error:runtimeerror",
+    "semantic_backend_query_failed_lexical_fallback",
     "semantic_backend_unavailable_degraded",
-    "semantic_build_lock_held",
-    "semantic_index_missing_artifacts",
-    "semantic_index_rebuild_no_rows_failed",
     "semantic_index_stale"
   ],
   "ablation_matrix": {
@@ -2307,7 +2304,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
               "metadata": {
                 "runner": "causal_continuity.t5",
-                "commit": "b8da6ddb",
+                "commit": "8c2cb7d8",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2372,12 +2369,12 @@
                   "case_id": "t5_checkout_latency_cache_rollout",
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "bead_key_by_id": {
-                    "bead-765B9C1B213E": "cache_rollout",
-                    "bead-DCE72C3C2391": "db_pool_limit",
-                    "bead-E32F714203A6": "checkout_latency",
-                    "bead-F107579CA323": "pricing_launch",
-                    "bead-4F985A9C9372": "pricing_copy",
-                    "bead-EB7B5215753C": "pricing_latency"
+                    "bead-0959C7F9D983": "cache_rollout",
+                    "bead-EB451212753A": "db_pool_limit",
+                    "bead-208FD8BB2614": "checkout_latency",
+                    "bead-C0A832C52EE1": "pricing_launch",
+                    "bead-533DCA210478": "pricing_copy",
+                    "bead-0D8AD23B640D": "pricing_latency"
                   },
                   "gold_thread_keys": [
                     "cache_rollout",
@@ -2399,23 +2396,23 @@
                     "pricing_launch"
                   ],
                   "gold_thread_bead_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-DCE72C3C2391",
-                    "bead-E32F714203A6"
+                    "bead-0959C7F9D983",
+                    "bead-EB451212753A",
+                    "bead-208FD8BB2614"
                   ],
                   "required_answer_bead_ids": [
-                    "bead-DCE72C3C2391",
-                    "bead-E32F714203A6"
+                    "bead-EB451212753A",
+                    "bead-208FD8BB2614"
                   ],
                   "drift_thread_bead_ids": [
-                    "bead-F107579CA323",
-                    "bead-4F985A9C9372",
-                    "bead-EB7B5215753C"
+                    "bead-C0A832C52EE1",
+                    "bead-533DCA210478",
+                    "bead-0D8AD23B640D"
                   ],
                   "returned_thread_bead_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-E32F714203A6",
-                    "bead-F107579CA323"
+                    "bead-0959C7F9D983",
+                    "bead-208FD8BB2614",
+                    "bead-C0A832C52EE1"
                   ],
                   "metrics": {
                     "thread_precision": 0.6667,
@@ -2438,9 +2435,9 @@
                   },
                   "one_shot_anchor_baseline": {
                     "returned_bead_ids": [
-                      "bead-765B9C1B213E",
-                      "bead-E32F714203A6",
-                      "bead-F107579CA323"
+                      "bead-0959C7F9D983",
+                      "bead-208FD8BB2614",
+                      "bead-C0A832C52EE1"
                     ],
                     "returned_keys": [
                       "cache_rollout",
@@ -2467,18 +2464,18 @@
                     "query": "Why did checkout latency persist after the cache rollout?",
                     "intent": "causal",
                     "returned_thread_ids": [
-                      "bead-765B9C1B213E",
-                      "bead-E32F714203A6",
-                      "bead-F107579CA323"
+                      "bead-0959C7F9D983",
+                      "bead-208FD8BB2614",
+                      "bead-C0A832C52EE1"
                     ],
                     "selected_storyline": {
                       "storyline_id": "graph_blind_one_shot",
                       "kind": "baseline",
                       "label": "graph_blind_one_shot",
                       "bead_ids": [
-                        "bead-765B9C1B213E",
-                        "bead-E32F714203A6",
-                        "bead-F107579CA323"
+                        "bead-0959C7F9D983",
+                        "bead-208FD8BB2614",
+                        "bead-C0A832C52EE1"
                       ],
                       "bead_keys": [
                         "cache_rollout",
@@ -2493,14 +2490,14 @@
                         "step": 1,
                         "anchor_ids": [],
                         "trace_anchor_ids": [
-                          "bead-765B9C1B213E",
-                          "bead-E32F714203A6",
-                          "bead-F107579CA323"
+                          "bead-0959C7F9D983",
+                          "bead-208FD8BB2614",
+                          "bead-C0A832C52EE1"
                         ],
                         "trace_ids": [
-                          "bead-765B9C1B213E",
-                          "bead-E32F714203A6",
-                          "bead-F107579CA323"
+                          "bead-0959C7F9D983",
+                          "bead-208FD8BB2614",
+                          "bead-C0A832C52EE1"
                         ],
                         "trace_grounding": {
                           "mode": "disabled_traversal_graph_blind"
@@ -2508,9 +2505,9 @@
                         "selected_storyline": {
                           "storyline_id": "graph_blind_one_shot",
                           "bead_ids": [
-                            "bead-765B9C1B213E",
-                            "bead-E32F714203A6",
-                            "bead-F107579CA323"
+                            "bead-0959C7F9D983",
+                            "bead-208FD8BB2614",
+                            "bead-C0A832C52EE1"
                           ],
                           "bead_keys": [
                             "cache_rollout",
@@ -2537,7 +2534,7 @@
                   }
                 }
               ],
-              "latency_ms": 35.656
+              "latency_ms": 36.64
             }
           },
           "limitations": []
@@ -2569,7 +2566,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
               "metadata": {
                 "runner": "causal_continuity.t2",
-                "commit": "b8da6ddb",
+                "commit": "8c2cb7d8",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2625,7 +2622,7 @@
               "curve": {
                 "schema": "calibration_curve.v1",
                 "window": "30d",
-                "generated_at": "2026-06-26T21:53:51.983997+00:00",
+                "generated_at": "2026-06-28T21:40:55.038725+00:00",
                 "status": "degraded",
                 "spearman_rho": 0.8,
                 "expected_calibration_error": 0.124,
@@ -2769,7 +2766,7 @@
                   "useful": true
                 }
               ],
-              "latency_ms": 17.287
+              "latency_ms": 20.443
             }
           },
           "limitations": [
@@ -2802,7 +2799,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
               "metadata": {
                 "runner": "causal_continuity.t2",
-                "commit": "b8da6ddb",
+                "commit": "8c2cb7d8",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -2858,7 +2855,7 @@
               "curve": {
                 "schema": "calibration_curve.v1",
                 "window": "30d",
-                "generated_at": "2026-06-26T21:53:51.998916+00:00",
+                "generated_at": "2026-06-28T21:40:55.056125+00:00",
                 "status": "insufficient_data",
                 "spearman_rho": null,
                 "expected_calibration_error": null,
@@ -2951,7 +2948,7 @@
                 "limitations": []
               },
               "sample_preview": [],
-              "latency_ms": 13.952
+              "latency_ms": 15.86
             }
           },
           "limitations": []
@@ -3001,7 +2998,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
               "metadata": {
                 "runner": "causal_continuity.t3",
-                "commit": "b8da6ddb",
+                "commit": "8c2cb7d8",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -3081,8 +3078,8 @@
                     "expected_conflict_claims": false
                   },
                   "pass": false,
-                  "write_setup_ms": 3.794,
-                  "resolve_ms": 0.166
+                  "write_setup_ms": 3.115,
+                  "resolve_ms": 0.11
                 },
                 {
                   "case_id": "t3_current_timezone_after_update",
@@ -3114,8 +3111,8 @@
                     "excluded_value_not_current": true
                   },
                   "pass": true,
-                  "write_setup_ms": 4.047,
-                  "resolve_ms": 0.18
+                  "write_setup_ms": 3.131,
+                  "resolve_ms": 0.132
                 },
                 {
                   "case_id": "t3_historical_timezone_as_of",
@@ -3143,8 +3140,8 @@
                     "value": true
                   },
                   "pass": true,
-                  "write_setup_ms": 4.303,
-                  "resolve_ms": 0.168
+                  "write_setup_ms": 5.066,
+                  "resolve_ms": 0.178
                 },
                 {
                   "case_id": "t3_superseded_policy_not_current",
@@ -3180,11 +3177,11 @@
                     "excluded_value_not_current": false
                   },
                   "pass": false,
-                  "write_setup_ms": 3.52,
-                  "resolve_ms": 0.138
+                  "write_setup_ms": 3.542,
+                  "resolve_ms": 0.145
                 }
               ],
-              "latency_ms": 33.671
+              "latency_ms": 34.595
             }
           },
           "limitations": []
@@ -3217,7 +3214,7 @@
               "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
               "metadata": {
                 "runner": "causal_continuity.t5",
-                "commit": "b8da6ddb",
+                "commit": "8c2cb7d8",
                 "faithfulness": {
                   "synthetic_crawler_updates": false,
                   "synthetic_temporal_edges": false,
@@ -3282,12 +3279,12 @@
                   "case_id": "t5_checkout_latency_cache_rollout",
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "bead_key_by_id": {
-                    "bead-765B9C1B213E": "cache_rollout",
-                    "bead-DCE72C3C2391": "db_pool_limit",
-                    "bead-E32F714203A6": "checkout_latency",
-                    "bead-F107579CA323": "pricing_launch",
-                    "bead-4F985A9C9372": "pricing_copy",
-                    "bead-EB7B5215753C": "pricing_latency"
+                    "bead-0959C7F9D983": "cache_rollout",
+                    "bead-EB451212753A": "db_pool_limit",
+                    "bead-208FD8BB2614": "checkout_latency",
+                    "bead-C0A832C52EE1": "pricing_launch",
+                    "bead-533DCA210478": "pricing_copy",
+                    "bead-0D8AD23B640D": "pricing_latency"
                   },
                   "gold_thread_keys": [
                     "cache_rollout",
@@ -3309,23 +3306,23 @@
                     "pricing_launch"
                   ],
                   "gold_thread_bead_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-DCE72C3C2391",
-                    "bead-E32F714203A6"
+                    "bead-0959C7F9D983",
+                    "bead-EB451212753A",
+                    "bead-208FD8BB2614"
                   ],
                   "required_answer_bead_ids": [
-                    "bead-DCE72C3C2391",
-                    "bead-E32F714203A6"
+                    "bead-EB451212753A",
+                    "bead-208FD8BB2614"
                   ],
                   "drift_thread_bead_ids": [
-                    "bead-F107579CA323",
-                    "bead-4F985A9C9372",
-                    "bead-EB7B5215753C"
+                    "bead-C0A832C52EE1",
+                    "bead-533DCA210478",
+                    "bead-0D8AD23B640D"
                   ],
                   "returned_thread_bead_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-E32F714203A6",
-                    "bead-F107579CA323"
+                    "bead-0959C7F9D983",
+                    "bead-208FD8BB2614",
+                    "bead-C0A832C52EE1"
                   ],
                   "metrics": {
                     "thread_precision": 0.6667,
@@ -3348,9 +3345,9 @@
                   },
                   "one_shot_anchor_baseline": {
                     "returned_bead_ids": [
-                      "bead-765B9C1B213E",
-                      "bead-E32F714203A6",
-                      "bead-F107579CA323"
+                      "bead-0959C7F9D983",
+                      "bead-208FD8BB2614",
+                      "bead-C0A832C52EE1"
                     ],
                     "returned_keys": [
                       "cache_rollout",
@@ -3377,18 +3374,18 @@
                     "query": "Why did checkout latency persist after the cache rollout?",
                     "intent": "causal",
                     "returned_thread_ids": [
-                      "bead-765B9C1B213E",
-                      "bead-E32F714203A6",
-                      "bead-F107579CA323"
+                      "bead-0959C7F9D983",
+                      "bead-208FD8BB2614",
+                      "bead-C0A832C52EE1"
                     ],
                     "selected_storyline": {
                       "storyline_id": "graph_blind_one_shot",
                       "kind": "baseline",
                       "label": "graph_blind_one_shot",
                       "bead_ids": [
-                        "bead-765B9C1B213E",
-                        "bead-E32F714203A6",
-                        "bead-F107579CA323"
+                        "bead-0959C7F9D983",
+                        "bead-208FD8BB2614",
+                        "bead-C0A832C52EE1"
                       ],
                       "bead_keys": [
                         "cache_rollout",
@@ -3403,14 +3400,14 @@
                         "step": 1,
                         "anchor_ids": [],
                         "trace_anchor_ids": [
-                          "bead-765B9C1B213E",
-                          "bead-E32F714203A6",
-                          "bead-F107579CA323"
+                          "bead-0959C7F9D983",
+                          "bead-208FD8BB2614",
+                          "bead-C0A832C52EE1"
                         ],
                         "trace_ids": [
-                          "bead-765B9C1B213E",
-                          "bead-E32F714203A6",
-                          "bead-F107579CA323"
+                          "bead-0959C7F9D983",
+                          "bead-208FD8BB2614",
+                          "bead-C0A832C52EE1"
                         ],
                         "trace_grounding": {
                           "mode": "disabled_traversal_graph_blind"
@@ -3418,9 +3415,9 @@
                         "selected_storyline": {
                           "storyline_id": "graph_blind_one_shot",
                           "bead_ids": [
-                            "bead-765B9C1B213E",
-                            "bead-E32F714203A6",
-                            "bead-F107579CA323"
+                            "bead-0959C7F9D983",
+                            "bead-208FD8BB2614",
+                            "bead-C0A832C52EE1"
                           ],
                           "bead_keys": [
                             "cache_rollout",
@@ -3447,7 +3444,7 @@
                   }
                 }
               ],
-              "latency_ms": 35.656
+              "latency_ms": 36.64
             }
           },
           "limitations": []
@@ -3522,7 +3519,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
             "metadata": {
               "runner": "causal_continuity.t5",
-              "commit": "b8da6ddb",
+              "commit": "8c2cb7d8",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -3587,12 +3584,12 @@
                 "case_id": "t5_checkout_latency_cache_rollout",
                 "query": "Why did checkout latency persist after the cache rollout?",
                 "bead_key_by_id": {
-                  "bead-765B9C1B213E": "cache_rollout",
-                  "bead-DCE72C3C2391": "db_pool_limit",
-                  "bead-E32F714203A6": "checkout_latency",
-                  "bead-F107579CA323": "pricing_launch",
-                  "bead-4F985A9C9372": "pricing_copy",
-                  "bead-EB7B5215753C": "pricing_latency"
+                  "bead-0959C7F9D983": "cache_rollout",
+                  "bead-EB451212753A": "db_pool_limit",
+                  "bead-208FD8BB2614": "checkout_latency",
+                  "bead-C0A832C52EE1": "pricing_launch",
+                  "bead-533DCA210478": "pricing_copy",
+                  "bead-0D8AD23B640D": "pricing_latency"
                 },
                 "gold_thread_keys": [
                   "cache_rollout",
@@ -3614,23 +3611,23 @@
                   "pricing_launch"
                 ],
                 "gold_thread_bead_ids": [
-                  "bead-765B9C1B213E",
-                  "bead-DCE72C3C2391",
-                  "bead-E32F714203A6"
+                  "bead-0959C7F9D983",
+                  "bead-EB451212753A",
+                  "bead-208FD8BB2614"
                 ],
                 "required_answer_bead_ids": [
-                  "bead-DCE72C3C2391",
-                  "bead-E32F714203A6"
+                  "bead-EB451212753A",
+                  "bead-208FD8BB2614"
                 ],
                 "drift_thread_bead_ids": [
-                  "bead-F107579CA323",
-                  "bead-4F985A9C9372",
-                  "bead-EB7B5215753C"
+                  "bead-C0A832C52EE1",
+                  "bead-533DCA210478",
+                  "bead-0D8AD23B640D"
                 ],
                 "returned_thread_bead_ids": [
-                  "bead-765B9C1B213E",
-                  "bead-E32F714203A6",
-                  "bead-F107579CA323"
+                  "bead-0959C7F9D983",
+                  "bead-208FD8BB2614",
+                  "bead-C0A832C52EE1"
                 ],
                 "metrics": {
                   "thread_precision": 0.6667,
@@ -3653,9 +3650,9 @@
                 },
                 "one_shot_anchor_baseline": {
                   "returned_bead_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-E32F714203A6",
-                    "bead-F107579CA323"
+                    "bead-0959C7F9D983",
+                    "bead-208FD8BB2614",
+                    "bead-C0A832C52EE1"
                   ],
                   "returned_keys": [
                     "cache_rollout",
@@ -3682,18 +3679,18 @@
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "intent": "causal",
                   "returned_thread_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-E32F714203A6",
-                    "bead-F107579CA323"
+                    "bead-0959C7F9D983",
+                    "bead-208FD8BB2614",
+                    "bead-C0A832C52EE1"
                   ],
                   "selected_storyline": {
                     "storyline_id": "graph_blind_one_shot",
                     "kind": "baseline",
                     "label": "graph_blind_one_shot",
                     "bead_ids": [
-                      "bead-765B9C1B213E",
-                      "bead-E32F714203A6",
-                      "bead-F107579CA323"
+                      "bead-0959C7F9D983",
+                      "bead-208FD8BB2614",
+                      "bead-C0A832C52EE1"
                     ],
                     "bead_keys": [
                       "cache_rollout",
@@ -3708,14 +3705,14 @@
                       "step": 1,
                       "anchor_ids": [],
                       "trace_anchor_ids": [
-                        "bead-765B9C1B213E",
-                        "bead-E32F714203A6",
-                        "bead-F107579CA323"
+                        "bead-0959C7F9D983",
+                        "bead-208FD8BB2614",
+                        "bead-C0A832C52EE1"
                       ],
                       "trace_ids": [
-                        "bead-765B9C1B213E",
-                        "bead-E32F714203A6",
-                        "bead-F107579CA323"
+                        "bead-0959C7F9D983",
+                        "bead-208FD8BB2614",
+                        "bead-C0A832C52EE1"
                       ],
                       "trace_grounding": {
                         "mode": "disabled_traversal_graph_blind"
@@ -3723,9 +3720,9 @@
                       "selected_storyline": {
                         "storyline_id": "graph_blind_one_shot",
                         "bead_ids": [
-                          "bead-765B9C1B213E",
-                          "bead-E32F714203A6",
-                          "bead-F107579CA323"
+                          "bead-0959C7F9D983",
+                          "bead-208FD8BB2614",
+                          "bead-C0A832C52EE1"
                         ],
                         "bead_keys": [
                           "cache_rollout",
@@ -3752,7 +3749,7 @@
                 }
               }
             ],
-            "latency_ms": 35.656
+            "latency_ms": 36.64
           }
         }
       },
@@ -3794,7 +3791,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
             "metadata": {
               "runner": "causal_continuity.t2",
-              "commit": "b8da6ddb",
+              "commit": "8c2cb7d8",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -3850,7 +3847,7 @@
             "curve": {
               "schema": "calibration_curve.v1",
               "window": "30d",
-              "generated_at": "2026-06-26T21:53:51.983997+00:00",
+              "generated_at": "2026-06-28T21:40:55.038725+00:00",
               "status": "degraded",
               "spearman_rho": 0.8,
               "expected_calibration_error": 0.124,
@@ -3994,7 +3991,7 @@
                 "useful": true
               }
             ],
-            "latency_ms": 17.287
+            "latency_ms": 20.443
           }
         }
       },
@@ -4034,7 +4031,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t2_calibration_seed.json",
             "metadata": {
               "runner": "causal_continuity.t2",
-              "commit": "b8da6ddb",
+              "commit": "8c2cb7d8",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -4090,7 +4087,7 @@
             "curve": {
               "schema": "calibration_curve.v1",
               "window": "30d",
-              "generated_at": "2026-06-26T21:53:51.998916+00:00",
+              "generated_at": "2026-06-28T21:40:55.056125+00:00",
               "status": "insufficient_data",
               "spearman_rho": null,
               "expected_calibration_error": null,
@@ -4183,7 +4180,7 @@
               "limitations": []
             },
             "sample_preview": [],
-            "latency_ms": 13.952
+            "latency_ms": 15.86
           }
         }
       },
@@ -4248,7 +4245,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t3_temporal_state.json",
             "metadata": {
               "runner": "causal_continuity.t3",
-              "commit": "b8da6ddb",
+              "commit": "8c2cb7d8",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -4328,8 +4325,8 @@
                   "expected_conflict_claims": false
                 },
                 "pass": false,
-                "write_setup_ms": 3.794,
-                "resolve_ms": 0.166
+                "write_setup_ms": 3.115,
+                "resolve_ms": 0.11
               },
               {
                 "case_id": "t3_current_timezone_after_update",
@@ -4361,8 +4358,8 @@
                   "excluded_value_not_current": true
                 },
                 "pass": true,
-                "write_setup_ms": 4.047,
-                "resolve_ms": 0.18
+                "write_setup_ms": 3.131,
+                "resolve_ms": 0.132
               },
               {
                 "case_id": "t3_historical_timezone_as_of",
@@ -4390,8 +4387,8 @@
                   "value": true
                 },
                 "pass": true,
-                "write_setup_ms": 4.303,
-                "resolve_ms": 0.168
+                "write_setup_ms": 5.066,
+                "resolve_ms": 0.178
               },
               {
                 "case_id": "t3_superseded_policy_not_current",
@@ -4427,11 +4424,11 @@
                   "excluded_value_not_current": false
                 },
                 "pass": false,
-                "write_setup_ms": 3.52,
-                "resolve_ms": 0.138
+                "write_setup_ms": 3.542,
+                "resolve_ms": 0.145
               }
             ],
-            "latency_ms": 33.671
+            "latency_ms": 34.595
           }
         }
       },
@@ -4471,7 +4468,7 @@
             "generated_from": "/Users/johninniger/.codex/worktrees/d21d/Core Memory/benchmarks/causal_continuity/fixtures/t5_thread_fidelity.json",
             "metadata": {
               "runner": "causal_continuity.t5",
-              "commit": "b8da6ddb",
+              "commit": "8c2cb7d8",
               "faithfulness": {
                 "synthetic_crawler_updates": false,
                 "synthetic_temporal_edges": false,
@@ -4536,12 +4533,12 @@
                 "case_id": "t5_checkout_latency_cache_rollout",
                 "query": "Why did checkout latency persist after the cache rollout?",
                 "bead_key_by_id": {
-                  "bead-765B9C1B213E": "cache_rollout",
-                  "bead-DCE72C3C2391": "db_pool_limit",
-                  "bead-E32F714203A6": "checkout_latency",
-                  "bead-F107579CA323": "pricing_launch",
-                  "bead-4F985A9C9372": "pricing_copy",
-                  "bead-EB7B5215753C": "pricing_latency"
+                  "bead-0959C7F9D983": "cache_rollout",
+                  "bead-EB451212753A": "db_pool_limit",
+                  "bead-208FD8BB2614": "checkout_latency",
+                  "bead-C0A832C52EE1": "pricing_launch",
+                  "bead-533DCA210478": "pricing_copy",
+                  "bead-0D8AD23B640D": "pricing_latency"
                 },
                 "gold_thread_keys": [
                   "cache_rollout",
@@ -4563,23 +4560,23 @@
                   "pricing_launch"
                 ],
                 "gold_thread_bead_ids": [
-                  "bead-765B9C1B213E",
-                  "bead-DCE72C3C2391",
-                  "bead-E32F714203A6"
+                  "bead-0959C7F9D983",
+                  "bead-EB451212753A",
+                  "bead-208FD8BB2614"
                 ],
                 "required_answer_bead_ids": [
-                  "bead-DCE72C3C2391",
-                  "bead-E32F714203A6"
+                  "bead-EB451212753A",
+                  "bead-208FD8BB2614"
                 ],
                 "drift_thread_bead_ids": [
-                  "bead-F107579CA323",
-                  "bead-4F985A9C9372",
-                  "bead-EB7B5215753C"
+                  "bead-C0A832C52EE1",
+                  "bead-533DCA210478",
+                  "bead-0D8AD23B640D"
                 ],
                 "returned_thread_bead_ids": [
-                  "bead-765B9C1B213E",
-                  "bead-E32F714203A6",
-                  "bead-F107579CA323"
+                  "bead-0959C7F9D983",
+                  "bead-208FD8BB2614",
+                  "bead-C0A832C52EE1"
                 ],
                 "metrics": {
                   "thread_precision": 0.6667,
@@ -4602,9 +4599,9 @@
                 },
                 "one_shot_anchor_baseline": {
                   "returned_bead_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-E32F714203A6",
-                    "bead-F107579CA323"
+                    "bead-0959C7F9D983",
+                    "bead-208FD8BB2614",
+                    "bead-C0A832C52EE1"
                   ],
                   "returned_keys": [
                     "cache_rollout",
@@ -4631,18 +4628,18 @@
                   "query": "Why did checkout latency persist after the cache rollout?",
                   "intent": "causal",
                   "returned_thread_ids": [
-                    "bead-765B9C1B213E",
-                    "bead-E32F714203A6",
-                    "bead-F107579CA323"
+                    "bead-0959C7F9D983",
+                    "bead-208FD8BB2614",
+                    "bead-C0A832C52EE1"
                   ],
                   "selected_storyline": {
                     "storyline_id": "graph_blind_one_shot",
                     "kind": "baseline",
                     "label": "graph_blind_one_shot",
                     "bead_ids": [
-                      "bead-765B9C1B213E",
-                      "bead-E32F714203A6",
-                      "bead-F107579CA323"
+                      "bead-0959C7F9D983",
+                      "bead-208FD8BB2614",
+                      "bead-C0A832C52EE1"
                     ],
                     "bead_keys": [
                       "cache_rollout",
@@ -4657,14 +4654,14 @@
                       "step": 1,
                       "anchor_ids": [],
                       "trace_anchor_ids": [
-                        "bead-765B9C1B213E",
-                        "bead-E32F714203A6",
-                        "bead-F107579CA323"
+                        "bead-0959C7F9D983",
+                        "bead-208FD8BB2614",
+                        "bead-C0A832C52EE1"
                       ],
                       "trace_ids": [
-                        "bead-765B9C1B213E",
-                        "bead-E32F714203A6",
-                        "bead-F107579CA323"
+                        "bead-0959C7F9D983",
+                        "bead-208FD8BB2614",
+                        "bead-C0A832C52EE1"
                       ],
                       "trace_grounding": {
                         "mode": "disabled_traversal_graph_blind"
@@ -4672,9 +4669,9 @@
                       "selected_storyline": {
                         "storyline_id": "graph_blind_one_shot",
                         "bead_ids": [
-                          "bead-765B9C1B213E",
-                          "bead-E32F714203A6",
-                          "bead-F107579CA323"
+                          "bead-0959C7F9D983",
+                          "bead-208FD8BB2614",
+                          "bead-C0A832C52EE1"
                         ],
                         "bead_keys": [
                           "cache_rollout",
@@ -4701,7 +4698,7 @@
                 }
               }
             ],
-            "latency_ms": 35.656
+            "latency_ms": 36.64
           }
         }
       }
@@ -4777,9 +4774,9 @@
             "slot_validation_cases": 0
           },
           "latency_ms": {
-            "mean": 302.184,
-            "p50": 302.184,
-            "p95": 302.184
+            "mean": 302.703,
+            "p50": 302.703,
+            "p95": 302.703
           },
           "warnings": [
             "semantic_backend_query_error:runtimeerror",
@@ -4855,6 +4852,75 @@
     "warnings": [
       "locomo_external_corpus_not_provided",
       "longmemeval_external_corpus_not_provided"
+    ]
+  },
+  "evidence_manifest": {
+    "schema_version": "causal_continuity.evidence_manifest.v1",
+    "tiers": {
+      "local_deterministic": {
+        "status": "ready",
+        "claim_scope": "checked_in_fixture_and_runtime_ablation_evidence",
+        "leaderboard_claim": false,
+        "rows": [
+          "bm25",
+          "core_memory_full",
+          "similarity_only"
+        ],
+        "blockers": []
+      },
+      "proxy_comparator": {
+        "status": "proxy_only",
+        "claim_scope": "local_proxy_comparison_only",
+        "leaderboard_claim": false,
+        "rows": [
+          "dense_vector",
+          "long_context_no_memory"
+        ]
+      },
+      "configured_adapter": {
+        "status": "unavailable",
+        "claim_scope": "configured_t1_command_or_contract_adapter",
+        "leaderboard_claim": false,
+        "rows": [],
+        "command_adapter_rows": [],
+        "unavailable_rows": [
+          "external_memory_adapter"
+        ],
+        "blockers": [
+          "no_provider_command_adapter_run",
+          "no_provider_leaderboard_claim_rows"
+        ]
+      },
+      "real_data_external": {
+        "status": "dataset_required",
+        "claim_scope": "external_corpus_contrast",
+        "leaderboard_claim": false,
+        "external_eval_smoke_count": 0,
+        "leaderboard_claim_count": 0,
+        "blockers": [
+          "no_real_data_leaderboard_claim_rows",
+          "no_external_corpus_eval_smoke"
+        ]
+      },
+      "t5_judge": {
+        "status": "deterministic_default",
+        "claim_scope": "answerability_judge",
+        "judge_kind": "deterministic",
+        "judge_status": "completed",
+        "is_llm_judge": false,
+        "primary_claim": false
+      }
+    },
+    "claim_gates": {
+      "local_fixture_claim_ready": true,
+      "provider_backed_comparison_ready": false,
+      "real_data_leaderboard_ready": false,
+      "t5_llm_judge_primary_claim_ready": false
+    },
+    "notes": [
+      "proxy_rows_are_not_leaderboard_claims",
+      "configured_adapters_require_explicit_external_system_documentation_for_public_comparison_claims",
+      "t5_llm_judge_is_supplemental_unless_a_future_report_explicitly_promotes_it"
     ]
   }
 }

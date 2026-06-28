@@ -576,6 +576,59 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertEqual("observed", rows["minus_causal_traversal"]["status"])
         self.assertIn("runtime_run", rows["minus_supersession_temporal_filter"])
 
+    def test_evidence_manifest_gates_local_and_external_claims(self):
+        report = run_suite(
+            fixtures_dir=_FIXTURES,
+            gold_dir=_GOLD,
+            strategies=available_strategies(),
+            tasks=["t1", "t2", "t3", "t4", "t5"],
+            subset="local",
+            limit=1,
+            run_ablation_toggles=True,
+            include_real_data_contrast=True,
+        )
+
+        manifest = report["evidence_manifest"]
+        self.assertEqual("causal_continuity.evidence_manifest.v1", manifest["schema_version"])
+        self.assertTrue(manifest["claim_gates"]["local_fixture_claim_ready"])
+        self.assertFalse(manifest["claim_gates"]["provider_backed_comparison_ready"])
+        self.assertFalse(manifest["claim_gates"]["real_data_leaderboard_ready"])
+        self.assertFalse(manifest["claim_gates"]["t5_llm_judge_primary_claim_ready"])
+
+        tiers = manifest["tiers"]
+        self.assertEqual("ready", tiers["local_deterministic"]["status"])
+        self.assertEqual([], tiers["local_deterministic"]["blockers"])
+        self.assertEqual("proxy_only", tiers["proxy_comparator"]["status"])
+        self.assertIn("long_context_no_memory", tiers["proxy_comparator"]["rows"])
+        self.assertEqual("unavailable", tiers["configured_adapter"]["status"])
+        self.assertIn("external_memory_adapter", tiers["configured_adapter"]["unavailable_rows"])
+        self.assertIn("no_provider_command_adapter_run", tiers["configured_adapter"]["blockers"])
+        self.assertEqual("dataset_required", tiers["real_data_external"]["status"])
+        self.assertEqual("deterministic_default", tiers["t5_judge"]["status"])
+
+    def test_evidence_manifest_records_configured_command_adapter_execution(self):
+        with tempfile.TemporaryDirectory() as td:
+            script = _write_t1_command_adapter(Path(td) / "adapter.py")
+            record = Path(td) / "request.json"
+
+            report = run_suite(
+                fixtures_dir=_FIXTURES,
+                gold_dir=_GOLD,
+                strategies=["external_memory_adapter"],
+                tasks=["t1"],
+                subset="local",
+                limit=1,
+                external_memory_adapter="command",
+                external_memory_command=[sys.executable, str(script), str(record)],
+            )
+
+        manifest = report["evidence_manifest"]
+        adapter = manifest["tiers"]["configured_adapter"]
+        self.assertEqual("configured_adapter_executed", adapter["status"])
+        self.assertEqual(["external_memory_adapter"], adapter["command_adapter_rows"])
+        self.assertFalse(manifest["claim_gates"]["provider_backed_comparison_ready"])
+        self.assertIn("no_provider_leaderboard_claim_rows", adapter["blockers"])
+
     def test_runtime_ablation_helper_can_overlay_existing_report(self):
         report = run_suite(
             fixtures_dir=_FIXTURES,

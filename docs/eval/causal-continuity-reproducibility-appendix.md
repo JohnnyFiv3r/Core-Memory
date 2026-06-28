@@ -1,6 +1,6 @@
 # Causal-Continuity Reproducibility Appendix
 
-Status: generated evidence bundle for source commit `b8da6ddb`.
+Status: generated evidence bundle for source commit `8c2cb7d8`.
 
 This appendix records the exact local commands and generated artifacts for the
 current causal-continuity benchmark package. The checked-in report is local,
@@ -9,7 +9,7 @@ external-memory leaderboard claims.
 
 ## Source
 
-- Source commit used to generate the artifacts: `b8da6ddb`
+- Source commit used to generate the artifacts: `8c2cb7d8`
 - Python: `3.14.0`
 - Platform recorded by the reproducibility report:
   `macOS-26.5.1-arm64-arm-64bit-Mach-O`
@@ -91,6 +91,29 @@ From `benchmarks/reports/causal-continuity-local-report.json`:
   - `external_adapter_smoke_count=0`
   - `external_eval_smoke_count=0`
 
+## Evidence Manifest
+
+The committed report includes
+`evidence_manifest.schema_version=causal_continuity.evidence_manifest.v1`.
+It makes claim readiness explicit:
+
+- `local_deterministic.status=ready`
+- `proxy_comparator.status=proxy_only`
+- `configured_adapter.status=unavailable`
+- `real_data_external.status=dataset_required`
+- `t5_judge.status=deterministic_default`
+
+Claim gates:
+
+- `local_fixture_claim_ready=true`
+- `provider_backed_comparison_ready=false`
+- `real_data_leaderboard_ready=false`
+- `t5_llm_judge_primary_claim_ready=false`
+
+Interpretation: the checked-in bundle is publishable as deterministic local
+fixture evidence, while provider-backed comparisons, official external-corpus
+claims, and LLM-judge primary claims remain visibly gated off.
+
 ## Dependency And Degradation Notes
 
 The local run recorded these warnings:
@@ -98,18 +121,15 @@ The local run recorded these warnings:
 - `execute_llm_unavailable`
 - `external_memory_adapter_not_configured`
 - `no_upstream_edges`
+- `semantic_backend_query_error:runtimeerror`
+- `semantic_backend_query_failed_lexical_fallback`
 - `semantic_backend_unavailable_degraded`
-- `semantic_build_lock_held`
-- `semantic_index_missing_artifacts`
-- `semantic_index_rebuild_no_rows_failed`
 - `semantic_index_stale`
 
 Observed environment degradation:
 
 - Qdrant semantic/vector service was not configured; local semantic behavior
   used degraded lexical fallback.
-- Kuzu graph backend was not installed; graph backend construction fell back to
-  null where optional graph projection was attempted.
 - No external memory adapter or provider-backed T1 command adapter was
   configured.
 - Long-context/no-memory ran as a deterministic local proxy, not a public

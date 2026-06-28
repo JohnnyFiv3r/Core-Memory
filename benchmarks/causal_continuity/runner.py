@@ -9,7 +9,7 @@ from benchmarks.causal.runner import _repo_commit
 
 from .ablations import build_ablation_matrix
 from .real_data import build_real_data_contrast
-from .reporting import build_suite_report, render_summary
+from .reporting import build_evidence_manifest, build_suite_report, render_summary
 from .runtime_ablations import run_runtime_ablation_toggles
 from .t1 import available_strategies, run_t1_matrix
 from .t2 import default_fixture_path, run_t2_calibration
@@ -159,6 +159,7 @@ def run_suite(
             run_external_eval_smoke=run_real_data_eval_smoke,
             external_eval_limit=real_data_eval_limit,
         )
+    report["evidence_manifest"] = build_evidence_manifest(report)
     return report
 
 
