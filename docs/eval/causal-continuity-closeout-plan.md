@@ -19,6 +19,7 @@ package can support a paper-grade claim.
 | Ablation matrix | `--run-ablation-toggles` disabled-mode fixture runs cover every minimum mechanism row with expected drops observed | Expand beyond deterministic fixtures only if paper scope grows |
 | Real-data contrast | Local proxy, LoCoMo/LongMemEval readiness, load-smoke, and bounded evaluation-smoke paths exist | Real corpus evaluation requires user-supplied corpora |
 | Reproducibility | Appendix and generated report bundle record exact commands, environment notes, five-run stable repeat check, and source commit | None for local deterministic evidence |
+| Evidence manifest | Report carries a machine-readable claim gate separating local deterministic, proxy, configured-adapter, external-corpus, and T5 judge evidence | Provider-backed and real-data public comparison gates remain closed until configured runs/corpora are supplied |
 
 ## Publishable Complete
 
@@ -29,6 +30,9 @@ A causal-continuity report is publishable when all of these are true:
 - The report carries faithfulness flags for every task, strategy, ablation, and
   contrast row; any false faithfulness flag disqualifies the row from headline
   claims.
+- The report carries `evidence_manifest` with `local_fixture_claim_ready=true`
+  and provider, real-data leaderboard, and T5 LLM primary claim gates closed
+  unless those supplemental runs were explicitly configured.
 - T1 includes Core Memory full, BM25, similarity/dense retrieval, and
   long-context/no-memory comparator rows. External memory comparator rows may be
   marked unavailable, but public comparison claims require actual runs.
@@ -146,6 +150,27 @@ Acceptance:
 Implemented appendix: `docs/eval/causal-continuity-reproducibility-appendix.md`.
 The committed local report is under `benchmarks/reports/`. The repeat-run check
 shows stable headline metrics and stable T5 ordered top-k across five runs.
+
+### PR-6: Evidence Claim Manifest
+
+Goal: make claim readiness machine-readable instead of relying on prose-only
+appendix interpretation.
+
+Scope:
+
+- Add `causal_continuity.evidence_manifest.v1` to every suite report.
+- Separate local deterministic evidence, proxy comparator rows, configured
+  adapter execution, external-corpus evidence, and T5 judge evidence.
+- Keep provider-backed, real-data leaderboard, and T5 LLM primary claim gates
+  closed unless a future run explicitly supplies the needed configured evidence.
+
+Acceptance:
+
+- Default local reports expose `local_fixture_claim_ready=true`.
+- Proxy and unavailable external rows remain visible but do not become public
+  comparison claims.
+- Configured command adapters are recorded as executed while still requiring
+  explicit external-system documentation before public comparison claims.
 
 ## Open Decisions
 

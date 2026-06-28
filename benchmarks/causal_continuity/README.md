@@ -329,5 +329,26 @@ The top-level report uses `causal_continuity_report.v1` and includes:
   `--include-ablations` is passed.
 - `real_data_contrast` — optional `causal_continuity.real_data_contrast.v1`
   readiness object when `--include-real-data-contrast` is passed.
+- `evidence_manifest` — `causal_continuity.evidence_manifest.v1`, a
+  machine-readable claim gate that separates local deterministic evidence,
+  proxy comparator rows, configured adapter execution, external-corpus evidence,
+  and supplemental T5 judge evidence.
 - `tasks.t1_causal_chain_reconstruction.strategy_reports` — the full existing
   causal benchmark report for each strategy.
+
+## Evidence Manifest
+
+The evidence manifest is the safest place for publishing or dashboard code to
+decide what the report can honestly claim. It exposes:
+
+- `local_deterministic`: checked-in fixture evidence plus runtime ablations.
+- `proxy_comparator`: local proxy baselines such as dense-vector proxy and
+  long-context/no-memory proxy.
+- `configured_adapter`: configured T1 command/fake adapter execution and any
+  unavailable adapter rows.
+- `real_data_external`: external corpus readiness, smoke, and leaderboard-claim
+  status.
+- `t5_judge`: deterministic default or supplemental LLM-judge status.
+
+The default local report should have `local_fixture_claim_ready: true` and keep
+provider, real-data leaderboard, and LLM-judge primary claim gates closed.

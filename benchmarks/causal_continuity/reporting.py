@@ -88,6 +88,194 @@ def _extract_t5_headlines(t5_report: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
+    """Summarize which evidence claims the report can honestly support."""
+
+    tasks = dict(report.get("tasks") or {})
+    t1 = dict(tasks.get("t1_causal_chain_reconstruction") or {})
+    matrix = dict(t1.get("strategy_matrix") or {})
+    t2 = dict(tasks.get("t2_calibration_reliability") or {})
+    t3 = dict(tasks.get("t3_temporal_state_selection") or {})
+    t4 = dict(tasks.get("t4_longitudinal_continuity") or {})
+    t5 = dict(tasks.get("t5_thread_fidelity") or {})
+    ablations = dict(report.get("ablation_matrix") or {})
+    real_data = dict(report.get("real_data_contrast") or {})
+    faith = dict(report.get("faithfulness") or {})
+
+    local_rows = [
+        name
+        for name, row in sorted(matrix.items())
+        if isinstance(row, dict)
+        and str(row.get("execution_mode") or "") in {"core_memory", "local_baseline"}
+        and int(row.get("cases") or 0) > 0
+    ]
+    proxy_rows = [
+        name
+        for name, row in sorted(matrix.items())
+        if isinstance(row, dict)
+        and str(row.get("execution_mode") or "") == "local_proxy"
+    ]
+    adapter_rows = [
+        name
+        for name, row in sorted(matrix.items())
+        if isinstance(row, dict)
+        and str(row.get("execution_mode") or "") in {"adapter_command", "adapter_fake"}
+    ]
+    unavailable_adapter_rows = [
+        name
+        for name, row in sorted(matrix.items())
+        if isinstance(row, dict)
+        and str(row.get("adapter_status") or "") == "unavailable"
+    ]
+
+    required_tasks_present = all(bool(x) for x in (t1, t2, t3, t4, t5))
+    t1_core = dict(matrix.get("core_memory_full") or {})
+    t1_core_ready = bool(t1_core) and int(t1_core.get("cases") or 0) > 0 and int(t1_core.get("pass") or 0) > 0
+    deterministic_tasks_ready = all(bool(x.get("pass")) for x in (t2, t3, t4, t5) if x)
+    coverage = dict(ablations.get("coverage") or {})
+    ablations_ready = (
+        bool(coverage)
+        and int(coverage.get("needs_runtime_toggle_rows") or 0) == 0
+        and int(coverage.get("observed_no_expected_drop_rows") or 0) == 0
+        and bool(coverage.get("faithfulness_clean", True))
+    )
+    local_ready = (
+        bool(faith.get("is_faithful", True))
+        and required_tasks_present
+        and t1_core_ready
+        and deterministic_tasks_ready
+        and ablations_ready
+    )
+
+    provider_command_rows = [
+        name
+        for name, row in sorted(matrix.items())
+        if isinstance(row, dict)
+        and str(row.get("execution_mode") or "") == "adapter_command"
+        and int(row.get("cases") or 0) > 0
+        and str(row.get("adapter_status") or "") == "completed"
+    ]
+    provider_leaderboard_rows = [
+        name
+        for name, row in sorted(matrix.items())
+        if isinstance(row, dict)
+        and str(row.get("execution_mode") or "") == "adapter_command"
+        and bool(row.get("leaderboard_claim"))
+    ]
+    provider_status = "not_configured"
+    if provider_command_rows:
+        provider_status = "configured_adapter_executed"
+    elif adapter_rows:
+        provider_status = "adapter_contract_exercised"
+    elif unavailable_adapter_rows:
+        provider_status = "unavailable"
+
+    real_summary = dict(real_data.get("summary") or {})
+    real_status = str(real_data.get("status") or ("not_requested" if not real_data else "unknown"))
+    external_eval_count = int(real_summary.get("external_eval_smoke_count") or 0)
+    leaderboard_count = int(real_summary.get("leaderboard_claim_count") or 0)
+    if leaderboard_count > 0:
+        real_tier_status = "leaderboard_claim_present"
+    elif external_eval_count > 0:
+        real_tier_status = "evaluation_smoke_only"
+    elif real_data:
+        real_tier_status = "dataset_required"
+    else:
+        real_tier_status = "not_requested"
+
+    judge = dict((dict(t5.get("metadata") or {}).get("judge") or {}))
+    judge_kind = str(judge.get("kind") or "deterministic")
+    judge_status = str(judge.get("status") or "not_run")
+    is_llm_judge = bool(judge.get("is_llm_judge"))
+    if is_llm_judge and judge_status == "completed":
+        judge_tier_status = "supplemental_llm_executed"
+    elif judge_kind == "deterministic" and judge_status == "completed":
+        judge_tier_status = "deterministic_default"
+    elif judge_status == "unavailable":
+        judge_tier_status = "supplemental_unavailable"
+    else:
+        judge_tier_status = judge_status or "not_run"
+
+    local_blockers: list[str] = []
+    if not required_tasks_present:
+        local_blockers.append("missing_required_tasks")
+    if not bool(faith.get("is_faithful", True)):
+        local_blockers.append("faithfulness_failed")
+    if not t1_core_ready:
+        local_blockers.append("t1_core_memory_full_not_passing")
+    if not deterministic_tasks_ready:
+        local_blockers.append("deterministic_tasks_not_passing")
+    if not ablations_ready:
+        local_blockers.append("runtime_ablation_evidence_missing_or_incomplete")
+
+    provider_blockers: list[str] = []
+    if not provider_command_rows:
+        provider_blockers.append("no_provider_command_adapter_run")
+    if not provider_leaderboard_rows:
+        provider_blockers.append("no_provider_leaderboard_claim_rows")
+
+    real_data_blockers: list[str] = []
+    if leaderboard_count == 0:
+        real_data_blockers.append("no_real_data_leaderboard_claim_rows")
+    if external_eval_count == 0:
+        real_data_blockers.append("no_external_corpus_eval_smoke")
+
+    return {
+        "schema_version": "causal_continuity.evidence_manifest.v1",
+        "tiers": {
+            "local_deterministic": {
+                "status": "ready" if local_ready else "incomplete",
+                "claim_scope": "checked_in_fixture_and_runtime_ablation_evidence",
+                "leaderboard_claim": False,
+                "rows": local_rows,
+                "blockers": local_blockers,
+            },
+            "proxy_comparator": {
+                "status": "proxy_only" if proxy_rows else "not_present",
+                "claim_scope": "local_proxy_comparison_only",
+                "leaderboard_claim": False,
+                "rows": proxy_rows,
+            },
+            "configured_adapter": {
+                "status": provider_status,
+                "claim_scope": "configured_t1_command_or_contract_adapter",
+                "leaderboard_claim": bool(provider_leaderboard_rows),
+                "rows": adapter_rows,
+                "command_adapter_rows": provider_command_rows,
+                "unavailable_rows": unavailable_adapter_rows,
+                "blockers": provider_blockers,
+            },
+            "real_data_external": {
+                "status": real_tier_status,
+                "claim_scope": "external_corpus_contrast",
+                "leaderboard_claim": leaderboard_count > 0,
+                "external_eval_smoke_count": external_eval_count,
+                "leaderboard_claim_count": leaderboard_count,
+                "blockers": real_data_blockers,
+            },
+            "t5_judge": {
+                "status": judge_tier_status,
+                "claim_scope": "answerability_judge",
+                "judge_kind": judge_kind,
+                "judge_status": judge_status,
+                "is_llm_judge": is_llm_judge,
+                "primary_claim": False,
+            },
+        },
+        "claim_gates": {
+            "local_fixture_claim_ready": local_ready,
+            "provider_backed_comparison_ready": bool(provider_leaderboard_rows),
+            "real_data_leaderboard_ready": leaderboard_count > 0,
+            "t5_llm_judge_primary_claim_ready": False,
+        },
+        "notes": [
+            "proxy_rows_are_not_leaderboard_claims",
+            "configured_adapters_require_explicit_external_system_documentation_for_public_comparison_claims",
+            "t5_llm_judge_is_supplemental_unless_a_future_report_explicitly_promotes_it",
+        ],
+    }
+
+
 def _faithfulness_by_scope(
     *,
     t1_report: dict[str, Any],
