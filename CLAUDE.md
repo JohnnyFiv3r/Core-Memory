@@ -157,15 +157,15 @@ extends the protocol with `search_candidates()`, `traverse()`,
 | Phase | Topic | Status |
 |---|---|---|
 | 0 | CI baseline + coverage | Complete |
-| 1 | Dead file removal | Complete |
+| 1 | Dead file removal | Active compatibility debt |
 | 2 | Circular import fixes | Complete |
 | 3 | PydanticAI + adapter boundary | Complete |
-| 4 | `graph/api.py` compat facade removal | Complete |
-| 5 | Persistence delegation flatten | Complete |
+| 4 | `graph/api.py` compat facade removal | Active compatibility debt; classify-not-delete |
+| 5 | Persistence delegation flatten | MRO flat; retained mixin files pending classification |
 | 6 | Storage adapter capability tiers | Complete |
 | 7 | Graph backend abstraction (Neo4j, Graphiti, Obsidian, plugin API) | Complete (7a–7i done) |
 | 8 | `core-memory init` wizard + doctor | Complete (8a–8b done) |
-| 9 | Structural consolidation (runtime/, cli/, openclaw/) | Complete (9a–9h done) |
+| 9 | Structural consolidation (runtime/, cli/, openclaw/) | Mostly complete; retained relocation debt pending classification |
 | 10 | Documentation consolidation | Complete (10a–10g done) |
 
 See `docs/status.md` for current completion state and open items.

@@ -28,20 +28,27 @@ PRDs for all phases live in `docs/PRD/` and carry codebase-specific implementati
 
 ---
 
-## Phase 1 — Delete Confirmed Dead Files
+## Phase 1 — Classify Retained Dead-File Candidates
 
-**Goal:** Remove the 3 files with zero references anywhere in the repo.
+**Goal:** Classify the retained files that were previously described as deleted.
+Do not delete them from this phase's historical checklist without a fresh
+public-surface/import check.
 
 **Correction:** The original list contained 4 files. `core_memory/retrieval/vector_backend.py`
 is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`. Do not delete it.
 
+**Truth-audit correction (2026-06-28):** The three files below still exist in
+the current tree. Treat them as retained compatibility/dead-file candidates
+pending classification, not as deleted artifacts.
+
 **PRD:** `docs/PRD/01-dead-file-removal.md`
 
-- [x] `core_memory/persistence/encryption.py` — stub with env-var docs, never imported
-- [x] `core_memory/persistence/write_ops.py` — delegating stub, never imported
-- [x] `core_memory/retrieval/pipeline/explain.py` — defines `build_explain()`, never called
+- [ ] `core_memory/persistence/encryption.py` — retained pending classification
+- [ ] `core_memory/persistence/write_ops.py` — retained pending classification
+- [ ] `core_memory/retrieval/pipeline/explain.py` — retained pending classification
 
-**Risk:** None if Phase 0 CI is in place.
+**Risk:** None for this truth correction. Any future deletion requires a fresh
+import scan, public-surface check, and relevant tests.
 
 ---
 
@@ -81,16 +88,21 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
 
 ---
 
-## Phase 4 — Remove `graph/api.py` Compat Facade
+## Phase 4 — Classify `graph/api.py` Compat Facade
 
 **PRD:** `docs/PRD/04-graph-module-cleanup.md`
+
+**Truth-audit correction (2026-06-28):** `core_memory/graph/api.py` still
+exists. Treat it as an active compatibility facade pending public/private
+classification. It is classify-not-delete until the compatibility ledger proves
+it is private or defines a deprecation path.
 
 - [x] Signature check: CLI already passed `anchor_ids=` as keyword; no fix needed
 - [x] Rename `_api_impl.py` → `core.py`; update all internal references
 - [x] Migrate `core_memory/cli_handlers_graph.py` to import from split modules
 - [x] Migrate all 12 test files that imported from `core_memory.graph.api`
 - [x] Update `core_memory/graph/__init__.py`: explicit re-exports from split modules
-- [x] Delete `core_memory/graph/api.py`
+- [ ] Classify `core_memory/graph/api.py`; do not delete before compatibility review
 
 **Risk:** Medium. Many touched files but mechanical. Run Phase 0 CI after each step.
 
@@ -125,10 +137,14 @@ is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`.
       `store_index_heads_ops.py`, `store_session_ops.py`, `store_autonomy_ops.py`,
       `store_failure_ops.py`, `store_relationship_ops.py`) contain only STATEFUL functions
       with genuine `store.attr` access — no flattening opportunity.
-- [x] **Step 5d — Mixin consolidation:** Both mixin files deleted. All 79 methods (61 core +
-      18 reporting/promotion) inlined directly into `MemoryStore` in `store.py`. MRO is now
-      `[MemoryStore, object]`. Mixin-assembly tests rewritten as method-contract assertions on
-      `MemoryStore`. Full suite: 1025 passed, 4 failed (unchanged baseline).
+- [x] **Step 5d — Mixin consolidation:** MemoryStore MRO is flat and all 79 methods
+      (61 core + 18 reporting/promotion) were inlined directly into `MemoryStore` in
+      `store.py`. However, the legacy mixin files still exist in the current tree:
+      `core_memory/persistence/store_core_delegates_mixin.py` and
+      `core_memory/persistence/store_reporting_promotion_mixin.py`. Treat those files
+      as retained artifact debt pending classification, not as deleted files.
+      Mixin-assembly tests were rewritten as method-contract assertions on `MemoryStore`.
+      Full suite at the time: 1025 passed, 4 failed (unchanged baseline).
 
 **Risk:** High individually, low per-step. Do not batch steps. Full CI between each file.
 
@@ -282,12 +298,15 @@ logic and human output format).
       > context of the integrations/ tier. Full replacement would require either
       > expanding the public API with internal utilities or restructuring api.py into
       > a thinner dispatch layer — deferred to Phase 10 refactor.
-- [x] **9h — Delete all backward-compat shims** — remove every re-export shim created
-      during Phase 9 structural moves. Full inventory:
+- [x] **9h — Classify remaining backward-compat shims** — most re-export shims
+      created during Phase 9 structural moves were removed, but this historical
+      checklist must not be treated as proof that every listed flat file is gone.
+      Full inventory:
 
-      > **All 52 shims deleted.** Phase 9e+9f (31 files), 9c openclaw (7 files),
-      > 9d cli (14 files), and 9a openclaw_flags all removed. All callers migrated
-      > to canonical subpackage paths.
+      > **Truth-audit correction (2026-06-28):** Some flat compatibility/relocation
+      > files still exist in the current tree. In particular,
+      > `core_memory/cli_handlers_semantic.py` is retained pending classification.
+      > Treat this section as a migration checklist, not deletion proof.
 
       **From 9a** (1 shim — deleted ✓):
       - ~~`integrations/openclaw_flags.py`~~
@@ -300,20 +319,25 @@ logic and human output format).
         ~~`compaction_queue.py`~~, ~~`onboard.py`~~, ~~`read_bridge.py`~~, ~~`runtime.py`~~,
         ~~`openclaw_flags.py`~~
 
-      **From 9d** (15 shims — all deleted ✓):
-      - ~~All `cli_*.py` flat files~~. Canonical: `core_memory/cli/` package.
+      **From 9d** (15 shims — mostly migrated; retained debt remains):
+      - Most `cli_*.py` flat files migrated to the `core_memory/cli/` package.
+        `core_memory/cli_handlers_semantic.py` still exists and is retained pending
+        relocation/public-surface classification.
 
-      **From 9f** (30 shims — all deleted ✓):
-      - ~~All `runtime/` root shims~~. Canonical: `runtime/{turn,flush,session,passes,queue,observability}/` subpackages.
-      - `cli_compat.py`, `cli_diagnostics.py`, `cli_handlers_graph.py`,
+      **From 9f** (30 shims — mostly migrated; retained debt may remain):
+      - Most `runtime/` root shims migrated to canonical subpackage paths under
+        `runtime/{turn,flush,session,passes,queue,observability}/`. Verify the
+        current tree before claiming any root file is deleted.
+      - Historical flat-file migration candidates included `cli_compat.py`,
+        `cli_diagnostics.py`, `cli_handlers_graph.py`,
         `cli_handlers_integrations.py`, `cli_handlers_metrics.py`,
         `cli_handlers_migrate.py`, `cli_handlers_ops.py`, `cli_handlers_semantic.py`,
         `cli_handlers_setup.py`, `cli_handlers_store.py`, `cli_memory_handlers.py`,
         `cli_parser_extended.py`, `cli_parser_memory.py`, `cli_parser_ops.py`
 
-      **From 9f** (30 shims — all deleted ✓):
-      All `runtime/` root shims migrated to canonical subpackage paths and deleted.
-      All callsites (tests, eval, benchmarks, canonical source files) updated in-place.
+      **From 9f** (30 shims — mostly migrated; verify before deleting):
+      Most `runtime/` root shims migrated to canonical subpackage paths. Verify current
+      tree state before claiming any remaining root file is deleted.
 
       **Prerequisite:** grep the full repo (tests, docs, external tool scripts) for any
       import of each old flat path. Update each callsite to the canonical location before
