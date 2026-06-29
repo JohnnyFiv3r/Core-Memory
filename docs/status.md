@@ -73,6 +73,10 @@ payload remains inline in `core_memory.retrieval.pipeline`.
 active caller used the old persistence shim. Write behavior remains on
 `MemoryStore` and canonical runtime boundaries such as `process_turn_finalized`.
 
+`core_memory/retrieval/trace.py` was retired after active callers migrated to
+`core_memory.retrieval.pipeline.canonical.trace_request` or the public low-level
+tool surface `core_memory.retrieval.tools.memory.trace`.
+
 ---
 
 ## Engine-correctness items (from `demo/TODO.md`)
