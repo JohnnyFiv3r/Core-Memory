@@ -20,6 +20,7 @@ Use this page as the authoritative map of current docs.
 
 ## Architecture
 - [`architecture_overview.md`](architecture_overview.md)
+- [`compatibility_ledger.md`](compatibility_ledger.md)
 - [`graph_backend_plugin.md`](graph_backend_plugin.md)
 - [`canonical_paths.md`](canonical_paths.md)
 - [`integration_contract.md`](integration_contract.md)

@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-29T02:26:33.694951+00:00",
+  "generated_at": "2026-06-29T11:10:49.587821+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -8,7 +8,6 @@
     "flat_file:core_memory/runtime/goal_lifecycle.py",
     "flat_file:core_memory/runtime/session_enrichment_delta.py",
     "flat_file:core_memory/runtime/source_envelope.py",
-    "markdown_link:README.md:docs/ARCHITECTURE.md",
     "markdown_link:docs/PRD/03-mcp-protocol-server.md:01-multi-speaker-turn-schema.md",
     "markdown_link:docs/PRD/03-mcp-protocol-server.md:02-adapter-primitive-contract.md",
     "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:../docs/status.md",
@@ -145,16 +144,6 @@
       "line": 1,
       "message": "core_memory/runtime/source_envelope.py is not in the runtime root flat-file allowlist",
       "path": "core_memory/runtime/source_envelope.py"
-    },
-    {
-      "check": "markdown_link",
-      "detail": {
-        "target": "docs/ARCHITECTURE.md"
-      },
-      "id": "markdown_link:README.md:docs/ARCHITECTURE.md",
-      "line": 220,
-      "message": "README.md links to missing local target docs/ARCHITECTURE.md",
-      "path": "README.md"
     },
     {
       "check": "markdown_link",

@@ -3,6 +3,7 @@
 Canonical reference: `docs/architecture_overview.md`
 Phase completion state: `docs/status.md`
 Cleanup workstream: `docs/cleanup-plan.md` + `docs/PRD/README.md`
+Compatibility ledger: `docs/compatibility_ledger.md`
 
 ---
 
@@ -81,9 +82,9 @@ Sanctioned at `core_memory/` root: `__init__.py`, `_version.py`, `memory.py`,
 `transcript_ingest.py`, `identifiers.py`, `llm_client.py`, `provider_config.py`.
 Sanctioned at `runtime/` root: `__init__.py`, `engine.py`, `state.py`,
 `event_schemas.py`. Known relocation debt (do not add to it):
-`cli_handlers_semantic.py`, `runtime/goal_lifecycle.py`,
-`runtime/session_enrichment_delta.py` — see
-`docs/reports/architecture-validation-2026-06-09.md`.
+`cli_handlers_semantic.py`, `management.py`, `runtime/goal_lifecycle.py`,
+`runtime/session_enrichment_delta.py`, `runtime/source_envelope.py` — see
+`docs/compatibility_ledger.md` and `scripts/architecture_guards_baseline.json`.
 
 ---
 
@@ -148,7 +149,7 @@ extends the protocol with `search_candidates()`, `traverse()`,
 | Semantic indexing (FAISS / pgvector) | Opt-in |
 | Dreamer ("Move 37") | Background, opt-in |
 | Myelination | In active development |
-| SOUL.md | Future / emerging |
+| SOUL surfaces | Shipped governed/read surfaces; host self-model remains external |
 
 ---
 

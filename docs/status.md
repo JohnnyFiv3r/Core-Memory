@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-06-28
+**Last updated:** 2026-06-29
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -16,7 +16,7 @@ descriptions.
 | 1 | Dead file removal | **Active compatibility debt** — retained candidates pending classification |
 | 2 | Circular import fixes | **Done** |
 | 3A | Harden PydanticAI boundary | **Done** |
-| 4 | `graph/api.py` compat facade removal | **Active compatibility debt** — classify-not-delete |
+| 4 | `graph/api.py` compat facade removal | **Active public compatibility debt** — classified in ledger; retain until deprecation/removal condition |
 | 5 | Persistence delegation flatten | **MRO flat; retained file debt** — legacy mixin files pending classification |
 | 6 | Storage adapter capability tiers | **Done** |
 | 7a | `persistence/graph/` package + protocol + factory | **Done** |
@@ -55,8 +55,13 @@ classification debt, not deleted files:
 - `core_memory/persistence/store_reporting_promotion_mixin.py`
 - `core_memory/cli_handlers_semantic.py`
 
-`core_memory/graph/api.py` is specifically classify-not-delete until a public/private
-compatibility ledger proves it is safe to remove or defines a deprecation path.
+`core_memory/graph/api.py` is now classified in `docs/compatibility_ledger.md`
+as a public compatibility facade. Retain it until the ledger's deprecation and
+removal conditions are satisfied.
+
+Current architecture guard debt is snapshotted in
+`scripts/architecture_guards_baseline.json`. When cleanup resolves a row, shrink
+the baseline in the same PR.
 
 ---
 
@@ -104,12 +109,14 @@ compatibility ledger proves it is safe to remove or defines a deprecation path.
 
 ## Open workstreams
 
-### SOUL.md / self-model
-Identity synthesis lives **outside** the graph (product-layer boundary
-decision, 2026-06-10): Core Memory supplies projections (worldlines,
-continuity depth, accepted dreamer observations); the external self-model
-consumes them. Engine-side prerequisites are tracked as items 23–24.
-**Status:** External consumer; engine projections in progress.
+### SOUL surfaces / host self-model
+Core Memory owns governed SOUL read/write support: file projections, summary
+metrics, proposal/review/apply flows, goal lifecycle endpoints, Dreamer bridge
+hooks, and integrity check/repair surfaces. Identity synthesis as a durable
+host self-model remains outside the causal graph (product-layer boundary
+decision, 2026-06-10). Future target-state and agency primitives remain out of
+scope until a new PRD promotes them.
+**Status:** Engine support shipped; host self-model remains external.
 
 ### Demo TODO alignment
 The paired adoption/API roadmap lives in `JohnnyFiv3r/Core-Memory-Demo` repo.
@@ -122,6 +129,7 @@ See `docs/PRD/execution-plan-search-quality-and-enrichment.md` for the full plan
 ## References
 
 - `docs/cleanup-plan.md` — detailed phase descriptions and per-step checkboxes
+- `docs/compatibility_ledger.md` — compatibility surfaces and removal conditions
 - `docs/PRD/` — per-phase PRD specs (`docs/PRD/README.md` for index)
 - `demo/TODO.md` — engine-correctness items with full context
 - `docs/architecture_overview.md` — canonical architecture reference
