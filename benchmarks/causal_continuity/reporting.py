@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+from .attestations import normalize_evidence_attestation, scope_attested
+
 
 def _extract_t1_headlines(t1_report: dict[str, Any]) -> dict[str, Any]:
     matrix = dict(t1_report.get("strategy_matrix") or {})
@@ -101,6 +103,7 @@ def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
     ablations = dict(report.get("ablation_matrix") or {})
     real_data = dict(report.get("real_data_contrast") or {})
     faith = dict(report.get("faithfulness") or {})
+    attestation = normalize_evidence_attestation(report.get("evidence_attestation"))
 
     local_rows = [
         name
@@ -162,8 +165,16 @@ def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
         and str(row.get("execution_mode") or "") == "adapter_command"
         and bool(row.get("leaderboard_claim"))
     ]
+    provider_attested = bool(provider_command_rows) and scope_attested(
+        attestation,
+        "provider_backed_comparison",
+        names=provider_command_rows,
+    )
+    provider_ready = bool(provider_leaderboard_rows) or provider_attested
     provider_status = "not_configured"
-    if provider_command_rows:
+    if provider_ready:
+        provider_status = "attested_provider_comparison"
+    elif provider_command_rows:
         provider_status = "configured_adapter_executed"
     elif adapter_rows:
         provider_status = "adapter_contract_exercised"
@@ -174,7 +185,21 @@ def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
     real_status = str(real_data.get("status") or ("not_requested" if not real_data else "unknown"))
     external_eval_count = int(real_summary.get("external_eval_smoke_count") or 0)
     leaderboard_count = int(real_summary.get("leaderboard_claim_count") or 0)
-    if leaderboard_count > 0:
+    real_dataset_ids = [
+        str(row.get("dataset_id") or "")
+        for row in list(real_data.get("datasets") or [])
+        if isinstance(row, dict)
+        and bool(row.get("external_dataset_required"))
+        and dict(row.get("evaluation_smoke_execution") or {}).get("status") == "completed"
+        and str(row.get("dataset_id") or "").strip()
+    ]
+    real_attested = external_eval_count > 0 and scope_attested(
+        attestation,
+        "real_data_leaderboard",
+        names=real_dataset_ids,
+    )
+    real_ready = leaderboard_count > 0 or real_attested
+    if real_ready:
         real_tier_status = "leaderboard_claim_present"
     elif external_eval_count > 0:
         real_tier_status = "evaluation_smoke_only"
@@ -187,7 +212,13 @@ def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
     judge_kind = str(judge.get("kind") or "deterministic")
     judge_status = str(judge.get("status") or "not_run")
     is_llm_judge = bool(judge.get("is_llm_judge"))
-    if is_llm_judge and judge_status == "completed":
+    t5_attested = bool(is_llm_judge) and judge_kind == "llm" and judge_status == "completed" and scope_attested(
+        attestation,
+        "t5_llm_judge_primary",
+    )
+    if t5_attested:
+        judge_tier_status = "attested_llm_primary"
+    elif is_llm_judge and judge_status == "completed":
         judge_tier_status = "supplemental_llm_executed"
     elif judge_kind == "deterministic" and judge_status == "completed":
         judge_tier_status = "deterministic_default"
@@ -211,14 +242,18 @@ def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
     provider_blockers: list[str] = []
     if not provider_command_rows:
         provider_blockers.append("no_provider_command_adapter_run")
-    if not provider_leaderboard_rows:
+    if not provider_ready:
         provider_blockers.append("no_provider_leaderboard_claim_rows")
+    if provider_command_rows and not provider_ready:
+        provider_blockers.append("missing_provider_comparison_attestation")
 
     real_data_blockers: list[str] = []
-    if leaderboard_count == 0:
+    if not real_ready:
         real_data_blockers.append("no_real_data_leaderboard_claim_rows")
     if external_eval_count == 0:
         real_data_blockers.append("no_external_corpus_eval_smoke")
+    if external_eval_count > 0 and not real_ready:
+        real_data_blockers.append("missing_real_data_leaderboard_attestation")
 
     return {
         "schema_version": "causal_continuity.evidence_manifest.v1",
@@ -239,18 +274,21 @@ def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
             "configured_adapter": {
                 "status": provider_status,
                 "claim_scope": "configured_t1_command_or_contract_adapter",
-                "leaderboard_claim": bool(provider_leaderboard_rows),
+                "leaderboard_claim": provider_ready,
                 "rows": adapter_rows,
                 "command_adapter_rows": provider_command_rows,
                 "unavailable_rows": unavailable_adapter_rows,
+                "attested": provider_attested,
                 "blockers": provider_blockers,
             },
             "real_data_external": {
                 "status": real_tier_status,
                 "claim_scope": "external_corpus_contrast",
-                "leaderboard_claim": leaderboard_count > 0,
+                "leaderboard_claim": real_ready,
                 "external_eval_smoke_count": external_eval_count,
                 "leaderboard_claim_count": leaderboard_count,
+                "attested": real_attested,
+                "attested_dataset_ids": real_dataset_ids if real_attested else [],
                 "blockers": real_data_blockers,
             },
             "t5_judge": {
@@ -259,14 +297,20 @@ def build_evidence_manifest(report: dict[str, Any]) -> dict[str, Any]:
                 "judge_kind": judge_kind,
                 "judge_status": judge_status,
                 "is_llm_judge": is_llm_judge,
-                "primary_claim": False,
+                "attested": t5_attested,
+                "primary_claim": t5_attested,
             },
         },
         "claim_gates": {
             "local_fixture_claim_ready": local_ready,
-            "provider_backed_comparison_ready": bool(provider_leaderboard_rows),
-            "real_data_leaderboard_ready": leaderboard_count > 0,
-            "t5_llm_judge_primary_claim_ready": False,
+            "provider_backed_comparison_ready": provider_ready,
+            "real_data_leaderboard_ready": real_ready,
+            "t5_llm_judge_primary_claim_ready": t5_attested,
+        },
+        "evidence_attestation": {
+            "status": str(attestation.get("status") or "not_provided"),
+            "accepted_scopes": sorted((attestation.get("accepted_scopes") or {}).keys()),
+            "rejected_count": len(list(attestation.get("rejected") or [])),
         },
         "notes": [
             "proxy_rows_are_not_leaderboard_claims",

@@ -19,8 +19,9 @@ package can support a paper-grade claim.
 | Ablation matrix | `--run-ablation-toggles` disabled-mode fixture runs cover every minimum mechanism row with expected drops observed | Expand beyond deterministic fixtures only if paper scope grows |
 | Real-data contrast | Local proxy, LoCoMo/LongMemEval readiness, load-smoke, and bounded evaluation-smoke paths exist | Real corpus evaluation requires user-supplied corpora |
 | Reproducibility | Appendix and generated report bundle record exact commands, environment notes, five-run stable repeat check, and source commit | None for local deterministic evidence |
-| Evidence manifest | Report carries a machine-readable claim gate separating local deterministic, proxy, configured-adapter, external-corpus, and T5 judge evidence | Provider-backed and real-data public comparison gates remain closed until configured runs/corpora are supplied |
+| Evidence manifest | Report carries a machine-readable claim gate separating local deterministic, proxy, configured-adapter, external-corpus, and T5 judge evidence | Provider-backed and real-data public comparison gates require configured runs/corpora plus explicit evidence attestation |
 | Claim certificate | `benchmarks.causal_continuity.claims` validates report claim scope from the evidence manifest and exits nonzero for unsupported scopes | None for local deterministic evidence |
+| Evidence attestation | `causal_continuity.evidence_attestation.v1` provides a reviewer-backed path to open external claim gates for completed configured evidence | External attestations must be supplied by the publication/review run owner |
 
 ## Publishable Complete
 
@@ -48,6 +49,9 @@ A causal-continuity report is publishable when all of these are true:
   result, and known unavailable external resources.
 - A claim certificate can be generated from the report and passes for
   `local_fixture` while keeping unsupported external scopes blocked.
+- External claim scopes pass only when the underlying configured evidence is
+  present and a matching attestation records reviewer, evidence reference, and
+  configuration summary.
 
 ## Completed Local Evidence Sequence
 
@@ -196,6 +200,29 @@ Acceptance:
 - Provider-backed, real-data leaderboard, and T5 LLM primary scopes remain
   blocked unless future reports provide the necessary configured evidence.
 - The command reads existing reports only and does not create evidence.
+
+### PR-8: Evidence Attestation
+
+Goal: make future external evidence runs able to open claim gates without
+weakening the default local suite.
+
+Scope:
+
+- Add `causal_continuity.evidence_attestation.v1` as an optional report input.
+- Require reviewer, evidence reference, configuration summary, and
+  scope-specific identifiers before an external claim gate can open.
+- Keep attestations separate from benchmark evidence: they document a completed
+  configured run; they do not create or simulate one.
+- Support provider-backed comparison, real-data leaderboard, and T5 LLM primary
+  scopes.
+
+Acceptance:
+
+- Default local reports remain local-only and keep external gates closed.
+- Configured adapter runs can open provider-backed gates only with a matching
+  attestation.
+- Real-data and T5 primary gates require both underlying evidence and matching
+  attestation.
 
 ## Open Decisions
 

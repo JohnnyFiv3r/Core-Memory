@@ -11,7 +11,7 @@ from benchmarks.contracts import BenchmarkAdapter
 from benchmarks.causal_continuity.ablations import build_ablation_matrix
 from benchmarks.causal_continuity.claims import build_claim_certificate
 from benchmarks.causal_continuity.real_data import build_real_data_contrast
-from benchmarks.causal_continuity.reporting import render_summary
+from benchmarks.causal_continuity.reporting import build_evidence_manifest, render_summary
 from benchmarks.causal_continuity.reproducibility import run_reproducibility_check
 from benchmarks.causal_continuity.runtime_ablations import run_runtime_ablation_toggles
 from benchmarks.causal_continuity.runner import _parse_strategies, _parse_tasks, run_suite
@@ -84,6 +84,59 @@ def _write_longmemeval_fixture(path: Path) -> Path:
     ]
     path.write_text(json.dumps(payload), encoding="utf-8")
     return path
+
+
+def _attestation(scope: str, **extra: object) -> dict[str, object]:
+    row: dict[str, object] = {
+        "scope": scope,
+        "reviewer": "benchmark reviewer",
+        "evidence_ref": "urn:test:evidence",
+        "config_summary": "offline test configuration",
+        "allow_public_claim": True,
+    }
+    row.update(extra)
+    return {
+        "schema_version": "causal_continuity.evidence_attestation.v1",
+        "attestations": [row],
+    }
+
+
+def _minimal_claim_report() -> dict[str, object]:
+    return {
+        "schema_version": "causal_continuity_report.v1",
+        "faithfulness": {"is_faithful": True},
+        "tasks": {
+            "t1_causal_chain_reconstruction": {
+                "strategy_matrix": {
+                    "core_memory_full": {
+                        "execution_mode": "core_memory",
+                        "cases": 1,
+                        "pass": 1,
+                    },
+                },
+            },
+            "t2_calibration_reliability": {"pass": True},
+            "t3_temporal_state_selection": {"pass": True},
+            "t4_longitudinal_continuity": {"pass": True},
+            "t5_thread_fidelity": {
+                "pass": True,
+                "metadata": {
+                    "judge": {
+                        "kind": "deterministic",
+                        "status": "completed",
+                        "is_llm_judge": False,
+                    },
+                },
+            },
+        },
+        "ablation_matrix": {
+            "coverage": {
+                "needs_runtime_toggle_rows": 0,
+                "observed_no_expected_drop_rows": 0,
+                "faithfulness_clean": True,
+            },
+        },
+    }
 
 
 class TestCausalContinuityT1(unittest.TestCase):
@@ -629,6 +682,113 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertEqual(["external_memory_adapter"], adapter["command_adapter_rows"])
         self.assertFalse(manifest["claim_gates"]["provider_backed_comparison_ready"])
         self.assertIn("no_provider_leaderboard_claim_rows", adapter["blockers"])
+
+    def test_evidence_attestation_opens_provider_gate_for_configured_command_run(self):
+        with tempfile.TemporaryDirectory() as td:
+            script = _write_t1_command_adapter(Path(td) / "adapter.py")
+            record = Path(td) / "request.json"
+
+            report = run_suite(
+                fixtures_dir=_FIXTURES,
+                gold_dir=_GOLD,
+                strategies=["external_memory_adapter"],
+                tasks=["t1"],
+                subset="local",
+                limit=1,
+                external_memory_adapter="command",
+                external_memory_command=[sys.executable, str(script), str(record)],
+                evidence_attestation=_attestation(
+                    "provider_backed_comparison",
+                    adapter_names=["external_memory_adapter"],
+                ),
+            )
+
+        manifest = report["evidence_manifest"]
+        adapter = manifest["tiers"]["configured_adapter"]
+        self.assertTrue(manifest["claim_gates"]["provider_backed_comparison_ready"])
+        self.assertEqual("attested_provider_comparison", adapter["status"])
+        self.assertTrue(adapter["attested"])
+        self.assertEqual([], adapter["blockers"])
+        self.assertEqual(["provider_backed_comparison"], manifest["evidence_attestation"]["accepted_scopes"])
+
+    def test_evidence_attestation_cannot_open_provider_gate_without_required_fields(self):
+        with tempfile.TemporaryDirectory() as td:
+            script = _write_t1_command_adapter(Path(td) / "adapter.py")
+            record = Path(td) / "request.json"
+
+            report = run_suite(
+                fixtures_dir=_FIXTURES,
+                gold_dir=_GOLD,
+                strategies=["external_memory_adapter"],
+                tasks=["t1"],
+                subset="local",
+                limit=1,
+                external_memory_adapter="command",
+                external_memory_command=[sys.executable, str(script), str(record)],
+                evidence_attestation={
+                    "schema_version": "causal_continuity.evidence_attestation.v1",
+                    "attestations": [
+                        {
+                            "scope": "provider_backed_comparison",
+                            "adapter_names": ["external_memory_adapter"],
+                        }
+                    ],
+                },
+            )
+
+        manifest = report["evidence_manifest"]
+        adapter = manifest["tiers"]["configured_adapter"]
+        self.assertFalse(manifest["claim_gates"]["provider_backed_comparison_ready"])
+        self.assertFalse(adapter["attested"])
+        self.assertIn("missing_provider_comparison_attestation", adapter["blockers"])
+        self.assertEqual(1, manifest["evidence_attestation"]["rejected_count"])
+
+    def test_evidence_attestation_opens_real_data_gate_only_with_eval_smoke(self):
+        report = _minimal_claim_report()
+        report["real_data_contrast"] = {
+            "summary": {
+                "external_eval_smoke_count": 1,
+                "leaderboard_claim_count": 0,
+            },
+            "datasets": [
+                {
+                    "dataset_id": "locomo_external",
+                    "external_dataset_required": True,
+                    "evaluation_smoke_execution": {"status": "completed"},
+                }
+            ],
+        }
+        report["evidence_attestation"] = _attestation(
+            "real_data_leaderboard",
+            dataset_ids=["locomo_external"],
+        )
+
+        manifest = build_evidence_manifest(report)
+
+        real = manifest["tiers"]["real_data_external"]
+        self.assertTrue(manifest["claim_gates"]["real_data_leaderboard_ready"])
+        self.assertTrue(real["attested"])
+        self.assertEqual(["locomo_external"], real["attested_dataset_ids"])
+
+    def test_evidence_attestation_opens_t5_primary_gate_only_for_llm_judge(self):
+        report = _minimal_claim_report()
+        report["tasks"]["t5_thread_fidelity"]["metadata"]["judge"] = {
+            "kind": "llm",
+            "status": "completed",
+            "is_llm_judge": True,
+        }
+        report["evidence_attestation"] = _attestation(
+            "t5_llm_judge_primary",
+            judge_kind="llm",
+            prompt_version="t5_answerability_rubric.v1",
+        )
+
+        manifest = build_evidence_manifest(report)
+
+        t5 = manifest["tiers"]["t5_judge"]
+        self.assertTrue(manifest["claim_gates"]["t5_llm_judge_primary_claim_ready"])
+        self.assertEqual("attested_llm_primary", t5["status"])
+        self.assertTrue(t5["primary_claim"])
 
     def test_claim_certificate_accepts_local_fixture_scope(self):
         report = run_suite(
