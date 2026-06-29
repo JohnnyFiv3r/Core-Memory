@@ -73,6 +73,7 @@ def run_suite(
     long_context_adapter: str = "",
     long_context_command: str = "",
     t5_judge: str = "deterministic",
+    evidence_attestation: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     selected = list(strategies or available_strategies())
     selected_tasks = list(tasks or ["t1", "t2", "t3", "t4", "t5"])
@@ -138,6 +139,8 @@ def run_suite(
         t4_report=t4_report,
         t5_report=t5_report,
     )
+    if evidence_attestation:
+        report["evidence_attestation"] = dict(evidence_attestation)
     if run_ablation_toggles:
         runtime_runs = run_runtime_ablation_toggles(
             report,
@@ -190,6 +193,7 @@ def main() -> int:
     p.add_argument("--long-context-adapter", default="", help="Optional long-context T1 adapter name; 'command' uses --long-context-command")
     p.add_argument("--long-context-command", default="", help="Optional command for the T1 long-context/no-memory adapter protocol")
     p.add_argument("--t5-judge", default="deterministic", help="T5 answerability judge kind: deterministic, fake_llm, or llm")
+    p.add_argument("--evidence-attestation", default="", help="Optional causal_continuity.evidence_attestation.v1 JSON file for documented external claim gates")
     p.add_argument("--subset", choices=["local", "full"], default="full")
     p.add_argument("--limit", type=int, default=None)
     p.add_argument(
@@ -225,6 +229,11 @@ def main() -> int:
         long_context_adapter=str(args.long_context_adapter or ""),
         long_context_command=str(args.long_context_command or ""),
         t5_judge=str(args.t5_judge or "deterministic"),
+        evidence_attestation=(
+            json.loads(Path(args.evidence_attestation).read_text(encoding="utf-8"))
+            if str(args.evidence_attestation or "").strip()
+            else None
+        ),
         locomo_corpus=(Path(args.locomo_corpus) if str(args.locomo_corpus or "").strip() else None),
         longmemeval_corpus=(Path(args.longmemeval_corpus) if str(args.longmemeval_corpus or "").strip() else None),
     )

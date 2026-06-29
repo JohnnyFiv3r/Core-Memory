@@ -80,6 +80,45 @@ Command adapter rows still carry `leaderboard_claim: false`; they prove the
 execution path and produce local comparison rows, but public external-system
 claims require an explicitly documented configured run.
 
+## Evidence Attestations
+
+Configured external runs can open public-claim gates only when the report also
+includes a reviewer-backed attestation:
+
+```json
+{
+  "schema_version": "causal_continuity.evidence_attestation.v1",
+  "attestations": [
+    {
+      "scope": "provider_backed_comparison",
+      "reviewer": "reviewer name or handle",
+      "evidence_ref": "path-or-url-to-runbook-or-artifact",
+      "config_summary": "provider, model, corpus/window, and adapter configuration",
+      "adapter_names": ["external_memory_adapter"],
+      "allow_public_claim": true
+    }
+  ]
+}
+```
+
+Pass the attestation when generating a report:
+
+```bash
+python -m benchmarks.causal_continuity.runner \
+  --tasks t1 \
+  --subset local \
+  --limit 1 \
+  --strategies external_memory_adapter \
+  --external-memory-adapter command \
+  --external-memory-command "python path/to/adapter.py" \
+  --evidence-attestation path/to/evidence-attestation.json
+```
+
+Attestations do not create evidence. They only let an already executed,
+configured run participate in the manifest claim gates. Missing reviewer,
+evidence reference, configuration summary, or scope-specific identifiers keep
+the gate closed.
+
 ## T2 Calibration
 
 T2 seeds a checked-in synthetic calibration slice with known useful and

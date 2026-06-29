@@ -131,6 +131,14 @@ This command passes only for evidence scopes already supported by
 `real_data_leaderboard`, or `t5_llm_judge_primary` remain blocked for the
 checked-in local report.
 
+## External Evidence Attestation
+
+Future provider-backed, real-data leaderboard, or T5 LLM-primary claims require
+both a completed configured run and a reviewer-backed
+`causal_continuity.evidence_attestation.v1` payload passed to the suite with
+`--evidence-attestation`. The checked-in local report does not include an
+external attestation, so its external gates remain closed by design.
+
 ## Dependency And Degradation Notes
 
 The local run recorded these warnings:
