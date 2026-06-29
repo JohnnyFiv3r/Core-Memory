@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the private `core_memory.retrieval.trace` compatibility wrapper.
+  Low-level trace callers should use `core_memory.memory_trace` or
+  `core_memory.retrieval.tools.memory.trace`; internal callers use
+  `core_memory.retrieval.pipeline.canonical.trace_request`.
 - Removed the private `core_memory.persistence.write_ops` compatibility shim
   after import scans found no active callers. Write behavior remains on
   `MemoryStore` and canonical runtime boundaries such as
