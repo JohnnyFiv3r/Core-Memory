@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the private `core_memory.persistence.write_ops` compatibility shim
+  after import scans found no active callers. Write behavior remains on
+  `MemoryStore` and canonical runtime boundaries such as
+  `process_turn_finalized`.
 - Removed the private `core_memory.retrieval.pipeline.explain.build_explain`
   compatibility shim. The live explain payload remains inline in
   `core_memory.retrieval.pipeline.memory_search_request(..., explain=True)`.
