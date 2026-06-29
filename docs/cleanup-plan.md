@@ -37,15 +37,15 @@ public-surface/import check.
 **Correction:** The original list contained 4 files. `core_memory/retrieval/vector_backend.py`
 is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`. Do not delete it.
 
-**Truth-audit correction (2026-06-28):** The three files below still exist in
-the current tree. Treat them as retained compatibility/dead-file candidates
-pending classification, not as deleted artifacts.
+**Truth-audit correction (2026-06-28):** These paths were previously overstated
+as deleted. Treat unchecked entries as retained compatibility/dead-file
+candidates pending classification, not as deleted artifacts.
 
 **PRD:** `docs/PRD/01-dead-file-removal.md`
 
 - [ ] `core_memory/persistence/encryption.py` — retained pending classification
 - [ ] `core_memory/persistence/write_ops.py` — retained pending classification
-- [ ] `core_memory/retrieval/pipeline/explain.py` — retained pending classification
+- [x] `core_memory/retrieval/pipeline/explain.py` — retired after import scan
 
 **Risk:** None for this truth correction. Any future deletion requires a fresh
 import scan, public-surface check, and relevant tests.
