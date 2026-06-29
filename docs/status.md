@@ -48,7 +48,6 @@ tree still contains these retained candidates, so treat them as active
 classification debt, not deleted files:
 
 - `core_memory/persistence/encryption.py`
-- `core_memory/persistence/write_ops.py`
 - `core_memory/graph/api.py`
 - `core_memory/cli_handlers_semantic.py`
 
@@ -69,6 +68,10 @@ continue to cover the flattened surface.
 `core_memory/retrieval/pipeline/explain.py` was retired after import scans
 proved no active caller used the old `build_explain` path. The live explain
 payload remains inline in `core_memory.retrieval.pipeline`.
+
+`core_memory/persistence/write_ops.py` was retired after import scans proved no
+active caller used the old persistence shim. Write behavior remains on
+`MemoryStore` and canonical runtime boundaries such as `process_turn_finalized`.
 
 ---
 

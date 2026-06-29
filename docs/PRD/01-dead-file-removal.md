@@ -11,8 +11,8 @@
 This historical PRD identified three apparent dead files after earlier
 refactors. Later cleanup work reclassified the candidates through
 `docs/compatibility_ledger.md`: `encryption.py` is public optional compatibility,
-`write_ops.py` remains artifact debt pending a separate proof, and
-`retrieval/pipeline/explain.py` has now been retired.
+`write_ops.py` and `retrieval/pipeline/explain.py` have now been retired after
+their separate proof gates passed.
 
 > **Correction from `cleanup-plan.md`:** the cleanup plan originally listed four
 > files. `core_memory/retrieval/vector_backend.py` is **NOT dead** — it is
@@ -58,10 +58,10 @@ grep -rn 'from.*persistence.*import.*encryption\|persistence\.encryption\|persis
 
 ## Sub-task 1b — Delete `core_memory/persistence/write_ops.py`
 
-> **⚠️ SUPERSEDED — do not delete.** `write_ops.py` was restored as a
-> backward-compatibility shim in Phase 9f/9g (branch `claude/validate-demo-todos-SCRSz`).
-> It re-exports write symbols so callers using the old import path continue to work.
-> Removal requires a breaking-change process and a deprecation cycle.
+> **Retired.** `write_ops.py` was originally restored as a compatibility shim,
+> but the compatibility ledger later classified it as artifact debt. It was
+> removed only after the exact import scan returned no active callers outside
+> docs and a changelog entry called out the old module path removal.
 
 **Verify dead:**
 ```bash

@@ -44,7 +44,7 @@ candidates pending classification, not as deleted artifacts.
 **PRD:** `docs/PRD/01-dead-file-removal.md`
 
 - [ ] `core_memory/persistence/encryption.py` — retained pending classification
-- [ ] `core_memory/persistence/write_ops.py` — retained pending classification
+- [x] `core_memory/persistence/write_ops.py` — retired after import scan
 - [x] `core_memory/retrieval/pipeline/explain.py` — retired after import scan
 
 **Risk:** None for this truth correction. Any future deletion requires a fresh
