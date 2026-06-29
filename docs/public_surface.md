@@ -15,6 +15,7 @@ This page defines what external integrators should call.
 - **Recommended:** install semantic extras for strict semantic retrieval behavior.
 - **Compatibility:** `MemoryStore` and helper ingress APIs remain supported for migration/advanced workflows.
 - **Experimental:** optional adapter/eval surfaces that are not listed under canonical runtime surfaces.
+- **Ledgered debt:** compatibility surfaces that should not gain new callers are tracked in `docs/compatibility_ledger.md`.
 
 Term translations:
 - "canonical semantic mode" = strict semantic retrieval mode
@@ -197,5 +198,7 @@ HTTP MCP typed write surfaces:
 - `POST /v1/mcp/submit-entity-merge-proposal`
 
 ## Compatibility / non-primary
+- See `docs/compatibility_ledger.md` for public/private classification,
+  replacement paths, and removal conditions.
 - Archived historical docs and migration artifacts under `docs/archive/` and `docs/reports/`
 - Non-canonical helper modules may remain in-tree but are not forward contract unless listed above

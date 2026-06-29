@@ -125,9 +125,13 @@ Nothing imports upward. Adapters consume the public API in `core_memory/__init__
 and do not extend or override core semantics.
 
 > Known debt: a number of function-local lazy imports still cross layers
-> upward (catalogued in `docs/reports/architecture-validation-2026-06-09.md`).
-> The law above is normative for new code; CI guardrails to enforce it are an
-> open item.
+> upward. Current accepted debt is tracked by
+> [`scripts/architecture_guards_baseline.json`](../scripts/architecture_guards_baseline.json)
+> and compatibility/removal conditions live in
+> [`docs/compatibility_ledger.md`](compatibility_ledger.md). The law above is
+> normative for new code; run
+> `python scripts/check_architecture_guards.py --fail-on-new` before adding new
+> cross-layer imports.
 
 ---
 
@@ -145,7 +149,7 @@ and do not extend or override core semantics.
 | Edge lifecycle | **Core / always on** | Usage-driven edge reinforcement at flush, recency decay with floor, supersession penalty — see `edge_lifecycle.md`. |
 | Dreamer | **Background, opt-in** | "Move 37" — proposes novel associations across the bead graph as creativity. Candidates require explicit accept/reject decisions. High-signal results can inform SOUL.md. |
 | Myelination | **Shipped, flag-gated** | Per-bead retrieval-value bonuses computed from retrieval feedback, consumed as ranking bonuses when enabled. See `contracts/myelination_experiment_contract.md`. |
-| SOUL.md | **Future / emerging** | Agent-authored identity that evolves over time. Informed by claims + dreamer + myelination. Concept from Peter Steinberger (https://soul.md). |
+| SOUL surfaces | **Shipped governed/read surfaces; host self-model external** | Core Memory ships read projections, governed update/review surfaces, goal lifecycle endpoints, Dreamer bridge hooks, integrity checks, and summary metrics. The host-owned self-model remains outside the causal graph; future target-state/agency research is not a current engine contract. |
 
 ---
 
@@ -154,9 +158,10 @@ and do not extend or override core semantics.
 All frameworks are adapters. None are first-party.
 
 Current adapters:
-- **OpenClaw** — the original testbed; currently over-coupled to core in ways the
-  cleanup workstream is deliberately unwinding (Phase 9). New code must not deepen this
-  coupling.
+- **OpenClaw** — the original testbed, now isolated under
+  `core_memory/integrations/openclaw/` like any other adapter. New code must not
+  import OpenClaw internals from runtime, retrieval, persistence, graph, or domain
+  modules.
 - **MCP** — Model Context Protocol server for Claude Code, Cursor, etc.
 - **PydanticAI** — in-process tool integration
 - **SpringAI / HTTP** — service bridge for Java/Spring orchestrators
@@ -253,4 +258,5 @@ Curated surface in `core_memory/__init__.py`:
 - `docs/index.md` — full docs navigation
 - `docs/graph_backend_plugin.md` — graph backend + sync target plugin API
 - `docs/public_surface.md` — public surface contract
+- `docs/compatibility_ledger.md` — current compatibility surfaces and removal conditions
 - `docs/integrations/` — per-adapter integration guides

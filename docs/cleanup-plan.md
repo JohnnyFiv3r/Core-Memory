@@ -102,7 +102,8 @@ it is private or defines a deprecation path.
 - [x] Migrate `core_memory/cli_handlers_graph.py` to import from split modules
 - [x] Migrate all 12 test files that imported from `core_memory.graph.api`
 - [x] Update `core_memory/graph/__init__.py`: explicit re-exports from split modules
-- [ ] Classify `core_memory/graph/api.py`; do not delete before compatibility review
+- [x] Classify `core_memory/graph/api.py` in `docs/compatibility_ledger.md`;
+      retain until the ledger's deprecation/removal condition is satisfied
 
 **Risk:** Medium. Many touched files but mechanical. Run Phase 0 CI after each step.
 

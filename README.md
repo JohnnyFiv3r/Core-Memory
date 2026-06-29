@@ -217,7 +217,7 @@ Fan-out is skipped when none of these are set. Results are normalized, weighted,
 
 Set via CORE_MEMORY_VECTOR_BACKEND. Avoid local-faiss for multi-worker deployments. See semantic backend docs.
 
-Learn more in the [architecture docs](docs/ARCHITECTURE.md).
+Learn more in the [architecture docs](docs/architecture_overview.md).
 
 ---
 
