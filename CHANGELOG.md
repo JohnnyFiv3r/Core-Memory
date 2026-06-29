@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- Moved the governed management facade from root flat file
+  `core_memory/management.py` to package module `core_memory/management/`.
+  The public import path `core_memory.management` and package-root exports are
+  unchanged.
 - Removed the private `core_memory.retrieval.trace` compatibility wrapper.
   Low-level trace callers should use `core_memory.memory_trace` or
   `core_memory.retrieval.tools.memory.trace`; internal callers use
