@@ -11,7 +11,7 @@ See `docs/status.md` for current completion state.
 | `02-circular-import-fix.md` | 2 | Fix mislabeled circular-import workarounds | Done |
 | `03a-pydanticai-boundary.md` | 3A | Harden PydanticAI adapter boundary | Done |
 | `04-graph-module-cleanup.md` | 4 | Classify `graph/api.py` compat facade | Classified public compatibility debt |
-| `05-persistence-delegation-flatten.md` | 5 | Flatten persistence delegation chain | MRO flat; retained file debt |
+| `05-persistence-delegation-flatten.md` | 5 | Flatten persistence delegation chain | MRO flat; legacy mixin artifacts retired |
 | `06-storage-adapter-boundary.md` | 6 | Unify StorageBackend + VectorBackend into capability tiers | Done |
 | `07-neo4j-query-backend.md` | 7 | Graph backend abstraction (pluggable causal graph providers) | Done |
 | `07b-execution-plan.md` | 7b | Neo4j read path execution plan | Done |

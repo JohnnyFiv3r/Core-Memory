@@ -162,7 +162,7 @@ extends the protocol with `search_candidates()`, `traverse()`,
 | 2 | Circular import fixes | Complete |
 | 3 | PydanticAI + adapter boundary | Complete |
 | 4 | `graph/api.py` compat facade removal | Active compatibility debt; classify-not-delete |
-| 5 | Persistence delegation flatten | MRO flat; retained mixin files pending classification |
+| 5 | Persistence delegation flatten | MRO flat; legacy mixin artifacts retired |
 | 6 | Storage adapter capability tiers | Complete |
 | 7 | Graph backend abstraction (Neo4j, Graphiti, Obsidian, plugin API) | Complete (7a–7i done) |
 | 8 | `core-memory init` wizard + doctor | Complete (8a–8b done) |
