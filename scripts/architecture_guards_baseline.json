@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-29T11:10:49.587821+00:00",
+  "generated_at": "2026-06-29T11:21:31.174793+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -41,10 +41,6 @@
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
     "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->policy:core_memory.policy.promotion",
     "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->association:core_memory.association",
-    "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->entity:core_memory.entity.merge_flow",
-    "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->reporting:core_memory.reporting.store_metrics_runtime",
-    "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->runtime:core_memory.runtime.dreamer",
     "upward_import:core_memory/persistence/store_failure_ops.py:persistence->retrieval:core_memory.retrieval.failure_patterns",
     "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
@@ -56,8 +52,6 @@
     "upward_import:core_memory/persistence/store_query.py:persistence->runtime:core_memory.runtime.session.session_surface",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->integrations:core_memory.integrations.obsidian",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_reporting_promotion_mixin.py:persistence->reporting:core_memory.reporting.store_rationale",
-    "upward_import:core_memory/persistence/store_reporting_promotion_mixin.py:persistence->reporting:core_memory.reporting.store_reporting",
     "upward_import:core_memory/persistence/store_text_hygiene_ops.py:persistence->policy:core_memory.policy",
     "upward_import:core_memory/persistence/store_text_hygiene_ops.py:persistence->retrieval:core_memory.retrieval",
     "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks",
@@ -533,54 +527,6 @@
       "check": "upward_import",
       "detail": {
         "source_layer": "persistence",
-        "target_layer": "association",
-        "target_module": "core_memory.association"
-      },
-      "id": "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->association:core_memory.association",
-      "line": 257,
-      "message": "persistence/ imports upward into association/ via core_memory.association",
-      "path": "core_memory/persistence/store_core_delegates_mixin.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "entity",
-        "target_module": "core_memory.entity.merge_flow"
-      },
-      "id": "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->entity:core_memory.entity.merge_flow",
-      "line": 461,
-      "message": "persistence/ imports upward into entity/ via core_memory.entity.merge_flow",
-      "path": "core_memory/persistence/store_core_delegates_mixin.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "reporting",
-        "target_module": "core_memory.reporting.store_metrics_runtime"
-      },
-      "id": "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->reporting:core_memory.reporting.store_metrics_runtime",
-      "line": 158,
-      "message": "persistence/ imports upward into reporting/ via core_memory.reporting.store_metrics_runtime",
-      "path": "core_memory/persistence/store_core_delegates_mixin.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.dreamer"
-      },
-      "id": "upward_import:core_memory/persistence/store_core_delegates_mixin.py:persistence->runtime:core_memory.runtime.dreamer",
-      "line": 436,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.dreamer",
-      "path": "core_memory/persistence/store_core_delegates_mixin.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
         "target_layer": "retrieval",
         "target_module": "core_memory.retrieval.failure_patterns"
       },
@@ -708,30 +654,6 @@
       "line": 13,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
       "path": "core_memory/persistence/store_relationship_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "reporting",
-        "target_module": "core_memory.reporting.store_rationale"
-      },
-      "id": "upward_import:core_memory/persistence/store_reporting_promotion_mixin.py:persistence->reporting:core_memory.reporting.store_rationale",
-      "line": 9,
-      "message": "persistence/ imports upward into reporting/ via core_memory.reporting.store_rationale",
-      "path": "core_memory/persistence/store_reporting_promotion_mixin.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "reporting",
-        "target_module": "core_memory.reporting.store_reporting"
-      },
-      "id": "upward_import:core_memory/persistence/store_reporting_promotion_mixin.py:persistence->reporting:core_memory.reporting.store_reporting",
-      "line": 21,
-      "message": "persistence/ imports upward into reporting/ via core_memory.reporting.store_reporting",
-      "path": "core_memory/persistence/store_reporting_promotion_mixin.py"
     },
     {
       "check": "upward_import",

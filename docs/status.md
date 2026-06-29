@@ -17,7 +17,7 @@ descriptions.
 | 2 | Circular import fixes | **Done** |
 | 3A | Harden PydanticAI boundary | **Done** |
 | 4 | `graph/api.py` compat facade removal | **Active public compatibility debt** — classified in ledger; retain until deprecation/removal condition |
-| 5 | Persistence delegation flatten | **MRO flat; retained file debt** — legacy mixin files pending classification |
+| 5 | Persistence delegation flatten | **MRO flat; legacy mixin artifacts retired** |
 | 6 | Storage adapter capability tiers | **Done** |
 | 7a | `persistence/graph/` package + protocol + factory | **Done** |
 | 7b | `Neo4jGraphBackend` read path + `KuzuGraphBackend` | **Done** |
@@ -51,8 +51,6 @@ classification debt, not deleted files:
 - `core_memory/persistence/write_ops.py`
 - `core_memory/retrieval/pipeline/explain.py`
 - `core_memory/graph/api.py`
-- `core_memory/persistence/store_core_delegates_mixin.py`
-- `core_memory/persistence/store_reporting_promotion_mixin.py`
 - `core_memory/cli_handlers_semantic.py`
 
 `core_memory/graph/api.py` is now classified in `docs/compatibility_ledger.md`
@@ -62,6 +60,12 @@ removal conditions are satisfied.
 Current architecture guard debt is snapshotted in
 `scripts/architecture_guards_baseline.json`. When cleanup resolves a row, shrink
 the baseline in the same PR.
+
+The legacy persistence mixin artifacts
+`core_memory/persistence/store_core_delegates_mixin.py` and
+`core_memory/persistence/store_reporting_promotion_mixin.py` were retired after
+their methods had already been inlined into `MemoryStore`; method-contract tests
+continue to cover the flattened surface.
 
 ---
 

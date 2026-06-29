@@ -140,12 +140,13 @@ it is private or defines a deprecation path.
       with genuine `store.attr` access — no flattening opportunity.
 - [x] **Step 5d — Mixin consolidation:** MemoryStore MRO is flat and all 79 methods
       (61 core + 18 reporting/promotion) were inlined directly into `MemoryStore` in
-      `store.py`. However, the legacy mixin files still exist in the current tree:
+      `store.py`. The legacy mixin artifacts
       `core_memory/persistence/store_core_delegates_mixin.py` and
-      `core_memory/persistence/store_reporting_promotion_mixin.py`. Treat those files
-      as retained artifact debt pending classification, not as deleted files.
-      Mixin-assembly tests were rewritten as method-contract assertions on `MemoryStore`.
-      Full suite at the time: 1025 passed, 4 failed (unchanged baseline).
+      `core_memory/persistence/store_reporting_promotion_mixin.py` were later
+      retired after import scans proved no active first-party caller depended on
+      them. Mixin-assembly tests remain as method-contract assertions on
+      `MemoryStore`. Full suite at the time of the original flattening: 1025
+      passed, 4 failed (unchanged baseline).
 
 **Risk:** High individually, low per-step. Do not batch steps. Full CI between each file.
 
