@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-06-12
+**Last updated:** 2026-06-28
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -13,11 +13,11 @@ descriptions.
 | Phase | Topic | Status |
 |---|---|---|
 | 0 | CI + Coverage Baseline | **Done** |
-| 1 | Dead file removal | **Done** |
+| 1 | Dead file removal | **Active compatibility debt** — retained candidates pending classification |
 | 2 | Circular import fixes | **Done** |
 | 3A | Harden PydanticAI boundary | **Done** |
-| 4 | `graph/api.py` compat facade removal | **Done** |
-| 5 | Persistence delegation flatten | **Done** |
+| 4 | `graph/api.py` compat facade removal | **Active compatibility debt** — classify-not-delete |
+| 5 | Persistence delegation flatten | **MRO flat; retained file debt** — legacy mixin files pending classification |
 | 6 | Storage adapter capability tiers | **Done** |
 | 7a | `persistence/graph/` package + protocol + factory | **Done** |
 | 7b | `Neo4jGraphBackend` read path + `KuzuGraphBackend` | **Done** |
@@ -30,7 +30,7 @@ descriptions.
 | 7i | Plugin API docs | **Done** |
 | 8a | `core-memory setup init` wizard + layered config | **Done** |
 | 8b | Mode-based wizard, doctor profiles, `config` subcommand, `demo` | **Done** |
-| 9a–9h | Structural consolidation (runtime/, cli/, openclaw/) | **Done** |
+| 9a–9h | Structural consolidation (runtime/, cli/, openclaw/) | **Mostly done; retained relocation debt pending classification** |
 | 10a | Archive 11 stray `v2_p*` files | **Done** |
 | 10b | Retire `docs/ARCHITECTURE.md` | **Done** |
 | 10c | Update `architecture_overview.md` | **Done** |
@@ -38,6 +38,25 @@ descriptions.
 | 10e | Create `docs/status.md` | **Done** (this file) |
 | 10f | Add `docs/PRD/README.md` | **Done** |
 | 10g | Update `docs/index.md` | **Done** |
+
+---
+
+### Cleanup truth-audit note
+
+The cleanup docs previously overstated some deletion/completion status. The current
+tree still contains these retained candidates, so treat them as active
+classification debt, not deleted files:
+
+- `core_memory/persistence/encryption.py`
+- `core_memory/persistence/write_ops.py`
+- `core_memory/retrieval/pipeline/explain.py`
+- `core_memory/graph/api.py`
+- `core_memory/persistence/store_core_delegates_mixin.py`
+- `core_memory/persistence/store_reporting_promotion_mixin.py`
+- `core_memory/cli_handlers_semantic.py`
+
+`core_memory/graph/api.py` is specifically classify-not-delete until a public/private
+compatibility ledger proves it is safe to remove or defines a deprecation path.
 
 ---
 
