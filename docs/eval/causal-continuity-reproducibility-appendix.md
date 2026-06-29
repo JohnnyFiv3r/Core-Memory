@@ -1,6 +1,6 @@
 # Causal-Continuity Reproducibility Appendix
 
-Status: generated evidence bundle for source commit `8c2cb7d8`.
+Status: generated evidence bundle for source commit `f4009512`.
 
 This appendix records the exact local commands and generated artifacts for the
 current causal-continuity benchmark package. The checked-in report is local,
@@ -9,7 +9,7 @@ external-memory leaderboard claims.
 
 ## Source
 
-- Source commit used to generate the artifacts: `8c2cb7d8`
+- Source commit used to generate the artifacts: `f4009512`
 - Python: `3.14.0`
 - Platform recorded by the reproducibility report:
   `macOS-26.5.1-arm64-arm-64bit-Mach-O`
@@ -102,6 +102,7 @@ It makes claim readiness explicit:
 - `configured_adapter.status=unavailable`
 - `real_data_external.status=dataset_required`
 - `t5_judge.status=deterministic_default`
+- `evidence_attestation.status=not_provided`
 
 Claim gates:
 
