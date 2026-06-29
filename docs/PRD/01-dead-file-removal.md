@@ -1,17 +1,18 @@
 # PRD: Delete Confirmed Dead Files
 
 **Phase:** 1
-**Status:** Not started
+**Status:** Partially superseded by `docs/compatibility_ledger.md`
 **Prerequisite:** Phase 0 complete (CI workflow merged)
 
 ---
 
 ## Problem
 
-Three files in the codebase have zero references from any other Python module,
-test, doc, or config. They were left behind by earlier refactors. They contribute
-to the "throw a file in a pile" feel of the `core_memory/` tree, and they show up
-as dead nodes in the codebase knowledge graph.
+This historical PRD identified three apparent dead files after earlier
+refactors. Later cleanup work reclassified the candidates through
+`docs/compatibility_ledger.md`: `encryption.py` is public optional compatibility,
+`write_ops.py` remains artifact debt pending a separate proof, and
+`retrieval/pipeline/explain.py` has now been retired.
 
 > **Correction from `cleanup-plan.md`:** the cleanup plan originally listed four
 > files. `core_memory/retrieval/vector_backend.py` is **NOT dead** — it is
@@ -23,12 +24,15 @@ as dead nodes in the codebase knowledge graph.
 
 ## Success criteria
 
-1. The three files listed below no longer exist in the repo.
-2. `pytest tests/ -x -q` passes (same set of tests as before this PR).
-3. The `.github/workflows/test.yml` `core-only` and `full` jobs both pass.
-4. No new `ImportError` anywhere — verified by a fresh `pip install -e .` then
+1. Retired candidates no longer exist in the repo.
+2. Retained candidates have an explicit ledger classification and removal
+   condition.
+3. `pytest tests/ -x -q` passes (same set of tests as before this PR).
+4. The `.github/workflows/test.yml` `core-only` and `full` jobs both pass.
+5. No new `ImportError` anywhere — verified by a fresh `pip install -e .` then
    `python -c "import core_memory"`.
-5. `docs/cleanup-plan.md` is corrected to reflect the three-file scope.
+6. `docs/cleanup-plan.md` is corrected to reflect current retained/retired
+   status.
 
 ---
 
@@ -73,10 +77,10 @@ import directly from elsewhere now.
 
 ## Sub-task 1c — Delete `core_memory/retrieval/pipeline/explain.py`
 
-> **⚠️ SUPERSEDED — do not delete.** `explain.py` was restored as a
-> backward-compatibility shim in Phase 9f/9g (branch `claude/validate-demo-todos-SCRSz`).
-> It re-exports `build_explain` so any external callers using the old path continue
-> to work. Removal requires a breaking-change process and a deprecation cycle.
+> **Retired.** `explain.py` was originally restored as a compatibility shim, but
+> the later compatibility ledger classified it as artifact debt. It was removed
+> only after the exact import scan returned no active callers outside docs and a
+> changelog entry called out the old `build_explain` path removal.
 
 **Verify dead** (note: many files use the word "explain" — this check looks for
 imports of *this specific module* or calls to its function):
@@ -87,7 +91,7 @@ grep -rn 'from.*pipeline.*import.*explain\|pipeline\.explain\b\|build_explain' \
   core_memory/ tests/ docs/ benchmarks/ demo/ eval/ scripts/ plugins/ 2>/dev/null
 ```
 
-**File facts:** 25 lines. Defines `build_explain(snapped, snap_decisions, warnings,
+**File facts:** 25 lines. Defined `build_explain(snapped, snap_decisions, warnings,
 retrieval_debug) -> dict`. The active `explain` payload is built inline at
 `core_memory/retrieval/pipeline/__init__.py:113-122` — `build_explain` is
 unreferenced from first-party code.

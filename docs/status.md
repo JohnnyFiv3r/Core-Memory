@@ -49,7 +49,6 @@ classification debt, not deleted files:
 
 - `core_memory/persistence/encryption.py`
 - `core_memory/persistence/write_ops.py`
-- `core_memory/retrieval/pipeline/explain.py`
 - `core_memory/graph/api.py`
 - `core_memory/cli_handlers_semantic.py`
 
@@ -66,6 +65,10 @@ The legacy persistence mixin artifacts
 `core_memory/persistence/store_reporting_promotion_mixin.py` were retired after
 their methods had already been inlined into `MemoryStore`; method-contract tests
 continue to cover the flattened surface.
+
+`core_memory/retrieval/pipeline/explain.py` was retired after import scans
+proved no active caller used the old `build_explain` path. The live explain
+payload remains inline in `core_memory.retrieval.pipeline`.
 
 ---
 

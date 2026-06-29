@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the private `core_memory.retrieval.pipeline.explain.build_explain`
+  compatibility shim. The live explain payload remains inline in
+  `core_memory.retrieval.pipeline.memory_search_request(..., explain=True)`.
 - **Phase 9h (complete):** Deleted all 52 backward-compat shims created during Phase 9
   structural moves and migrated every callsite to canonical paths:
   - 31 `runtime/` root shims (9e dreamer + 9f subpackage) → `runtime/{turn,flush,session,passes,queue,observability,dreamer}/`
