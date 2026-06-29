@@ -32,7 +32,7 @@ architecture guard baseline honest. When a row is repaired, shrink
 | `core_memory/retrieval/tools/memory_search.py` | Public compatibility wrapper | Preserves the older typed `search_typed(...)` import path and result envelope | `core_memory.retrieval.tools.memory.search(request=...)` or root alias `core_memory.memory_search(...)` | Remove only after adapter docs and validation no longer recommend `memory_search.py`, and package-root read surfaces remain covered. | `tests/test_memory_search_tool_wrapper.py`, `tests/test_package_root_public_surface.py`, `tests/test_pydanticai_memory_tools.py` |
 | `core_memory/persistence/encryption.py` | Public optional compatibility module | Optional Fernet helpers for callers that imported encryption support directly. It is not part of the default write path. | Future explicit encrypted backend or documented storage encryption extension point | Do not delete as a dead-file cleanup. Removal requires a breaking-change process and replacement encryption story. | Import scan plus a dedicated encryption compatibility test before any removal |
 | Persistence helper modules (`store_add_helpers.py`, `store_*_ops.py`, `promotion_service.py`) | Private/internal implementation | Store implementation and policy helpers, some still crossing architectural boundaries | Future post-write effects boundary owned by runtime; storage modules keep durable data operations | Do not delete wholesale. Boundary cleanup should move one side-effect cluster at a time and shrink guard allowlists after each repair. | Focused touched-module tests plus `python scripts/check_architecture_guards.py --fail-on-new` |
-| Root flat-file relocation debt (`core_memory/cli_handlers_semantic.py`, `core_memory/management.py`, `core_memory/runtime/goal_lifecycle.py`, `core_memory/runtime/session_enrichment_delta.py`, `core_memory/runtime/source_envelope.py`) | Private/internal relocation debt | Active modules that violate the flat-file policy but still own live behavior | `core_memory/cli/handlers/*`, future management/runtime subpackages, and existing runtime subpackages such as `goals`, `session`, and `ingest` | Move only in narrow boundary slices that preserve public imports and shrink the guard baseline in the same PR. Do not delete to satisfy the flat-file rule. | `python scripts/check_architecture_guards.py --fail-on-new`, focused tests for touched modules |
+| Root flat-file relocation debt (`core_memory/cli_handlers_semantic.py`, `core_memory/runtime/goal_lifecycle.py`, `core_memory/runtime/session_enrichment_delta.py`, `core_memory/runtime/source_envelope.py`) | Private/internal relocation debt | Active modules that violate the flat-file policy but still own live behavior | `core_memory/cli/handlers/*` and relevant runtime subpackages such as `goals`, `session`, and `ingest` | Move only in narrow boundary slices that preserve public imports and shrink the guard baseline in the same PR. Do not delete to satisfy the flat-file rule. | `python scripts/check_architecture_guards.py --fail-on-new`, focused tests for touched modules |
 
 ## Recently Retired Artifacts
 
@@ -54,6 +54,9 @@ architecture guard baseline honest. When a row is repaired, shrink
   low-level tool surface `core_memory.retrieval.tools.memory.trace`. The proving
   gate was an import scan for `core_memory.retrieval.trace` and trace-depth/tool
   tests.
+- `core_memory/management.py` moved to `core_memory/management/__init__.py` to
+  clear root flat-file debt while preserving the public `core_memory.management`
+  import path and package-root exports.
 
 ## Explicit Non-Compatibility
 

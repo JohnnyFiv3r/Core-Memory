@@ -77,6 +77,10 @@ active caller used the old persistence shim. Write behavior remains on
 `core_memory.retrieval.pipeline.canonical.trace_request` or the public low-level
 tool surface `core_memory.retrieval.tools.memory.trace`.
 
+`core_memory/management.py` moved to `core_memory/management/__init__.py` to
+clear root flat-file relocation debt without changing the public
+`core_memory.management` import path or package-root management exports.
+
 ---
 
 ## Engine-correctness items (from `demo/TODO.md`)
