@@ -1,9 +1,8 @@
 {
-  "generated_at": "2026-06-29T14:56:32.187349+00:00",
+  "generated_at": "2026-06-29T20:49:26.293596+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
-    "flat_file:core_memory/cli_handlers_semantic.py",
     "flat_file:core_memory/runtime/goal_lifecycle.py",
     "flat_file:core_memory/runtime/session_enrichment_delta.py",
     "flat_file:core_memory/runtime/source_envelope.py",
@@ -83,17 +82,6 @@
     "upward_import:core_memory/soul/summary.py:soul->runtime:core_memory.runtime.dreamer.tension_discovery"
   ],
   "violations": [
-    {
-      "check": "flat_file",
-      "detail": {
-        "directory": "core_memory root",
-        "file": "cli_handlers_semantic.py"
-      },
-      "id": "flat_file:core_memory/cli_handlers_semantic.py",
-      "line": 1,
-      "message": "core_memory/cli_handlers_semantic.py is not in the core_memory root flat-file allowlist",
-      "path": "core_memory/cli_handlers_semantic.py"
-    },
     {
       "check": "flat_file",
       "detail": {

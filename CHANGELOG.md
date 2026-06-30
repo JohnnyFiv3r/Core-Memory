@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the private root duplicate `core_memory/cli_handlers_semantic.py`.
+  The live semantic CLI handler remains `core_memory/cli/handlers/semantic.py`,
+  with no CLI command behavior change.
 - Moved the governed management facade from root flat file
   `core_memory/management.py` to package module `core_memory/management/`.
   The public import path `core_memory.management` and package-root exports are

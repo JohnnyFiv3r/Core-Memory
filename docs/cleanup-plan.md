@@ -305,10 +305,11 @@ logic and human output format).
       checklist must not be treated as proof that every listed flat file is gone.
       Full inventory:
 
-      > **Truth-audit correction (2026-06-28):** Some flat compatibility/relocation
-      > files still exist in the current tree. In particular,
-      > `core_memory/cli_handlers_semantic.py` is retained pending classification.
-      > Treat this section as a migration checklist, not deletion proof.
+      > **Truth-audit correction (2026-06-28, updated 2026-06-29):** Some flat
+      > compatibility/relocation files still exist in the current tree. Treat
+      > this section as a migration checklist, not deletion proof. The former
+      > `core_memory/cli_handlers_semantic.py` root file has since been retired
+      > after the semantic CLI package handler was proven canonical.
 
       **From 9a** (1 shim — deleted ✓):
       - ~~`integrations/openclaw_flags.py`~~
@@ -323,8 +324,8 @@ logic and human output format).
 
       **From 9d** (15 shims — mostly migrated; retained debt remains):
       - Most `cli_*.py` flat files migrated to the `core_memory/cli/` package.
-        `core_memory/cli_handlers_semantic.py` still exists and is retained pending
-        relocation/public-surface classification.
+        `core_memory/cli_handlers_semantic.py` has now been retired; the live
+        handler remains `core_memory/cli/handlers/semantic.py`.
 
       **From 9f** (30 shims — mostly migrated; retained debt may remain):
       - Most `runtime/` root shims migrated to canonical subpackage paths under

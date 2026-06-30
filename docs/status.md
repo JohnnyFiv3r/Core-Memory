@@ -49,7 +49,6 @@ classification debt, not deleted files:
 
 - `core_memory/persistence/encryption.py`
 - `core_memory/graph/api.py`
-- `core_memory/cli_handlers_semantic.py`
 
 `core_memory/graph/api.py` is now classified in `docs/compatibility_ledger.md`
 as a public compatibility facade. Retain it until the ledger's deprecation and
@@ -80,6 +79,10 @@ tool surface `core_memory.retrieval.tools.memory.trace`.
 `core_memory/management.py` moved to `core_memory/management/__init__.py` to
 clear root flat-file relocation debt without changing the public
 `core_memory.management` import path or package-root management exports.
+
+`core_memory/cli_handlers_semantic.py` was retired after import scans confirmed
+the live semantic CLI surface already routes through
+`core_memory/cli/handlers/semantic.py`.
 
 ---
 
