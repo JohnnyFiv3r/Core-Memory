@@ -32,7 +32,7 @@ architecture guard baseline honest. When a row is repaired, shrink
 | `core_memory/retrieval/tools/memory_search.py` | Public compatibility wrapper | Preserves the older typed `search_typed(...)` import path and result envelope | `core_memory.retrieval.tools.memory.search(request=...)` or root alias `core_memory.memory_search(...)` | Remove only after adapter docs and validation no longer recommend `memory_search.py`, and package-root read surfaces remain covered. | `tests/test_memory_search_tool_wrapper.py`, `tests/test_package_root_public_surface.py`, `tests/test_pydanticai_memory_tools.py` |
 | `core_memory/persistence/encryption.py` | Public optional compatibility module | Optional Fernet helpers for callers that imported encryption support directly. It is not part of the default write path. | Future explicit encrypted backend or documented storage encryption extension point | Do not delete as a dead-file cleanup. Removal requires a breaking-change process and replacement encryption story. | Import scan plus a dedicated encryption compatibility test before any removal |
 | Persistence helper modules (`store_add_helpers.py`, `store_*_ops.py`, `promotion_service.py`) | Private/internal implementation | Store implementation and policy helpers, some still crossing architectural boundaries | Future post-write effects boundary owned by runtime; storage modules keep durable data operations | Do not delete wholesale. Boundary cleanup should move one side-effect cluster at a time and shrink guard allowlists after each repair. | Focused touched-module tests plus `python scripts/check_architecture_guards.py --fail-on-new` |
-| Root flat-file relocation debt (`core_memory/runtime/session_enrichment_delta.py`, `core_memory/runtime/source_envelope.py`) | Private/internal relocation debt | Active modules that violate the flat-file policy but still own live behavior | Relevant runtime subpackages such as `session` and `ingest` | Move only in narrow boundary slices that preserve public imports and shrink the guard baseline in the same PR. Do not delete to satisfy the flat-file rule. | `python scripts/check_architecture_guards.py --fail-on-new`, focused tests for touched modules |
+| Root flat-file relocation debt (`core_memory/runtime/source_envelope.py`) | Private/internal relocation debt | Active module that violates the flat-file policy but still owns live behavior | Relevant runtime subpackage such as `ingest` | Move only in a narrow boundary slice that preserves public imports and shrinks the guard baseline in the same PR. Do not delete to satisfy the flat-file rule. | `python scripts/check_architecture_guards.py --fail-on-new`, focused tests for touched modules |
 
 ## Recently Retired Artifacts
 
@@ -67,6 +67,12 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory/runtime/session/goal_lifecycle.py`. The proving gate was an
   active import scan for `core_memory.runtime.goal_lifecycle|runtime.goal_lifecycle`
   and goal lifecycle focused tests.
+- `core_memory/runtime/session_enrichment_delta.py` was retired after the live
+  session enrichment delta normalizer had already moved to
+  `core_memory/runtime/session/session_enrichment_delta.py`. The proving gate was
+  an active import scan for
+  `core_memory.runtime.session_enrichment_delta|runtime.session_enrichment_delta`
+  and session enrichment focused tests.
 
 ## Explicit Non-Compatibility
 

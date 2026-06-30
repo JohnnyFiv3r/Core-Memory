@@ -3,6 +3,11 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the private root duplicate
+  `core_memory/runtime/session_enrichment_delta.py`. The live session enrichment
+  delta normalizer remains
+  `core_memory/runtime/session/session_enrichment_delta.py`, with no behavior
+  change.
 - Removed the private root duplicate `core_memory/runtime/goal_lifecycle.py`.
   The live goal lifecycle pass remains
   `core_memory/runtime/session/goal_lifecycle.py`, with no runtime behavior

@@ -82,8 +82,8 @@ Sanctioned at `core_memory/` root: `__init__.py`, `_version.py`, `memory.py`,
 `transcript_ingest.py`, `identifiers.py`, `llm_client.py`, `provider_config.py`.
 Sanctioned at `runtime/` root: `__init__.py`, `engine.py`, `state.py`,
 `event_schemas.py`. Known relocation debt (do not add to it):
-`runtime/session_enrichment_delta.py`, `runtime/source_envelope.py` — see
-`docs/compatibility_ledger.md` and `scripts/architecture_guards_baseline.json`.
+`runtime/source_envelope.py` — see `docs/compatibility_ledger.md` and
+`scripts/architecture_guards_baseline.json`.
 
 ---
 
