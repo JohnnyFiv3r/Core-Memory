@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- Removed the private root duplicate `core_memory/runtime/goal_lifecycle.py`.
+  The live goal lifecycle pass remains
+  `core_memory/runtime/session/goal_lifecycle.py`, with no runtime behavior
+  change.
 - Removed the private root duplicate `core_memory/cli_handlers_semantic.py`.
   The live semantic CLI handler remains `core_memory/cli/handlers/semantic.py`,
   with no CLI command behavior change.

@@ -32,7 +32,8 @@ May 28 status update. No action required.
 
 **Status: Closed — already implemented**
 
-`core_memory/runtime/goal_lifecycle.py` exists with outcome→goal detection:
+`core_memory/runtime/session/goal_lifecycle.py` exists with outcome→goal
+detection:
 - `_match_goal()` matches on shared tags or ≥2 shared tokens
 - Bead type `"outcome"` triggers the resolution pass; `"goal"` beads are candidates
 - Matched pairs produce a `resolves` association through the standard delta path

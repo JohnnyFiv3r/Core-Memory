@@ -84,6 +84,10 @@ clear root flat-file relocation debt without changing the public
 the live semantic CLI surface already routes through
 `core_memory/cli/handlers/semantic.py`.
 
+`core_memory/runtime/goal_lifecycle.py` was retired after import scans confirmed
+the live goal lifecycle pass already routes through
+`core_memory/runtime/session/goal_lifecycle.py`.
+
 ---
 
 ## Engine-correctness items (from `demo/TODO.md`)
