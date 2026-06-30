@@ -18,7 +18,7 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
-from core_memory.runtime.source_envelope import (
+from core_memory.runtime.ingest.source_envelope import (
     merge_source_ingest_envelope_refs,
     source_ingest_batch_ids,
     source_ingest_envelope_ref,

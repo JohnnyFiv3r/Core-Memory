@@ -92,6 +92,11 @@ the live goal lifecycle pass already routes through
 confirmed the live session enrichment delta normalizer already routes through
 `core_memory/runtime/session/session_enrichment_delta.py`.
 
+`core_memory/runtime/source_envelope.py` moved to
+`core_memory/runtime/ingest/source_envelope.py` after active callers were
+migrated directly to the ingest-owned module. No root compatibility shim was
+retained.
+
 ---
 
 ## Engine-correctness items (from `demo/TODO.md`)
