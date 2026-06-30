@@ -5,13 +5,13 @@ import os
 import tempfile
 import time
 import uuid
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Callable
 
 from core_memory.persistence.io_utils import store_lock
 from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.semantic_index import semantic_doctor
-from core_memory.integrations.neo4j.sync import sync_to_neo4j
 from core_memory.runtime.dreamer import analysis as dreamer
 from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
@@ -63,6 +63,11 @@ def _write_json(path: Path, payload: Any) -> None:
 
 def _default_state() -> dict[str, Any]:
     return {"consecutive_failures": 0, "opened_until": 0, "last_error": ""}
+
+
+def _sync_to_neo4j_provider(**kwargs: Any) -> dict[str, Any]:
+    sync_module = import_module("core_memory.integrations.neo4j.sync")
+    return sync_module.sync_to_neo4j(**kwargs)
 
 
 def _load_queue_and_state_locked(root: str | Path) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -351,7 +356,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         }
 
     if k == "neo4j-sync":
-        out = sync_to_neo4j(
+        out = _sync_to_neo4j_provider(
             root=str(root),
             session_id=(str(p.get("session_id")) if p.get("session_id") is not None else None),
             dry_run=bool(p.get("dry_run", False)),
