@@ -283,6 +283,52 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
             runtime = get_semantic_task_runtime()
         self.assertIsInstance(runtime, ProviderSemanticTaskRuntime)
 
+    def test_factory_loads_pydanticai_runtime_through_provider_boundary(self):
+        class FakeRuntime:
+            pass
+
+        fake = FakeRuntime()
+        with patch(
+            "core_memory.runtime.semantic_tasks.runtime._pydanticai_semantic_task_runtime",
+            return_value=fake,
+        ) as load_runtime:
+            runtime = get_semantic_task_runtime(mode="pydanticai")
+
+        self.assertIs(runtime, fake)
+        load_runtime.assert_called_once_with()
+
+    def test_factory_falls_back_when_pydanticai_provider_unavailable(self):
+        with patch(
+            "core_memory.runtime.semantic_tasks.runtime._pydanticai_semantic_task_runtime",
+            side_effect=ImportError("optional adapter missing"),
+        ):
+            runtime = get_semantic_task_runtime(mode="pydanticai")
+
+        self.assertIsInstance(runtime, DisabledSemanticTaskRuntime)
+
+    def test_factory_loads_remote_runtime_through_provider_boundary(self):
+        class FakeRuntime:
+            pass
+
+        fake = FakeRuntime()
+        with patch(
+            "core_memory.runtime.semantic_tasks.runtime._remote_semantic_task_runtime",
+            return_value=fake,
+        ) as load_runtime:
+            runtime = get_semantic_task_runtime(mode="remote")
+
+        self.assertIs(runtime, fake)
+        load_runtime.assert_called_once_with()
+
+    def test_factory_falls_back_when_remote_provider_unavailable(self):
+        with patch(
+            "core_memory.runtime.semantic_tasks.runtime._remote_semantic_task_runtime",
+            side_effect=ImportError("optional adapter missing"),
+        ):
+            runtime = get_semantic_task_runtime(mode="remote")
+
+        self.assertIsInstance(runtime, ProviderSemanticTaskRuntime)
+
 
 if __name__ == "__main__":
     unittest.main()
