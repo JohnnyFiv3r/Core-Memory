@@ -406,9 +406,9 @@ Decisions Chris's developer should escalate rather than guess. None block the te
 - [docs/specs/agent-authored-turn-memory-v1.md](../../docs/specs/agent-authored-turn-memory-v1.md)
 - [docs/specs/agent-authored-rollout-playbook.md](../../docs/specs/agent-authored-rollout-playbook.md)
 
-### Related PRDs
-- [docs/PRD/01-multi-speaker-turn-schema.md](01-multi-speaker-turn-schema.md) — `Turn` shape consumed by the `capture` tool.
-- [docs/PRD/02-adapter-primitive-contract.md](02-adapter-primitive-contract.md) — MCP is one adapter implementation under the broader contract.
+### Related contract docs
+- [docs/concepts/turn_schema.md](../concepts/turn_schema.md) — `Turn` shape consumed by the `capture` tool.
+- [docs/adapters/contract.md](../adapters/contract.md) — MCP is one adapter implementation under the broader adapter lifecycle contract.
 
 ### Code touch points
 - [core_memory/integrations/http/server.py](../../core_memory/integrations/http/server.py) — MCP server mount.

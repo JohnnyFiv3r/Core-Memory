@@ -1,14 +1,8 @@
 {
-  "generated_at": "2026-06-30T14:40:48.939290+00:00",
+  "generated_at": "2026-06-30T16:15:57.680338+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
-    "markdown_link:docs/PRD/03-mcp-protocol-server.md:01-multi-speaker-turn-schema.md",
-    "markdown_link:docs/PRD/03-mcp-protocol-server.md:02-adapter-primitive-contract.md",
-    "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:../docs/status.md",
-    "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:PRD/README.md",
-    "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:cleanup-plan.md",
-    "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:status.md",
     "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.event_schemas",
     "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.session.session_surface",
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->policy:core_memory.policy.promotion_contract",
@@ -79,66 +73,6 @@
     "upward_import:core_memory/soul/summary.py:soul->runtime:core_memory.runtime.dreamer.tension_discovery"
   ],
   "violations": [
-    {
-      "check": "markdown_link",
-      "detail": {
-        "target": "01-multi-speaker-turn-schema.md"
-      },
-      "id": "markdown_link:docs/PRD/03-mcp-protocol-server.md:01-multi-speaker-turn-schema.md",
-      "line": 410,
-      "message": "docs/PRD/03-mcp-protocol-server.md links to missing local target 01-multi-speaker-turn-schema.md",
-      "path": "docs/PRD/03-mcp-protocol-server.md"
-    },
-    {
-      "check": "markdown_link",
-      "detail": {
-        "target": "02-adapter-primitive-contract.md"
-      },
-      "id": "markdown_link:docs/PRD/03-mcp-protocol-server.md:02-adapter-primitive-contract.md",
-      "line": 411,
-      "message": "docs/PRD/03-mcp-protocol-server.md links to missing local target 02-adapter-primitive-contract.md",
-      "path": "docs/PRD/03-mcp-protocol-server.md"
-    },
-    {
-      "check": "markdown_link",
-      "detail": {
-        "target": "../docs/status.md"
-      },
-      "id": "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:../docs/status.md",
-      "line": 928,
-      "message": "docs/PRD/execution-plan-phases-0-7-10.md links to missing local target ../docs/status.md",
-      "path": "docs/PRD/execution-plan-phases-0-7-10.md"
-    },
-    {
-      "check": "markdown_link",
-      "detail": {
-        "target": "PRD/README.md"
-      },
-      "id": "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:PRD/README.md",
-      "line": 974,
-      "message": "docs/PRD/execution-plan-phases-0-7-10.md links to missing local target PRD/README.md",
-      "path": "docs/PRD/execution-plan-phases-0-7-10.md"
-    },
-    {
-      "check": "markdown_link",
-      "detail": {
-        "target": "cleanup-plan.md"
-      },
-      "id": "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:cleanup-plan.md",
-      "line": 973,
-      "message": "docs/PRD/execution-plan-phases-0-7-10.md links to missing local target cleanup-plan.md",
-      "path": "docs/PRD/execution-plan-phases-0-7-10.md"
-    },
-    {
-      "check": "markdown_link",
-      "detail": {
-        "target": "status.md"
-      },
-      "id": "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:status.md",
-      "line": 972,
-      "message": "docs/PRD/execution-plan-phases-0-7-10.md links to missing local target status.md",
-      "path": "docs/PRD/execution-plan-phases-0-7-10.md"
-    },
     {
       "check": "upward_import",
       "detail": {

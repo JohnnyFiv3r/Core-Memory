@@ -925,7 +925,7 @@ Authoritative completion state: `docs/status.md`
 
 **`demo/TODO.md`** — prepend:
 ```
-> Completion state tracked in [docs/status.md](../docs/status.md). This file retains
+> Completion state tracked in [docs/status.md](../status.md). This file retains
 > cross-repo references for the Core-Memory-Demo repository.
 ```
 
@@ -969,9 +969,9 @@ Six targeted edits:
 2. **New "Open workstreams" section** (add near top, after intro):
    ```markdown
    ## Open workstreams
-   - [Status and open items](status.md) — single authoritative source
-   - [Cleanup plan](cleanup-plan.md) — phase sequencing and guard rails
-   - [PRDs](PRD/README.md) — per-phase implementation specs
+   - [Status and open items](../status.md) — single authoritative source
+   - [Cleanup plan](../cleanup-plan.md) — phase sequencing and guard rails
+   - [PRDs](README.md) — per-phase implementation specs
    ```
 
 3. **Adapters section**: change "Neo4j (shadow graph)" → "Neo4j / Kuzu / Graphiti / Zep (causal graph backends)"
