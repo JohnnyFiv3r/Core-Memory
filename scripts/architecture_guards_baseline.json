@@ -1,9 +1,8 @@
 {
-  "generated_at": "2026-06-30T14:08:04.209565+00:00",
+  "generated_at": "2026-06-30T14:40:48.939290+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
-    "flat_file:core_memory/runtime/source_envelope.py",
     "markdown_link:docs/PRD/03-mcp-protocol-server.md:01-multi-speaker-turn-schema.md",
     "markdown_link:docs/PRD/03-mcp-protocol-server.md:02-adapter-primitive-contract.md",
     "markdown_link:docs/PRD/execution-plan-phases-0-7-10.md:../docs/status.md",
@@ -80,17 +79,6 @@
     "upward_import:core_memory/soul/summary.py:soul->runtime:core_memory.runtime.dreamer.tension_discovery"
   ],
   "violations": [
-    {
-      "check": "flat_file",
-      "detail": {
-        "directory": "runtime root",
-        "file": "source_envelope.py"
-      },
-      "id": "flat_file:core_memory/runtime/source_envelope.py",
-      "line": 1,
-      "message": "core_memory/runtime/source_envelope.py is not in the runtime root flat-file allowlist",
-      "path": "core_memory/runtime/source_envelope.py"
-    },
     {
       "check": "markdown_link",
       "detail": {

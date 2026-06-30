@@ -3,6 +3,9 @@
 ## [Unreleased]
 
 ### Changed
+- Moved source-ingest envelope helpers from root flat file
+  `core_memory/runtime/source_envelope.py` to
+  `core_memory/runtime/ingest/source_envelope.py`, with no compatibility shim.
 - Removed the private root duplicate
   `core_memory/runtime/session_enrichment_delta.py`. The live session enrichment
   delta normalizer remains

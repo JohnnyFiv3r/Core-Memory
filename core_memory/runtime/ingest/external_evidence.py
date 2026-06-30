@@ -22,7 +22,7 @@ from core_memory.schema.normalization import (
     normalize_assertion_kind,
 )
 from core_memory.runtime.associations.coverage import on_bead_committed
-from core_memory.runtime.source_envelope import (
+from core_memory.runtime.ingest.source_envelope import (
     normalize_source_ingest_envelope,
     source_ingest_envelope_ref,
 )
