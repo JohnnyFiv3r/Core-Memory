@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-06-30T16:15:57.680338+00:00",
+  "generated_at": "2026-06-30T21:45:44.629477+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -59,7 +59,6 @@
     "upward_import:core_memory/retrieval/pipeline/__init__.py:retrieval->runtime:core_memory.runtime.observability.retrieval_feedback",
     "upward_import:core_memory/retrieval/pipeline/canonical.py:retrieval->integrations:core_memory.integrations.api",
     "upward_import:core_memory/retrieval/pipeline/canonical.py:retrieval->runtime:core_memory.runtime.observability.myelination",
-    "upward_import:core_memory/runtime/queue/side_effect_queue.py:runtime->integrations:core_memory.integrations.neo4j.sync",
     "upward_import:core_memory/runtime/semantic_tasks/runtime.py:runtime->integrations:core_memory.integrations.pydanticai.semantic_tasks",
     "upward_import:core_memory/runtime/semantic_tasks/runtime.py:runtime->integrations:core_memory.integrations.remote.semantic_tasks",
     "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.dreamer.candidates",
@@ -744,18 +743,6 @@
       "line": 29,
       "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.observability.myelination",
       "path": "core_memory/retrieval/pipeline/canonical.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "runtime",
-        "target_layer": "integrations",
-        "target_module": "core_memory.integrations.neo4j.sync"
-      },
-      "id": "upward_import:core_memory/runtime/queue/side_effect_queue.py:runtime->integrations:core_memory.integrations.neo4j.sync",
-      "line": 14,
-      "message": "runtime/ imports upward into integrations/ via core_memory.integrations.neo4j.sync",
-      "path": "core_memory/runtime/queue/side_effect_queue.py"
     },
     {
       "check": "upward_import",

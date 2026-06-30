@@ -144,6 +144,21 @@ class TestRuntimeSideEffectQueueSlice59A(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             self.assertTrue(bool(out.get("skipped")))
 
+    def test_neo4j_sync_terminal_config_skip(self):
+        with tempfile.TemporaryDirectory(prefix="cm-se-") as td:
+            with patch(
+                "core_memory.runtime.queue.side_effect_queue._sync_to_neo4j_provider",
+                return_value={
+                    "ok": False,
+                    "errors": [{"code": "neo4j_disabled", "message": "disabled"}],
+                },
+            ) as sync:
+                out = process_side_effect_event(root=td, kind="neo4j-sync", payload={"session_id": "s1"})
+            sync.assert_called_once()
+            self.assertTrue(out.get("ok"))
+            self.assertTrue(out.get("terminal_skipped"))
+            self.assertEqual("neo4j-sync", out.get("kind"))
+
     def test_dreamer_side_effect_does_not_write_associations_directly(self):
         with tempfile.TemporaryDirectory(prefix="cm-se-") as td:
             s = MemoryStore(td)
