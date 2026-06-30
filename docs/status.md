@@ -88,6 +88,10 @@ the live semantic CLI surface already routes through
 the live goal lifecycle pass already routes through
 `core_memory/runtime/session/goal_lifecycle.py`.
 
+`core_memory/runtime/session_enrichment_delta.py` was retired after import scans
+confirmed the live session enrichment delta normalizer already routes through
+`core_memory/runtime/session/session_enrichment_delta.py`.
+
 ---
 
 ## Engine-correctness items (from `demo/TODO.md`)
