@@ -51,7 +51,7 @@ ability to read historical data.**
 | `retrieval/fanout.py:119-120,139` | `_call_ragie` (imports the adapter); `store_fn` entry |
 | `retrieval/fanout.py:168` | merge loop `("ragie","pipehouse")` |
 | `retrieval/fanout.py:3,59` | docstrings |
-| **`retrieval/agent.py:900-908`** | **live caller** — reads `external_ragie_api_key()`, passes `ragie_cfg=` into `fanout_recall` |
+| **`retrieval/agent.py:937-947`** | **live caller** — reads `external_ragie_api_key()`, passes `ragie_cfg=` into `fanout_recall` |
 | `config/feature_flags.py:150-152` | `external_ragie_api_key()` → `CORE_MEMORY_RAGIE_API_KEY` |
 | `config/feature_flags.py:161` | fan-out weight docstring (`core_memory,ragie,pipehouse`) |
 
@@ -77,8 +77,8 @@ Threaded through ~10 files — projection, persistence (incl. validation that ac
 | `persistence/store_add_bead_ops.py:88`, `store_management_ops.py:18,57` | persisted field |
 | `persistence/store_validation_helpers.py:111` | validation: `document_id or ragie_document_id` required |
 | `retrieval/lexical.py:61`, `retrieval/causal_recall.py:107` | field in retrieval/hydration lists |
-| `runtime/source_envelope.py:59,199`, `runtime/ingest/external_evidence.py:210,248,258,275,342-343` | ingest maps it; `external_evidence` *requires* `document_id or ragie_document_id` |
-| `runtime/associations/coverage.py:682,1294` | read in coverage |
+| `runtime/ingest/source_envelope.py:59,199`, `runtime/ingest/external_evidence.py:210,248,258,275,342-343` | ingest maps it; `external_evidence` *requires* `document_id or ragie_document_id` |
+| `runtime/associations/coverage.py:682,1314` | read in coverage |
 | `soul/summary.py:210` | referenced |
 | `integrations/mcp/core-memory-agent-guide.md:120` | documented field |
 
@@ -95,7 +95,7 @@ engine already falls back to them — so the field is deprecable, not load-beari
    `ragie_cfg`, append, task, `_call_ragie`, `store_fn`, merge loop → `("pipehouse",)`);
    remove `external_ragie_api_key()` and the `ragie` fan-out weight; drop
    `CORE_MEMORY_RAGIE_API_KEY`.
-2. **Update the caller `retrieval/agent.py:900-908`** — stop reading `external_ragie_api_key()`
+2. **Update the caller `retrieval/agent.py:937-947`** — stop reading `external_ragie_api_key()`
    and stop passing `ragie_cfg=` into `fanout_recall`. Confirm `recall()` degrades to the
    `core_memory` primary (+ optional PipeHouse) by construction.
 
