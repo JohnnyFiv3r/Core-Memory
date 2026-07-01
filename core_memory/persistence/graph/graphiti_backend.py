@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
@@ -13,6 +14,11 @@ from core_memory.persistence.backend import BackendCapabilities
 
 _log = logging.getLogger(__name__)
 _DEFAULT_HEALTH_TTL_S = 60.0
+
+
+def enqueue_side_effect_event(**kwargs: Any) -> dict[str, Any]:
+    queue_module = import_module("core_memory.runtime.queue.side_effect_queue")
+    return queue_module.enqueue_side_effect_event(**kwargs)
 
 
 @runtime_checkable
@@ -160,7 +166,6 @@ class GraphitiGraphBackend:
         if not bead_id:
             return
         try:
-            from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
             enqueue_side_effect_event(
                 root=self._root,
                 kind="graphiti-episode-add",
@@ -175,7 +180,6 @@ class GraphitiGraphBackend:
         if not assoc_id:
             return
         try:
-            from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
             enqueue_side_effect_event(
                 root=self._root,
                 kind="graphiti-episode-add",

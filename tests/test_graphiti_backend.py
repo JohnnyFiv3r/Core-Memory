@@ -100,12 +100,10 @@ class TestGraphitiGraphBackend(unittest.TestCase):
 
     # on_bead_written — enqueues, does not call Graphiti directly
     def test_on_bead_written_enqueues_side_effect(self):
-        with patch(
-            "core_memory.persistence.graph.graphiti_backend.enqueue_side_effect_event"
-            if False else "core_memory.runtime.queue.side_effect_queue.enqueue_side_effect_event",
-        ):
+        with patch("core_memory.persistence.graph.graphiti_backend.enqueue_side_effect_event") as enqueue:
             # Just verify it doesn't raise and doesn't call add_episode directly
             self.backend.on_bead_written(self._bead())
+        enqueue.assert_called_once()
         self._client.add_episode.assert_not_called()
 
     def test_on_bead_written_skips_empty_id(self):

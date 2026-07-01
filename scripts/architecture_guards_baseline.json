@@ -1,11 +1,10 @@
 {
-  "generated_at": "2026-07-01T21:24:59.035339+00:00",
+  "generated_at": "2026-07-01T21:49:11.096891+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->policy:core_memory.policy.promotion_contract",
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/graph/graphiti_backend.py:persistence->runtime:core_memory.runtime.queue.side_effect_queue",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->policy:core_memory.policy.promotion",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->policy:core_memory.policy.promotion_contract",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->retrieval:core_memory.retrieval.lifecycle",
@@ -32,7 +31,6 @@
     "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->integrations:core_memory.integrations.obsidian",
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_management_ops.py:persistence->runtime:core_memory.runtime.queue.side_effect_queue",
     "upward_import:core_memory/persistence/store_promotion_ops.py:persistence->policy:core_memory.policy.promotion",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->integrations:core_memory.integrations.obsidian",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
@@ -88,18 +86,6 @@
       "line": 27,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
       "path": "core_memory/persistence/goal_lifecycle_v2.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.queue.side_effect_queue"
-      },
-      "id": "upward_import:core_memory/persistence/graph/graphiti_backend.py:persistence->runtime:core_memory.runtime.queue.side_effect_queue",
-      "line": 163,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.queue.side_effect_queue",
-      "path": "core_memory/persistence/graph/graphiti_backend.py"
     },
     {
       "check": "upward_import",
@@ -397,7 +383,7 @@
         "target_module": "core_memory.integrations.obsidian"
       },
       "id": "upward_import:core_memory/persistence/store_management_ops.py:persistence->integrations:core_memory.integrations.obsidian",
-      "line": 305,
+      "line": 307,
       "message": "persistence/ imports upward into integrations/ via core_memory.integrations.obsidian",
       "path": "core_memory/persistence/store_management_ops.py"
     },
@@ -409,20 +395,8 @@
         "target_module": "core_memory.retrieval.lifecycle"
       },
       "id": "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 13,
+      "line": 14,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/store_management_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.queue.side_effect_queue"
-      },
-      "id": "upward_import:core_memory/persistence/store_management_ops.py:persistence->runtime:core_memory.runtime.queue.side_effect_queue",
-      "line": 211,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.queue.side_effect_queue",
       "path": "core_memory/persistence/store_management_ops.py"
     },
     {

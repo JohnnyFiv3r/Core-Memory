@@ -5,6 +5,7 @@ import hashlib
 import json
 import os
 import logging
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -24,6 +25,11 @@ STRONG_SOURCE_KEYS = {
     "core_memory_unifying_id",
 }
 MAINTENANCE_RESULTS_FILE = "maintenance-results.jsonl"
+
+
+def _enqueue_side_effect_event_provider(**kwargs: Any) -> dict[str, Any]:
+    queue_module = import_module("core_memory.runtime.queue.side_effect_queue")
+    return queue_module.enqueue_side_effect_event(**kwargs)
 
 
 def _now() -> str:
@@ -208,10 +214,8 @@ def _record_idempotency_result(root: Any, *, idempotency_key: str, fingerprint: 
 
 def _enqueue_myelination_update(root: Any, *, reason: str = "maintenance_graph_change", idempotency_key: str = "") -> dict[str, Any]:
     try:
-        from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
-
         key = _clean_str(idempotency_key) or f"myelination:{reason}"
-        return enqueue_side_effect_event(
+        return _enqueue_side_effect_event_provider(
             root=root,
             kind="myelination-update",
             payload={"reason": reason, "source": "maintain", "idempotency_key": key},
@@ -232,11 +236,9 @@ def _enqueue_bead_retraction_retry(
     if not failures:
         return {"ok": True, "queued": False, "failure_count": 0}
     try:
-        from core_memory.runtime.queue.side_effect_queue import enqueue_side_effect_event
-
         ids = [_clean_str(x) for x in bead_ids if _clean_str(x)]
         key = _clean_str(idempotency_key) or "bead-retraction:" + hashlib.sha256("|".join(ids).encode("utf-8")).hexdigest()[:16]
-        out = enqueue_side_effect_event(
+        out = _enqueue_side_effect_event_provider(
             root=root,
             kind="bead-retraction",
             payload={
