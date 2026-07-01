@@ -202,6 +202,16 @@ class NoSupportedLinksAliasAssociationJudge:
         }
 
 
+class RateLimitedFakeAssociationJudge:
+    def review(self, context):
+        raise RuntimeError("HTTP Error 429: Too Many Requests")
+
+
+class BrokenFakeAssociationJudge:
+    def review(self, context):
+        raise RuntimeError("schema mismatch")
+
+
 def _document_payload(**overrides):
     payload = {
         "title": "Vendor Contract",
@@ -416,6 +426,55 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertEqual([], _assocs(td, "follows"))
             self.assertEqual(1, rows.get("count"))
             self.assertEqual("pending_judge", (rows.get("results") or [{}])[0].get("fallback_mode"))
+
+    def test_rate_limited_association_judge_keeps_pending_judge_state(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+                judge=RateLimitedFakeAssociationJudge(),
+            )
+            rows = _jsonl_rows(td, "association-judge-decisions.jsonl")
+            candidates = list_association_candidates(td, status="pending_judge", limit=10)
+
+            self.assertTrue(out.get("ok"), out)
+            self.assertEqual("pending_judge", out.get("status"))
+            self.assertTrue(out.get("transient_error"))
+            self.assertTrue(out.get("retryable_judge_error"))
+            self.assertEqual("HTTP Error 429: Too Many Requests", out.get("warning"))
+            self.assertEqual(1, (out.get("counts") or {}).get("pending_judge"))
+            self.assertEqual([], _assocs(td, "follows"))
+            self.assertEqual(1, candidates.get("count"))
+            self.assertEqual("pending_judge", rows[-1].get("status"))
+            self.assertTrue(rows[-1].get("transient_error"))
+
+    def test_non_transient_association_judge_exception_still_fails(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(td)
+            first = _add_test_bead(store, type="context", title="First", summary=["first"], session_id="s1", source_turn_ids=["t1"])
+            second = _add_test_bead(store, type="context", title="Second", summary=["second"], session_id="s1", source_turn_ids=["t2"])
+
+            out = run_association_coverage(
+                td,
+                bead_ids=[second],
+                candidate_bead_ids=[first],
+                trigger="operator",
+                judge=BrokenFakeAssociationJudge(),
+            )
+            rows = _jsonl_rows(td, "association-judge-decisions.jsonl")
+
+            self.assertFalse(out.get("ok"), out)
+            self.assertEqual("judge_failed", out.get("status"))
+            self.assertEqual("schema mismatch", out.get("error"))
+            self.assertEqual(1, (out.get("counts") or {}).get("failed"))
+            self.assertEqual([], _assocs(td, "follows"))
+            self.assertEqual("judge_failed", rows[-1].get("status"))
 
     def test_bead_without_candidate_proposals_completes_without_judge_failure(self):
         with tempfile.TemporaryDirectory() as td:

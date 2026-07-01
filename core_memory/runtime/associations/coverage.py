@@ -1136,6 +1136,26 @@ class AssociationJudgeUnavailable(RuntimeError):
     pass
 
 
+_TRANSIENT_ASSOCIATION_JUDGE_ERROR_MARKERS = (
+    "429",
+    "too many requests",
+    "rate limit",
+    "rate_limit",
+    "rate-limit",
+    "quota exceeded",
+    "temporarily unavailable",
+    "overloaded",
+    "try again later",
+)
+
+
+def _is_transient_association_judge_error(exc: Exception) -> bool:
+    text = _clean_str(exc).lower()
+    if not text:
+        text = exc.__class__.__name__.lower()
+    return any(marker in text for marker in _TRANSIENT_ASSOCIATION_JUDGE_ERROR_MARKERS)
+
+
 def _env_int(name: str, default: int) -> int:
     try:
         return int(str(os.environ.get(name) or "").strip() or default)
@@ -2261,6 +2281,60 @@ def run_association_coverage(
         _append_run_record(root, out)
         return out
     except Exception as exc:
+        if _is_transient_association_judge_error(exc):
+            state_by_bead = {bid: "pending_judge" for bid in judge_source_ids}
+            state_by_bead.update({bid: "no_supported_links" for bid in no_candidate_ids})
+            state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
+            out = {
+                "ok": True,
+                "contract": "memory.association_run.v1",
+                "run_id": run_id_final,
+                "status": "pending_judge",
+                "trigger": trigger_n,
+                "policy_version": _clean_str(policy_version) or POLICY_VERSION,
+                "prompt_version": prompt_v,
+                "rubric_version": rubric_v,
+                "graph_revision": graph_rev,
+                "session_id": _clean_str(session_id),
+                "bead_ids": eligible_ids,
+                "skipped_bead_ids": skipped_ids,
+                "association_state_by_bead": state_by_bead,
+                "source_ingest_envelope_refs": run_envelope_refs,
+                "source_ingest_batch_ids": source_ingest_batch_ids(run_envelope_refs),
+                "candidate_count": len(candidates),
+                "counts": {
+                    "appended": 0,
+                    "deduped": 0,
+                    "quarantined": 0,
+                    "failed": 0,
+                    "pending_judge": len(judge_source_ids),
+                    "no_supported_links": len(no_candidate_ids),
+                    "skipped": len(skipped_ids),
+                },
+                "warning": _clean_str(exc),
+                "transient_error": True,
+                "retryable_judge_error": True,
+            }
+            _with_sweep_fields(out, sweep_info)
+            _append_judge_decision_record(
+                root,
+                {
+                    "contract": ASSOCIATION_JUDGE_CONTRACT,
+                    "run_id": run_id_final,
+                    "status": "pending_judge",
+                    "warning": _clean_str(exc),
+                    "transient_error": True,
+                    "retryable_judge_error": True,
+                    "candidate_ids": [_clean_str(c.get("candidate_id")) for c in candidates],
+                    "source_bead_ids": eligible_ids,
+                    "no_candidate_source_bead_ids": no_candidate_ids,
+                    "source_ingest_envelope_refs": run_envelope_refs,
+                    "source_ingest_batch_ids": source_ingest_batch_ids(run_envelope_refs),
+                },
+            )
+            _append_run_record(root, out)
+            return out
+
         state_by_bead = {bid: "judge_failed" for bid in judge_source_ids}
         state_by_bead.update({bid: "no_supported_links" for bid in no_candidate_ids})
         state_by_bead.update({bid: "skipped_ineligible" for bid in skipped_ids})
