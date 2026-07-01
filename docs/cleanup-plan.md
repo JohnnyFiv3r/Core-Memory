@@ -266,8 +266,9 @@ logic and human output format).
       `core_memory/config/feature_flags.py`. Only `supersede_openclaw_summary_enabled()`
       stays with OpenClaw. Update all importers in `runtime/` and `integrations/api.py`.
 - [x] **9b — Rename event schema strings** — replace `"openclaw.memory.*"` string
-      literals in `engine.py` and `flush_flow.py` with constants from a new
-      `runtime/event_schemas.py`. Accept legacy values on read during transition.
+      literals in `engine.py` and `flush_flow.py` with constants now canonical in
+      `schema/event_schemas.py`; `runtime/event_schemas.py` remains a compatibility
+      import path. Accept legacy values on read during transition.
 - [x] **9c — Move OpenClaw files into `integrations/openclaw/`** — 7 flat files become a
       proper subdirectory matching every other integration. Backward-compat re-export
       shims left at old `integrations/openclaw_*.py` paths.

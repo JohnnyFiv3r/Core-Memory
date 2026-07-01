@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.runtime.event_schemas import CRAWLER_UPDATE
+from core_memory.schema.event_schemas import CRAWLER_UPDATE
 from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.session_surface import read_session_surface
 from core_memory.association.quarantine import write_quarantine

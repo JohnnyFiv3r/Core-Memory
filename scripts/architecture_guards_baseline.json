@@ -1,9 +1,8 @@
 {
-  "generated_at": "2026-07-01T04:01:35.454233+00:00",
+  "generated_at": "2026-07-01T21:24:59.035339+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
-    "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.event_schemas",
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->policy:core_memory.policy.promotion_contract",
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/graph/graphiti_backend.py:persistence->runtime:core_memory.runtime.queue.side_effect_queue",
@@ -66,18 +65,6 @@
     "upward_import:core_memory/soul/summary.py:soul->runtime:core_memory.runtime.dreamer.tension_discovery"
   ],
   "violations": [
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "association",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.event_schemas"
-      },
-      "id": "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.event_schemas",
-      "line": 11,
-      "message": "association/ imports upward into runtime/ via core_memory.runtime.event_schemas",
-      "path": "core_memory/association/crawler_contract.py"
-    },
     {
       "check": "upward_import",
       "detail": {
