@@ -102,7 +102,8 @@ If behavior changes, these owners must be updated first.
   - `core-memory.flush_checkpoint.v1`
   - `core-memory.flush_report.v1`
   - (legacy rows may carry the pre-Phase-9 `openclaw.memory.*` schema names;
-    readers accept both — see `runtime/event_schemas.py`)
+    readers accept both — see `schema/event_schemas.py`; the runtime path is
+    retained for import compatibility)
 
 ---
 

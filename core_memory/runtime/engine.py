@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from .session.live_session import read_live_session_beads
-from .event_schemas import CRAWLER_UPDATE
 from core_memory.config.feature_flags import (
     agent_min_semantic_associations_after_first,
     claim_layer_enabled,
@@ -18,6 +17,7 @@ from core_memory.config.feature_flags import (
     preview_association_promotion_enabled,
     resolved_agent_authored_gate,
 )
+from core_memory.schema.event_schemas import CRAWLER_UPDATE
 from core_memory.claim.turn_integration import extract_and_attach_claims
 from core_memory.claim.outcomes import classify_memory_outcome
 from core_memory.claim.update_policy import emit_claim_updates

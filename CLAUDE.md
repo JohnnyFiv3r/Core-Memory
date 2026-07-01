@@ -81,8 +81,10 @@ goes in `integrations/openclaw/`.
 Sanctioned at `core_memory/` root: `__init__.py`, `_version.py`, `memory.py`,
 `transcript_ingest.py`, `identifiers.py`, `llm_client.py`, `provider_config.py`.
 Sanctioned at `runtime/` root: `__init__.py`, `engine.py`, `state.py`,
-`event_schemas.py`. No runtime root relocation debt should be added; see
-`docs/compatibility_ledger.md` and `scripts/architecture_guards_baseline.json`.
+`event_schemas.py` as a compatibility import path for
+`core_memory.schema.event_schemas`. No runtime root relocation debt should be
+added; see `docs/compatibility_ledger.md` and
+`scripts/architecture_guards_baseline.json`.
 
 ---
 
@@ -108,9 +110,10 @@ Entry: `emit_turn_finalized` → `process_turn_finalized`
 
 The OpenClaw integration is now isolated in `core_memory/integrations/openclaw/`
 like any other adapter. Generic feature flags live in `core_memory/config/feature_flags.py`
-(no more `openclaw_flags.py`). Runtime event schemas live in
-`core_memory/runtime/event_schemas.py` as constants. Do not add new imports that
-route runtime or persistence code through `integrations/openclaw/`.
+(no more `openclaw_flags.py`). Event schema constants live in
+`core_memory/schema/event_schemas.py`; `core_memory/runtime/event_schemas.py`
+remains only as a compatibility import path. Do not add new imports that route
+runtime or persistence code through `integrations/openclaw/`.
 
 ---
 

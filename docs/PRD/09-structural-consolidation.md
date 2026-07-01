@@ -109,7 +109,9 @@ These should be Core Memory's own event format:
 ```
 
 **Migration path** (this is a breaking change for any consumer parsing schema strings):
-1. Define constants in `core_memory/runtime/event_schemas.py`:
+1. Define constants. The original 9b slice used `core_memory/runtime/event_schemas.py`;
+   current canonical definitions live in `core_memory/schema/event_schemas.py`, with
+   `core_memory/runtime/event_schemas.py` retained as an import-compatibility path:
    ```python
    FLUSH_REPORT    = "core-memory.flush_report.v1"
    FLUSH_CHECKPOINT = "core-memory.flush_checkpoint.v1"

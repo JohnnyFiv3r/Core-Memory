@@ -1,8 +1,32 @@
 import unittest
 from pathlib import Path
 
+from core_memory.runtime import event_schemas as runtime_event_schemas
+from core_memory.schema import event_schemas as canonical_event_schemas
+
 
 class TestEventImportMigrationGuard(unittest.TestCase):
+    def test_runtime_event_schema_import_path_reexports_canonical_schema(self):
+        names = [
+            "CRAWLER_UPDATE",
+            "CRAWLER_UPDATE_LEGACY",
+            "FLUSH_CHECKPOINT",
+            "FLUSH_CHECKPOINT_LEGACY",
+            "FLUSH_REPORT",
+            "FLUSH_REPORT_LEGACY",
+            "HEALTH_REPORT",
+            "HEALTH_REPORT_LEGACY",
+            "MEMORY_EVENT",
+            "MEMORY_EVENT_LEGACY",
+            "TURN_ENVELOPE",
+            "TURN_ENVELOPE_LEGACY",
+        ]
+        for name in names:
+            self.assertEqual(getattr(canonical_event_schemas, name), getattr(runtime_event_schemas, name))
+        self.assertIs(canonical_event_schemas.is_flush_report, runtime_event_schemas.is_flush_report)
+        self.assertIs(canonical_event_schemas.is_flush_checkpoint, runtime_event_schemas.is_flush_checkpoint)
+        self.assertIs(canonical_event_schemas.is_crawler_update, runtime_event_schemas.is_crawler_update)
+
     def test_core_runtime_uses_event_modules_not_sidecar_imports(self):
         root = Path(__file__).resolve().parents[1]
         core = root / "core_memory"

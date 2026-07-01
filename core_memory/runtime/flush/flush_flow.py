@@ -16,7 +16,7 @@ from core_memory.runtime.flush.flush_state import (
     upsert_process_flush_checkpoint_bead,
 )
 from core_memory.runtime.queue.side_effects import enqueue_post_write_side_effects
-from core_memory.runtime.event_schemas import FLUSH_REPORT, FLUSH_CHECKPOINT
+from core_memory.schema.event_schemas import FLUSH_REPORT, FLUSH_CHECKPOINT
 from core_memory.runtime.associations.coverage import enqueue_association_coverage
 
 
