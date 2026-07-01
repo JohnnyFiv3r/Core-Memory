@@ -1,10 +1,9 @@
 {
-  "generated_at": "2026-06-30T22:16:35.946179+00:00",
+  "generated_at": "2026-07-01T04:01:35.454233+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
     "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.event_schemas",
-    "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.session.session_surface",
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->policy:core_memory.policy.promotion_contract",
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/graph/graphiti_backend.py:persistence->runtime:core_memory.runtime.queue.side_effect_queue",
@@ -24,7 +23,6 @@
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
-    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.session.session_surface",
     "upward_import:core_memory/persistence/store_add_helpers.py:persistence->runtime:core_memory.runtime.turn.turn_archive",
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
@@ -36,9 +34,7 @@
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->integrations:core_memory.integrations.obsidian",
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->runtime:core_memory.runtime.queue.side_effect_queue",
-    "upward_import:core_memory/persistence/store_projection_ops.py:persistence->runtime:core_memory.runtime.session.session_surface",
     "upward_import:core_memory/persistence/store_promotion_ops.py:persistence->policy:core_memory.policy.promotion",
-    "upward_import:core_memory/persistence/store_query.py:persistence->runtime:core_memory.runtime.session.session_surface",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->integrations:core_memory.integrations.obsidian",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_text_hygiene_ops.py:persistence->policy:core_memory.policy",
@@ -80,18 +76,6 @@
       "id": "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.event_schemas",
       "line": 11,
       "message": "association/ imports upward into runtime/ via core_memory.runtime.event_schemas",
-      "path": "core_memory/association/crawler_contract.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "association",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.session.session_surface"
-      },
-      "id": "upward_import:core_memory/association/crawler_contract.py:association->runtime:core_memory.runtime.session.session_surface",
-      "line": 12,
-      "message": "association/ imports upward into runtime/ via core_memory.runtime.session.session_surface",
       "path": "core_memory/association/crawler_contract.py"
     },
     {
@@ -282,7 +266,7 @@
         "target_module": "core_memory.policy.hygiene"
       },
       "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->policy:core_memory.policy.hygiene",
-      "line": 10,
+      "line": 11,
       "message": "persistence/ imports upward into policy/ via core_memory.policy.hygiene",
       "path": "core_memory/persistence/store_add_bead_ops.py"
     },
@@ -294,7 +278,7 @@
         "target_module": "core_memory.retrieval.lifecycle"
       },
       "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 11,
+      "line": 12,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
       "path": "core_memory/persistence/store_add_bead_ops.py"
     },
@@ -320,18 +304,6 @@
       "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
       "line": 265,
       "message": "persistence/ imports upward into runtime/ via core_memory.runtime.associations.coverage",
-      "path": "core_memory/persistence/store_add_bead_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.session.session_surface"
-      },
-      "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.session.session_surface",
-      "line": 12,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.session.session_surface",
       "path": "core_memory/persistence/store_add_bead_ops.py"
     },
     {
@@ -470,18 +442,6 @@
       "check": "upward_import",
       "detail": {
         "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.session.session_surface"
-      },
-      "id": "upward_import:core_memory/persistence/store_projection_ops.py:persistence->runtime:core_memory.runtime.session.session_surface",
-      "line": 8,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.session.session_surface",
-      "path": "core_memory/persistence/store_projection_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
         "target_layer": "policy",
         "target_module": "core_memory.policy.promotion"
       },
@@ -489,18 +449,6 @@
       "line": 5,
       "message": "persistence/ imports upward into policy/ via core_memory.policy.promotion",
       "path": "core_memory/persistence/store_promotion_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.session.session_surface"
-      },
-      "id": "upward_import:core_memory/persistence/store_query.py:persistence->runtime:core_memory.runtime.session.session_surface",
-      "line": 5,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.session.session_surface",
-      "path": "core_memory/persistence/store_query.py"
     },
     {
       "check": "upward_import",
