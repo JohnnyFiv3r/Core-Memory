@@ -6,6 +6,7 @@ import json
 import os
 import time
 import uuid
+from importlib import import_module
 from typing import Any
 
 from core_memory.llm_client import chat_complete
@@ -316,6 +317,18 @@ class ProviderSemanticTaskRuntime:
             return _receipted(request, result)
 
 
+def _pydanticai_semantic_task_runtime() -> SemanticTaskRuntime:
+    module = import_module("core_memory.integrations.pydanticai.semantic_tasks")
+    runtime_cls = getattr(module, "PydanticAISemanticTaskRuntime")
+    return runtime_cls()
+
+
+def _remote_semantic_task_runtime() -> SemanticTaskRuntime:
+    module = import_module("core_memory.integrations.remote.semantic_tasks")
+    runtime_cls = getattr(module, "RemoteSemanticTaskRuntime")
+    return runtime_cls(fallback_runtime=ProviderSemanticTaskRuntime())
+
+
 def get_semantic_task_runtime(*, mode: str | None = None) -> SemanticTaskRuntime:
     resolved = str(mode or semantic_task_runtime_mode()).strip().lower()
     if resolved in {"disabled", "off"}:
@@ -324,16 +337,12 @@ def get_semantic_task_runtime(*, mode: str | None = None) -> SemanticTaskRuntime
         return ProviderSemanticTaskRuntime()
     if resolved == "pydanticai":
         try:
-            from core_memory.integrations.pydanticai.semantic_tasks import PydanticAISemanticTaskRuntime
-
-            return PydanticAISemanticTaskRuntime()
+            return _pydanticai_semantic_task_runtime()
         except Exception:
             return DisabledSemanticTaskRuntime()
     if resolved == "remote":
         try:
-            from core_memory.integrations.remote.semantic_tasks import RemoteSemanticTaskRuntime
-
-            return RemoteSemanticTaskRuntime(fallback_runtime=ProviderSemanticTaskRuntime())
+            return _remote_semantic_task_runtime()
         except Exception:
             return ProviderSemanticTaskRuntime()
     return ProviderSemanticTaskRuntime()
