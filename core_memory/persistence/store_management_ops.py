@@ -11,6 +11,7 @@ from typing import Any
 
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import append_jsonl, store_lock
+from core_memory.persistence.sync_targets import create_sync_targets
 from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
 
 
@@ -295,29 +296,12 @@ def _mirror_removed_beads_to_graph(root: Any, bead_ids: list[str]) -> list[dict[
     return failures
 
 
-def _create_sync_targets() -> list[Any]:
-    targets_env = (os.environ.get("CORE_MEMORY_SYNC_TARGETS") or "").strip().lower()
-    if not targets_env or targets_env == "none":
-        return []
-    targets: list[Any] = []
-    log = logging.getLogger(__name__)
-    for name in [t.strip() for t in targets_env.split(",") if t.strip()]:
-        if name == "obsidian":
-            try:
-                from core_memory.integrations.obsidian import ObsidianSyncTarget
-
-                targets.append(ObsidianSyncTarget.from_env())
-            except Exception as exc:
-                log.warning("obsidian sync target init failed: %s", exc)
-    return targets
-
-
 def _mirror_removed_beads_to_sync_targets(bead_ids: list[str]) -> list[dict[str, Any]]:
     failures: list[dict[str, Any]] = []
     if not bead_ids:
         return failures
     log = logging.getLogger(__name__)
-    for target in _create_sync_targets():
+    for target in create_sync_targets():
         target_name = getattr(target, "name", "?")
         retract = getattr(target, "on_bead_retracted", None)
         delete = getattr(target, "delete_bead", None)

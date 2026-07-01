@@ -10,6 +10,7 @@ from core_memory.persistence.store_lifecycle_ops import (
     _append_bead_snapshot,
     raise_confidence_class_for_bead,
 )
+from core_memory.persistence.sync_targets import create_sync_targets
 from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
 from core_memory.schema.normalization import resolve_confidence_class
 
@@ -120,16 +121,16 @@ def _mirror_association_to_graph(root: Any, assoc: dict) -> None:
     except Exception as exc:
         _log.warning("graph on_association_written failed for %s: %s", assoc.get("id"), exc)
 
-    import os
-    targets_env = (os.environ.get("CORE_MEMORY_SYNC_TARGETS") or "").strip().lower()
-    if targets_env and targets_env != "none":
-        for name in [t.strip() for t in targets_env.split(",") if t.strip()]:
-            if name == "obsidian":
-                try:
-                    from core_memory.integrations.obsidian import ObsidianSyncTarget
-                    ObsidianSyncTarget.from_env().on_association_written(assoc)
-                except Exception as exc:
-                    _log.warning("obsidian on_association_written failed for %s: %s", assoc.get("id"), exc)
+    for target in create_sync_targets():
+        try:
+            target.on_association_written(assoc)
+        except Exception as exc:
+            _log.warning(
+                "sync target %s on_association_written failed for %s: %s",
+                getattr(target, "name", "?"),
+                assoc.get("id"),
+                exc,
+            )
 
 
 def recall_for_store(store: Any, bead_id: str) -> bool:
