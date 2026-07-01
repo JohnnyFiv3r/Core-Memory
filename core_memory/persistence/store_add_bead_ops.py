@@ -8,6 +8,7 @@ from core_memory.persistence import events
 from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.persistence.session_surface import read_session_surface
+from core_memory.persistence.sync_targets import create_sync_targets
 from core_memory.policy.hygiene import enforce_bead_hygiene_contract, is_generic_title
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.schema.normalization import (
@@ -344,27 +345,11 @@ def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
         except Exception as exc:
             _log.warning("graph on_bead_written failed for bead %s: %s", bead.get("id"), exc)
 
-    for st in _create_sync_targets():
+    for st in create_sync_targets():
         try:
             st.on_bead_written(bead)
         except Exception as exc:
             _log.warning("sync target %s on_bead_written failed: %s", getattr(st, "name", "?"), exc)
-
-
-def _create_sync_targets() -> list:
-    """Instantiate configured sync targets from CORE_MEMORY_SYNC_TARGETS env var."""
-    targets_env = (os.environ.get("CORE_MEMORY_SYNC_TARGETS") or "").strip().lower()
-    if not targets_env or targets_env == "none":
-        return []
-    targets = []
-    for name in [t.strip() for t in targets_env.split(",") if t.strip()]:
-        if name == "obsidian":
-            try:
-                from core_memory.integrations.obsidian import ObsidianSyncTarget
-                targets.append(ObsidianSyncTarget.from_env())
-            except Exception as exc:
-                _log.warning("obsidian sync target init failed: %s", exc)
-    return targets
 
 
 __all__ = ["add_bead_for_store"]

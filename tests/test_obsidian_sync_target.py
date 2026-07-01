@@ -129,3 +129,13 @@ class TestObsidianSyncTargetVault:
         from core_memory.integrations.obsidian import BeadSyncTarget, ObsidianSyncTarget
         st = ObsidianSyncTarget(vault_path=str(tmp_path))
         assert isinstance(st, BeadSyncTarget)
+
+    def test_persistence_provider_loads_obsidian_sync_target(self, tmp_path, monkeypatch):
+        from core_memory.persistence.sync_targets import create_sync_targets
+
+        monkeypatch.setenv("CORE_MEMORY_SYNC_TARGETS", "obsidian")
+        monkeypatch.setenv("CORE_MEMORY_OBSIDIAN_VAULT", str(tmp_path))
+
+        targets = create_sync_targets()
+
+        assert [getattr(target, "name", "") for target in targets] == ["obsidian"]
