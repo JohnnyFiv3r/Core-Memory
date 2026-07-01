@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from core_memory.persistence.io_utils import store_lock
-from core_memory.runtime.session.session_surface import read_session_surface
+from core_memory.persistence.session_surface import read_session_surface
 
 
 def rebuild_index_projection_from_sessions_for_store(store: Any) -> dict:

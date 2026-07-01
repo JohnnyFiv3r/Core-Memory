@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from core_memory.runtime.session.session_surface import read_session_surface
+from core_memory.persistence.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
 
 

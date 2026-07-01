@@ -2,7 +2,7 @@ import tempfile
 import unittest
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.session.session_surface import read_session_surface
+from core_memory.persistence.session_surface import read_session_surface
 
 
 class TestSessionSurface(unittest.TestCase):
