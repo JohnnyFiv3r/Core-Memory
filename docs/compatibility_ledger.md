@@ -77,6 +77,12 @@ architecture guard baseline honest. When a row is repaired, shrink
   retained. The proving gate was an active import scan for
   `core_memory.runtime.source_envelope|runtime.source_envelope` and source
   attribution focused tests.
+- `core_memory/retrieval/failure_patterns.py` moved to
+  `core_memory/persistence/failure_patterns.py` after active caller review
+  showed the failure-signature helpers are store preflight logic, not retrieval
+  behavior. No compatibility shim was retained. The proving gate was an active
+  import scan for `core_memory.retrieval.failure_patterns|retrieval/failure_patterns`
+  plus store failure focused tests.
 
 ## Explicit Non-Compatibility
 

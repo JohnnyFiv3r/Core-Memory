@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from core_memory.retrieval.failure_patterns import (
+from core_memory.persistence.failure_patterns import (
     compute_failure_signature,
     find_failure_signature_matches,
     preflight_failure_check,

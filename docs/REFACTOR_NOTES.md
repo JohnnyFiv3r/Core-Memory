@@ -16,7 +16,7 @@
 
 ### Phase 2: Extraction from store.py (Meat)
 - [x] `retrieval/query_norm.py` - Added `_tokenize`, `_is_memory_intent`, `_expand_query_tokens`
-- [x] `retrieval/failure_patterns.py` - New file with failure signature detection
+- [x] `persistence/failure_patterns.py` - Failure signature detection used by store failure preflight
 - [x] `retrieval/context_recall.py` - New file with context-aware retrieval
 - [x] `hygiene.py` - Added `_redact_text`, `sanitize_bead_content`, `extract_constraints`
 - [x] `policy/promotion.py` - New file with scoring, threshold, candidate evaluation
@@ -39,7 +39,7 @@
 ---
 
 ## Created Files
-- `core_memory/retrieval/failure_patterns.py`
+- `core_memory/persistence/failure_patterns.py`
 - `core_memory/retrieval/context_recall.py`
 - `core_memory/graph_structural.py`
 - `core_memory/graph_traversal.py`
