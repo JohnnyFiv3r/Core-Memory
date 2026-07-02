@@ -15,7 +15,7 @@ from typing import Any, Optional
 
 from ..persistence.io_utils import append_jsonl, store_lock
 from ..config.feature_flags import transcript_archive_enabled
-from .turn.turn_archive import append_turn_record
+from core_memory.persistence.turn_archive import append_turn_record
 from core_memory.schema.event_schemas import TURN_ENVELOPE, MEMORY_EVENT
 
 

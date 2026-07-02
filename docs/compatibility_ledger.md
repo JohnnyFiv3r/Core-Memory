@@ -83,6 +83,12 @@ architecture guard baseline honest. When a row is repaired, shrink
   behavior. No compatibility shim was retained. The proving gate was an active
   import scan for `core_memory.retrieval.failure_patterns|retrieval/failure_patterns`
   plus store failure focused tests.
+- `core_memory/runtime/turn/turn_archive.py` moved to
+  `core_memory/persistence/turn_archive.py` after active caller review showed
+  the `.turns/` archive is durable local storage IO, not runtime orchestration.
+  No compatibility shim was retained. The proving gate was an active import
+  scan for `core_memory.runtime.turn.turn_archive|runtime/turn/turn_archive`
+  plus turn archive and recording/source attribution focused tests.
 
 ## Explicit Non-Compatibility
 

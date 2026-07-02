@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-01T22:24:27.985613+00:00",
+  "generated_at": "2026-07-02T01:52:35.903773+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -20,7 +20,6 @@
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
-    "upward_import:core_memory/persistence/store_add_helpers.py:persistence->runtime:core_memory.runtime.turn.turn_archive",
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
     "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->policy:core_memory.policy.promotion",
@@ -262,18 +261,6 @@
       "line": 266,
       "message": "persistence/ imports upward into runtime/ via core_memory.runtime.associations.coverage",
       "path": "core_memory/persistence/store_add_bead_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.turn.turn_archive"
-      },
-      "id": "upward_import:core_memory/persistence/store_add_helpers.py:persistence->runtime:core_memory.runtime.turn.turn_archive",
-      "line": 6,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.turn.turn_archive",
-      "path": "core_memory/persistence/store_add_helpers.py"
     },
     {
       "check": "upward_import",

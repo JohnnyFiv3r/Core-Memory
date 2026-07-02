@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.store import MemoryStore
-from core_memory.runtime.turn.turn_archive import find_turn_record, rebuild_all_indexes
+from core_memory.persistence.turn_archive import find_turn_record, rebuild_all_indexes
 
 
 def rebuild_turn_indexes(*, root: str) -> dict[str, Any]:
@@ -55,4 +55,3 @@ def backfill_bead_session_ids(*, root: str) -> dict[str, Any]:
     idx["beads"] = beads
     store._write_json(idx_path, idx)
     return {"ok": True, "updated": updated, "unknown": unknown}
-
