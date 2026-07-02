@@ -6,7 +6,12 @@ from pathlib import Path
 import pytest
 
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
-from core_memory.runtime.turn.turn_archive import get_turn_record, append_turn_record, rebuild_all_indexes, rebuild_session_index
+from core_memory.persistence.turn_archive import (
+    append_turn_record,
+    get_turn_record,
+    rebuild_all_indexes,
+    rebuild_session_index,
+)
 try:
     from core_memory.identifiers import validate_archive_id
 except ImportError:
@@ -134,4 +139,3 @@ def test_rebuild_all_indexes_skips_invalid_legacy_session_files(tmp_path: Path):
     assert result["skipped"][0]["session_id"] == "legacy session"
     assert (turns_dir / "session-good.idx.json").exists()
     assert not (turns_dir / "session-legacy session.idx.json").exists()
-

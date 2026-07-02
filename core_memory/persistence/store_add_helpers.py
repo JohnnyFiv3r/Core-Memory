@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from typing import Any, Optional
 
-from core_memory.runtime.turn.turn_archive import find_turn_record
+from core_memory.persistence.turn_archive import find_turn_record
 
 
 def resolve_bead_session_id_for_store(
