@@ -1,8 +1,4 @@
-"""
-Failure pattern detection for repeated hypothesis failure tracking.
-
-Moved from store.py per Codex Phase 2 refactor.
-"""
+"""Failure pattern detection for repeated hypothesis failure tracking."""
 from __future__ import annotations
 
 import hashlib

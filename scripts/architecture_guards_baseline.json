@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-01T22:08:25.949589+00:00",
+  "generated_at": "2026-07-01T22:24:27.985613+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -25,7 +25,6 @@
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
     "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->policy:core_memory.policy.promotion",
     "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_failure_ops.py:persistence->retrieval:core_memory.retrieval.failure_patterns",
     "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
@@ -323,18 +322,6 @@
       "line": 11,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
       "path": "core_memory/persistence/store_compaction_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.failure_patterns"
-      },
-      "id": "upward_import:core_memory/persistence/store_failure_ops.py:persistence->retrieval:core_memory.retrieval.failure_patterns",
-      "line": 5,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.failure_patterns",
-      "path": "core_memory/persistence/store_failure_ops.py"
     },
     {
       "check": "upward_import",
