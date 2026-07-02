@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-02T01:52:35.903773+00:00",
+  "generated_at": "2026-07-02T17:06:40.928140+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -29,8 +29,6 @@
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_promotion_ops.py:persistence->policy:core_memory.policy.promotion",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_text_hygiene_ops.py:persistence->policy:core_memory.policy",
-    "upward_import:core_memory/persistence/store_text_hygiene_ops.py:persistence->retrieval:core_memory.retrieval",
     "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks",
     "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks.contracts",
     "upward_import:core_memory/policy/bead_typing.py:policy->runtime:core_memory.runtime.semantic_tasks",
@@ -369,30 +367,6 @@
       "line": 14,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
       "path": "core_memory/persistence/store_relationship_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "policy",
-        "target_module": "core_memory.policy"
-      },
-      "id": "upward_import:core_memory/persistence/store_text_hygiene_ops.py:persistence->policy:core_memory.policy",
-      "line": 3,
-      "message": "persistence/ imports upward into policy/ via core_memory.policy",
-      "path": "core_memory/persistence/store_text_hygiene_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval"
-      },
-      "id": "upward_import:core_memory/persistence/store_text_hygiene_ops.py:persistence->retrieval:core_memory.retrieval",
-      "line": 4,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval",
-      "path": "core_memory/persistence/store_text_hygiene_ops.py"
     },
     {
       "check": "upward_import",
