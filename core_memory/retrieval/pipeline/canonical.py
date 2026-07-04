@@ -11,6 +11,7 @@ from core_memory.graph.root_cause import normalize_causal_hints
 from core_memory.persistence.backend import get_backend_capabilities
 from core_memory.persistence.graph.factory import create_graph_backend
 from core_memory.persistence.graph.protocol import NullGraphBackend
+from core_memory.persistence.source_hydration import hydrate_bead_sources_for_root
 from core_memory.retrieval.hybrid import hybrid_lookup
 from core_memory.retrieval.normalize import classify_intent
 from core_memory.retrieval.semantic_index import (
@@ -1416,8 +1417,7 @@ def trace_request(
         hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
-            from core_memory.integrations.api import hydrate_bead_sources  # lazy: avoids retrieval→integrations cycle
-            h = hydrate_bead_sources(
+            h = hydrate_bead_sources_for_root(
                 root=str(root),
                 bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],
                 include_tools=True,
@@ -1545,8 +1545,7 @@ def execute_request(*, root: str | Path, request: dict[str, Any], explain: bool 
         hcfg, hw = _normalize_public_hydration_request(hyd_req)
         try:
             bead_ids = [str(a.get("bead_id") or "") for a in (out.get("anchors") or []) if str(a.get("bead_id") or "")]
-            from core_memory.integrations.api import hydrate_bead_sources  # lazy: avoids retrieval→integrations cycle
-            h = hydrate_bead_sources(
+            h = hydrate_bead_sources_for_root(
                 root=str(root),
                 bead_ids=bead_ids[: int(hcfg.get("max_beads") or 10)],
                 include_tools=True,

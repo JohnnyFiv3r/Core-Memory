@@ -7,6 +7,7 @@ from core_memory.integrations.api import (
     get_turn_tools,
     hydrate_bead_sources,
 )
+from core_memory.persistence.source_hydration import hydrate_bead_sources_for_root
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event
 from core_memory.persistence.store import MemoryStore
 
@@ -64,3 +65,11 @@ def test_hydrate_bead_sources_by_bead_id(tmp_path: Path):
     assert out["hydrated"][0]["turn"]["turn_id"] == "t10"
     assert out["hydrated"][0]["tools"]["tools_trace"][0]["category"] == "calc"
 
+    direct = hydrate_bead_sources_for_root(
+        root=tmp_path,
+        bead_ids=[bead_id],
+        include_tools=True,
+        before=0,
+        after=0,
+    )
+    assert direct == out

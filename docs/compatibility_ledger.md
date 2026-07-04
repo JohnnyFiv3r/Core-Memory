@@ -94,6 +94,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   redaction, bead-content sanitization, and constraint extraction behavior
   directly. This removed persistence-to-policy and persistence-to-retrieval
   imports without changing the `MemoryStore` helper surface.
+- Source hydration implementation now lives in
+  `core_memory/persistence/source_hydration.py`. The public
+  `core_memory.integrations.api.hydrate_bead_sources(...)` wrapper is unchanged,
+  while retrieval uses the persistence helper directly for best-effort
+  post-selection hydration instead of importing the integrations API.
 
 ## Explicit Non-Compatibility
 
