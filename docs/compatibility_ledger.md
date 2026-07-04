@@ -89,6 +89,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   No compatibility shim was retained. The proving gate was an active import
   scan for `core_memory.runtime.turn.turn_archive|runtime/turn/turn_archive`
   plus turn archive and recording/source attribution focused tests.
+- `core_memory/persistence/store_text_hygiene_ops.py` now owns the store's
+  deterministic tokenization, memory-intent detection, query-token expansion,
+  redaction, bead-content sanitization, and constraint extraction behavior
+  directly. This removed persistence-to-policy and persistence-to-retrieval
+  imports without changing the `MemoryStore` helper surface.
 
 ## Explicit Non-Compatibility
 
