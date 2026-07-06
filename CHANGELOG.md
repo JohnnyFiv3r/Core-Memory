@@ -3,6 +3,12 @@
 ## [Unreleased]
 
 ### Changed
+- **Relicensed from Apache License 2.0 to Elastic License 2.0 (ELv2).**
+  ELv2 permits use, copying, modification, redistribution, and full internal
+  production use, but does not permit offering Core Memory to third parties
+  as a hosted or managed service. Versions 1.1.1 and earlier were published
+  under Apache-2.0 and remain available under that license; this change
+  applies to all later versions.
 - Moved source-ingest envelope helpers from root flat file
   `core_memory/runtime/source_envelope.py` to
   `core_memory/runtime/ingest/source_envelope.py`, with no compatibility shim.

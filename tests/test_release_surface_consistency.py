@@ -46,13 +46,13 @@ class TestReleaseSurfaceConsistency(unittest.TestCase):
         self.assertIn({"name": "John Inniger", "email": "john@linelead.io"}, authors)
         self.assertIn({"name": "John Inniger", "email": "john@linelead.io"}, maintainers)
 
-        self.assertEqual({"text": "Apache-2.0"}, project.get("license"))
+        self.assertEqual({"text": "Elastic-2.0"}, project.get("license"))
 
         readme_text = self.readme.read_text(encoding="utf-8")
-        self.assertRegex(readme_text, r"license-Apache%202\.0|Apache-2\.0 License")
+        self.assertRegex(readme_text, r"license-Elastic%202\.0|Elastic License 2\.0")
 
         license_text = self.license.read_text(encoding="utf-8")
-        self.assertIn("Apache License", license_text)
+        self.assertIn("Elastic License 2.0", license_text)
         self.assertIn("Copyright 2026 John Inniger", license_text)
 
     def test_no_mit_residue_in_active_surfaces(self):
