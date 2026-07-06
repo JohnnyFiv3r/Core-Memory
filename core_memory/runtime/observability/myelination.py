@@ -1,54 +1,19 @@
 from __future__ import annotations
 
-import json
 import math
 import os
 from pathlib import Path
 from typing import Any
 
-MYELINATION_MANIFEST_SCHEMA = "core_memory.myelination_manifest.v2"
-
-
-def _manifest_path(root: str | Path) -> Path:
-    return Path(root) / ".beads" / "events" / "myelination-manifest.json"
-
-
-def read_myelination_manifest(root: str | Path) -> dict[str, Any]:
-    """Serve the myelination manifest from disk (never recomputed on read).
-
-    The manifest is rebuilt on the maintenance cadence (the ``myelination-update``
-    side-effect job / Dreamer pass). Returns ``present=False`` when none exists
-    yet so a host knows to trigger a refresh, rather than computing inline.
-    """
-    p = _manifest_path(root)
-    if not p.exists():
-        return {
-            "ok": True,
-            "present": False,
-            "schema": MYELINATION_MANIFEST_SCHEMA,
-            "enabled": myelination_enabled(),
-            "note": "no myelination manifest yet; run a myelination-update to build it",
-        }
-    try:
-        manifest = json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(manifest, dict):
-            return {"ok": True, "present": True, **manifest}
-    except Exception:
-        pass
-    return {
-        "ok": False,
-        "present": False,
-        "error": "myelination_manifest_unreadable",
-        "schema": MYELINATION_MANIFEST_SCHEMA,
-    }
-
+from core_memory.persistence.myelination_manifest import (
+    MYELINATION_MANIFEST_SCHEMA,
+    myelination_edge_key as _edge_key,
+    myelination_edge_key_parts as _edge_key_parts,
+    myelination_enabled,
+    read_myelination_manifest,
+)
 from core_memory.runtime.observability.retrieval_feedback import read_retrieval_feedback
 from core_memory.schema.normalization import normalize_relation_type
-
-
-def myelination_enabled() -> bool:
-    raw = str(os.getenv("CORE_MEMORY_MYELINATION_ENABLED", "0")).strip().lower()
-    return raw in {"1", "true", "yes", "on"}
 
 
 def _float_env(name: str, default: float) -> float:
@@ -67,15 +32,6 @@ def _int_env(name: str, default: int) -> int:
 
 def _clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
-
-
-def _edge_key(src: str, dst: str, rel: str) -> str:
-    return f"{src}|{rel}|{dst}"
-
-
-def _edge_key_parts(key: str) -> tuple[str, str, str]:
-    src, rel, dst = (str(key or "").split("|", 2) + ["", "", ""])[:3]
-    return src, rel, dst
 
 
 def _project_bead_bonus(edge_bonus: dict[str, float], cap_neg: float, cap_pos: float) -> dict[str, float]:
