@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core_memory.policy.promotion import (
+from core_memory.schema.promotion import (
     compute_adaptive_threshold,
     compute_promotion_score,
     get_recommendation_rows,

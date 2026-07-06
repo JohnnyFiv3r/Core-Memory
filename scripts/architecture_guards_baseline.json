@@ -1,12 +1,9 @@
 {
-  "generated_at": "2026-07-06T13:28:37.504827+00:00",
+  "generated_at": "2026-07-06T13:56:07.270893+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
-    "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->policy:core_memory.policy.promotion_contract",
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/promotion_service.py:persistence->policy:core_memory.policy.promotion",
-    "upward_import:core_memory/persistence/promotion_service.py:persistence->policy:core_memory.policy.promotion_contract",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
     "upward_import:core_memory/persistence/store.py:persistence->association:core_memory.association",
@@ -22,12 +19,10 @@
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_approval_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
-    "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->policy:core_memory.policy.promotion",
     "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->runtime:core_memory.runtime.observability.myelination_rewards",
     "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_promotion_ops.py:persistence->policy:core_memory.policy.promotion",
     "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks",
     "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks.contracts",
@@ -56,18 +51,6 @@
       "check": "upward_import",
       "detail": {
         "source_layer": "persistence",
-        "target_layer": "policy",
-        "target_module": "core_memory.policy.promotion_contract"
-      },
-      "id": "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->policy:core_memory.policy.promotion_contract",
-      "line": 26,
-      "message": "persistence/ imports upward into policy/ via core_memory.policy.promotion_contract",
-      "path": "core_memory/persistence/goal_lifecycle_v2.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
         "target_layer": "retrieval",
         "target_module": "core_memory.retrieval.lifecycle"
       },
@@ -75,30 +58,6 @@
       "line": 27,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
       "path": "core_memory/persistence/goal_lifecycle_v2.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "policy",
-        "target_module": "core_memory.policy.promotion"
-      },
-      "id": "upward_import:core_memory/persistence/promotion_service.py:persistence->policy:core_memory.policy.promotion",
-      "line": 8,
-      "message": "persistence/ imports upward into policy/ via core_memory.policy.promotion",
-      "path": "core_memory/persistence/promotion_service.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "policy",
-        "target_module": "core_memory.policy.promotion_contract"
-      },
-      "id": "upward_import:core_memory/persistence/promotion_service.py:persistence->policy:core_memory.policy.promotion_contract",
-      "line": 9,
-      "message": "persistence/ imports upward into policy/ via core_memory.policy.promotion_contract",
-      "path": "core_memory/persistence/promotion_service.py"
     },
     {
       "check": "upward_import",
@@ -284,18 +243,6 @@
       "check": "upward_import",
       "detail": {
         "source_layer": "persistence",
-        "target_layer": "policy",
-        "target_module": "core_memory.policy.promotion"
-      },
-      "id": "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->policy:core_memory.policy.promotion",
-      "line": 10,
-      "message": "persistence/ imports upward into policy/ via core_memory.policy.promotion",
-      "path": "core_memory/persistence/store_compaction_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
         "target_layer": "retrieval",
         "target_module": "core_memory.retrieval.lifecycle"
       },
@@ -339,18 +286,6 @@
       "line": 15,
       "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
       "path": "core_memory/persistence/store_management_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "policy",
-        "target_module": "core_memory.policy.promotion"
-      },
-      "id": "upward_import:core_memory/persistence/store_promotion_ops.py:persistence->policy:core_memory.policy.promotion",
-      "line": 5,
-      "message": "persistence/ imports upward into policy/ via core_memory.policy.promotion",
-      "path": "core_memory/persistence/store_promotion_ops.py"
     },
     {
       "check": "upward_import",

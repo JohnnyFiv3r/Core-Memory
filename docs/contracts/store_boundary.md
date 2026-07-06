@@ -22,7 +22,8 @@ Define strict layering so persistence does not own turn-time intelligence.
 
 ## Layer ownership
 - Runtime orchestration: `core_memory.runtime.*`
-- Promotion policy: `core_memory.policy.promotion`
+- Stored promotion state/scoring primitives: `core_memory.schema.promotion*`
+- Public promotion policy import surface: `core_memory.policy.promotion*`
 - Association policy: `core_memory.association.*`
 - Persistence: `core_memory.store` (transitioning to `core_memory.persistence.store`)
 

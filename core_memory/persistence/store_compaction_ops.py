@@ -7,7 +7,7 @@ from typing import Any, Optional
 
 from core_memory.persistence.archive_index import append_archive_snapshot, read_snapshot, rebuild_archive_index
 from core_memory.persistence.io_utils import store_lock
-from core_memory.policy.promotion import summary_truncation_limit
+from core_memory.schema.promotion import summary_truncation_limit
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 
 

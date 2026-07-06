@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from core_memory.policy.promotion_contract import current_promotion_state
+from core_memory.schema.promotion_contract import current_promotion_state
 
 # Terminal lifecycle states (Goal Lifecycle v2) — exclude from active objectives.
 # `decaying` is intentionally NOT terminal: it is still an open objective, only

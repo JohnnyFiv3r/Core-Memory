@@ -1,0 +1,404 @@
+"""
+Promotion policy: scoring, thresholding, and candidate evaluation.
+
+Extracted from store.py per Codex Phase 2 refactor.
+"""
+from __future__ import annotations
+
+import math
+from datetime import datetime, timezone
+from typing import Optional
+
+from core_memory.schema.promotion_contract import current_promotion_state
+
+# Type-prior scores for promotion
+BEAD_TYPE_PRIORS = {
+    "design_principle": 0.72,
+    "precedent": 0.7,
+    "decision": 0.66,
+    "lesson": 0.62,
+    "outcome": 0.6,
+    "evidence": 0.58,
+    "goal": 0.56,
+    "reflection": 0.58,
+    "hypothesis": 0.55,
+    "data_insight": 0.55,
+    "blocked": 0.50,
+    "incident": 0.65,
+    "context": 0.35,
+    "checkpoint": 0.35,
+    # External anchors point at caller-owned source stores; the source is the
+    # durable record, so anchors carry low promotion priors by design. Derived
+    # state (state_assertion) is knowledge, not an anchor, and scores like
+    # data_insight.
+    "transcript": 0.30,
+    "document_reference": 0.30,
+    "structured_observation": 0.40,
+    "state_assertion": 0.55,
+    # Operational events are the worldline substrate (state transitions of
+    # the business) — promotable when reinforced, like evidence.
+    "operational_event": 0.45,
+}
+
+DEFAULT_THRESHOLD = 0.72
+MIN_THRESHOLD = 0.68
+MAX_THRESHOLD = 0.92
+
+
+def _has_evidence(bead: dict) -> bool:
+    """Check if bead has evidence references."""
+    return bool((bead.get("evidence_refs") or []) or (bead.get("tool_output_ids") or []) or (bead.get("tool_output_id") or "").strip())
+
+
+def _normalize_links(links) -> list[dict]:
+    """Normalize links to canonical list format."""
+    if links is None:
+        return []
+    out = []
+    if isinstance(links, list):
+        for row in links:
+            if not isinstance(row, dict):
+                continue
+            ltype = str(row.get("type") or "").strip()
+            bid = str(row.get("bead_id") or row.get("id") or "").strip()
+            if ltype and bid:
+                out.append({"type": ltype, "bead_id": bid})
+        return out
+    if isinstance(links, dict):
+        for k, v in links.items():
+            if isinstance(v, list):
+                for bid in v:
+                    b = str(bid or "").strip()
+                    if b:
+                        out.append({"type": str(k), "bead_id": b})
+            else:
+                b = str(v or "").strip()
+                if b:
+                    out.append({"type": str(k), "bead_id": b})
+    return out
+
+
+def _reinforcement_signals(index: dict, bead: dict) -> dict:
+    """Calculate reinforcement signals for a bead."""
+    bead_id = str(bead.get("id") or "")
+    if not bead_id:
+        return {"count": 0}
+
+    bead_links = _normalize_links(bead.get("links"))
+    links_in = 0
+    links_out = len(bead_links)
+
+    for other in (index.get("beads") or {}).values():
+        if other.get("id") == bead_id:
+            continue
+        if str(other.get("linked_bead_id") or "") == bead_id:
+            links_in += 1
+            continue
+        for l in _normalize_links(other.get("links")):
+            if str((l or {}).get("bead_id") or "") == bead_id:
+                links_in += 1
+                break
+
+    assoc_deg = 0
+    for a in (index.get("associations") or []):
+        if not (a.get("source_bead") == bead_id or a.get("target_bead") == bead_id):
+            continue
+        edge_class = str(a.get("edge_class") or "").lower()
+        rel = str(a.get("relationship") or "").lower()
+        if edge_class == "derived" and rel in {"shared_tag", "related", "follows"}:
+            continue
+        assoc_deg += 1
+
+    recurrence = len(bead.get("source_turn_ids") or []) >= 2
+    recalled = int(bead.get("recall_count") or 0) > 0
+
+    cnt = 0
+    for v in [links_in > 0 or links_out > 0, assoc_deg > 0, recurrence, recalled]:
+        cnt += 1 if v else 0
+
+    return {
+        "links_in": links_in,
+        "links_out": links_out,
+        "association_degree": assoc_deg,
+        "recurrence": recurrence,
+        "recalled": recalled,
+        "count": cnt,
+    }
+
+
+def compute_promotion_score(index: dict, bead: dict) -> tuple[float, dict]:
+    """Compute promotion score for a bead.
+
+    Returns (score, factors_dict).
+    """
+    t = str(bead.get("type") or "").lower()
+    score = BEAD_TYPE_PRIORS.get(t, 0.4)
+
+    has_evidence = _has_evidence(bead)
+    detail_len = len((bead.get("detail") or "").strip())
+    has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
+
+    if has_evidence:
+        score += 0.12
+    if detail_len >= 80:
+        score += 0.1
+    if has_link:
+        score += 0.08
+
+    rs = _reinforcement_signals(index, bead)
+    score += min(0.16, 0.03 * float(rs.get("association_degree", 0)))
+    if rs.get("recurrence"):
+        score += 0.06
+    if rs.get("recalled"):
+        score += 0.05
+    if rs.get("links_in", 0) > 0:
+        score += 0.05
+
+    if t == "outcome" and str(bead.get("linked_bead_id") or "").strip():
+        score += 0.05
+
+    created_at = str(bead.get("created_at") or "")
+    freshness = 0.0
+    if created_at:
+        try:
+            dt = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            age_days = max(0.0, (datetime.now(timezone.utc) - dt).total_seconds() / 86400.0)
+            freshness = 0.05 if age_days <= 2.0 else 0.0
+        except ValueError:
+            freshness = 0.0
+    score += freshness
+
+    score = max(0.0, min(1.0, score))
+    return score, {
+        "has_evidence": has_evidence,
+        "detail_len": detail_len,
+        "has_link": has_link,
+        "freshness": freshness,
+        "reinforcement": rs,
+    }
+
+
+def compute_adaptive_threshold(index: dict) -> float:
+    """Compute adaptive promotion threshold based on current promoted ratio."""
+    beads = list((index.get("beads") or {}).values())
+    if not beads:
+        return DEFAULT_THRESHOLD
+
+    promoted = sum(1 for b in beads if bool(b.get("promoted")) or str(b.get("status") or "") == "promoted")
+    ratio = promoted / max(1, len(beads))
+
+    thr = DEFAULT_THRESHOLD
+    if ratio > 0.25:
+        thr += min(0.2, (ratio - 0.25) * 0.6)
+
+    return max(MIN_THRESHOLD, min(MAX_THRESHOLD, thr))
+
+
+def is_candidate_promotable(index: dict, bead: dict) -> tuple[bool, dict]:
+    """Check if a candidate bead meets promotion criteria.
+
+    Returns (is_promotable, metadata_dict).
+    """
+    score, factors = compute_promotion_score(index, bead)
+    threshold = compute_adaptive_threshold(index)
+    reinforcement_count = int((factors.get("reinforcement") or {}).get("count", 0))
+
+    allow = score >= threshold and reinforcement_count >= 1
+    reason = "score+reinforcement" if allow else "insufficient_score_or_reinforcement"
+
+    meta = {
+        "score": round(score, 4),
+        "threshold": round(threshold, 4),
+        "reinforcement_count": reinforcement_count,
+        "reason": reason,
+    }
+    return allow, meta
+
+
+def get_recommendation_rows(
+    index: dict,
+    query_text: str = "",
+    query_tokenize_fn: Optional[callable] = None,
+    query_expand_fn: Optional[callable] = None,
+) -> tuple[list[dict], float]:
+    """Get recommendation rows for all candidate beads.
+
+    Returns (rows, threshold).
+    """
+    beads = list((index.get("beads") or {}).values())
+    threshold = compute_adaptive_threshold(index)
+
+    if query_tokenize_fn and query_expand_fn:
+        q_tokens = query_expand_fn(query_text, query_tokenize_fn(query_text), max_extra=12)
+    else:
+        q_tokens = set()
+
+    rows = []
+    for bead in beads:
+        pstate = current_promotion_state(bead)
+        if pstate not in {"candidate", "null"}:
+            continue
+
+        score, factors = compute_promotion_score(index, bead)
+        reinf = int((factors.get("reinforcement") or {}).get("count", 0))
+
+        # Compute query overlap
+        if q_tokens:
+            title = (bead.get("title") or "").lower()
+            summary = " ".join(bead.get("summary") or []).lower()
+            text_tokens = set(title.split()) | set(summary.split())
+            q_overlap = len(q_tokens.intersection(text_tokens))
+        else:
+            q_overlap = 0
+
+        if score >= threshold and reinf >= 1:
+            rec = "strong"
+        elif score >= max(0.6, threshold - 0.08):
+            rec = "review"
+        else:
+            rec = "hold"
+
+        rows.append({
+            "bead_id": bead.get("id"),
+            "type": bead.get("type"),
+            "title": bead.get("title"),
+            "summary": (bead.get("summary") or [])[:2],
+            "promotion_score": round(score, 4),
+            "promotion_threshold": round(threshold, 4),
+            "recommendation": rec,
+            "query_overlap": q_overlap,
+            "reinforcement": factors.get("reinforcement") or {},
+            "has_evidence": bool(factors.get("has_evidence")),
+            "has_link": bool(factors.get("has_link")),
+            "detail_len": int(factors.get("detail_len") or 0),
+            "created_at": bead.get("created_at"),
+        })
+
+    rows = sorted(rows, key=lambda r: (r.get("query_overlap", 0), r.get("promotion_score", 0.0), r.get("created_at") or ""), reverse=True)
+    return rows, threshold
+
+
+# ── F-RW2: Selection score for rolling window ──────────────────────────
+#
+# selection_score = promotion_score * exp(-days_since_last_touch / effective_half_life)
+# effective_half_life = BASE_HALF_LIFE_DAYS * TYPE_DURABILITY_MULTIPLIERS[type]
+#
+# This is reinforcement-weighted recency, not spaced repetition.
+# "Last touch" means the most recent of: created, recalled, reinforced, or
+# had an association added. A bead recalled yesterday barely decays regardless
+# of when it was created.
+
+BASE_HALF_LIFE_DAYS = 14.0
+
+TYPE_DURABILITY_MULTIPLIERS: dict[str, float] = {
+    "design_principle": 4.0,
+    "precedent": 4.0,
+    "decision": 2.0,
+    "lesson": 2.0,
+    "outcome": 2.0,
+    "evidence": 1.5,
+    "goal": 1.5,
+    "reflection": 1.5,
+    "hypothesis": 1.5,
+    "data_insight": 1.5,
+    "incident": 2.0,
+    "blocked": 1.0,
+    "context": 1.0,
+    "checkpoint": 1.0,
+    # External anchors decay like context; derived state persists like insight.
+    "transcript": 1.0,
+    "document_reference": 1.0,
+    "structured_observation": 1.0,
+    "state_assertion": 1.5,
+    "operational_event": 1.5,
+}
+
+# Types guaranteed in rolling window if available (type diversity pass)
+DIVERSITY_REQUIRED_TYPES = {"decision", "lesson", "outcome"}
+
+
+def _parse_ts(ts: str | None) -> datetime | None:
+    s = str(ts or "").strip()
+    if not s:
+        return None
+    try:
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return datetime.fromisoformat(s)
+    except Exception:
+        return None
+
+
+def _days_since_last_touch(bead: dict, now: datetime | None = None) -> float:
+    """Compute days since the most recent touch event on a bead."""
+    if now is None:
+        now = datetime.now(timezone.utc)
+
+    candidates = [
+        _parse_ts(bead.get("created_at")),
+        _parse_ts(bead.get("last_recalled_at")),
+        _parse_ts(bead.get("last_reinforced_at")),
+        _parse_ts(bead.get("last_association_added_at")),
+    ]
+    latest = max((dt for dt in candidates if dt is not None), default=None)
+    if latest is None:
+        return float(BASE_HALF_LIFE_DAYS)  # no timestamp → assume moderate age
+
+    delta = (now - latest).total_seconds() / 86400.0
+    return max(0.0, delta)
+
+
+def compute_selection_score(
+    index: dict,
+    bead: dict,
+    now: datetime | None = None,
+) -> tuple[float, dict]:
+    """Compute selection score for rolling window ranking.
+
+    selection_score = promotion_score * exp(-days / effective_half_life)
+
+    Returns (score, details_dict).
+    """
+    promotion_score, factors = compute_promotion_score(index, bead)
+    bead_type = str(bead.get("type") or "").lower()
+    multiplier = TYPE_DURABILITY_MULTIPLIERS.get(bead_type, 1.0)
+    effective_half_life = BASE_HALF_LIFE_DAYS * multiplier
+
+    days = _days_since_last_touch(bead, now=now)
+    decay = math.exp(-days / effective_half_life)
+    score = promotion_score * decay
+
+    return max(0.0, min(1.0, score)), {
+        "promotion_score": round(promotion_score, 4),
+        "days_since_last_touch": round(days, 2),
+        "effective_half_life": round(effective_half_life, 1),
+        "type_durability_multiplier": multiplier,
+        "decay_factor": round(decay, 4),
+        "selection_score": round(score, 4),
+    }
+
+
+# ── F-RW5: Per-type summary truncation length ─────────────────────────
+#
+# Decisions deserve more detail than contexts. These values control how many
+# summary lines are retained when a bead is compacted/archived.
+
+SUMMARY_TRUNCATION_LINES: dict[str, int] = {
+    "design_principle": 5,
+    "precedent": 5,
+    "decision": 5,
+    "lesson": 4,
+    "outcome": 4,
+    "evidence": 3,
+    "reflection": 3,
+    "goal": 2,
+    "context": 1,
+    "checkpoint": 1,
+}
+
+DEFAULT_SUMMARY_TRUNCATION = 2
+
+
+def summary_truncation_limit(bead_type: str) -> int:
+    """Return the number of summary lines to retain for a given bead type."""
+    return SUMMARY_TRUNCATION_LINES.get(str(bead_type or "").lower(), DEFAULT_SUMMARY_TRUNCATION)
