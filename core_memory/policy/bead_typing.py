@@ -6,8 +6,8 @@ import os
 import re
 from typing import Literal
 
-from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
-from core_memory.runtime.semantic_tasks.contracts import TASK_BEAD_TYPE_CLASSIFIER
+from core_memory.runtime.semantic_tasks import get_semantic_task_runtime
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_BEAD_TYPE_CLASSIFIER
 
 logger = logging.getLogger(__name__)
 
