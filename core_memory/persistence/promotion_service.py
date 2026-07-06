@@ -5,8 +5,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-from ..policy.promotion import summary_truncation_limit
-from ..policy.promotion_contract import (
+from ..schema.promotion import summary_truncation_limit
+from ..schema.promotion_contract import (
     classify_signal,
     current_promotion_state,
     is_promotion_locked,

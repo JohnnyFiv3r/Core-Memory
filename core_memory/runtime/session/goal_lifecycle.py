@@ -13,7 +13,7 @@ from typing import Any
 from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
 from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.promotion_service import resolve_goal_candidate_for_store
-from core_memory.policy.promotion_contract import current_promotion_state
+from core_memory.schema.promotion_contract import current_promotion_state
 
 
 def _tokens(row: dict[str, Any]) -> set[str]:

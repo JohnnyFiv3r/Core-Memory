@@ -17,7 +17,7 @@ from typing import Any
 
 from core_memory.persistence.rolling_record_store import write_rolling_records
 from core_memory.persistence.store import MemoryStore
-from core_memory.policy.promotion import (
+from core_memory.schema.promotion import (
     DIVERSITY_REQUIRED_TYPES,
     compute_promotion_score,
     compute_selection_score,

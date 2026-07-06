@@ -63,7 +63,7 @@ If behavior changes, these owners must be updated first.
 
 - `core_memory.runtime.decision_pass.run_session_decision_pass(...)`  ← runtime invocation owner
 - `core_memory.persistence.store.MemoryStore.decide_session_promotion_states(...)`
-- `core_memory.policy.promotion_contract.*`
+- `core_memory.schema.promotion_contract.*`
   - `current_promotion_state`
   - `is_promotion_locked`
   - `validate_transition`
