@@ -115,6 +115,10 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory.runtime.observability.calibration` import path remains as a
   compatibility surface for public observability callers, while SOUL reads the
   lower persistence helper directly for auto-mode gating.
+- SOUL's Dreamer bridge now reads pending candidates through
+  `core_memory/persistence/dreamer_candidate_store.py` instead of the public
+  Dreamer runtime command surface. Public Dreamer candidate enqueue/list/decide
+  APIs remain in `core_memory.runtime.dreamer.candidates`.
 
 ## Explicit Non-Compatibility
 
