@@ -152,7 +152,7 @@ def memory_search_typed(root: str, submission: dict, explain: bool = False) -> d
 def memory_execute(root: str, request: dict, explain: bool = True) -> dict:
     out = _execute_request(root=root, request=request, explain=bool(explain))
     try:
-        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+        from core_memory.persistence.retrieval_feedback import record_retrieval_feedback
 
         fb = record_retrieval_feedback(root, request=dict(request or {}), response=dict(out or {}), source="memory_execute")
         if isinstance(out, dict):

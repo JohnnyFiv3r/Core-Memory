@@ -881,7 +881,7 @@ def recall(
 
     # Fire-and-forget retrieval telemetry — never let recording break recall.
     try:
-        from core_memory.runtime.observability.retrieval_feedback import record_retrieval_feedback
+        from core_memory.persistence.retrieval_feedback import record_retrieval_feedback
         record_retrieval_feedback(root, request=request, response=raw)
     except Exception:
         pass
