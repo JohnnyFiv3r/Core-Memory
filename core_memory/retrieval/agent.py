@@ -638,15 +638,16 @@ def _expand_via_association_hops(
         resolve_provenance_factor as _resolve_prov,
         SUPERSEDED_ENDPOINT_FACTOR as _superseded_factor,
     )
-    from core_memory.runtime.observability.myelination import (
-        _edge_key as _myelination_edge_key,
+    from core_memory.persistence.myelination_manifest import (
+        myelination_edge_key as _myelination_edge_key,
         myelination_enabled as _myelination_enabled,
+        read_myelination_edge_bonus_map,
     )
     from core_memory.schema.normalization import normalize_relation_type as _normalize_rel
 
     manifest_edge_bonus: dict[str, float] = {}
     if _myelination_enabled():
-        manifest_edge_bonus = _read_myelination_edge_manifest(root)
+        manifest_edge_bonus = read_myelination_edge_bonus_map(root)
 
     def _endpoint_superseded(bead_id: str) -> bool:
         bead = beads_map.get(bead_id)
@@ -771,37 +772,15 @@ def _expand_via_association_hops(
 
 
 def _read_myelination_edge_manifest(root: str) -> dict[str, float]:
-    try:
-        p = Path(root) / ".beads" / "events" / "myelination-manifest.json"
-        if not p.exists():
-            return {}
-        payload = json.loads(p.read_text(encoding="utf-8"))
-        out: dict[str, float] = {}
-        for k, v in (payload.get("bonus_by_edge_key") or {}).items():
-            try:
-                bonus = float(v)
-            except Exception:
-                continue
-            if abs(bonus) > 1e-9:
-                out[str(k)] = bonus
-        return out
-    except Exception:
-        return {}
+    from core_memory.persistence.myelination_manifest import read_myelination_edge_bonus_map
+
+    return read_myelination_edge_bonus_map(root)
 
 
 def _read_myelination_manifest(root: str) -> dict[str, float]:
-    try:
-        p = Path(root) / ".beads" / "events" / "myelination-manifest.json"
-        if not p.exists():
-            return {}
-        payload = json.loads(p.read_text(encoding="utf-8"))
-        return {
-            str(k): float(v)
-            for k, v in (payload.get("bonus_by_bead_id") or {}).items()
-            if abs(float(v)) > 1e-9
-        }
-    except Exception:
-        return {}
+    from core_memory.persistence.myelination_manifest import read_myelination_bead_bonus_map
+
+    return read_myelination_bead_bonus_map(root)
 
 
 def _apply_myelination_bonuses(result: RecallResult, bonus_by_bead_id: dict[str, float]) -> None:
@@ -924,7 +903,8 @@ def recall(
 
     # Apply pre-computed myelination bonuses when enabled.
     try:
-        from core_memory.runtime.observability.myelination import myelination_enabled
+        from core_memory.persistence.myelination_manifest import myelination_enabled
+
         if myelination_enabled():
             bonus_by_bead_id = _read_myelination_manifest(root)
             if bonus_by_bead_id:

@@ -67,10 +67,12 @@ def normalize_recall_hints(hints: dict[str, Any] | None) -> dict[str, Any]:
 
 def _myelination_bonus_map(root: str | Path) -> dict[str, float]:
     try:
-        from core_memory.runtime.observability.myelination import compute_myelination_bonus_map
+        from core_memory.persistence.myelination_manifest import (
+            myelination_enabled,
+            read_myelination_edge_bonus_map,
+        )
 
-        payload = compute_myelination_bonus_map(Path(root))
-        return dict(payload.get("bonus_by_edge_key") or {}) if payload.get("enabled") else {}
+        return read_myelination_edge_bonus_map(Path(root)) if myelination_enabled() else {}
     except Exception:
         return {}
 

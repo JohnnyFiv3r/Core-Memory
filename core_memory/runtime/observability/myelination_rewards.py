@@ -23,8 +23,8 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.runtime.observability.myelination import (
-    _edge_key,
+from core_memory.persistence.myelination_manifest import (
+    myelination_edge_key as _edge_key,
     myelination_enabled,
 )
 from core_memory.runtime.observability.retrieval_feedback import (
