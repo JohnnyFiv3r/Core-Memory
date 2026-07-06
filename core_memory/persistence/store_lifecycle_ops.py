@@ -106,7 +106,7 @@ def confirm_bead_for_store(store: Any, *, bead_id: str, note: str = "") -> bool:
 
     # Best-effort myelination reward over the confirmed bead's supporting edges.
     try:
-        from core_memory.runtime.observability.myelination_rewards import reward_for_bead_decision
+        from core_memory.persistence.myelination_rewards import reward_for_bead_decision
 
         reward_for_bead_decision(
             store.root,

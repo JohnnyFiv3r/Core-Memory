@@ -305,7 +305,7 @@ def resolve_goal_candidate_for_store(
     # Best-effort myelination reward over the audited outcome--resolves-->goal
     # edge. Outside the lock; never fails resolution if reinforcement does.
     try:
-        from core_memory.runtime.observability.myelination_rewards import reward_goal_resolution
+        from core_memory.persistence.myelination_rewards import reward_goal_resolution
 
         reward_goal_resolution(store.root, goal_bead_id=gid, outcome_bead_id=oid, source_event_id=str(turn_id or gid))
     except Exception:
