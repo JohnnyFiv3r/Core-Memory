@@ -126,7 +126,7 @@ def _auto_mode_paused(root: str | Path) -> bool:
     if _bool_env("SOUL_AUTO_MODE_PAUSED", False):
         return True
     try:
-        from core_memory.runtime.observability.calibration import compute_calibration_curve
+        from core_memory.persistence.calibration import compute_calibration_curve
 
         gate = str(compute_calibration_curve(root).get("auto_mode_gate") or "paused")
         return gate != "open"

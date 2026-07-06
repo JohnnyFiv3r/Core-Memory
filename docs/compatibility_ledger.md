@@ -110,6 +110,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory.runtime.observability.myelination_rewards` import path remains as
   a compatibility surface for observability callers, while persistence approval,
   confirmation, and goal-resolution paths depend downward on persistence.
+- Myelination calibration reads now live in
+  `core_memory/persistence/calibration.py`. The existing
+  `core_memory.runtime.observability.calibration` import path remains as a
+  compatibility surface for public observability callers, while SOUL reads the
+  lower persistence helper directly for auto-mode gating.
 
 ## Explicit Non-Compatibility
 
