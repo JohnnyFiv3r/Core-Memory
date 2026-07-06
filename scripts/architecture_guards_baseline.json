@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-04T18:42:43.035139+00:00",
+  "generated_at": "2026-07-06T01:49:53.503182+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -37,12 +37,10 @@
     "upward_import:core_memory/policy/rationale.py:policy->runtime:core_memory.runtime.semantic_tasks.contracts",
     "upward_import:core_memory/retrieval/agent.py:retrieval->runtime:core_memory.runtime.dreamer.candidates",
     "upward_import:core_memory/retrieval/agent.py:retrieval->runtime:core_memory.runtime.observability.myelination",
-    "upward_import:core_memory/retrieval/agent.py:retrieval->runtime:core_memory.runtime.observability.retrieval_feedback",
     "upward_import:core_memory/retrieval/causal_recall.py:retrieval->runtime:core_memory.runtime.observability.myelination",
     "upward_import:core_memory/retrieval/causal_recall.py:retrieval->runtime:core_memory.runtime.semantic_tasks",
     "upward_import:core_memory/retrieval/causal_recall.py:retrieval->runtime:core_memory.runtime.semantic_tasks.contracts",
     "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs",
-    "upward_import:core_memory/retrieval/pipeline/__init__.py:retrieval->runtime:core_memory.runtime.observability.retrieval_feedback",
     "upward_import:core_memory/retrieval/pipeline/canonical.py:retrieval->runtime:core_memory.runtime.observability.myelination",
     "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.dreamer.candidates",
     "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.observability.calibration",
@@ -468,18 +466,6 @@
       "detail": {
         "source_layer": "retrieval",
         "target_layer": "runtime",
-        "target_module": "core_memory.runtime.observability.retrieval_feedback"
-      },
-      "id": "upward_import:core_memory/retrieval/agent.py:retrieval->runtime:core_memory.runtime.observability.retrieval_feedback",
-      "line": 884,
-      "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.observability.retrieval_feedback",
-      "path": "core_memory/retrieval/agent.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "retrieval",
-        "target_layer": "runtime",
         "target_module": "core_memory.runtime.observability.myelination"
       },
       "id": "upward_import:core_memory/retrieval/causal_recall.py:retrieval->runtime:core_memory.runtime.observability.myelination",
@@ -522,18 +508,6 @@
       "line": 20,
       "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.queue.jobs",
       "path": "core_memory/retrieval/lifecycle.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "retrieval",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.observability.retrieval_feedback"
-      },
-      "id": "upward_import:core_memory/retrieval/pipeline/__init__.py:retrieval->runtime:core_memory.runtime.observability.retrieval_feedback",
-      "line": 155,
-      "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.observability.retrieval_feedback",
-      "path": "core_memory/retrieval/pipeline/__init__.py"
     },
     {
       "check": "upward_import",

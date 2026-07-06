@@ -99,6 +99,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory.integrations.api.hydrate_bead_sources(...)` wrapper is unchanged,
   while retrieval uses the persistence helper directly for best-effort
   post-selection hydration instead of importing the integrations API.
+- Retrieval feedback JSONL implementation now lives in
+  `core_memory/persistence/retrieval_feedback.py`. The existing
+  `core_memory.runtime.observability.retrieval_feedback` import path remains as
+  a compatibility surface for observability callers, while retrieval write paths
+  depend downward on persistence.
 
 ## Explicit Non-Compatibility
 
