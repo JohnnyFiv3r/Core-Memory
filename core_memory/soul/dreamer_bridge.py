@@ -29,9 +29,9 @@ from typing import Any, Literal
 
 from core_memory.runtime.dreamer.candidates import _read_candidates
 from core_memory.persistence.myelination_manifest import read_myelination_manifest
-from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
-from core_memory.runtime.semantic_tasks.contracts import TASK_SOUL_PROPOSAL
+from core_memory.runtime.semantic_tasks import get_semantic_task_runtime
 from core_memory.runtime.semantic_tasks.verifier import verify_semantic_task_output
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_SOUL_PROPOSAL
 from core_memory.soul.store import propose_soul_update, soul_history
 
 AuthorityTier = Literal["auto_write", "candidate_only", "not_surfaced"]

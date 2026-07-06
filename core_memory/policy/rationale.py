@@ -7,8 +7,8 @@ import re
 from typing import Any
 
 from .bead_typing import is_retrieval_turn
-from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
-from core_memory.runtime.semantic_tasks.contracts import TASK_RATIONALE_EXTRACTOR
+from core_memory.runtime.semantic_tasks import get_semantic_task_runtime
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_RATIONALE_EXTRACTOR
 
 logger = logging.getLogger(__name__)
 
