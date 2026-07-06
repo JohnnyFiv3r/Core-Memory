@@ -309,7 +309,7 @@ def _attach_conflict_reviews(result: RecallResult, root: str) -> None:
     """
     if not result.conflicts:
         return
-    from core_memory.runtime.dreamer.candidates import enqueue_contradiction_pressure_candidates
+    from core_memory.persistence.dreamer_candidate_store import enqueue_contradiction_pressure_candidates
     from core_memory.claim.conflict_review import build_conflict_review
 
     res = enqueue_contradiction_pressure_candidates(root=root, conflicts=result.conflicts)
