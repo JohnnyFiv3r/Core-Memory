@@ -27,7 +27,7 @@ import os
 from pathlib import Path
 from typing import Any, Literal
 
-from core_memory.runtime.dreamer.candidates import _read_candidates
+from core_memory.persistence.dreamer_candidate_store import read_candidates as _read_candidates
 from core_memory.persistence.myelination_manifest import read_myelination_manifest
 from core_memory.runtime.semantic_tasks import get_semantic_task_runtime
 from core_memory.runtime.semantic_tasks.verifier import verify_semantic_task_output
