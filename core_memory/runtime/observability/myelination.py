@@ -139,7 +139,7 @@ def compute_myelination_bonus_map(
     validated_positive_counts: dict[str, int] = {}
     validated_negative_counts: dict[str, int] = {}
     # Lazy import avoids a module cycle (rewards imports from this module).
-    from core_memory.runtime.observability.myelination_rewards import (
+    from core_memory.persistence.myelination_rewards import (
         reward_bonus_by_edge_key,
         reward_events_enabled,
     )

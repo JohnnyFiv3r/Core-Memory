@@ -104,6 +104,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory.runtime.observability.retrieval_feedback` import path remains as
   a compatibility surface for observability callers, while retrieval write paths
   depend downward on persistence.
+- Myelination reward-event JSONL implementation now lives in
+  `core_memory/persistence/myelination_rewards.py`. The existing
+  `core_memory.runtime.observability.myelination_rewards` import path remains as
+  a compatibility surface for observability callers, while persistence approval,
+  confirmation, and goal-resolution paths depend downward on persistence.
 
 ## Explicit Non-Compatibility
 

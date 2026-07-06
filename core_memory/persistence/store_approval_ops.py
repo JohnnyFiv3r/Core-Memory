@@ -37,7 +37,7 @@ def _reward_bead_decision(store: Any, *, bead_id: str, polarity: str, source_eve
     governance op must not fail because reinforcement bookkeeping did.
     """
     try:
-        from core_memory.runtime.observability.myelination_rewards import reward_for_bead_decision
+        from core_memory.persistence.myelination_rewards import reward_for_bead_decision
 
         source_type = "human_approval" if polarity == "positive" else "human_rejection"
         reward_for_bead_decision(

@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.runtime.observability.myelination import read_myelination_manifest
-from core_memory.runtime.observability.myelination_rewards import read_reward_events
+from core_memory.persistence.myelination_rewards import read_reward_events
 from core_memory.runtime.observability.retrieval_feedback import (
     _parse_iso,
     read_retrieval_feedback,
