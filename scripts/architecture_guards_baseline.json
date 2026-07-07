@@ -1,35 +1,7 @@
 {
-  "generated_at": "2026-07-07T18:37:30.065567+00:00",
+  "generated_at": "2026-07-07T19:04:49.786973+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
-  "violation_ids": [
-    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
-    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage"
-  ],
-  "violations": [
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.semantic_index"
-      },
-      "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
-      "line": 310,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.semantic_index",
-      "path": "core_memory/persistence/store_add_bead_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.associations.coverage"
-      },
-      "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
-      "line": 266,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.associations.coverage",
-      "path": "core_memory/persistence/store_add_bead_ops.py"
-    }
-  ]
+  "violation_ids": [],
+  "violations": []
 }
