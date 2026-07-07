@@ -157,6 +157,10 @@ architecture guard baseline honest. When a row is repaired, shrink
   lives in `core_memory/persistence/semantic_lifecycle.py`. The existing
   `core_memory.retrieval.lifecycle` import path remains the public retrieval
   lifecycle/autodrain surface for CLI/runtime callers.
+- Retrieval semantic autodrain no longer imports the runtime async-job runner
+  statically. `core_memory.retrieval.lifecycle` still owns the public lifecycle
+  facade and resolves `core_memory.runtime.queue.jobs.run_async_jobs(...)` at
+  call time for background drains.
 - Bead write hygiene contract helpers now live in
   `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
   normalize retrieval eligibility and bead richness without importing policy.

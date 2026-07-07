@@ -69,6 +69,11 @@ creates a static persistence-to-runtime import. Dreamer analysis is resolved at
 call time through a local provider lookup, shrinking the architecture guard
 baseline from 4 upward-import rows to 3 while preserving the method behavior.
 
+`core_memory.retrieval.lifecycle` remains the public semantic lifecycle and
+autodrain surface, but its autodrain worker now resolves the runtime async-job
+runner at call time. This preserves retrieval lifecycle behavior while shrinking
+the architecture guard baseline from 3 upward-import rows to 2.
+
 The legacy persistence mixin artifacts
 `core_memory/persistence/store_core_delegates_mixin.py` and
 `core_memory/persistence/store_reporting_promotion_mixin.py` were retired after

@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import os
 import threading
+from importlib import import_module
 from pathlib import Path
 from typing import Any
 
@@ -24,10 +25,13 @@ _DRAIN_LOCK: threading.Lock = threading.Lock()
 _DRAIN_THREADS: dict[str, threading.Thread] = {}
 
 
+def _async_jobs_runner_provider():
+    return import_module("core_memory.runtime.queue.jobs").run_async_jobs
+
+
 def _autodrain_worker(root_str: str) -> None:
     try:
-        from core_memory.runtime.queue.jobs import run_async_jobs
-
+        run_async_jobs = _async_jobs_runner_provider()
         run_async_jobs(root_str, run_semantic=True, max_compaction=0, max_side_effects=0)
     except Exception as exc:
         _log.debug("semantic autodrain worker error for %s: %s", root_str, exc)

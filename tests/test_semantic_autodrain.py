@@ -67,6 +67,41 @@ class TestSemanticAutodrain(unittest.TestCase):
             # Despite two calls, the second should detect an alive thread and skip
             self.assertLessEqual(len(started), 2)  # at most 2 (timing-dependent); typically 1
 
+    def test_autodrain_worker_resolves_async_runner_at_call_time(self):
+        import core_memory.retrieval.lifecycle as lc
+
+        calls = []
+
+        def fake_runner(root, *, run_semantic, max_compaction, max_side_effects):
+            calls.append(
+                {
+                    "root": root,
+                    "run_semantic": run_semantic,
+                    "max_compaction": max_compaction,
+                    "max_side_effects": max_side_effects,
+                }
+            )
+
+        with lc._DRAIN_LOCK:
+            lc._DRAIN_THREADS["root-a"] = MagicMock()
+
+        with patch("core_memory.retrieval.lifecycle._async_jobs_runner_provider", return_value=fake_runner):
+            lc._autodrain_worker("root-a")
+
+        self.assertEqual(
+            [
+                {
+                    "root": "root-a",
+                    "run_semantic": True,
+                    "max_compaction": 0,
+                    "max_side_effects": 0,
+                }
+            ],
+            calls,
+        )
+        with lc._DRAIN_LOCK:
+            self.assertNotIn("root-a", lc._DRAIN_THREADS)
+
     def test_semantic_status_includes_autodrain_field(self):
         """semantic_status output includes autodrain.enabled and autodrain.running."""
         with tempfile.TemporaryDirectory() as td:
