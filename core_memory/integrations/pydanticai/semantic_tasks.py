@@ -13,9 +13,9 @@ import time
 import uuid
 from typing import Any
 
-from core_memory.runtime.semantic_tasks.contracts import SemanticTaskRequest, SemanticTaskResult
-from core_memory.runtime.semantic_tasks.receipts import record_semantic_task_run, stable_hash
-from core_memory.runtime.semantic_tasks.runtime import resolve_model_profile
+from core_memory.persistence.semantic_task_receipts import record_semantic_task_run, stable_hash
+from core_memory.policy.semantic_task_runtime import resolve_model_profile
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, SemanticTaskResult
 
 
 def _agent_class() -> Any:

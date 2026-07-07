@@ -103,10 +103,10 @@ class TestBeadFieldJudge(unittest.TestCase):
             },
             clear=False,
         ), patch(
-            "core_memory.runtime.semantic_tasks.runtime.resolve_chat_config",
+            "core_memory.policy.semantic_task_runtime.resolve_chat_config",
             return_value=cfg,
         ), patch(
-            "core_memory.runtime.semantic_tasks.runtime.chat_complete",
+            "core_memory.policy.semantic_task_runtime.chat_complete",
             return_value=json.dumps(JUDGED),
         ) as complete:
             out = judge_bead_fields("Use Redis for cache invalidation.", "Recorded.", root=td)

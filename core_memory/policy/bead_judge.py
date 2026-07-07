@@ -8,7 +8,7 @@ from typing import Any
 
 from .bead_typing import CLASSIFIABLE_TYPES, classify_bead_type, is_retrieval_turn
 from .rationale import extract_causal_because, sanitize_because_for_turn, is_question_turn
-from core_memory.runtime.semantic_tasks import get_semantic_task_runtime
+from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
 from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_BEAD_FIELD_JUDGE
 
 logger = logging.getLogger(__name__)

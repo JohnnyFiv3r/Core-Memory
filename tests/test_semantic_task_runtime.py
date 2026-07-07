@@ -125,9 +125,9 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as td:
             with (
-                patch("core_memory.runtime.semantic_tasks.runtime.resolve_chat_config", return_value=cfg),
+                patch("core_memory.policy.semantic_task_runtime.resolve_chat_config", return_value=cfg),
                 patch(
-                    "core_memory.runtime.semantic_tasks.runtime.chat_complete",
+                    "core_memory.policy.semantic_task_runtime.chat_complete",
                     return_value='{"decision":"accept","reason_text":"Supported by evidence."}',
                 ) as complete,
             ):
@@ -289,7 +289,7 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
 
         fake = FakeRuntime()
         with patch(
-            "core_memory.runtime.semantic_tasks.runtime._pydanticai_semantic_task_runtime",
+            "core_memory.policy.semantic_task_runtime._pydanticai_semantic_task_runtime",
             return_value=fake,
         ) as load_runtime:
             runtime = get_semantic_task_runtime(mode="pydanticai")
@@ -299,7 +299,7 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
 
     def test_factory_falls_back_when_pydanticai_provider_unavailable(self):
         with patch(
-            "core_memory.runtime.semantic_tasks.runtime._pydanticai_semantic_task_runtime",
+            "core_memory.policy.semantic_task_runtime._pydanticai_semantic_task_runtime",
             side_effect=ImportError("optional adapter missing"),
         ):
             runtime = get_semantic_task_runtime(mode="pydanticai")
@@ -312,7 +312,7 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
 
         fake = FakeRuntime()
         with patch(
-            "core_memory.runtime.semantic_tasks.runtime._remote_semantic_task_runtime",
+            "core_memory.policy.semantic_task_runtime._remote_semantic_task_runtime",
             return_value=fake,
         ) as load_runtime:
             runtime = get_semantic_task_runtime(mode="remote")
@@ -322,7 +322,7 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
 
     def test_factory_falls_back_when_remote_provider_unavailable(self):
         with patch(
-            "core_memory.runtime.semantic_tasks.runtime._remote_semantic_task_runtime",
+            "core_memory.policy.semantic_task_runtime._remote_semantic_task_runtime",
             side_effect=ImportError("optional adapter missing"),
         ):
             runtime = get_semantic_task_runtime(mode="remote")

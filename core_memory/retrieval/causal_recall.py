@@ -8,8 +8,8 @@ from typing import Any
 
 from core_memory.graph.edge_weights import CAUSAL_RELS
 from core_memory.graph.root_cause import normalize_causal_hints, root_cause_trace
+from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
 from core_memory.retrieval.contracts import RecallResult, RecallStep
-from core_memory.runtime.semantic_tasks import get_semantic_task_runtime
 from core_memory.schema.semantic_tasks import SemanticTaskRequest, SemanticTaskResult, TASK_CAUSAL_RECALL_EXECUTE
 
 

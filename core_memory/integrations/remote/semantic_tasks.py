@@ -14,7 +14,7 @@ import urllib.request
 from dataclasses import asdict, replace
 from typing import Any
 
-from core_memory.runtime.semantic_tasks.contracts import (
+from core_memory.schema.semantic_tasks import (
     DEFAULT_TASK_MODEL_TIERS,
     MODEL_TIER_STANDARD,
     MODEL_TIERS,
@@ -23,7 +23,7 @@ from core_memory.runtime.semantic_tasks.contracts import (
     SemanticTaskResult,
     SemanticTaskRuntime,
 )
-from core_memory.runtime.semantic_tasks.receipts import (
+from core_memory.persistence.semantic_task_receipts import (
     record_semantic_task_run,
     stable_hash,
 )
