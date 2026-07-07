@@ -1,12 +1,11 @@
 {
-  "generated_at": "2026-07-07T11:56:45.724207+00:00",
+  "generated_at": "2026-07-07T12:15:10.472318+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store.py:persistence->entity:core_memory.entity.merge_flow",
-    "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_metrics_runtime",
     "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_rationale",
     "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_reporting",
     "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
@@ -62,18 +61,6 @@
       "id": "upward_import:core_memory/persistence/store.py:persistence->entity:core_memory.entity.merge_flow",
       "line": 629,
       "message": "persistence/ imports upward into entity/ via core_memory.entity.merge_flow",
-      "path": "core_memory/persistence/store.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "reporting",
-        "target_module": "core_memory.reporting.store_metrics_runtime"
-      },
-      "id": "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_metrics_runtime",
-      "line": 240,
-      "message": "persistence/ imports upward into reporting/ via core_memory.reporting.store_metrics_runtime",
       "path": "core_memory/persistence/store.py"
     },
     {

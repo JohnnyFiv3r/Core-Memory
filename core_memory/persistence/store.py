@@ -237,60 +237,60 @@ class MemoryStore:
     # === Metrics runtime ===
 
     def _read_metrics_state(self) -> dict:
-        from ..reporting.store_metrics_runtime import read_metrics_state_for_store
+        from ..persistence.store_metrics_runtime import read_metrics_state_for_store
 
         return read_metrics_state_for_store(self)
 
     def _write_metrics_state(self, state: dict):
-        from ..reporting.store_metrics_runtime import write_metrics_state_for_store
+        from ..persistence.store_metrics_runtime import write_metrics_state_for_store
 
         write_metrics_state_for_store(self, state)
 
     def start_task_run(self, run_id: str, task_id: str, mode: str = "core_memory", phase: str = "core_memory") -> dict:
         """Start/reset current metrics run context for step/tool aggregation."""
-        from ..reporting.store_metrics_runtime import start_task_run_for_store
+        from ..persistence.store_metrics_runtime import start_task_run_for_store
 
         return start_task_run_for_store(self, run_id, task_id, mode=mode, phase=phase)
 
     def track_step(self, count: int = 1) -> dict:
-        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+        from ..persistence.store_metrics_runtime import increment_metric_counter_for_store
 
         return increment_metric_counter_for_store(self, key="steps", count=count)
 
     def track_tool_call(self, count: int = 1) -> dict:
-        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+        from ..persistence.store_metrics_runtime import increment_metric_counter_for_store
 
         return increment_metric_counter_for_store(self, key="tool_calls", count=count)
 
     def track_turn_processed(self, count: int = 1) -> dict:
-        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+        from ..persistence.store_metrics_runtime import increment_metric_counter_for_store
 
         return increment_metric_counter_for_store(self, key="turns_processed", count=count)
 
     def track_bead_created(self, count: int = 1) -> dict:
-        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+        from ..persistence.store_metrics_runtime import increment_metric_counter_for_store
 
         return increment_metric_counter_for_store(self, key="beads_created", count=count)
 
     def track_bead_recalled(self, count: int = 1) -> dict:
-        from ..reporting.store_metrics_runtime import increment_metric_counter_for_store
+        from ..persistence.store_metrics_runtime import increment_metric_counter_for_store
 
         return increment_metric_counter_for_store(self, key="beads_recalled", count=count)
 
     def current_run_metrics(self) -> dict:
-        from ..reporting.store_metrics_runtime import current_run_metrics_for_store
+        from ..persistence.store_metrics_runtime import current_run_metrics_for_store
 
         return current_run_metrics_for_store(self)
 
     def finalize_task_run(self, result: str = "success", **extra) -> dict:
         """Append final KPI row using current counters and derived compression ratio."""
-        from ..reporting.store_metrics_runtime import finalize_task_run_for_store
+        from ..persistence.store_metrics_runtime import finalize_task_run_for_store
 
         return finalize_task_run_for_store(self, result=result, **extra)
 
     def append_metric(self, record: dict) -> dict:
         """Append a metrics KPI record (v1 schema defaults applied)."""
-        from ..reporting.store_metrics_runtime import append_metric_for_store
+        from ..persistence.store_metrics_runtime import append_metric_for_store
 
         return append_metric_for_store(self, record)
 
