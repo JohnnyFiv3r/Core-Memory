@@ -32,7 +32,7 @@ from core_memory.persistence.myelination_manifest import read_myelination_manife
 from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
 from core_memory.policy.semantic_task_verifier import verify_semantic_task_output
 from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_SOUL_PROPOSAL
-from core_memory.soul.store import propose_soul_update, soul_history
+from core_memory.soul.store import current_soul_entries, propose_soul_update, soul_history
 
 AuthorityTier = Literal["auto_write", "candidate_only", "not_surfaced"]
 
@@ -115,6 +115,47 @@ def _clean_text(value: Any, *, max_len: int = 1200) -> str:
     return text
 
 
+def _boolish(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    text = str(value or "").strip().lower()
+    return text in {"1", "true", "yes", "on"}
+
+
+def _pruning_flag_from(
+    candidate: dict[str, Any],
+    *,
+    draft: dict[str, Any] | None = None,
+    fallback_reason: Any = "",
+) -> dict[str, Any] | None:
+    """Normalize candidate/task pruning intent into one metadata shape.
+
+    Pruning is advisory review work: it may suggest stale or superseded SOUL
+    meaning, but it must never auto-write because removal/supersession changes
+    the user's self-model.
+    """
+    draft = draft if isinstance(draft, dict) else {}
+    needs_pruning = (
+        _boolish(candidate.get("needs_pruning"))
+        or _boolish(candidate.get("pruning_flag"))
+        or _boolish(draft.get("needs_pruning"))
+        or _boolish(draft.get("pruning_flag"))
+    )
+    reason = _clean_text(
+        draft.get("pruning_reason")
+        or candidate.get("pruning_reason")
+        or candidate.get("supersession_reason")
+        or fallback_reason,
+        max_len=400,
+    )
+    if not needs_pruning and not reason:
+        return None
+    return {
+        "needs_pruning": True,
+        "reason": reason or "Dreamer surfaced stale or superseded SOUL meaning.",
+    }
+
+
 def _auto_mode_paused(root: str | Path) -> bool:
     """Resolve the auto-write safety gate (Decision #8).
 
@@ -184,6 +225,7 @@ def _enrich_findings_with_signals(
         contradiction_present = (
             str(finding.get("hypothesis_type") or "") in _CONTRADICTION_HYPOTHESIS_TYPES
         )
+        pruning_flag = _pruning_flag_from(cand)
         tier = _classify_confidence(
             judge_prior,
             effective_confidence,
@@ -191,10 +233,13 @@ def _enrich_findings_with_signals(
             contradiction_present=contradiction_present,
             auto_mode_paused=auto_mode_paused,
         )
+        if pruning_flag:
+            tier = "candidate_only"
         finding["judge_prior"] = judge_prior
         finding["effective_confidence"] = effective_confidence
         finding["min_hits_cleared"] = min_hits_cleared
         finding["contradiction_present"] = contradiction_present
+        finding["pruning_flag"] = pruning_flag
         finding["supporting_bead_count"] = len(supporting)
         finding["authority_tier"] = tier
 
@@ -295,10 +340,10 @@ def _proposal_prompt() -> str:
         '      "entry_key": "goal:example",\n'
         '      "content": "concise proposed SOUL entry",\n'
         '      "reason": "why this should be reviewed",\n'
-        '      "review_notes": ["what a reviewer should inspect"],\n'
-        '      "evidence_limitations": ["what evidence is missing or weak"],\n'
         '      "needs_pruning": false,\n'
-        '      "pruning_reason": ""\n'
+        '      "pruning_reason": "optional reason when this proposal should remove or supersede stale SOUL meaning",\n'
+        '      "review_notes": ["what a reviewer should inspect"],\n'
+        '      "evidence_limitations": ["what evidence is missing or weak"]\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
@@ -329,6 +374,8 @@ def _proposal_payload(findings: list[dict[str, Any]], *, subject: str) -> dict[s
                 "min_hits_cleared": bool(f.get("min_hits_cleared")),
                 "contradiction_present": bool(f.get("contradiction_present")),
                 "supporting_bead_count": int(f.get("supporting_bead_count") or 0),
+                "needs_pruning": bool((f.get("pruning_flag") or {}).get("needs_pruning")),
+                "pruning_reason": str((f.get("pruning_flag") or {}).get("reason") or ""),
             }
             for f in findings
         ],
@@ -370,11 +417,8 @@ def _normalize_drafts(
                 for note in list(item.get("evidence_limitations") or [])
                 if _clean_text(note, max_len=240)
             ][:6],
-            # PRD-D §4.3 — "edits out invalid": the model may flag a draft it
-            # believes contradicts/supersedes an existing entry. Any flag forces
-            # candidate_only (never auto-write) in propose_soul_from_dreamer.
-            "needs_pruning": bool(item.get("needs_pruning")),
-            "pruning_reason": _clean_text(item.get("pruning_reason") or "", max_len=240),
+            "needs_pruning": _boolish(item.get("needs_pruning") or item.get("pruning_flag")),
+            "pruning_reason": _clean_text(item.get("pruning_reason") or "", max_len=400),
         }
     return out
 
@@ -509,9 +553,11 @@ def propose_soul_from_dreamer(
     """
     candidates = _read_candidates(root)
     covered = _covered_keys(root, subject)
+    identity_entries = current_soul_entries(root, file_name="IDENTITY.md", subject=subject).get("entries") or {}
 
     eligible: list[dict[str, Any]] = []
     skipped = 0
+    skipped_stale_divergence = 0
     for cand in candidates:
         if not isinstance(cand, dict):
             continue
@@ -532,6 +578,12 @@ def propose_soul_from_dreamer(
         entry_key = _finding_entry_key(cand)
         if not entry_key:
             continue
+        if ht == "identity_divergence_candidate":
+            identity_key = str(cand.get("identity_entry_key") or "").strip()
+            if not identity_key or identity_key not in identity_entries:
+                skipped += 1
+                skipped_stale_divergence += 1
+                continue
         if (target_file, entry_key) in covered:
             skipped += 1
             continue
@@ -582,21 +634,20 @@ def propose_soul_from_dreamer(
         epistemic_status = "inferred"
         draft = drafts.get(str(finding.get("candidate_id") or "")) if isinstance(drafts, dict) else None
         draft = draft if isinstance(draft, dict) else {}
-        content = str(draft.get("content") or finding.get("statement") or "").strip()
-        reason = str(draft.get("reason") or f"Dreamer finding ({ht}) surfaced for self-model review.")
-        # Pruning flag (PRD-D §4.3): a draft the model flags for pruning, or a
-        # finding carrying a contradiction, can NEVER auto-write — force review.
-        needs_pruning = bool(draft.get("needs_pruning")) or bool(finding.get("contradiction_present"))
-        pruning_reason = str(draft.get("pruning_reason") or "").strip() or (
-            "contradiction_present" if finding.get("contradiction_present") else ""
+        pruning_flag = _pruning_flag_from(
+            cand,
+            draft=draft,
+            fallback_reason=finding.get("statement") if finding.get("contradiction_present") else "",
         )
-        if needs_pruning and tier == "auto_write":
+        if pruning_flag:
             tier = "candidate_only"
         # Auto-write only for the auto_write tier AND non-endorsed meaning.
         # Endorsed always requires human approval (belt-and-suspenders: the store
         # guardrail in apply_soul_update enforces this too).
         requires_approval = not (tier == "auto_write" and epistemic_status != "endorsed")
         goal_tie = _maybe_auto_endorse_goal(root, finding, subject=subject) if tier == "auto_write" else {}
+        content = str(draft.get("content") or finding.get("statement") or "").strip()
+        reason = str(draft.get("reason") or f"Dreamer finding ({ht}) surfaced for self-model review.")
         metadata = {
             "dreamer_candidate_id": str(finding.get("candidate_id") or ""),
             "dreamer_hypothesis_type": ht,
@@ -610,8 +661,7 @@ def propose_soul_from_dreamer(
             "effective_confidence": finding.get("effective_confidence"),
             "min_hits_cleared": bool(finding.get("min_hits_cleared")),
             "contradiction_present": bool(finding.get("contradiction_present")),
-            "pruning_flag": needs_pruning,
-            "pruning_reason": pruning_reason,
+            "pruning_flag": dict(pruning_flag or {}),
             "auto_mode_paused": auto_mode_paused,
             **goal_tie,
             "operator_verification": {
@@ -660,6 +710,7 @@ def propose_soul_from_dreamer(
         "not_surfaced": len(eligible) - len(surfaced),
         "auto_mode_paused": auto_mode_paused,
         "skipped": skipped,
+        "skipped_stale_divergence": skipped_stale_divergence,
         "revision_ids": revision_ids,
         "soul_proposal": {
             "ok": bool(proposal_task.get("ok", True)),
