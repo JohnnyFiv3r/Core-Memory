@@ -30,6 +30,8 @@ If you're new, this is the shortest map of where behavior lives.
 - lifecycle/close helpers: `core_memory/persistence/store_lifecycle_ops.py`
 - shared constants + DiagnosticError contract: `core_memory/persistence/store_contract.py`
 - add-bead helper heuristics: `core_memory/persistence/store_add_helpers.py`
+- entity registry/index helpers: `core_memory/persistence/entity_registry.py`
+- entity merge review helpers: `core_memory/persistence/entity_merge_flow.py`
 - bead validation helpers: `core_memory/persistence/store_validation_helpers.py`
 - constraint retrieval/compliance helpers: `core_memory/persistence/store_constraints.py`
 - query/read helper surface: `core_memory/persistence/store_query.py`

@@ -146,6 +146,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   `MemoryStore.metrics_report(...)`, `MemoryStore.autonomy_report(...)`,
   `MemoryStore.schema_quality_report(...)`, and the existing package-level
   `core_memory.reporting` exports.
+- Entity registry and merge-review index implementations now live in
+  `core_memory/persistence/entity_registry.py` and
+  `core_memory/persistence/entity_merge_flow.py`; the existing
+  `core_memory.entity.registry` and `core_memory.entity.merge_flow` import
+  paths remain domain-facing exports for current callers.
 - Bead write hygiene contract helpers now live in
   `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
   normalize retrieval eligibility and bead richness without importing policy.
