@@ -149,10 +149,72 @@ class TestMemoryQualityMeters(unittest.TestCase):
 
             self.assertIn("judge_prior_unavailable_for_some_edges", out["limitations"])
 
-    def test_tension_meter_flags_pending_accumulation(self):
+    def test_tension_meter_counts_dreamer_queue_and_uses_contract_status(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
-            {"CORE_MEMORY_TENSION_STALE_PENDING_THRESHOLD": "0"},
+            {
+                "CORE_MEMORY_TENSION_STALE_PENDING_THRESHOLD": "0",
+                "CORE_MEMORY_TENSION_ZERO_RESOLUTION_MIN_HISTORY_DAYS": "7",
+            },
+            clear=False,
+        ):
+            old = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+            _write_candidates(
+                td,
+                [
+                    {
+                        "id": "cand-tension",
+                        "hypothesis_type": "tension_candidate",
+                        "status": "pending",
+                        "created_at": old,
+                        "tension_key": "speed-v-care",
+                        "statement": "Speed is in tension with careful review.",
+                    },
+                    {
+                        "id": "cand-tension-2",
+                        "hypothesis_type": "tension_candidate",
+                        "status": "accepted",
+                        "created_at": old,
+                        "tension_key": "scope-v-speed",
+                        "statement": "Scope is in tension with speed.",
+                    },
+                    {
+                        "id": "cand-other",
+                        "hypothesis_type": "identity_divergence_candidate",
+                        "status": "accepted",
+                        "created_at": old,
+                    },
+                ],
+            )
+            summary = {
+                "persistent_tensions": {
+                    "new_tension_rate": 1.0,
+                    "resolution_rate": 0.0,
+                    "persistence_qualified_count": 9,
+                    "tensions": [
+                        {"status": "active"},
+                        {"status": "active"},
+                        {"status": "active"},
+                    ],
+                }
+            }
+
+            out = compute_tension_resolution_meter(td, soul_summary=summary)
+
+            self.assertEqual("tension_resolution_meter.v1", out["schema"])
+            self.assertEqual(1, out["pending_count"])
+            self.assertEqual(1, out["accepted_count"])
+            self.assertEqual(0, out["deferred_count"])
+            self.assertEqual(0, out["rejected_count"])
+            self.assertEqual("zero_resolution", out["status"])
+            self.assertIn("zero_resolution", out["flags"])
+            self.assertNotIn("active", out["tensions_by_status"])
+            self.assertIn("human review", out["human_review_reminder"].lower())
+
+    def test_tension_meter_zero_resolution_requires_history_window(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(
+            os.environ,
+            {"CORE_MEMORY_TENSION_ZERO_RESOLUTION_MIN_HISTORY_DAYS": "7"},
             clear=False,
         ):
             _write_candidates(
@@ -163,29 +225,21 @@ class TestMemoryQualityMeters(unittest.TestCase):
                         "hypothesis_type": "tension_candidate",
                         "status": "pending",
                         "created_at": datetime.now(timezone.utc).isoformat(),
-                        "tension_key": "speed-v-care",
-                        "statement": "Speed is in tension with careful review.",
-                    },
-                    {
-                        "id": "cand-tension-2",
-                        "hypothesis_type": "tension_candidate",
-                        "status": "pending",
-                        "created_at": datetime.now(timezone.utc).isoformat(),
-                        "tension_key": "scope-v-speed",
-                        "statement": "Scope is in tension with speed.",
-                    },
+                    }
                 ],
             )
+            summary = {
+                "persistent_tensions": {
+                    "new_tension_rate": 1.0,
+                    "resolution_rate": 0.0,
+                }
+            }
 
-            out = compute_tension_resolution_meter(td)
+            out = compute_tension_resolution_meter(td, soul_summary=summary)
 
-            self.assertEqual("tension_resolution_meter.v1", out["schema"])
-            self.assertEqual(2, out["pending_count"])
-            # Contract status enum (§5.2) — never the pre-contract accumulating/stalled.
-            self.assertIn(out["status"], {"stale_accumulation", "high_accumulation", "zero_resolution"})
-            self.assertTrue(set(out["flags"]) & {"stale_accumulation", "zero_resolution", "high_accumulation"})
-            self.assertIn("candidate", out["tensions_by_status"])
-            self.assertIn("human review", out["human_review_reminder"].lower())
+            self.assertEqual("healthy", out["status"])
+            self.assertNotIn("zero_resolution", out["flags"])
+            self.assertLess(out["candidate_history_days"], 7)
 
     def test_tension_meter_terminal_counts_from_candidates_queue(self):
         # Lifecycle counts come from the queue, not from soul-summary statuses.
