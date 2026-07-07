@@ -1,11 +1,10 @@
 {
-  "generated_at": "2026-07-07T18:26:06.807737+00:00",
+  "generated_at": "2026-07-07T18:37:30.065567+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
-    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
-    "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs"
+    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage"
   ],
   "violations": [
     {
@@ -31,18 +30,6 @@
       "line": 266,
       "message": "persistence/ imports upward into runtime/ via core_memory.runtime.associations.coverage",
       "path": "core_memory/persistence/store_add_bead_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "retrieval",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.queue.jobs"
-      },
-      "id": "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs",
-      "line": 29,
-      "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.queue.jobs",
-      "path": "core_memory/retrieval/lifecycle.py"
     }
   ]
 }
