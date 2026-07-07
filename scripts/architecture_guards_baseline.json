@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-07T11:34:33.237718+00:00",
+  "generated_at": "2026-07-07T11:56:45.724207+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -25,8 +25,7 @@
     "upward_import:core_memory/retrieval/causal_recall.py:retrieval->runtime:core_memory.runtime.semantic_tasks",
     "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs",
     "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.semantic_tasks",
-    "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.semantic_tasks.verifier",
-    "upward_import:core_memory/soul/summary.py:soul->runtime:core_memory.runtime.dreamer.assembly_depth"
+    "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.semantic_tasks.verifier"
   ],
   "violations": [
     {
@@ -304,18 +303,6 @@
       "line": 33,
       "message": "soul/ imports upward into runtime/ via core_memory.runtime.semantic_tasks.verifier",
       "path": "core_memory/soul/dreamer_bridge.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "soul",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.dreamer.assembly_depth"
-      },
-      "id": "upward_import:core_memory/soul/summary.py:soul->runtime:core_memory.runtime.dreamer.assembly_depth",
-      "line": 18,
-      "message": "soul/ imports upward into runtime/ via core_memory.runtime.dreamer.assembly_depth",
-      "path": "core_memory/soul/summary.py"
     }
   ]
 }

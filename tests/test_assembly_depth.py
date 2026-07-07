@@ -1,6 +1,7 @@
 import os
 import tempfile
 import unittest
+from unittest.mock import patch
 
 os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
 
@@ -116,6 +117,20 @@ class TestAssemblyDepthEngine(unittest.TestCase):
             self.assertEqual(1, goals["config"]["population"])
             self.assertEqual(1, decisions["config"]["population"])
             self.assertEqual("decision", decisions["reports"][0]["target_kind"])
+
+    def test_runtime_wrapper_uses_live_myelination_bonus(self):
+        import core_memory.runtime.dreamer.assembly_depth as ad
+
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            goal = store.add_bead(type="goal", title="G", summary=["s"], goal_id="g1", session_id="s1")
+            ev = store.add_bead(type="evidence", title="E", summary=["s"], detail="d", session_id="s2")
+            store.link(ev, goal, "supports")
+
+            with patch.object(ad, "_live_edge_bonus", return_value={f"{ev}|supports|{goal}": 0.42}):
+                out = _reports_by_id(compute_assembly_depth(td, target_kind="goal"))
+
+            self.assertEqual(0.42, out[goal]["components"]["factors_raw"]["myelinated_path_support"])
 
 
 if __name__ == "__main__":
