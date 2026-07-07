@@ -4,7 +4,12 @@ import unittest
 from pathlib import Path
 
 from core_memory.runtime.engine import process_turn_finalized, process_flush
-from core_memory.runtime.event_schemas import FLUSH_REPORT, FLUSH_REPORT_LEGACY
+from core_memory.runtime.event_schemas import (
+    FLUSH_CHECKPOINT,
+    FLUSH_CHECKPOINT_LEGACY,
+    FLUSH_REPORT,
+    FLUSH_REPORT_LEGACY,
+)
 
 
 class TestFlushReportArtifact(unittest.TestCase):
@@ -35,6 +40,12 @@ class TestFlushReportArtifact(unittest.TestCase):
             stages = [str(r.get("stage") or "") for r in report_rows]
             self.assertIn("committed", stages)
             self.assertIn("skipped", stages)
+
+            schemas = {str(r.get("schema") or "") for r in rows}
+            self.assertIn(FLUSH_REPORT, schemas)
+            self.assertIn(FLUSH_CHECKPOINT, schemas)
+            self.assertNotIn(FLUSH_REPORT_LEGACY, schemas)
+            self.assertNotIn(FLUSH_CHECKPOINT_LEGACY, schemas)
 
 
 if __name__ == "__main__":

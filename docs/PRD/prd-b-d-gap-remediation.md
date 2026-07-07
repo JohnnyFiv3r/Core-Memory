@@ -1,7 +1,7 @@
 # PRD: Memory-Quality Meters + Self-Model Authoring — Gap Remediation (engine slice)
 
-**Status:** Complete — implemented by Core Memory #352/#353. The consuming surface
-companions shipped in Satorid #253/#254; calibration relocation remains optional cleanup.
+**Status:** Complete — implemented by Core Memory #352/#353. The consuming host
+application companions shipped separately; calibration relocation remains optional cleanup.
 **Scope:** the Core Memory engine changes that close the contract gaps in two
 "substantially complete" capability PRDs — **PRD-B** (three memory-quality meters) and
 **PRD-D** (agent self-model authoring). The surface/agent companions (scheduling the meter
@@ -109,6 +109,6 @@ manifest, so it complements (does not depend on) the meter work. C3 is opt-in cl
 - C2 shipped in Core Memory #353: pruning flags force `candidate_only`, stale divergence is
   skipped, and SOUL approve/reject emits idempotent authoring reward receipts when edge evidence
   exists.
-- The Satorid companions shipped in #253/#254: quality-meter probing is scheduled and logged,
-  and the governed chat-invoked SOUL edit tool is intent-gated, dry-run-first, and
-  confirmation/idempotency-gated for apply.
+- The consuming host application companions shipped separately: quality-meter probing is
+  scheduled and logged, and the governed chat-invoked SOUL edit tool is intent-gated,
+  dry-run-first, and confirmation/idempotency-gated for apply.
