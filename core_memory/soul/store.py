@@ -241,6 +241,29 @@ def _decide(root: str | Path, *, subject: str, revision_id: str, decision: str, 
         append_jsonl(_revisions_path(root, subj), decided)
         if decision == "approve":
             _write_rendered(root, subj, str(decided["target_file"]), revisions + [decided])
+
+    # Feed the myelination reward loop (PRD-D G7): an owner approve/reject is a
+    # validated-outcome signal about the edges that grounded the finding. Emitted
+    # after the store lock releases (the reward path takes its own lock) and
+    # fire-and-forget — a reward failure must never break the governance decision.
+    try:
+        from core_memory.persistence.myelination_rewards import reward_soul_authoring_decision
+
+        evidence_bead_ids = [
+            str(ev.get("bead_id") or "").strip()
+            for ev in (target.get("evidence") or [])
+            if isinstance(ev, dict) and str(ev.get("bead_id") or "").strip()
+        ]
+        if evidence_bead_ids:
+            reward_soul_authoring_decision(
+                root,
+                evidence_bead_ids=evidence_bead_ids,
+                decision=decision,
+                source_event_id=f"soul_revision:{decided['id']}",
+                reason=f"soul authoring {decision} ({decided['target_file']})",
+            )
+    except Exception:
+        pass
     return {"ok": True, "revision_id": decided["id"], "status": decided["status"], "target_file": decided["target_file"]}
 
 

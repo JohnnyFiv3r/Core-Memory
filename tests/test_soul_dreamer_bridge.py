@@ -250,9 +250,15 @@ class TestSoulAuthorityGating(unittest.TestCase):
             self.assertEqual("auto_write", by_key["goal:ship-fast"]["metadata"]["authority_tier"])
             self.assertEqual("proposed", by_key["goal:scope-care"]["status"])
             self.assertEqual("candidate_only", by_key["goal:scope-care"]["metadata"]["authority_tier"])
-            # Contradiction-shaped finding is human-reviewed even at 0.99.
+            # Contradiction-shaped finding is human-reviewed even at 0.99, and is
+            # recorded as a pruning-flagged revision (PRD-D §4.3) that can never
+            # auto-write.
             self.assertEqual("proposed", by_key["divergence:Careful"]["status"])
             self.assertTrue(by_key["divergence:Careful"]["metadata"]["contradiction_present"])
+            self.assertTrue(by_key["divergence:Careful"]["metadata"]["pruning_flag"])
+            self.assertEqual(
+                "candidate_only", by_key["divergence:Careful"]["metadata"]["authority_tier"]
+            )
             # not_surfaced never reaches the store.
             self.assertNotIn("goal:vague-idea", by_key)
 

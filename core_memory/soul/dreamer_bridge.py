@@ -296,12 +296,18 @@ def _proposal_prompt() -> str:
         '      "content": "concise proposed SOUL entry",\n'
         '      "reason": "why this should be reviewed",\n'
         '      "review_notes": ["what a reviewer should inspect"],\n'
-        '      "evidence_limitations": ["what evidence is missing or weak"]\n'
+        '      "evidence_limitations": ["what evidence is missing or weak"],\n'
+        '      "needs_pruning": false,\n'
+        '      "pruning_reason": ""\n'
         "    }\n"
         "  ]\n"
         "}\n\n"
         "Only reference candidate_ids from the input. Keep content concise, "
-        "inferred, and explicitly grounded in the supplied finding."
+        "inferred, and explicitly grounded in the supplied finding.\n"
+        "Set \"needs_pruning\": true and give a \"pruning_reason\" when the draft "
+        "contradicts or supersedes an existing applied entry, or the finding is "
+        "flagged with a contradiction. A flagged draft is never auto-written — it "
+        "always routes to human review."
     )
 
 
@@ -364,6 +370,11 @@ def _normalize_drafts(
                 for note in list(item.get("evidence_limitations") or [])
                 if _clean_text(note, max_len=240)
             ][:6],
+            # PRD-D §4.3 — "edits out invalid": the model may flag a draft it
+            # believes contradicts/supersedes an existing entry. Any flag forces
+            # candidate_only (never auto-write) in propose_soul_from_dreamer.
+            "needs_pruning": bool(item.get("needs_pruning")),
+            "pruning_reason": _clean_text(item.get("pruning_reason") or "", max_len=240),
         }
     return out
 
@@ -569,15 +580,23 @@ def propose_soul_from_dreamer(
         entry_key = str(finding.get("entry_key") or "")
         tier = str(finding.get("authority_tier") or "candidate_only")
         epistemic_status = "inferred"
+        draft = drafts.get(str(finding.get("candidate_id") or "")) if isinstance(drafts, dict) else None
+        draft = draft if isinstance(draft, dict) else {}
+        content = str(draft.get("content") or finding.get("statement") or "").strip()
+        reason = str(draft.get("reason") or f"Dreamer finding ({ht}) surfaced for self-model review.")
+        # Pruning flag (PRD-D §4.3): a draft the model flags for pruning, or a
+        # finding carrying a contradiction, can NEVER auto-write — force review.
+        needs_pruning = bool(draft.get("needs_pruning")) or bool(finding.get("contradiction_present"))
+        pruning_reason = str(draft.get("pruning_reason") or "").strip() or (
+            "contradiction_present" if finding.get("contradiction_present") else ""
+        )
+        if needs_pruning and tier == "auto_write":
+            tier = "candidate_only"
         # Auto-write only for the auto_write tier AND non-endorsed meaning.
         # Endorsed always requires human approval (belt-and-suspenders: the store
         # guardrail in apply_soul_update enforces this too).
         requires_approval = not (tier == "auto_write" and epistemic_status != "endorsed")
         goal_tie = _maybe_auto_endorse_goal(root, finding, subject=subject) if tier == "auto_write" else {}
-        draft = drafts.get(str(finding.get("candidate_id") or "")) if isinstance(drafts, dict) else None
-        draft = draft if isinstance(draft, dict) else {}
-        content = str(draft.get("content") or finding.get("statement") or "").strip()
-        reason = str(draft.get("reason") or f"Dreamer finding ({ht}) surfaced for self-model review.")
         metadata = {
             "dreamer_candidate_id": str(finding.get("candidate_id") or ""),
             "dreamer_hypothesis_type": ht,
@@ -591,6 +610,8 @@ def propose_soul_from_dreamer(
             "effective_confidence": finding.get("effective_confidence"),
             "min_hits_cleared": bool(finding.get("min_hits_cleared")),
             "contradiction_present": bool(finding.get("contradiction_present")),
+            "pruning_flag": needs_pruning,
+            "pruning_reason": pruning_reason,
             "auto_mode_paused": auto_mode_paused,
             **goal_tie,
             "operator_verification": {

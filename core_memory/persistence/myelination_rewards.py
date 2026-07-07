@@ -470,6 +470,51 @@ def reward_dreamer_candidate_decision(
     )
 
 
+def reward_soul_authoring_decision(
+    root: str | Path,
+    *,
+    evidence_bead_ids: list[str],
+    decision: str,
+    source_event_id: str | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Reinforce/weaken the edges behind a self-model authoring decision (PRD-D G7).
+
+    When an owner approves or rejects a SOUL/IDENTITY proposal, that is a
+    validated-outcome signal about the *edges* that grounded the finding — not the
+    finding text. We reward the union of concrete supporting edges across the
+    proposal's evidence beads (``supporting_edge_keys_for_bead``), honouring the
+    edge-only invariant. Approve → positive, reject → negative, validated tier.
+    No-op when myelination is disabled or no evidence bead has a supporting edge.
+    """
+    if not myelination_enabled():
+        return {"ok": False, "skipped": "disabled"}
+    decision_n = str(decision or "").strip().lower()
+    if decision_n not in {"approve", "approved", "accept", "reject", "rejected"}:
+        return {"ok": False, "skipped": "bad_decision"}
+    positive = decision_n in {"approve", "approved", "accept"}
+
+    edge_keys: list[str] = []
+    seen: set[str] = set()
+    for bid in evidence_bead_ids or []:
+        for ek in supporting_edge_keys_for_bead(root, str(bid or "").strip()):
+            if ek not in seen:
+                seen.add(ek)
+                edge_keys.append(ek)
+    if not edge_keys:
+        return {"ok": False, "skipped": "no_supporting_edges"}
+
+    return emit_myelination_reward_event(
+        root,
+        source_type="human_approval" if positive else "human_rejection",
+        polarity="positive" if positive else "negative",
+        edge_keys=edge_keys,
+        reward_tier=VALIDATED_OUTCOME_TIER,
+        source_event_id=source_event_id or f"soul_authoring:{decision_n}:{'|'.join(sorted(edge_keys))[:120]}",
+        reason=reason or f"soul authoring {decision_n}",
+    )
+
+
 # Conflict-resolution → (claim_a polarity, claim_b polarity). both_valid is
 # deliberately absent: it is scoped, never punished and never reinforced.
 _CONFLICT_RESOLUTION_POLARITY = {
@@ -636,6 +681,7 @@ __all__ = [
     "reward_for_bead_decision",
     "reward_goal_resolution",
     "reward_dreamer_candidate_decision",
+    "reward_soul_authoring_decision",
     "reward_claim_conflict_resolution",
     "read_reward_events",
     "reward_bonus_by_edge_key",
