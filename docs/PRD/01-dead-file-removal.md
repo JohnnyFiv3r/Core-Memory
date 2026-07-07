@@ -1,24 +1,23 @@
-# PRD: Delete Confirmed Dead Files
+# PRD: Classify and Retire Dead-File Candidates
 
 **Phase:** 1
-**Status:** Partially superseded by `docs/compatibility_ledger.md`
+**Status:** Complete — retained/deleted outcomes are governed by `docs/compatibility_ledger.md`
 **Prerequisite:** Phase 0 complete (CI workflow merged)
 
 ---
 
 ## Problem
 
-This historical PRD identified three apparent dead files after earlier
-refactors. Later cleanup work reclassified the candidates through
-`docs/compatibility_ledger.md`: `encryption.py` is public optional compatibility,
-`write_ops.py` and `retrieval/pipeline/explain.py` have now been retired after
-their separate proof gates passed.
+This historical PRD identified apparent dead files after earlier refactors.
+Later cleanup work reclassified the candidates through
+`docs/compatibility_ledger.md`: `encryption.py` is public optional
+compatibility, while `write_ops.py` and `retrieval/pipeline/explain.py` have
+now been retired after their separate proof gates passed.
 
 > **Correction from `cleanup-plan.md`:** the cleanup plan originally listed four
 > files. `core_memory/retrieval/vector_backend.py` is **NOT dead** — it is
 > imported by `core_memory/retrieval/semantic_index.py:from .vector_backend import
-> create_vector_backend`. Do not delete it. Update `docs/cleanup-plan.md` to
-> remove that bullet (see sub-task 1d).
+> create_vector_backend` and covered by backend tests. Do not delete it.
 
 ---
 
@@ -44,7 +43,7 @@ their separate proof gates passed.
 > helpers directly. Removal requires a breaking-change process, a replacement
 > encryption story, and an active import scan.
 
-**Verify dead** (must produce zero hits outside the file itself and docs):
+**Compatibility/import scan** (required before any future removal proposal):
 ```bash
 grep -rn 'from.*persistence.*import.*encryption\|persistence\.encryption\|persistence/encryption' \
   --include='*.py' --include='*.md' \
@@ -64,14 +63,14 @@ when encrypted payloads are read without a configured cipher.
 
 ---
 
-## Sub-task 1b — Delete `core_memory/persistence/write_ops.py`
+## Sub-task 1b — Retire `core_memory/persistence/write_ops.py`
 
 > **Retired.** `write_ops.py` was originally restored as a compatibility shim,
 > but the compatibility ledger later classified it as artifact debt. It was
 > removed only after the exact import scan returned no active callers outside
 > docs and a changelog entry called out the old module path removal.
 
-**Verify dead:**
+**Retirement import scan:**
 ```bash
 grep -rn 'from.*persistence.*import.*write_ops\|persistence\.write_ops\|persistence/write_ops' \
   --include='*.py' --include='*.md' \
@@ -83,14 +82,14 @@ import directly from elsewhere now.
 
 ---
 
-## Sub-task 1c — Delete `core_memory/retrieval/pipeline/explain.py`
+## Sub-task 1c — Retire `core_memory/retrieval/pipeline/explain.py`
 
 > **Retired.** `explain.py` was originally restored as a compatibility shim, but
 > the later compatibility ledger classified it as artifact debt. It was removed
 > only after the exact import scan returned no active callers outside docs and a
 > changelog entry called out the old `build_explain` path removal.
 
-**Verify dead** (note: many files use the word "explain" — this check looks for
+**Retirement import scan** (note: many files use the word "explain" — this check looks for
 imports of *this specific module* or calls to its function):
 
 ```bash
@@ -109,17 +108,19 @@ inline `explain` block is the live implementation.
 
 ---
 
-## Sub-task 1d — Correct `docs/cleanup-plan.md`
+## Sub-task 1d — Document `core_memory/retrieval/vector_backend.py` as live
 
-In the Phase 1 section of `docs/cleanup-plan.md`, remove this bullet:
+> **Complete.** The Phase 1 section of `docs/cleanup-plan.md` now records that
+> `core_memory/retrieval/vector_backend.py` is live and must not be deleted as
+> dead-file cleanup.
 
-```markdown
-- [ ] `core_memory/retrieval/vector_backend.py` — no imports anywhere
+Use this proof gate if the classification is questioned:
+
+```bash
+rg -n "create_vector_backend|retrieval\\.vector_backend|retrieval/vector_backend" \
+  core_memory tests docs README.md CLAUDE.md
+python -m pytest tests/test_qdrant_embedded_backend.py tests/test_semantic_backend_abstraction.py -q
 ```
-
-Replace the Phase 1 introduction with: "Remove the 3 files with zero references
-anywhere in the repo. (The original list of 4 was corrected during Phase 1
-investigation — `vector_backend.py` is live, imported by `semantic_index.py`.)"
 
 ---
 

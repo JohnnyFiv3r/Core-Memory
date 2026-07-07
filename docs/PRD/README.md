@@ -7,7 +7,7 @@ See `docs/status.md` for current completion state.
 | File | Phase | Topic | Status |
 |---|---|---|---|
 | `00-ci-baseline.md` | 0 | CI + coverage baseline | Done |
-| `01-dead-file-removal.md` | 1 | Classify retained dead-file candidates | Classified retained compatibility |
+| `01-dead-file-removal.md` | 1 | Classify and retire dead-file candidates | Classified retained compatibility; proven-dead files retired |
 | `02-circular-import-fix.md` | 2 | Fix mislabeled circular-import workarounds | Done |
 | `03a-pydanticai-boundary.md` | 3A | Harden PydanticAI adapter boundary | Done |
 | `04-graph-module-cleanup.md` | 4 | Classify `graph/api.py` compat facade | Classified public compatibility debt |
