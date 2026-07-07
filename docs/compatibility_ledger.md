@@ -124,6 +124,9 @@ architecture guard baseline honest. When a row is repaired, shrink
   normalize retrieval eligibility and bead richness without importing policy.
   `core_memory.policy.hygiene` remains the curated maintenance surface and
   re-exports the helper names for current callers.
+- Private `MemoryStore._quick_association_candidates(...)` was removed after an
+  active caller scan found no live callers outside historical docs. Public
+  association preview remains available through `core_memory.association`.
 
 ## Explicit Non-Compatibility
 
