@@ -1,11 +1,10 @@
 {
-  "generated_at": "2026-07-06T20:26:25.741534+00:00",
+  "generated_at": "2026-07-07T01:10:07.012680+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store.py:persistence->association:core_memory.association",
     "upward_import:core_memory/persistence/store.py:persistence->entity:core_memory.entity.merge_flow",
     "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_metrics_runtime",
     "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_rationale",
@@ -60,23 +59,11 @@
       "check": "upward_import",
       "detail": {
         "source_layer": "persistence",
-        "target_layer": "association",
-        "target_module": "core_memory.association"
-      },
-      "id": "upward_import:core_memory/persistence/store.py:persistence->association:core_memory.association",
-      "line": 341,
-      "message": "persistence/ imports upward into association/ via core_memory.association",
-      "path": "core_memory/persistence/store.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
         "target_layer": "entity",
         "target_module": "core_memory.entity.merge_flow"
       },
       "id": "upward_import:core_memory/persistence/store.py:persistence->entity:core_memory.entity.merge_flow",
-      "line": 635,
+      "line": 629,
       "message": "persistence/ imports upward into entity/ via core_memory.entity.merge_flow",
       "path": "core_memory/persistence/store.py"
     },
@@ -100,7 +87,7 @@
         "target_module": "core_memory.reporting.store_rationale"
       },
       "id": "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_rationale",
-      "line": 683,
+      "line": 677,
       "message": "persistence/ imports upward into reporting/ via core_memory.reporting.store_rationale",
       "path": "core_memory/persistence/store.py"
     },
@@ -112,7 +99,7 @@
         "target_module": "core_memory.reporting.store_reporting"
       },
       "id": "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_reporting",
-      "line": 695,
+      "line": 689,
       "message": "persistence/ imports upward into reporting/ via core_memory.reporting.store_reporting",
       "path": "core_memory/persistence/store.py"
     },
@@ -124,7 +111,7 @@
         "target_module": "core_memory.runtime.dreamer"
       },
       "id": "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
-      "line": 610,
+      "line": 604,
       "message": "persistence/ imports upward into runtime/ via core_memory.runtime.dreamer",
       "path": "core_memory/persistence/store.py"
     },

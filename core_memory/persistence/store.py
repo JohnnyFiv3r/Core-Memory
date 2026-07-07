@@ -336,12 +336,6 @@ class MemoryStore:
 
         return detect_decision_conflicts_for_store(self, index, bead)
 
-    def _quick_association_candidates(self, index: dict, bead: dict, max_lookback: int = 40, top_k: int = 3) -> list[dict]:
-        """Fast, deterministic association inference for newly added beads."""
-        from ..association import run_association_pass
-
-        return run_association_pass(index, bead, max_lookback=max_lookback, top_k=top_k)
-
     def _norm_text(self, s: str) -> str:
         from ..persistence.store_add_helpers import norm_text
 
