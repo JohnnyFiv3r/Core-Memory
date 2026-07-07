@@ -34,6 +34,7 @@ architecture guard baseline honest. When a row is repaired, shrink
 | `core_memory/retrieval/tools/memory_search.py` | Public compatibility wrapper | Preserves the older typed `search_typed(...)` import path and result envelope | `core_memory.retrieval.tools.memory.search(request=...)` or root alias `core_memory.memory_search(...)` | Remove only after adapter docs and validation no longer recommend `memory_search.py`, and package-root read surfaces remain covered. | `tests/test_memory_search_tool_wrapper.py`, `tests/test_package_root_public_surface.py`, `tests/test_pydanticai_memory_tools.py` |
 | `core_memory/persistence/encryption.py` | Public optional compatibility module | Optional Fernet helpers for callers that imported encryption support directly. It is not part of the default write path. | Future explicit encrypted backend or documented storage encryption extension point | Do not delete as a dead-file cleanup. Removal requires a breaking-change process and replacement encryption story. | Import scan plus a dedicated encryption compatibility test before any removal |
 | Persistence helper modules (`store_add_helpers.py`, `store_*_ops.py`, `promotion_service.py`) | Private/internal implementation | Store implementation and policy helpers, some still crossing architectural boundaries | Future post-write effects boundary owned by runtime; storage modules keep durable data operations | Do not delete wholesale. Boundary cleanup should move one side-effect cluster at a time and shrink guard allowlists after each repair. | Focused touched-module tests plus `python scripts/check_architecture_guards.py --fail-on-new` |
+| `MemoryStore.dream(...)` | Public legacy convenience bridge | Lets older store-oriented callers invoke Dreamer association analysis without importing Dreamer directly | Runtime Dreamer surfaces such as `core_memory.runtime.dreamer.analysis.run_analysis(...)` and queued side effects | Keep until store-oriented Dreamer usage is deprecated or migrated to runtime/CLI surfaces. The store method must not reintroduce static persistence-to-runtime imports. | `tests/test_store_dream_bootstrap_ops_delegation.py`, `tests/test_dreamer_analysis.py`, `scripts/check_architecture_guards.py --fail-on-new` |
 ## Recently Retired Artifacts
 
 - `core_memory/persistence/store_core_delegates_mixin.py` and
@@ -169,6 +170,9 @@ architecture guard baseline honest. When a row is repaired, shrink
   task run receipts live under `core_memory.persistence`. The historical
   `core_memory.runtime.semantic_tasks` module paths remain public compatibility
   facades and are covered by `tests/test_semantic_task_boundary_compat.py`.
+- `MemoryStore.dream(...)` no longer imports `core_memory.runtime.dreamer`
+  statically from the persistence layer. It remains a legacy convenience bridge
+  and resolves the Dreamer analysis provider at call time.
 
 ## Explicit Non-Compatibility
 

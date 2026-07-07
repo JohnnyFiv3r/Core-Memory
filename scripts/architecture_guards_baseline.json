@@ -1,26 +1,13 @@
 {
-  "generated_at": "2026-07-07T16:32:48.233810+00:00",
+  "generated_at": "2026-07-07T18:26:06.807737+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
-    "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
     "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs"
   ],
   "violations": [
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.dreamer"
-      },
-      "id": "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
-      "line": 604,
-      "message": "persistence/ imports upward into runtime/ via core_memory.runtime.dreamer",
-      "path": "core_memory/persistence/store.py"
-    },
     {
       "check": "upward_import",
       "detail": {

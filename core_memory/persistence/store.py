@@ -9,6 +9,7 @@ Session-first live authority with index projection:
 """
 from __future__ import annotations
 
+from importlib import import_module
 import uuid
 from pathlib import Path
 from typing import Optional
@@ -25,6 +26,10 @@ from ..persistence.store_contract import (
 
 # Defaults for pip package (separate from live OpenClaw usage)
 DEFAULT_ROOT = "."
+
+
+def _dreamer_analysis_provider():
+    return import_module("core_memory.runtime.dreamer.analysis")
 
 
 # NOTE: durability model
@@ -601,7 +606,7 @@ class MemoryStore:
     def dream(self, novel_only: bool = False, seen_window_runs: int = 0, max_exposure: int = -1) -> list:
         """Run Dreamer association analysis."""
         try:
-            from core_memory.runtime.dreamer import analysis as dreamer
+            dreamer = _dreamer_analysis_provider()
         except ImportError:
             return [{"error": "Dreamer not available"}]
         return dreamer.run_analysis(
