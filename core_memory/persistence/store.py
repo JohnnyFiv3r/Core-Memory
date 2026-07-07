@@ -685,8 +685,8 @@ class MemoryStore:
         return evaluate_rationale_recall_for_store(self, question, answer, bead_id=bead_id)
 
     def metrics_report(self, since: str = "7d") -> dict:
-        """Deterministic metrics aggregation delegated to reporting module."""
-        from ..reporting.store_reporting import metrics_report_for_store
+        """Deterministic metrics aggregation delegated to persistence helper."""
+        from ..persistence.store_reporting import metrics_report_for_store
 
         return metrics_report_for_store(self, since=since)
 
@@ -718,14 +718,14 @@ class MemoryStore:
         )
 
     def autonomy_report(self, since: str = "7d") -> dict:
-        """Aggregate autonomy KPIs delegated to reporting module."""
-        from ..reporting.store_reporting import autonomy_report_for_store
+        """Aggregate autonomy KPIs delegated to persistence helper."""
+        from ..persistence.store_reporting import autonomy_report_for_store
 
         return autonomy_report_for_store(self, since=since)
 
     def schema_quality_report(self, write_path: Optional[str] = None) -> dict:
         """Report required-field warnings and promotion gate blockers."""
-        from ..reporting.store_reporting import schema_quality_report_for_store
+        from ..persistence.store_reporting import schema_quality_report_for_store
 
         return schema_quality_report_for_store(self, write_path=write_path)
 

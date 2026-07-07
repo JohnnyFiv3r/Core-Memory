@@ -140,6 +140,12 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory/persistence/store_rationale.py`; the old reporting module was
   retired after active caller review showed it was only a `MemoryStore`
   persistence helper.
+- Store reporting aggregation now lives in
+  `core_memory/persistence/store_reporting.py`; the old direct reporting module
+  was retired after active caller review showed the forward-supported surface is
+  `MemoryStore.metrics_report(...)`, `MemoryStore.autonomy_report(...)`,
+  `MemoryStore.schema_quality_report(...)`, and the existing package-level
+  `core_memory.reporting` exports.
 - Bead write hygiene contract helpers now live in
   `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
   normalize retrieval eligibility and bead richness without importing policy.
