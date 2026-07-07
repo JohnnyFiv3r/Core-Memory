@@ -29,7 +29,7 @@ See `docs/status.md` for current completion state.
 | `multi-store-recall-fanout.md` | Multi-store recall fan-out (Ragie/PipeHouse) | Done |
 | `ragie-fanout-removal.md` | Remove Ragie: retrieval fan-out (vendor sunset 2026-07-19) + `ragie_document_id` schema-field deprecation; PipeHouse retained | Spec |
 | `eval-benchmark-layer.md` | Eval and benchmark layer (LoCoMo) | Done |
-| `prd-b-d-gap-remediation.md` | Gap remediation (engine slice): Meter 2 to contract + self-model pruning/reward loop + calibration relocation | Spec |
+| `prd-b-d-gap-remediation.md` | Gap remediation (engine slice): Meter 2 to contract + self-model pruning/reward loop + calibration relocation | Done |
 | `session-enrichment-delta-analysis.md` | Session enrichment delta — analysis | Done |
 | `session-enrichment-delta-slice-b.md` | Session enrichment delta — slice B | Done |
 | `execution-plan-search-quality-and-enrichment.md` | Search quality + enrichment plan | Done |
