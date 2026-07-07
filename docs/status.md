@@ -64,6 +64,11 @@ The semantic task provider runtime and verifier implementation now live in
 runtime/verifier/receipt paths remain public compatibility facades. This shrank
 the architecture guard baseline from 10 upward-import rows to 4.
 
+`MemoryStore.dream(...)` remains a legacy convenience bridge, but it no longer
+creates a static persistence-to-runtime import. Dreamer analysis is resolved at
+call time through a local provider lookup, shrinking the architecture guard
+baseline from 4 upward-import rows to 3 while preserving the method behavior.
+
 The legacy persistence mixin artifacts
 `core_memory/persistence/store_core_delegates_mixin.py` and
 `core_memory/persistence/store_reporting_promotion_mixin.py` were retired after

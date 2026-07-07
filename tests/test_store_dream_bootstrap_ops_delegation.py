@@ -28,6 +28,13 @@ class TestStoreDreamBootstrapOpsDelegationSlice86A(unittest.TestCase):
             self.assertEqual(3, kwargs.get("seen_window_runs"))
             self.assertEqual(2, kwargs.get("max_exposure"))
 
+    def test_dream_reports_unavailable_when_provider_missing(self):
+        with tempfile.TemporaryDirectory(prefix="cm-store-bootstrap-deleg-") as td:
+            store = MemoryStore(td)
+            with patch("core_memory.persistence.store._dreamer_analysis_provider", side_effect=ImportError):
+                out = store.dream()
+            self.assertEqual([{"error": "Dreamer not available"}], out)
+
 
 if __name__ == "__main__":
     unittest.main()
