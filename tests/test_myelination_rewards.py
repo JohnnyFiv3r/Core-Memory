@@ -712,5 +712,41 @@ class TestRetrievalBackpressure(unittest.TestCase):
         self.assertAlmostEqual(0.2, score_by_id["hop"], places=6)
 
 
+class TestSoulAuthoringReward(unittest.TestCase):
+    def test_approve_rewards_supporting_edges_and_reject_weakens(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            ev = store.add_bead(type="evidence", title="Signal", summary=["s"], detail="d", session_id="s1")
+            dec = store.add_bead(type="decision", title="Ship fast", summary=["s"], because=["speed"], detail="d", session_id="s1")
+            store.link(ev, dec, "supports")  # evidential edge behind the finding
+            ek = _edge(ev, dec, "supports")
+
+            from core_memory.runtime.observability.myelination_rewards import reward_soul_authoring_decision
+
+            r1 = reward_soul_authoring_decision(td, evidence_bead_ids=[ev, dec], decision="approve", source_event_id="rev-1")
+            self.assertTrue(r1.get("ok"), r1)
+            approve = [e for e in read_reward_events(td) if e.get("source_type") == "human_approval"]
+            self.assertEqual(1, len(approve))
+            self.assertEqual("positive", approve[0]["polarity"])
+            self.assertEqual(VALIDATED_OUTCOME_TIER, approve[0]["reward_tier"])
+            self.assertIn(ek, approve[0]["edge_keys"])
+
+            r2 = reward_soul_authoring_decision(td, evidence_bead_ids=[ev, dec], decision="reject", source_event_id="rev-2")
+            self.assertTrue(r2.get("ok"), r2)
+            reject = [e for e in read_reward_events(td) if e.get("source_type") == "human_rejection"]
+            self.assertEqual(1, len(reject))
+            self.assertEqual("negative", reject[0]["polarity"])
+
+    def test_no_supporting_edges_is_noop(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            b = store.add_bead(type="context", title="lonely", summary=["s"], detail="d", session_id="s1")
+            from core_memory.runtime.observability.myelination_rewards import reward_soul_authoring_decision
+
+            r = reward_soul_authoring_decision(td, evidence_bead_ids=[b], decision="approve")
+            self.assertFalse(r.get("ok"))
+            self.assertEqual("no_supporting_edges", r.get("skipped"))
+
+
 if __name__ == "__main__":
     unittest.main()

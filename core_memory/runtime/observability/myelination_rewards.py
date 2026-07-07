@@ -16,6 +16,7 @@ from core_memory.persistence.myelination_rewards import (
     reward_events_enabled,
     reward_for_bead_decision,
     reward_goal_resolution,
+    reward_soul_authoring_decision,
     supporting_edge_keys_for_bead,
 )
 
@@ -31,6 +32,7 @@ __all__ = [
     "reward_for_bead_decision",
     "reward_goal_resolution",
     "reward_dreamer_candidate_decision",
+    "reward_soul_authoring_decision",
     "reward_claim_conflict_resolution",
     "read_reward_events",
     "reward_bonus_by_edge_key",
