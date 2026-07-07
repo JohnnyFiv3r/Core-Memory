@@ -54,9 +54,12 @@ classification debt, not deleted files:
 as a public compatibility facade. Retain it until the ledger's deprecation and
 removal conditions are satisfied.
 
-Current architecture guard debt is snapshotted in
-`scripts/architecture_guards_baseline.json`. When cleanup resolves a row, shrink
-the baseline in the same PR.
+The architecture guard baseline is now clean. The dedicated
+`architecture-guards` CI workflow runs
+`scripts/check_architecture_guards.py --baseline scripts/architecture_guards_baseline.json --fail-on-new`
+for code, current docs, guard script, and guard baseline changes. If future work
+needs an intentional exception, classify it in `docs/compatibility_ledger.md`
+and update the baseline in the same PR.
 
 The semantic task provider runtime and verifier implementation now live in
 `core_memory.policy`, and semantic task receipts live in

@@ -23,6 +23,9 @@ PRDs for all phases live in `docs/PRD/` and carry codebase-specific implementati
 - [x] Tag integration tests that exercise the things Phases 4–5 touch:
       `pytest.mark.facade` for tests that import from `core_memory.graph.api`,
       `pytest.mark.mixin_assembly` for tests that instantiate `MemoryStore` end-to-end
+- [x] Add `.github/workflows/architecture-guards.yml` — runs the architecture
+      guard and focused guard tests for code, current docs, guard script, and
+      guard baseline changes
 
 **Risk:** None. Additive CI only.
 
