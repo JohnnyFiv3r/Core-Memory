@@ -11,7 +11,7 @@ from core_memory.persistence.store_lifecycle_ops import (
     raise_confidence_class_for_bead,
 )
 from core_memory.persistence.sync_targets import create_sync_targets
-from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
+from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty, mark_trace_dirty
 from core_memory.schema.normalization import resolve_confidence_class
 
 

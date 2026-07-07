@@ -151,6 +151,10 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory/persistence/entity_merge_flow.py`; the existing
   `core_memory.entity.registry` and `core_memory.entity.merge_flow` import
   paths remain domain-facing exports for current callers.
+- Semantic lifecycle manifest, queue, checkpoint, and trace-dirty state now
+  lives in `core_memory/persistence/semantic_lifecycle.py`. The existing
+  `core_memory.retrieval.lifecycle` import path remains the public retrieval
+  lifecycle/autodrain surface for CLI/runtime callers.
 - Bead write hygiene contract helpers now live in
   `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
   normalize retrieval eligibility and bead richness without importing policy.

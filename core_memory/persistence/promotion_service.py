@@ -12,7 +12,7 @@ from ..schema.promotion_contract import (
     is_promotion_locked,
     validate_transition,
 )
-from ..retrieval.lifecycle import mark_semantic_dirty
+from ..persistence.semantic_lifecycle import mark_semantic_dirty
 from .archive_index import append_archive_snapshot
 from .io_utils import append_jsonl, store_lock
 

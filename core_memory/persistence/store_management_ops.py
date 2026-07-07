@@ -12,7 +12,7 @@ from typing import Any
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.persistence.sync_targets import create_sync_targets
-from core_memory.retrieval.lifecycle import mark_semantic_dirty, mark_trace_dirty
+from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty, mark_trace_dirty
 
 
 STRONG_SOURCE_KEYS = {
