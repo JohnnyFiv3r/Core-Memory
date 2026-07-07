@@ -16,10 +16,10 @@ from typing import Any
 from core_memory.graph.storylines import derive_storylines
 from core_memory.graph.worldlines import derive_worldlines
 from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
-from core_memory.runtime.dreamer.tension_discovery import detect_goal_conflicts
 from core_memory.soul.goals import list_goals
 from core_memory.soul.identity_value_signals import detect_identity_value_findings
 from core_memory.soul.store import current_soul_entries
+from core_memory.soul.tension_signals import detect_goal_conflicts
 
 SOUL_SUMMARY_SCHEMA = "soul_summary.v1"
 
@@ -1070,7 +1070,22 @@ def _build_tensions(root: str | Path, subject: str, index: dict[str, Any]) -> di
             )
 
     try:
-        for det in detect_goal_conflicts(root):
+        total_goals = max(
+            1,
+            sum(
+                1
+                for bead in beads.values()
+                if isinstance(bead, dict)
+                and str(bead.get("type") or "").strip().lower() == "goal"
+            ),
+        )
+        reports = compute_assembly_depth(root, target_kind="goal", limit=total_goals).get("reports") or []
+        depth_by_goal = {str(rep.get("target_id")): float(rep.get("score") or 0.0) for rep in reports}
+    except Exception:
+        depth_by_goal = {}
+
+    try:
+        for det in detect_goal_conflicts(root, depth_by_goal=depth_by_goal):
             bead_ids = [
                 str(b)
                 for b in (det.get("conflict_bead_a"), det.get("conflict_bead_b"))
