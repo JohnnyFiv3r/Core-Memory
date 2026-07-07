@@ -151,6 +151,53 @@ def _write_rendered(root: str | Path, subject: str, target_file: str, revisions:
     (d / target_file).write_text(_render_markdown(target_file, entries), encoding="utf-8")
 
 
+def _dreamer_candidate_by_id(root: str | Path, candidate_id: str) -> dict[str, Any] | None:
+    cid = str(candidate_id or "").strip()
+    if not cid:
+        return None
+    try:
+        from core_memory.persistence.dreamer_candidate_store import read_candidates
+
+        for row in read_candidates(root):
+            if isinstance(row, dict) and str(row.get("id") or "").strip() == cid:
+                return dict(row)
+    except Exception:
+        return None
+    return None
+
+
+def _reward_soul_dreamer_decision(
+    root: str | Path,
+    *,
+    proposal: dict[str, Any],
+    decision: str,
+) -> dict[str, Any]:
+    if str(proposal.get("source") or "").strip().lower() != "dreamer":
+        return {"ok": False, "skipped": "not_dreamer_proposal"}
+    metadata = proposal.get("metadata") if isinstance(proposal.get("metadata"), dict) else {}
+    candidate_id = str(metadata.get("dreamer_candidate_id") or "").strip()
+    if not candidate_id:
+        return {"ok": False, "skipped": "missing_candidate_id"}
+    candidate = _dreamer_candidate_by_id(root, candidate_id)
+    if not candidate:
+        return {"ok": False, "skipped": "candidate_not_found", "candidate_id": candidate_id}
+    try:
+        from core_memory.persistence.myelination_rewards import reward_dreamer_candidate_decision
+
+        reward_decision = "accept" if str(decision or "").strip().lower() == "approve" else "reject"
+        out = reward_dreamer_candidate_decision(root, candidate=candidate, decision=reward_decision)
+    except Exception as exc:
+        return {
+            "ok": False,
+            "skipped": "reward_failed",
+            "candidate_id": candidate_id,
+            "error": exc.__class__.__name__,
+        }
+    if isinstance(out, dict):
+        return {**out, "candidate_id": candidate_id}
+    return {"ok": False, "skipped": "invalid_reward_receipt", "candidate_id": candidate_id}
+
+
 def propose_soul_update(
     root: str | Path,
     *,
@@ -241,30 +288,14 @@ def _decide(root: str | Path, *, subject: str, revision_id: str, decision: str, 
         append_jsonl(_revisions_path(root, subj), decided)
         if decision == "approve":
             _write_rendered(root, subj, str(decided["target_file"]), revisions + [decided])
-
-    # Feed the myelination reward loop (PRD-D G7): an owner approve/reject is a
-    # validated-outcome signal about the edges that grounded the finding. Emitted
-    # after the store lock releases (the reward path takes its own lock) and
-    # fire-and-forget — a reward failure must never break the governance decision.
-    try:
-        from core_memory.persistence.myelination_rewards import reward_soul_authoring_decision
-
-        evidence_bead_ids = [
-            str(ev.get("bead_id") or "").strip()
-            for ev in (target.get("evidence") or [])
-            if isinstance(ev, dict) and str(ev.get("bead_id") or "").strip()
-        ]
-        if evidence_bead_ids:
-            reward_soul_authoring_decision(
-                root,
-                evidence_bead_ids=evidence_bead_ids,
-                decision=decision,
-                source_event_id=f"soul_revision:{decided['id']}",
-                reason=f"soul authoring {decision} ({decided['target_file']})",
-            )
-    except Exception:
-        pass
-    return {"ok": True, "revision_id": decided["id"], "status": decided["status"], "target_file": decided["target_file"]}
+    reward = _reward_soul_dreamer_decision(root, proposal=target, decision=decision)
+    return {
+        "ok": True,
+        "revision_id": decided["id"],
+        "status": decided["status"],
+        "target_file": decided["target_file"],
+        "myelination_reward": reward,
+    }
 
 
 def approve_soul_update(root: str | Path, *, revision_id: str, subject: str = DEFAULT_SUBJECT, approver: str = "", note: str = "") -> dict[str, Any]:

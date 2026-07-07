@@ -9,6 +9,7 @@ from core_memory.runtime.dreamer.candidates import _write_candidates
 from core_memory.soul.dreamer_bridge import propose_soul_from_dreamer
 from core_memory.soul.store import (
     approve_soul_update,
+    propose_soul_update,
     read_soul_file,
     reject_soul_update,
     soul_history,
@@ -201,13 +202,25 @@ class TestSoulDreamerBridge(unittest.TestCase):
 
     def test_identity_value_findings_route_to_identity_file(self):
         with tempfile.TemporaryDirectory() as td:
+            propose_soul_update(
+                td,
+                target_file="IDENTITY.md",
+                entry_key="Craftsmanship",
+                content="I value careful craftsmanship.",
+                source="agent",
+                epistemic_status="endorsed",
+                requires_approval=False,
+            )
             _write_candidates(td, [
                 _value("dc-1", "simplicity"),
                 _divergence("dc-2", "Craftsmanship"),
             ])
             out = propose_soul_from_dreamer(td)
             self.assertEqual(2, out["proposed"])
-            revs = soul_history(td)["revisions"]
+            revs = [
+                r for r in soul_history(td)["revisions"]
+                if str(r.get("source") or "") == "dreamer"
+            ]
             self.assertTrue(all(r["target_file"] == "IDENTITY.md" for r in revs))
             keys = {r["entry_key"] for r in revs}
             self.assertEqual({"value:simplicity", "divergence:Craftsmanship"}, keys)
@@ -219,6 +232,18 @@ class TestSoulDreamerBridge(unittest.TestCase):
             self.assertTrue(out["ok"])
             self.assertEqual(0, out["proposed"])
 
+    def test_stale_identity_divergence_is_skipped(self):
+        with tempfile.TemporaryDirectory() as td:
+            _write_candidates(td, [_divergence("dc-stale", "Old Identity")])
+
+            out = propose_soul_from_dreamer(td)
+
+            self.assertTrue(out["ok"])
+            self.assertEqual(0, out["proposed"])
+            self.assertEqual(1, out["skipped_stale_divergence"])
+            self.assertEqual(1, out["skipped"])
+            self.assertEqual(0, soul_history(td)["count"])
+
 
 class TestSoulAuthorityGating(unittest.TestCase):
     def test_confidence_gated_authority_tiers(self):
@@ -227,6 +252,15 @@ class TestSoulAuthorityGating(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.object(
             bridge, "_auto_mode_paused", return_value=False
         ):
+            propose_soul_update(
+                td,
+                target_file="IDENTITY.md",
+                entry_key="Careful",
+                content="Careful craftsmanship matters.",
+                source="agent",
+                epistemic_status="endorsed",
+                requires_approval=False,
+            )
             _write_candidates(
                 td,
                 [
@@ -277,6 +311,28 @@ class TestSoulAuthorityGating(unittest.TestCase):
             by_key = {r["entry_key"]: r for r in (soul_history(td).get("revisions") or [])}
             self.assertEqual("proposed", by_key["goal:ship-fast"]["status"])
             self.assertEqual("candidate_only", by_key["goal:ship-fast"]["metadata"]["authority_tier"])
+
+    def test_pruning_flag_forces_candidate_review_even_above_auto_write_threshold(self):
+        import core_memory.soul.dreamer_bridge as bridge
+
+        with tempfile.TemporaryDirectory() as td, patch.object(
+            bridge, "_auto_mode_paused", return_value=False
+        ):
+            cand = {**_goal("dc-prune", "sunset-old-flow"), "confidence": 0.99}
+            cand["needs_pruning"] = True
+            cand["pruning_reason"] = "Supersedes an older workflow assumption."
+            _write_candidates(td, [cand])
+
+            out = propose_soul_from_dreamer(td)
+
+            self.assertEqual(1, out["proposed"])
+            self.assertEqual(0, out["auto_written"])
+            self.assertEqual(1, out["candidate_only"])
+            rev = soul_history(td)["revisions"][0]
+            self.assertEqual("proposed", rev["status"])
+            self.assertEqual("candidate_only", rev["metadata"]["authority_tier"])
+            self.assertTrue(rev["metadata"]["pruning_flag"]["needs_pruning"])
+            self.assertIn("Supersedes", rev["metadata"]["pruning_flag"]["reason"])
 
 
 if __name__ == "__main__":

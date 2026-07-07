@@ -2,9 +2,13 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 os.environ.setdefault("CORE_MEMORY_SEMANTIC_AUTODRAIN", "off")
 
+from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.dreamer.candidates import _write_candidates
+from core_memory.runtime.observability.myelination_rewards import read_reward_events
 from core_memory.soul.store import (
     SOUL_FILES,
     SOUL_REVISION_SCHEMA,
@@ -15,6 +19,35 @@ from core_memory.soul.store import (
     reject_soul_update,
     soul_history,
 )
+
+_ENV = {"CORE_MEMORY_MYELINATION_ENABLED": "1", "CORE_MEMORY_SEMANTIC_AUTODRAIN": "off"}
+
+
+def _candidate(candidate_id: str, source_bead_id: str, target_bead_id: str, relationship: str = "supports") -> dict:
+    return {
+        "id": candidate_id,
+        "status": "pending",
+        "hypothesis_type": "goal_candidate",
+        "goal_theme": "ship",
+        "statement": "A goal candidate.",
+        "source_bead_id": source_bead_id,
+        "target_bead_id": target_bead_id,
+        "relationship": relationship,
+    }
+
+
+def _dreamer_revision(root: str, candidate_id: str) -> str:
+    out = propose_soul_update(
+        root,
+        target_file="GOALS.md",
+        entry_key=f"goal:{candidate_id}",
+        content="Dreamer surfaced a goal.",
+        source="dreamer",
+        epistemic_status="inferred",
+        requires_approval=True,
+        metadata={"dreamer_candidate_id": candidate_id},
+    )
+    return str(out["revision_id"])
 
 
 class TestSoulProposeApprove(unittest.TestCase):
@@ -146,6 +179,70 @@ class TestSoulValidationAndScope(unittest.TestCase):
             propose_soul_update(td, target_file="SOUL.md", entry_key="x", content="y", requires_approval=False)
             # SOUL is a projection layer — it never creates a bead index.
             self.assertFalse((Path(td) / ".beads" / "index.json").exists())
+
+
+class TestSoulDecisionRewards(unittest.TestCase):
+    def test_approve_emits_positive_reward_for_dreamer_candidate_edge(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s")
+            b = store.add_bead(type="goal", title="B", summary=["s"], detail="d", session_id="s")
+            store.link(a, b, "supports")
+            _write_candidates(td, [_candidate("dc-approve", a, b)])
+            rid = _dreamer_revision(td, "dc-approve")
+
+            out = approve_soul_update(td, revision_id=rid, approver="human")
+
+            self.assertTrue(out["ok"])
+            self.assertTrue(out["myelination_reward"]["ok"])
+            rows = read_reward_events(td)
+            self.assertEqual(1, len(rows))
+            self.assertEqual("positive", rows[0]["polarity"])
+            self.assertEqual("dreamer_candidate_decision", rows[0]["source_type"])
+            self.assertEqual(["dc-approve"], rows[0]["supporting_candidate_ids"])
+
+    def test_reject_emits_negative_reward_for_dreamer_candidate_edge(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s")
+            b = store.add_bead(type="goal", title="B", summary=["s"], detail="d", session_id="s")
+            store.link(a, b, "supports")
+            _write_candidates(td, [_candidate("dc-reject", a, b)])
+            rid = _dreamer_revision(td, "dc-reject")
+
+            out = reject_soul_update(td, revision_id=rid, reviewer="human", reason="weak")
+
+            self.assertTrue(out["ok"])
+            self.assertTrue(out["myelination_reward"]["ok"])
+            self.assertEqual("negative", read_reward_events(td)[0]["polarity"])
+
+    def test_missing_edge_evidence_skips_reward_without_failing_decision(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            _write_candidates(td, [_candidate("dc-no-edge", "missing-a", "missing-b")])
+            rid = _dreamer_revision(td, "dc-no-edge")
+
+            out = approve_soul_update(td, revision_id=rid, approver="human")
+
+            self.assertTrue(out["ok"])
+            self.assertFalse(out["myelination_reward"]["ok"])
+            self.assertEqual("no_concrete_edge", out["myelination_reward"]["skipped"])
+            self.assertEqual([], read_reward_events(td))
+
+    def test_decision_reward_is_not_replayed_after_double_decide(self):
+        with tempfile.TemporaryDirectory() as td, patch.dict(os.environ, _ENV, clear=False):
+            store = MemoryStore(root=td)
+            a = store.add_bead(type="evidence", title="A", summary=["s"], detail="d", session_id="s")
+            b = store.add_bead(type="goal", title="B", summary=["s"], detail="d", session_id="s")
+            store.link(a, b, "supports")
+            _write_candidates(td, [_candidate("dc-once", a, b)])
+            rid = _dreamer_revision(td, "dc-once")
+
+            self.assertTrue(approve_soul_update(td, revision_id=rid, approver="human")["ok"])
+            again = approve_soul_update(td, revision_id=rid, approver="human")
+
+            self.assertFalse(again["ok"])
+            self.assertEqual("already_decided", again["error"])
+            self.assertEqual(1, len(read_reward_events(td)))
 
 
 if __name__ == "__main__":
