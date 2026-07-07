@@ -36,13 +36,13 @@ their separate proof gates passed.
 
 ---
 
-## Sub-task 1a — Delete `core_memory/persistence/encryption.py`
+## Sub-task 1a — Classify `core_memory/persistence/encryption.py`
 
-> **⚠️ SUPERSEDED — do not delete.** `encryption.py` was restored as a
-> backward-compatibility shim in Phase 9f/9g (branch `claude/validate-demo-todos-SCRSz`).
-> It now re-exports the canonical symbols so existing callers continue to work.
-> Removal requires a breaking-change process and a deprecation cycle. Update this
-> sub-task when the shim layer is formally deprecated.
+> **SUPERSEDED — do not delete.** `encryption.py` is classified in
+> `docs/compatibility_ledger.md` as a public optional compatibility module. It is
+> not part of the default write path, but callers may import its optional Fernet
+> helpers directly. Removal requires a breaking-change process, a replacement
+> encryption story, and an active import scan.
 
 **Verify dead** (must produce zero hits outside the file itself and docs):
 ```bash
@@ -51,8 +51,16 @@ grep -rn 'from.*persistence.*import.*encryption\|persistence\.encryption\|persis
   core_memory/ tests/ docs/ benchmarks/ demo/ eval/ scripts/ plugins/ 2>/dev/null
 ```
 
-**File facts:** 115 lines. Defines `is_encryption_enabled()`, `encrypt()`,
-`decrypt()`, `generate_key()`. Pulls `cryptography` from the `[encryption]` extra.
+**File facts:** 115 lines. Defines `is_encryption_enabled()`, `encrypt_bytes()`,
+`decrypt_bytes()`, `encrypt_text()`, `decrypt_text()`, `write_encrypted()`,
+`read_encrypted()`, and `generate_key()`. The module imports without the
+`[encryption]` extra; cryptography is resolved lazily when helpers need a
+configured cipher or generated key.
+
+**Current proving gate:** `tests/test_persistence_encryption_compat.py` covers
+no-configuration plaintext behavior, explicit Fernet key round-trips,
+passphrase-derived key round-trips, file read/write helpers, and the error raised
+when encrypted payloads are read without a configured cipher.
 
 ---
 
@@ -118,8 +126,8 @@ investigation — `vector_backend.py` is live, imported by `semantic_index.py`.)
 ## Verification
 
 ```bash
-# 1. Files are gone
-test ! -e core_memory/persistence/encryption.py
+# 1. Retained encryption compatibility is covered, retired files are gone
+python -m pytest tests/test_persistence_encryption_compat.py -q
 test ! -e core_memory/persistence/write_ops.py
 test ! -e core_memory/retrieval/pipeline/explain.py
 
@@ -138,9 +146,11 @@ python -m pytest tests/ -x -q --tb=short
 - **Do not** delete `core_memory/retrieval/vector_backend.py`. It is live code.
 - **Do not** edit `retrieval/pipeline/__init__.py` while removing `explain.py` —
   the live `explain` payload code stays.
-- Each sub-task is a single file deletion. Open one PR for all four sub-tasks
-  (3 deletions + 1 doc fix) — they are tightly coupled and trivial to review
-  together.
+- Treat `core_memory/persistence/encryption.py` as a retained public optional
+  compatibility module unless a future breaking-change process provides a
+  replacement encryption story and a fresh import scan.
+- The retired file sub-tasks were handled as separate cleanup slices with their
+  own proving gates rather than one broad deletion PR.
 - If any `grep` check returns unexpected hits, STOP and document the reference.
   Do not delete a file with live references; instead, file an issue and skip
   that sub-task.

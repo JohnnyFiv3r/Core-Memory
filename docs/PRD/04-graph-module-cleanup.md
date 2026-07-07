@@ -1,17 +1,27 @@
-# PRD: Remove `graph/api.py` Compat Facade
+# PRD: Classify `graph/api.py` Compat Facade
 
 **Phase:** 4
-**Status:** Not started
+**Status:** Superseded by `docs/compatibility_ledger.md`; classified-retained
 **Prerequisite:** Phase 0 CI passing
 
 ---
 
+## Current decision
+
+The original deletion plan is superseded. `core_memory/graph/api.py` is now a
+public compatibility facade, not a dead artifact. Do not delete it as cleanup
+work unless the compatibility ledger's deprecation/removal condition has been
+satisfied.
+
+Completed cleanup work moved internal callers and package-level re-exports to
+the split graph modules while keeping `core_memory.graph.api.*` available for
+legacy external imports.
+
 ## Problem
 
-The `graph/` module was refactored into four split modules (`_api_impl.py`, `structural.py`,
-`traversal.py`, `semantic.py`) but the old entry point `graph/api.py` was left in place as
-a compatibility facade. It now exports 21 symbols — 4 locally-defined wrappers and 17
-re-exports — none of which belong there.
+The `graph/` module was originally refactored into split modules (`core.py`,
+`structural.py`, `traversal.py`, `semantic.py`) while the old entry point
+`graph/api.py` remained as a compatibility facade.
 
 This creates two concrete problems:
 
@@ -21,9 +31,11 @@ This creates two concrete problems:
    positionally. Removing the facade without fixing this first breaks the `graph trace`
    command.
 
-2. **False import surface.** `graph/__init__.py` star-imports `api.py`, so
-   `from core_memory.graph import build_graph` silently resolves through two indirection
-   layers. External consumers get a stable-looking path that is actually a double shim.
+2. **False import surface.** `graph/__init__.py` originally star-imported
+   `api.py`, so `from core_memory.graph import build_graph` silently resolved
+   through two indirection layers. That has since been resolved: package-level
+   `core_memory.graph` exports now point directly at split modules, while
+   `core_memory.graph.api` remains as a direct legacy import path.
 
 ---
 
@@ -31,39 +43,40 @@ This creates two concrete problems:
 
 | Component | Status |
 |-----------|--------|
-| `graph/api.py` | Compat facade — 21 exported symbols, 0 real logic |
-| `graph/_api_impl.py` | Real implementation — `build_graph`, `graph_stats` |
+| `graph/api.py` | Public compatibility facade for legacy imports |
+| `graph/core.py` | Real implementation — `build_graph`, `graph_stats` |
 | `graph/structural.py` | Real implementation — structural edge ops |
 | `graph/traversal.py` | Real implementation — `causal_traverse_chains` and helpers |
 | `graph/semantic.py` | Real implementation — semantic edge ops |
-| `graph/__init__.py` | Star-imports `api.py`, re-exports to bare `core_memory.graph` |
-| `cli/handlers/graph.py:7-16` | Imports 8 functions from `core_memory.graph.api` |
-| Test files importing `graph.api` | 12 files across `tests/` |
+| `graph/__init__.py` | Explicit re-exports from split modules |
+| `cli/handlers/graph.py` | Imports from split modules |
+| Test files importing `graph.api` | Facade tests only |
 
 ---
 
 ## Success criteria
 
-1. `core_memory/graph/api.py` does not exist.
+1. `core_memory/graph/api.py` is retained and documented as a public
+   compatibility facade.
 2. `core_memory/graph/__init__.py` re-exports the same public symbols directly from the
    split modules (no change to `from core_memory.graph import X` for external callers).
 3. `cli/handlers/graph.py` imports from split modules; all 8 graph subcommands work.
-4. All 12 test files that previously imported from `graph.api` import from split modules.
+4. Active first-party code and tests no longer import from `graph.api` except
+   facade/compatibility tests and historical docs/ledger references.
 5. Full pytest suite passes. `pytest -m facade` (tagged in Phase 0) passes.
-6. `_api_impl.py` either renamed to remove the private prefix or its functions folded
-   into the split modules — no `_`-prefixed implementation files on the public graph path.
+6. `core.py` owns the former `_api_impl.py` implementation surface.
 
 ---
 
 ## Scope
 
 **In:**
-- `graph/api.py` deletion
+- `graph/api.py` public/private classification
 - `graph/__init__.py` re-export cleanup
 - `cli/handlers/graph.py` import migration
 - 12 test file import migrations
 - `causal_traverse` signature fix in `graph/traversal.py`
-- Optional: rename `_api_impl.py`
+- `_api_impl.py` rename to `core.py`
 
 **Out:**
 - Any change to what the graph functions actually do
@@ -72,36 +85,22 @@ This creates two concrete problems:
 
 ---
 
-## Implementation order
+## Completed implementation summary
 
-Each step ends with a full `pytest` run before proceeding.
+**Step 1 — Signature mismatch resolved**
 
-**Step 1 — Fix the signature mismatch**
+The CLI now imports `causal_traverse_chains` from `core_memory.graph.traversal`
+as `causal_traverse`, so it no longer depends on the facade's old positional to
+keyword forwarding behavior.
 
-In `core_memory/graph/traversal.py`, make `anchor_ids` accept both positional and keyword
-by changing the signature of `causal_traverse_chains` from:
+**Step 2 — `cli/handlers/graph.py` migrated**
 
-```python
-def causal_traverse_chains(root, *, anchor_ids, ...):
-```
-
-to:
-
-```python
-def causal_traverse_chains(root, anchor_ids=None, *, ...):
-```
-
-or add a positional overload. Verify `cli/handlers/graph.py:43` call still works.
-
-**Step 2 — Migrate `cli/handlers/graph.py`**
-
-Replace the 8 imports from `core_memory.graph.api` with direct imports from the
-appropriate split module. Cross-reference each symbol:
+The graph CLI imports directly from the appropriate split modules:
 
 | Symbol | Lives in |
 |--------|----------|
-| `build_graph` | `graph._api_impl` |
-| `graph_stats` | `graph._api_impl` |
+| `build_graph` | `graph.core` |
+| `graph_stats` | `graph.core` |
 | `causal_traverse` | `graph.traversal` (via `causal_traverse_chains`) |
 | `add_structural_edge` | `graph.structural` |
 | `backfill_causal_links` | `graph.structural` |
@@ -109,40 +108,23 @@ appropriate split module. Cross-reference each symbol:
 | `add_semantic_edge` | `graph.semantic` |
 | `decay_semantic_edges` | `graph.semantic` |
 
-**Step 3 — Migrate test files**
+**Step 3 — Test imports migrated**
 
-Update each of the 12 test files. Same symbol→module mapping as Step 2. No logic changes —
-import line replacement only.
+Active tests import split modules or package-level `core_memory.graph`
+re-exports. Facade-specific tests remain only where they prove compatibility.
 
-Files:
-- `tests/test_semantic_active_k.py`
-- `tests/test_backfill_causal_links_targeted.py`
-- `tests/test_backfill_causal_links.py`
-- `tests/test_graph_r2.py`
-- `tests/test_sync_structural_pipeline.py`
-- `tests/test_centrality_r3.py`
-- `tests/test_association_confidence_compat.py`
-- `tests/test_graph_active_association_view_regressions.py`
-- `tests/test_r3_graph_semantic.py`
-- `tests/test_structural_inference_hardening.py`
-- `tests/test_structural_features_radius1.py`
-- Any additional files found by `grep -r "graph.api" tests/`
+**Step 4 — `graph/__init__.py` updated**
 
-**Step 4 — Update `graph/__init__.py`**
+`core_memory.graph` now explicitly re-exports symbols directly from split
+modules instead of star-importing `api.py`.
 
-Replace:
-```python
-from .api import *
-```
+**Step 5 — Classify and retain `graph/api.py`**
 
-With explicit re-exports directly from split modules. Enumerate every symbol that was
-re-exported through `api.py` and wire it to its real home.
+Record `graph/api.py` in `docs/compatibility_ledger.md` as a public
+compatibility facade. Keep it until the ledger's deprecation/removal condition
+has passed. Run `pytest -m facade` + full suite.
 
-**Step 5 — Delete `graph/api.py`**
+**Step 6 — `_api_impl.py` renamed**
 
-Run `pytest -m facade` + full suite.
-
-**Step 6 (optional) — Rename `_api_impl.py`**
-
-Consider `graph/core.py` or folding `build_graph`/`graph_stats` into `structural.py`
-since they compose structural operations. Decision deferred to implementation time.
+The former `_api_impl.py` implementation surface now lives in
+`core_memory/graph/core.py`.

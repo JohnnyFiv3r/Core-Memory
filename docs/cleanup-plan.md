@@ -46,7 +46,8 @@ candidates pending classification, not as deleted artifacts.
 
 **PRD:** `docs/PRD/01-dead-file-removal.md`
 
-- [ ] `core_memory/persistence/encryption.py` — retained pending classification
+- [x] `core_memory/persistence/encryption.py` — classified as public optional
+      compatibility and covered by `tests/test_persistence_encryption_compat.py`
 - [x] `core_memory/persistence/write_ops.py` — retired after import scan
 - [x] `core_memory/retrieval/pipeline/explain.py` — retired after import scan
 
