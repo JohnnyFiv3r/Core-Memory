@@ -5,11 +5,11 @@ from datetime import datetime, timezone
 from typing import Any, Optional
 
 from core_memory.persistence import events
+from core_memory.persistence.bead_hygiene_contract import enforce_bead_hygiene_contract, is_generic_title
 from core_memory.entity.registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.persistence.session_surface import read_session_surface
 from core_memory.persistence.sync_targets import create_sync_targets
-from core_memory.policy.hygiene import enforce_bead_hygiene_contract, is_generic_title
 from core_memory.retrieval.lifecycle import mark_semantic_dirty
 from core_memory.schema.normalization import (
     CANONICAL_BEAD_TYPES,

@@ -119,6 +119,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory/persistence/dreamer_candidate_store.py` instead of the public
   Dreamer runtime command surface. Public Dreamer candidate enqueue/list/decide
   APIs remain in `core_memory.runtime.dreamer.candidates`.
+- Bead write hygiene contract helpers now live in
+  `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
+  normalize retrieval eligibility and bead richness without importing policy.
+  `core_memory.policy.hygiene` remains the curated maintenance surface and
+  re-exports the helper names for current callers.
 
 ## Explicit Non-Compatibility
 

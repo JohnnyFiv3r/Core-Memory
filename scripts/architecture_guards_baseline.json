@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-06T20:09:35.874841+00:00",
+  "generated_at": "2026-07-06T20:26:25.741534+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
@@ -12,7 +12,6 @@
     "upward_import:core_memory/persistence/store.py:persistence->reporting:core_memory.reporting.store_reporting",
     "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->entity:core_memory.entity.registry",
-    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->policy:core_memory.policy.hygiene",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
@@ -137,20 +136,8 @@
         "target_module": "core_memory.entity.registry"
       },
       "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->entity:core_memory.entity.registry",
-      "line": 8,
+      "line": 9,
       "message": "persistence/ imports upward into entity/ via core_memory.entity.registry",
-      "path": "core_memory/persistence/store_add_bead_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "policy",
-        "target_module": "core_memory.policy.hygiene"
-      },
-      "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->policy:core_memory.policy.hygiene",
-      "line": 12,
-      "message": "persistence/ imports upward into policy/ via core_memory.policy.hygiene",
       "path": "core_memory/persistence/store_add_bead_ops.py"
     },
     {
