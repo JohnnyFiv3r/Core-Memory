@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from datetime import datetime, timezone
+from importlib import import_module
 from typing import Any, Optional
 
 from core_memory.persistence import events
@@ -9,7 +10,6 @@ from core_memory.persistence.bead_hygiene_contract import enforce_bead_hygiene_c
 from core_memory.persistence.entity_registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.persistence.session_surface import read_session_surface
-from core_memory.persistence.sync_targets import create_sync_targets
 from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty
 from core_memory.schema.normalization import (
     CANONICAL_BEAD_TYPES,
@@ -17,6 +17,10 @@ from core_memory.schema.normalization import (
     resolve_confidence_class,
     resolve_grounding,
 )
+
+
+def _bead_commit_side_effects_provider():
+    return import_module("core_memory.runtime.post_write.bead_commit").run_bead_commit_side_effects
 
 
 def _find_last_session_bead(index: dict, session_id: str) -> str | None:
@@ -259,97 +263,21 @@ def add_bead_for_store(
     store.track_bead_created(1)
     mark_semantic_dirty(store.root, reason="add_bead")
 
-    _mirror_bead_to_backends(store.root, bead)
-
-    if association_coverage_enabled:
-        try:
-            from core_memory.runtime.associations.coverage import on_bead_committed
-
-            on_bead_committed(
-                store.root,
-                bead_id,
-                trigger=association_coverage_trigger,
-                source=association_coverage_source,
-                run_inline=False,
-                session_id=resolved_session_id,
-                enqueue=True,
-            )
-        except Exception:
-            pass
+    try:
+        run_side_effects = _bead_commit_side_effects_provider()
+        run_side_effects(
+            root=store.root,
+            bead=bead,
+            bead_id=bead_id,
+            association_coverage_enabled=association_coverage_enabled,
+            association_coverage_trigger=association_coverage_trigger,
+            association_coverage_source=association_coverage_source,
+            session_id=resolved_session_id,
+        )
+    except Exception:
+        pass
 
     return bead_id
-
-
-def _embed_text(bead: dict) -> str:
-    from core_memory.schema.bead_projection import build_retrieval_text
-    return build_retrieval_text(bead)
-
-
-def _bead_payload(bead: dict) -> dict:
-    return {
-        "bead_id": str(bead.get("id") or ""),
-        "type": str(bead.get("type") or ""),
-        "session_id": str(bead.get("session_id") or ""),
-        "created_at": str(bead.get("created_at") or ""),
-        "retrieval_eligible": bool(bead.get("retrieval_eligible", True)),
-        "status": str(bead.get("status") or "open"),
-        "topics": [str(t) for t in (bead.get("tags") or [])],
-        "entities": [str(e) for e in (bead.get("entities") or [])],
-        "title": str(bead.get("title") or ""),
-        "promoted": bool(bead.get("promotion_state") == "promoted"),
-    }
-
-
-def _mirror_bead_to_backends(root: Any, bead: dict) -> None:
-    """Best-effort mirror to Qdrant and Kuzu. Failures log warnings, never raise."""
-    import logging
-    _log = logging.getLogger(__name__)
-    from pathlib import Path
-    root_path = Path(root)
-
-    from core_memory.retrieval.semantic_index import _configured_vector_backend, VECTOR_BACKEND_QDRANT
-    if _configured_vector_backend() == VECTOR_BACKEND_QDRANT and bead.get("retrieval_eligible", True):
-        try:
-            from core_memory.retrieval.semantic_index import (
-                _create_external_backend, _qdrant_external_embeddings_enabled,
-                _embed_vectors, _vector_rows, _vector_dim,
-                _auto_configure_embedding_provider_from_keys, _default_embedding_model,
-            )
-            payload = _bead_payload(bead)
-            text = _embed_text(bead)
-            bead_id = str(bead.get("id") or "")
-            if _qdrant_external_embeddings_enabled():
-                # External provider (e.g. OpenAI 3072-dim): embed with the same provider
-                # the batch build used so vector dimensions are compatible.
-                provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
-                model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(provider)).strip()
-                vecs = _embed_vectors(texts=[text], provider=provider, model=model, hash_dim=256)
-                dim = _vector_dim(vecs, fallback=256)
-                vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=dim)
-                embs = _vector_rows(vecs)
-                if embs:
-                    vec_backend.upsert(bead_id=bead_id, embedding=embs[0], metadata=payload)
-            else:
-                # FastEmbed mode: dimension=0 lets QdrantBackend skip VectorParams creation;
-                # upsert_texts uses client.add() which is FastEmbed-native.
-                vec_backend = _create_external_backend(root=root_path, backend=VECTOR_BACKEND_QDRANT, dimension=0)
-                vec_backend.upsert_texts(bead_ids=[bead_id], texts=[text], metadatas=[payload])
-        except Exception as exc:
-            _log.warning("qdrant upsert failed for bead %s: %s", bead.get("id"), exc)
-
-    from core_memory.persistence.graph.factory import create_graph_backend
-    if os.environ.get("CORE_MEMORY_GRAPH_BACKEND", "kuzu").strip().lower() not in ("none", ""):
-        try:
-            graph = create_graph_backend(root_path)
-            graph.on_bead_written(bead)
-        except Exception as exc:
-            _log.warning("graph on_bead_written failed for bead %s: %s", bead.get("id"), exc)
-
-    for st in create_sync_targets():
-        try:
-            st.on_bead_written(bead)
-        except Exception as exc:
-            _log.warning("sync target %s on_bead_written failed: %s", getattr(st, "name", "?"), exc)
 
 
 __all__ = ["add_bead_for_store"]

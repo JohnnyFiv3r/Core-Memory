@@ -2,8 +2,7 @@
 
 Single source of truth for the text sent to the vector index and used for
 lexical scoring.  All embedding and indexing paths must use build_retrieval_text()
-so that write-path embeddings (store_add_bead_ops) and read-path index rebuilds
-(visible_corpus) are identical.
+so that post-write embeddings and read-path index rebuilds are identical.
 """
 from __future__ import annotations
 

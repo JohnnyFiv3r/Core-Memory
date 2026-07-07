@@ -202,7 +202,7 @@ class MyMirror:
 ```
 
 Register it in `CORE_MEMORY_SYNC_TARGETS` by extending `_create_sync_targets()` in
-`core_memory/persistence/store_add_bead_ops.py`, or open an issue to add it as a
+the sync-target persistence helper, or open an issue to add it as a
 first-class target.
 
 ---
@@ -213,7 +213,7 @@ Graph backend and sync target calls happen automatically after every local write
 
 ```
 bead write (JSON/SQLite)
-  └─ _mirror_bead_to_backends()
+  └─ core_memory.runtime.post_write.bead_commit._mirror_bead_to_backends()
        ├─ create_graph_backend().on_bead_written(bead)    # graph tier
        └─ for st in _create_sync_targets():               # sync targets
             st.on_bead_written(bead)

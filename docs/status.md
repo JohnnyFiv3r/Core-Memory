@@ -74,6 +74,12 @@ autodrain surface, but its autodrain worker now resolves the runtime async-job
 runner at call time. This preserves retrieval lifecycle behavior while shrinking
 the architecture guard baseline from 3 upward-import rows to 2.
 
+Bead post-write side effects now live in
+`core_memory/runtime/post_write/bead_commit.py`. The persistence add-bead path
+still performs the durable write, then calls the runtime post-write boundary for
+Qdrant/graph/sync mirroring and association coverage enqueueing. This resolved
+the final two architecture guard rows; the checked-in guard baseline is now 0.
+
 The legacy persistence mixin artifacts
 `core_memory/persistence/store_core_delegates_mixin.py` and
 `core_memory/persistence/store_reporting_promotion_mixin.py` were retired after

@@ -161,6 +161,10 @@ architecture guard baseline honest. When a row is repaired, shrink
   statically. `core_memory.retrieval.lifecycle` still owns the public lifecycle
   facade and resolves `core_memory.runtime.queue.jobs.run_async_jobs(...)` at
   call time for background drains.
+- Bead post-write side effects now live in
+  `core_memory/runtime/post_write/bead_commit.py`. The store add-bead path keeps
+  durable persistence local and calls the runtime post-write boundary for
+  vector, graph, sync-target, and association-coverage side effects.
 - Bead write hygiene contract helpers now live in
   `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
   normalize retrieval eligibility and bead richness without importing policy.

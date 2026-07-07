@@ -26,7 +26,7 @@ def test_add_bead_external_qdrant_mirror_uses_module_os_scope(tmp_path: Path, mo
     ``UnboundLocalError`` only on the external-Qdrant write path and was swallowed
     as a best-effort warning. This regression keeps that path live.
     """
-    from core_memory.persistence import store_add_bead_ops as add_ops
+    from core_memory.runtime.post_write import bead_commit
 
     monkeypatch.setenv("CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS", "1")
     monkeypatch.setenv("CORE_MEMORY_EMBEDDINGS_MODEL", "text-embedding-3-large")
@@ -55,7 +55,7 @@ def test_add_bead_external_qdrant_mirror_uses_module_os_scope(tmp_path: Path, mo
         "retrieval_eligible": True,
     }
     with caplog.at_level("WARNING"):
-        add_ops._mirror_bead_to_backends(tmp_path, bead)
+        bead_commit._mirror_bead_to_backends(tmp_path, bead)
 
     assert upserts == [
         {

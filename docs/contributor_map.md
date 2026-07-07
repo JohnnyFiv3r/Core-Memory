@@ -69,6 +69,8 @@ If you're new, this is the shortest map of where behavior lives.
 - compaction queue primitive: `core_memory/runtime/queue/compaction_queue.py`
 - side-effect queue primitive: `core_memory/runtime/queue/side_effect_queue.py`
 - post-write side-effect enqueue policy: `core_memory/runtime/queue/side_effects.py`
+- bead-commit post-write mirrors and association coverage:
+  `core_memory/runtime/post_write/bead_commit.py`
 
 ## Dreamer
 - implementation: `core_memory/runtime/dreamer/analysis.py`
