@@ -4,7 +4,7 @@ import json
 import os
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -181,10 +181,58 @@ class TestMemoryQualityMeters(unittest.TestCase):
 
             self.assertEqual("tension_resolution_meter.v1", out["schema"])
             self.assertEqual(2, out["pending_count"])
-            self.assertIn(out["status"], {"accumulating", "stalled"})
+            # Contract status enum (§5.2) — never the pre-contract accumulating/stalled.
+            self.assertIn(out["status"], {"stale_accumulation", "high_accumulation", "zero_resolution"})
             self.assertTrue(set(out["flags"]) & {"stale_accumulation", "zero_resolution", "high_accumulation"})
             self.assertIn("candidate", out["tensions_by_status"])
             self.assertIn("human review", out["human_review_reminder"].lower())
+
+    def test_tension_meter_terminal_counts_from_candidates_queue(self):
+        # Lifecycle counts come from the queue, not from soul-summary statuses.
+        recent = datetime.now(timezone.utc).isoformat()
+        summary = {"persistent_tensions": {"tensions": [], "new_tension_rate": 0.0, "resolution_rate": 0.0}}
+        with tempfile.TemporaryDirectory() as td:
+            _write_candidates(
+                td,
+                [
+                    {"id": "t1", "hypothesis_type": "tension_candidate", "status": "pending", "tension_key": "a"},
+                    {"id": "t2", "hypothesis_type": "tension_candidate", "status": "accepted", "decided_at": recent, "tension_key": "b"},
+                    {"id": "t3", "hypothesis_type": "tension_candidate", "status": "deferred", "decided_at": recent, "tension_key": "c"},
+                    {"id": "t4", "hypothesis_type": "tension_candidate", "status": "rejected", "decided_at": recent, "tension_key": "d"},
+                    # A different hypothesis type must be ignored.
+                    {"id": "g1", "hypothesis_type": "goal_candidate", "status": "pending", "goal_theme": "x"},
+                ],
+            )
+            out = compute_tension_resolution_meter(td, soul_summary=summary)
+            self.assertEqual(1, out["pending_count"])
+            self.assertEqual(1, out["accepted_count"])
+            self.assertEqual(1, out["deferred_count"])
+            self.assertEqual(1, out["rejected_count"])
+            self.assertEqual("healthy", out["status"])
+            self.assertNotIn("candidates_queue_unavailable", out["limitations"])
+
+    def test_tension_meter_zero_resolution_requires_seven_days_history(self):
+        now = datetime.now(timezone.utc)
+
+        def _summary(first_seen):
+            return {
+                "persistent_tensions": {
+                    "new_tension_rate": 2.0,
+                    "resolution_rate": 0.0,
+                    "tensions": [{"status": "active", "first_seen_at": first_seen.isoformat()}],
+                }
+            }
+
+        with tempfile.TemporaryDirectory() as td:
+            # < 7 days of history: zero_resolution must NOT fire even though
+            # new_rate>0 and resolution_rate=0.
+            fresh = compute_tension_resolution_meter(td, soul_summary=_summary(now - timedelta(days=2)))
+            self.assertNotIn("zero_resolution", fresh["flags"])
+
+            # >= 7 days of history: zero_resolution fires; status reflects it.
+            aged = compute_tension_resolution_meter(td, soul_summary=_summary(now - timedelta(days=20)))
+            self.assertIn("zero_resolution", aged["flags"])
+            self.assertEqual("zero_resolution", aged["status"])
 
     def test_self_model_drift_flags_ungrounded_identity_revision(self):
         with tempfile.TemporaryDirectory() as td:
