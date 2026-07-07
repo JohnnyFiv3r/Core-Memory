@@ -25,10 +25,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.schema.normalization import normalize_relation_type
-
-_INACTIVE_ASSOC_STATUSES = {"retracted", "superseded", "inactive"}
-_INACTIVE_BEAD_STATUSES = {"superseded", "archived"}
+from core_memory.soul.tension_signals import detect_goal_conflicts as _detect_goal_conflicts
 
 
 def _now() -> str:
@@ -45,76 +42,22 @@ def _read_index(root: str | Path) -> dict[str, Any]:
         return {}
 
 
-def _is_active_goal(bead: dict[str, Any]) -> bool:
-    if str(bead.get("type") or "").strip().lower() != "goal":
-        return False
-    if str(bead.get("status") or "").strip().lower() in _INACTIVE_BEAD_STATUSES:
-        return False
-    if str(bead.get("approval_status") or "").strip().lower() == "rejected":
-        return False
-    return True
+def _goal_depth_map(root: str | Path) -> dict[str, float]:
+    index = _read_index(root)
+    beads = {str(k): v for k, v in (index.get("beads") or {}).items() if isinstance(v, dict)}
+    try:
+        from core_memory.runtime.dreamer import assembly_depth as ad
 
-
-def _goal_conflict_key(a: str, b: str) -> str:
-    lo, hi = sorted([a, b])
-    return f"tension:goal_conflict:{lo}|{hi}"
+        total_goals = max(1, sum(1 for b in beads.values() if str(b.get("type") or "").strip().lower() == "goal"))
+        reports = ad.compute_assembly_depth(root, target_kind="goal", limit=total_goals).get("reports") or []
+        return {str(rep.get("target_id")): float(rep.get("score") or 0.0) for rep in reports}
+    except Exception:
+        return {}
 
 
 def detect_goal_conflicts(root: str | Path) -> list[dict[str, Any]]:
-    """Return goal-conflict detections: active goal pairs joined by an active
-    ``contradicts`` edge, each annotated with both goals' Assembly Depth."""
-    index = _read_index(root)
-    beads = {str(k): v for k, v in (index.get("beads") or {}).items() if isinstance(v, dict)}
-
-    goals = {bid: b for bid, b in beads.items() if _is_active_goal(b)}
-    if len(goals) < 2:
-        return []
-
-    # Assembly depth for goals (best-effort), keyed by target_id. Cover the full
-    # goal population (all goal beads, not just the active subset): a truncated
-    # limit drops goals and distorts the percentile normalization, and ineligible
-    # goals may precede active ones in index order.
-    depth_by_goal: dict[str, float] = {}
-    try:
-        from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
-
-        total_goals = max(1, sum(1 for b in beads.values() if str(b.get("type") or "").strip().lower() == "goal"))
-        reports = compute_assembly_depth(root, target_kind="goal", limit=total_goals).get("reports") or []
-        for rep in reports:
-            depth_by_goal[str(rep.get("target_id"))] = float(rep.get("score") or 0.0)
-    except Exception:
-        depth_by_goal = {}
-
-    seen_pairs: set[str] = set()
-    out: list[dict[str, Any]] = []
-    for assoc in (index.get("associations") or []):
-        if not isinstance(assoc, dict):
-            continue
-        if str(assoc.get("status") or "active").strip().lower() in _INACTIVE_ASSOC_STATUSES:
-            continue
-        if normalize_relation_type(assoc.get("relationship")) != "contradicts":
-            continue
-        s = str(assoc.get("source_bead") or "").strip()
-        d = str(assoc.get("target_bead") or "").strip()
-        if s not in goals or d not in goals or s == d:
-            continue
-        key = _goal_conflict_key(s, d)
-        if key in seen_pairs:
-            continue
-        seen_pairs.add(key)
-        title_s = str(goals[s].get("title") or s)
-        title_d = str(goals[d].get("title") or d)
-        out.append({
-            "tension_key": key,
-            "tension_kind": "goal_conflict",
-            "conflict_bead_a": s,
-            "conflict_bead_b": d,
-            "conflict_relationship": "contradicts",
-            "statement": f"Goals conflict: '{title_s}' vs '{title_d}'.",
-            "confidence": float(assoc.get("confidence") or 0.5),
-            "assembly_depth": {s: depth_by_goal.get(s, 0.0), d: depth_by_goal.get(d, 0.0)},
-        })
-    return out
+    """Return goal-conflict detections annotated with goal Assembly Depth."""
+    return _detect_goal_conflicts(root, depth_by_goal=_goal_depth_map(root))
 
 
 def enqueue_goal_conflict_candidates(

@@ -123,6 +123,11 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory/soul/identity_value_signals.py`. The existing
   `core_memory.runtime.dreamer.identity_value_research` import path keeps
   Dreamer candidate enqueueing and re-exports the detector for current callers.
+- Goal-conflict tension signal detection now lives in
+  `core_memory/soul/tension_signals.py`. The existing
+  `core_memory.runtime.dreamer.tension_discovery` import path keeps Dreamer
+  tension-candidate enqueueing and preserves assembly-depth annotations for
+  current callers.
 - Bead write hygiene contract helpers now live in
   `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
   normalize retrieval eligibility and bead richness without importing policy.
