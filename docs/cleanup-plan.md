@@ -40,9 +40,10 @@ public-surface/import check.
 **Correction:** The original list contained 4 files. `core_memory/retrieval/vector_backend.py`
 is **NOT dead** — it is imported by `core_memory/retrieval/semantic_index.py`. Do not delete it.
 
-**Truth-audit correction (2026-06-28):** These paths were previously overstated
-as deleted. Treat unchecked entries as retained compatibility/dead-file
-candidates pending classification, not as deleted artifacts.
+**Truth-audit correction (2026-06-28, updated 2026-07-07):** These paths were
+previously overstated as deleted. The retained candidate is now classified in
+`docs/compatibility_ledger.md`; the retired candidates were removed only after
+their proof gates passed.
 
 **PRD:** `docs/PRD/01-dead-file-removal.md`
 
@@ -96,10 +97,11 @@ import scan, public-surface check, and relevant tests.
 
 **PRD:** `docs/PRD/04-graph-module-cleanup.md`
 
-**Truth-audit correction (2026-06-28):** `core_memory/graph/api.py` still
-exists. Treat it as an active compatibility facade pending public/private
-classification. It is classify-not-delete until the compatibility ledger proves
-it is private or defines a deprecation path.
+**Truth-audit correction (2026-06-28, updated 2026-07-07):**
+`core_memory/graph/api.py` still exists and is classified in
+`docs/compatibility_ledger.md` as a public compatibility facade. It is
+classify-not-delete unless a future deprecation/removal window satisfies the
+ledger condition.
 
 - [x] Signature check: CLI already passed `anchor_ids=` as keyword; no fix needed
 - [x] Rename `_api_impl.py` → `core.py`; update all internal references

@@ -13,7 +13,7 @@ descriptions.
 | Phase | Topic | Status |
 |---|---|---|
 | 0 | CI + Coverage Baseline | **Done** |
-| 1 | Dead file removal | **Active compatibility debt** — retained candidates pending classification |
+| 1 | Dead file removal | **Classified** — retained compatibility surfaces are ledgered; proven-dead files retired |
 | 2 | Circular import fixes | **Done** |
 | 3A | Harden PydanticAI boundary | **Done** |
 | 4 | `graph/api.py` compat facade removal | **Active public compatibility debt** — classified in ledger; retain until deprecation/removal condition |
@@ -30,7 +30,7 @@ descriptions.
 | 7i | Plugin API docs | **Done** |
 | 8a | `core-memory setup init` wizard + layered config | **Done** |
 | 8b | Mode-based wizard, doctor profiles, `config` subcommand, `demo` | **Done** |
-| 9a–9h | Structural consolidation (runtime/, cli/, openclaw/) | **Mostly done; retained relocation debt pending classification** |
+| 9a–9h | Structural consolidation (runtime/, cli/, openclaw/) | **Mostly done; retained compatibility surfaces are classified in the ledger** |
 | 10a | Archive 11 stray `v2_p*` files | **Done** |
 | 10b | Retire `docs/ARCHITECTURE.md` | **Done** |
 | 10c | Update `architecture_overview.md` | **Done** |
