@@ -40,10 +40,10 @@ If you're new, this is the shortest map of where behavior lives.
 - index projection rebuild helper: `core_memory/persistence/store_projection_ops.py`
 - autonomy KPI/reinforcement helpers: `core_memory/persistence/store_autonomy_ops.py`
 - metrics runtime helper: `core_memory/persistence/store_metrics_runtime.py`
+- rationale scoring helper: `core_memory/persistence/store_rationale.py`
 - heads/index update helpers: `core_memory/persistence/store_index_heads_ops.py`
 - promotion policy service: `core_memory/persistence/promotion_service.py`
 - reporting service: `core_memory/reporting/store_reporting.py`
-- rationale scoring service: `core_memory/reporting/store_rationale.py`
 
 ## CLI surfaces
 - entrypoint + routing: `core_memory/cli/__init__.py`, `core_memory/cli/__main__.py`

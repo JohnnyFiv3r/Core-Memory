@@ -136,6 +136,10 @@ architecture guard baseline honest. When a row is repaired, shrink
   `core_memory/persistence/store_metrics_runtime.py`; the old reporting module
   was retired after active caller review showed it was only a `MemoryStore`
   persistence helper.
+- Store rationale recall scoring now lives in
+  `core_memory/persistence/store_rationale.py`; the old reporting module was
+  retired after active caller review showed it was only a `MemoryStore`
+  persistence helper.
 - Bead write hygiene contract helpers now live in
   `core_memory/persistence/bead_hygiene_contract.py` so the store write path can
   normalize retrieval eligibility and bead richness without importing policy.

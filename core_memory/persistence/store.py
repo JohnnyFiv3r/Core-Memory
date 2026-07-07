@@ -674,13 +674,13 @@ class MemoryStore:
 
     def _infer_target_bead_for_question(self, question: str) -> Optional[dict]:
         """Infer target decision bead for a rationale question using token overlap."""
-        from ..reporting.store_rationale import infer_target_bead_for_question
+        from ..persistence.store_rationale import infer_target_bead_for_question
 
         return infer_target_bead_for_question(self, question)
 
     def evaluate_rationale_recall(self, question: str, answer: str, bead_id: Optional[str] = None) -> dict:
         """Deterministic 0/1/2 rationale recall scorer."""
-        from ..reporting.store_rationale import evaluate_rationale_recall_for_store
+        from ..persistence.store_rationale import evaluate_rationale_recall_for_store
 
         return evaluate_rationale_recall_for_store(self, question, answer, bead_id=bead_id)
 

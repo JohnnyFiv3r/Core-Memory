@@ -12,7 +12,7 @@ class TestStoreRationaleDelegationSlice68B(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cm-rationale-deleg-") as td:
             store = MemoryStore(td)
             expected = {"id": "bead-AAA", "type": "decision"}
-            with patch("core_memory.reporting.store_rationale.infer_target_bead_for_question", return_value=expected) as stub:
+            with patch("core_memory.persistence.store_rationale.infer_target_bead_for_question", return_value=expected) as stub:
                 out = store._infer_target_bead_for_question("why did we choose this?")
             self.assertEqual(expected, out)
             self.assertEqual(1, stub.call_count)
@@ -24,7 +24,7 @@ class TestStoreRationaleDelegationSlice68B(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="cm-rationale-deleg-") as td:
             store = MemoryStore(td)
             expected = {"score": 2, "target_bead_id": "bead-AAA"}
-            with patch("core_memory.reporting.store_rationale.evaluate_rationale_recall_for_store", return_value=expected) as stub:
+            with patch("core_memory.persistence.store_rationale.evaluate_rationale_recall_for_store", return_value=expected) as stub:
                 out = store.evaluate_rationale_recall("q", "a", bead_id="bead-AAA")
             self.assertEqual(expected, out)
             self.assertEqual(1, stub.call_count)
