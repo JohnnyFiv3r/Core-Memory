@@ -44,11 +44,16 @@ descriptions.
 ### Cleanup truth-audit note
 
 The cleanup docs previously overstated some deletion/completion status. The current
-tree still contains these retained candidates, so treat them as active
-classification debt, not deleted files:
+tree still contains these retained compatibility surfaces, so treat them as
+classified-retained files, not deleted files:
 
 - `core_memory/persistence/encryption.py`
 - `core_memory/graph/api.py`
+
+`core_memory/persistence/encryption.py` is now classified in
+`docs/compatibility_ledger.md` as a public optional compatibility module. It is
+covered by `tests/test_persistence_encryption_compat.py` and should not be
+deleted as dead-file cleanup.
 
 `core_memory/graph/api.py` is now classified in `docs/compatibility_ledger.md`
 as a public compatibility facade. Retain it until the ledger's deprecation and
