@@ -1,18 +1,12 @@
 {
-  "generated_at": "2026-07-07T16:11:32.207473+00:00",
+  "generated_at": "2026-07-07T16:32:48.233810+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
     "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
-    "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks",
-    "upward_import:core_memory/policy/bead_typing.py:policy->runtime:core_memory.runtime.semantic_tasks",
-    "upward_import:core_memory/policy/rationale.py:policy->runtime:core_memory.runtime.semantic_tasks",
-    "upward_import:core_memory/retrieval/causal_recall.py:retrieval->runtime:core_memory.runtime.semantic_tasks",
-    "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs",
-    "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.semantic_tasks",
-    "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.semantic_tasks.verifier"
+    "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs"
   ],
   "violations": [
     {
@@ -54,54 +48,6 @@
     {
       "check": "upward_import",
       "detail": {
-        "source_layer": "policy",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.semantic_tasks"
-      },
-      "id": "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks",
-      "line": 11,
-      "message": "policy/ imports upward into runtime/ via core_memory.runtime.semantic_tasks",
-      "path": "core_memory/policy/bead_judge.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "policy",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.semantic_tasks"
-      },
-      "id": "upward_import:core_memory/policy/bead_typing.py:policy->runtime:core_memory.runtime.semantic_tasks",
-      "line": 9,
-      "message": "policy/ imports upward into runtime/ via core_memory.runtime.semantic_tasks",
-      "path": "core_memory/policy/bead_typing.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "policy",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.semantic_tasks"
-      },
-      "id": "upward_import:core_memory/policy/rationale.py:policy->runtime:core_memory.runtime.semantic_tasks",
-      "line": 10,
-      "message": "policy/ imports upward into runtime/ via core_memory.runtime.semantic_tasks",
-      "path": "core_memory/policy/rationale.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "retrieval",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.semantic_tasks"
-      },
-      "id": "upward_import:core_memory/retrieval/causal_recall.py:retrieval->runtime:core_memory.runtime.semantic_tasks",
-      "line": 12,
-      "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.semantic_tasks",
-      "path": "core_memory/retrieval/causal_recall.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
         "source_layer": "retrieval",
         "target_layer": "runtime",
         "target_module": "core_memory.runtime.queue.jobs"
@@ -110,30 +56,6 @@
       "line": 29,
       "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.queue.jobs",
       "path": "core_memory/retrieval/lifecycle.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "soul",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.semantic_tasks"
-      },
-      "id": "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.semantic_tasks",
-      "line": 32,
-      "message": "soul/ imports upward into runtime/ via core_memory.runtime.semantic_tasks",
-      "path": "core_memory/soul/dreamer_bridge.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "soul",
-        "target_layer": "runtime",
-        "target_module": "core_memory.runtime.semantic_tasks.verifier"
-      },
-      "id": "upward_import:core_memory/soul/dreamer_bridge.py:soul->runtime:core_memory.runtime.semantic_tasks.verifier",
-      "line": 33,
-      "message": "soul/ imports upward into runtime/ via core_memory.runtime.semantic_tasks.verifier",
-      "path": "core_memory/soul/dreamer_bridge.py"
     }
   ]
 }

@@ -18,14 +18,14 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
+from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
 from core_memory.runtime.ingest.source_envelope import (
     merge_source_ingest_envelope_refs,
     source_ingest_batch_ids,
     source_ingest_envelope_ref,
     source_microbatch_key,
 )
-from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
-from core_memory.runtime.semantic_tasks.contracts import TASK_ASSOCIATION_DECISION
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_ASSOCIATION_DECISION
 from core_memory.retrieval.lifecycle import mark_trace_dirty
 
 

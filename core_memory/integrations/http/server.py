@@ -40,7 +40,7 @@ from core_memory.runtime.associations.coverage import (
     get_association_run,
     list_association_candidates,
 )
-from core_memory.runtime.semantic_tasks import list_semantic_task_runs, summarize_semantic_task_runs
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs, summarize_semantic_task_runs
 from core_memory.management import (
     maintain as maintain_memory,
     remove_beads as remove_memory_beads,

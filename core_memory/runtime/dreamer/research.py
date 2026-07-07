@@ -12,10 +12,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
+from core_memory.policy.semantic_task_verifier import verify_semantic_task_output
 from core_memory.runtime.dreamer.candidates import _read_candidates, _write_candidates
-from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime
-from core_memory.runtime.semantic_tasks.contracts import TASK_DREAMER_RESEARCH
-from core_memory.runtime.semantic_tasks.verifier import verify_semantic_task_output
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_DREAMER_RESEARCH
 
 DREAMER_RESEARCH_CONTRACT = "memory.dreamer_research.v1"
 DREAMER_RESEARCH_PROMPT_VERSION = "dreamer_research.v1"

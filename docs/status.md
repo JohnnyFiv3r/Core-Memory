@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-06-29
+**Last updated:** 2026-07-07
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -57,6 +57,12 @@ removal conditions are satisfied.
 Current architecture guard debt is snapshotted in
 `scripts/architecture_guards_baseline.json`. When cleanup resolves a row, shrink
 the baseline in the same PR.
+
+The semantic task provider runtime and verifier implementation now live in
+`core_memory.policy`, and semantic task receipts live in
+`core_memory.persistence`. The historical `core_memory.runtime.semantic_tasks`
+runtime/verifier/receipt paths remain public compatibility facades. This shrank
+the architecture guard baseline from 10 upward-import rows to 4.
 
 The legacy persistence mixin artifacts
 `core_memory/persistence/store_core_delegates_mixin.py` and
