@@ -16,9 +16,9 @@ from typing import Any
 from core_memory.graph.storylines import derive_storylines
 from core_memory.graph.worldlines import derive_worldlines
 from core_memory.runtime.dreamer.assembly_depth import compute_assembly_depth
-from core_memory.runtime.dreamer.identity_value_research import detect_identity_value_findings
 from core_memory.runtime.dreamer.tension_discovery import detect_goal_conflicts
 from core_memory.soul.goals import list_goals
+from core_memory.soul.identity_value_signals import detect_identity_value_findings
 from core_memory.soul.store import current_soul_entries
 
 SOUL_SUMMARY_SCHEMA = "soul_summary.v1"
