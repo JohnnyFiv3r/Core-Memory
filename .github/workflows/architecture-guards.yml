@@ -1,0 +1,44 @@
+name: architecture-guards
+
+on:
+  push:
+    branches: ["**"]
+    paths:
+      - "core_memory/**"
+      - "docs/**"
+      - "README.md"
+      - "CLAUDE.md"
+      - "scripts/check_architecture_guards.py"
+      - "scripts/architecture_guards_baseline.json"
+      - "tests/test_architecture_guards.py"
+      - ".github/workflows/architecture-guards.yml"
+  pull_request:
+    paths:
+      - "core_memory/**"
+      - "docs/**"
+      - "README.md"
+      - "CLAUDE.md"
+      - "scripts/check_architecture_guards.py"
+      - "scripts/architecture_guards_baseline.json"
+      - "tests/test_architecture_guards.py"
+      - ".github/workflows/architecture-guards.yml"
+
+jobs:
+  guardrails:
+    name: "architecture guardrails"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Run architecture guard
+        run: python scripts/check_architecture_guards.py --baseline scripts/architecture_guards_baseline.json --fail-on-new
+
+      - name: Run architecture guard tests
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pytest tests/test_architecture_guards.py -q

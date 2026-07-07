@@ -124,14 +124,14 @@ schema → persistence → domain logic → retrieval → runtime → integratio
 Nothing imports upward. Adapters consume the public API in `core_memory/__init__.py`
 and do not extend or override core semantics.
 
-> Known debt: a number of function-local lazy imports still cross layers
-> upward. Current accepted debt is tracked by
+> Guardrail: current accepted architecture-guard debt is zero. The dedicated
+> `architecture-guards` CI workflow runs
+> `python scripts/check_architecture_guards.py --baseline scripts/architecture_guards_baseline.json --fail-on-new`
+> for code, current docs, guard script, and guard baseline changes. Intentional
+> exceptions must be classified in
+> [`docs/compatibility_ledger.md`](compatibility_ledger.md) and reflected in
 > [`scripts/architecture_guards_baseline.json`](../scripts/architecture_guards_baseline.json)
-> and compatibility/removal conditions live in
-> [`docs/compatibility_ledger.md`](compatibility_ledger.md). The law above is
-> normative for new code; run
-> `python scripts/check_architecture_guards.py --fail-on-new` before adding new
-> cross-layer imports.
+> in the same PR.
 
 ---
 
