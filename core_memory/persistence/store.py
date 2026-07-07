@@ -626,7 +626,7 @@ class MemoryStore:
     # === ER-2 Entity merge proposal/review surfaces ===
 
     def suggest_entity_merge_proposals(self, *, min_score: float = 0.86, max_pairs: int = 40, source: str = "heuristic") -> dict:
-        from ..entity.merge_flow import suggest_entity_merge_proposals
+        from ..persistence.entity_merge_flow import suggest_entity_merge_proposals
 
         return suggest_entity_merge_proposals(
             self.root,
@@ -636,7 +636,7 @@ class MemoryStore:
         )
 
     def list_entity_merge_proposals(self, *, status: str | None = None, limit: int = 100) -> list[dict]:
-        from ..entity.merge_flow import list_entity_merge_proposals
+        from ..persistence.entity_merge_flow import list_entity_merge_proposals
 
         return list_entity_merge_proposals(self.root, status=status, limit=limit)
 
@@ -650,7 +650,7 @@ class MemoryStore:
         apply: bool = True,
         keep_entity_id: str | None = None,
     ) -> dict:
-        from ..entity.merge_flow import decide_entity_merge_proposal
+        from ..persistence.entity_merge_flow import decide_entity_merge_proposal
 
         return decide_entity_merge_proposal(
             self.root,

@@ -10,7 +10,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
-from core_memory.entity.registry import (
+from core_memory.persistence.entity_registry import (
     _find_entity_id,
     _is_valid_entity_alias,
     normalize_entity_alias,

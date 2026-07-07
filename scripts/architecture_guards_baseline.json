@@ -1,13 +1,11 @@
 {
-  "generated_at": "2026-07-07T14:06:37.649276+00:00",
+  "generated_at": "2026-07-07T15:48:51.322021+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
     "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/promotion_service.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store.py:persistence->entity:core_memory.entity.merge_flow",
     "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
-    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->entity:core_memory.entity.registry",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
@@ -53,18 +51,6 @@
       "check": "upward_import",
       "detail": {
         "source_layer": "persistence",
-        "target_layer": "entity",
-        "target_module": "core_memory.entity.merge_flow"
-      },
-      "id": "upward_import:core_memory/persistence/store.py:persistence->entity:core_memory.entity.merge_flow",
-      "line": 629,
-      "message": "persistence/ imports upward into entity/ via core_memory.entity.merge_flow",
-      "path": "core_memory/persistence/store.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
         "target_layer": "runtime",
         "target_module": "core_memory.runtime.dreamer"
       },
@@ -72,18 +58,6 @@
       "line": 604,
       "message": "persistence/ imports upward into runtime/ via core_memory.runtime.dreamer",
       "path": "core_memory/persistence/store.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "entity",
-        "target_module": "core_memory.entity.registry"
-      },
-      "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->entity:core_memory.entity.registry",
-      "line": 9,
-      "message": "persistence/ imports upward into entity/ via core_memory.entity.registry",
-      "path": "core_memory/persistence/store_add_bead_ops.py"
     },
     {
       "check": "upward_import",
