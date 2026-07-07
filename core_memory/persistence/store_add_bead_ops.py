@@ -10,7 +10,7 @@ from core_memory.persistence.entity_registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.persistence.session_surface import read_session_surface
 from core_memory.persistence.sync_targets import create_sync_targets
-from core_memory.retrieval.lifecycle import mark_semantic_dirty
+from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty
 from core_memory.schema.normalization import (
     CANONICAL_BEAD_TYPES,
     normalize_bead_type,

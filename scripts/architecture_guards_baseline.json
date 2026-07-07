@@ -1,19 +1,11 @@
 {
-  "generated_at": "2026-07-07T15:48:51.322021+00:00",
+  "generated_at": "2026-07-07T16:11:32.207473+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [
-    "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/promotion_service.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store.py:persistence->runtime:core_memory.runtime.dreamer",
-    "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.semantic_index",
     "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->runtime:core_memory.runtime.associations.coverage",
-    "upward_import:core_memory/persistence/store_approval_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-    "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
     "upward_import:core_memory/policy/bead_judge.py:policy->runtime:core_memory.runtime.semantic_tasks",
     "upward_import:core_memory/policy/bead_typing.py:policy->runtime:core_memory.runtime.semantic_tasks",
     "upward_import:core_memory/policy/rationale.py:policy->runtime:core_memory.runtime.semantic_tasks",
@@ -27,30 +19,6 @@
       "check": "upward_import",
       "detail": {
         "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/goal_lifecycle_v2.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 27,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/goal_lifecycle_v2.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/promotion_service.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 15,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/promotion_service.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
         "target_layer": "runtime",
         "target_module": "core_memory.runtime.dreamer"
       },
@@ -58,18 +26,6 @@
       "line": 604,
       "message": "persistence/ imports upward into runtime/ via core_memory.runtime.dreamer",
       "path": "core_memory/persistence/store.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/store_add_bead_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 13,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/store_add_bead_ops.py"
     },
     {
       "check": "upward_import",
@@ -94,66 +50,6 @@
       "line": 266,
       "message": "persistence/ imports upward into runtime/ via core_memory.runtime.associations.coverage",
       "path": "core_memory/persistence/store_add_bead_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/store_approval_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 24,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/store_approval_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/store_compaction_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 11,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/store_compaction_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/store_lifecycle_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 8,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/store_lifecycle_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/store_management_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 15,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/store_management_ops.py"
-    },
-    {
-      "check": "upward_import",
-      "detail": {
-        "source_layer": "persistence",
-        "target_layer": "retrieval",
-        "target_module": "core_memory.retrieval.lifecycle"
-      },
-      "id": "upward_import:core_memory/persistence/store_relationship_ops.py:persistence->retrieval:core_memory.retrieval.lifecycle",
-      "line": 14,
-      "message": "persistence/ imports upward into retrieval/ via core_memory.retrieval.lifecycle",
-      "path": "core_memory/persistence/store_relationship_ops.py"
     },
     {
       "check": "upward_import",
@@ -211,7 +107,7 @@
         "target_module": "core_memory.runtime.queue.jobs"
       },
       "id": "upward_import:core_memory/retrieval/lifecycle.py:retrieval->runtime:core_memory.runtime.queue.jobs",
-      "line": 20,
+      "line": 29,
       "message": "retrieval/ imports upward into runtime/ via core_memory.runtime.queue.jobs",
       "path": "core_memory/retrieval/lifecycle.py"
     },

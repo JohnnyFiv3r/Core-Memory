@@ -5,7 +5,7 @@ from typing import Any
 
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.retrieval.lifecycle import mark_semantic_dirty
+from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty
 from core_memory.schema.normalization import (
     confidence_class_rank,
     normalize_confidence_class,

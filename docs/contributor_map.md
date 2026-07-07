@@ -45,6 +45,7 @@ If you're new, this is the shortest map of where behavior lives.
 - rationale scoring helper: `core_memory/persistence/store_rationale.py`
 - reporting aggregation helper: `core_memory/persistence/store_reporting.py`
 - heads/index update helpers: `core_memory/persistence/store_index_heads_ops.py`
+- semantic lifecycle state helpers: `core_memory/persistence/semantic_lifecycle.py`
 - promotion policy service: `core_memory/persistence/promotion_service.py`
 
 ## CLI surfaces

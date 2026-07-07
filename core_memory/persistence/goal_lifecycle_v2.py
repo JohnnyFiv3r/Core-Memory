@@ -24,7 +24,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..schema.promotion_contract import current_promotion_state
-from ..retrieval.lifecycle import mark_semantic_dirty
+from ..persistence.semantic_lifecycle import mark_semantic_dirty
 from .io_utils import append_jsonl, store_lock
 from .store_index_heads_ops import read_heads_for_store, write_heads_for_store
 
