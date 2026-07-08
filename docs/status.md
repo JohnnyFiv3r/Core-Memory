@@ -10,13 +10,20 @@ descriptions.
 
 ## Cleanup workstream
 
+**Architecture cleanup status:** complete at the architecture layer. The
+checked-in architecture guard baseline has zero known debt, and the compatibility
+surface ratchet is active for retained public compatibility paths. Remaining
+public compatibility surfaces are tracked as a post-cleanup deprecation backlog
+in `docs/compatibility_ledger.md`; future removal requires the ledger's
+deprecation or breaking-change conditions.
+
 | Phase | Topic | Status |
 |---|---|---|
 | 0 | CI + Coverage Baseline | **Done** |
 | 1 | Dead file removal | **Classified** — retained compatibility surfaces are ledgered; proven-dead files retired |
 | 2 | Circular import fixes | **Done** |
 | 3A | Harden PydanticAI boundary | **Done** |
-| 4 | `graph/api.py` compat facade removal | **Active public compatibility debt** — classified in ledger; retain until deprecation/removal condition |
+| 4 | Classify `graph/api.py` compat facade | **Done at architecture layer** — retained public compatibility backlog |
 | 5 | Persistence delegation flatten | **MRO flat; legacy mixin artifacts retired** |
 | 6 | Storage adapter capability tiers | **Done** |
 | 7a | `persistence/graph/` package + protocol + factory | **Done** |
@@ -30,7 +37,7 @@ descriptions.
 | 7i | Plugin API docs | **Done** |
 | 8a | `core-memory setup init` wizard + layered config | **Done** |
 | 8b | Mode-based wizard, doctor profiles, `config` subcommand, `demo` | **Done** |
-| 9a–9h | Structural consolidation (runtime/, cli/, openclaw/) | **Mostly done; retained compatibility surfaces are classified in the ledger** |
+| 9a–9h | Structural consolidation (runtime/, cli/, openclaw/) | **Done at architecture layer** — retained public compatibility backlog |
 | 10a | Archive 11 stray `v2_p*` files | **Done** |
 | 10b | Retire `docs/ARCHITECTURE.md` | **Done** |
 | 10c | Update `architecture_overview.md` | **Done** |
@@ -63,8 +70,16 @@ The architecture guard baseline is now clean. The dedicated
 `architecture-guards` CI workflow runs
 `scripts/check_architecture_guards.py --baseline scripts/architecture_guards_baseline.json --fail-on-new`
 for code, current docs, guard script, and guard baseline changes. If future work
-needs an intentional exception, classify it in `docs/compatibility_ledger.md`
-and update the baseline in the same PR.
+needs an intentional exception, classify it in `docs/compatibility_ledger.md`.
+The current checked-in baseline is zero; new architecture debt must not be
+hidden by widening the baseline.
+
+The compatibility usage guard is also active. It runs against
+`scripts/compat_surface_usage_baseline.json` and currently allows only the
+ledgered references for `core_memory.runtime.semantic_tasks`, `form_submission`,
+`core_memory/retrieval/tools/memory_search.py`, `MemoryStore.dream(...)`, and
+the legacy event-schema import path. New first-party reliance on those surfaces
+is compatibility drift.
 
 The semantic task provider runtime and verifier implementation now live in
 `core_memory.policy`, and semantic task receipts live in

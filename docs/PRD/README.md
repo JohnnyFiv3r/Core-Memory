@@ -10,14 +10,14 @@ See `docs/status.md` for current completion state.
 | `01-dead-file-removal.md` | 1 | Classify and retire dead-file candidates | Classified retained compatibility; proven-dead files retired |
 | `02-circular-import-fix.md` | 2 | Fix mislabeled circular-import workarounds | Done |
 | `03a-pydanticai-boundary.md` | 3A | Harden PydanticAI adapter boundary | Done |
-| `04-graph-module-cleanup.md` | 4 | Classify `graph/api.py` compat facade | Classified public compatibility debt |
+| `04-graph-module-cleanup.md` | 4 | Classify `graph/api.py` compat facade | Done at architecture layer; retained public compatibility backlog |
 | `05-persistence-delegation-flatten.md` | 5 | Flatten persistence delegation chain | MRO flat; legacy mixin artifacts retired |
 | `06-storage-adapter-boundary.md` | 6 | Unify StorageBackend + VectorBackend into capability tiers | Done |
 | `07-neo4j-query-backend.md` | 7 | Graph backend abstraction (pluggable causal graph providers) | Done |
 | `07b-execution-plan.md` | 7b | Neo4j read path execution plan | Done |
 | `07b-qdrant-kuzu-migration.md` | 7b | Qdrant/Kuzu migration notes | Done |
 | `08-init-wizard.md` | 8 | `core-memory init` wizard + `core-memory doctor` expansion | Done |
-| `09-structural-consolidation.md` | 9 | Structural consolidation (runtime/, cli/, openclaw/) | Mostly done; retained compatibility classified |
+| `09-structural-consolidation.md` | 9 | Structural consolidation (runtime/, cli/, openclaw/) | Done at architecture layer; retained public compatibility backlog |
 | `10-documentation-consolidation.md` | 10 | Documentation consolidation | Done |
 | `execution-plan-phases-0-7-10.md` | 0, 7e–7i, 10 | One-pass execution plan (Graphiti, Obsidian, docs) | Done |
 

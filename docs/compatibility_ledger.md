@@ -1,11 +1,16 @@
 # Compatibility Ledger
 
-**Status:** Canonical cleanup-governance reference
+**Status:** Canonical cleanup-governance reference and post-cleanup deprecation backlog
 
 This ledger names compatibility surfaces that remain in the tree on purpose. It
 does not make every historical path a forward API. It tells reviewers which
 paths are public, which are private/internal, what replaces them, and what proof
 is required before removal.
+
+The architecture cleanup workstream is closed at the architecture layer. The
+architecture guard baseline is zero; this ledger now owns the remaining
+compatibility-governance work. Public compatibility surfaces below are backlog
+items for future deprecation windows, not files to delete during cleanup.
 
 Compatibility removals must satisfy the row's removal condition and keep the
 architecture guard baseline honest. When a row is repaired, shrink
@@ -31,6 +36,22 @@ closeout pass, the governed first-party counts are:
   should not use it, but current repo behavior or tests may still depend on it.
 - **Artifact debt:** retained file or facade from an older shape. It should not
   gain new callers.
+
+## Post-Cleanup Deprecation Backlog
+
+These surfaces remain after architecture cleanup because external callers,
+persisted data, or documented adapters may depend on them. Future removal must
+follow each row's deprecation or breaking-change condition and keep both guard
+baselines green.
+
+- Public import/API facades: `core_memory/graph/api.py`,
+  `core_memory/retrieval/tools/memory_search.py`,
+  `core_memory/persistence/encryption.py`, and `MemoryStore.dream(...)`.
+- Public compatibility request/data shapes: `form_submission` and legacy event
+  schema constants/imports.
+- Public compatibility module paths: `core_memory.runtime.semantic_tasks.*`.
+- Public CLI compatibility: top-level legacy commands, supported internally by
+  `core_memory/cli/compat.py`.
 
 ## Ledger
 

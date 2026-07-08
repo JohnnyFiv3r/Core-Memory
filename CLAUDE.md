@@ -162,13 +162,17 @@ extends the protocol with `search_candidates()`, `traverse()`,
 | 1 | Dead file removal | Classified retained compatibility; proven-dead files retired |
 | 2 | Circular import fixes | Complete |
 | 3 | PydanticAI + adapter boundary | Complete |
-| 4 | Classify `graph/api.py` compat facade | Classified public compatibility; retain per ledger |
+| 4 | Classify `graph/api.py` compat facade | Complete at architecture layer; retained public compatibility backlog |
 | 5 | Persistence delegation flatten | MRO flat; legacy mixin artifacts retired |
 | 6 | Storage adapter capability tiers | Complete |
 | 7 | Graph backend abstraction (Neo4j, Graphiti, Obsidian, plugin API) | Complete (7a–7i done) |
 | 8 | `core-memory init` wizard + doctor | Complete (8a–8b done) |
-| 9 | Structural consolidation (runtime/, cli/, openclaw/) | Mostly complete; retained compatibility surfaces classified |
+| 9 | Structural consolidation (runtime/, cli/, openclaw/) | Complete at architecture layer; retained public compatibility backlog |
 | 10 | Documentation consolidation | Complete (10a–10g done) |
+
+Architecture cleanup baseline: zero known guard debt. Remaining public
+compatibility surfaces are governed by `docs/compatibility_ledger.md` as a
+post-cleanup deprecation backlog.
 
 See `docs/status.md` for current completion state and open items.
 See `docs/cleanup-plan.md` for sequence, prerequisites, and per-step details.
