@@ -102,7 +102,8 @@ After Phases 4–9 ship, `architecture_overview.md` needs to reflect:
 
 - `runtime/` now has subdirectories (turn, flush, session, passes, queue, dreamer,
   observability)
-- `graph/api.py` is gone; split modules are the surface
+- `graph/api.py` is a retained public compatibility facade; split modules and
+  package-level re-exports are the forward surface
 - `cli/` is a package with parsers/ and handlers/
 - `integrations/openclaw/` is now a proper subdirectory
 - `StorageBackend` protocol has capability tiers (Phase 6)
@@ -227,7 +228,7 @@ Index all PRD files with a one-line description and status:
 | File | Title | Status |
 |------|-------|--------|
 | 03-mcp-protocol-server.md | MCP Protocol Server | ? |
-| 04-graph-module-cleanup.md | Remove graph/api.py compat facade | Not started |
+| 04-graph-module-cleanup.md | Classify graph/api.py compat facade | Retained public compatibility |
 | 05-persistence-delegation-flatten.md | Flatten persistence delegation | Not started |
 | 06-storage-adapter-boundary.md | Storage adapter capability tiers | Not started |
 | 07-neo4j-query-backend.md | Neo4j as query backend | Not started |

@@ -95,6 +95,29 @@ def test_detects_cleanup_docs_claiming_live_path_has_no_imports(tmp_path: Path):
     assert violations[0].detail["active_path"] == "core_memory/retrieval/vector_backend.py"
 
 
+def test_detects_cleanup_docs_claiming_public_compat_surface_was_removed(tmp_path: Path):
+    _write(tmp_path / "docs" / "status.md", "- [x] `form_submission` removed\n")
+
+    violations = guards.check_cleanup_truth(tmp_path)
+
+    assert [v.check for v in violations] == ["cleanup_truth"]
+    assert violations[0].detail["surface_key"] == "typed_search_form_submission_alias"
+
+
+def test_cleanup_truth_allows_explicit_public_compat_deprecation_conditions(tmp_path: Path):
+    _write(
+        tmp_path / "docs" / "compatibility_ledger.md",
+        (
+            "| `MemoryStore.dream(...)` | Public legacy bridge | "
+            "Remove only after a breaking-change/deprecation window. |\n"
+        ),
+    )
+
+    violations = guards.check_cleanup_truth(tmp_path)
+
+    assert violations == []
+
+
 def test_detects_compat_surface_usage(tmp_path: Path):
     _write(
         tmp_path / "tests" / "test_new_semantic_task.py",

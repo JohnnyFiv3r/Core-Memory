@@ -89,10 +89,48 @@ ACTIVE_LIVE_PATHS = {
     "core_memory/retrieval/vector_backend.py",
 }
 
-STALE_TRUTH_WORDS = re.compile(r"\b(deleted|removed|retired|done|complete)\b", re.IGNORECASE)
+PUBLIC_COMPAT_TRUTH_SURFACES: dict[str, dict[str, object]] = {
+    "graph_api_facade": {
+        "label": "graph/api.py compatibility facade",
+        "pattern": re.compile(
+            r"core_memory/graph/api\.py|core_memory\.graph\.api|graph/api\.py"
+        ),
+    },
+    "persistence_encryption_module": {
+        "label": "persistence encryption compatibility module",
+        "pattern": re.compile(
+            r"core_memory/persistence/encryption\.py|"
+            r"core_memory\.persistence\.encryption|"
+            r"persistence/encryption\.py"
+        ),
+    },
+    "runtime_semantic_tasks_facades": {
+        "label": "runtime semantic-task compatibility facades",
+        "pattern": re.compile(
+            r"core_memory\.runtime\.semantic_tasks|core_memory/runtime/semantic_tasks|"
+            r"runtime/semantic_tasks"
+        ),
+    },
+    "typed_search_form_submission_alias": {
+        "label": "typed-search form_submission request alias",
+        "pattern": re.compile(r"\bform_submission\b"),
+    },
+    "memory_store_dream_bridge": {
+        "label": "MemoryStore.dream legacy bridge",
+        "pattern": re.compile(r"MemoryStore\.dream"),
+    },
+}
+
+STALE_TRUTH_WORDS = re.compile(
+    r"\b(delete|deleted|remove|removed|removal|retire|retired|done|complete|gone)\b",
+    re.IGNORECASE,
+)
 SAFE_TRUTH_WORDS = re.compile(
     r"\b(active|classify|classification|classify-not-delete|do not delete|not deleted|"
-    r"not as deleted|pending classification|retained|truth-audit)\b",
+    r"not as deleted|pending classification|retained|truth-audit|deprecation window|"
+    r"deprecation note|"
+    r"breaking-change|removal condition|remove only after|before any removal|"
+    r"future removal)\b",
     re.IGNORECASE,
 )
 FALSE_DEAD_WORDS = re.compile(r"\b(no imports anywhere|zero references|unreferenced|dead)\b", re.IGNORECASE)
@@ -440,11 +478,13 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
         if not path.exists():
             continue
         for lineno, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
+            line_has_path_truth_violation = False
             for active_path in sorted(existing_debt):
                 if active_path not in line:
                     continue
                 if not _line_is_stale_truth_claim(line):
                     continue
+                line_has_path_truth_violation = True
                 violation_id = f"cleanup_truth:{doc.as_posix()}:{active_path}"
                 violations.append(
                     Violation(
@@ -459,6 +499,8 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
                         detail={"active_path": active_path, "line": line.strip()},
                     )
                 )
+            if line_has_path_truth_violation:
+                continue
             for active_path in sorted(existing_live_paths):
                 if active_path not in line:
                     continue
@@ -476,6 +518,31 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
                             f"{active_path} as dead or unreferenced"
                         ),
                         detail={"active_path": active_path, "line": line.strip()},
+                    )
+                )
+            for surface_key, surface in sorted(PUBLIC_COMPAT_TRUTH_SURFACES.items()):
+                pattern = surface["pattern"]
+                search = getattr(pattern, "search")
+                if not search(line):
+                    continue
+                if not _line_is_stale_truth_claim(line):
+                    continue
+                violation_id = f"cleanup_truth:{doc.as_posix()}:{surface_key}"
+                violations.append(
+                    Violation(
+                        check="cleanup_truth",
+                        id=violation_id,
+                        path=doc.as_posix(),
+                        line=lineno,
+                        message=(
+                            f"{doc.as_posix()} appears to describe retained "
+                            f"{surface['label']} as deleted/removed/done"
+                        ),
+                        detail={
+                            "surface_key": surface_key,
+                            "surface_label": str(surface["label"]),
+                            "line": line.strip(),
+                        },
                     )
                 )
     return sorted(violations, key=lambda v: v.id)

@@ -945,7 +945,7 @@ Authoritative completion state: `docs/status.md`
 | 02-circular-import-fix.md | 2 | Fix mislabelled circular-import workarounds | Complete |
 | 03-mcp-protocol-server.md | 3 | MCP Protocol Server | Complete |
 | 03a-pydanticai-boundary.md | 3A | Harden PydanticAI boundary | Complete |
-| 04-graph-module-cleanup.md | 4 | Remove graph/api.py compat facade | Complete |
+| 04-graph-module-cleanup.md | 4 | Classify graph/api.py compat facade | Retained public compatibility |
 | 05-persistence-delegation-flatten.md | 5 | Flatten persistence delegation chain | Complete |
 | 06-storage-adapter-boundary.md | 6 | Unify StorageBackend capability tiers | Complete |
 | 07-neo4j-query-backend.md | 7 | Graph backend abstraction | 7a–7d complete; 7e–7i in progress |

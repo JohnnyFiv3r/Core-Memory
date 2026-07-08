@@ -103,7 +103,7 @@ Add to `[tool.pytest.ini_options]`:
 
 ```toml
 markers = [
-    "facade: tests that import from core_memory.graph.api (targeted for Phase 4 removal)",
+    "facade: tests that exercise retained core_memory.graph.api compatibility",
     "mixin_assembly: tests that instantiate MemoryStore end-to-end via mixin chain (targeted for Phase 5)",
     "pydanticai: tests that require the pydanticai optional extra",
     "neo4j: tests that require a live Neo4j instance",
