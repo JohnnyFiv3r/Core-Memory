@@ -38,3 +38,15 @@ Do not use `facade` or `mixin_assembly` as deletion markers. Compatibility
 surfaces are governed by `docs/compatibility_ledger.md`; test pruning should
 remove only duplicated implementation-lock tests after equivalent public
 behavior coverage exists.
+
+## Health Guard
+
+The test-suite health guard keeps skip and marker drift visible:
+
+```bash
+python scripts/check_test_suite_health.py --fail-on-violations
+```
+
+It enforces marker classification for optional backend and live Neo4j skips,
+requires explicit reason text for skip/xfail calls, and rejects stale
+`facade`/`mixin_assembly` marker descriptions that imply deletion status.
