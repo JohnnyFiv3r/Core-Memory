@@ -1,11 +1,27 @@
 # PRD: Graph Backend Abstraction — Pluggable Causal Graph Providers
 
 **Phase:** 7
-**Status:** Sub-phases 7a–7d complete; 7e–7h (Graphiti, Obsidian) deferred
+**Status:** Complete through 7i; live provider tests remain env-gated
 **Prerequisite:** Phase 6 complete (`BackendCapabilities` + extended `StorageBackend` protocol)
 **Supersedes:** earlier scope of "Phase 7: Neo4j Query Backend" (now subsumed)
 
 ---
+
+## Implementation status
+
+This PRD started as the design target for Phase 7. The current tree has shipped
+the provider abstraction and first-party providers:
+
+- `core_memory.persistence.graph` now exposes `GraphBackend`,
+  `NullGraphBackend`, `create_graph_backend`, and `register_graph_backend`.
+- Kuzu, Neo4j, Graphiti, and Zep-backed Graphiti providers are implemented.
+- `core-memory graph backend-sync` is the supported bulk sync command.
+- Obsidian shipped as a `BeadSyncTarget` mirror, not as a `GraphBackend`,
+  because it has no reliable programmatic traversal API.
+- Provider plugin documentation lives in `docs/graph_backend_plugin.md`.
+
+Live provider checks remain environment-gated; the always-on suite uses mocked,
+fake, and local embedded coverage.
 
 ## Problem
 
@@ -69,37 +85,39 @@ These are non-negotiable and must hold for every provider:
 
 ---
 
-## What exists today
+## Implementation inventory
 
 | Component                                          | Status      | Notes |
 |----------------------------------------------------|-------------|-------|
 | `BackendCapabilities` dataclass                    | Done (P6)   | `graph_traversal: bool` flag exists |
 | `StorageBackend.traverse()` stub                   | Done (P6)   | Raises `NotImplementedError` |
-| `_caps.graph_traversal` branch in canonical.py     | Done (P6)   | Unreachable — no provider sets it |
+| `_caps.graph_traversal` branch in canonical.py     | Done        | Uses graph backend capabilities when a provider is active |
 | `integrations/neo4j/client.py`                     | Done        | `Neo4jClient` — driver, upsert, prune |
 | `integrations/neo4j/mapper.py`                     | Done        | `bead_to_node`, `association_to_edge` |
 | `integrations/neo4j/sync.py`                       | Done        | One-way write path |
 | `integrations/neo4j/config.py`                     | Done        | `Neo4jConfig`, env vars |
-| **`persistence/graph/` package**                   | **Missing** | New — protocol + factory + providers |
-| **`GraphBackend` protocol**                        | **Missing** | |
-| **`NullGraphBackend`**                             | **Missing** | Default; declares zero capabilities |
-| **`Neo4jGraphBackend`**                            | **Missing** | Read-side traverse via Cypher |
-| **`GraphitiGraphBackend`**                         | **Missing** | Self-hosted + Zep-hosted in one class |
-| **`ObsidianGraphBackend`**                         | **Missing** | Markdown vault write + Local REST search |
-| **Provider registry + factory**                    | **Missing** | `create_graph_backend()` |
-| **Retrieval-pipeline wiring**                      | **Missing** | Use `GraphBackend` not `StorageBackend.traverse` |
-| **Write-side hook (`on_bead_written`)**            | **Missing** | Replaces direct `sync_to_neo4j` calls |
-| **Bulk sync CLI (`core-memory graph-sync`)**       | **Missing** | One-shot backfill of existing index |
+| **`persistence/graph/` package**                   | **Done** | Protocol, factory, and providers |
+| **`GraphBackend` protocol**                        | **Done** | `core_memory.persistence.graph.protocol.GraphBackend` |
+| **`NullGraphBackend`**                             | **Done** | Explicit/fallback no-op provider |
+| **`KuzuGraphBackend`**                             | **Done** | Embedded graph backend |
+| **`Neo4jGraphBackend`**                            | **Done** | Read/write path with mocked and live-gated tests |
+| **`GraphitiGraphBackend`**                         | **Done** | Self-hosted + Zep-hosted mode |
+| **`ObsidianSyncTarget`**                           | **Done** | Markdown vault write mirror via `BeadSyncTarget`; not a graph traversal provider |
+| **Provider registry + factory**                    | **Done** | `create_graph_backend()` and `register_graph_backend()` |
+| **Retrieval-pipeline wiring**                      | **Done** | Uses `GraphBackend` capabilities before fallback |
+| **Write-side hook (`on_bead_written`)**            | **Done** | Runtime post-write boundary calls graph/sync targets after durable write |
+| **Bulk sync CLI (`core-memory graph backend-sync`)** | **Done** | One-shot backfill of existing index |
 
 ---
 
 ## Success criteria
 
-When Phase 7 is complete:
+Current Phase 7 completion criteria:
 
 1. `from core_memory.persistence.graph import create_graph_backend, GraphBackend` works.
-2. `CORE_MEMORY_GRAPH_BACKEND=none` (default) returns `NullGraphBackend` —
-   `capabilities()` all-False. Existing behavior unchanged. No new dependencies required.
+2. Unset `CORE_MEMORY_GRAPH_BACKEND` defaults to embedded `KuzuGraphBackend`.
+   `CORE_MEMORY_GRAPH_BACKEND=none` returns `NullGraphBackend` with
+   `capabilities()` all-False.
 3. `CORE_MEMORY_GRAPH_BACKEND=neo4j` returns `Neo4jGraphBackend`. With a live Neo4j
    instance synced, `traverse(seed_ids, edge_types, max_hops)` executes a Cypher
    variable-length path query and returns chains in the same shape as
@@ -109,10 +127,10 @@ When Phase 7 is complete:
    candidate beads ranked by Graphiti's temporal KG retrieval.
    `CORE_MEMORY_GRAPHITI_DEPLOYMENT=hosted` (or `CORE_MEMORY_GRAPH_BACKEND=zep` as alias)
    switches the same class to Zep Cloud transport (HTTPS + API key, no local Neo4j needed).
-5. `CORE_MEMORY_GRAPH_BACKEND=obsidian` returns `ObsidianGraphBackend`. With a configured
-   vault path, `on_bead_written` writes a `.md` file with YAML frontmatter and wikilinks.
-   `search_candidates` proxies to the Obsidian Local REST API if enabled; otherwise
-   declares `full_text_search=False`.
+5. Obsidian integration is provided through `ObsidianSyncTarget` and the
+   `BeadSyncTarget` protocol. With a configured vault path,
+   `on_bead_written` writes a `.md` file with YAML frontmatter and wikilinks.
+   Obsidian is not advertised as a graph traversal backend.
 6. The retrieval pipeline (`canonical.py:trace_request` and `search_request`) consults
    `GraphBackend.capabilities()` before deciding whether to use the provider or fall back
    to the Python-side implementation. The fallback is always available.
@@ -122,8 +140,8 @@ When Phase 7 is complete:
 8. `process_turn_finalized` calls `graph_backend.on_bead_written(bead)` /
    `on_association_written(assoc)` after the local write succeeds. Provider failures here
    are logged and surfaced as warnings but never block the local write.
-9. `core-memory graph-sync --provider=neo4j --root=.` performs a one-shot backfill from
-   the local projection into the graph backend. Idempotent. Reports counts.
+9. `core-memory graph backend-sync --root=.` performs a one-shot backfill from
+   the local projection into the configured graph backend. Idempotent. Reports counts.
 10. Tests pass for every provider with both a fake/mock backend and (gated) a real backend
     in CI. Provider-specific tests are marked `@pytest.mark.neo4j`, `@pytest.mark.graphiti`,
     `@pytest.mark.zep` and skipped without the corresponding env vars / Docker service.
@@ -239,7 +257,7 @@ class GraphBackend(Protocol):
         """One-shot backfill: read full index from storage, push to provider.
 
         Idempotent. Returns {"ok": bool, "beads_synced": int, "assocs_synced": int}.
-        Called by `core-memory graph-sync` and on first provider activation.
+        Called by `core-memory graph backend-sync` and on first provider activation.
         """
         ...
 
@@ -268,7 +286,7 @@ populate it for json/sqlite; those continue to return False.
 
 ## Provider designs
 
-### NullGraphBackend (default)
+### NullGraphBackend (explicit fallback)
 
 ```python
 # core_memory/persistence/graph/null.py
@@ -488,7 +506,7 @@ The `"zep"` provider name in `CORE_MEMORY_GRAPH_BACKEND` is registered as a fact
 alias to `GraphitiGraphBackend` with `deployment=HOSTED`. This lets users who think in
 terms of "Zep" still use their familiar name without a separate class.
 
-### ObsidianGraphBackend
+### Obsidian sync target
 
 Obsidian is a markdown vault with a wikilink-based graph view. It is not a query engine
 in the Neo4j/Graphiti sense, but it fills a different role: human-browsable memory,
@@ -496,26 +514,15 @@ AI-assisted synthesis via Smart Connections / Copilot plugins, and offline-capab
 personal knowledge graph. Many power users already run Obsidian; surfacing beads there
 is high value with low implementation complexity.
 
+The shipped surface is `ObsidianSyncTarget` under
+`core_memory.integrations.obsidian`, implementing the separate `BeadSyncTarget`
+protocol. It is intentionally not a `GraphBackend`: Obsidian does not expose a
+stable programmatic graph-traversal API.
+
 ```python
-# core_memory/persistence/graph/obsidian_backend.py
-class ObsidianGraphBackend:
+# core_memory/integrations/obsidian/vault.py
+class ObsidianSyncTarget:
     name = "obsidian"
-
-    def __init__(self, config: ObsidianConfig):
-        self._vault = Path(config.vault_path)
-        self._subfolder = config.subfolder or "core-memory"
-        self._rest_api_url = config.rest_api_url      # None if plugin not installed
-        self._rest_api_key = config.rest_api_key
-        self._healthy = None
-
-    def capabilities(self) -> BackendCapabilities:
-        rest_ok = self._rest_api_url is not None and self._is_rest_reachable()
-        return BackendCapabilities(
-            graph_traversal=False,       # Obsidian has no programmatic traversal API
-            vector_search=False,         # Smart Connections is UI-only
-            full_text_search=rest_ok,    # Local REST API: /search/simple/
-            transcript_hydration=False,
-        )
 
     def on_bead_written(self, bead):
         # Write {bead_id}.md to self._vault / self._subfolder /
@@ -552,16 +559,7 @@ class ObsidianGraphBackend:
         # Do NOT delete the file — retraction is part of the audit trail.
         ...
 
-    def search_candidates(self, *, query_text, query_vec=None, filters=None, limit=24):
-        # Requires rest_api_url set and Local REST API plugin running.
-        # GET /search/simple/?query={query_text}&contextLength=100
-        # Map results to our bead-shape dicts by extracting frontmatter id field.
-        ...
-
-    def traverse(self, seed_ids, edge_types, max_hops, max_chains=5):
-        raise NotImplementedError  # No programmatic graph traversal in Obsidian
-
-    def sync_from_storage(self, storage, *, dry_run=False):
+    def sync_from_storage(self, beads, associations):
         # Iterate all beads → on_bead_written. Then all associations → on_association_written.
         # Idempotent: overwrite existing files (content-idempotent via deterministic format).
         ...
@@ -570,9 +568,8 @@ class ObsidianGraphBackend:
 **Obsidian Local REST API plugin** ([obsidian-local-rest-api](https://github.com/coddingtonbear/obsidian-local-rest-api)):
 enables `GET /search/simple/`, `GET /vault/{filename}`, `PUT /vault/{filename}`.
 This is the only mechanism for programmatic read-back; it requires the plugin to be
-installed and running. `capabilities()` probes it at startup and on each health-TTL
-expiry. If the plugin is absent, `full_text_search=False` and `ObsidianGraphBackend`
-is write-only (still useful for the human-browsable graph).
+installed and running. If the plugin is absent, `ObsidianSyncTarget` is write-only
+(still useful for the human-browsable graph).
 
 **File naming and collision avoidance:** bead IDs are UUIDs; filenames are
 `{bead_id}.md`. No collision possible. The subfolder default is `core-memory/` inside
@@ -595,10 +592,11 @@ sub-phase adds the capability.
 ```python
 # core_memory/persistence/graph/factory.py
 import os
+from pathlib import Path
 from typing import Callable
 
 from .protocol import GraphBackend
-from .null import NullGraphBackend
+from .protocol import NullGraphBackend
 
 _PROVIDERS: dict[str, Callable[[], GraphBackend]] = {
     "none": NullGraphBackend,
@@ -612,39 +610,28 @@ def register_graph_backend(name: str, factory: Callable[[], GraphBackend]) -> No
 
 
 def create_graph_backend() -> GraphBackend:
-    name = (os.environ.get("CORE_MEMORY_GRAPH_BACKEND") or "none").strip().lower()
+    name = (os.environ.get("CORE_MEMORY_GRAPH_BACKEND") or "kuzu").strip().lower()
     factory = _PROVIDERS.get(name)
-    if factory is None:
-        # Unknown provider: log warning, return null. Never raise at module import.
-        return NullGraphBackend()
-    try:
-        return factory()
-    except Exception:
-        # Provider construction failed (missing dep, bad config). Degrade.
-        return NullGraphBackend()
+    if factory is not None:
+        try:
+            return factory()
+        except Exception:
+            return NullGraphBackend()
 
+    if name == "kuzu":
+        from .kuzu_backend import KuzuGraphBackend
+        return KuzuGraphBackend(Path(".beads/kuzu"))
 
-# First-party providers register themselves at import time, but the import is lazy.
-def _register_first_party() -> None:
-    try:
-        from .neo4j_backend import Neo4jGraphBackend, neo4j_factory
-        register_graph_backend("neo4j", neo4j_factory)
-    except ImportError:
-        pass
-    try:
-        from .graphiti_backend import GraphitiGraphBackend, graphiti_factory, zep_factory
-        register_graph_backend("graphiti", graphiti_factory)
-        register_graph_backend("zep", zep_factory)   # alias: same class, hosted deployment
-    except ImportError:
-        pass
-    try:
-        from .obsidian_backend import ObsidianGraphBackend, obsidian_factory
-        register_graph_backend("obsidian", obsidian_factory)
-    except ImportError:
-        pass
+    if name == "neo4j":
+        from .neo4j_backend import Neo4jGraphBackend
+        return Neo4jGraphBackend.from_env()
 
+    if name in {"graphiti", "zep"}:
+        from .graphiti_backend import GraphitiGraphBackend
+        deployment = "hosted" if name == "zep" else "local"
+        return GraphitiGraphBackend.from_env(deployment=deployment)
 
-_register_first_party()
+    return NullGraphBackend()
 ```
 
 Each provider module is gated behind its optional dependency. Missing `neo4j` package?
@@ -740,7 +727,7 @@ degradation without crashing.
 ## Bulk sync CLI
 
 ```
-$ core-memory graph-sync --provider=neo4j --root=. [--dry-run]
+$ CORE_MEMORY_GRAPH_BACKEND=neo4j core-memory graph backend-sync --root=. [--dry-run]
 ```
 
 ```python
@@ -764,9 +751,9 @@ time the local projection diverges from the graph backend (after a `rebuild-proj
 ## Configuration surface
 
 ```
-# Provider selection (default: none → NullGraphBackend, zero deps)
+# Provider selection (default: kuzu → embedded graph backend, zero server ops)
 # "zep" is an alias for graphiti with deployment=hosted
-CORE_MEMORY_GRAPH_BACKEND = none | neo4j | graphiti | zep | obsidian | <custom>
+CORE_MEMORY_GRAPH_BACKEND = kuzu | none | neo4j | graphiti | zep | <custom>
 
 # Neo4j (used by neo4j backend; also reused by graphiti in self-hosted mode)
 CORE_MEMORY_NEO4J_URI        = bolt://localhost:7687
@@ -874,27 +861,28 @@ modules.
 
 | Sub-phase | Deliverable                                                                        | Gate            |
 |-----------|------------------------------------------------------------------------------------|-----------------|
-| **7a**    | `persistence/graph/` package skeleton: `GraphBackend` protocol + `NullGraphBackend` + factory (`create_graph_backend`) + retrieval pipeline wiring. Behavior unchanged (null → all-False). | Phase 6 done |
+| **7a**    | `persistence/graph/` package skeleton: `GraphBackend` protocol + `NullGraphBackend` + factory (`create_graph_backend`) + retrieval pipeline wiring. | Phase 6 done |
 | **7b**    | `Neo4jGraphBackend.traverse()` + `health()` + `capabilities()`. Read-side only. Reuses existing `Neo4jClient`. Live tests gated behind `@pytest.mark.neo4j`. | 7a |
 | **7c**    | Write-side hook (`on_bead_written`, `on_association_written`) on `Neo4jGraphBackend`. Migrates `sync_to_neo4j` in-pipeline callers to the hook. | 7b |
-| **7d**    | `core-memory graph-sync` CLI. Bulk backfill from local storage. Idempotent. | 7c |
+| **7d**    | `core-memory graph backend-sync` CLI. Bulk backfill from local storage. Idempotent. | 7c |
 | **7e**    | `GraphitiGraphBackend` — Mode B (explicit schema, no LLM). Self-hosted deployment. `traverse()` via Graphiti's Neo4j driver, `search_candidates` via `graphiti.search()`. | 7c |
 | **7f**    | `GraphitiGraphBackend` — hosted deployment (Zep Cloud). Registered as `"zep"` alias. Same class, `CORE_MEMORY_GRAPHITI_DEPLOYMENT=hosted` switches transport to Zep HTTPS. | 7e |
 | **7g**    | `GraphitiGraphBackend` Mode A — LLM extraction (`add_episode`). Behind `CORE_MEMORY_GRAPHITI_MODE=extracted`. Documents cost. | 7f |
-| **7h**    | `ObsidianGraphBackend` — write `.md` files + wikilinks. Read via Local REST API if present. | 7d |
+| **7h**    | `ObsidianSyncTarget` — write `.md` files + wikilinks. Read via Local REST API if present. | 7d |
 | **7i**    | Document the plugin API for third-party providers (`register_graph_backend`). | 7h |
 
-Each sub-phase is independently shippable. 7a alone makes the existing Python fallback
-the explicit default with no behavior change. 7b makes Neo4j production-useful for
-traversal. 7c and 7d close the write loop. 7e–7g deliver Graphiti (self-hosted then
-hosted then LLM mode). 7h adds Obsidian. 7i is documentation only.
+Each sub-phase is independently shippable. 7a introduces the fallback provider and
+factory. 7b makes Neo4j production-useful for traversal. 7c and 7d close the write
+loop. 7e–7g deliver Graphiti (self-hosted then hosted then LLM mode). 7h adds
+Obsidian as a sync target. 7i is documentation only.
 
 ---
 
 ## Backwards compatibility and migration
 
-- **No env var set → no change.** `NullGraphBackend` is the default. Existing users
-  see identical behavior. No new dependencies are required at install time.
+- **No env var set → embedded graph.** `KuzuGraphBackend` is the default. Existing
+  users can set `CORE_MEMORY_GRAPH_BACKEND=none` to force `NullGraphBackend`.
+  No server dependency is required at install time.
 - **Existing Neo4j users.** Today they call `sync_to_neo4j` from their own code or via
   a periodic job. Phase 7c moves this to a write-side hook, but the standalone
   `sync_to_neo4j` function is retained as a thin wrapper around

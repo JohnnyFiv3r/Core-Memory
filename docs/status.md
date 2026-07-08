@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-07-07
+**Last updated:** 2026-07-08
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
