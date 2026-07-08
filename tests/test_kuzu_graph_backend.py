@@ -4,11 +4,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 try:
     import kuzu  # noqa: F401
     _KUZU_AVAILABLE = True
 except ImportError:
     _KUZU_AVAILABLE = False
+
+pytestmark = [pytest.mark.optional_backend, pytest.mark.kuzu]
 
 
 @unittest.skipUnless(_KUZU_AVAILABLE, "kuzu not installed")

@@ -328,6 +328,16 @@ python3 -c "import core_memory; print('core_memory import ok')"
 pytest
 ```
 
+For a core-deps-only run that matches CI and avoids optional backend/live
+integration skips:
+
+```bash
+pytest tests/ -m "not optional_backend and not neo4j_live" -x -q --tb=short
+```
+
+Optional backend coverage is exercised by the all-extras CI job. Live Neo4j
+coverage is kept in the explicit `neo4j_live` workflow lane.
+
 Useful docs:
 
 [CONTRIBUTING.md](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/CONTRIBUTING.md)

@@ -11,6 +11,7 @@ import pytest
 
 pytestmark = [
     pytest.mark.neo4j,
+    pytest.mark.neo4j_live,
     pytest.mark.skipif(
         not os.environ.get("NEO4J_URI"),
         reason="NEO4J_URI not set — live Neo4j test skipped",

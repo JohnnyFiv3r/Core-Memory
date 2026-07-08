@@ -18,6 +18,11 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+import pytest
+
+pytestmark = [pytest.mark.optional_backend, pytest.mark.qdrant, pytest.mark.kuzu]
+
+
 def _retract_bead(root: str, bead_id: str) -> None:
     """Mark a bead as retracted in index.json and every session JSONL that contains it.
 
