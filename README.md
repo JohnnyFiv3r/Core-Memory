@@ -196,13 +196,12 @@ First-run recall quality with no semantic backend: keyword matches only, no simi
 
 **Multi-Store Fan-Out** *(experimental)*
 
-Core Memory can fan out recall queries to Ragie and PipeHouse in parallel and merge the evidence:
+Core Memory can fan out recall queries to PipeHouse and merge external evidence:
 
 | Env var | Purpose |
 |---|---|
-| `CORE_MEMORY_RAGIE_API_KEY` | Enables Ragie evidence retrieval |
 | `CORE_MEMORY_PIPEHOUSE_URL` | Enables PipeHouse evidence retrieval |
-| `CORE_MEMORY_STORE_WEIGHTS` | Comma-separated weights for `core_memory,ragie,pipehouse` (default `1.0,1.0,1.0`) |
+| `CORE_MEMORY_STORE_WEIGHTS` | Comma-separated weights for `core_memory,pipehouse` (default `1.0,1.0`) |
 
 Fan-out is skipped when none of these are set. Results are normalized, weighted, and merged into the standard `RecallResult`.
 

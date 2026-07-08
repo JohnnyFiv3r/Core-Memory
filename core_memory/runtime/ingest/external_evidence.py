@@ -2,7 +2,7 @@
 
 This path writes semantic memory anchors, not raw source replicas. Source bodies,
 document chunks, relational rows, and binary media remain in caller-owned stores
-such as Ragie, Snowflake, Supabase, or another hydration backend.
+such as object storage, Snowflake, Supabase, or another hydration backend.
 """
 from __future__ import annotations
 
@@ -207,7 +207,7 @@ def _find_existing_external_bead(store: MemoryStore, payload: dict[str, Any], be
     source_event_id = _clean_str(payload.get("source_event_id"))
     source_id = _clean_str(payload.get("source_id"))
     source_record_id = _clean_str(payload.get("source_record_id"))
-    document_id = _clean_str(payload.get("document_id") or payload.get("ragie_document_id"))
+    document_id = _clean_str(payload.get("document_id"))
     document_scope_key = _document_scope_key(payload) if bead_type == "document_reference" else ()
     transcript_id = _clean_str(payload.get("transcript_id") or payload.get("conversation_id"))
 

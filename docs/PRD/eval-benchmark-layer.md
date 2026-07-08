@@ -80,7 +80,7 @@ regressions. This means:
 - Custom benchmark formats — use LoCoMo fixtures as-is
 - LLM-as-judge scoring — string-match and overlap-based scoring only in the first cut
 - Semantic scoring (embedding similarity between generated answer and gold) — additive later
-- Eval against Ragie or PipeHouse (Core Memory recall only in this slice)
+- Eval against external fan-out stores (Core Memory recall only in this slice)
 
 ---
 

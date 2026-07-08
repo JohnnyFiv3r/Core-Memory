@@ -14,6 +14,7 @@ from core_memory.runtime.ingest.external_evidence import (
     ingest_structured_observation,
     resolve_external_bead_type,
 )
+from core_memory.runtime.ingest.source_envelope import normalize_source_ingest_envelope
 from core_memory.schema.models import Bead, BeadType
 from core_memory.schema.normalization import is_allowed_bead_type
 
@@ -181,6 +182,24 @@ class TestExternalEvidenceIngest(unittest.TestCase):
                 ingest_document_reference(td, payload, session_id="external-source")
             self.assertIn("document_id or raw_source_object_id", str(ctx.exception))
             self.assertFalse((Path(td) / ".beads" / "index.json").exists())
+
+    def test_source_ingest_envelope_ignores_legacy_ragie_document_id_for_new_inputs(self):
+        payload = _document_payload(
+            document_id="",
+            raw_source_object_id="",
+            ragie_document_id="legacy-ragie-doc",
+        )
+        envelope = normalize_source_ingest_envelope(
+            payload,
+            bead_type="document_reference",
+            source_kind="document",
+        )
+
+        self.assertNotEqual("legacy-ragie-doc", envelope.get("source_object_id"))
+        self.assertNotEqual(
+            "legacy-ragie-doc",
+            (envelope.get("parent_artifact") or {}).get("document_id"),
+        )
 
     def test_document_reference_matches_historical_ragie_document_id(self):
         with tempfile.TemporaryDirectory() as td:
