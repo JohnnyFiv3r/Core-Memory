@@ -8,10 +8,13 @@ on:
       - "docs/**"
       - "README.md"
       - "CLAUDE.md"
+      - "pyproject.toml"
       - "scripts/check_architecture_guards.py"
+      - "scripts/check_test_suite_health.py"
       - "scripts/architecture_guards_baseline.json"
       - "scripts/compat_surface_usage_baseline.json"
       - "tests/test_architecture_guards.py"
+      - "tests/test_test_suite_health_guard.py"
       - ".github/workflows/architecture-guards.yml"
   pull_request:
     paths:
@@ -19,10 +22,13 @@ on:
       - "docs/**"
       - "README.md"
       - "CLAUDE.md"
+      - "pyproject.toml"
       - "scripts/check_architecture_guards.py"
+      - "scripts/check_test_suite_health.py"
       - "scripts/architecture_guards_baseline.json"
       - "scripts/compat_surface_usage_baseline.json"
       - "tests/test_architecture_guards.py"
+      - "tests/test_test_suite_health_guard.py"
       - ".github/workflows/architecture-guards.yml"
 
 jobs:
@@ -42,8 +48,11 @@ jobs:
       - name: Run compatibility surface usage guard
         run: python scripts/check_architecture_guards.py --compat-baseline scripts/compat_surface_usage_baseline.json --fail-on-new-compat
 
+      - name: Run test suite health guard
+        run: python scripts/check_test_suite_health.py --fail-on-violations
+
       - name: Run architecture guard tests
         run: |
           python -m pip install --upgrade pip
           python -m pip install pytest
-          python -m pytest tests/test_architecture_guards.py -q
+          python -m pytest tests/test_architecture_guards.py tests/test_test_suite_health_guard.py -q
