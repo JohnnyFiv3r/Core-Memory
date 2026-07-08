@@ -4,7 +4,6 @@
       "tests/test_memory_search_tool_wrapper.py": 1
     },
     "memory_store_dream": {
-      "core_memory/cli/handlers/store.py": 1,
       "tests/test_store_dream_bootstrap_ops_delegation.py": 2
     },
     "runtime_event_schemas": {
@@ -30,12 +29,12 @@
     }
   },
   "description": "Compatibility-surface usage ratchet. Counts are allowed current first-party references, grouped by surface and path; new or increased counts are drift.",
-  "generated_at": "2026-07-08T15:11:40.680463+00:00",
+  "generated_at": "2026-07-08T15:29:51.285447+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.compat_surface_usage_baseline.v1",
   "surface_totals": {
     "memory_search_wrapper": 1,
-    "memory_store_dream": 3,
+    "memory_store_dream": 2,
     "runtime_event_schemas": 4,
     "runtime_semantic_tasks": 4,
     "typed_search_form_submission": 13

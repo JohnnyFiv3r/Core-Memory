@@ -33,6 +33,16 @@ class TestCliHandlerModulesSlice51A(unittest.TestCase):
         self.assertTrue(handled)
         memory.add_bead.assert_called_once()
 
+    def test_store_handler_routes_dream_to_runtime_analysis(self):
+        memory = Mock()
+        args = SimpleNamespace(command="dream", novel_only=True, seen_window_runs=2, max_exposure=1)
+        expected = [{"relationship": "supports"}]
+        with patch("core_memory.cli.handlers.store.run_analysis", return_value=expected) as stub, patch("builtins.print"):
+            handled = handle_store_commands(args=args, memory=memory, doctor_report=lambda _r: {"ok": True})
+        self.assertTrue(handled)
+        stub.assert_called_once_with(store=memory, novel_only=True, seen_window_runs=2, max_exposure=1)
+        self.assertFalse(memory.dream.called)
+
     def test_graph_handler_unknown_prints_help(self):
         memory = Mock()
         parser = Mock()

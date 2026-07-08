@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Callable
 
 from core_memory.runtime.engine import process_flush
+from core_memory.runtime.dreamer.analysis import run_analysis
 from core_memory.write_pipeline.orchestrate import run_rolling_window_pipeline
 from core_memory.policy.incidents import tag_incident, tag_topic_key
 from core_memory.policy.hygiene import curated_type_title_hygiene
@@ -84,7 +85,8 @@ def handle_store_commands(*, args: Any, memory: Any, doctor_report: Callable[[st
         return True
 
     if cmd == "dream":
-        results = memory.dream(
+        results = run_analysis(
+            store=memory,
             novel_only=args.novel_only,
             seen_window_runs=args.seen_window_runs,
             max_exposure=args.max_exposure,

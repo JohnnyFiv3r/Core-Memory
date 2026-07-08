@@ -863,6 +863,50 @@ class TestCausalContinuityT1(unittest.TestCase):
         self.assertEqual(2, report["determinism"]["run_count"])
         self.assertTrue(report["runs"][0]["ordered_topk"])
 
+    def test_reproducibility_topk_ignores_non_selected_trace_tail_noise(self):
+        from benchmarks.causal_continuity.reproducibility import _t5_ordered_outputs
+
+        report = {
+            "tasks": {
+                "t5_thread_fidelity": {
+                    "cases": [
+                        {
+                            "case_id": "case-1",
+                            "bead_key_by_id": {
+                                "bead-a": "cache_rollout",
+                                "bead-b": "checkout_latency",
+                                "bead-c": "db_pool_limit",
+                                "bead-d": "pricing_copy",
+                            },
+                            "returned_thread_keys": ["cache_rollout", "checkout_latency", "db_pool_limit"],
+                            "gold_thread_bead_ids": ["bead-a", "bead-b", "bead-c"],
+                            "drift_thread_bead_ids": ["bead-d"],
+                            "loop": {
+                                "steps": [
+                                    {
+                                        "step": 1,
+                                        "trace_anchor_ids": ["bead-c", "bead-a", "bead-b", "bead-d"],
+                                        "trace_ids": ["bead-c", "bead-a", "bead-b", "bead-d"],
+                                        "selected_storyline": {
+                                            "bead_ids": ["bead-a", "bead-b", "bead-c"],
+                                            "bead_keys": ["cache_rollout", "checkout_latency", "db_pool_limit"],
+                                        },
+                                    }
+                                ]
+                            },
+                        }
+                    ]
+                }
+            }
+        }
+
+        out = _t5_ordered_outputs(report)
+
+        self.assertEqual(
+            ["db_pool_limit", "cache_rollout", "checkout_latency"],
+            out[0]["trace_steps"][0]["trace_order"],
+        )
+
     def test_committed_reproducibility_artifacts_are_internally_consistent(self):
         local = json.loads((_REPO / "benchmarks/reports/causal-continuity-local-report.json").read_text(encoding="utf-8"))
         repro = json.loads((_REPO / "benchmarks/reports/causal-continuity-reproducibility.json").read_text(encoding="utf-8"))
