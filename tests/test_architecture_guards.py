@@ -9,6 +9,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_architecture_guards.py"
 BASELINE = ROOT / "scripts" / "architecture_guards_baseline.json"
+COMPAT_BASELINE = ROOT / "scripts" / "compat_surface_usage_baseline.json"
 
 
 def _load_guard_module():
@@ -94,6 +95,49 @@ def test_detects_cleanup_docs_claiming_live_path_has_no_imports(tmp_path: Path):
     assert violations[0].detail["active_path"] == "core_memory/retrieval/vector_backend.py"
 
 
+def test_detects_compat_surface_usage(tmp_path: Path):
+    _write(
+        tmp_path / "tests" / "test_new_semantic_task.py",
+        "from core_memory.runtime.semantic_tasks import SemanticTaskResult\n",
+    )
+    _write(
+        tmp_path / "core_memory" / "integrations" / "bridge.py",
+        "payload = {'form_submission': {'query_text': 'policy'}}\n",
+    )
+
+    violations = guards.check_compat_surface_usage(tmp_path)
+
+    surfaces = {v.detail["surface_key"] for v in violations}
+    assert surfaces == {"runtime_semantic_tasks", "typed_search_form_submission"}
+
+
+def test_compat_baseline_allows_reductions_but_fails_increases(tmp_path: Path):
+    _write(
+        tmp_path / "tests" / "test_search.py",
+        "\n".join(
+            [
+                "payload = {'form_submission': {'query_text': 'policy'}}",
+                "other = {'form_submission': {'query_text': 'claim'}}",
+            ]
+        )
+        + "\n",
+    )
+    violations = guards.check_compat_surface_usage(tmp_path)
+    baseline = {
+        "allowed_counts": {
+            "typed_search_form_submission": {
+                "tests/test_search.py": 1,
+                "tests/removed.py": 1,
+            }
+        }
+    }
+
+    new, resolved = guards.compare_compat_to_baseline(violations, baseline)
+
+    assert [v.line for v in new] == [2]
+    assert resolved == ["typed_search_form_submission:tests/removed.py:1"]
+
+
 def test_current_baseline_has_no_new_architecture_drift():
     result = subprocess.run(
         [
@@ -102,6 +146,25 @@ def test_current_baseline_has_no_new_architecture_drift():
             "--baseline",
             str(BASELINE),
             "--fail-on-new",
+            "--json",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_current_compat_surface_baseline_has_no_new_drift():
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--compat-baseline",
+            str(COMPAT_BASELINE),
+            "--fail-on-new-compat",
             "--json",
         ],
         cwd=ROOT,

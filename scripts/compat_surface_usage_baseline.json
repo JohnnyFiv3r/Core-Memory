@@ -1,0 +1,60 @@
+{
+  "allowed_counts": {
+    "memory_search_wrapper": {
+      "tests/test_memory_search_smoke_eval.py": 1,
+      "tests/test_memory_search_tool_wrapper.py": 1
+    },
+    "memory_store_dream": {
+      "core_memory/cli/handlers/store.py": 1,
+      "tests/test_store_dream_bootstrap_ops_delegation.py": 2
+    },
+    "runtime_event_schemas": {
+      "docs/PRD/09-structural-consolidation.md": 2,
+      "tests/test_event_import_migration_guard.py": 1,
+      "tests/test_flush_report_artifact.py": 1
+    },
+    "runtime_semantic_tasks": {
+      "docs/PRD/agentic-semantic-task-runtime.md": 1,
+      "tests/test_adapter_boundary_pydanticai.py": 3,
+      "tests/test_association_coverage.py": 1,
+      "tests/test_bead_field_judge.py": 1,
+      "tests/test_bead_typing_semantic_task.py": 2,
+      "tests/test_causal_recall_pipeline.py": 2,
+      "tests/test_dreamer_research.py": 3,
+      "tests/test_pydanticai_semantic_tasks.py": 2,
+      "tests/test_rationale_extraction.py": 1,
+      "tests/test_recording_source_attribution_e2e.py": 1,
+      "tests/test_remote_semantic_tasks.py": 2,
+      "tests/test_semantic_task_boundary_compat.py": 3,
+      "tests/test_semantic_task_contracts.py": 1,
+      "tests/test_semantic_task_runtime.py": 3,
+      "tests/test_semantic_task_verifier.py": 4,
+      "tests/test_soul_proposal_semantic_task.py": 3
+    },
+    "typed_search_form_submission": {
+      "core_memory/integrations/http/server.py": 2,
+      "core_memory/integrations/openclaw/read_bridge.py": 1,
+      "core_memory/retrieval/tools/memory.py": 3,
+      "docs/contracts/http_api.v1.json": 1,
+      "docs/integrations/openclaw/api-reference.md": 1,
+      "docs/integrations/springai/api-reference.md": 1,
+      "docs/public_surface.md": 1,
+      "tests/test_http_ingress.py": 4,
+      "tests/test_memory_search_request_canonical.py": 1,
+      "tests/test_openclaw_read_bridge.py": 1,
+      "tests/test_retrieval_e2e_qdrant_kuzu.py": 1,
+      "tests/test_semantic_required_mode_contract.py": 2
+    }
+  },
+  "description": "Compatibility-surface usage ratchet. Counts are allowed current first-party references, grouped by surface and path; new or increased counts are drift.",
+  "generated_at": "2026-07-08T14:09:33.112909+00:00",
+  "repo_root": ".",
+  "schema_version": "core_memory.compat_surface_usage_baseline.v1",
+  "surface_totals": {
+    "memory_search_wrapper": 2,
+    "memory_store_dream": 3,
+    "runtime_event_schemas": 4,
+    "runtime_semantic_tasks": 33,
+    "typed_search_form_submission": 19
+  }
+}

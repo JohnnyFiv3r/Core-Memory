@@ -23,7 +23,9 @@ from urllib.parse import unquote, urlsplit
 
 
 SCHEMA_VERSION = "core_memory.architecture_guards.v1"
+COMPAT_SCHEMA_VERSION = "core_memory.compat_surface_usage_baseline.v1"
 DEFAULT_BASELINE = Path("scripts/architecture_guards_baseline.json")
+DEFAULT_COMPAT_BASELINE = Path("scripts/compat_surface_usage_baseline.json")
 
 LAYER_RANK: dict[str, int] = {
     "schema": 0,
@@ -99,6 +101,82 @@ SAFE_LIVE_WORDS = re.compile(
     re.IGNORECASE,
 )
 MARKDOWN_LINK_RE = re.compile(r"(!?\[[^\]]*\]\(([^)]+)\))")
+
+COMPAT_SCAN_ROOTS = (
+    "core_memory",
+    "tests",
+    "docs",
+    "scripts",
+    ".github",
+    "demo",
+)
+
+COMPAT_SCAN_SUFFIXES = {
+    ".cfg",
+    ".ini",
+    ".js",
+    ".json",
+    ".md",
+    ".py",
+    ".toml",
+    ".ts",
+    ".yaml",
+    ".yml",
+}
+
+COMPAT_SCAN_SKIP_PATHS = {
+    "docs/cleanup-plan.md",
+    "docs/compatibility_ledger.md",
+    "docs/PRD/README.md",
+    "docs/status.md",
+    "scripts/architecture_guards_baseline.json",
+    "scripts/check_architecture_guards.py",
+    "scripts/compat_surface_usage_baseline.json",
+    "tests/test_architecture_guards.py",
+}
+
+COMPAT_SCAN_SKIP_PREFIXES = {
+    "core_memory/runtime/semantic_tasks/",
+    "docs/archive/",
+    "docs/reports/",
+}
+
+COMPAT_SURFACES: dict[str, dict[str, object]] = {
+    "runtime_semantic_tasks": {
+        "label": "runtime semantic-task compatibility facades",
+        "pattern": re.compile(
+            r"\bcore_memory\.runtime\.semantic_tasks\b|runtime/semantic_tasks"
+        ),
+        "skip_prefixes": ("core_memory/runtime/semantic_tasks/",),
+    },
+    "typed_search_form_submission": {
+        "label": "typed-search form_submission request alias",
+        "pattern": re.compile(r"\bform_submission\b"),
+        "skip_paths": (),
+    },
+    "memory_search_wrapper": {
+        "label": "retrieval tools memory_search.py wrapper",
+        "pattern": re.compile(
+            r"\bcore_memory\.retrieval\.tools\.memory_search\b|"
+            r"core_memory/retrieval/tools/memory_search\.py"
+        ),
+        "skip_paths": ("core_memory/retrieval/tools/memory_search.py",),
+    },
+    "memory_store_dream": {
+        "label": "MemoryStore.dream legacy bridge",
+        "pattern": re.compile(r"\bMemoryStore\.dream\b|\.dream\("),
+        "skip_paths": ("core_memory/persistence/store.py",),
+    },
+    "runtime_event_schemas": {
+        "label": "runtime event schema compatibility import path",
+        "pattern": re.compile(
+            r"\bcore_memory\.runtime\.event_schemas\b|"
+            r"from\s+core_memory\.runtime\s+import\s+event_schemas|"
+            r"runtime/event_schemas\.py"
+        ),
+        "skip_paths": ("core_memory/runtime/event_schemas.py",),
+    },
+}
 
 
 @dataclass(frozen=True)
@@ -403,6 +481,81 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
     return sorted(violations, key=lambda v: v.id)
 
 
+def _is_compat_scan_path(path: Path, root: Path) -> bool:
+    rel = _relative(path, root)
+    if path.suffix not in COMPAT_SCAN_SUFFIXES:
+        return False
+    if rel in COMPAT_SCAN_SKIP_PATHS:
+        return False
+    if any(rel.startswith(prefix) for prefix in COMPAT_SCAN_SKIP_PREFIXES):
+        return False
+    return True
+
+
+def _iter_compat_scan_files(root: Path) -> Iterable[Path]:
+    for scan_root in COMPAT_SCAN_ROOTS:
+        base = root / scan_root
+        if not base.exists():
+            continue
+        if base.is_file():
+            if _is_compat_scan_path(base, root):
+                yield base
+            continue
+        for path in sorted(base.rglob("*")):
+            if path.is_file() and _is_compat_scan_path(path, root):
+                yield path
+
+
+def _surface_skips_path(surface: dict[str, object], rel: str) -> bool:
+    skip_paths = tuple(str(item) for item in surface.get("skip_paths", ()))
+    if rel in skip_paths:
+        return True
+    skip_prefixes = tuple(str(item) for item in surface.get("skip_prefixes", ()))
+    return any(rel.startswith(prefix) for prefix in skip_prefixes)
+
+
+def check_compat_surface_usage(root: Path) -> list[Violation]:
+    """Find first-party references to compatibility surfaces under governance.
+
+    This is intentionally separate from architecture debt: public compatibility
+    facades can remain, but new first-party reliance on them should not grow
+    while the cleanup closeout train migrates callers to canonical paths.
+    """
+
+    violations: list[Violation] = []
+    for path in _iter_compat_scan_files(root):
+        rel = _relative(path, root)
+        try:
+            lines = path.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            continue
+        for surface_key, surface in sorted(COMPAT_SURFACES.items()):
+            if _surface_skips_path(surface, rel):
+                continue
+            pattern = surface["pattern"]
+            search = getattr(pattern, "search")
+            label = str(surface["label"])
+            for lineno, line in enumerate(lines, start=1):
+                if not search(line):
+                    continue
+                violation_id = f"compat_surface_usage:{surface_key}:{rel}:{lineno}"
+                violations.append(
+                    Violation(
+                        check="compat_surface_usage",
+                        id=violation_id,
+                        path=rel,
+                        line=lineno,
+                        message=f"{rel} references {label}",
+                        detail={
+                            "surface_key": surface_key,
+                            "surface_label": label,
+                            "line": line.strip(),
+                        },
+                    )
+                )
+    return sorted(violations, key=lambda v: (v.detail.get("surface_key", ""), v.path, v.line))
+
+
 def collect_violations(root: Path) -> list[Violation]:
     violations: list[Violation] = []
     violations.extend(check_upward_imports(root))
@@ -422,6 +575,36 @@ def make_baseline(root: Path, violations: list[Violation]) -> dict:
     }
 
 
+def _compat_counts(violations: list[Violation]) -> dict[str, dict[str, int]]:
+    counts: dict[str, dict[str, int]] = {}
+    for violation in violations:
+        surface_key = violation.detail.get("surface_key", "unknown")
+        surface_counts = counts.setdefault(surface_key, {})
+        surface_counts[violation.path] = surface_counts.get(violation.path, 0) + 1
+    return {
+        surface: dict(sorted(path_counts.items()))
+        for surface, path_counts in sorted(counts.items())
+    }
+
+
+def make_compat_baseline(root: Path, violations: list[Violation]) -> dict:
+    counts = _compat_counts(violations)
+    return {
+        "schema_version": COMPAT_SCHEMA_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "repo_root": ".",
+        "description": (
+            "Compatibility-surface usage ratchet. Counts are allowed current "
+            "first-party references, grouped by surface and path; new or "
+            "increased counts are drift."
+        ),
+        "allowed_counts": counts,
+        "surface_totals": {
+            surface: sum(path_counts.values()) for surface, path_counts in counts.items()
+        },
+    }
+
+
 def load_baseline(path: Path) -> dict:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -434,6 +617,35 @@ def compare_to_baseline(violations: list[Violation], baseline: dict) -> tuple[li
     new_ids = sorted(set(current_by_id) - baseline_ids)
     resolved_ids = sorted(baseline_ids - set(current_by_id))
     return [current_by_id[i] for i in new_ids], resolved_ids
+
+
+def compare_compat_to_baseline(
+    violations: list[Violation],
+    baseline: dict,
+) -> tuple[list[Violation], list[str]]:
+    allowed_counts = baseline.get("allowed_counts") or {}
+    current_counts = _compat_counts(violations)
+    by_surface_path: dict[tuple[str, str], list[Violation]] = {}
+    for violation in violations:
+        surface_key = violation.detail.get("surface_key", "unknown")
+        by_surface_path.setdefault((surface_key, violation.path), []).append(violation)
+
+    new: list[Violation] = []
+    resolved: list[str] = []
+    all_surfaces = sorted(set(allowed_counts) | set(current_counts))
+    for surface_key in all_surfaces:
+        allowed_paths = allowed_counts.get(surface_key, {}) or {}
+        current_paths = current_counts.get(surface_key, {}) or {}
+        all_paths = sorted(set(allowed_paths) | set(current_paths))
+        for path in all_paths:
+            allowed_count = int(allowed_paths.get(path, 0))
+            current_count = int(current_paths.get(path, 0))
+            if current_count > allowed_count:
+                path_violations = by_surface_path.get((surface_key, path), [])
+                new.extend(path_violations[allowed_count:])
+            elif current_count < allowed_count:
+                resolved.append(f"{surface_key}:{path}:{allowed_count - current_count}")
+    return new, resolved
 
 
 def print_report(
@@ -470,12 +682,52 @@ def print_report(
             print(f"- [{violation.check}] {violation.path}:{violation.line} {violation.message}")
 
 
+def print_compat_report(
+    violations: list[Violation],
+    *,
+    new: list[Violation] | None = None,
+    resolved: list[str] | None = None,
+) -> None:
+    counts = _compat_counts(violations)
+
+    print()
+    print("Compatibility surface usage report")
+    print("==================================")
+    for surface_key in sorted(COMPAT_SURFACES):
+        print(f"{surface_key}: {sum(counts.get(surface_key, {}).values())}")
+    print(f"total: {len(violations)}")
+
+    if new is not None:
+        print()
+        print(f"new compatibility usage: {len(new)}")
+        print(f"reduced baseline entries: {len(resolved or [])}")
+
+    if violations and new is None:
+        print()
+        print("Compatibility surface usage:")
+        for violation in violations:
+            print(f"- [{violation.detail.get('surface_key')}] {violation.path}:{violation.line}")
+
+    if new:
+        print()
+        print("New compatibility drift:")
+        for violation in new:
+            print(
+                f"- [{violation.detail.get('surface_key')}] "
+                f"{violation.path}:{violation.line} {violation.message}"
+            )
+
+
+
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=repo_root_from_script())
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
     parser.add_argument("--write-baseline", type=Path)
     parser.add_argument("--fail-on-new", action="store_true")
+    parser.add_argument("--compat-baseline", type=Path, default=DEFAULT_COMPAT_BASELINE)
+    parser.add_argument("--write-compat-baseline", type=Path)
+    parser.add_argument("--fail-on-new-compat", action="store_true")
     parser.add_argument("--json", action="store_true", dest="json_output")
     return parser.parse_args(argv)
 
@@ -484,6 +736,8 @@ def main(argv: list[str] | None = None) -> int:
     args = parse_args(list(argv or sys.argv[1:]))
     root = args.root.resolve()
     violations = collect_violations(root)
+    run_compat_guard = bool(args.write_compat_baseline or args.fail_on_new_compat)
+    compat_violations = check_compat_surface_usage(root) if run_compat_guard else []
 
     if args.write_baseline:
         baseline_path = args.write_baseline
@@ -492,6 +746,16 @@ def main(argv: list[str] | None = None) -> int:
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(
             json.dumps(make_baseline(root, violations), indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+    if args.write_compat_baseline:
+        compat_baseline_path = args.write_compat_baseline
+        if not compat_baseline_path.is_absolute():
+            compat_baseline_path = root / compat_baseline_path
+        compat_baseline_path.parent.mkdir(parents=True, exist_ok=True)
+        compat_baseline_path.write_text(
+            json.dumps(make_compat_baseline(root, compat_violations), indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
 
@@ -506,6 +770,20 @@ def main(argv: list[str] | None = None) -> int:
             return 2
         new, resolved = compare_to_baseline(violations, load_baseline(baseline_path))
 
+    new_compat: list[Violation] | None = None
+    resolved_compat: list[str] | None = None
+    if args.fail_on_new_compat:
+        compat_baseline_path = args.compat_baseline
+        if not compat_baseline_path.is_absolute():
+            compat_baseline_path = root / compat_baseline_path
+        if not compat_baseline_path.exists():
+            print(f"Missing compatibility surface baseline: {compat_baseline_path}", file=sys.stderr)
+            return 2
+        new_compat, resolved_compat = compare_compat_to_baseline(
+            compat_violations,
+            load_baseline(compat_baseline_path),
+        )
+
     if args.json_output:
         payload = {
             "schema_version": SCHEMA_VERSION,
@@ -513,11 +791,23 @@ def main(argv: list[str] | None = None) -> int:
             "new_violations": [v.to_json() for v in new or []],
             "resolved_violation_ids": resolved or [],
         }
+        if run_compat_guard:
+            payload.update(
+                {
+                    "compat_surface_usage": [v.to_json() for v in compat_violations],
+                    "new_compat_surface_usage": [v.to_json() for v in new_compat or []],
+                    "resolved_compat_surface_usage": resolved_compat or [],
+                }
+            )
         print(json.dumps(payload, indent=2, sort_keys=True))
     else:
         print_report(violations, new=new, resolved=resolved)
+        if args.fail_on_new_compat or args.write_compat_baseline:
+            print_compat_report(compat_violations, new=new_compat, resolved=resolved_compat)
 
     if args.fail_on_new and new:
+        return 1
+    if args.fail_on_new_compat and new_compat:
         return 1
     return 0
 
