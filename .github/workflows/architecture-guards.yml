@@ -10,6 +10,7 @@ on:
       - "CLAUDE.md"
       - "scripts/check_architecture_guards.py"
       - "scripts/architecture_guards_baseline.json"
+      - "scripts/compat_surface_usage_baseline.json"
       - "tests/test_architecture_guards.py"
       - ".github/workflows/architecture-guards.yml"
   pull_request:
@@ -20,6 +21,7 @@ on:
       - "CLAUDE.md"
       - "scripts/check_architecture_guards.py"
       - "scripts/architecture_guards_baseline.json"
+      - "scripts/compat_surface_usage_baseline.json"
       - "tests/test_architecture_guards.py"
       - ".github/workflows/architecture-guards.yml"
 
@@ -36,6 +38,9 @@ jobs:
 
       - name: Run architecture guard
         run: python scripts/check_architecture_guards.py --baseline scripts/architecture_guards_baseline.json --fail-on-new
+
+      - name: Run compatibility surface usage guard
+        run: python scripts/check_architecture_guards.py --compat-baseline scripts/compat_surface_usage_baseline.json --fail-on-new-compat
 
       - name: Run architecture guard tests
         run: |
