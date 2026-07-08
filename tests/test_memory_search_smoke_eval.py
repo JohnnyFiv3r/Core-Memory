@@ -2,11 +2,10 @@ import json
 import os
 import tempfile
 import unittest
-from pathlib import Path
 from unittest.mock import patch
 
+import core_memory
 from core_memory.persistence.store import MemoryStore
-from core_memory.retrieval.tools.memory_search import search_typed
 
 
 class TestMemorySearchSmokeEval(unittest.TestCase):
@@ -24,7 +23,7 @@ class TestMemorySearchSmokeEval(unittest.TestCase):
             ]
 
             for sub in cases:
-                out = search_typed(sub, root=td, explain=True)
+                out = core_memory.memory_search(request=sub, root=td, explain=True)
                 self.assertTrue(out.get('ok'))
                 self.assertTrue((out.get('results') or []))
                 self.assertIn(out.get('confidence'), {'high', 'medium', 'low'})

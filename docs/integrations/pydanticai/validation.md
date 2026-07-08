@@ -4,7 +4,7 @@ Status: Canonical
 
 ## Core checks
 ```bash
-python -m unittest tests.test_memory_search_tool_wrapper
+python -m unittest tests.test_package_root_public_surface
 python -m unittest tests.test_memory_execute_contract
 python -m unittest tests.test_pydanticai_adapter
 python -m unittest tests.test_pydanticai_memory_tools
