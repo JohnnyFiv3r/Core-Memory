@@ -232,6 +232,8 @@ def main():
     ops_sub.add_parser("rebuild", help="Rebuild index from events")
     ops_sub.add_parser("archive-index-rebuild", help="Rebuild archive O(1) index")
     ops_sub.add_parser("graph-sync", help="Sync structural pipeline")
+    ops_event_audit = ops_sub.add_parser("event-schema-audit", help="Read-only audit of persisted event schema rows")
+    ops_event_audit.add_argument("--limit", type=int, default=100, help="Maximum canonical/legacy row samples to include")
 
     semantic_parser = subparsers.add_parser("semantic", help="Inspect and operate semantic indexing")
     semantic_sub = semantic_parser.add_subparsers(dest="semantic_cmd")
@@ -523,6 +525,12 @@ def main():
             print(json.dumps(uninstall_payload(client=args.client, dry_run=args.dry_run), indent=2))
             return
         mcp_parser.print_help()
+        return
+
+    if args.command == "event-schema-audit":
+        from core_memory.persistence.event_schema_audit import audit_event_schemas
+
+        print(json.dumps(audit_event_schemas(args.root, limit=getattr(args, "limit", 100)), indent=2))
         return
 
     memory = MemoryStore(root=args.root)
