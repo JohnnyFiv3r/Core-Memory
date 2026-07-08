@@ -80,6 +80,20 @@ def test_detects_cleanup_docs_claiming_existing_debt_was_deleted(tmp_path: Path)
     assert violations[0].detail["active_path"] == "core_memory/graph/api.py"
 
 
+def test_detects_cleanup_docs_claiming_live_path_has_no_imports(tmp_path: Path):
+    active_path = tmp_path / "core_memory" / "retrieval" / "vector_backend.py"
+    _write(active_path, "# live vector backend\n")
+    _write(
+        tmp_path / "docs" / "PRD" / "01-dead-file-removal.md",
+        "- [ ] `core_memory/retrieval/vector_backend.py` -- no imports anywhere\n",
+    )
+
+    violations = guards.check_cleanup_truth(tmp_path)
+
+    assert [v.check for v in violations] == ["cleanup_truth"]
+    assert violations[0].detail["active_path"] == "core_memory/retrieval/vector_backend.py"
+
+
 def test_current_baseline_has_no_new_architecture_drift():
     result = subprocess.run(
         [
