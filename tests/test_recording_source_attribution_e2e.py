@@ -13,7 +13,7 @@ from core_memory.runtime.ingest.external_evidence import (
     ingest_state_assertion,
     ingest_structured_observation,
 )
-from core_memory.runtime.semantic_tasks import ModelProfile, SemanticTaskResult
+from core_memory.schema.semantic_tasks import ModelProfile, SemanticTaskResult
 
 
 class UnavailableSemanticRuntime:

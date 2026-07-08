@@ -5,20 +5,24 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
+from core_memory.persistence.semantic_task_receipts import (
+    list_semantic_task_runs,
+    record_semantic_task_run,
+    summarize_semantic_task_runs,
+)
+from core_memory.policy.semantic_task_runtime import (
+    DisabledSemanticTaskRuntime,
+    ProviderSemanticTaskRuntime,
+    get_semantic_task_runtime,
+    resolve_model_profile,
+    semantic_task_runtime_mode,
+    task_profile,
+)
 from core_memory.provider_config import ProviderConfig
-from core_memory.runtime.semantic_tasks import (
+from core_memory.schema.semantic_tasks import (
     ModelProfile,
     SemanticTaskRequest,
     SemanticTaskResult,
-    get_semantic_task_runtime,
-    list_semantic_task_runs,
-    record_semantic_task_run,
-    resolve_model_profile,
-    semantic_task_runtime_mode,
-    summarize_semantic_task_runs,
-    task_profile,
-)
-from core_memory.runtime.semantic_tasks.contracts import (
     TASK_ASSOCIATION_DECISION,
     TASK_BEAD_FIELD_JUDGE,
     TASK_BEAD_TYPE_CLASSIFIER,
@@ -26,7 +30,6 @@ from core_memory.runtime.semantic_tasks.contracts import (
     TASK_SOUL_PROPOSAL,
     TASK_VERIFIER,
 )
-from core_memory.runtime.semantic_tasks.runtime import DisabledSemanticTaskRuntime, ProviderSemanticTaskRuntime
 
 
 class TestSemanticTaskRuntimeFoundation(unittest.TestCase):

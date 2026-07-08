@@ -4,10 +4,9 @@ import tempfile
 import unittest
 from dataclasses import replace
 
-from core_memory.runtime.semantic_tasks import list_semantic_task_runs
-from core_memory.runtime.semantic_tasks.contracts import SemanticTaskRequest, SemanticTaskResult
-from core_memory.runtime.semantic_tasks.receipts import record_semantic_task_run
-from core_memory.runtime.semantic_tasks.verifier import verify_semantic_task_output
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs, record_semantic_task_run
+from core_memory.policy.semantic_task_verifier import verify_semantic_task_output
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, SemanticTaskResult
 
 
 class FakeVerifierRuntime:

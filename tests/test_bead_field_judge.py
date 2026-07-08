@@ -4,11 +4,12 @@ import unittest
 from unittest.mock import patch
 
 from core_memory.policy.bead_judge import judge_bead_fields
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs
 from core_memory.persistence.store import MemoryStore
 from core_memory.provider_config import ProviderConfig
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.queue.worker import SidecarPolicy
-from core_memory.runtime.semantic_tasks import SemanticTaskResult, list_semantic_task_runs
+from core_memory.schema.semantic_tasks import SemanticTaskResult
 
 
 JUDGED = {

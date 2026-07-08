@@ -6,10 +6,9 @@ import unittest
 from dataclasses import replace
 from unittest.mock import patch
 
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs, record_semantic_task_run
 from core_memory.runtime.dreamer.candidates import _write_candidates
-from core_memory.runtime.semantic_tasks import list_semantic_task_runs
-from core_memory.runtime.semantic_tasks.contracts import SemanticTaskRequest, SemanticTaskResult
-from core_memory.runtime.semantic_tasks.receipts import record_semantic_task_run
+from core_memory.schema.semantic_tasks import SemanticTaskRequest, SemanticTaskResult
 from core_memory.soul.dreamer_bridge import propose_soul_from_dreamer
 from core_memory.soul.store import approve_soul_update, read_soul_file, soul_history
 

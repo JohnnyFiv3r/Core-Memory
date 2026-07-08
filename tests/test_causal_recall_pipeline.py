@@ -6,8 +6,8 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.retrieval.agent import recall
 from core_memory.retrieval.causal_recall import execute_state_packet, extract_source_citations, normalize_recall_hints, should_run_causal_pipeline
 from core_memory.retrieval.pipeline import memory_search_request
-from core_memory.runtime.semantic_tasks import ModelProfile, SemanticTaskResult, list_semantic_task_runs, record_semantic_task_run
-from core_memory.runtime.semantic_tasks.contracts import TASK_CAUSAL_RECALL_EXECUTE
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs, record_semantic_task_run
+from core_memory.schema.semantic_tasks import ModelProfile, SemanticTaskResult, TASK_CAUSAL_RECALL_EXECUTE
 
 
 class UnavailableSemanticRuntime:

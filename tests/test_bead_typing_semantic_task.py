@@ -6,9 +6,9 @@ import unittest
 from unittest.mock import Mock, patch
 
 from core_memory.policy.bead_typing import classify_bead_type, is_retrieval_turn
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs
 from core_memory.provider_config import ProviderConfig
-from core_memory.runtime.semantic_tasks import SemanticTaskResult, list_semantic_task_runs
-from core_memory.runtime.semantic_tasks.contracts import TASK_BEAD_TYPE_CLASSIFIER
+from core_memory.schema.semantic_tasks import SemanticTaskResult, TASK_BEAD_TYPE_CLASSIFIER
 
 
 class UnavailableRuntime:
