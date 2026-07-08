@@ -244,7 +244,7 @@ class TestRetrievalE2EQdrantKuzu(unittest.TestCase):
         with patch.dict(os.environ, _BACKEND_ENV, clear=False):
             _sem_idx._startup_check_done = False
             return memory_tools.search(
-                form_submission={"query_text": query, "intent": "remember", "k": k},
+                request={"query_text": query, "intent": "remember", "k": k},
                 root=self.root,
             )
 

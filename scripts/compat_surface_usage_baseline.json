@@ -25,15 +25,13 @@
       "docs/integrations/openclaw/api-reference.md": 1,
       "docs/integrations/springai/api-reference.md": 1,
       "docs/public_surface.md": 1,
-      "tests/test_http_ingress.py": 4,
+      "tests/test_http_ingress.py": 1,
       "tests/test_memory_search_request_canonical.py": 1,
-      "tests/test_openclaw_read_bridge.py": 1,
-      "tests/test_retrieval_e2e_qdrant_kuzu.py": 1,
-      "tests/test_semantic_required_mode_contract.py": 2
+      "tests/test_openclaw_read_bridge.py": 1
     }
   },
   "description": "Compatibility-surface usage ratchet. Counts are allowed current first-party references, grouped by surface and path; new or increased counts are drift.",
-  "generated_at": "2026-07-08T14:29:24.221236+00:00",
+  "generated_at": "2026-07-08T14:53:27.889969+00:00",
   "repo_root": ".",
   "schema_version": "core_memory.compat_surface_usage_baseline.v1",
   "surface_totals": {
@@ -41,6 +39,6 @@
     "memory_store_dream": 3,
     "runtime_event_schemas": 4,
     "runtime_semantic_tasks": 4,
-    "typed_search_form_submission": 19
+    "typed_search_form_submission": 13
   }
 }

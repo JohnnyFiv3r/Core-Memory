@@ -38,7 +38,7 @@
       "authRequired": "conditional",
       "requestSchema": "MemorySearchRequest",
       "requiredFields": ["request"],
-      "notes": ["`form_submission` accepted as compatibility alias"],
+      "notes": ["`form_submission` accepted as deprecated compatibility alias; use `request` for new callers"],
       "response": {"ok": "bool", "results": "array", "chains": "array", "confidence": "string", "suggested_next": "string", "warnings": "array"},
       "errors": ["401 unauthorized", "503 semantic_backend_unavailable"]
     },

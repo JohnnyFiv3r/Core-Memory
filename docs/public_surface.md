@@ -107,7 +107,9 @@ CLI operators map to these runtime ops:
 - `RecallResult.tier_path` may include both `causal` and `trace` for causal traversal. `causal` is retained as the legacy compatibility tier; `trace` is the canonical tier name for the newer search → trace → state → execute recall pipeline.
 
 Compatibility note:
-- `form_submission` is accepted as an alias for `request` in compatibility callers, but forward docs and adapter contracts should use `request`.
+- `form_submission` is accepted as a deprecated compatibility alias for
+  `request`, but it is not recommended for new callers. Forward docs and adapter
+  contracts should use `request`.
 
 ### Semantic mode contract
 - Query-based anchor lookup uses semantic backend by default.
