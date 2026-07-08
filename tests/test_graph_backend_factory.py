@@ -4,6 +4,8 @@ from __future__ import annotations
 import unittest
 from unittest.mock import patch
 
+import pytest
+
 from core_memory.persistence.graph import NullGraphBackend, create_graph_backend, register_graph_backend
 from core_memory.persistence.graph.factory import _PROVIDERS
 
@@ -15,6 +17,8 @@ except ImportError:
 
 
 class TestCreateGraphBackendEnvRouting(unittest.TestCase):
+    @pytest.mark.optional_backend
+    @pytest.mark.kuzu
     @unittest.skipUnless(_KUZU_AVAILABLE, "kuzu not installed")
     def test_no_env_var_defaults_to_kuzu(self):
         # Default is kuzu (embedded, zero-ops). Empty string behaves the same.

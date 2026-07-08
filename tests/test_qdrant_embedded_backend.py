@@ -5,11 +5,15 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import pytest
+
 try:
     import qdrant_client  # noqa: F401
     _QDRANT_AVAILABLE = True
 except ImportError:
     _QDRANT_AVAILABLE = False
+
+pytestmark = [pytest.mark.optional_backend, pytest.mark.qdrant]
 
 
 @unittest.skipUnless(_QDRANT_AVAILABLE, "qdrant-client not installed")

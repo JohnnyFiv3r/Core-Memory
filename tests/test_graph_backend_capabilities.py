@@ -5,6 +5,10 @@ import time
 import unittest
 from unittest.mock import MagicMock, patch
 
+import pytest
+
+pytestmark = [pytest.mark.optional_backend, pytest.mark.neo4j_pkg]
+
 
 def _make_backend(healthy: bool = True):
     """Create a Neo4jGraphBackend with a mocked driver."""

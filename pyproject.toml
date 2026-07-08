@@ -82,6 +82,11 @@ pythonpath = ["."]
 markers = [
     "facade: tests that import from core_memory.graph.api (targeted for Phase 4 removal)",
     "mixin_assembly: tests that instantiate MemoryStore end-to-end via mixin chain (targeted for Phase 5)",
+    "optional_backend: tests that require an optional backend package or backend combination",
+    "qdrant: tests that require the qdrant-client optional extra",
+    "kuzu: tests that require the kuzu optional extra",
+    "neo4j_pkg: tests that require the neo4j optional package but not a live server",
+    "neo4j_live: tests that require a live Neo4j instance",
     "pydanticai: tests that require the pydanticai optional extra",
     "neo4j: tests that require a live Neo4j instance",
     "graphiti: tests that require graphiti-core installed",
