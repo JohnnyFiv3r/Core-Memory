@@ -43,3 +43,9 @@ demo/memory_store/
 
 # Claude Code session scratch
 .claude/
+
+# Local runtime/dev artifacts (per-tenant/session stores, alt venvs, uv lock)
+.turns/
+.tenants/
+.venv312/
+uv.lock
