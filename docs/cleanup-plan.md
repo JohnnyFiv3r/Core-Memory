@@ -9,6 +9,14 @@ Do not start a phase until the previous one has passed CI.
 
 PRDs for all phases live in `docs/PRD/` and carry codebase-specific implementation detail.
 
+**Closeout status (2026-07-08):** This cleanup workstream is complete at the
+architecture layer. The checked-in architecture guard baseline is zero, the
+compatibility-surface ratchet is active, and remaining public compatibility
+surfaces have moved to the post-cleanup deprecation backlog in
+`docs/compatibility_ledger.md`. Do not treat those backlog entries as cleanup
+debt to delete opportunistically; future removals require the ledger's
+deprecation or breaking-change conditions.
+
 ---
 
 ## Phase 0 — CI + Coverage Baseline
@@ -270,6 +278,8 @@ logic and human output format).
 ## Phase 9 — Structural Consolidation
 
 **PRD:** `docs/PRD/09-structural-consolidation.md`
+**Status:** Complete at the architecture layer; retained public compatibility
+surfaces are governed by `docs/compatibility_ledger.md`.
 
 - [x] **9a — Extract generic feature flags** from `integrations/openclaw_flags.py` into
       `core_memory/config/feature_flags.py`. Only `supersede_openclaw_summary_enabled()`
@@ -312,7 +322,8 @@ logic and human output format).
       > a thinner dispatch layer. That remains future integration API cleanup, not
       > Phase 10 documentation consolidation.
 - [x] **9h — Classify remaining backward-compat shims** — most re-export shims
-      created during Phase 9 structural moves were removed, but this historical
+      created during Phase 9 structural moves were removed. Surviving public
+      compatibility surfaces are now ledgered and ratcheted; this historical
       checklist must not be treated as proof that every listed flat file is gone.
       Full inventory:
 
@@ -333,15 +344,16 @@ logic and human output format).
         ~~`compaction_queue.py`~~, ~~`onboard.py`~~, ~~`read_bridge.py`~~, ~~`runtime.py`~~,
         ~~`openclaw_flags.py`~~
 
-      **From 9d** (15 shims — mostly migrated; retained debt remains):
+      **From 9d** (15 shims — migrated or ledgered):
       - Most `cli_*.py` flat files migrated to the `core_memory/cli/` package.
         `core_memory/cli_handlers_semantic.py` has now been retired; the live
         handler remains `core_memory/cli/handlers/semantic.py`.
 
-      **From 9f** (30 shims — mostly migrated; retained debt may remain):
+      **From 9f** (30 shims — migrated or ledgered):
       - Most `runtime/` root shims migrated to canonical subpackage paths under
-        `runtime/{turn,flush,session,passes,queue,observability}/`. Verify the
-        current tree before claiming any root file is deleted.
+        `runtime/{turn,flush,session,passes,queue,observability}/`. Current
+        retained public compatibility paths are governed by the ledger and
+        compatibility guard.
       - Historical flat-file migration candidates included `cli_compat.py`,
         `cli_diagnostics.py`, `cli_handlers_graph.py`,
         `cli_handlers_integrations.py`, `cli_handlers_metrics.py`,
@@ -349,14 +361,10 @@ logic and human output format).
         `cli_handlers_setup.py`, `cli_handlers_store.py`, `cli_memory_handlers.py`,
         `cli_parser_extended.py`, `cli_parser_memory.py`, `cli_parser_ops.py`
 
-      **From 9f** (30 shims — mostly migrated; verify before deleting):
-      Most `runtime/` root shims migrated to canonical subpackage paths. Verify current
-      tree state before claiming any remaining root file is deleted.
-
-      **Prerequisite:** grep the full repo (tests, docs, external tool scripts) for any
-      import of each old flat path. Update each callsite to the canonical location before
-      deleting. This task should be done as one PR per shim group (9a, 9c, 9d, 9e, 9f) so
-      failures are easy to bisect.
+      **Future removal prerequisite:** grep the full repo (tests, docs, external
+      tool scripts) for any import of each old flat path. Update each callsite
+      to the canonical location before removal. Public compatibility surfaces
+      require the ledger's deprecation or breaking-change conditions first.
 
 **Risk:** Medium per sub-task, high in aggregate. Do one sub-task per PR. Never batch.
 
