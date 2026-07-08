@@ -93,7 +93,7 @@ def add_bead_for_store(
         "core_memory_unifying_id", "hydration_ref", "transcript_id",
         "conversation_id", "source_thread_id", "source_session_id",
         "message_refs", "speaker_refs", "document_id", "raw_source_object_id",
-        "ragie_document_id", "document_name", "mime_type", "document_kind",
+        "document_name", "mime_type", "document_kind",
         "document_date", "author_or_owner", "section_refs", "source_table",
         "source_record_id", "record_action", "record_grain",
         "business_object_type", "business_object_id", "metric_name",

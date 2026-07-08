@@ -7,9 +7,9 @@
 `recall()` stops working that day. Ragie also left a vendor-named field in the bead schema.
 
 **Implementation note:** The live retrieval adapter, API-key flag, and fan-out branch are
-removed. New document-reference writes use `document_id` / `raw_source_object_id`; the
-`ragie_document_id` schema field remains only for historical read tolerance and later
-backfill/removal.
+removed. New document-reference and source-envelope writes use `document_id` /
+`raw_source_object_id`; the `ragie_document_id` schema field remains only for
+historical read tolerance and later backfill/removal.
 
 ---
 
@@ -44,7 +44,7 @@ ability to read historical data.**
 
 ---
 
-## Current state — two Ragie footprints in the engine
+## Pre-removal state — two Ragie footprints in the engine
 
 ### Footprint 1 — the optional retrieval fan-out (delete)
 

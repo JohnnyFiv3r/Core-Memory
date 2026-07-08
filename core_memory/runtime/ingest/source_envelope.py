@@ -56,7 +56,6 @@ def _source_object_id(payload: dict[str, Any], explicit: dict[str, Any]) -> str:
         payload.get("source_record_id"),
         payload.get("business_object_id"),
         payload.get("document_id"),
-        payload.get("ragie_document_id"),
         payload.get("transcript_id"),
         payload.get("conversation_id"),
         payload.get("source_id"),
@@ -196,7 +195,7 @@ def normalize_source_ingest_envelope(
         "hydration_refs": hydration_refs,
         "authority_class": _first_text(explicit.get("authority_class"), payload.get("authority_class"), payload.get("authority")),
         "parent_artifact": explicit.get("parent_artifact") if explicit.get("parent_artifact") not in (None, "", [], {}) else _clean_dict({
-            "document_id": payload.get("document_id") or payload.get("ragie_document_id"),
+            "document_id": payload.get("document_id"),
             "document_name": payload.get("document_name"),
             "raw_source_object_id": payload.get("raw_source_object_id"),
         }),

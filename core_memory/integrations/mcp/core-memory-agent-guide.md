@@ -124,8 +124,9 @@ and accepts optional `decision.reviewer` / `decision.notes` /
 `decision.tombstone_type`. Use `remove_source` for source-deletion cleanup.
 Source cleanup accepts
 `targets.source.selector` for strong matching identifiers (`document_id`,
-`source_ref`, `ragie_document_id`, `raw_source_object_id`, `hydration_ref`,
-`core_memory_unifying_id`) and `targets.source.metadata` for audit-only fields;
+`source_ref`, `raw_source_object_id`, `hydration_ref`,
+`core_memory_unifying_id`, or legacy `ragie_document_id`) and
+`targets.source.metadata` for audit-only fields;
 flat legacy source payloads treat only strong identifiers as selectors.
 Supplying an `idempotency_key` on destructive applies enables replay/conflict
 protection.

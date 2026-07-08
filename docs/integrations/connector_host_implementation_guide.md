@@ -254,8 +254,8 @@ When a source object/file is deleted in the host, call:
 `POST /v1/memory/sources/remove`
 
 with a strong source selector such as `document_id`, `source_ref`,
-`ragie_document_id`, `raw_source_object_id`, `hydration_ref`, or
-`core_memory_unifying_id`. The request defaults to dry-run; set
+`raw_source_object_id`, `hydration_ref`, `core_memory_unifying_id`, or legacy
+`ragie_document_id`. The request defaults to dry-run; set
 `apply=true`, `dry_run=false`, and `authority.mode="event_hook"` when handling
 the host's own deletion event.
 

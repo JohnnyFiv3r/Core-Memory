@@ -32,9 +32,8 @@ CREATE TABLE core_memory_insights (
 
     -- Optional: shared ID for cross-store joins (e.g. "meeting_2026-05-29_vendor-review")
     -- Set this when the insight relates to a meeting/call that also has a Core Memory
-    -- transcript bead and/or a Ragie document. Use the same value on all three sides.
+    -- transcript bead or uploaded document reference. Use the same value on each side.
     -- Core Memory stores this in bead.links["core_memory_unifying_id"].
-    -- Ragie documents store this in document_metadata["core_memory_unifying_id"].
     core_memory_unifying_id TEXT        DEFAULT NULL,
 
     -- Freeform PipeHouse-internal fields; passed through to bead.metadata

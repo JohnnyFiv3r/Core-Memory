@@ -418,18 +418,16 @@ as part of the #14 claim-resolution refactor.
 
 ### #15 — Multi-store recall fan-out (External Memory Runtime)
 
-**Status:** Spec complete; implementation not started  
+**Status:** Complete
 **Blocks:** nothing  
-**Blocked by:** #16 (PipeHouse adapter needs ingest contract first)  
-**Effort:** ~4 days implementation  
+**Blocked by:** #16 (closed)
+**Effort:** shipped
 **Spec:** `docs/PRD/multi-store-recall-fanout.md`
 
-Fan-out `recall()` across Core Memory (causal/transcript), Ragie (multi-modal), and
-PipeHouse (relational data insights). Per-store score normalization, unifying ID
-grouping, degraded-mode handling. Ragie `ScoredChunk` fields confirmed from OpenAPI
-spec: `id`, `score`, `text`, `document_metadata`, `links` (source URLs included in
-retrieve response — no separate call needed). PipeHouse adapter is a placeholder
-until #16 is complete.
+Fan-out `recall()` across Core Memory (causal/transcript) and PipeHouse
+(relational data insights). Shipped behavior includes per-store score
+normalization, unifying ID grouping, degraded-mode handling, and PipeHouse-only
+external evidence retrieval.
 
 ---
 
@@ -490,7 +488,7 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 └── #12 (dreamer themes)  — CLOSED
 
 #16 (external bead ingest contract) — CLOSED
-└── #15 (multi-store fan-out)  ← OPEN
+└── #15 (multi-store fan-out)  — CLOSED
 
 #13 (temporal recall)   — CLOSED
 #9B (enrichment delta)  — CLOSED
@@ -504,4 +502,4 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 | Item | Status | Effort | Notes |
 |------|--------|--------|-------|
-| **#15** multi-store fan-out | Spec complete; implementation not started | ~4d | #16 closed; Ragie adapter spec confirmed |
+| **#15** multi-store fan-out | Complete | shipped | PipeHouse-only fan-out shipped; retired vendor adapter removed |

@@ -180,7 +180,7 @@ HTTP inspect read surfaces:
 HTTP memory management surfaces:
 - `POST /v1/memory/maintain` — unified governed control-plane facade; destructive and mutating actions default to preview unless `apply=true` and `dry_run=false`
 - `POST /v1/memory/beads/remove` — remove explicit bead ids from active projection and prune attached associations; tombstones are honored by `rebuild_index()`
-- `POST /v1/memory/sources/remove` — remove beads matching a strong source identifier such as `document_id`, `source_ref`, `ragie_document_id`, `raw_source_object_id`, or `hydration_ref`; reports preview truncation and removes all matches when applied
+- `POST /v1/memory/sources/remove` — remove beads matching a strong source identifier such as `document_id`, `source_ref`, `raw_source_object_id`, `hydration_ref`, or legacy `ragie_document_id`; reports preview truncation and removes all matches when applied
 
 HTTP external evidence write surfaces:
 - `POST /v1/memory/external-evidence`
