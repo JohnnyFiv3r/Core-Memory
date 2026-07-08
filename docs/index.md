@@ -8,6 +8,7 @@ Use this page as the authoritative map of current docs.
 - [`../README.md`](../README.md)
 - [`reviewers/start-here.md`](reviewers/start-here.md)
 - [`public_surface.md`](public_surface.md)
+- [`test_suite.md`](test_suite.md)
 
 ## Concepts
 - [`concepts/why-core-memory.md`](concepts/why-core-memory.md)

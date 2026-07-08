@@ -1,7 +1,7 @@
 # PRD: CI + Coverage Baseline
 
 **Phase:** 0
-**Status:** Not started
+**Status:** Done
 **Prerequisite:** None — this is the gating phase for all others
 
 ---
@@ -20,14 +20,14 @@ Phase 0 establishes the safety net before any code is touched.
 ## Success criteria
 
 1. `.github/workflows/test.yml` exists and runs on every push and PR.
-2. The `core-only` job installs `pip install -e .` (no extras) and runs `pytest tests/`
-   — proves the package works with zero optional deps.
-3. The `full` job installs `pip install -e ".[all]"` and runs the full suite.
+2. The `core-only` job installs `pip install -e ".[dev]"` and runs the
+   core-deps pytest lane with optional backend/live tests deselected.
+3. The `full` job installs `pip install -e ".[all,dev]"` and runs the suite
+   with optional package-backed tests enabled and live Neo4j tests deselected.
 4. Coverage is collected and uploaded as an artifact (no floor gate).
-5. `pytest.mark.facade` is registered and applied to all tests that import from
-   `core_memory.graph.api` (11 files).
-6. `pytest.mark.mixin_assembly` is registered and applied to tests that exercise
-   `MemoryStore` delegation/mixin assembly (4 files).
+5. `pytest.mark.facade` is registered for graph compatibility/regression tests.
+6. `pytest.mark.mixin_assembly` is registered for MemoryStore public assembly
+   and persistence boundary wiring coverage.
 7. `pytest.mark.pydanticai` is registered; both pydanticai test files gain a
    `skipif` guard so they skip cleanly in the `core-only` job.
 
@@ -67,7 +67,7 @@ jobs:
         with:
           python-version: "3.11"
       - run: pip install -e ".[dev]"
-      - run: pytest tests/ -x -q --tb=short
+      - run: pytest tests/ -m "not optional_backend and not neo4j_live" -x -q --tb=short
 
   full:
     name: "pytest (all extras)"
@@ -79,7 +79,7 @@ jobs:
           python-version: "3.11"
       - run: pip install -e ".[all,dev]"
       - run: pip install pytest-cov
-      - run: pytest tests/ -x -q --tb=short --cov=core_memory --cov-report=xml
+      - run: pytest tests/ -m "not neo4j_live" -x -q --tb=short --cov=core_memory --cov-report=xml
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-report
@@ -94,7 +94,7 @@ jobs:
         with:
           python-version: "3.10"
       - run: pip install -e ".[dev]"
-      - run: pytest tests/ -x -q --tb=short
+      - run: pytest tests/ -m "not optional_backend and not neo4j_live" -x -q --tb=short
 ```
 
 ### 2. Register marks in `pyproject.toml`
@@ -103,8 +103,13 @@ Add to `[tool.pytest.ini_options]`:
 
 ```toml
 markers = [
-    "facade: tests that exercise retained core_memory.graph.api compatibility",
-    "mixin_assembly: tests that instantiate MemoryStore end-to-end via mixin chain (targeted for Phase 5)",
+    "facade: graph compatibility/regression tests covering retained graph public surfaces",
+    "mixin_assembly: tests that exercise MemoryStore public assembly and persistence boundary wiring",
+    "optional_backend: tests that require an optional backend package or backend combination",
+    "qdrant: tests that require the qdrant-client optional extra",
+    "kuzu: tests that require the kuzu optional extra",
+    "neo4j_pkg: tests that require the neo4j optional package but not a live server",
+    "neo4j_live: tests that require a live Neo4j instance",
     "pydanticai: tests that require the pydanticai optional extra",
     "neo4j: tests that require a live Neo4j instance",
 ]

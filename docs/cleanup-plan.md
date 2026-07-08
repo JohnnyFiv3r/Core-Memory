@@ -23,14 +23,16 @@ deprecation or breaking-change conditions.
 
 **Goal:** Make regressions visible before touching anything.
 
-- [x] Add `.github/workflows/test.yml` — runs `pytest tests/` on push/PR, fails on red,
-      installs only required (non-extra) deps so accidental hard-import-of-extra is caught
-- [x] Add a second job in `test.yml` that installs `core-memory[all]` and runs the full suite
+- [x] Add `.github/workflows/test.yml` — runs the core-deps pytest lane on push/PR, fails on red,
+      installs only required (non-extra) deps, and deselects optional backend/live tests
+- [x] Add a second job in `test.yml` that installs `core-memory[all]` and runs the suite
+      with optional package-backed tests enabled and live Neo4j tests deselected
 - [x] Add `pytest-cov` and publish coverage as a step artifact (no floor gate yet; just
       establish baseline)
-- [x] Tag integration tests that exercise the things Phases 4–5 touch:
-      `pytest.mark.facade` for tests that import from `core_memory.graph.api`,
-      `pytest.mark.mixin_assembly` for tests that instantiate `MemoryStore` end-to-end
+- [x] Tag integration tests that exercise compatibility and boundary surfaces:
+      `pytest.mark.facade` for retained graph public-surface compatibility/regression coverage,
+      `pytest.mark.mixin_assembly` for MemoryStore public assembly and persistence boundary wiring,
+      and optional backend markers for package-backed or live integration lanes
 - [x] Add `.github/workflows/architecture-guards.yml` — runs the architecture
       guard and focused guard tests for code, current docs, guard script, and
       guard baseline changes

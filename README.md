@@ -341,6 +341,7 @@ Useful docs:
 
 [CONTRIBUTING.md](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/CONTRIBUTING.md)
 [Public Surface](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/public_surface.md)
+[Test Suite](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/test_suite.md)
 [Index](https://github.com/JohnnyFiv3r/Core-Memory/blob/master/docs/index.md)
 
 ---
