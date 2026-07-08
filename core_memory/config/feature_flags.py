@@ -147,18 +147,16 @@ def claim_retrieval_boost_enabled() -> bool:
     return _env_bool("CORE_MEMORY_CLAIM_RETRIEVAL_BOOST", False)
 
 
-def external_ragie_api_key() -> str:
-    """API key for optional Ragie evidence fan-out in recall()."""
-    return (os.environ.get("CORE_MEMORY_RAGIE_API_KEY") or "").strip()
-
-
 def external_pipehouse_url() -> str:
     """Base URL for optional PipeHouse evidence fan-out in recall()."""
     return (os.environ.get("CORE_MEMORY_PIPEHOUSE_URL") or "").strip()
 
 
 def external_store_weights() -> str:
-    """Comma-separated weights for core_memory,ragie,pipehouse fan-out."""
+    """Comma-separated weights for core_memory,pipehouse fan-out.
+
+    Legacy core_memory,ragie,pipehouse values are accepted by the fan-out parser.
+    """
     return (os.environ.get("CORE_MEMORY_STORE_WEIGHTS") or "").strip()
 
 

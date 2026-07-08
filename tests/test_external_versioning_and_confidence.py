@@ -42,7 +42,7 @@ def _document_payload(**overrides):
         "document_name": "Acme Vendor Contract.pdf",
         "mime_type": "application/pdf",
         "core_memory_unifying_id": "acme_vendor_contract",
-        "hydration_ref": {"store": "ragie", "ref": "ragie_doc_001"},
+        "hydration_ref": {"store": "upload", "ref": "doc_001"},
     }
     payload.update(overrides)
     return payload

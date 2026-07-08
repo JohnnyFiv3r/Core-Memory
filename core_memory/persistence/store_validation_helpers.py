@@ -108,7 +108,7 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
         if not (bead.get("hydration_ref") or {}):
             issues.append("structured_observation:missing_hydration_ref")
     elif t == "document_reference":
-        if not str(bead.get("document_id") or bead.get("ragie_document_id") or "").strip():
+        if not str(bead.get("document_id") or bead.get("raw_source_object_id") or "").strip():
             issues.append("document_reference:missing_document_id")
         if not str(bead.get("document_name") or bead.get("title") or "").strip():
             issues.append("document_reference:missing_document_name")

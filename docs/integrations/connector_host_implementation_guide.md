@@ -131,7 +131,7 @@ All external schemas require `title` and `summary`, and (except
 
 | Schema | Additional required |
 |---|---|
-| `document_reference` | `document_name`, and `document_id` or `ragie_document_id` |
+| `document_reference` | `document_name`, and `document_id` or `raw_source_object_id` |
 | `structured_observation` | `source_table`, `source_record_id`, `as_of_timestamp` (or `observed_at`), `entities` (or `entity_refs`) |
 | `operational_event` | `record_action`, `business_object_id` (or `source_record_id`), `as_of_timestamp`/`occurred_at`/`observed_at`, `entities` (or `entity_refs`) |
 | `transcript` | `message_refs` or `source_turn_ids` |

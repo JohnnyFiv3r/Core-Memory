@@ -1,12 +1,11 @@
-"""Multi-store recall fan-out orchestration (#15).
+"""External recall fan-out orchestration (#15).
 
-Fans out to configured external stores (Ragie, PipeHouse) in parallel, merges
-results with Core Memory recall, and returns an augmented RecallResult.
+Fans out to configured external stores in parallel, merges results with Core
+Memory recall, and returns an augmented RecallResult.
 """
 from __future__ import annotations
 
-import os
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeoutError
 from typing import Any
 
 from core_memory.retrieval.contracts import EvidenceItem, RecallResult
@@ -30,17 +29,26 @@ def _normalize_scores(items: list[EvidenceItem]) -> list[EvidenceItem]:
 def _parse_store_weights() -> dict[str, float]:
     from core_memory.config.feature_flags import external_store_weights
     raw = external_store_weights()
-    defaults: dict[str, float] = {"core_memory": 1.0, "ragie": 1.0, "pipehouse": 1.0}
+    defaults: dict[str, float] = {"core_memory": 1.0, "pipehouse": 1.0}
     if not raw:
         return defaults
     parts = [p.strip() for p in raw.split(",")]
-    keys = ["core_memory", "ragie", "pipehouse"]
     out = dict(defaults)
-    for i, part in enumerate(parts[:3]):
+
+    def _set_weight(key: str, part: str) -> None:
         try:
-            out[keys[i]] = float(part)
-        except (ValueError, IndexError):
+            out[key] = float(part)
+        except ValueError:
             pass
+
+    if parts:
+        _set_weight("core_memory", parts[0])
+    if len(parts) >= 3:
+        # Legacy format was core_memory,ragie,pipehouse. Preserve the third
+        # value as PipeHouse so existing configs do not silently shift.
+        _set_weight("pipehouse", parts[2])
+    elif len(parts) >= 2:
+        _set_weight("pipehouse", parts[1])
     return out
 
 
@@ -56,8 +64,8 @@ def _apply_store_weight(items: list[EvidenceItem], weight: float) -> list[Eviden
 def _resolve_unifying_ids(all_items: list[EvidenceItem]) -> list[EvidenceItem]:
     """Group items that share a core_memory_unifying_id.
 
-    Core Memory bead is the primary; Ragie/PipeHouse items with the same
-    unifying_id are deduplicated into the primary's metadata["unified_with"].
+    Core Memory bead is the primary; external items with the same unifying_id
+    are deduplicated into the primary's metadata["unified_with"].
     """
     cm_by_uid: dict[str, EvidenceItem] = {}
     for item in all_items:
@@ -88,7 +96,6 @@ def fanout_recall(
     query: str,
     *,
     core_memory_result: RecallResult,
-    ragie_cfg: dict[str, Any] | None,
     pipehouse_cfg: dict[str, Any] | None,
 ) -> RecallResult:
     """Fan out to configured external stores in parallel (ThreadPoolExecutor, timeout=5s).
@@ -102,9 +109,6 @@ def fanout_recall(
     external_items: dict[str, list[EvidenceItem]] = {}
 
     tasks: dict[str, Any] = {}
-    if ragie_cfg:
-        fanout_stores.append("ragie")
-        tasks["ragie"] = ragie_cfg
     if pipehouse_cfg:
         fanout_stores.append("pipehouse")
         tasks["pipehouse"] = pipehouse_cfg
@@ -116,17 +120,6 @@ def fanout_recall(
         core_memory_result.metadata = meta
         return core_memory_result
 
-    def _call_ragie(cfg: dict[str, Any]) -> list[EvidenceItem]:
-        from core_memory.retrieval.adapters.ragie_adapter import retrieve
-        return retrieve(
-            query,
-            api_key=cfg["api_key"],
-            top_k=int(cfg.get("top_k") or 8),
-            rerank=bool(cfg.get("rerank", True)),
-            partition=cfg.get("partition"),
-            filter=cfg.get("filter"),
-        )
-
     def _call_pipehouse(cfg: dict[str, Any]) -> list[EvidenceItem]:
         from core_memory.retrieval.adapters.pipehouse_adapter import retrieve
         return retrieve(
@@ -136,7 +129,7 @@ def fanout_recall(
             filters=cfg.get("filters"),
         )
 
-    store_fn = {"ragie": _call_ragie, "pipehouse": _call_pipehouse}
+    store_fn = {"pipehouse": _call_pipehouse}
 
     # Use explicit shutdown(wait=False) so timed-out threads don't block recall().
     # The `with` form calls shutdown(wait=True) on __exit__, defeating the timeout.
@@ -165,7 +158,7 @@ def fanout_recall(
     _apply_store_weight(cm_items, weights.get("core_memory", 1.0))
 
     all_items: list[EvidenceItem] = list(cm_items)
-    for store in ("ragie", "pipehouse"):
+    for store in ("pipehouse",):
         items = external_items.get(store) or []
         _apply_store_weight(items, weights.get(store, 1.0))
         all_items.extend(items)
