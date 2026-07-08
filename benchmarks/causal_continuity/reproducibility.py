@@ -62,6 +62,20 @@ def _t5_ordered_outputs(report: dict[str, Any]) -> list[dict[str, Any]]:
                 out.append(key_by_id.get(bead_id) or stable_by_id.get(bead_id, "other"))
             return out
 
+        def selected_trace_ids(step: dict[str, Any]) -> list[Any]:
+            trace_values = list(step.get("trace_ids") or [])
+            selected = [
+                str(x)
+                for x in list((dict(step.get("selected_storyline") or {})).get("bead_ids") or [])
+                if str(x).strip()
+            ]
+            if not selected:
+                return trace_values
+            selected_set = set(selected)
+            filtered = [x for x in trace_values if str(x) in selected_set]
+            present = {str(x) for x in filtered}
+            return filtered + [x for x in selected if x not in present]
+
         loop = dict(case.get("loop") or {})
         one_shot = dict(case.get("one_shot_anchor_baseline") or {})
         outputs.append({
@@ -72,7 +86,7 @@ def _t5_ordered_outputs(report: dict[str, Any]) -> list[dict[str, Any]]:
                 {
                     "step": int(step.get("step") or 0),
                     "trace_anchor_order": stable_ids(list(step.get("trace_anchor_ids") or [])),
-                    "trace_order": stable_ids(list(step.get("trace_ids") or [])),
+                    "trace_order": stable_ids(selected_trace_ids(step)),
                     "selected_storyline_key": "|".join(
                         str(x)
                         for x in list((dict(step.get("selected_storyline") or {})).get("bead_keys") or [])

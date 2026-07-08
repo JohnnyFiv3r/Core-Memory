@@ -76,6 +76,8 @@ the architecture guard baseline from 10 upward-import rows to 4.
 creates a static persistence-to-runtime import. Dreamer analysis is resolved at
 call time through a local provider lookup, shrinking the architecture guard
 baseline from 4 upward-import rows to 3 while preserving the method behavior.
+The CLI Dreamer path now calls the runtime analysis surface directly, leaving
+first-party store-bridge usage isolated to compatibility tests.
 
 `core_memory.retrieval.lifecycle` remains the public semantic lifecycle and
 autodrain surface, but its autodrain worker now resolves the runtime async-job
