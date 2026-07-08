@@ -83,10 +83,19 @@ ACTIVE_CLEANUP_DEBT_PATHS = {
     "core_memory/retrieval/pipeline/explain.py",
 }
 
+ACTIVE_LIVE_PATHS = {
+    "core_memory/retrieval/vector_backend.py",
+}
+
 STALE_TRUTH_WORDS = re.compile(r"\b(deleted|removed|retired|done|complete)\b", re.IGNORECASE)
 SAFE_TRUTH_WORDS = re.compile(
     r"\b(active|classify|classification|classify-not-delete|do not delete|not deleted|"
     r"not as deleted|pending classification|retained|truth-audit)\b",
+    re.IGNORECASE,
+)
+FALSE_DEAD_WORDS = re.compile(r"\b(no imports anywhere|zero references|unreferenced|dead)\b", re.IGNORECASE)
+SAFE_LIVE_WORDS = re.compile(
+    r"\b(not dead|not deleted|do not delete|must not be deleted|live|imported by|covered by)\b",
     re.IGNORECASE,
 )
 MARKDOWN_LINK_RE = re.compile(r"(!?\[[^\]]*\]\(([^)]+)\))")
@@ -328,12 +337,27 @@ def _line_is_stale_truth_claim(line: str) -> bool:
     return True
 
 
+def _line_is_false_dead_claim_for_live_path(line: str) -> bool:
+    if not FALSE_DEAD_WORDS.search(line):
+        return False
+    if SAFE_LIVE_WORDS.search(line):
+        return False
+    return True
+
+
 def check_cleanup_truth(root: Path) -> list[Violation]:
     violations: list[Violation] = []
     existing_debt = {
         path for path in ACTIVE_CLEANUP_DEBT_PATHS if (root / path).exists()
     }
-    for doc in sorted(TRUTH_DOCS):
+    existing_live_paths = {
+        path for path in ACTIVE_LIVE_PATHS if (root / path).exists()
+    }
+    current_docs = {
+        Path(_relative(path, root)) for path in _iter_current_markdown_files(root)
+    }
+    docs = sorted({*TRUTH_DOCS, *current_docs})
+    for doc in docs:
         path = root / doc
         if not path.exists():
             continue
@@ -353,6 +377,25 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
                         message=(
                             f"{doc.as_posix()} appears to describe existing "
                             f"{active_path} as deleted/removed/done"
+                        ),
+                        detail={"active_path": active_path, "line": line.strip()},
+                    )
+                )
+            for active_path in sorted(existing_live_paths):
+                if active_path not in line:
+                    continue
+                if not _line_is_false_dead_claim_for_live_path(line):
+                    continue
+                violation_id = f"cleanup_truth:{doc.as_posix()}:{active_path}:false_dead"
+                violations.append(
+                    Violation(
+                        check="cleanup_truth",
+                        id=violation_id,
+                        path=doc.as_posix(),
+                        line=lineno,
+                        message=(
+                            f"{doc.as_posix()} appears to describe live "
+                            f"{active_path} as dead or unreferenced"
                         ),
                         detail={"active_path": active_path, "line": line.strip()},
                     )
