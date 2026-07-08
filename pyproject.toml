@@ -80,8 +80,8 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 pythonpath = ["."]
 markers = [
-    "facade: tests that import from core_memory.graph.api (targeted for Phase 4 removal)",
-    "mixin_assembly: tests that instantiate MemoryStore end-to-end via mixin chain (targeted for Phase 5)",
+    "facade: graph compatibility/regression tests covering retained graph public surfaces",
+    "mixin_assembly: tests that exercise MemoryStore public assembly and persistence boundary wiring",
     "optional_backend: tests that require an optional backend package or backend combination",
     "qdrant: tests that require the qdrant-client optional extra",
     "kuzu: tests that require the kuzu optional extra",
