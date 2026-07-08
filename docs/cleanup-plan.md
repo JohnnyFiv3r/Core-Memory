@@ -182,12 +182,14 @@ ledger condition.
 ## Phase 7 — Graph Backend Abstraction (Pluggable Causal Graph Providers)
 
 **PRD:** `docs/PRD/07-neo4j-query-backend.md`
-**Status:** Sub-phases 7a–7d complete; 7e–7h (Graphiti, Obsidian) deferred
+**Status:** Complete through 7i; live provider tests remain env-gated
 
 ### Sub-phase 7a — `persistence/graph/` package + protocol + factory
 
 - [x] `GraphBackend` protocol in `persistence/graph/protocol.py`
-- [x] `NullGraphBackend` (default; all-False caps, no-op write hooks)
+- [x] `NullGraphBackend` (explicit `CORE_MEMORY_GRAPH_BACKEND=none`; all-False caps,
+      no-op write hooks)
+- [x] `KuzuGraphBackend` is the embedded default when `CORE_MEMORY_GRAPH_BACKEND` is unset
 - [x] `create_graph_backend(root)` factory reads `CORE_MEMORY_GRAPH_BACKEND`
 - [x] `register_graph_backend(name, factory)` plugin hook added to factory
 - [x] Factory falls back to `NullGraphBackend` on unknown provider or construction error (no raise)
@@ -203,7 +205,8 @@ ledger condition.
 - [x] `KuzuGraphBackend` (embedded; `CORE_MEMORY_GRAPH_BACKEND=kuzu`) — same interface
 - [x] `test_graph_backend_capabilities.py` — 5 tests (healthy/unhealthy/TTL/recovery)
 - [x] `test_graph_backend_neo4j_parity.py` + `test_kuzu_graph_backend.py` — mocked coverage
-- [ ] Live tests (`@pytest.mark.neo4j`) — deferred to CI Docker Compose setup
+- [x] Live tests are env-gated (`@pytest.mark.neo4j` and related provider marks);
+      always-on CI relies on mocked/fake/local embedded coverage.
 
 ### Sub-phase 7c — Write-side hooks
 
@@ -306,7 +309,8 @@ logic and human output format).
       > implementation details of integration functions, not layering violations in the
       > context of the integrations/ tier. Full replacement would require either
       > expanding the public API with internal utilities or restructuring api.py into
-      > a thinner dispatch layer — deferred to Phase 10 refactor.
+      > a thinner dispatch layer. That remains future integration API cleanup, not
+      > Phase 10 documentation consolidation.
 - [x] **9h — Classify remaining backward-compat shims** — most re-export shims
       created during Phase 9 structural moves were removed, but this historical
       checklist must not be treated as proof that every listed flat file is gone.

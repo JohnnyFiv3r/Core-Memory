@@ -1,14 +1,16 @@
 # PRD: Structural Consolidation — runtime, CLI, OpenClaw, Dreamer
 
 **Phase:** 9
-**Status:** Complete (9a–9h)
+**Status:** Complete for structural relocation; retained compatibility surfaces are classified
 **Prerequisite:** Phases 4 and 5 complete (graph and persistence cleaned up)
 
-> Phase 9 is complete: all 52 backward-compat shims deleted, callsites
-> migrated to canonical subpackage paths, layering violation in
-> `retrieval/pipeline/canonical.py` fixed via lazy import. The discussion
-> below is preserved as historical design context — paths referenced as
-> shim destinations now exist only at the canonical locations described.
+> Phase 9 structural moves are complete: flat CLI, Dreamer, OpenClaw, and most
+> runtime relocation shims were retired; callsites migrated to canonical
+> subpackage paths; and the layering violation in
+> `retrieval/pipeline/canonical.py` was fixed via lazy import. Retained public
+> compatibility surfaces are classified in `docs/compatibility_ledger.md`;
+> do not treat this PRD as deletion proof for every historical import path.
+> The discussion below is preserved as historical design context.
 
 ---
 

@@ -56,8 +56,8 @@ class BackendCapabilities:
 
 | `CORE_MEMORY_GRAPH_BACKEND` value | Class | Notes |
 |---|---|---|
-| `none` / `""` | `NullGraphBackend` | Default; no-op write hooks |
-| `kuzu` | `KuzuGraphBackend` | Embedded graph DB; zero external deps |
+| unset / `kuzu` | `KuzuGraphBackend` | Default embedded graph DB; zero server ops |
+| `none` / `null` | `NullGraphBackend` | Explicit no-op write hooks |
 | `neo4j` | `Neo4jGraphBackend` | Requires `core-memory[neo4j]` + Neo4j server |
 | `graphiti` | `GraphitiGraphBackend` | Temporal KG; requires `core-memory[graphiti]` |
 | `zep` | `GraphitiGraphBackend(deployment="hosted")` | Zep-hosted Graphiti; same extra |
