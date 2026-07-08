@@ -8,8 +8,8 @@ Status: Canonical
 - `core_memory.retrieval.tools.memory.trace(query, root=".", k=8, ...)`
 
 Compatibility note:
-- `form_submission` is accepted as an alias by the search tool wrapper, but
-  forward callers should use `request`.
+- `form_submission` is accepted as a deprecated compatibility alias by the
+  search tool wrapper, but it is not recommended for new callers. Use `request`.
 
 ## Primary write-path surface
 - `core_memory.runtime.engine.process_turn_finalized(...)`

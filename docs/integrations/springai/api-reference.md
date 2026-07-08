@@ -51,7 +51,8 @@ Body:
 - `explain`
 
 Compatibility:
-- `form_submission` is accepted as alias, but forward clients should use `request`.
+- `form_submission` is accepted as a deprecated compatibility alias, but it is
+  not recommended for new clients. Use `request`.
 
 ### `POST /v1/memory/execute`
 Purpose:

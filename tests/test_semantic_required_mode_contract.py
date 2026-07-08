@@ -32,7 +32,7 @@ class TestSemanticRequiredModeContract(unittest.TestCase):
             s = MemoryStore(td)
             s.add_bead(type="decision", title="A", summary=["x"], session_id="main", source_turn_ids=["t1"])
             out = memory_tools.search(
-                form_submission={"query_text": "A", "intent": "remember", "k": 5},
+                request={"query_text": "A", "intent": "remember", "k": 5},
                 root=td,
                 explain=True,
             )
@@ -108,7 +108,7 @@ class TestSemanticRequiredModeContract(unittest.TestCase):
             s = MemoryStore(td)
             s.add_bead(type="decision", title="A", summary=["x"], session_id="main", source_turn_ids=["t1"])
             out = memory_tools.search(
-                form_submission={"query_text": "A", "intent": "remember", "k": 5},
+                request={"query_text": "A", "intent": "remember", "k": 5},
                 root=td,
                 explain=True,
             )

@@ -404,7 +404,7 @@ class TestHttpIngress(unittest.TestCase):
             # search isolation
             r_a = c.post(
                 "/v1/memory/search",
-                json={"root": base_root, "form_submission": {"query_text": "alpha_tenant_only", "k": 5}},
+                json={"root": base_root, "request": {"query_text": "alpha_tenant_only", "k": 5}},
                 headers={"X-Tenant-Id": tenant_a},
             )
             self.assertEqual(200, r_a.status_code)
@@ -412,7 +412,7 @@ class TestHttpIngress(unittest.TestCase):
 
             r_default = c.post(
                 "/v1/memory/search",
-                json={"root": base_root, "form_submission": {"query_text": "alpha_tenant_only", "k": 5}},
+                json={"root": base_root, "request": {"query_text": "alpha_tenant_only", "k": 5}},
             )
             self.assertEqual(200, r_default.status_code)
             default_titles = {str(r.get("title") or "") for r in ((r_default.json() or {}).get("results") or [])}
@@ -420,7 +420,7 @@ class TestHttpIngress(unittest.TestCase):
 
             r_b = c.post(
                 "/v1/memory/search",
-                json={"root": base_root, "form_submission": {"query_text": "alpha_tenant_only", "k": 5}},
+                json={"root": base_root, "request": {"query_text": "alpha_tenant_only", "k": 5}},
                 headers={"X-Tenant-Id": tenant_b},
             )
             self.assertEqual(200, r_b.status_code)
@@ -536,7 +536,7 @@ class TestHttpIngress(unittest.TestCase):
             self.assertEqual(400, r.status_code)
             self.assertEqual("invalid_tenant_id", (r.json() or {}).get("detail"))
 
-    def test_http_returns_503_for_required_semantic_unavailable(self):
+    def test_http_form_submission_alias_returns_503_for_required_semantic_unavailable(self):
         from fastapi.testclient import TestClient
         from core_memory.integrations.http import server as srv
         from core_memory.persistence.store import MemoryStore
