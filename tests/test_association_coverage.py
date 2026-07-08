@@ -24,7 +24,7 @@ from core_memory.runtime.ingest.external_evidence import (
     ingest_structured_observation,
 )
 from core_memory.runtime.queue.jobs import enqueue_async_job, run_async_jobs
-from core_memory.runtime.semantic_tasks import list_semantic_task_runs
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs
 
 
 def _index(root: str) -> dict:

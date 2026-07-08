@@ -7,15 +7,14 @@ import unittest
 from unittest.mock import patch
 
 from core_memory.integrations.remote.semantic_tasks import RemoteSemanticTaskRuntime
-from core_memory.runtime.semantic_tasks import (
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs
+from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime, semantic_task_runtime_mode
+from core_memory.schema.semantic_tasks import (
     ModelProfile,
     SemanticTaskRequest,
     SemanticTaskResult,
-    get_semantic_task_runtime,
-    list_semantic_task_runs,
-    semantic_task_runtime_mode,
+    TASK_ASSOCIATION_DECISION,
 )
-from core_memory.runtime.semantic_tasks.contracts import TASK_ASSOCIATION_DECISION
 
 
 class _FakeHTTPResponse:

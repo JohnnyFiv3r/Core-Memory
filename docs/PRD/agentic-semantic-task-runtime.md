@@ -756,8 +756,10 @@ Behavior:
    - Dreamer candidate generation/research,
    - SOUL proposal/review helpers,
    - any document/source enrichment calls.
-2. Add `core_memory/runtime/semantic_tasks/` with provider-neutral request/result
-   schemas.
+2. Add provider-neutral request/result schemas under
+   `core_memory/schema/semantic_tasks.py`, with execution owned by
+   `core_memory/policy/semantic_task_runtime.py` and run receipts owned by
+   `core_memory/persistence/semantic_task_receipts.py`.
 3. Add task id, task type, prompt version, rubric version, output schema, input
    hash, and source refs to existing LLM call receipts where feasible.
 4. Preserve current behavior: existing direct calls may adapt into the envelope

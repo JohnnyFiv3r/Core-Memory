@@ -13,8 +13,10 @@ if importlib.util.find_spec("pydantic_ai") is None:
     pytest.skip("pydantic-ai extra not installed", allow_module_level=True)
 
 from core_memory.integrations.pydanticai.semantic_tasks import PydanticAISemanticTaskRuntime
-from core_memory.runtime.semantic_tasks import SemanticTaskRequest, get_semantic_task_runtime, list_semantic_task_runs
-from core_memory.runtime.semantic_tasks.contracts import (
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs
+from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
+from core_memory.schema.semantic_tasks import (
+    SemanticTaskRequest,
     TASK_ASSOCIATION_DECISION,
     TASK_BEAD_FIELD_JUDGE,
     TASK_DREAMER_RESEARCH,
