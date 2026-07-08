@@ -272,7 +272,6 @@ def _typed_fields(bead_type: str, payload: dict[str, Any]) -> dict[str, Any]:
         return {
             "document_id": _clean_str(payload.get("document_id")),
             "raw_source_object_id": _clean_str(payload.get("raw_source_object_id")),
-            "ragie_document_id": _clean_str(payload.get("ragie_document_id")),
             "document_name": _clean_str(payload.get("document_name") or payload.get("title")),
             "mime_type": _clean_str(payload.get("mime_type")),
             "document_kind": _clean_str(payload.get("document_kind")),
@@ -339,8 +338,8 @@ def _validate_external_payload(bead_type: str, payload: dict[str, Any], hydratio
         raise ValueError("external_evidence: missing required fields: hydration_ref")
 
     if bead_type == "document_reference":
-        if not _clean_str(payload.get("document_id") or payload.get("ragie_document_id")):
-            raise ValueError("external_evidence: document_reference requires document_id or ragie_document_id")
+        if not _clean_str(payload.get("document_id") or payload.get("raw_source_object_id")):
+            raise ValueError("external_evidence: document_reference requires document_id or raw_source_object_id")
         _require(payload, ("document_name",))
     elif bead_type == "operational_event":
         _require(payload, ("record_action",))

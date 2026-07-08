@@ -174,7 +174,7 @@ retained.
 | 13 | Temporal recall API (`as_of`) | **Done** |
 | 14 | Contradiction pressure and epistemic uncertainty | **Done** |
 | 14A | `both_valid` resolution + `context_scope` claim discriminator | **Done** |
-| 15 | Multi-store recall fan-out | **Done** — Ragie + PipeHouse adapters, ThreadPoolExecutor fan-out, score normalization, unifying ID grouping |
+| 15 | Multi-store recall fan-out | **Done** — PipeHouse adapter retained with ThreadPoolExecutor fan-out, score normalization, unifying ID grouping; Ragie live fan-out retired before API sunset |
 | 16 | External data bead ingest contract | **Done** |
 | 17 | Eval and benchmark layer | **Done** — LoCoMo adapter in `benchmarks/locomo/` |
 | 18 | Causal recall pipeline + retrieval quality (multi-source seeding, provenance/directional edge weights, because→edges, never-forget write path, causal benchmark) | **Done** — PR #191 |

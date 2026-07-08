@@ -26,8 +26,8 @@ See `docs/status.md` for current completion state.
 | File | Topic | Status |
 |---|---|---|
 | `external-data-bead-ingest.md` | External data bead ingest contract | Done |
-| `multi-store-recall-fanout.md` | Multi-store recall fan-out (Ragie/PipeHouse) | Done |
-| `ragie-fanout-removal.md` | Remove Ragie: retrieval fan-out (vendor sunset 2026-07-19) + `ragie_document_id` schema-field deprecation; PipeHouse retained | Spec |
+| `multi-store-recall-fanout.md` | Multi-store recall fan-out (PipeHouse retained; Ragie retired) | Done |
+| `ragie-fanout-removal.md` | Remove Ragie: retrieval fan-out (vendor sunset 2026-07-19) + `ragie_document_id` schema-field deprecation; PipeHouse retained | Implemented — live fan-out removed; schema field retained for legacy reads |
 | `eval-benchmark-layer.md` | Eval and benchmark layer (LoCoMo) | Done |
 | `prd-b-d-gap-remediation.md` | Gap remediation (engine slice): Meter 2 to contract + self-model pruning/reward loop + calibration relocation | Done |
 | `session-enrichment-delta-analysis.md` | Session enrichment delta — analysis | Done |

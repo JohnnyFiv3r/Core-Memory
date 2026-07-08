@@ -32,7 +32,7 @@ with distinct required-field validation and a dedicated entry point:
 
 | Host schema | Entry point | Required fields (beyond title/summary) |
 |---|---|---|
-| **document** | `ingest_document_reference` | `source_id`, `source_event_id`, `source_system`, `core_memory_unifying_id`, `hydration_ref`, `document_name`, and `document_id` or `ragie_document_id` |
+| **document** | `ingest_document_reference` | `source_id`, `source_event_id`, `source_system`, `core_memory_unifying_id`, `hydration_ref`, `document_name`, and `document_id` or `raw_source_object_id` |
 | **data** | `ingest_structured_observation` (also `ingest_operational_event`, `ingest_state_assertion`) | `source_id`, `source_event_id`, `source_system`, `core_memory_unifying_id`, `hydration_ref`, `source_table`, `source_record_id`, `as_of_timestamp`/`observed_at`, entities |
 | **transcript** | `data_type_flag: "transcript"` via `ingest_external_evidence` (or `ingest_transcript` for full turn ingestion) | `source_id`, `source_event_id`, `source_system`, `core_memory_unifying_id`, `hydration_ref`, and `message_refs` or `source_turn_ids` |
 

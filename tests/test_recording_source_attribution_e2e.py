@@ -147,10 +147,10 @@ class TestRecordingSourceAttributionE2E(unittest.TestCase):
                     "summary": ["Contract amendment changed Fresh Produce pricing."],
                     "source_id": "src_docs",
                     "source_event_id": "evt_doc_e2e",
-                    "source_system": "ragie",
+                    "source_system": "upload",
                     "source_kind": "document",
                     "document_id": "doc_fresh_produce_contract",
-                    "ragie_document_id": "ragie_doc_fresh_produce_contract",
+                    "raw_source_object_id": "raw_doc_fresh_produce_contract",
                     "document_name": "Fresh Produce Contract Amendment.pdf",
                     "mime_type": "application/pdf",
                     "document_kind": "contract",
@@ -158,11 +158,11 @@ class TestRecordingSourceAttributionE2E(unittest.TestCase):
                     "observed_at": "2026-05-01T15:00:00Z",
                     "core_memory_unifying_id": "fresh_produce_contract_e2e",
                     "hydration_ref": {
-                        "store": "ragie",
-                        "ref": "ragie_doc_fresh_produce_contract",
+                        "store": "upload",
+                        "ref": "doc_fresh_produce_contract",
                         "url": "https://example.com/docs/fresh-produce",
                     },
-                    "section_refs": [{"label": "pricing clause", "page": 4, "chunk_ref": "ragie_chunk_pricing"}],
+                    "section_refs": [{"label": "pricing clause", "page": 4, "chunk_ref": "doc_chunk_pricing"}],
                 },
                 session_id="external-source",
             )
@@ -220,7 +220,7 @@ class TestRecordingSourceAttributionE2E(unittest.TestCase):
             self.assertEqual("src_quickbooks", structured_bead["source_attribution"]["source_id"])
             self.assertEqual("qbo_expenses:QB-98231", structured_bead["hydration_ref"]["ref"])
             self.assertEqual("src_docs", document_bead["source_attribution"]["source_id"])
-            self.assertEqual("ragie_chunk_pricing", document_bead["section_refs"][0]["chunk_ref"])
+            self.assertEqual("doc_chunk_pricing", document_bead["section_refs"][0]["chunk_ref"])
             self.assertEqual(
                 [structured["bead_id"], document["bead_id"], transcript["bead_id"]],
                 state_bead["derived_from_bead_ids"],
@@ -296,7 +296,7 @@ class TestRecordingSourceAttributionE2E(unittest.TestCase):
             document_citation = _citation(
                 result.source_citations,
                 bead_id=document["bead_id"],
-                source_ref="ragie_doc_fresh_produce_contract",
+                source_ref="doc_fresh_produce_contract",
             )
             self.assertIsNotNone(document_citation)
             self.assertEqual("redacted", document_citation["availability"])
@@ -306,7 +306,7 @@ class TestRecordingSourceAttributionE2E(unittest.TestCase):
             section_citation = _citation(
                 result.source_citations,
                 bead_id=document["bead_id"],
-                source_ref="ragie_chunk_pricing",
+                source_ref="doc_chunk_pricing",
             )
             self.assertIsNotNone(section_citation)
             self.assertEqual("redacted", section_citation["availability"])

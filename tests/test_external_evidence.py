@@ -61,7 +61,6 @@ def _document_payload(**overrides):
         "source_kind": "document",
         "document_id": "doc_001",
         "raw_source_object_id": "raw_001",
-        "ragie_document_id": "ragie_doc_001",
         "document_name": "Acme Vendor Contract.pdf",
         "mime_type": "application/pdf",
         "document_kind": "contract",
@@ -71,8 +70,8 @@ def _document_payload(**overrides):
         "topics": ["vendor contract"],
         "observed_at": "2026-05-20T00:00:00Z",
         "core_memory_unifying_id": "acme_vendor_contract_2026_05_20",
-        "hydration_ref": {"store": "ragie", "ref": "ragie_doc_001"},
-        "section_refs": [{"label": "termination clause", "page": 4, "chunk_ref": "ragie_chunk_001"}],
+        "hydration_ref": {"store": "upload", "ref": "doc_001"},
+        "section_refs": [{"label": "termination clause", "page": 4, "chunk_ref": "doc_001:chunk_001"}],
     }
     payload.update(overrides)
     return payload
@@ -169,10 +168,85 @@ class TestExternalEvidenceIngest(unittest.TestCase):
             bead = idx["beads"][receipt["bead_id"]]
             self.assertEqual("document_reference", bead["type"])
             self.assertEqual("doc_001", bead["document_id"])
-            self.assertEqual("ragie_doc_001", bead["ragie_document_id"])
+            self.assertNotIn("ragie_document_id", bead)
+            self.assertEqual("raw_001", bead["raw_source_object_id"])
             self.assertEqual("Acme Vendor Contract.pdf", bead["document_name"])
-            self.assertEqual({"store": "ragie", "ref": "ragie_doc_001"}, bead["hydration_ref"])
+            self.assertEqual({"store": "upload", "ref": "doc_001"}, bead["hydration_ref"])
             self.assertEqual("termination clause", bead["section_refs"][0]["label"])
+
+    def test_document_reference_rejects_legacy_ragie_only_identifier_for_new_writes(self):
+        with tempfile.TemporaryDirectory() as td:
+            payload = _document_payload(document_id="", raw_source_object_id="", ragie_document_id="legacy-ragie-doc")
+            with self.assertRaises(ValueError) as ctx:
+                ingest_document_reference(td, payload, session_id="external-source")
+            self.assertIn("document_id or raw_source_object_id", str(ctx.exception))
+            self.assertFalse((Path(td) / ".beads" / "index.json").exists())
+
+    def test_document_reference_matches_historical_ragie_document_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            beads_dir = root / ".beads"
+            beads_dir.mkdir(parents=True, exist_ok=True)
+            legacy_id = "bead-legacy-ragie"
+            legacy_bead = {
+                "id": legacy_id,
+                "type": "document_reference",
+                "title": "Legacy Vendor Contract",
+                "summary": ["Vendor contract uploaded before vendor-neutral identifiers."],
+                "source_id": "src_legacy_docs",
+                "source_event_id": "evt_legacy_doc_001",
+                "source_system": "upload",
+                "source_kind": "document",
+                "ragie_document_id": "legacy-ragie-doc",
+                "document_name": "Legacy Vendor Contract.pdf",
+                "hydration_ref": {"store": "ragie", "ref": "legacy-ragie-doc"},
+                "core_memory_unifying_id": "legacy_vendor_contract",
+                "status": "open",
+            }
+            (beads_dir / "index.json").write_text(
+                json.dumps({"beads": {legacy_id: legacy_bead}, "associations": []}),
+                encoding="utf-8",
+            )
+
+            receipt = ingest_document_reference(
+                td,
+                _document_payload(
+                    source_id="src_legacy_docs",
+                    source_event_id="evt_legacy_doc_002",
+                    title="Legacy Vendor Contract (restamped)",
+                    summary=["Vendor contract restamped with vendor-neutral document_id."],
+                    document_id="legacy-ragie-doc",
+                    raw_source_object_id="raw_legacy_doc",
+                    document_name="Legacy Vendor Contract.pdf",
+                    hydration_ref={"store": "upload", "ref": "legacy-ragie-doc"},
+                    core_memory_unifying_id="legacy_vendor_contract",
+                    section_refs=[],
+                ),
+                session_id="external-source",
+            )
+
+            self.assertEqual("version_superseded", receipt["status"])
+            self.assertEqual(legacy_id, receipt["superseded_bead_id"])
+
+    def test_low_level_document_reference_write_drops_legacy_ragie_document_id(self):
+        with tempfile.TemporaryDirectory() as td:
+            store = MemoryStore(root=td)
+            bead_id = store.add_bead(
+                type="document_reference",
+                title="Direct document write",
+                summary=["Direct document write should use generic identifiers."],
+                document_id="doc_direct",
+                raw_source_object_id="raw_direct",
+                ragie_document_id="legacy-ragie-direct",
+                document_name="Direct.pdf",
+                hydration_ref={"store": "upload", "ref": "doc_direct"},
+                _association_coverage=False,
+            )
+            idx = json.loads((Path(td) / ".beads" / "index.json").read_text(encoding="utf-8"))
+            bead = idx["beads"][bead_id]
+            self.assertEqual("doc_direct", bead["document_id"])
+            self.assertEqual("raw_direct", bead["raw_source_object_id"])
+            self.assertNotIn("ragie_document_id", bead)
 
     def test_state_assertion_writes_derived_business_state(self):
         with tempfile.TemporaryDirectory() as td:

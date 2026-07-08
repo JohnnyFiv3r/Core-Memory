@@ -39,10 +39,10 @@ POST /v1/memory/state-assertion
   "summary": ["One to three compact factual bullets"],
   "source_id": "Source UUID",
   "source_event_id": "Source event UUID",
-  "source_system": "quickbooks | upload | ragie | slack | snowflake | supabase",
+  "source_system": "quickbooks | upload | slack | snowflake | supabase | custom",
   "core_memory_unifying_id": "Stable cross-store join key",
   "hydration_ref": {
-    "store": "ragie | supabase | snowflake | custom",
+    "store": "upload | supabase | snowflake | custom",
     "ref": "Store-native ID or URI"
   }
 }
@@ -74,12 +74,12 @@ Recommended:
 
 Required in addition to shared fields:
 
-- `document_id` or `ragie_document_id`
+- `document_id` or `raw_source_object_id`
 - `document_name`
 
 Recommended:
 
-- `raw_source_object_id`
+- `raw_source_object_id` when it differs from `document_id`
 - `mime_type`
 - `document_kind`
 - `document_date`
@@ -91,6 +91,10 @@ refer to different `section_refs`. Core Memory treats the section scope as part
 of document-reference identity: whole-document beads version against
 whole-document beads, and a given section versions against that same section,
 but sibling sections of the same document coexist.
+
+Historical beads may still contain `ragie_document_id`; Core Memory keeps
+read-tolerance for those records, but new document-reference writes should use
+`document_id` / `raw_source_object_id`.
 
 ## State Assertion
 

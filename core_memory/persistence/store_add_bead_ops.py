@@ -63,6 +63,9 @@ def add_bead_for_store(
     if type_value == "association":
         raise ValueError("association_is_not_a_bead_type")
 
+    kwargs = dict(kwargs)
+    kwargs.pop("ragie_document_id", None)
+
     reserved_overrides = {"id"}
     bad_override = sorted(set(str(k) for k in kwargs.keys()).intersection(reserved_overrides))
     if bad_override:

@@ -1,10 +1,15 @@
 # PRD: Ragie Removal — retrieval fan-out + `ragie_document_id` schema deprecation
 
-**Status:** Spec — implementation pending
+**Status:** Implemented — live fan-out removed; schema field retained for legacy reads
 **Effort:** ~0.5 day (delete fan-out) + ~1 day (schema-field deprecation + audit + regression)
 **Reverses:** `multi-store-recall-fanout.md` (Ragie portion only — PipeHouse retained)
 **Trigger:** the Ragie API sunsets **2026-07-19**; the optional Ragie evidence fan-out in
 `recall()` stops working that day. Ragie also left a vendor-named field in the bead schema.
+
+**Implementation note:** The live retrieval adapter, API-key flag, and fan-out branch are
+removed. New document-reference writes use `document_id` / `raw_source_object_id`; the
+`ragie_document_id` schema field remains only for historical read tolerance and later
+backfill/removal.
 
 ---
 
