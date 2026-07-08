@@ -14,7 +14,8 @@ class TestPreOssMatrix(unittest.TestCase):
             "tests.test_p13_authority_enforcement",
             "tests.test_event_import_migration_guard",
             # Retrieval invariants
-            "tests.test_memory_search_tool_wrapper",
+            "tests.test_memory_search_request_canonical",
+            "tests.test_package_root_public_surface",
             "tests.test_memory_execute_contract",
             "tests.test_canonical_hydration_contract",
             "tests.test_temporal_only_grounding_guard",

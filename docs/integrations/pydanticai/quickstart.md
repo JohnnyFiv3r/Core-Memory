@@ -49,7 +49,7 @@ Practical rule:
 
 ## 4) Validate
 ```bash
-python -m unittest tests.test_memory_search_tool_wrapper
+python -m unittest tests.test_package_root_public_surface
 python -m unittest tests.test_pydanticai_memory_tools
 python eval/memory_execute_eval.py
 ```
