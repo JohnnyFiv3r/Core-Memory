@@ -51,7 +51,7 @@ their presence in this table.
 | `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Implemented (v2 spec shipped)** |
 | `storylines-structural-equivalence.md` | Storylines — structural-equivalence abstraction and earned semantics | **Draft v1** |
 | `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Draft v1** |
-| `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend instructions for host-app SOUL continuity dials | Draft |
+| `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend support for host-app SOUL continuity dials | Implemented |
 
 ## Implementation status & deferred work
 
