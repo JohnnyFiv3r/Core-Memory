@@ -1,4 +1,6 @@
-# SOUL Continuity Dials — Core Memory Implementation Instructions
+# SOUL Continuity Dials — Core Memory Backend Support
+
+**Status:** Implemented
 
 ## Summary
 
@@ -8,12 +10,12 @@ persistent-tension set. Core Memory should provide stable read surfaces and
 evidence breakdowns for those dials without treating measurements as evidence,
 altering beads, changing association truth, or auto-applying SOUL revisions.
 
-Current Core Memory already exposes SOUL files, goal lifecycle reads, worldline
-and storyline projections, Dreamer geometry, myelination reports, bead-scoped
-assembly depth, identity/value candidates, and tension candidates. The missing
-work is normalized summary output for the three dials and richer backend metrics
-where the current implementation is intentionally narrower than the product
-instrumentation.
+Current Core Memory exposes SOUL files, goal lifecycle reads, worldline and
+storyline projections, Dreamer geometry, myelination reports, bead-scoped
+assembly depth, identity/value candidates, tension candidates, and a normalized
+summary output for the three dials. The summary endpoint is read-only
+measurement infrastructure; it does not create evidence, mutate memory, or apply
+SOUL revisions.
 
 ## Current Truth
 
@@ -26,18 +28,23 @@ instrumentation.
   metadata where present.
 - `GET /v1/myelination/manifest` and `/v1/myelination/report` expose
   reinforcement/decay observability.
+- `GET /v1/soul/summary?subject=` exposes read-only continuity measurements
+  for light-cone breadth, observed-vs-endorsed divergence, and persistent
+  tensions.
 - `assembly_depth_report.v1` exists, but the implementation is bead-targeted;
   non-bead targets such as storylines, tensions, identity traits, and values are
   explicitly out of scope today.
-- `identity_divergence_candidate` exists as a candidate type, but there is no
-  aggregate observed-vs-endorsed divergence summary endpoint.
-- `tension_candidate` exists, and Storylines computes some tensions, but there
-  is no persistent tension recurrence/churn summary or
-  `tension_recurrence_count` field.
+- Observed-vs-endorsed divergence is exposed through the summary endpoint using
+  identity/value candidates and deterministic projections over endorsed identity
+  entries and observed behavior.
+- Persistent tensions are exposed through the summary endpoint using SOUL
+  tension entries, pending tension candidates, storyline-computed tensions, and
+  goal-conflict detections. The summary includes recurrence/churn fields where
+  history is available and explicit limitations where it is not.
 
-## Target Read Surface
+## Shipped Read Surface
 
-Add one read-only summary endpoint:
+Core Memory exposes one read-only summary endpoint:
 
 `GET /v1/soul/summary?root=&subject=self`
 
@@ -87,8 +94,8 @@ limitations, not silently zero.
 
 ## Dial 1: Light-Cone Breadth
 
-Implement Core Memory support for the light-cone inputs host applications
-cannot derive reliably today:
+The implementation provides Core Memory support for the light-cone inputs host
+applications cannot derive reliably today:
 
 - Extend assembly-depth reporting beyond bead targets or add a sibling
   read-side projection for non-bead targets:
@@ -129,8 +136,8 @@ Acceptance criteria:
 
 ## Dial 2: Observed-vs-Endorsed Divergence
 
-Implement a signed divergence summary over `IDENTITY.md`, behavior beads, and
-Dreamer identity/value candidates:
+The implementation provides a signed divergence summary over `IDENTITY.md`,
+behavior beads, and Dreamer identity/value candidates:
 
 - Positive divergence means observed-supported behavior is not yet endorsed in
   `IDENTITY.md`.
@@ -156,7 +163,7 @@ Acceptance criteria:
 
 ## Dial 3: Persistent-Tension Set
 
-Implement recurrence and churn qualification for tensions:
+The implementation provides recurrence and churn qualification for tensions:
 
 - Normalize tension sources across:
   - `TENSIONS.md` entries,
@@ -194,15 +201,15 @@ Acceptance criteria:
 
 ## Testing
 
-- Add unit tests for `GET /v1/soul/summary` empty, partial, and populated states.
-- Add fixture tests for each dial:
+- Unit tests cover `GET /v1/soul/summary` empty, partial, and populated states.
+- Fixture tests cover each dial:
   - endorsed goals and worldline span,
   - positive and negative identity divergence,
   - persistent versus duplicated tensions.
-- Add regression tests that summary generation does not mutate beads,
+- Regression tests assert summary generation does not mutate beads,
   associations, SOUL revisions, Dreamer candidate statuses, myelination state, or
   lifecycle files.
-- Add public surface docs for the endpoint and explicitly state that continuity
+- Public surface docs cover the endpoint and explicitly state that continuity
   dials are read-side measurements, not evidence or governance actions.
 
 ## Non-Goals
