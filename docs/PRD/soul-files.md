@@ -1,7 +1,7 @@
 # PRD 1: SOUL Files
 ## Agent-Maintained Self-Model and Goal Hierarchy
 
-**Status:** Draft v3
+**Status:** Implemented (v3 spec shipped)
 **Supersedes:** `docs/reports/soul-synthesis-spec.md` (the 2.0 "SOUL.md Synthesis Specification")
 
 > **Review fixes folded into this draft (vs. the external draft):**

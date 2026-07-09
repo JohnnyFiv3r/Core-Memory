@@ -6,7 +6,7 @@
 > records, observations projection) are remapped into Dreamer V3's vocabulary —
 > see Dreamer V3 §0. Kept for history.
 
-Status: Partially shipped (storyline overlay slice); remainder Proposed
+Status: Superseded; storyline-overlay slice shipped and remainder remapped to Dreamer V3
 Depends on: worldline derivation (shipped), dreamer candidate queue (shipped),
 myelination v2 / continuity manifest (`myelination-v2-continuity-strength.md`)
 

@@ -6,7 +6,7 @@
 > migrates to Dreamer V3 §16.1 (deferred). See `myelination-reinforcement.md` §0.
 > Kept for history.
 
-Status: Proposed
+Status: Superseded; kept for history
 Depends on: edge lifecycle (shipped), worldline derivation (shipped),
 myelination experiment MYE-1 (shipped, flag-gated)
 

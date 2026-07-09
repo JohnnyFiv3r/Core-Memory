@@ -1,7 +1,7 @@
 # PRD 2: Dreamer V3
 ## Scientific Continuity Engine, Storyline Projection, and Future Vector Analysis
 
-**Status:** Draft v3
+**Status:** Implemented (v3 spec shipped; Dreamer V4 target-states remain future work)
 **Supersedes:** `docs/PRD/dreamer-v2-continuity-observer.md` (absorbs its shipped
 and proposed slices; see §0).
 
