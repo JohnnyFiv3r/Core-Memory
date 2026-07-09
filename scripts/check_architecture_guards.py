@@ -548,6 +548,34 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
     return sorted(violations, key=lambda v: v.id)
 
 
+def check_prd_index(root: Path) -> list[Violation]:
+    prd_dir = root / "docs" / "PRD"
+    readme = prd_dir / "README.md"
+    if not prd_dir.exists() or not readme.exists():
+        return []
+
+    index_text = readme.read_text(encoding="utf-8")
+    violations: list[Violation] = []
+    for path in sorted(prd_dir.glob("*.md")):
+        if path.name == "README.md":
+            continue
+        if path.name in index_text:
+            continue
+        rel = _relative(path, root)
+        violation_id = f"prd_index:{rel}"
+        violations.append(
+            Violation(
+                check="prd_index",
+                id=violation_id,
+                path="docs/PRD/README.md",
+                line=1,
+                message=f"docs/PRD/README.md does not list {rel}",
+                detail={"prd_file": rel},
+            )
+        )
+    return violations
+
+
 def _is_compat_scan_path(path: Path, root: Path) -> bool:
     rel = _relative(path, root)
     if path.suffix not in COMPAT_SCAN_SUFFIXES:
@@ -629,6 +657,7 @@ def collect_violations(root: Path) -> list[Violation]:
     violations.extend(check_flat_files(root))
     violations.extend(check_markdown_links(root))
     violations.extend(check_cleanup_truth(root))
+    violations.extend(check_prd_index(root))
     return sorted(violations, key=lambda v: (v.check, v.id))
 
 
@@ -727,7 +756,7 @@ def print_report(
 
     print("Architecture guard report")
     print("=========================")
-    for check in ["upward_import", "flat_file", "markdown_link", "cleanup_truth"]:
+    for check in ["upward_import", "flat_file", "markdown_link", "cleanup_truth", "prd_index"]:
         print(f"{check}: {counts.get(check, 0)}")
     print(f"total: {len(violations)}")
 

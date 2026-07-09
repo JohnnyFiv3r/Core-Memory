@@ -3,6 +3,7 @@
 Per-phase Product Requirements Documents for the Core Memory cleanup workstream.
 See `docs/cleanup-plan.md` for phase descriptions, sequencing, and risk notes.
 See `docs/status.md` for current completion state.
+Every current top-level `docs/PRD/*.md` file should appear in this index.
 
 | File | Phase | Topic | Status |
 |---|---|---|---|
@@ -35,6 +36,7 @@ See `docs/status.md` for current completion state.
 | `execution-plan-search-quality-and-enrichment.md` | Search quality + enrichment plan | Done |
 | `myelination-v2-continuity-strength.md` | Unified edge strength + continuity-depth manifest + geometry projections | **Superseded** → `myelination-reinforcement.md` (+ Dreamer V3 assembly depth / geometry) |
 | `dreamer-v2-continuity-observer.md` | Dreamer as observer over worldline convergence / attractors / narratives | **Superseded** → `dreamer-continuity-engine.md` (storyline slice shipped + preserved) |
+| `03-mcp-protocol-server.md` | MCP protocol server | Locked historical PRD — retained for reference |
 
 ## Agency / Self-Model PRDs
 
@@ -52,6 +54,20 @@ their presence in this table.
 | `storylines-structural-equivalence.md` | Storylines — structural-equivalence abstraction and earned semantics | **Draft v1** |
 | `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Partially implemented — core runtime/adapters/receipts shipped; hosted operator/sub-agent UX remains draft** |
 | `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend support for host-app SOUL continuity dials | Implemented |
+
+## Active Draft / Future Capability PRDs
+
+These are current design documents, not shipped-status claims. They are indexed
+so contributors can find them, but implementation truth should still be checked
+against code and `docs/status.md`.
+
+| File | Topic | Status |
+|---|---|---|
+| `graph-geometry-dynamics.md` | Graph Geometry Dynamics — health, energy, and cone-bounded retrieval | **Draft v1** |
+| `recall-effort-tiers-and-traversal.md` | Recall effort tiers and relevance-aware causal traversal | **Draft v1** |
+| `recoverability.md` | Recoverability — no single point of knowledge failure | **Draft v1** |
+| `relational-constraint-rules.md` | Relational constraint rules for memory-graph writes | **Draft v1** |
+| `storyline-narrative-and-projection.md` | Storyline narrative generation and multi-trajectory future projection | **Draft v1** |
 
 ## Implementation status & deferred work
 
