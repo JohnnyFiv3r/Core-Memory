@@ -137,6 +137,43 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual("heuristic", (out.get("judge") or {}).get("mode"))
         self.assertEqual("heuristic", (out.get("judge") or {}).get("retrieval_authored_by"))
 
+    def test_llm_mode_keeps_legacy_fallback_by_default_when_runtime_unavailable(self):
+        runtime = FakeSemanticTaskRuntime(ok=False, status="unavailable")
+        with patch(
+            "core_memory.policy.bead_judge.get_semantic_task_runtime",
+            return_value=runtime,
+        ), patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
+                "CORE_MEMORY_BEAD_FIELD_JUDGE_FAIL_CLOSED": "0",
+            },
+            clear=False,
+        ):
+            out = judge_bead_fields("Remember Alice adopted Pixel.", "Recorded.")
+
+        self.assertEqual(1, len(runtime.requests))
+        self.assertEqual("llm_failed_fallback", (out.get("judge") or {}).get("mode"))
+        self.assertTrue(out.get("summary"))
+
+    def test_fail_closed_rejects_heuristic_fields_when_runtime_unavailable(self):
+        runtime = FakeSemanticTaskRuntime(ok=False, status="unavailable")
+        with patch(
+            "core_memory.policy.bead_judge.get_semantic_task_runtime",
+            return_value=runtime,
+        ), patch.dict(
+            "os.environ",
+            {
+                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
+                "CORE_MEMORY_BEAD_FIELD_JUDGE_FAIL_CLOSED": "true",
+            },
+            clear=False,
+        ):
+            with self.assertRaisesRegex(RuntimeError, "bead_field_judge_unavailable"):
+                judge_bead_fields("Remember Alice adopted Pixel.", "Recorded.")
+
+        self.assertEqual(1, len(runtime.requests))
+
     def test_turn_write_uses_field_judge_only_when_explicit_fallback_enabled(self):
         stale_agent_updates = {
             "beads_create": [
