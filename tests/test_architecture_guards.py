@@ -104,6 +104,17 @@ def test_detects_cleanup_docs_claiming_public_compat_surface_was_removed(tmp_pat
     assert violations[0].detail["surface_key"] == "typed_search_form_submission_alias"
 
 
+def test_detects_prd_files_missing_from_index(tmp_path: Path):
+    _write(tmp_path / "docs" / "PRD" / "README.md", "| `listed.md` | Listed | Draft |\n")
+    _write(tmp_path / "docs" / "PRD" / "listed.md", "# Listed\n")
+    _write(tmp_path / "docs" / "PRD" / "missing.md", "# Missing\n")
+
+    violations = guards.check_prd_index(tmp_path)
+
+    assert [v.check for v in violations] == ["prd_index"]
+    assert violations[0].detail["prd_file"] == "docs/PRD/missing.md"
+
+
 def test_cleanup_truth_allows_explicit_public_compat_deprecation_conditions(tmp_path: Path):
     _write(
         tmp_path / "docs" / "compatibility_ledger.md",
