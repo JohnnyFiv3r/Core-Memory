@@ -83,6 +83,15 @@ def _prompt_template() -> str:
     return prompt or _PROMPT
 
 
+def _fail_closed_enabled() -> bool:
+    return str(os.getenv("CORE_MEMORY_BEAD_FIELD_JUDGE_FAIL_CLOSED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def _render_prompt(template: str, *, user_query: str, assistant_final: str) -> str:
     return (
         str(template or "")
@@ -361,6 +370,10 @@ def judge_bead_fields(
         obj = _llm_judge_semantic_task(uq, af, root=root)
         if isinstance(obj, dict):
             return _normalize_judged_fields(obj, user_query=uq, assistant_final=af, mode="llm", root=root)
+        if _fail_closed_enabled():
+            raise RuntimeError(
+                "bead_field_judge_unavailable: semantic task unavailable and fallback disabled"
+            )
         if mode == "llm":
             out = _fallback_bead_fields(uq, af, root=root)
             judge = dict(out.get("judge") or {})
