@@ -1,20 +1,41 @@
 # PRD: Flatten Persistence Delegation Chain
 
 **Phase:** 5
-**Status:** Not started
+**Status:** Complete at architecture layer — MRO flat; legacy mixin artifacts retired
 **Prerequisite:** Phase 4 complete
+
+---
+
+## Current implementation note
+
+The Phase 5 cleanup is complete at the architecture layer. `MemoryStore` no
+longer inherits the legacy persistence mixin assemblers; its public methods live
+directly on `core_memory.persistence.store.MemoryStore`, preserving the public
+API while removing the MRO hop. The legacy files
+`core_memory/persistence/store_core_delegates_mixin.py` and
+`core_memory/persistence/store_reporting_promotion_mixin.py` have been retired.
+
+Some `store_*_ops.py` helper modules and `*_for_store` functions remain as
+implementation helpers. That is no longer cleanup debt by itself: the completed
+Phase 5 boundary was the public `MemoryStore` assembly flattening, not a mandate
+to delete every helper or remove every `store` parameter. Public behavior is
+covered by `tests/test_memory_store_public_boundary_contract.py` and related
+`mixin_assembly` tests.
+
+The plan below is retained as historical rationale for the cleanup.
 
 ---
 
 ## Problem
 
-`MemoryStore` inherits 82 methods through two mixins (`StoreCoreDelegatesMixin`,
-`StoreReportingPromotionMixin`). Each mixin method forwards a call to a `*_for_store`
-function in a `store_*_ops.py` file. Those functions accept `store: Any` as their first
-argument but, in most cases, never use it — they call into `policy/`, `retrieval/`, or
-`persistence/` modules that take no store reference.
+At the time this PRD was written, `MemoryStore` inherited 82 methods through two
+mixins (`StoreCoreDelegatesMixin`, `StoreReportingPromotionMixin`). Each mixin
+method forwarded a call to a `*_for_store` function in a `store_*_ops.py` file.
+Those functions accepted `store: Any` as their first argument but, in many cases,
+did not use it — they called into `policy/`, `retrieval/`, or `persistence/`
+modules that took no store reference.
 
-The result is a 3-hop call chain for every store operation:
+The result was a 3-hop call chain for many store operations:
 
 ```
 MemoryStore.method(args)
@@ -23,38 +44,38 @@ MemoryStore.method(args)
       → policy.real_logic(args)        # hop 3: actual work
 ```
 
-This hides where logic actually lives, makes the store surface look stateful when it is
-mostly not, and makes the codebase harder to read and test in isolation.
+This hid where logic actually lived, made the store surface look stateful when it
+was mostly not, and made the codebase harder to read and test in isolation.
 
 ---
 
-## Current state
+## Current implementation state
 
 | Category | File count | Examples |
 |----------|-----------|---------|
-| Real implementation | 7 | `store_add_bead_ops.py`, `store_init_ops.py`, `store_json_ops.py` |
-| Thin delegation (ignores `store`) | 10 | `store_text_hygiene_ops.py`, `store_promotion_ops.py`, `store_failure_ops.py` |
-| Mixin assemblers | 2 | `StoreCoreDelegatesMixin` (61 methods), `StoreReportingPromotionMixin` (18 methods) |
-| Data/contract types | 4 | `store_contract.py`, `store_constraints.py`, `store_validation_helpers.py` |
+| Public store assembly | Flat | `MemoryStore` defines public methods directly in `store.py` |
+| Retired mixin assemblers | 0 active | `store_core_delegates_mixin.py`, `store_reporting_promotion_mixin.py` retired |
+| Helper operation modules | Retained | `store_add_bead_ops.py`, `store_text_hygiene_ops.py`, `store_promotion_ops.py`, etc. |
+| Data/contract types | Retained | `store_contract.py`, `store_constraints.py`, `store_validation_helpers.py` |
 
-The 10 thin-delegation files are confirmed to pass `store: Any` through without using it,
-based on static analysis during the cleanup audit.
+Helper operation modules remain allowed when they keep `MemoryStore` readable and
+preserve public behavior. Future helper cleanup should be justified by a concrete
+boundary or duplication reduction, not by Phase 5 status.
 
 ---
 
-## Success criteria
+## Success criteria / outcome
 
-1. Each `*_for_store` function is classified as STATEFUL or STATELESS via the audit script.
-2. STATELESS functions have their `store` parameter removed; mixin callers updated.
-3. `MemoryStore` inherits from at most 2 mixins (current) and the method count on those
-   mixins decreases as functions move to direct calls.
-4. The 3-hop call chain becomes at most 2 hops for stateless operations.
-5. Full pytest suite passes after each individual file change.
+1. Legacy mixin artifacts are retired.
+2. `MemoryStore` has a flat public assembly with no persistence mixin MRO hop.
+3. Public `MemoryStore` method names and signatures are preserved.
+4. Helper operation modules remain internal implementation details.
+5. Public boundary and side-effect behavior are covered by focused store tests.
 6. No public `MemoryStore` API is removed or renamed.
 
 ---
 
-## Scope
+## Historical scope
 
 **In:**
 - Audit script classifying each `*_for_store` function
@@ -69,7 +90,7 @@ based on static analysis during the cleanup audit.
 
 ---
 
-## Implementation order
+## Historical implementation order
 
 ### Step 5a — Audit script
 
