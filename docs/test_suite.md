@@ -21,6 +21,26 @@ backend tests are still collected and will skip when their packages or live
 services are not available. CI uses marker expressions to keep the core lane
 skip-free while preserving optional backend coverage in the all-extras lane.
 
+## Closeout Snapshot
+
+Snapshot date: 2026-07-09, taken from `origin/master` after store delegation
+test pruning.
+
+| Lane | Collection / execution result | Meaning |
+|---|---|---|
+| Total suite collection | 2,283 tests | Broad local pytest collection with optional/live tests included |
+| Core deps CI/local | 2,241 selected; `2241 passed, 42 deselected` | Core lane has 0 skips; optional backend and live tests are marker-deselected |
+| All extras CI | 2,278 selected by `-m "not neo4j_live"` | Optional backend tests run when `[all,dev]` deps are installed; live Neo4j stays out of this lane |
+| Broad local sweep | `2241 passed, 42 skipped` in a core-deps environment | Remaining skips are intentional optional backend or live-service skips |
+| Optional backend bucket | 37 tests | Qdrant, Kuzu, Neo4j package, and combined retrieval backend coverage |
+| Live Neo4j bucket | 5 tests | Requires `NEO4J_URI` and credentials; run only in the live backend lane |
+
+If the core deps lane starts reporting skips instead of deselections, classify
+the test with the appropriate optional/live marker or move it to an explicit
+compatibility test bucket. If the all-extras lane reports optional backend
+package skips, treat that as an environment/setup issue for the all-extras job,
+not as stale test debt.
+
 ## Marker Semantics
 
 - `optional_backend`: package-backed backend tests that should not run in the
@@ -42,6 +62,22 @@ behavior coverage exists.
 Store delegation cleanup has retired duplicated private-helper forwarding tests;
 retained store coverage should exercise public behavior, compatibility ledger
 surfaces, source/persistence side effects, or concrete regressions.
+
+## Maintained Compatibility Coverage
+
+Remaining compatibility tests are intentional public-surface coverage, not
+cleanup debt:
+
+- `pytest -m facade` protects retained graph compatibility facades and graph
+  regression behavior while ledgered public imports remain supported.
+- `pytest -m mixin_assembly` protects `MemoryStore` public assembly and
+  persistence-boundary behavior after private forwarding tests were pruned.
+- `tests/test_store_dream_bootstrap_ops_delegation.py` remains as focused
+  coverage for the public store-oriented Dreamer legacy bridge until the
+  compatibility ledger's removal condition is satisfied.
+- Dedicated compatibility tests for runtime semantic-task facades, typed-search
+  aliases, package-root memory-search exports, event-schema legacy imports, and
+  persistence encryption are maintained by `docs/compatibility_ledger.md`.
 
 ## Health Guard
 

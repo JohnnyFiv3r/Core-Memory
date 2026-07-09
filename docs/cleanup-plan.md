@@ -9,13 +9,16 @@ Do not start a phase until the previous one has passed CI.
 
 PRDs for all phases live in `docs/PRD/` and carry codebase-specific implementation detail.
 
-**Closeout status (2026-07-08):** This cleanup workstream is complete at the
+**Closeout status (2026-07-09):** This cleanup workstream is complete at the
 architecture layer. The checked-in architecture guard baseline is zero, the
 compatibility-surface ratchet is active, and remaining public compatibility
 surfaces have moved to the post-cleanup deprecation backlog in
 `docs/compatibility_ledger.md`. Do not treat those backlog entries as cleanup
 debt to delete opportunistically; future removals require the ledger's
-deprecation or breaking-change conditions.
+deprecation or breaking-change conditions. Test-suite cleanup is also closed:
+the core deps lane is skip-free by marker deselection, the broad local 42 skips
+are intentional optional backend/live backend coverage, and maintained
+compatibility tests are public-surface coverage.
 
 ---
 
@@ -36,6 +39,9 @@ deprecation or breaking-change conditions.
 - [x] Add `.github/workflows/architecture-guards.yml` — runs the architecture
       guard and focused guard tests for code, current docs, guard script, and
       guard baseline changes
+- [x] Close out test-suite skip debt — `docs/test_suite.md` records the current
+      collection snapshot: 2,283 total tests, 2,241 core-lane tests with
+      0 skips, 37 optional-backend tests, and 5 live Neo4j tests
 
 **Risk:** None. Additive CI only.
 

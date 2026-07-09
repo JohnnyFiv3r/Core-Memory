@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-07-08
+**Last updated:** 2026-07-09
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -104,6 +104,14 @@ Bead post-write side effects now live in
 still performs the durable write, then calls the runtime post-write boundary for
 Qdrant/graph/sync mirroring and association coverage enqueueing. This resolved
 the final two architecture guard rows; the checked-in guard baseline is now 0.
+
+The test-suite cleanup closeout is complete. The core deps lane now runs
+skip-free by selecting 2,241 tests and deselecting the 42 optional backend/live
+tests; a broad local core-deps sweep still reports those 42 intentional skips.
+The all-extras lane selects the 37 optional backend tests and continues to
+deselect the 5 live Neo4j tests. Remaining `facade`, `mixin_assembly`, and
+ledgered compatibility tests are maintained public-surface coverage, not cleanup
+debt. See `docs/test_suite.md` for the dated audit snapshot.
 
 The legacy persistence mixin artifacts
 `core_memory/persistence/store_core_delegates_mixin.py` and
