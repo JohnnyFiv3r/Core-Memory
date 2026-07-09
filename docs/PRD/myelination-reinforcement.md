@@ -1,7 +1,7 @@
 # PRD 3: Myelination V2
 ## Audited Association Reinforcement, Decay, and Goal-Directed Navigation
 
-**Status:** Draft v2
+**Status:** Implemented (v2 spec shipped)
 **Supersedes:** `docs/PRD/myelination-v2-continuity-strength.md` — its Slice A
 (unified edge strength) folds into this PRD; Slice B (per-bead continuity-depth
 scalar) migrates to Dreamer V3 **Assembly Depth**; Slice C (geometry/projection

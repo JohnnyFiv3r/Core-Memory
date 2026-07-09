@@ -38,16 +38,18 @@ See `docs/status.md` for current completion state.
 
 ## Agency / Self-Model PRDs
 
-These three are the active capability set for the agency layer (self-model,
-scientific findings, reinforcement). They are mutually consistent and supersede
-the older entries above.
+The first three rows below are the implemented agency-layer foundation
+(self-model, scientific findings, reinforcement). They are mutually consistent
+and supersede the older entries above. The remaining rows are active drafts or
+host-application implementation notes; do not infer shipped backend status from
+their presence in this table.
 
 | File | Topic | Status |
 |---|---|---|
-| `soul-files.md` | SOUL Files — agent-authored self-model + goal hierarchy (supersedes `reports/soul-synthesis-spec.md`) | **Draft v3** |
-| `dreamer-continuity-engine.md` | Dreamer V3 — scientific continuity engine, assembly depth, storyline projection, future vectors; V4 target-states + agency backlog | **Draft v3** |
+| `soul-files.md` | SOUL Files — agent-authored self-model + goal hierarchy (supersedes `reports/soul-synthesis-spec.md`) | **Implemented (v3 spec shipped)** |
+| `dreamer-continuity-engine.md` | Dreamer V3 — scientific continuity engine, assembly depth, storyline projection, future vectors; V4 target-states + agency backlog | **Implemented (v3 spec shipped; V4 backlog out of scope)** |
+| `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Implemented (v2 spec shipped)** |
 | `storylines-structural-equivalence.md` | Storylines — structural-equivalence abstraction and earned semantics | **Draft v1** |
-| `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Draft v2** |
 | `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Draft v1** |
 | `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend instructions for host-app SOUL continuity dials | Draft |
 
