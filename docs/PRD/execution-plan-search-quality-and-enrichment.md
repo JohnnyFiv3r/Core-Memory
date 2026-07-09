@@ -3,20 +3,46 @@
 **Author:** Core Memory team  
 **Date:** 2026-05-28  
 **Branch:** `claude/validate-demo-todos-SCRSz`  
-**Status:** In execution
+**Status:** Complete — TODOs #3, #5, #7, and #9 shipped
+
+---
+
+## Current implementation note
+
+This execution plan is complete. The shipped surfaces are:
+
+- TODO #3: `apply_crawler_updates` fills missing association relationships with
+  the preview classifier before strict validation.
+- TODO #5: claim updates dedupe repeated grounding hashes per `(subject, slot)`
+  with warning telemetry.
+- TODO #7: semantic lifecycle ergonomics include autodrain state, status/doctor
+  queue health, and `semantic backfill`.
+- TODO #9: session enrichment delta analysis and Slice B implementation shipped,
+  including `enrichment_run_id`, idempotency replay, persisted
+  `session_enrichment_delta.v1` envelopes, and stage-results coverage.
+
+Representative proof tests:
+`tests/test_association_classifier_fallback.py`,
+`tests/test_claim_grounding_dedup.py`, `tests/test_semantic_autodrain.py`,
+`tests/test_enrichment_slice_b.py`, `tests/test_f_w1_enrichment_queue.py`, and
+`tests/test_session_enrichment_delta.py`.
+
+The plan below is retained as the historical execution record.
 
 ---
 
 ## Scope
 
-This plan addresses four TODO items from `demo/TODO.md` that were left pending after Phase 9–10 cleanup. Items were prioritized by their impact on search quality and memory correctness for external contributors (David Tipett, GitHub senior search researcher, is now a co-contributor and these surfaces need to be tight).
+This plan addressed four TODO items from `demo/TODO.md` that had remained open
+after Phase 9–10 cleanup. Items were prioritized by their impact on search
+quality and memory correctness for external contributors.
 
 | TODO | Title | Priority |
 |------|-------|----------|
 | #3 | Classifier fallback for missing relationships | High — prevents quarantine of valid associations |
 | #5 | Grounding-hash dedup for ClaimUpdates | High — prevents duplicate state oscillation |
 | #7 | Semantic ergonomics (auto-drain, backfill, metrics) | Medium — operational gap for users |
-| #9 | Unified enrichment delta analysis artifact | Medium — unblocks Slice B implementation |
+| #9 | Unified enrichment delta analysis artifact + Slice B implementation | Medium — makes enrichment replay/idempotency inspectable |
 
 ---
 
@@ -70,7 +96,8 @@ This plan addresses four TODO items from `demo/TODO.md` that were left pending a
 
 ## TODO #9 — Slice A: Enrichment Delta Analysis Artifact
 
-**Deliverable:** `docs/PRD/session-enrichment-delta-analysis.md`
+**Deliverables:** `docs/PRD/session-enrichment-delta-analysis.md` and
+`docs/PRD/session-enrichment-delta-slice-b.md`
 
 This document maps the current enrichment pipeline (all 9 stages of `run_turn_enrichment`) against the proposed `session_enrichment_delta.v1` envelope, identifying:
 - Idempotency boundary for each stage
@@ -79,19 +106,19 @@ This document maps the current enrichment pipeline (all 9 stages of `run_turn_en
 - Field inventory for the delta envelope
 - Migration risks
 
-See the analysis document for full details.
+See the analysis and Slice B documents for full details.
 
 ---
 
 ## Execution Order
 
 1. Write this planning document *(done)*
-2. Code: TODO #3 classifier fallback
-3. Code: TODO #5 grounding-hash dedup
-4. Code: TODO #7 auto-drain + CLI extensions
-5. Docs: TODO #9 analysis artifact
-6. Update `docs/status.md` and `docs/cleanup-plan.md`
-7. Tests, commit, push
+2. Code: TODO #3 classifier fallback *(done)*
+3. Code: TODO #5 grounding-hash dedup *(done)*
+4. Code: TODO #7 auto-drain + CLI extensions *(done)*
+5. Docs/code: TODO #9 analysis artifact + Slice B implementation *(done)*
+6. Update `docs/status.md` and `docs/cleanup-plan.md` *(done)*
+7. Tests, commit, push *(done)*
 
 ---
 
@@ -103,3 +130,4 @@ See the analysis document for full details.
 | Grounding-hash dedup | `tests/test_claim_grounding_dedup.py` |
 | Semantic auto-drain | `tests/test_semantic_autodrain.py` |
 | Semantic backfill CLI | Covered in semantic handler test |
+| Enrichment delta Slice B | `tests/test_enrichment_slice_b.py`, `tests/test_f_w1_enrichment_queue.py`, `tests/test_session_enrichment_delta.py` |
