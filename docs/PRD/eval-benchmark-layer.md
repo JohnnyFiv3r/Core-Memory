@@ -1,17 +1,41 @@
 # PRD: Eval and Benchmark Layer
 
-**Status:** Spec only — baselines exist, no pipeline  
-**Effort:** ~3 days  
-**Depends on:** Nothing — can be built in parallel with any other item  
+**Status:** Implemented — benchmark adapters and smoke/eval runners shipped
+**Effort:** Historical estimate
+**Depends on:** Nothing — can be built in parallel with any other item
 **Baseline reference:** `docs/benchmarks/locomo/baselines.md`
 
 ---
 
-## Problem
+## Current implementation note
 
-Recall quality improvements ship without measurement. There is no pipeline to run the
-LoCoMo benchmark set, no committed baseline to diff against, and no CI gate to catch
-regressions. This means:
+The original `eval/locomo_runner.py` design below has been superseded by the
+shipped `benchmarks/` package. Core Memory now includes benchmark adapters and
+runners for LoCoMo, LoCoMo-like local fixtures, causal-chain recall,
+causal-continuity suites, and LongMemEval loading/evaluation smoke paths.
+
+Current entry points include:
+
+- `python -m benchmarks.locomo`
+- `python -m benchmarks.causal`
+- `python -m benchmarks.causal_continuity.runner`
+- `python -m benchmarks.longmemeval`
+
+Current coverage includes loader contracts, deterministic scoring helpers,
+fixture-backed runners, checked-in reports under `benchmarks/reports/`, and
+focused tests such as `tests/test_locomo_benchmark.py`,
+`tests/test_benchmark_locomo_like.py`, `tests/test_causal_benchmark.py`,
+`tests/test_causal_continuity_benchmark.py`, and LongMemEval smoke coverage.
+Where the historical plan below conflicts with the shipped `benchmarks/` package,
+the shipped package is authoritative.
+
+---
+
+## Historical problem
+
+At the time this PRD was written, recall quality improvements shipped without
+measurement. The LoCoMo benchmark runner, baseline diff, and CI gate had not yet
+been built. This meant:
 
 - #11 (myelination) may re-rank evidence in a way that helps some queries and regresses
   others — undetectable until a user reports it.
@@ -35,19 +59,23 @@ regressions. This means:
 
 ---
 
-## Current state
+## Current implementation state
 
 | Component | Status |
 |-----------|--------|
 | LoCoMo baseline fixtures | Done — `docs/benchmarks/locomo/baselines.md` |
-| Eval runner script | **Missing** |
-| Baseline JSON capture | **Missing** |
-| CI integration | **Missing** |
-| Per-feature delta reports | **Missing** |
+| Eval runner script | Shipped under `benchmarks/locomo`, plus causal, causal-continuity, LoCoMo-like, and LongMemEval runners |
+| Baseline JSON capture | Shipped as fixture/gold/report artifacts under `benchmarks/` |
+| CI integration | Shipped as focused benchmark tests and smoke coverage in the pytest suite |
+| Per-feature delta reports | Shipped for causal-continuity reproducibility/local reports; additional feature reports remain additive |
 
 ---
 
 ## Success criteria
+
+The criteria below describe the original `eval/locomo_runner.py` plan. The
+shipped implementation uses `benchmarks/` module entry points and pytest smoke
+coverage instead of the proposed `eval/` package layout.
 
 1. `python -m eval.locomo_runner` ingests the LoCoMo fixtures into a fresh
    `JsonFileBackend` instance, runs all queries, and writes a JSON report to
