@@ -190,8 +190,8 @@ retained.
 | 20 | Edge lifecycle (usage reinforcement, decay floor, supersession penalty) | **Done** — PR #193, `docs/edge_lifecycle.md` |
 | 21 | HTTP `/v1/memory/recall` parity with MCP/Python | **Done** — PR #194 |
 | 22 | Worldline derivation (claim/entity/goal threads + membership projection) | **Done** — PR #195 |
-| 23 | Myelination v2: unified continuity strength + geometry projections | **Proposed** — `docs/PRD/myelination-v2-continuity-strength.md` |
-| 24 | Dreamer v2: continuity observer (convergence/attractor/narrative observations) | **Partially shipped** — storyline overlay slice done; see PRD update |
+| 23 | Myelination V2: audited association reinforcement and decay | **Done** — old continuity-strength PRD superseded by `docs/PRD/myelination-reinforcement.md`; shipped reward sources + host guide tracked in `docs/PRD/README.md` |
+| 24 | Dreamer V3: scientific continuity engine, assembly depth, storylines, and future projection | **Done** — Dreamer v2 PRD superseded by `docs/PRD/dreamer-continuity-engine.md`; V4 target-states remain future work |
 | 25 | Storylines: overlay layer (storyline_overlay.v1, convergence detector, decide-flow materialisation) + `derive_storylines` projection + HTTP route | **Done** |
 
 ---
