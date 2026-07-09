@@ -140,12 +140,11 @@ pytestmark = pytest.mark.facade
 
 ### 4. Apply `@pytest.mark.mixin_assembly`
 
-Same pattern for these 4 delegation/mixin files:
+Current `mixin_assembly` coverage is behavior-first boundary coverage, not a
+legacy delegation-file inventory:
 
-- `tests/test_store_core_delegates_mixin.py`
-- `tests/test_store_add_bead_delegation.py`
-- `tests/test_store_failure_ops_delegation.py`
-- `tests/test_store_relationship_ops_delegation.py`
+- `tests/test_memory_store_public_boundary_contract.py`
+- `tests/test_store_add_bead_side_effects.py`
 
 ```python
 import pytest

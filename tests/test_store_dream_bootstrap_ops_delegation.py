@@ -8,12 +8,6 @@ from core_memory.persistence.store import MemoryStore
 
 
 class TestStoreDreamBootstrapOpsDelegationSlice86A(unittest.TestCase):
-    def test_init_index_delegates(self):
-        with tempfile.TemporaryDirectory(prefix="cm-store-bootstrap-deleg-") as td:
-            with patch("core_memory.persistence.store_dream_bootstrap_ops.init_index_for_store", return_value=None) as stub:
-                _store = MemoryStore(td)
-            self.assertGreaterEqual(stub.call_count, 1)
-
     def test_dream_delegates(self):
         with tempfile.TemporaryDirectory(prefix="cm-store-bootstrap-deleg-") as td:
             store = MemoryStore(td)

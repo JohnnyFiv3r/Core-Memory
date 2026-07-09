@@ -39,6 +39,10 @@ surfaces are governed by `docs/compatibility_ledger.md`; test pruning should
 remove only duplicated implementation-lock tests after equivalent public
 behavior coverage exists.
 
+Store delegation cleanup has retired duplicated private-helper forwarding tests;
+retained store coverage should exercise public behavior, compatibility ledger
+surfaces, source/persistence side effects, or concrete regressions.
+
 ## Health Guard
 
 The test-suite health guard keeps skip and marker drift visible:
