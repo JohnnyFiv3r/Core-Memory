@@ -1,10 +1,18 @@
-# Core Memory — Canonical TODO
+# Core Memory — Capability TODO History
 
-**Last updated:** 2026-05-30
+**Last updated:** 2026-07-09
 
-Single source of truth for open capability work. Engine-correctness items #1–#9 are
-closed — see `docs/status.md` for the record. Capability items #10–#14, #16–#17 are
-closed. Open: #15 (multi-store fan-out).
+Historical capability ledger for the original engine-correctness and capability
+items. This file is no longer the single source of truth for open work; use
+`docs/status.md` for current completion state and `docs/PRD/README.md` for active
+or superseded PRDs.
+
+Engine-correctness items #1–#9 and capability items #10–#17 are closed. #15
+(multi-store fan-out) shipped as PipeHouse-only fan-out after the retired vendor
+adapter was removed. #17 shipped through the benchmark adapters and in-repo
+LOCOMO-like / causal-continuity harnesses. Current agency-layer follow-up lives
+in the Dreamer V4 target-states and future-directions backlog called out by the
+PRD index, not in this historical TODO.
 
 Detailed PRDs for #10–#14: `docs/reports/capability-roadmap-prds.md`
 Validation snapshot (2026-05-15): `docs/reports/todo-validation-2026-05-15.md`
@@ -43,11 +51,11 @@ Confirmed closed in `docs/status.md` (2026-05-28).
 
 ---
 
-## Open capability items (recommended build order)
+## Historical capability items (closed)
 
 ### #9 Slice B — Session enrichment delta envelope
 
-**Status:** Complete  
+**Status:** Complete
 **Blocks:** nothing  
 **Effort:** ~3 days  
 
@@ -462,16 +470,17 @@ external evidence retrieval.
 
 ### #17 — Eval and benchmark layer
 
-**Status:** Spec complete; implementation not started  
-**Blocks:** nothing  
-**Blocked by:** nothing  
-**Effort:** ~3 days  
+**Status:** Complete
+**Blocks:** nothing
+**Blocked by:** nothing
+**Effort:** shipped
 **Spec:** `docs/PRD/eval-benchmark-layer.md`
 
-LoCoMo runner, baseline capture, CI smoke gate (20 queries on retrieval/ PRs),
-nightly full run. Precision/recall/F1 per query type (causal, temporal, factual,
-cross-session, contradiction). Each of #11, #13, #14, #15 ships with a committed
-delta report. Works against `JsonFileBackend` only — zero external deps for CI.
+Shipped benchmark coverage includes the LOCOMO-like local harness,
+external LoCoMo adapter surface, causal-chain benchmark, causal-continuity
+benchmark, LongMemEval adapter, baseline documentation, and focused regression
+tests. See `benchmarks/`, `docs/benchmarks/locomo/baselines.md`, and
+`docs/status.md`.
 
 ---
 
@@ -502,4 +511,4 @@ delta report. Works against `JsonFileBackend` only — zero external deps for CI
 
 | Item | Status | Effort | Notes |
 |------|--------|--------|-------|
-| **#15** multi-store fan-out | Complete | shipped | PipeHouse-only fan-out shipped; retired vendor adapter removed |
+| None in this historical ledger | Closed | n/a | Current open work is tracked in `docs/status.md` and `docs/PRD/README.md` |
