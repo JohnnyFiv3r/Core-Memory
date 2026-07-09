@@ -1,11 +1,32 @@
 # Execution Plan: Phase 7b — Qdrant + Kuzu Migration
 
 **Phase:** 7b execution
-**Status:** Ready to start
+**Status:** Complete — Qdrant/Kuzu implementation shipped; optional backend and live-provider tests remain gated
 **Design reference:** `docs/PRD/07b-qdrant-kuzu-migration.md` (rationale, schemas, config)
 **Protocol reference:** `docs/PRD/07-neo4j-query-backend.md` (`GraphBackend` protocol)
-**Prerequisite:** Phase 6 complete (`BackendCapabilities` wired, `_caps` branches in
-`canonical.py` exist but unreachable)
+**Prerequisite:** Phase 6 complete (`BackendCapabilities` wired; `_caps` branches in
+`canonical.py` are now reachable)
+
+---
+
+## Current implementation note
+
+This execution plan is complete in the current tree. Qdrant is the default vector
+backend, Kuzu is the default graph backend, Qdrant hybrid retrieval has a native
+path with FAISS/lexical fallback, canonical recall can exercise capability-gated
+vector and graph branches, and `core-memory migrate` can backfill Qdrant plus the
+configured graph backend from existing storage.
+
+The phase is covered by focused Qdrant/Kuzu tests and the optional-backend E2E
+suite in `tests/test_retrieval_e2e_qdrant_kuzu.py`. Those tests are intentionally
+marked as optional backend coverage so core-deps CI remains skip-free while
+all-extras can run package-backed checks. Live Neo4j remains environment-gated,
+which matches the current test-suite policy rather than indicating an open 7b
+implementation gap.
+
+The task breakdown below is retained as historical execution context.
+
+---
 
 This document is the **task-by-task execution plan**. It does not re-argue the
 design — see the design PRD for that. Every step lists the files touched, the
