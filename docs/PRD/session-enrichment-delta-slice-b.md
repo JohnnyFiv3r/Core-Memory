@@ -1,24 +1,41 @@
 # PRD: Session Enrichment Delta — Slice B
 
-**Status:** Ready to implement  
+**Status:** Implemented
 **Target file:** `core_memory/runtime/passes/enrichment.py`  
-**Effort:** ~3 days  
+**Effort:** Historical estimate
 **Depends on:** Slice A (done)  
-**Mandated by:** `docs/PRD/session-enrichment-delta-analysis.md` §"Next Step (Slice B)"
+**Mandated by:** `docs/PRD/session-enrichment-delta-analysis.md` Slice B design rationale
 
 ---
 
-## Problem
+## Current implementation note
 
-The enrichment pipeline (`run_turn_enrichment`) runs up to 9 stages per turn but has
-no durable record of a completed run. If the same turn is re-enriched (agent retry,
-job replay, crash recovery), all 9 stages re-execute and produce duplicate associations,
-duplicate claim updates, and duplicate goal lifecycle transitions — none of which the
-deduplication layer can catch because the dedupe key is per-row, not per-run.
+Slice B is implemented in `core_memory.runtime.passes.enrichment`.
+`run_turn_enrichment()` now accepts `enrichment_run_id`, auto-generates one when
+absent, persists a `session_enrichment_delta.v1` envelope under
+`.beads/events/enrichment-{bead_id}-{run_id[:8]}.jsonl`, returns cached
+`stage_results` for repeated runs with the same id, and exposes all nine
+`stage_results` keys. The queued side-effect path in
+`core_memory.runtime.queue.side_effect_queue` supplies an `enrichment_run_id`
+when processing `turn-enrichment` jobs.
 
-Stage 4 (crawler merge + log clear) is also not atomic: a crash between the merge
-write and the log clear leaves the pipeline in an inconsistent state that subsequent
-runs cannot recover from deterministically.
+The implementation tasks below are retained as historical context for what
+shipped.
+
+---
+
+## Historical problem
+
+At the time this PRD was written, the enrichment pipeline
+(`run_turn_enrichment`) ran up to 9 stages per turn but lacked a durable record
+of a completed run. If the same turn was re-enriched (agent retry, job replay,
+crash recovery), all 9 stages re-executed and could produce duplicate
+associations, duplicate claim updates, and duplicate goal lifecycle transitions
+that were not fully captured by per-row dedupe keys.
+
+Stage 4 (crawler merge + log clear) also needed an atomicity guarantee: a crash
+between the merge write and the log clear could leave the pipeline in an
+inconsistent state that subsequent runs could not recover from deterministically.
 
 ---
 
@@ -33,19 +50,21 @@ runs cannot recover from deterministically.
 
 ---
 
-## Current state
+## Current implementation state
 
 | Component | Status |
 |-----------|--------|
 | `run_turn_enrichment()` in `enrichment.py` | Done — runs all 9 stages |
-| `enrichment_run_id` parameter | **Missing** — no run identity |
-| Stage 4 atomic lock | **Missing** — merge and log clear are separate writes |
-| Delta envelope persistence | **Missing** — no `.beads/events/enrichment-*.jsonl` |
-| Idempotency gate | **Missing** — no "already processed" check |
+| `enrichment_run_id` parameter | Shipped — caller-supplied or auto-generated |
+| Stage 4 atomic lock | Shipped through the atomic crawler merge path |
+| Delta envelope persistence | Shipped — `.beads/events/enrichment-{bead_id}-{run_id[:8]}.jsonl` |
+| Idempotency gate | Shipped — repeated `(bead_id, enrichment_run_id)` calls return cached `stage_results` |
 
 ---
 
 ## Success criteria
+
+These criteria are implemented and covered by `tests/test_enrichment_slice_b.py`.
 
 1. Calling `run_turn_enrichment()` twice with the same `enrichment_run_id` returns
    the cached result on the second call — no stages re-execute, no duplicates.

@@ -2,7 +2,21 @@
 
 **Author:** Core Memory team  
 **Date:** 2026-05-28  
-**Status:** Slice A complete — Slice B (implementation) pending
+**Status:** Complete — Slice A analysis and Slice B implementation shipped
+
+---
+
+## Current implementation note
+
+Slice B is now implemented in `core_memory.runtime.passes.enrichment`.
+`run_turn_enrichment()` accepts `enrichment_run_id`, auto-generates one when
+absent, gates repeated calls with the same run id through a cached
+`session_enrichment_delta.v1` envelope, persists all nine `stage_results` keys,
+and records an idempotency token. The queued side-effect path also passes an
+`enrichment_run_id` into enrichment jobs.
+
+The analysis below is retained as the design rationale that led to the shipped
+Slice B implementation.
 
 ---
 
@@ -203,13 +217,15 @@ emit_turn_finalized
 
 ---
 
-## Next Step (Slice B)
+## Slice B Outcome
 
-Implement the `session_enrichment_delta.v1` envelope:
-1. Thread `enrichment_run_id` through all 9 stages
-2. Wrap Stage 4 merge in atomic lock
-3. Persist the delta envelope after stage 9 completes
-4. Add idempotency check at the top of `run_turn_enrichment`: if same `enrichment_run_id` in events log, return cached result
+The `session_enrichment_delta.v1` envelope has shipped:
 
-**Target file:** `core_memory/runtime/passes/enrichment.py`  
-**PRD:** Create `docs/PRD/session-enrichment-delta-slice-b.md` when ready to implement
+1. `enrichment_run_id` is threaded through all 9 stages.
+2. Stage 4 crawler merge uses the atomic crawler merge path.
+3. The delta envelope is persisted after stage 9 completes.
+4. `run_turn_enrichment()` checks for an existing envelope at entry and returns
+   the cached stage results for repeated `(bead_id, enrichment_run_id)` runs.
+
+**Implementation file:** `core_memory/runtime/passes/enrichment.py`
+**Implementation PRD:** `docs/PRD/session-enrichment-delta-slice-b.md`
