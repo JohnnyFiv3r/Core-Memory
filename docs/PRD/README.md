@@ -50,7 +50,7 @@ their presence in this table.
 | `dreamer-continuity-engine.md` | Dreamer V3 — scientific continuity engine, assembly depth, storyline projection, future vectors; V4 target-states + agency backlog | **Implemented (v3 spec shipped; V4 backlog out of scope)** |
 | `myelination-reinforcement.md` | Myelination V2 — audited association reinforcement & decay (edge-only) | **Implemented (v2 spec shipped)** |
 | `storylines-structural-equivalence.md` | Storylines — structural-equivalence abstraction and earned semantics | **Draft v1** |
-| `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Draft v1** |
+| `agentic-semantic-task-runtime.md` | Agentic Semantic Task Runtime — PydanticAI operator harness, model routing, and sub-agent delegation | **Partially implemented — core runtime/adapters/receipts shipped; hosted operator/sub-agent UX remains draft** |
 | `soul-continuity-dials-core-memory-implementation.md` | Core Memory backend support for host-app SOUL continuity dials | Implemented |
 
 ## Implementation status & deferred work

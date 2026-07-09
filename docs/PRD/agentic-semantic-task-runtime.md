@@ -1,20 +1,32 @@
 # PRD: Agentic Semantic Task Runtime
 ## PydanticAI Operator Harness, Model Routing, and Sub-Agent Delegation
 
-**Status:** Draft v1
+**Status:** Partially implemented (core runtime, adapters, receipts, and observability shipped; hosted operator/sub-agent experience remains draft)
 **Owner surface:** Core Memory semantic runtime; hosted operator experience
 **Related:** `03a-pydanticai-boundary.md`, `dreamer-continuity-engine.md`,
 `myelination-reinforcement.md`, `soul-files.md`, `external-data-bead-ingest.md`
 
 ---
 
+> Current implementation note: Core Memory now ships the provider-neutral
+> semantic task contracts/runtime, disabled/provider/PydanticAI/remote runtime
+> selection, semantic task verifier, receipt storage, HTTP receipt/summary read
+> surfaces, and integrations for bead typing/judging, rationale extraction,
+> association coverage, causal recall execute, Dreamer research, and SOUL
+> proposal work. The remaining draft scope is the hosted operator experience,
+> richer sub-agent orchestration, global retry/cost policy, and UI workflow.
+
+---
+
 ## 1. Summary
 
-Core Memory currently invokes LLMs in several semantic roles: bead-field judging,
-rationale extraction, association judging, Dreamer research, SOUL proposal work,
-and future document/source enrichment. These invocations are useful but
-architecturally scattered. They use different prompts, model-selection rules,
-fallback paths, provenance records, retry semantics, and observability shapes.
+Core Memory routes several LLM-backed roles through typed semantic task
+contracts: bead-field judging, rationale extraction, association judging,
+Dreamer research, SOUL proposal work, causal recall execute, and future
+document/source enrichment. This shipped foundation gives Core Memory a common
+runtime, adapter, verifier, receipt, and observability layer; this PRD continues
+to track the larger hosted operator/sub-agent vision that remains outside the
+current OSS backend implementation.
 
 This PRD proposes a unified **Agentic Semantic Task Runtime**: every LLM-backed
 semantic operation is expressed as a typed task, routed through a single
