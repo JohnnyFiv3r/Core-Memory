@@ -1,20 +1,51 @@
 # PRD: External Data Bead Ingest Contract
 
-**Status:** Spec only — no implementation exists  
-**Effort:** ~1 day spec review + ~2 days implementation  
-**Blocks:** #15 (PipeHouse adapter in multi-store fan-out)  
-**Integration partner:** PipeHouse (Data Pipeline Builders)
+**Status:** Implemented — superseded by the generic typed external-evidence ingest contract
+**Effort:** Historical estimate; implementation shipped through the external-evidence path
+**Originally blocked:** #15 (PipeHouse adapter in multi-store fan-out)
+**Original integration partner:** PipeHouse (Data Pipeline Builders)
 
 ---
 
-## Problem
+## Current implementation note
 
-There is no defined contract for how relational data insights from an external system
-(PipeHouse) enter Core Memory's write pipeline. The agreed model — PipeHouse normalizes
-data, writes insights to a table, Core Memory reads and generates a bead — has no schema,
-no ingest path, and no specified bead type. PipeHouse has nothing concrete to build
-against. The causal edges drawn in the External Memory Runtime architecture diagram (`data supports
-decision`, `data led_to investigation`) have no data to anchor to.
+This PRD's original PipeHouse-specific `data_insight` table/polling design has
+been superseded by the shipped, product-neutral typed external-evidence path.
+Core Memory now writes source-attributed external anchors through
+`core_memory.runtime.ingest.external_evidence`, with source-envelope normalization
+in `core_memory.runtime.ingest.source_envelope`.
+
+Current public write surfaces:
+
+- `POST /v1/memory/external-evidence`
+- `POST /v1/memory/structured-observation`
+- `POST /v1/memory/document-reference`
+- `POST /v1/memory/state-assertion`
+
+Current canonical source-backed bead types include `transcript`,
+`document_reference`, `structured_observation`, `state_assertion`,
+`operational_event`, and `data_insight`. The shipped contract preserves
+`source_id`, `source_event_id`, `source_system`, `source_kind`, `source_ref`,
+`source_refs`, `source_attribution`, `hydration_ref`,
+`core_memory_unifying_id`, typed source fields such as `source_table` and
+`source_record_id`, immutable source-version receipts, and association coverage
+triggering after durable write.
+
+The historical design below is retained for provenance. Where it conflicts with
+the shipped generic external-evidence contract, the shipped contract is
+authoritative.
+
+---
+
+## Historical problem
+
+At the time this PRD was written, there was no defined contract for how
+relational data insights from an external system entered Core Memory's write
+pipeline. The agreed model — PipeHouse normalizes data, writes insights to a
+table, Core Memory reads and generates a bead — had no schema, ingest path, or
+specified bead type. PipeHouse had nothing concrete to build against. The causal
+edges drawn in the External Memory Runtime architecture diagram (`data supports
+decision`, `data led_to investigation`) had no data to anchor to.
 
 ---
 
@@ -31,19 +62,24 @@ decision`, `data led_to investigation`) have no data to anchor to.
 
 ---
 
-## Current state
+## Current implementation state
 
 | Component | Status |
 |-----------|--------|
-| `"data_insight"` bead type | **Missing** from `BeadType` enum |
-| DB table schema for PipeHouse writes | **Missing** — no spec |
-| Ingest path (polling or webhook) | **Missing** |
-| `core_memory_unifying_id` convention | **Missing** — needed for cross-store joins |
-| Association eligibility for data beads | Implicit — requires explicit confirmation |
+| `"data_insight"` bead type | Shipped in `BeadType`; relational evidence usually uses `structured_observation`, while `data_insight` remains a canonical external type |
+| DB table schema for PipeHouse writes | Superseded by caller-owned source stores plus the typed external-evidence payload contract |
+| Ingest path (polling or webhook) | Shipped as `runtime/ingest/external_evidence.py` and HTTP endpoints under `/v1/memory/*` |
+| `core_memory_unifying_id` convention | Shipped; required for non-`state_assertion` external evidence payloads |
+| Association eligibility for data beads | Shipped via post-write association coverage after durable external-evidence ingest |
 
 ---
 
 ## Success criteria
+
+The criteria below describe the original PipeHouse-specific design. The shipped
+contract satisfies the source-attributed bead and association-eligibility goals
+through the generic external-evidence path described above, not through a
+Core-Memory-owned PipeHouse polling table.
 
 1. A PipeHouse insight row written to the agreed DB table is ingested into Core Memory
    as a `type: "data_insight"` bead within the polling interval (Mode A) or within
