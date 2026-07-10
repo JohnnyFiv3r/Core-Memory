@@ -1,6 +1,6 @@
 # Core Memory — Status
 
-**Last updated:** 2026-07-09
+**Last updated:** 2026-07-10
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
@@ -16,6 +16,10 @@ surface ratchet is active for retained public compatibility paths. Remaining
 public compatibility surfaces are tracked as a post-cleanup deprecation backlog
 in `docs/compatibility_ledger.md`; future removal requires the ledger's
 deprecation or breaking-change conditions.
+
+The follow-up PRD truth sweep also completed: completed/locked historical PRDs
+no longer carry stale open-checklist examples as current state. Use this file
+and `docs/PRD/README.md` for current completion truth.
 
 | Phase | Topic | Status |
 |---|---|---|

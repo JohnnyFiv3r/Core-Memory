@@ -9,7 +9,7 @@ Do not start a phase until the previous one has passed CI.
 
 PRDs for all phases live in `docs/PRD/` and carry codebase-specific implementation detail.
 
-**Closeout status (2026-07-09):** This cleanup workstream is complete at the
+**Closeout status (2026-07-10):** This cleanup workstream is complete at the
 architecture layer. The checked-in architecture guard baseline is zero, the
 compatibility-surface ratchet is active, and remaining public compatibility
 surfaces have moved to the post-cleanup deprecation backlog in
@@ -18,7 +18,9 @@ debt to delete opportunistically; future removals require the ledger's
 deprecation or breaking-change conditions. Test-suite cleanup is also closed:
 the core deps lane is skip-free by marker deselection, the broad local 42 skips
 are intentional optional backend/live backend coverage, and maintained
-compatibility tests are public-surface coverage.
+compatibility tests are public-surface coverage. Completed/locked PRDs have also
+been swept so historical examples defer to `docs/status.md` and
+`docs/PRD/README.md` for current completion truth.
 
 ---
 
