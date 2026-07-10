@@ -241,10 +241,11 @@ authorship, drops known fields during creation normalization, and can report
 semantic success before canonical bead existence is confirmed. The approved
 plan preserves one canonical current-turn bead plus up to two explicitly
 derived companion beads and uses full-schema delegated authorship for the
-passive hosted OpenClaw/Satorid capture path.
+passive hosted OpenClaw capture path.
 
-**Status:** Draft v1 / approved implementation sequence — documentation gate in
-progress; code slices not yet shipped. See
+**Status:** Implementation in progress — documentation gate complete; Slice 1
+implements lossless persistence and bounded turn-time derivation. Slices 2–7
+remain. See
 `docs/PRD/agent-led-semantic-write-integrity.md`.
 
 ---

@@ -32,7 +32,11 @@ def normalize_links(links) -> list[dict]:
 
 
 def has_evidence(bead: dict) -> bool:
-    return bool((bead.get("evidence_refs") or []) or (bead.get("tool_output_ids") or []) or (bead.get("tool_output_id") or "").strip())
+    return bool(
+        (bead.get("evidence_refs") or [])
+        or (bead.get("tool_output_ids") or [])
+        or (bead.get("tool_output_id") or "").strip()
+    )
 
 
 def required_field_issues_for_store(bead: dict) -> list[str]:
@@ -55,8 +59,6 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
     )
     status = str(bead.get("status") or "").strip()
     created_at = str(bead.get("created_at") or "").strip()
-    because = bead.get("because") or []
-    detail = (bead.get("detail") or "").strip()
 
     if not t:
         issues.append("missing:type")
@@ -80,8 +82,6 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
             if len(str(s)) > 220:
                 issues.append("bounds:summary_item>220")
                 break
-
-    has_ev = has_evidence(bead)
 
     if t == "context":
         if not (bead.get("entities") or []):
@@ -115,7 +115,12 @@ def required_field_issues_for_store(bead: dict) -> list[str]:
         if not (bead.get("hydration_ref") or {}):
             issues.append("document_reference:missing_hydration_ref")
     elif t == "state_assertion":
-        if not (bead.get("derived_from") or bead.get("derived_from_bead_ids") or bead.get("evidence_refs") or bead.get("supporting_facts")):
+        if not (
+            bead.get("derived_from")
+            or bead.get("derived_from_bead_ids")
+            or bead.get("evidence_refs")
+            or bead.get("supporting_facts")
+        ):
             issues.append("state_assertion:missing_derivation")
         if not str(bead.get("effective_from") or bead.get("observed_at") or "").strip():
             issues.append("state_assertion:missing_effective_from")
@@ -203,7 +208,8 @@ def validate_bead_fields_for_store(store: Any, bead: dict) -> None:
     if issues and bool(store.strict_required_fields):
         raise ValueError("required field validation failed: " + ", ".join(issues))
     if issues:
-        bead["validation_warnings"] = issues
+        existing = [str(item) for item in (bead.get("validation_warnings") or []) if str(item)]
+        bead["validation_warnings"] = list(dict.fromkeys(existing + issues))
 
 
 __all__ = [

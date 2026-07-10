@@ -3,22 +3,30 @@ from __future__ import annotations
 import json
 import os
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.schema.event_schemas import CRAWLER_UPDATE
-from core_memory.persistence.store import MemoryStore
-from core_memory.persistence.session_surface import read_session_surface
 from core_memory.association.quarantine import write_quarantine
+from core_memory.persistence.io_utils import append_jsonl, store_lock
+from core_memory.persistence.session_surface import read_session_surface
+from core_memory.persistence.store import MemoryStore
 from core_memory.policy.association_contract import assoc_dedupe_key
 from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_PERMISSIVE,
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
-from core_memory.policy.hygiene import enforce_bead_hygiene_contract, rewrite_generic_title
+from core_memory.policy.hygiene import is_generic_title
+from core_memory.schema.agent_authored_updates import (
+    AGENT_OWNED_BEAD_FIELDS,
+    AUTHORED_CREATION_ROW_FIELDS,
+    CREATION_STRUCTURAL_INPUT_FIELDS,
+    NORMALIZABLE_CREATION_ROW_FIELDS,
+)
+from core_memory.schema.event_schemas import CRAWLER_UPDATE
+from core_memory.schema.normalization import normalize_state_change
 
 
 def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dict[str, Any]], list[dict[str, Any]]]:
@@ -67,7 +75,10 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                         "replacement_association_id": str(act.get("replacement_association_id") or "").strip(),
                         "reason_text": str(act.get("reason_text") or act.get("reason") or "").strip(),
                         "confidence": act.get("confidence"),
-                        "provenance": str(act.get("provenance") or "model_inferred").strip().lower() or "model_inferred",
+                        "provenance": str(
+                            act.get("provenance") or "model_inferred"
+                        ).strip().lower()
+                        or "model_inferred",
                     }
                 )
 
@@ -127,56 +138,200 @@ CURRENT_TURN_ASSOC_SOURCE_ALIASES = {
 }
 
 
-def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = [x for x in (updates.get("beads_create") or []) if isinstance(x, dict)]
-    out: list[dict[str, Any]] = []
-    for r in rows:
-        typ = str(r.get("type") or "context").strip() or "context"
-        title = rewrite_generic_title(str(r.get("title") or "").strip() or "assistant turn")[:200]
+def _as_bool(value: Any, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+    return default
 
-        summary = r.get("summary")
+
+def _normalize_creation_rows_with_diagnostics(
+    updates: dict[str, Any],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Copy schema-known fields and return every compatibility loss explicitly."""
+
+    raw_rows = list((updates or {}).get("beads_create") or [])
+    candidates: list[tuple[int, dict[str, Any]]] = []
+    diagnostics: list[dict[str, Any]] = []
+
+    for row_index, raw in enumerate(raw_rows):
+        if not isinstance(raw, dict):
+            diagnostics.append({"row_index": row_index, "code": "creation_row_not_object"})
+            continue
+
+        unknown = sorted(str(key) for key in raw if key not in NORMALIZABLE_CREATION_ROW_FIELDS)
+        if unknown:
+            diagnostics.append(
+                {
+                    "row_index": row_index,
+                    "code": "unknown_fields_dropped",
+                    "dropped_fields": unknown,
+                }
+            )
+
+        row = {
+            key: deepcopy(value)
+            for key, value in raw.items()
+            if key in NORMALIZABLE_CREATION_ROW_FIELDS
+        }
+        row["type"] = str(row.get("type") or "context").strip() or "context"
+        row["title"] = (str(row.get("title") or "").strip() or "assistant turn")[:200]
+
+        summary = row.get("summary")
         if isinstance(summary, str):
             summary = [summary]
         if not isinstance(summary, list):
             summary = []
-        summary = [str(x).strip() for x in summary if str(x).strip()][:5]
+        row["summary"] = [str(item).strip() for item in summary if str(item).strip()][:5]
 
-        row = {
-            "type": typ,
-            "title": title,
-            "summary": summary,  # optional by contract
-            "tags": [str(x) for x in (r.get("tags") or []) if str(x)][:10],
-            "detail": str(r.get("detail") or "")[:1200],
-            "source_turn_ids": [str(x) for x in (r.get("source_turn_ids") or []) if str(x)][:5],
-            "source_turn_ref": dict(r.get("source_turn_ref") or {}) if isinstance(r.get("source_turn_ref"), dict) else None,
-            "session_id": str(r.get("session_id") or "") or None,
-            "turn_index": r.get("turn_index"),
-            "prev_bead_id": str(r.get("prev_bead_id") or "") or None,
-            "retrieval_eligible": bool(r.get("retrieval_eligible", False)),
-            "entities": [str(x) for x in (r.get("entities") or []) if str(x)][:20],
-            "topics": [str(x) for x in (r.get("topics") or []) if str(x)][:20],
-            "validity": str(r.get("validity") or "")[:40] or None,
-            "because": [str(x) for x in (r.get("because") or []) if str(x)][:8],
-            "supporting_facts": [str(x) for x in (r.get("supporting_facts") or []) if str(x)][:12],
-            "evidence_refs": [str(x) for x in (r.get("evidence_refs") or []) if str(x)][:12],
-            "state_change": r.get("state_change") if isinstance(r.get("state_change"), dict) else None,
-            "effective_from": str(r.get("effective_from") or "") or None,
-            "effective_to": str(r.get("effective_to") or "") or None,
-            "observed_at": str(r.get("observed_at") or "") or None,
-            "supersedes": [str(x) for x in (r.get("supersedes") or []) if str(x)][:8],
-            "superseded_by": [str(x) for x in (r.get("superseded_by") or []) if str(x)][:8],
-        }
+        source_turn_ids = row.get("source_turn_ids")
+        if isinstance(source_turn_ids, str):
+            source_turn_ids = [source_turn_ids]
+        row["source_turn_ids"] = [
+            str(item) for item in (source_turn_ids or []) if str(item).strip()
+        ][:5]
+        retrieval_eligibility_missing = "retrieval_eligible" not in row
+        row["retrieval_eligible"] = _as_bool(row.get("retrieval_eligible"), default=False)
+        if "state_change" in row:
+            row["state_change"] = normalize_state_change(row.get("state_change"))
 
-        row = enforce_bead_hygiene_contract(row)
+        warnings = [
+            f"unknown_authored_field:dropped:{field_name}"
+            for field_name in unknown
+        ]
+        if retrieval_eligibility_missing:
+            warnings.append("retrieval_eligible:missing_defaulted_false")
+            diagnostics.append(
+                {
+                    "row_index": row_index,
+                    "code": "compatibility_default_applied",
+                    "field": "retrieval_eligible",
+                    "value": False,
+                }
+            )
+        if row["retrieval_eligible"] and is_generic_title(row["title"]):
+            row["retrieval_eligible"] = False
+            reason = "retrieval_eligible:downgraded_generic_title"
+            warnings.append(reason)
+            diagnostics.append(
+                {
+                    "row_index": row_index,
+                    "code": "retrieval_eligibility_downgraded",
+                    "reason": "generic_title",
+                }
+            )
+        if warnings:
+            row["validation_warnings"] = warnings
+        candidates.append((row_index, row))
 
-        # Temporal minimum: source_turn_ids required for creation rows.
-        if not row.get("source_turn_ids"):
+    explicit_primary = [
+        index
+        for index, (_, row) in enumerate(candidates)
+        if str(row.get("creation_role") or "").strip().lower() == "current_turn"
+    ]
+    primary_index = explicit_primary[0] if explicit_primary else (0 if candidates else -1)
+
+    primary: list[tuple[int, dict[str, Any]]] = []
+    derived: list[tuple[int, dict[str, Any]]] = []
+    for candidate_index, (row_index, row) in enumerate(candidates):
+        role = str(row.get("creation_role") or "").strip().lower()
+        if candidate_index == primary_index:
+            row["creation_role"] = "current_turn"
+            if role != "current_turn":
+                row.setdefault("validation_warnings", []).append(
+                    "creation_role:missing_defaulted_to_current_turn"
+                )
+            primary.append((row_index, row))
             continue
-        out.append(row)
-    return out
+
+        if role == "current_turn":
+            diagnostics.append(
+                {
+                    "row_index": row_index,
+                    "code": "duplicate_current_turn_row_dropped",
+                }
+            )
+            continue
+
+        row["creation_role"] = "derived"
+        if role != "derived":
+            row.setdefault("validation_warnings", []).append(
+                "creation_role:missing_defaulted_to_derived"
+            )
+        derived_from = [
+            str(item)
+            for item in (row.get("derived_from_bead_ids") or [])
+            if str(item).strip()
+        ]
+        if "$current_turn" not in derived_from:
+            derived_from.append("$current_turn")
+            row.setdefault("validation_warnings", []).append(
+                "derived_from_bead_ids:current_turn_sentinel_added"
+            )
+        row["derived_from_bead_ids"] = derived_from
+        derived.append((row_index, row))
+
+    if len(derived) > 2:
+        for row_index, _ in derived[2:]:
+            diagnostics.append(
+                {
+                    "row_index": row_index,
+                    "code": "derived_row_limit_exceeded_dropped",
+                    "max_derived_rows": 2,
+                }
+            )
+        derived = derived[:2]
+
+    ordered = primary + derived
+    if ordered and not ordered[0][1].get("source_turn_ids"):
+        diagnostics.append(
+            {
+                "row_index": ordered[0][0],
+                "code": "current_turn_row_missing_source_turn_ids",
+            }
+        )
+        return [], diagnostics
+    return [row for _, row in ordered], diagnostics
 
 
-def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in_bead_ids: list[str] | None = None) -> dict[str, Any]:
+def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
+    rows, _ = _normalize_creation_rows_with_diagnostics(updates)
+    return rows
+
+
+def _creation_store_payload(row: dict[str, Any], *, session_id: str) -> dict[str, Any]:
+    """Project one normalized row onto Bead fields plus runtime overlay."""
+
+    payload = {
+        key: deepcopy(value)
+        for key, value in row.items()
+        if key in AGENT_OWNED_BEAD_FIELDS
+    }
+    for key in CREATION_STRUCTURAL_INPUT_FIELDS | {"validity"}:
+        if key in row:
+            payload[key] = deepcopy(row[key])
+    payload["session_id"] = str(session_id)
+    payload["validation_warnings"] = list(row.get("validation_warnings") or [])
+    payload.setdefault("type", "context")
+    payload.setdefault("title", "assistant turn")
+    payload.setdefault("summary", [])
+    payload.setdefault("retrieval_eligible", False)
+    return payload
+
+
+def build_crawler_context(
+    root: str,
+    session_id: str,
+    limit: int = 200,
+    carry_in_bead_ids: list[str] | None = None,
+) -> dict[str, Any]:
     """Provide bounded session-scoped context for agent-judged crawler decisions."""
     rows = read_session_surface(root, session_id)
     rows = rows[-max(1, int(limit)) :]
@@ -189,26 +344,64 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
         "beads": rows,
         "visible_bead_ids": visible_set,
         "writing_contract": [
-            "A bead is the canonical record for a turn; every turn must produce one bead.",
+            "Every turn has exactly one canonical creation_role=current_turn bead.",
+            (
+                "A turn may also author at most two creation_role=derived "
+                "companion beads linked with derived_from_bead_ids=['$current_turn']."
+            ),
             "Thin beads preserve temporal continuity; rich beads carry structured retrieval payload.",
             "Summary is optional; do not invent prose when structured fields are stronger.",
             "Initial write requires temporal grounding only (session/turn order/prev bead).",
-            "Every non-initial turn should preserve temporal baseline continuity with at least one temporal association such as follows/precedes to the immediately adjacent session bead when that adjacency is visible.",
+            (
+                "Every non-initial turn should preserve temporal baseline continuity with at least "
+                "one temporal association such as follows/precedes to the immediately adjacent "
+                "session bead when that adjacency is visible."
+            ),
             "Do not force broad causal or semantic links on initial write unless strongly grounded.",
-            "After the first turn in a session, actively sweep plausible prior visible beads against the defined association types and append every non-temporal semantic relation that is strongly or highly plausibly supported.",
-            "When multiple relationships are highly plausibly true, append all of them rather than choosing only one.",
-            "High plausibility is enough for append-only associations; certainty is not required, but do not invent links unsupported by the visible record.",
-            "Use canonical relationship types only. Put free-text justification in reason_text or rationale, and express uncertainty with confidence rather than inventing new relation labels.",
-            "Prefer specific semantic links like supports, refines, caused_by, enables, diagnoses, resolves, supersedes, or contradicts over generic or purely temporal links when the turn meaningfully updates prior memory.",
-            "If no non-temporal semantic link is strongly or highly plausibly supported, omit it rather than fabricating one.",
+            (
+                "After the first turn in a session, actively sweep plausible prior visible beads "
+                "against the defined association types and append every non-temporal semantic "
+                "relation that is strongly or highly plausibly supported."
+            ),
+            (
+                "When multiple relationships are highly plausibly true, append all of them "
+                "rather than choosing only one."
+            ),
+            (
+                "High plausibility is enough for append-only associations; certainty is not "
+                "required, but do not invent links unsupported by the visible record."
+            ),
+            (
+                "Use canonical relationship types only. Put free-text justification in reason_text "
+                "or rationale, and express uncertainty with confidence rather than inventing new "
+                "relation labels."
+            ),
+            (
+                "Prefer specific semantic links like supports, refines, caused_by, enables, "
+                "diagnoses, resolves, supersedes, or contradicts over generic or purely temporal "
+                "links when the turn meaningfully updates prior memory."
+            ),
+            (
+                "If no non-temporal semantic link is strongly or highly plausibly supported, "
+                "omit it rather than fabricating one."
+            ),
         ],
         "retrieval_contract": [
-            "retrieval_eligible=true is set automatically when type is canonical and title is non-generic.",
+            "retrieval_eligible is authored; a missing compatibility value defaults to false.",
+            "Core Memory preserves false and may only downgrade true when the title is generic in this rollout slice.",
         ],
         "allowed_updates": {
-            "beads_create": "list[{type,title,source_turn_ids,turn_index?,prev_bead_id?,retrieval_eligible?,entities?,topics?,validity?,because?,supporting_facts?,evidence_refs?,state_change?,effective_from?,effective_to?,observed_at?,supersedes?,superseded_by?,summary?,detail?,tags?}]",
+            "beads_create": {
+                "shape": "list[AgentAuthoredBeadCreation]",
+                "fields": sorted(AUTHORED_CREATION_ROW_FIELDS),
+                "primary_role": "exactly one current_turn",
+                "derived_role": "zero to two derived rows",
+            },
             "reviewed_beads": "list[{bead_id,promotion_state,reason?,associations?}]",
-            "associations": "list[{source_bead_id,target_bead_id,relationship,reason_text,confidence,provenance?,reason_code?,evidence_fields?,relationship_raw?,rationale?}]",
+            "associations": (
+                "list[{source_bead_id,target_bead_id,relationship,reason_text,confidence,"
+                "provenance?,reason_code?,evidence_fields?,relationship_raw?,rationale?}]"
+            ),
         },
         "append_only_rules": [
             "promotion_marked can only be set true and means preserve_full_in_rolling semantics",
@@ -216,9 +409,18 @@ def build_crawler_context(root: str, session_id: str, limit: int = 200, carry_in
             "source must be session-local bead",
             "target must be in visible_bead_ids set",
             "initial-write minimum association is temporal only; richer associations may be appended later",
-            "for non-initial turns, temporal continuity is baseline: preserve at least one temporal adjacency link when the adjacent bead is visible",
-            "for non-initial turns, review the candidate relationship list against each plausible target and append every high-plausibility semantic relation that applies",
-            "do not collapse distinct plausible relations into one weak default if multiple stronger relations are justified by the visible evidence",
+            (
+                "for non-initial turns, temporal continuity is baseline: preserve at least one "
+                "temporal adjacency link when the adjacent bead is visible"
+            ),
+            (
+                "for non-initial turns, review the candidate relationship list against each "
+                "plausible target and append every high-plausibility semantic relation that applies"
+            ),
+            (
+                "do not collapse distinct plausible relations into one weak default if multiple "
+                "stronger relations are justified by the visible evidence"
+            ),
             "uncertainty belongs in confidence and explanation fields, not in free-text relationship labels",
         ],
     }
@@ -304,7 +506,11 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
                 if not src or not tgt or not rel:
                     continue
 
-                if rel == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+                if (
+                    rel == "precedes"
+                    and str(row.get("provenance") or "model_inferred").strip().lower()
+                    == "model_inferred"
+                ):
                     write_quarantine(
                         Path(root),
                         row,
@@ -489,11 +695,18 @@ def merge_crawler_updates_for_flush(root: str, session_id: str) -> dict[str, Any
 _TEMPORAL_RELATIONS = {"follows", "precedes"}
 
 
-def _maybe_upgrade_context_to_reflection(*, root: Any, session_id: str, associations: list[dict], store: Any = None) -> None:
+def _maybe_upgrade_context_to_reflection(
+    *,
+    root: Any,
+    session_id: str,
+    associations: list[dict],
+    store: Any = None,
+) -> None:
     """Upgrade context beads to reflection when ≥1 backward non-temporal causal edge lands."""
     if not associations:
         return
     from pathlib import Path
+
     from core_memory.persistence.io_utils import atomic_write_json
 
     root_path = Path(root)
@@ -515,7 +728,8 @@ def _maybe_upgrade_context_to_reflection(*, root: Any, session_id: str, associat
 
     with store_lock(root_path):
         import json as _json
-        from datetime import datetime, timezone as _tz
+        from datetime import datetime
+        from datetime import timezone as _tz
         try:
             index = _json.loads(index_file.read_text(encoding="utf-8"))
         except Exception:
@@ -564,41 +778,52 @@ def apply_crawler_updates(
     """
     created = 0
     created_bead_ids: list[str] = []
-    creation_rows = _normalize_creation_rows(updates or {})
+    derived_bead_ids: list[str] = []
+    derived_failures: list[dict[str, Any]] = []
+    creation_rows, creation_diagnostics = _normalize_creation_rows_with_diagnostics(updates or {})
     current_turn_bead_id = ""
     if creation_rows:
         store = MemoryStore(root)
-        for row in creation_rows:
-            bead_id = store.add_bead(
-                type=str(row.get("type") or "context"),
-                title=str(row.get("title") or "assistant turn"),
-                summary=list(row.get("summary") or []),
-                session_id=str(session_id),
-                source_turn_ids=list(row.get("source_turn_ids") or []),
-                source_turn_ref=row.get("source_turn_ref"),
-                tags=list(row.get("tags") or []),
-                detail=str(row.get("detail") or "") or None,
-                retrieval_eligible=bool(row.get("retrieval_eligible", False)),
-                entities=list(row.get("entities") or []),
-                topics=list(row.get("topics") or []),
-                validity=row.get("validity"),
-                because=list(row.get("because") or []),
-                supporting_facts=list(row.get("supporting_facts") or []),
-                evidence_refs=list(row.get("evidence_refs") or []),
-                state_change=row.get("state_change"),
-                effective_from=row.get("effective_from"),
-                effective_to=row.get("effective_to"),
-                observed_at=row.get("observed_at"),
-                supersedes=list(row.get("supersedes") or []),
-                superseded_by=list(row.get("superseded_by") or []),
-                prev_bead_id=row.get("prev_bead_id"),
-                turn_index=row.get("turn_index"),
-            )
+        for row_index, row in enumerate(creation_rows):
+            role = str(row.get("creation_role") or "").strip().lower()
+            row_for_store = dict(row)
+            if role == "derived":
+                if not current_turn_bead_id:
+                    derived_failures.append(
+                        {
+                            "row_index": row_index,
+                            "code": "current_turn_bead_not_committed",
+                        }
+                    )
+                    continue
+                row_for_store["derived_from_bead_ids"] = [
+                    current_turn_bead_id if str(item) == "$current_turn" else str(item)
+                    for item in (row.get("derived_from_bead_ids") or [])
+                    if str(item).strip()
+                ]
+
+            try:
+                bead_id = store.add_bead(
+                    **_creation_store_payload(row_for_store, session_id=str(session_id))
+                )
+            except Exception as exc:
+                if role != "derived":
+                    raise
+                derived_failures.append(
+                    {
+                        "row_index": row_index,
+                        "code": "derived_bead_persistence_failed",
+                        "error": str(exc),
+                    }
+                )
+                continue
             created += 1
             if bead_id:
                 created_bead_ids.append(str(bead_id))
-            if not current_turn_bead_id:
+            if role == "current_turn":
                 current_turn_bead_id = str(bead_id or "")
+            elif bead_id:
+                derived_bead_ids.append(str(bead_id))
 
     idx_file = Path(root) / ".beads" / "index.json"
     with store_lock(Path(root)):
@@ -628,6 +853,17 @@ def apply_crawler_updates(
                     assoc_row["source_bead"] = current_turn_bead_id
         now = datetime.now(timezone.utc).isoformat()
         log_path = _crawler_updates_log_path(root, session_id)
+        for diagnostic in creation_diagnostics:
+            append_jsonl(
+                log_path,
+                {
+                    "schema": CRAWLER_UPDATE,
+                    "kind": "creation_validation",
+                    "session_id": str(session_id),
+                    **diagnostic,
+                    "created_at": now,
+                },
+            )
         strict_default = os.environ.get("CORE_MEMORY_ASSOC_STRICT", "1") != "0"
         inference_mode = INFERENCE_MODE_STRICT if strict_default else INFERENCE_MODE_PERMISSIVE
         quarantine_path = Path(root) / ".beads" / "events" / "association-quarantine.jsonl"
@@ -689,7 +925,11 @@ def apply_crawler_updates(
                     if not str(row.get("reason_code") or "").strip():
                         row["reason_code"] = _rc
                     row["provenance"] = "preview_classifier"
-            if str(row.get("relationship") or "").strip().lower() == "precedes" and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred":
+            if (
+                str(row.get("relationship") or "").strip().lower() == "precedes"
+                and str(row.get("provenance") or "model_inferred").strip().lower()
+                == "model_inferred"
+            ):
                 write_quarantine(
                     Path(root),
                     row,
@@ -812,7 +1052,10 @@ def apply_crawler_updates(
                 if not rb_s or not rb_t:
                     lifecycle_rejected += 1
                     continue
-                if str(rb_s.get("session_id") or "") != str(session_id) or str(rb_t.get("session_id") or "") != str(session_id):
+                if (
+                    str(rb_s.get("session_id") or "") != str(session_id)
+                    or str(rb_t.get("session_id") or "") != str(session_id)
+                ):
                     lifecycle_rejected += 1
                     continue
 
@@ -843,6 +1086,16 @@ def apply_crawler_updates(
         "beads_created": created,
         "created_bead_ids": created_bead_ids,
         "current_turn_bead_id": current_turn_bead_id,
+        "derived_bead_ids": derived_bead_ids,
+        "derived_failures": derived_failures,
+        "creation_diagnostics": creation_diagnostics,
+        "creation_dropped_fields": sorted(
+            {
+                str(field_name)
+                for diagnostic in creation_diagnostics
+                for field_name in (diagnostic.get("dropped_fields") or [])
+            }
+        ),
         "promotions_marked": promoted,
         "associations_appended": appended,
         "association_lifecycle_queued": lifecycle_queued,

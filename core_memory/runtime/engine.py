@@ -1,61 +1,54 @@
 from __future__ import annotations
 
-import json
-import uuid
 import logging
 import os
 import re
+import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from .session.live_session import read_live_session_beads
+from core_memory.claim.outcomes import classify_memory_outcome
+from core_memory.claim.turn_integration import extract_and_attach_claims
+from core_memory.claim.update_policy import emit_claim_updates
 from core_memory.config.feature_flags import (
     agent_min_semantic_associations_after_first,
     claim_layer_enabled,
-    preview_association_allow_shared_tag,
-    preview_association_promotion_enabled,
     resolved_agent_authored_gate,
 )
-from core_memory.schema.event_schemas import CRAWLER_UPDATE
-from core_memory.claim.turn_integration import extract_and_attach_claims
-from core_memory.claim.outcomes import classify_memory_outcome
-from core_memory.claim.update_policy import emit_claim_updates
 from core_memory.persistence.store_claim_ops import write_memory_outcome_to_bead
+
 from ..association.crawler_contract import (
     build_crawler_context,
     merge_crawler_updates,
-    _crawler_updates_log_path,
 )
-from .passes.association_pass import run_association_pass
-from ..write_pipeline.continuity_injection import load_continuity_injection
-from .state import mark_memory_pass, try_claim_memory_pass
-from .turn.ingress import maybe_emit_finalize_memory_event
-from .queue.worker import SidecarPolicy, process_memory_event
-from ..write_pipeline.orchestrate import run_consolidate_pipeline
-from ..persistence.io_utils import append_jsonl
 from ..persistence.store import MemoryStore
-from .passes.decision_pass import run_session_decision_pass
-from ..policy.hygiene import enforce_bead_hygiene_contract, is_runtime_meta_chatter
 from ..policy.bead_judge import judge_bead_fields
-from ..policy.bead_typing import CLASSIFIABLE_TYPES
+from ..policy.bead_typing import CLASSIFIABLE_TYPES, is_retrieval_turn
 from ..retrieval.lifecycle import mark_turn_checkpoint
-from .passes.agent_crawler_invoke import invoke_turn_crawler_agent
+from ..schema.turn import Turn, reject_legacy_turn_kwargs
+from ..write_pipeline.continuity_injection import load_continuity_injection
+from .flush.flush_flow import process_flush_impl
 from .passes.agent_authored_contract import (
     ERROR_AGENT_CALLABLE_MISSING,
+    ERROR_AGENT_INVOCATION_EXHAUSTED,
     ERROR_AGENT_SEMANTIC_COVERAGE_MISSING,
     ERROR_AGENT_UPDATES_INVALID,
-    ERROR_AGENT_INVOCATION_EXHAUSTED,
     ERROR_AGENT_UPDATES_MISSING,
     validate_agent_authored_updates,
 )
-from .turn.turn_prep import normalize_turn_request as _normalize_turn_request, infer_semantic_bead_type as _infer_semantic_bead_type
-from ..policy.bead_typing import is_retrieval_turn
-from ..schema.turn import Turn, reject_legacy_turn_kwargs
+from .passes.agent_crawler_invoke import invoke_turn_crawler_agent
+from .passes.association_pass import run_association_pass
+from .passes.decision_pass import run_session_decision_pass
+from .queue.worker import SidecarPolicy, process_memory_event
+from .session.live_session import read_live_session_beads
 from .session.session_start_flow import process_session_start_impl
-from .turn.turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
-from .flush.flush_flow import process_flush_impl
+from .state import mark_memory_pass, try_claim_memory_pass
+from .turn.ingress import maybe_emit_finalize_memory_event
 from .turn.turn_flow import process_turn_finalized_impl
+from .turn.turn_prep import infer_semantic_bead_type as _infer_semantic_bead_type
+from .turn.turn_prep import normalize_turn_request as _normalize_turn_request
+from .turn.turn_quality import emit_agent_turn_quality_metric as _emit_agent_turn_quality_metric
 
 logger = logging.getLogger(__name__)
 
@@ -170,15 +163,19 @@ def _turn_judge_inputs(req: dict[str, Any]) -> tuple[str, str]:
     return user_query, assistant_final
 
 
-def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine", root: str | None = None) -> dict[str, Any]:
+def _structural_turn_bead(
+    req: dict[str, Any],
+    *,
+    tag: str = "seeded_by_engine",
+    root: str | None = None,
+) -> dict[str, Any]:
     user_query, assistant_final = _turn_judge_inputs(req)
     text = (user_query or assistant_final or "turn memory").strip()
     title = (text.splitlines()[0] if text else "Turn memory")[:160] or "Turn memory"
     summary = [text[:240] or "turn memory"]
-    # Durable, state-bearing turns are retrieval-eligible by default so that
-    # captured memory is findable by semantic recall without requiring an
-    # agent-crawler callable or CORE_MEMORY_BEAD_JUDGE_FALLBACK. Pure retrieval
-    # questions ("what did we decide?") are not themselves durable memory.
+    # Structural fallback may preserve continuity but cannot opt a bead into
+    # retrieval. Missing compatibility values default false; semantic authorship
+    # must explicitly request true.
     durable = bool(text) and not is_retrieval_turn(user_query)
     tags = ["crawler_reviewed", "turn_finalized", tag]
     if not durable:
@@ -196,7 +193,7 @@ def _structural_turn_bead(req: dict[str, Any], *, tag: str = "seeded_by_engine",
         "evidence_refs": [],
         "state_change": "",
         "validity": "",
-        "retrieval_eligible": durable,
+        "retrieval_eligible": False,
         "effective_from": "",
         "effective_to": "",
         "observed_at": "",
@@ -318,7 +315,14 @@ def _resolve_reviewed_updates(
         "required": bool(required),
         "fail_open": bool(fail_open),
         "mode": mode,
-        "source": str(source_override or ("metadata.crawler_updates" if isinstance(reviewed, dict) and reviewed else "default_fallback")),
+        "source": str(
+            source_override
+            or (
+                "metadata.crawler_updates"
+                if isinstance(reviewed, dict) and reviewed
+                else "default_fallback"
+            )
+        ),
         "used_fallback": False,
         "blocked": False,
         "error_code": None,
@@ -350,7 +354,11 @@ def _resolve_reviewed_updates(
         }:
             gate["error_code"] = str(invocation_diag.get("error_code") or ERROR_AGENT_UPDATES_MISSING)
         else:
-            gate["error_code"] = ERROR_AGENT_UPDATES_INVALID if (isinstance(md, dict) and "crawler_updates" in md) else ERROR_AGENT_UPDATES_MISSING
+            gate["error_code"] = (
+                ERROR_AGENT_UPDATES_INVALID
+                if isinstance(md, dict) and "crawler_updates" in md
+                else ERROR_AGENT_UPDATES_MISSING
+            )
         if not fail_open:
             gate["blocked"] = True
             return None, gate
@@ -366,6 +374,10 @@ def _enforce_structural_invariants(root: str, req: dict[str, Any], row: dict[str
     now = datetime.now(timezone.utc).isoformat()
     turn_id = str(req.get("turn_id") or "").strip()
     session_id = str(req.get("session_id") or "").strip()
+    role = str(out.get("creation_role") or "current_turn").strip().lower()
+    if role not in {"current_turn", "derived"}:
+        role = "current_turn"
+    out["creation_role"] = role
 
     if not str(out.get("bead_id") or "").strip():
         out["bead_id"] = f"bead-{uuid.uuid4().hex[:12].upper()}"
@@ -378,39 +390,93 @@ def _enforce_structural_invariants(root: str, req: dict[str, Any], row: dict[str
     if turn_id:
         out["turn_id"] = str(out.get("turn_id") or turn_id)
         src = [str(x) for x in (out.get("source_turn_ids") or []) if str(x).strip()]
-        if turn_id not in src:
+        if role == "current_turn" and turn_id not in src:
             src.append(turn_id)
+        elif role == "derived":
+            src = [source_id for source_id in src if source_id != turn_id]
         out["source_turn_ids"] = src
+    if role == "derived":
+        derived_from = [
+            str(item)
+            for item in (out.get("derived_from_bead_ids") or [])
+            if str(item).strip()
+        ]
+        if "$current_turn" not in derived_from:
+            derived_from.append("$current_turn")
+        out["derived_from_bead_ids"] = derived_from
     if session_id and not str(out.get("session_id") or "").strip():
         out["session_id"] = session_id
     if not out.get("source_turn_ref"):
-        out["source_turn_ref"] = {"turn_id": turn_id, "session_id": session_id, "speakers": list(req.get("speakers") or [])}
+        out["source_turn_ref"] = {
+            "turn_id": turn_id,
+            "session_id": session_id,
+            "speakers": list(req.get("speakers") or []),
+        }
 
     return out
 
 
 def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
-    """Guarantee one current-turn creation candidate exists for canonical per-turn bead write."""
+    """Guarantee and structurally attach one canonical current-turn candidate."""
     out = dict(updates or {})
     key = "beads_create"
     rows = list(out.get(key) or [])
     turn_id = str(req.get("turn_id") or "")
 
+    explicit_primary_indices = [
+        index
+        for index, row in enumerate(rows)
+        if isinstance(row, dict)
+        and str(row.get("creation_role") or "").strip().lower() == "current_turn"
+    ]
+    first_object_index = next(
+        (index for index, row in enumerate(rows) if isinstance(row, dict)),
+        None,
+    )
+    primary_index = (
+        explicit_primary_indices[0]
+        if explicit_primary_indices
+        else first_object_index
+    )
+
     has_turn = False
     for i, row in enumerate(rows):
         if not isinstance(row, dict):
             continue
-        rows[i] = _enforce_structural_invariants(root, req, row)
+        prepared = dict(row)
+        explicit_role = str(prepared.get("creation_role") or "").strip().lower()
+        if i == primary_index:
+            prepared["creation_role"] = "current_turn"
+        elif explicit_role != "current_turn":
+            prepared["creation_role"] = "derived"
+        rows[i] = _enforce_structural_invariants(root, req, prepared)
         user_query, assistant_final = _turn_judge_inputs(req)
-        rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final, req=req, root=root)
+        if str(rows[i].get("creation_role") or "") == "current_turn":
+            rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final, req=req, root=root)
         src = [str(x) for x in (rows[i].get("source_turn_ids") or []) if str(x)]
-        if turn_id and turn_id in src:
+        if (
+            str(rows[i].get("creation_role") or "") == "current_turn"
+            and turn_id
+            and turn_id in src
+        ):
             has_turn = True
 
     if not has_turn:
-        bead = _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req, root=root)
+        bead = (
+            _judged_turn_bead(req, root=root)
+            if _judge_fallback_enabled(req)
+            else _structural_turn_bead(req, root=root)
+        )
+        bead["creation_role"] = "current_turn"
         bead["source_turn_ids"] = [turn_id]
-        bead["source_turn_ref"] = dict(req.get("source_turn_ref") or {"turn_id": turn_id, "session_id": req.get("session_id"), "speakers": list(req.get("speakers") or [])})
+        bead["source_turn_ref"] = dict(
+            req.get("source_turn_ref")
+            or {
+                "turn_id": turn_id,
+                "session_id": req.get("session_id"),
+                "speakers": list(req.get("speakers") or []),
+            }
+        )
         rows.append(bead)
 
     out[key] = rows
@@ -542,14 +608,27 @@ def process_turn_finalized(
             if not result.get("bead_id"):
                 try:
                     from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id as _find_bid
-                    result["bead_id"] = str(_find_bid(root, session_id=session_id, turn_id=turn_id, preferred_bead_ids=[]) or "")
+                    result["bead_id"] = str(
+                        _find_bid(
+                            root,
+                            session_id=session_id,
+                            turn_id=turn_id,
+                            preferred_bead_ids=[],
+                        )
+                        or ""
+                    )
                 except Exception:
                     pass
             if claim_layer_enabled():
                 try:
                     from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
                     store = MemoryStore(root)
-                    bid = find_canonical_turn_bead_id(root, session_id=session_id, turn_id=turn_id, preferred_bead_ids=[])
+                    bid = find_canonical_turn_bead_id(
+                        root,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        preferred_bead_ids=[],
+                    )
                     idx = store._read_json(store.beads_dir / "index.json")
                     bead = (idx.get("beads") or {}).get(str(bid or "")) or {}
                     result["memory_outcome_written"] = bool(bead.get("memory_outcome"))
@@ -647,7 +726,13 @@ def emit_turn_finalized(
     return out
 
 
-def crawler_turn_context(*, root: str, session_id: str, limit: int = 200, carry_in_bead_ids: list[str] | None = None) -> dict[str, Any]:
+def crawler_turn_context(
+    *,
+    root: str,
+    session_id: str,
+    limit: int = 200,
+    carry_in_bead_ids: list[str] | None = None,
+) -> dict[str, Any]:
     out = build_crawler_context(root=root, session_id=session_id, limit=limit, carry_in_bead_ids=carry_in_bead_ids)
     out.setdefault("engine", {})
     out["engine"].update({"entry": "crawler_turn_context"})

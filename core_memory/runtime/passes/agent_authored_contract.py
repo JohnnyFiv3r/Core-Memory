@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Agent-authored turn-memory contract.
 
 Phase 3B makes the hot-path agent/adapter responsible for bead semantics.
@@ -8,7 +6,11 @@ or re-author invalid semantic fields unless an explicit legacy fallback is
 selected elsewhere.
 """
 
+from __future__ import annotations
+
 from typing import Any
+
+from core_memory.schema.agent_authored_updates import AUTHORED_CREATION_ROW_FIELDS
 
 ERROR_AGENT_UPDATES_MISSING = "agent_updates_missing"
 ERROR_AGENT_UPDATES_INVALID = "agent_updates_invalid"
@@ -42,6 +44,7 @@ AGENT_AUTHORED_REQUIRED_BEAD_FIELDS = (
     "title",
     "summary",
     "entities",
+    "retrieval_eligible",
 )
 
 AGENT_AUTHORED_REQUIRED_ASSOC_FIELDS = (
@@ -87,7 +90,11 @@ def _confidence_valid(value: Any) -> bool:
     return 0.0 <= c <= 1.0
 
 
-def validate_agent_authored_updates(updates: dict[str, Any], *, max_create_per_turn: int | None = None) -> tuple[bool, str | None, dict[str, Any]]:
+def validate_agent_authored_updates(
+    updates: dict[str, Any],
+    *,
+    max_create_per_turn: int | None = None,
+) -> tuple[bool, str | None, dict[str, Any]]:
     """Strict shape gate for agent-authored crawler updates.
 
     Returns: (ok, error_code, details)
@@ -111,6 +118,14 @@ def validate_agent_authored_updates(updates: dict[str, Any], *, max_create_per_t
     for row_index, row in enumerate(rows):
         if not isinstance(row, dict):
             return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {"reason": "bead_row_not_object", "row_index": row_index}
+
+        unknown_fields = sorted(str(key) for key in row if key not in AUTHORED_CREATION_ROW_FIELDS)
+        if unknown_fields:
+            return False, ERROR_AGENT_UPDATES_INVALID, {
+                "reason": "unknown_authored_bead_fields",
+                "row_index": row_index,
+                "unknown_fields": unknown_fields,
+            }
 
         missing_bead = []
         for key in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS:
@@ -197,5 +212,6 @@ def contract_snapshot() -> dict[str, object]:
         "beads_create_exactly_one": False,
         "beads_create_min": 1,
         "beads_create_max_policy": "SidecarPolicy.max_create_per_turn",
+        "unknown_bead_fields": "reject",
         "associations_required": False,
     }

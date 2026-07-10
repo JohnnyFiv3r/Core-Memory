@@ -10,8 +10,27 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
-                    {"type": "context", "title": "B", "summary": ["y"], "retrieval_title": "B", "retrieval_eligible": True, "retrieval_facts": ["y"], "entities": ["B"], "topics": ["topic"]},
+                    {
+                        "type": "decision",
+                        "title": "A",
+                        "summary": ["x"],
+                        "because": ["rationale"],
+                        "retrieval_title": "A",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["x"],
+                        "entities": ["A"],
+                        "topics": ["topic"],
+                    },
+                    {
+                        "type": "context",
+                        "title": "B",
+                        "summary": ["y"],
+                        "retrieval_title": "B",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["y"],
+                        "entities": ["B"],
+                        "topics": ["topic"],
+                    },
                 ],
                 "associations": [
                     {
@@ -29,9 +48,7 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         self.assertEqual(2, details.get("beads_create_count"))
 
     def test_requires_zero_bead_rows_fails(self):
-        ok, code, details = validate_agent_authored_updates(
-            {"beads_create": [], "associations": []}
-        )
+        ok, code, details = validate_agent_authored_updates({"beads_create": [], "associations": []})
         self.assertFalse(ok)
         self.assertEqual("agent_bead_fields_missing", code)
         self.assertIn("at_least_one_row", str(details.get("reason") or ""))
@@ -40,8 +57,26 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "context", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
-                    {"type": "context", "title": "B", "summary": ["y"], "retrieval_title": "B", "retrieval_eligible": True, "retrieval_facts": ["y"], "entities": ["B"], "topics": ["topic"]},
+                    {
+                        "type": "context",
+                        "title": "A",
+                        "summary": ["x"],
+                        "retrieval_title": "A",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["x"],
+                        "entities": ["A"],
+                        "topics": ["topic"],
+                    },
+                    {
+                        "type": "context",
+                        "title": "B",
+                        "summary": ["y"],
+                        "retrieval_title": "B",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["y"],
+                        "entities": ["B"],
+                        "topics": ["topic"],
+                    },
                 ]
             },
             max_create_per_turn=1,
@@ -54,7 +89,17 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {
+                        "type": "decision",
+                        "title": "A",
+                        "summary": ["x"],
+                        "because": ["rationale"],
+                        "retrieval_title": "A",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["x"],
+                        "entities": ["A"],
+                        "topics": ["topic"],
+                    },
                 ]
             }
         )
@@ -66,12 +111,55 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {
+                        "type": "decision",
+                        "title": "A",
+                        "summary": ["x"],
+                        "retrieval_title": "A",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["x"],
+                        "entities": ["A"],
+                        "topics": ["topic"],
+                    },
                 ]
             }
         )
         self.assertFalse(ok)
         self.assertEqual("agent_causal_rationale_missing", code)
+
+    def test_accepts_explicit_false_retrieval_eligibility(self):
+        ok, code, _details = validate_agent_authored_updates(
+            {
+                "beads_create": [
+                    {
+                        "type": "context",
+                        "title": "Thin continuity bead",
+                        "summary": ["No durable retrieval claim."],
+                        "entities": ["Core Memory"],
+                        "retrieval_eligible": False,
+                    }
+                ]
+            }
+        )
+        self.assertTrue(ok)
+        self.assertIsNone(code)
+
+    def test_rejects_missing_retrieval_eligibility(self):
+        ok, code, details = validate_agent_authored_updates(
+            {
+                "beads_create": [
+                    {
+                        "type": "context",
+                        "title": "Missing retrieval decision",
+                        "summary": ["Hard mode requires an explicit decision."],
+                        "entities": ["Core Memory"],
+                    }
+                ]
+            }
+        )
+        self.assertFalse(ok)
+        self.assertEqual("agent_bead_fields_missing", code)
+        self.assertIn("retrieval_eligible", details["missing_bead_fields"])
 
     def test_associations_must_be_list_when_present(self):
         ok, code, details = validate_agent_authored_updates(
@@ -81,13 +169,24 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
             }
         )
         self.assertFalse(ok)
-        self.assertIn(code, {"agent_associations_missing", "agent_causal_rationale_missing", "agent_bead_fields_missing"})
+        self.assertIn(
+            code, {"agent_associations_missing", "agent_causal_rationale_missing", "agent_bead_fields_missing"}
+        )
 
     def test_rejects_string_summary_shape(self):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "context", "title": "A", "summary": "x", "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {
+                        "type": "context",
+                        "title": "A",
+                        "summary": "x",
+                        "retrieval_title": "A",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["x"],
+                        "entities": ["A"],
+                        "topics": ["topic"],
+                    },
                 ]
             }
         )
@@ -99,7 +198,17 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {
+                        "type": "decision",
+                        "title": "A",
+                        "summary": ["x"],
+                        "because": ["rationale"],
+                        "retrieval_title": "A",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["x"],
+                        "entities": ["A"],
+                        "topics": ["topic"],
+                    },
                 ],
                 "associations": [
                     {
@@ -122,7 +231,17 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
-                    {"type": "decision", "title": "A", "summary": ["x"], "because": ["rationale"], "retrieval_title": "A", "retrieval_eligible": True, "retrieval_facts": ["x"], "entities": ["A"], "topics": ["topic"]},
+                    {
+                        "type": "decision",
+                        "title": "A",
+                        "summary": ["x"],
+                        "because": ["rationale"],
+                        "retrieval_title": "A",
+                        "retrieval_eligible": True,
+                        "retrieval_facts": ["x"],
+                        "entities": ["A"],
+                        "topics": ["topic"],
+                    },
                 ],
                 "associations": [
                     {

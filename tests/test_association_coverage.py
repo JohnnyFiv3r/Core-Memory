@@ -48,6 +48,7 @@ def _jsonl_rows(root: str, name: str) -> list[dict]:
 
 def _add_test_bead(store: MemoryStore, **kwargs):
     kwargs.setdefault("_association_coverage", False)
+    kwargs.setdefault("retrieval_eligible", True)
     return store.add_bead(**kwargs)
 
 
@@ -223,6 +224,7 @@ def _document_payload(**overrides):
         "document_name": "Vendor Contract.pdf",
         "core_memory_unifying_id": "vendor_contract",
         "hydration_ref": {"store": "object_store", "ref": "documents/doc_001"},
+        "retrieval_eligible": True,
     }
     payload.update(overrides)
     return payload
@@ -241,6 +243,7 @@ def _structured_payload(**overrides):
         "entities": ["Invoice INV-1"],
         "core_memory_unifying_id": "invoice_inv_1",
         "hydration_ref": {"store": "warehouse", "ref": "invoices:INV-1"},
+        "retrieval_eligible": True,
     }
     payload.update(overrides)
     return payload
@@ -656,6 +659,7 @@ class TestAssociationCoverage(unittest.TestCase):
                     "assertion_value": "review",
                     "effective_from": "2026-06-01T00:00:00Z",
                     "confidence": 0.82,
+                    "retrieval_eligible": True,
                 },
                 session_id="external",
             )
@@ -912,7 +916,8 @@ class TestAssociationCoverage(unittest.TestCase):
             self.assertTrue(out.get("ok"))
             coverage = out.get("association_coverage") or {}
             self.assertTrue(coverage.get("ok"), coverage)
-            self.assertEqual("queued", coverage.get("status"))
+            self.assertEqual("completed", coverage.get("status"))
+            self.assertGreaterEqual((coverage.get("counts") or {}).get("skipped", 0), 1)
             self.assertTrue(coverage.get("run_id"))
 
     def test_association_summary_candidates_and_decision_contract(self):
@@ -1066,7 +1071,14 @@ class TestAssociationCoverage(unittest.TestCase):
     def test_on_bead_committed_store_hook_queues_association_coverage(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
-            bead = store.add_bead(type="context", title="Hooked", summary=["hooked"], session_id="s1", source_turn_ids=["t1"])
+            bead = store.add_bead(
+                type="context",
+                title="Hooked",
+                summary=["hooked"],
+                session_id="s1",
+                source_turn_ids=["t1"],
+                retrieval_eligible=True,
+            )
 
             runs = _jsonl_rows(td, "association-runs.jsonl")
             self.assertEqual(1, len(runs))

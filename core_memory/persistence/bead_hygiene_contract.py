@@ -118,7 +118,15 @@ def _information_signals(bead: dict) -> dict:
 def classify_bead_richness(bead: dict) -> str:
     """Classify write richness as LOW or NORMAL."""
     s = _information_signals(bead)
-    positives = sum(1 for k in ["has_entities", "has_state_change", "has_because", "has_supporting", "has_evidence_refs", "has_validity"] if s.get(k))
+    positive_fields = [
+        "has_entities",
+        "has_state_change",
+        "has_because",
+        "has_supporting",
+        "has_evidence_refs",
+        "has_validity",
+    ]
+    positives = sum(1 for key in positive_fields if s.get(key))
     if s.get("is_runtime_meta"):
         return "LOW"
     if positives >= 2 and not s.get("is_generic_title"):
@@ -137,7 +145,7 @@ def can_be_retrieval_eligible(bead: dict) -> bool:
 def enforce_bead_hygiene_contract(bead: dict) -> dict:
     """Normalize bead to thin/rich hygiene contract without rejecting thin beads."""
     out = dict(bead or {})
-    out["title"] = rewrite_generic_title(str(out.get("title") or ""))
+    out["title"] = clean_title(str(out.get("title") or ""))
 
     out.setdefault("summary", [])
     out.setdefault("session_id", out.get("session_id"))
@@ -147,7 +155,15 @@ def enforce_bead_hygiene_contract(bead: dict) -> dict:
 
     richness = classify_bead_richness(out)
     out["bead_richness"] = richness
-    out["retrieval_eligible"] = bool(out.get("retrieval_eligible", True))
+    requested_eligible = bool(out.get("retrieval_eligible", False))
+    if requested_eligible and is_generic_title(str(out.get("title") or "")):
+        requested_eligible = False
+        warnings = list(out.get("validation_warnings") or [])
+        reason = "retrieval_eligible:downgraded_generic_title"
+        if reason not in warnings:
+            warnings.append(reason)
+        out["validation_warnings"] = warnings
+    out["retrieval_eligible"] = requested_eligible
     return out
 
 

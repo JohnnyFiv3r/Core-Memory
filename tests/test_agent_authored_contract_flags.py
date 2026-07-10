@@ -47,8 +47,9 @@ class TestAgentAuthoredContractSlice0(unittest.TestCase):
 
         bead_required = set(snap.get("required_bead_fields") or [])
         self.assertTrue({"type", "title", "summary", "entities"}.issubset(bead_required))
-        # Stale retrieval gate fields must not appear in required fields
-        self.assertNotIn("retrieval_eligible", bead_required)
+        # Hard contract validation requires the authored decision itself, while
+        # warn/legacy normalization defaults a missing value to false.
+        self.assertIn("retrieval_eligible", bead_required)
         self.assertNotIn("topics", bead_required)
         self.assertNotIn("retrieval_facts", bead_required)
         self.assertIsNone(snap.get("retrieval_fields_required_when_retrieval_eligible"))
