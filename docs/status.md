@@ -1,10 +1,24 @@
 # Core Memory — Status
 
-**Last updated:** 2026-07-09
+**Last updated:** 2026-07-10
 
 Single source of truth for open work across the cleanup workstream and
 engine-correctness items. See `docs/cleanup-plan.md` for detailed phase
 descriptions.
+
+---
+
+## Owned-ingestion companion contract
+
+| Slice | Status |
+|---|---|
+| Versioned `chunk_turn_record.v1` HTTP ingest, idempotency, native hydration/adjacency, and version-filtered GC planning read | **Done in `memory.chunk_turns.v1`** |
+| Chunk evidence-vector indexing plus resolve-up to parent section beads | **Pending** |
+| Recall Contract v2 (`hydration`, legacy effort aliases, opaque `expand`) | **Pending** |
+
+The chunk-turn boundary stores L2 source text in the engine's authoritative turn
+archive. It does not make chunks causal retrieval units and does not imply that
+the vector resolve-up or Recall v2 slices are complete.
 
 ---
 

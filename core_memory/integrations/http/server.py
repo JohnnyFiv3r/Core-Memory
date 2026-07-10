@@ -30,6 +30,7 @@ from core_memory.runtime.ingest.external_evidence import (
     ingest_state_assertion,
     ingest_structured_observation,
 )
+from core_memory.runtime.ingest.chunk_turns import ingest_chunk_turns, list_chunk_turns
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
 from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
 from core_memory.runtime.associations.coverage import (
@@ -159,6 +160,11 @@ class ExternalEvidenceRequest(BaseModel):
         data.update(dict(self.payload or {}))
         data.setdefault("session_id", self.session_id)
         return data
+
+
+class ChunkTurnIngestRequest(BaseModel):
+    root: Optional[str] = None
+    records: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ConfirmBeadRequest(BaseModel):
@@ -765,6 +771,61 @@ async def memory_external_evidence(
         )
     except ValueError as exc:
         return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.external_evidence.v1"})
+
+
+@app.post("/v1/memory/chunk-turns")
+async def memory_chunk_turns(
+    payload: ChunkTurnIngestRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """Ingest versioned source chunks as native, hydratable turn records."""
+    _check_auth(authorization, x_memory_token)
+    try:
+        return ingest_chunk_turns(
+            root=_resolve_root(payload.root, x_tenant_id),
+            records=list(payload.records or []),
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": str(exc),
+                "contract": "memory.chunk_turns.v1",
+            },
+        )
+
+
+@app.get("/v1/memory/chunk-turns")
+async def memory_chunk_turns_list(
+    core_memory_unifying_id: str,
+    chunk_set_version_lte: Optional[int] = None,
+    limit: int = 500,
+    root: Optional[str] = None,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """List versioned chunks for resolve-up inspection and GC planning."""
+    _check_auth(authorization, x_memory_token)
+    try:
+        return list_chunk_turns(
+            root=_resolve_root(root, x_tenant_id),
+            core_memory_unifying_id=core_memory_unifying_id,
+            chunk_set_version_lte=chunk_set_version_lte,
+            limit=limit,
+        )
+    except ValueError as exc:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": str(exc),
+                "contract": "memory.chunk_turns.v1",
+            },
+        )
 
 
 @app.post("/v1/memory/confirm")

@@ -35,6 +35,7 @@ A surface is canonical only if it is both:
 - `core_memory.ingest_external_evidence(...)` — experimental typed external source write boundary for transcript/document/media/relational anchors
 - `core_memory.ingest_structured_observation(...)` — experimental relational/metric observation write helper
 - `core_memory.ingest_document_reference(...)` — experimental document/media artifact anchor write helper
+- `core_memory.ingest_chunk_turns(...)` — versioned owned-ingestion L2 chunk boundary; writes idempotent native turn records for section-bead hydration
 - `core_memory.ingest_state_assertion(...)` — experimental derived business-state/document-claim write helper
 - `core_memory.enqueue_association_coverage(...)` / `core_memory.run_association_coverage(...)` — shared bead-level association coverage used by ingest, flush, and operators; generates candidates and requires a judge decision before active graph edge writes
 - `core_memory.on_bead_committed(...)` — post-commit bead coverage hook used by canonical write paths
@@ -162,6 +163,7 @@ HTTP memory read surfaces:
   `recall` tool; identical `RecallResult` contract and `cm.invalid_request`
   error envelope)
 - `POST /v1/memory/search` / `POST /v1/memory/execute` / `POST /v1/memory/trace` — low-level reads
+- `GET /v1/memory/chunk-turns?core_memory_unifying_id=&chunk_set_version_lte=` — version-filtered chunk metadata for inspection and GC planning
 - `GET /v1/dreamer/geometry` / `GET /v1/memory/projection/geometry` — continuity-geometry manifest, served from disk with `present=false` when absent; enriched node metadata is `dreamer_geometry_manifest.v2` / `geometry_node.v2`, while legacy persisted v1 manifests are marked `legacy_node_shape=true`
 - `GET /v1/memory/projection/worldlines?kinds=&min_length=&include_membership=` — worldline projection
 - `GET /v1/memory/projection/storylines?kinds=&min_length=&include_superseded=` — storyline projection over worldline backbones plus accepted overlays
@@ -183,6 +185,7 @@ HTTP memory management surfaces:
 - `POST /v1/memory/sources/remove` — remove beads matching a strong source identifier such as `document_id`, `source_ref`, `raw_source_object_id`, `hydration_ref`, or legacy `ragie_document_id`; reports preview truncation and removes all matches when applied
 
 HTTP external evidence write surfaces:
+- `POST /v1/memory/chunk-turns` — idempotent batch ingest for `chunk_turn_record.v1`
 - `POST /v1/memory/external-evidence`
 - `POST /v1/memory/structured-observation`
 - `POST /v1/memory/document-reference`
