@@ -389,7 +389,13 @@ def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tup
     req = dict(hydration or {})
     warnings: list[str] = []
 
-    mode_raw = str(req.get("turn_sources") or "cited_turns").strip().lower()
+    turn_sources = req.get("turn_sources")
+    before = max(0, int(req.get("adjacent_before") or 0))
+    after = max(0, int(req.get("adjacent_after") or 0))
+    if turn_sources is True:
+        mode_raw = "cited_turns_plus_adjacent" if before or after else "cited_turns"
+    else:
+        mode_raw = str(turn_sources or "cited_turns").strip().lower()
     if mode_raw not in PUBLIC_HYDRATION_TURN_SOURCES:
         if mode_raw:
             warnings.append(f"hydration_turn_sources_normalized:{mode_raw}->cited_turns")
@@ -398,9 +404,6 @@ def _normalize_public_hydration_request(hydration: dict[str, Any] | None) -> tup
         mode = mode_raw
 
     max_beads = max(1, int(req.get("max_beads") or 10))
-    before = max(0, int(req.get("adjacent_before") or 0))
-    after = max(0, int(req.get("adjacent_after") or 0))
-
     if mode == "cited_turns":
         # adjacency is intentionally off in cited_turns mode
         before = 0

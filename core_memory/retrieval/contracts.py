@@ -200,6 +200,7 @@ class RecallResult:
     state_packet: dict[str, Any] = field(default_factory=dict)
     execute_decision: dict[str, Any] = field(default_factory=dict)
     source_citations: list[dict[str, Any]] = field(default_factory=list)
+    hydration: dict[str, Any] = field(default_factory=dict)
     tier_path: list[str] = field(default_factory=list)
     steps: list[RecallStep] = field(default_factory=list)
     planning: RecallPlanning = field(default_factory=RecallPlanning)
@@ -238,6 +239,7 @@ class RecallResult:
         payload["conflicts"] = [ConflictItem.from_dict(x) for x in _clean_list(payload.get("conflicts")) if isinstance(x, dict)]
         payload["sources"] = [SourceItem.from_dict(x) for x in _clean_list(payload.get("sources")) if isinstance(x, dict)]
         payload["source_citations"] = [dict(x) for x in _clean_list(payload.get("source_citations")) if isinstance(x, dict)]
+        payload["hydration"] = dict(payload.get("hydration") or {}) if isinstance(payload.get("hydration"), dict) else {}
         payload["steps"] = [RecallStep.from_dict(x) for x in _clean_list(payload.get("steps")) if isinstance(x, dict)]
         planning = payload.get("planning")
         payload["planning"] = RecallPlanning.from_dict(planning if isinstance(planning, dict) else {})
@@ -379,6 +381,19 @@ def recall_result_from_memory_execute(
     else:
         status = "empty"
 
+    hydration = (
+        dict(payload.get("hydration") or {})
+        if isinstance(payload.get("hydration"), dict)
+        else {}
+    )
+    hydration.setdefault("status", "complete" if payload.get("hydration_data") else "not_requested")
+    hydration.setdefault("warnings", [])
+    hydration["data"] = (
+        dict(payload.get("hydration_data") or {})
+        if isinstance(payload.get("hydration_data"), dict)
+        else {}
+    )
+
     return RecallResult(
         answer=answer,
         why=why,
@@ -389,6 +404,7 @@ def recall_result_from_memory_execute(
         state_packet=dict(payload.get("state_packet") or {}) if isinstance(payload.get("state_packet"), dict) else {},
         execute_decision=dict(payload.get("execute_decision") or {}) if isinstance(payload.get("execute_decision"), dict) else {},
         source_citations=[dict(x) for x in _clean_list(payload.get("source_citations")) if isinstance(x, dict)],
+        hydration=hydration,
         tier_path=tier_path,
         steps=steps,
         planning=RecallPlanning(selected_effort=selected_effort),

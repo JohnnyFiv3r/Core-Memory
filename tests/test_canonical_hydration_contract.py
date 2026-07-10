@@ -93,6 +93,30 @@ def test_cited_turns_plus_adjacent_includes_neighbors(tmp_path: Path):
     assert (adj.get("after") or [{}])[0].get("turn_id") == "t3"
 
 
+def test_boolean_turn_sources_preserves_requested_adjacency(tmp_path: Path):
+    b1, _ = _seed(tmp_path)
+
+    out = trace_request(
+        root=tmp_path,
+        anchor_ids=[b1],
+        hydration={
+            "turn_sources": True,
+            "adjacent_before": 1,
+            "adjacent_after": 1,
+            "max_beads": 5,
+        },
+    )
+
+    hyd = out.get("hydration") or {}
+    assert hyd.get("warnings") == []
+    assert hyd.get("request", {}).get("turn_sources") == "cited_turns_plus_adjacent"
+    assert hyd.get("request", {}).get("adjacent_before") == 1
+    assert hyd.get("request", {}).get("adjacent_after") == 1
+    adjacent = ((out.get("hydration_data") or {}).get("hydrated") or [])[0]["adjacent"]
+    assert adjacent["before"][0]["turn_id"] == "t1"
+    assert adjacent["after"][0]["turn_id"] == "t3"
+
+
 def test_hydration_max_beads_is_enforced(tmp_path: Path):
     b1, b2 = _seed(tmp_path)
 

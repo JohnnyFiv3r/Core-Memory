@@ -49,6 +49,12 @@ class TestRecallResultContract(unittest.TestCase):
             state_packet={"schema_version": "core_memory.state_packet.v1"},
             execute_decision={"schema_version": "core_memory.execute_decision.v1"},
             source_citations=[{"citation_id": "src_1", "bead_id": "b1"}],
+            hydration={
+                "status": "complete",
+                "warnings": [],
+                "request": {"turn_sources": "cited_turns"},
+                "data": {"hydrated": [{"turn": {"turn_id": "t1"}}]},
+            },
             tier_path=["semantic", "source"],
             steps=[RecallStep(tier="semantic", query="vector backend", status="ok", result_count=1)],
             planning=RecallPlanning(
@@ -71,6 +77,7 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertEqual("pgvector", data["claim_slots"]["Postgres:backend"]["current_value"])
         self.assertEqual("core_memory.state_packet.v1", data["state_packet"]["schema_version"])
         self.assertEqual("src_1", data["source_citations"][0]["citation_id"])
+        self.assertEqual("t1", data["hydration"]["data"]["hydrated"][0]["turn"]["turn_id"])
         self.assertEqual(["decision"], data["planning"]["expected_shape"]["bead_types"])
         self.assertEqual("test", data["metadata"]["surface"])
 
@@ -126,6 +133,34 @@ class TestRecallResultContract(unittest.TestCase):
         self.assertIn("pgvector", result.evidence[0].content_excerpt)
         self.assertEqual(0.83, result.evidence[0].score)
         self.assertEqual(["t1", "t2"], [s.turn_id for s in result.sources])
+
+    def test_hydration_survives_without_raw_execution_payload(self):
+        raw = {
+            "ok": True,
+            "results": [{"bead_id": "section-1", "title": "Airport bids"}],
+            "hydration": {
+                "status": "complete",
+                "warnings": [],
+                "request": {"turn_sources": "cited_turns"},
+            },
+            "hydration_data": {
+                "hydrated": [
+                    {
+                        "bead_id": "section-1",
+                        "turn": {"turn_id": "chunk-1", "turn_text": "ORD bid is 1.2 million"},
+                    }
+                ]
+            },
+        }
+
+        result = recall_result_from_memory_execute(raw, include_raw=False)
+
+        self.assertIsNone(result.raw)
+        self.assertEqual("complete", result.hydration["status"])
+        self.assertEqual(
+            "chunk-1",
+            result.hydration["data"]["hydrated"][0]["turn"]["turn_id"],
+        )
 
     def test_causal_result_normalizes_tier_path_steps_and_answer_candidate(self):
         raw = {

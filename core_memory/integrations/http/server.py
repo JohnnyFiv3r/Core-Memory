@@ -375,6 +375,7 @@ class MemoryRecallRequest(BaseModel):
     as_of: Optional[str] = None
     include_raw: bool = False
     hints: dict[str, Any] = Field(default_factory=dict)
+    hydration: dict[str, Any] = Field(default_factory=dict)
 
 
 class AssociationRunRequest(BaseModel):
