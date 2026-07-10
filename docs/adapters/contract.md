@@ -137,11 +137,26 @@ itself mean a semantic bead committed. Hosts should gate semantic success on
 `semantic_status=committed|waived` and use `retryable` plus the stable error
 code for unresolved writes.
 
+Hard typed authorship is the runtime default. A missing payload returns
+`semantic_status=pending`; an invalid payload returns
+`semantic_status=repair_required`. Both retain the raw turn event and write no
+canonical fallback context bead. `warn` remains an explicit compatibility mode.
+
+Delegated repair is separate from ordinary delegated authorship and is disabled
+unless `CORE_MEMORY_AGENT_AUTHORED_REPAIR=1` or the caller supplies an explicit
+runtime repair policy. Repair uses the same `turn_memory_authoring` contract.
+Its receipt sets `authorship.source=repair_agent`, preserves
+`primary_authorship` and `repair_authorship`, and provides `repaired_fields`
+plus `field_provenance`. A valid primary-agent v1 row never passes through the
+narrow bead-judge fallback.
+
 Flush checks the canonical bead for only the latest finalized turn. An older
 pending turn does not wedge a later committed turn, but remains visible through
 `inspect_state(...).runtime.semantic_writes` and `core-memory doctor`. Pending
 age warns after five minutes and is critical after sixty minutes. A latest
 pending turn requires an append-only operator waiver before flush can proceed.
+An old deterministic stub does not satisfy the barrier when semantic state is
+`pending` or `repair_required`.
 
 ## Migration note
 

@@ -57,7 +57,10 @@ class TestAgentAuthoredContractSlice0(unittest.TestCase):
         self.assertIn("decision", snap.get("causal_types_require_because") or [])
         self.assertEqual("list[str]", snap.get("summary_shape"))
         self.assertFalse(snap.get("beads_create_exactly_one"))
+        self.assertTrue(snap.get("current_turn_exactly_one"))
         self.assertEqual(1, snap.get("beads_create_min"))
+        self.assertEqual(3, snap.get("beads_create_max"))
+        self.assertEqual(2, snap.get("max_derived_rows"))
 
 
 if __name__ == "__main__":

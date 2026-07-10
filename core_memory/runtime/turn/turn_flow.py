@@ -50,6 +50,8 @@ def process_turn_finalized_impl(
     build_crawler_context: Callable[..., dict[str, Any]],
     invoke_turn_crawler_agent: Callable[..., tuple[dict[str, Any], dict[str, Any]]],
     resolve_reviewed_updates: Callable[..., tuple[dict[str, Any], dict[str, Any]]],
+    repair_enabled: bool,
+    repair_turn_memory_fn: Callable[..., tuple[dict[str, Any] | None, dict[str, Any]]],
     emit_agent_turn_quality_metric: Callable[..., None],
     session_visible_bead_ids: Callable[..., list[str]],
     non_temporal_semantic_association_count: Callable[[dict[str, Any]], int],
@@ -88,12 +90,9 @@ def process_turn_finalized_impl(
         metadata=metadata,
     )
 
-    # Never-forget: contract enforcement happens exactly once, after the
-    # canonical turn event is written. The old preflight probe returned early
-    # to keep hard agent-authored failures side-effect-free, which silently
-    # dropped the turn — amnesia is the worse side effect. A blocked gate now
-    # always reaches the post-checkpoint fallback, which writes a stub bead and
-    # surfaces ok=False + gate_blocked for the adapter to retry enrichment.
+    # Never-forget: contract enforcement happens after the canonical turn event
+    # is written. A blocked semantic gate therefore preserves the raw turn as a
+    # retryable pending record without fabricating a canonical context bead.
     mark_turn_checkpoint(root, turn_id=req["turn_id"])
 
     emitted = maybe_emit_finalize_memory_event(
@@ -232,6 +231,50 @@ def process_turn_finalized_impl(
         invocation_diag=invocation_diag,
         max_create_per_turn=getattr(policy, "max_create_per_turn", None),
     )
+
+    if gate.get("blocked") and repair_enabled:
+        invalid_updates = req_for_updates.get("crawler_updates")
+        repair_updates, repair_diag = repair_turn_memory_fn(
+            root=root,
+            req=req_for_updates,
+            crawler_context=crawler_ctx,
+            invalid_updates=dict(invalid_updates) if isinstance(invalid_updates, dict) else None,
+            validation={
+                "error_code": str(gate.get("error_code") or error_agent_updates_missing),
+                "details": dict(gate.get("validation") or {}),
+            },
+        )
+        gate["repair_attempt"] = dict(repair_diag or {})
+        if isinstance(repair_updates, dict) and repair_updates:
+            repair_req = dict(req_for_updates)
+            repair_req["crawler_updates"] = dict(repair_updates)
+            if isinstance(repair_diag.get("authorship"), dict):
+                repair_req["authorship_provenance"] = dict(repair_diag["authorship"])
+            repaired_updates, repaired_gate = resolve_reviewed_updates(
+                repair_req,
+                source_override="repair_agent",
+                invocation_diag=repair_diag,
+                max_create_per_turn=getattr(policy, "max_create_per_turn", None),
+            )
+            if not repaired_gate.get("blocked") and isinstance(repaired_updates, dict):
+                repaired_gate["repair_attempt"] = dict(repair_diag)
+                repaired_gate["warnings"] = [
+                    *list(gate.get("warnings") or []),
+                    {
+                        "code": "primary_authorship_repaired",
+                        "error_code": str(gate.get("error_code") or error_agent_updates_missing),
+                        "details": dict(gate.get("validation") or {}),
+                    },
+                    *list(repaired_gate.get("warnings") or []),
+                ]
+                reviewed_updates = repaired_updates
+                gate = repaired_gate
+            else:
+                gate["repair_validation"] = {
+                    "error_code": str(repaired_gate.get("error_code") or "agent_updates_invalid"),
+                    "details": dict(repaired_gate.get("validation") or {}),
+                }
+
     if gate.get("blocked"):
         emit_agent_turn_quality_metric(
             root=root,
@@ -245,19 +288,50 @@ def process_turn_finalized_impl(
             "code": str(gate.get("error_code") or error_agent_updates_missing),
             "details": dict(gate.get("validation") or {}),
         }
-        # Never-forget: rather than returning with no bead, fall through with a
-        # minimal fallback bead so the turn is preserved in memory.  Callers see
-        # ok=False + gate_blocked=True and can prompt the agent to fix the
-        # contract; the enrichment crawler can backfill associations later.
-        reviewed_updates = default_crawler_updates(req)
-        gate["blocked_wrote_stub"] = True
+        # The raw event is the never-forget source. Hard mode must not make a
+        # deterministic context bead look like committed semantic authorship.
+        return {
+            "ok": False,
+            "mode": "turn",
+            "authority_path": "canonical_in_process",
+            "processed": 1,
+            "failed": 1,
+            "bead_id": "",
+            "gate_blocked": True,
+            "delta": delta,
+            "emitted": emitted,
+            "enrichment_queued": False,
+            "enrichment_queue": {},
+            "crawler_handoff": {
+                "required": True,
+                "agent_authored_gate": gate,
+                "association_pass": {},
+                "preview_association_queued": 0,
+                "merge": {},
+                "decision_pass": {},
+            },
+            "error_code": contract_error["code"],
+            "error": "agent-authored updates are pending semantic repair",
+            "agent_contract_error": contract_error,
+            "engine": {
+                "normalized": True,
+                "entry": "process_turn_finalized",
+                "sequence_owner": "memory_engine",
+            },
+        }
     else:
         contract_error = None
 
     _structural_coverage_missing = False
     if not isinstance(reviewed_updates, dict):
         reviewed_updates = default_crawler_updates(req)
-    reviewed_updates = ensure_turn_creation_update(root, req, reviewed_updates)
+    reviewed_updates = ensure_turn_creation_update(
+        root,
+        req,
+        reviewed_updates,
+        strict_contract=bool(gate.get("required"))
+        or str(reviewed_updates.get("schema_version") or "") == "agent_authored_updates.v1",
+    )
 
     # F-W2: semantic-coverage gate — violations always flag, never block
     # (never-forget); the flag is written after the association pass creates
@@ -307,11 +381,7 @@ def process_turn_finalized_impl(
     enrichment_queued = False
     enrichment_queue: dict[str, Any] = {}
 
-    # Gate-blocked turns must persist their stub bead synchronously: the engine
-    # only drains the enrichment queue for ok=True results, so queueing here
-    # would defer the bead write indefinitely — exactly the amnesia never-forget
-    # exists to prevent.
-    if _enrichment_queue_enabled() and not gate.get("blocked_wrote_stub"):
+    if _enrichment_queue_enabled():
         enqueue_result = enqueue_turn_enrichment(
             root=root,
             session_id=req["session_id"],
@@ -459,7 +529,7 @@ def process_turn_finalized_impl(
             result="success",
         )
 
-    _gate_blocked = bool(gate.get("blocked_wrote_stub"))
+    _gate_blocked = False
     out: dict[str, Any] = {
         "ok": not _gate_blocked,
         "mode": "turn",
@@ -486,8 +556,4 @@ def process_turn_finalized_impl(
         "goal_lifecycle": goal_lifecycle,
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }
-    if _gate_blocked and contract_error:
-        out["error_code"] = contract_error.get("code")
-        out["error"] = "agent-authored crawler updates required; stub bead written for backfill"
-        out["agent_contract_error"] = contract_error
     return out

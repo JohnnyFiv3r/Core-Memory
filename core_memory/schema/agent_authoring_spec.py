@@ -43,7 +43,9 @@ this JSON.
   every finalized top-level turn. Include the finalized turn in `source_turn_ids`.
 - You may add zero to two `creation_role="derived"` companion rows when one turn
   produces additional durable memories. Each must set
-  `derived_from_bead_ids=["$current_turn"]`.
+  `derived_from_bead_ids=["$current_turn"]`. Its `source_turn_ids` must not
+  claim the finalized turn directly; the current-turn bead is its attributed
+  semantic source.
 - When a turn has little durable meaning, still write a thin current-turn bead
   with `retrieval_eligible=false`; do not invent richness.
 - Always return top-level `schema_version`, `beads_create`, `associations`, and

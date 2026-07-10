@@ -2,7 +2,7 @@
 
 Verifies:
 1. Gate severity accepts hard|warn|off values.
-2. Default is warn (not observe/off).
+2. Default is hard after adapter and receipt staging.
 3. Legacy aliases: enforce→hard, observe→off.
 4. Resolved gate returns correct required/fail_open for each mode.
 """
@@ -41,15 +41,15 @@ class TestGateSeverityValues(unittest.TestCase):
         self.assertEqual(agent_authored_mode(), "off")
 
 
-class TestDefaultIsWarn(unittest.TestCase):
-    """Default gate severity is warn in OSS."""
+class TestDefaultIsHard(unittest.TestCase):
+    """Default gate severity requires typed authorship."""
 
-    def test_default_is_warn(self):
+    def test_default_is_hard(self):
         with patch.dict(os.environ, {}, clear=False):
             os.environ.pop("CORE_MEMORY_AGENT_AUTHORED_MODE", None)
             os.environ.pop("CORE_MEMORY_AGENT_AUTHORED_REQUIRED", None)
             os.environ.pop("CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN", None)
-            self.assertEqual(agent_authored_mode(), "warn")
+            self.assertEqual(agent_authored_mode(), "hard")
 
 
 class TestResolvedGate(unittest.TestCase):

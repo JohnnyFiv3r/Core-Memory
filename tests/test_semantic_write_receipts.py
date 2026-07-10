@@ -14,13 +14,13 @@ from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.engine import emit_turn_finalized, process_flush, process_turn_finalized
 from core_memory.runtime.queue.side_effect_queue import drain_side_effect_queue, side_effect_queue_status
 from core_memory.runtime.queue.worker import SidecarPolicy
+from core_memory.runtime.turn.receipt import public_association_status
 from core_memory.runtime.turn.semantic_state import (
     SEMANTIC_WRITE_STATUS_V1,
     get_semantic_write_state,
     mark_semantic_write_state,
     semantic_write_health,
 )
-from core_memory.runtime.turn.receipt import public_association_status
 from core_memory.schema.agent_authored_updates import AGENT_AUTHORED_UPDATES_V1
 from core_memory.schema.turn_receipt import TURN_FINALIZED_RECEIPT_V2
 
@@ -53,7 +53,7 @@ def _updates(*, derived: bool = False) -> dict:
                 "retrieval_title": "Independent derived write failure",
                 "retrieval_facts": ["The primary current-turn bead remains committed."],
                 "because": ["Canonical turn continuity takes priority."],
-                "source_turn_ids": ["t1"],
+                "source_turn_ids": [],
                 "derived_from_bead_ids": ["$current_turn"],
             }
         )

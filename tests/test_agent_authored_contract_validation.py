@@ -53,7 +53,7 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
         self.assertEqual("agent_bead_fields_missing", code)
         self.assertIn("at_least_one_row", str(details.get("reason") or ""))
 
-    def test_policy_can_cap_multiple_bead_rows(self):
+    def test_policy_does_not_override_contract_cardinality(self):
         ok, code, details = validate_agent_authored_updates(
             {
                 "beads_create": [
@@ -81,9 +81,9 @@ class TestAgentAuthoredContractSlice2(unittest.TestCase):
             },
             max_create_per_turn=1,
         )
-        self.assertFalse(ok)
-        self.assertEqual("agent_bead_fields_missing", code)
-        self.assertEqual("beads_create_exceeds_policy_max", details.get("reason"))
+        self.assertTrue(ok)
+        self.assertIsNone(code)
+        self.assertEqual(2, details.get("beads_create_count"))
 
     def test_allows_missing_associations_for_first_turn(self):
         ok, code, details = validate_agent_authored_updates(

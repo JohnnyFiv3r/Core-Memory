@@ -13,14 +13,22 @@ This contract separates:
 
 ## Agent-authored required fields (per turn)
 
-For the current-turn bead row:
+For every bead row:
 
+- `creation_role`
 - `type`
 - `title`
 - `summary`
+- `entities` (an empty typed list is valid)
+- `retrieval_eligible`
+- `source_turn_ids`
 
 Shape requirement:
-- `beads_create` must contain exactly **one** current-turn bead row.
+- `beads_create` must contain exactly **one** `current_turn` row and zero to two
+  `derived` rows.
+- The current-turn row includes the finalized turn in `source_turn_ids`.
+- Derived rows set `derived_from_bead_ids=["$current_turn"]` and do not claim
+  the finalized turn directly in `source_turn_ids`.
 
 For inferred semantic associations:
 
@@ -31,7 +39,8 @@ For inferred semantic associations:
 - `confidence`
 
 Shape requirement:
-- `associations` must be present and non-empty in strict mode.
+- `associations` must be a typed list. It may be empty when no grounded
+  relationship is supported.
 
 ---
 
@@ -41,7 +50,7 @@ The runtime/store may assign:
 
 - `id`
 - timestamps (`created_at`, `updated_at`)
-- session linkage (`session_id`, `source_turn_ids`)
+- session linkage (`session_id`) and verification of authored `source_turn_ids`
 - index/merge bookkeeping
 - projection ownership metadata (`cm_owner`, `cm_dataset`)
 
@@ -57,19 +66,22 @@ These do not replace semantic authorship.
   - When enabled, runtime may fallback when payload is missing/invalid.
   - Intended default for strict production posture is disabled (`0`).
 
-Rollout control (slice 7):
+Rollout control:
 - `CORE_MEMORY_AGENT_AUTHORED_MODE`
-  - `observe` -> no gate, fallback allowed
-  - `warn` -> strict validation with fallback allowed
-  - `enforce` -> strict validation; a blocked gate surfaces the contract error
+  - `hard` -> strict v1 validation; blocked writes remain pending (default)
+  - `warn` -> compatibility validation with visible fallback
+  - `off` -> legacy compatibility behavior
 
-If mode is unset, runtime derives mode from legacy flags for backward compatibility.
+Legacy aliases `enforce` and `observe` map to `hard` and `off`.
 
-**Never-forget guarantee:** no mode drops the turn. When the gate blocks in
-enforce mode, the runtime writes a minimal stub bead from the default creation
-update and returns `ok=False` + `gate_blocked=True` + the contract `error_code`
-— the turn is preserved for later enrichment backfill, the adapter is told to
-fix the contract. Amnesia is never the failure mode.
+**Never-forget guarantee:** no mode drops the raw finalized turn. When the gate
+blocks in hard mode, the runtime writes a pending-semantic record and returns a
+retryable v2 receipt. It does not fabricate a canonical context bead.
+
+`CORE_MEMORY_AGENT_AUTHORED_REPAIR=1` (or an explicit runtime policy) permits
+one attributed full-contract repair attempt. Repair remains off by default,
+uses `turn_memory_authoring`, and records repaired field paths separately from
+primary authorship.
 
 Slice 1 introduces runtime gating and strict/fail-open behavior.
 Slice 2 hardens strict payload shape validation.
@@ -140,11 +152,10 @@ Primary gate dimensions:
 ## Rollout playbook (slice 7)
 
 Recommended progression:
-1. **observe**: collect quality telemetry without gating.
-2. **warn**: enforce strict schema checks but allow fail-open fallback.
-3. **enforce**: surface contract errors when agent-authored payloads are
-   missing/invalid. The turn still persists as a stub bead (never-forget);
-   `ok=False` + `gate_blocked` tells the adapter to retry enrichment.
+1. **off**: collect compatibility telemetry without gating.
+2. **warn**: validate and surface visible compatibility fallback.
+3. **hard**: keep missing/invalid writes pending until valid inline, delegated,
+   or explicitly attributed repair authorship is available.
 
 Operational check:
 - `core-memory graph association-slo-check --strict`

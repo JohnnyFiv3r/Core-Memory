@@ -50,6 +50,7 @@ def process_flush_impl(
     latest_turn_status = str((semantic_state or {}).get("status") or "unknown")
     canonical_bead_id = ""
     waiver: dict[str, Any] | None = None
+    committed_barrier = False
     if latest_turn:
         canonical_bead_id = str(
             find_canonical_turn_bead_id(
@@ -61,21 +62,28 @@ def process_flush_impl(
             or ""
         )
         waiver = get_semantic_flush_waiver(root, session_id, latest_turn)
-        if canonical_bead_id:
-            prior_semantic_status = str((semantic_state or {}).get("status") or "")
-            latest_turn_status = "repair_required" if prior_semantic_status == "repair_required" else "committed"
-            if prior_semantic_status not in {"committed", "repair_required"}:
-                mark_semantic_write_state(
-                    root,
-                    session_id=session_id,
-                    turn_id=latest_turn,
-                    status="committed",
-                    event_id=str(latest_event.get("event_id") or ""),
-                    bead_id=canonical_bead_id,
-                    retryable=False,
-                    reason="flush_barrier_reconciled_canonical_bead",
-                )
-        elif not waiver and semantic_override:
+        if waiver:
+            latest_turn_status = "waived"
+        elif canonical_bead_id and latest_turn_status == "committed":
+            committed_barrier = True
+        elif canonical_bead_id and semantic_state is None:
+            # Legacy beads predate semantic-write state. Reconcile only the
+            # absence of state; an explicit pending/repair_required state is
+            # authoritative and must continue to block normal flush.
+            mark_semantic_write_state(
+                root,
+                session_id=session_id,
+                turn_id=latest_turn,
+                status="committed",
+                event_id=str(latest_event.get("event_id") or ""),
+                bead_id=canonical_bead_id,
+                retryable=False,
+                reason="flush_barrier_reconciled_legacy_canonical_bead",
+            )
+            latest_turn_status = "committed"
+            committed_barrier = True
+
+        if not committed_barrier and not waiver and semantic_override:
             if not str(override_operator or "").strip() or not str(override_reason or "").strip():
                 return {
                     "ok": False,
@@ -86,7 +94,7 @@ def process_flush_impl(
                         "latest_turn_id": latest_turn,
                         "latest_turn_status": latest_turn_status,
                         "semantic_status": latest_turn_status,
-                        "canonical_bead_id": "",
+                        "canonical_bead_id": canonical_bead_id,
                         "waiver_id": "",
                     },
                 }
@@ -99,10 +107,8 @@ def process_flush_impl(
                 reason=override_reason,
             )
             latest_turn_status = "waived"
-        elif waiver:
-            latest_turn_status = "waived"
 
-    latest_done_turn = latest_turn if canonical_bead_id or waiver else ""
+    latest_done_turn = latest_turn if committed_barrier or waiver else ""
     if latest_turn and not latest_done_turn:
         return {
             "ok": False,
@@ -115,7 +121,7 @@ def process_flush_impl(
                 "latest_turn_status": latest_turn_status,
                 "latest_done_turn_id": "",
                 "semantic_status": latest_turn_status,
-                "canonical_bead_id": "",
+                "canonical_bead_id": canonical_bead_id,
                 "waiver_id": "",
             },
             "engine": {
