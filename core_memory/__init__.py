@@ -51,12 +51,14 @@ from .soul import (
 from .runtime.ingest import (
     SourceEventMapping,
     SourceEventRule,
+    ingest_chunk_turns,
     ingest_document_reference,
     ingest_external_evidence,
     ingest_operational_event,
     ingest_source_event,
     ingest_state_assertion,
     ingest_structured_observation,
+    list_chunk_turns,
 )
 from .runtime.associations.coverage import (
     apply_association_proposals,
@@ -152,6 +154,7 @@ __all__ = [
     "list_goals",
     "ingest_transcript",
     "normalize_transcript_payload",
+    "ingest_chunk_turns",
     "ingest_external_evidence",
     "ingest_operational_event",
     "ingest_source_event",
@@ -160,6 +163,7 @@ __all__ = [
     "ingest_state_assertion",
     "ingest_structured_observation",
     "ingest_document_reference",
+    "list_chunk_turns",
     "apply_association_proposals",
     "association_coverage_summary",
     "decide_association_candidate",

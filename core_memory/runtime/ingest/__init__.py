@@ -5,12 +5,14 @@ from typing import Any
 _EXPORT_MODULES = {
     "SourceEventMapping": ".source_events",
     "SourceEventRule": ".source_events",
+    "ingest_chunk_turns": ".chunk_turns",
     "ingest_document_reference": ".external_evidence",
     "ingest_external_evidence": ".external_evidence",
     "ingest_operational_event": ".external_evidence",
     "ingest_source_event": ".source_events",
     "ingest_state_assertion": ".external_evidence",
     "ingest_structured_observation": ".external_evidence",
+    "list_chunk_turns": ".chunk_turns",
     "resolve_external_bead_type": ".external_evidence",
 }
 
@@ -18,12 +20,14 @@ _EXPORT_MODULES = {
 __all__ = [
     "SourceEventMapping",
     "SourceEventRule",
+    "ingest_chunk_turns",
     "ingest_document_reference",
     "ingest_external_evidence",
     "ingest_operational_event",
     "ingest_source_event",
     "ingest_state_assertion",
     "ingest_structured_observation",
+    "list_chunk_turns",
     "resolve_external_bead_type",
 ]
 
