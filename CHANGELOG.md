@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- Added Recall v2 wire compatibility for product-facing `instant` and `trace`
+  effort aliases and explicit source hydration. Stable `RecallResult` responses
+  now expose cited section-to-chunk records under `hydration.data` without
+  requiring the raw execution payload.
 - Added evidence-only semantic indexing for owned-ingestion chunk turns. Cited
   chunk hits now resolve and deduplicate to their visible parent document-section
   beads before reranking or graph traversal; orphan and cross-document chunks

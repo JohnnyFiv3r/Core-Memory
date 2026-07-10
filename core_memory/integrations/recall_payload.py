@@ -18,6 +18,11 @@ from typing import Any
 from core_memory.retrieval.agent import recall
 from core_memory.retrieval.contracts import validate_recall_effort
 
+_WIRE_EFFORT_ALIASES = {
+    "instant": "low",
+    "trace": "high",
+}
+
 
 def _speaker_arg(value: Any) -> str | None:
     if value is None:
@@ -55,18 +60,26 @@ def run_recall_payload(payload: dict[str, Any] | None, *, surface: str = "recall
     """Validate a wire payload, run recall(), return a JSON-safe dict.
 
     Accepted fields: query (required), effort, intent, k, speaker (str|list),
-    as_of, root, include_raw, hints.
+    as_of, root, include_raw, hints, hydration.
     """
     payload = dict(payload or {})
     query = str(payload.get("query") or "").strip()
     if not query:
         return invalid_request("recall.query is required", surface=surface, field="query")
+    requested_effort = str(payload.get("effort") or "medium").strip().lower()
     try:
-        effort = validate_recall_effort(str(payload.get("effort") or "medium"))
+        effort = validate_recall_effort(_WIRE_EFFORT_ALIASES.get(requested_effort, requested_effort))
     except ValueError as exc:
         return invalid_request(str(exc), surface=surface, field="effort")
     if effort == "dynamic":
-        return invalid_request("effort='dynamic' is reserved; use low, medium, or high", surface=surface, field="effort")
+        return invalid_request(
+            "effort='dynamic' is reserved; use instant, trace, low, medium, or high",
+            surface=surface,
+            field="effort",
+        )
+    hydration = payload.get("hydration")
+    if hydration is not None and not isinstance(hydration, dict):
+        return invalid_request("recall.hydration must be an object", surface=surface, field="hydration")
     kwargs: dict[str, Any] = {}
     if payload.get("intent") is not None:
         kwargs["intent"] = str(payload["intent"]).strip() or None
@@ -77,6 +90,8 @@ def run_recall_payload(payload: dict[str, Any] | None, *, surface: str = "recall
             return invalid_request("recall.k must be an integer", surface=surface, field="k")
     if str(payload.get("as_of") or "").strip():
         kwargs["as_of"] = str(payload["as_of"]).strip()
+    if hydration:
+        kwargs["hydration"] = dict(hydration)
     try:
         result = recall(
             query,
@@ -90,6 +105,12 @@ def run_recall_payload(payload: dict[str, Any] | None, *, surface: str = "recall
     except ValueError as exc:  # e.g. invalid as_of timestamp
         return invalid_request(str(exc), surface=surface, field="request")
     out = result.to_dict()
+    out.setdefault("metadata", {}).update(
+        {
+            "requested_effort": requested_effort,
+            "effective_effort": effort,
+        }
+    )
     out["ok"] = result.status not in {"failed"}
     if result.status == "empty":
         out.setdefault("warnings", []).append("recall returned no grounded evidence")

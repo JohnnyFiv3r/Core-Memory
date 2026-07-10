@@ -161,7 +161,10 @@ HTTP async ops surfaces (operator tooling):
 HTTP memory read surfaces:
 - `POST /v1/memory/recall` — full recall orchestrator (parity with the MCP
   `recall` tool; identical `RecallResult` contract and `cm.invalid_request`
-  error envelope)
+  error envelope). Wire clients may use product-facing effort aliases
+  `instant` (effective `low`) and `trace` (effective `high`). An explicit
+  `hydration` request returns cited section source turns, including owned-ingestion
+  chunks, under `RecallResult.hydration.data` even when `include_raw=false`.
 - `POST /v1/memory/search` / `POST /v1/memory/execute` / `POST /v1/memory/trace` — low-level reads
 - `GET /v1/memory/chunk-turns?core_memory_unifying_id=&chunk_set_version_lte=` — version-filtered chunk metadata for inspection and GC planning
 - Canonical semantic and hybrid reads index cited chunk turns as evidence-only
