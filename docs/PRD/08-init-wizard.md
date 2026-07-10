@@ -1,7 +1,25 @@
 # PRD: `core-memory init` Wizard + `core-memory doctor` Expansion
 
 **Phase:** 8
+**Status:** Complete — init wizard, doctor profiles, config commands, and demo shipped
 **Prerequisite:** Phase 6 complete (`BackendCapabilities`, config-driven `create_backend`)
+
+---
+
+## Current implementation note
+
+Phase 8 is complete in the current tree. `docs/status.md` tracks both 8a and
+8b as done, and `docs/PRD/README.md` marks this PRD done. The shipped surface is
+implemented in `core_memory.cli.handlers.setup` and covered by
+`tests/test_init_wizard.py`.
+
+The current CLI supports the mode-based init flow, legacy `--preset`
+compatibility, profile-aware doctor output, `core-memory config
+show/set/validate`, and `core-memory demo`. The sample doctor output below is an
+illustrative mcp-profile report where MCP is not registered; it is not an open
+Phase 8 implementation status.
+
+The 8b plan below is retained as historical rationale for the shipped behavior.
 
 ---
 
@@ -32,18 +50,18 @@
 
 ---
 
-## Phase 8b — Extended Scope
+## Phase 8b — Completed extended scope
 
 ### Problem restatement
 
-The 8a wizard still asks the wrong first question. "Choose your storage backend" exposes the
-architecture before the user has felt the product. The correct first question is "What are you
-building?" — and the CLI chooses the stack.
+Before 8b, the 8a wizard still asked the wrong first question. "Choose your storage backend"
+exposed the architecture before the user had felt the product. The correct first question was
+"What are you building?" — and the CLI now chooses the stack.
 
 Additionally, Kuzu is **not** an optional graph capability. It is the embedded default — zero
 dependencies, zero ops, no configuration required. A local user who never touches graph config
-gets full causal traversal via Kuzu. Treating graph as an "optional upgrade" in doctor output
-is actively misleading. The 8b doctor must show Kuzu as a default-present capability, not a
+gets full causal traversal via Kuzu. Treating graph as an "optional upgrade" in the old doctor
+output was actively misleading. The 8b doctor shows Kuzu as a default-present capability, not a
 missing one.
 
 ---
@@ -163,7 +181,7 @@ Core Memory Doctor  [profile: mcp]
 ⚠ Embeddings     Not configured
                  Impact: semantic recall will use BM25 fallback
                  Fix:    core-memory config set vector_backend local-faiss
-✗ MCP server     Not started
+✗ MCP server     Not registered
                  Impact: Claude/Cursor cannot connect
                  Fix:    core-memory mcp install claude
 
@@ -267,18 +285,18 @@ Exits 0 always (demo beads are written to a temporary session, not promoted).
 2. Config file read with 4-level precedence; env vars win. ✓ **8a**
 3. Doctor outputs 6-tier JSON report; exits 1 on any error tier. ✓ **8a**
 4. Init is idempotent without `--force`. ✓ **8a**
-5. Wizard first question is use-case intent, not storage backend. **8b-1**
-6. `--mode` maps intent to stack; Kuzu is included in all non-production modes by default. **8b-1**
-7. Doctor auto-detects profile from config; profile gates which checks are errors vs warnings vs hidden. **8b-2**
-8. Default doctor output is human-readable with three-part warnings (impact + fix). **8b-2**
-9. Kuzu shows as "✓ Graph: Kuzu (embedded)" for local/mcp/app profiles, never a warning. **8b-2**
-10. `core-memory config show` displays resolved config with per-key provenance. **8b-3**
-11. `core-memory config set key value` updates project-local config non-destructively. **8b-3**
-12. `core-memory demo` writes synthetic beads, runs recall, prints result, exits 0. **8b-4**
+5. Wizard first question is use-case intent, not storage backend. ✓ **8b-1**
+6. `--mode` maps intent to stack; Kuzu is included in all non-production modes by default. ✓ **8b-1**
+7. Doctor auto-detects profile from config; profile gates which checks are errors vs warnings vs hidden. ✓ **8b-2**
+8. Default doctor output is human-readable with three-part warnings (impact + fix). ✓ **8b-2**
+9. Kuzu shows as "✓ Graph: Kuzu (embedded)" for local/mcp/app profiles, never a warning. ✓ **8b-2**
+10. `core-memory config show` displays resolved config with per-key provenance. ✓ **8b-3**
+11. `core-memory config set key value` updates project-local config non-destructively. ✓ **8b-3**
+12. `core-memory demo` writes synthetic beads, runs recall, prints result, exits 0. ✓ **8b-4**
 
 ---
 
-## Scope
+## Historical scope
 
 **In:**
 - Mode-based wizard (`--mode` replacing `--preset`)
@@ -295,7 +313,7 @@ Exits 0 always (demo beads are written to a temporary session, not promoted).
 
 ---
 
-## Implementation tasks (8b)
+## Historical implementation tasks (8b)
 
 ### 8b-1 Mode wizard
 
