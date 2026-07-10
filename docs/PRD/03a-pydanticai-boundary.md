@@ -1,44 +1,63 @@
 # PRD: Harden the PydanticAI Adapter Boundary
 
 **Phase:** 3A
-**Status:** Partially complete (Phase 0 absorbed tasks 1–2)
+**Status:** Complete — optional-adapter import boundary guard shipped
 **Prerequisite:** Phase 0 complete
 
 ---
 
-## Problem
+## Current implementation note
+
+Phase 3A is complete in the current tree. The public cleanup status and PRD
+index both mark it done, and `tests/test_adapter_boundary_pydanticai.py` now
+enforces the intended boundary with subprocess-isolated import checks.
+
+The shipped test proves that importing `core_memory` and key internal
+subpackages does not load `pydantic_ai` into `sys.modules`, while an explicit
+import of `core_memory.integrations.pydanticai` remains allowed when the
+optional package is installed. The cleanup plan also records all three Phase 3A
+tasks as complete.
+
+The plan below is retained as historical rationale for the boundary and for the
+shape of the enforcement test. The test file is the authoritative source for
+the exact current module list.
+
+---
+
+## Historical problem
 
 `pydantic-ai` is an optional adapter, declared in `[project.optional-dependencies]`
 as `pydanticai = ["pydantic-ai"]`. The intent is that `import core_memory` works
 in a fresh environment with only `pyyaml` installed — no `pydantic-ai`, no
 `fastapi`, no `faiss`.
 
-There is no mechanism today that enforces this. A future contributor could:
+Before Phase 3A, there was no mechanism that enforced this. A future contributor could:
 - Add `from core_memory.integrations.pydanticai import ...` at the top of a
   core module (`runtime/`, `retrieval/`, `persistence/`).
 - Make `pydantic_ai` a transitive side-effect of `import core_memory`.
 
-Either would silently turn `pydantic-ai` into a hard dependency. CI wouldn't
-notice because Phase 0's `core-only` job doesn't have pydanticai tests selected.
+Either would have silently turned `pydantic-ai` into a hard dependency. CI might
+not have noticed because Phase 0's `core-only` job did not select the optional
+pydanticai tests.
 
 ---
 
-## Phase 0 already covered
+## Completed work
 
-- ✅ Added `pytest.mark.pydanticai` registration to `pyproject.toml`
-- ✅ Added module-level `skipif(find_spec("pydantic_ai") is None, ...)` guards to
+- Added `pytest.mark.pydanticai` registration to `pyproject.toml`
+- Added module-level `skipif(find_spec("pydantic_ai") is None, ...)` guards to
   both `tests/test_pydanticai_adapter.py` and `tests/test_pydanticai_memory_tools.py`
-- ✅ Added `core-only` job to `.github/workflows/test.yml` that installs only
+- Added `core-only` job to `.github/workflows/test.yml` that installs only
   `[dev]` extras (no pydanticai)
-
-What remains is the **enforcement test**: prove that `import core_memory` does
-not side-load `pydantic_ai` into `sys.modules`.
+- Added `tests/test_adapter_boundary_pydanticai.py`, which proves that
+  `import core_memory` and key internal-package imports do not side-load
+  `pydantic_ai` into `sys.modules`
 
 ---
 
-## Success criteria
+## Success criteria / outcome
 
-1. New test `tests/test_adapter_boundary_pydanticai.py` runs as part of the
+1. `tests/test_adapter_boundary_pydanticai.py` runs as part of the
    default suite and asserts `pydantic_ai not in sys.modules` after a fresh
    `import core_memory`.
 2. The same test asserts the same for `import core_memory.runtime`,
@@ -50,11 +69,13 @@ not side-load `pydantic_ai` into `sys.modules`.
 
 ---
 
-## Implementation
+## Historical implementation
 
 ### Sub-task 3A.1 — Add the boundary enforcement test
 
-Create `tests/test_adapter_boundary_pydanticai.py`:
+The shipped test lives at `tests/test_adapter_boundary_pydanticai.py`. The
+original sketch below is retained for design intent only; keep the checked-in
+test file authoritative for the current module list and marker details.
 
 ```python
 """Enforce that pydantic_ai is never loaded as a side effect of importing
@@ -150,8 +171,7 @@ spawn guarantees a clean module table per assertion.
 
 ### Sub-task 3A.2 — Update `docs/cleanup-plan.md`
 
-In the Phase 3A bullet list, strike through tasks 1–2 (already done in Phase 0)
-and update task 3:
+The Phase 3A bullet list in `docs/cleanup-plan.md` is now complete:
 
 ```markdown
 ## Phase 3A — Harden the PydanticAI Boundary
@@ -160,7 +180,7 @@ and update task 3:
 
 - [x] Add `pytest.mark.skipif` guards to pydanticai tests *(done in Phase 0)*
 - [x] Add CI matrix entry that installs without `[pydanticai]` *(done in Phase 0)*
-- [ ] Add `tests/test_adapter_boundary_pydanticai.py` — subprocess-isolated
+- [x] Add `tests/test_adapter_boundary_pydanticai.py` — subprocess-isolated
       assertion that `pydantic_ai` does NOT appear in `sys.modules` after
       `import core_memory` (and key subpackages)
 
