@@ -37,6 +37,18 @@ class TestCliParserExtendedSlice51A(unittest.TestCase):
         self.assertEqual("redis", args.query)
         self.assertEqual(3, args.k)
 
+    def test_causal_candidates_and_legacy_apply_parse(self):
+        parser, sub = self._base()
+        add_graph_parser(sub, legacy_help="legacy")
+
+        candidates = parser.parse_args(["graph", "causal-candidates", "--bead-id", "b1"])
+        self.assertEqual("causal-candidates", candidates.graph_cmd)
+        self.assertEqual(["b1"], candidates.bead_id)
+
+        legacy = parser.parse_args(["graph", "backfill-causal-links", "--apply"])
+        self.assertEqual("backfill-causal-links", legacy.graph_cmd)
+        self.assertTrue(legacy.apply)
+
     def test_add_metrics_parser(self):
         parser, sub = self._base()
         m = add_metrics_parser(sub, legacy_help="legacy")

@@ -12,7 +12,7 @@ from core_memory.persistence.store import MemoryStore
 
 
 class TestBackfillCausalLinks(unittest.TestCase):
-    def test_backfill_proposes_and_applies_links(self):
+    def test_backfill_is_candidate_only_even_when_legacy_apply_is_requested(self):
         with tempfile.TemporaryDirectory() as td:
             s = MemoryStore(td)
             d = s.add_bead(type="decision", title="Candidate promotion policy", summary=["candidate only promotion"], session_id="main", source_turn_ids=["t1"])
@@ -24,9 +24,11 @@ class TestBackfillCausalLinks(unittest.TestCase):
 
             app = backfill_causal_links(Path(td), apply=True, min_overlap=1)
             self.assertTrue(app.get("ok"))
-            self.assertGreaterEqual(int(app.get("links_added", 0)), 1)
+            self.assertTrue(app.get("legacy_apply_requested"))
+            self.assertTrue(app.get("candidate_only"))
+            self.assertEqual(0, int(app.get("links_added", 0)))
             g = build_graph(Path(td), write_snapshot=False)
-            self.assertGreaterEqual(int(g.get("structural_edges", 0)), 1)
+            self.assertEqual(0, int(g.get("structural_edges", 0)))
 
 
 if __name__ == "__main__":

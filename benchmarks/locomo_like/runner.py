@@ -20,8 +20,6 @@ from core_memory.retrieval.agent import recall as core_recall
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.queue.jobs import async_jobs_status, run_async_jobs
 from core_memory.runtime.engine import process_turn_finalized
-from core_memory.runtime.passes.association_pass import run_association_pass
-from core_memory.association.crawler_contract import merge_crawler_updates
 from core_memory.runtime.observability.myelination import myelination_report
 
 from .reporting import build_report, render_summary
@@ -188,7 +186,6 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
     setup = dict(case.setup or {})
     # Optional turn-preload path for larger LOCOMO-style traces.
     turns = list(setup.get("turns") or [])
-    last_bead_by_session: dict[str, str] = {}
     with _env_overrides(_turn_write_env()):
         for i, t in enumerate(turns, start=1):
             if not isinstance(t, dict):
@@ -228,31 +225,8 @@ def _materialize_case(root: str, case: BenchmarkCase) -> None:
                 origin=str(t.get("origin") or "BENCHMARK_TURN").strip() or "BENCHMARK_TURN",
             )
 
-            current_bead_id = _latest_turn_bead_id(root, session_id=sid, turn_id=tid)
-            prev_bead_id = str(last_bead_by_session.get(sid) or "").strip()
-
-            if current_bead_id and prev_bead_id and current_bead_id != prev_bead_id:
-                run_association_pass(
-                    root=root,
-                    session_id=sid,
-                    updates={
-                        "associations": [
-                            {
-                                "source_bead_id": current_bead_id,
-                                "target_bead_id": prev_bead_id,
-                                "relationship": "follows",
-                                "confidence": 0.6,
-                                "reason_text": "benchmark preload temporal adjacency",
-                                "provenance": "benchmark_preload",
-                            }
-                        ]
-                    },
-                    visible_bead_ids=[prev_bead_id, current_bead_id],
-                )
-                merge_crawler_updates(root=root, session_id=sid)
-
-            if current_bead_id:
-                last_bead_by_session[sid] = current_bead_id
+            # Preload order can rank candidates for a later association agent,
+            # but it cannot author a canonical temporal relation itself.
 
     beads = list(setup.get("beads") or [])
 

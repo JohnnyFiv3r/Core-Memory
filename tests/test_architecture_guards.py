@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from pathlib import Path
@@ -143,6 +144,25 @@ def test_detects_compat_surface_usage(tmp_path: Path):
 
     surfaces = {v.detail["surface_key"] for v in violations}
     assert surfaces == {"runtime_semantic_tasks", "typed_search_form_submission"}
+
+
+def test_deterministic_writer_guard_requires_allowlist_and_rejects_preview_authority(tmp_path: Path):
+    _write(
+        tmp_path / "scripts" / "architecture_guards_baseline.json",
+        json.dumps(
+            {
+                "sanctioned_deterministic_writers": guards.SANCTIONED_DETERMINISTIC_WRITERS,
+            }
+        ),
+    )
+    _write(
+        tmp_path / "core_memory" / "association" / "crawler_contract.py",
+        "def apply():\n    return infer_relationship({}, {})\n",
+    )
+
+    violations = guards.check_deterministic_semantic_writers(tmp_path)
+
+    assert [violation.detail["forbidden_call"] for violation in violations] == ["infer_relationship"]
 
 
 def test_compat_baseline_allows_reductions_but_fails_increases(tmp_path: Path):

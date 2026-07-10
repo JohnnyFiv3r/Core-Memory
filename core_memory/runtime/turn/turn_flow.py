@@ -71,7 +71,6 @@ def process_turn_finalized_impl(
     extract_and_attach_claims_fn: Callable[..., dict[str, Any]] | None = None,
     emit_claim_updates_fn: Callable[..., list[dict[str, Any]]] | None = None,
     classify_memory_outcome_fn: Callable[..., dict[str, Any] | None] | None = None,
-    write_memory_outcome_to_bead_fn: Callable[..., Any] | None = None,
 ) -> dict[str, Any]:
     req = normalize_turn_request(
         session_id=session_id,
@@ -390,6 +389,7 @@ def process_turn_finalized_impl(
             req=req,
             reviewed_updates=reviewed_updates,
             crawler_ctx=crawler_ctx,
+            authorship=dict(gate.get("authorship") or {}),
             structural_coverage_missing=_structural_coverage_missing,
         )
         enrichment_queue = dict(enqueue_result or {})
@@ -402,6 +402,7 @@ def process_turn_finalized_impl(
     claim_telemetry: dict[str, Any] = {}
     claim_updates_emitted = 0
     memory_outcome_written = False
+    memory_outcome_advisory: dict[str, Any] | None = None
     goal_lifecycle: dict[str, Any] = {}
 
     if not enrichment_queued:
@@ -440,13 +441,16 @@ def process_turn_finalized_impl(
 
         if extract_and_attach_claims_fn is not None:
             created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
+            claim_req = dict(req)
+            claim_req["authorship"] = dict(gate.get("authorship") or {})
+            claim_req["authored_updates"] = dict(reviewed_updates or {})
             claim_telemetry = (
                 extract_and_attach_claims_fn(
                     root,
                     req["session_id"],
                     req["turn_id"],
                     created_bead_ids,
-                    req,
+                    claim_req,
                 )
                 or {}
             )
@@ -461,6 +465,8 @@ def process_turn_finalized_impl(
             session_id=req["session_id"],
             visible_bead_ids=visible_ids,
             turn_id=req["turn_id"],
+            updates=reviewed_updates,
+            authorship=dict(gate.get("authorship") or {}),
         )
 
         canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
@@ -478,32 +484,29 @@ def process_turn_finalized_impl(
                     visible_bead_ids=claim_visible_ids,
                     reviewed_updates=reviewed_updates,
                     decision_pass=decision_pass,
+                    authorship=dict(gate.get("authorship") or {}),
                 )
                 or []
             )
             claim_updates_emitted = len(claim_updates)
 
-        if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
-            md = dict(req.get("metadata") or {})
-            context_beads = list(
-                md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or []
-            )
-            turn_context = {
-                "retrieved_beads": context_beads,
-                "query": str(req.get("user_query") or ""),
-                "used_memory": bool(md.get("used_memory")) or bool(context_beads),
-                "correction_triggered": bool(md.get("correction_triggered") or md.get("memory_correction")),
-                "reflection_triggered": bool(md.get("reflection_triggered") or md.get("memory_reflection")),
-            }
-            outcome = classify_memory_outcome_fn(turn_context)
-            if isinstance(outcome, dict) and write_memory_outcome_to_bead_fn is not None:
-                write_memory_outcome_to_bead_fn(
-                    root,
-                    canonical_turn_bead_id,
-                    interaction_role=outcome.get("interaction_role"),
-                    memory_outcome=outcome.get("memory_outcome"),
+            if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
+                md = dict(req.get("metadata") or {})
+                context_beads = list(
+                    md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or []
                 )
-                memory_outcome_written = True
+                turn_context = {
+                    "retrieved_beads": context_beads,
+                    "query": str(req.get("user_query") or ""),
+                    "used_memory": bool(md.get("used_memory")) or bool(context_beads),
+                    "correction_triggered": bool(md.get("correction_triggered") or md.get("memory_correction")),
+                    "reflection_triggered": bool(md.get("reflection_triggered") or md.get("memory_reflection")),
+                }
+                outcome = classify_memory_outcome_fn(turn_context)
+                if isinstance(outcome, dict):
+                    # Deterministic memory-use classification is useful telemetry,
+                    # but it cannot mutate the canonical turn bead.
+                    memory_outcome_advisory = dict(outcome)
 
         try:
             from core_memory.runtime.session.goal_lifecycle import resolve_goals_for_turn
@@ -553,6 +556,7 @@ def process_turn_finalized_impl(
         "claim_telemetry": claim_telemetry,
         "claim_updates_emitted": claim_updates_emitted,
         "memory_outcome_written": memory_outcome_written,
+        "memory_outcome_advisory": memory_outcome_advisory,
         "goal_lifecycle": goal_lifecycle,
         "engine": {"normalized": True, "entry": "process_turn_finalized", "sequence_owner": "memory_engine"},
     }

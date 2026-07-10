@@ -649,6 +649,7 @@ def decide_dreamer_candidate(
                         str(root), [], fork_bead_id,
                         session_id=session_id,
                         reviewed_updates={"claim_updates": supersede_rows},
+                        authorship={"source": "explicit_agent_action"},
                     ) or []
                     written = len(emitted)
 
@@ -708,6 +709,7 @@ def decide_dreamer_candidate(
                     str(root), [], trigger_bead_id,
                     session_id=session_id,
                     reviewed_updates={"claim_updates": claim_updates},
+                    authorship={"source": "explicit_agent_action"},
                 ) or []
                 written = len(emitted)
 

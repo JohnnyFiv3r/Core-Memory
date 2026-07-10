@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-"""Goal lifecycle resolution pass.
+"""Goal lifecycle candidate pass.
 
-This module is deliberately runtime-owned orchestration: it detects whether the
-current outcome bead closes an explicitly visible candidate goal, emits a typed
-association through the crawler/association path, then asks promotion machinery
-to apply the candidate -> resolved transition.
+Deterministic overlap can identify a possible goal/outcome match, but it cannot
+author a ``resolves`` relation or advance a goal's canonical state.  The return
+value is bounded candidate context for the full-schema association/authoring
+agent.
 """
 
 from typing import Any
 
-from core_memory.association.crawler_contract import apply_crawler_updates, merge_crawler_updates
 from core_memory.persistence.store import MemoryStore
-from core_memory.persistence.promotion_service import resolve_goal_candidate_for_store
 from core_memory.schema.promotion_contract import current_promotion_state
 
 
@@ -106,58 +104,35 @@ def resolve_goals_for_turn(
     if not candidates:
         return {"ok": True, "evaluated": 0, "resolved": 0, "associations_appended": 0, "reason": "no_matching_goal"}
 
-    associations = []
+    recommendations = []
     visible_sorted = sorted(allowed)
     for gid, _goal, code, text, evidence_terms in candidates:
-        associations.append(
+        recommendations.append(
             {
                 "source_bead": oid,
                 "target_bead": gid,
-                "relationship": "resolves",
+                "relationship_candidate": "resolves",
                 "confidence": 0.82,
                 "reason_code": code,
                 "reason_text": text,
-                "provenance": "model_inferred",
+                "provenance": "heuristic_goal_resolution_candidate",
                 "evidence_fields": ["tags", "title", "summary", "success_criteria"],
                 "evidence_bead_ids": [oid, gid],
                 "turn_id": str(turn_id or ""),
                 "visible_bead_ids": visible_sorted,
-                "judge_model": "heuristic-goal-resolution-v1",
+                "judge_model": None,
                 "prompt_version": "goal-resolution-v1",
                 "rubric_version": "goal-resolution-v1",
                 "evidence_terms": evidence_terms,
+                "canonical": False,
             }
         )
-
-    queued = apply_crawler_updates(
-        root=root,
-        session_id=session_id,
-        updates={"associations": associations},
-        visible_bead_ids=visible_sorted,
-    )
-    merged = merge_crawler_updates(root=root, session_id=session_id)
-
-    resolved = 0
-    results = []
-    for gid, _goal, code, _text, _terms in candidates:
-        out = resolve_goal_candidate_for_store(
-            store,
-            goal_bead_id=gid,
-            outcome_bead_id=oid,
-            turn_id=str(turn_id or ""),
-            reason=code,
-            visible_bead_ids=visible_sorted,
-        )
-        results.append(out)
-        if out.get("ok"):
-            resolved += 1
 
     return {
         "ok": True,
         "evaluated": len(candidates),
-        "resolved": resolved,
-        "queued": queued,
-        "merge": merged,
-        "associations_appended": int((merged or {}).get("associations_appended") or 0),
-        "results": results,
+        "resolved": 0,
+        "associations_appended": 0,
+        "candidate_only": True,
+        "candidates": recommendations,
     }

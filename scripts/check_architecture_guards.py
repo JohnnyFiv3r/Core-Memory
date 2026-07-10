@@ -27,6 +27,116 @@ COMPAT_SCHEMA_VERSION = "core_memory.compat_surface_usage_baseline.v1"
 DEFAULT_BASELINE = Path("scripts/architecture_guards_baseline.json")
 DEFAULT_COMPAT_BASELINE = Path("scripts/compat_surface_usage_baseline.json")
 
+SANCTIONED_DETERMINISTIC_WRITER_KEYS = {
+    "symbol",
+    "record_or_edge_class",
+    "rationale",
+    "provenance_requirement",
+}
+
+# These are the only deterministic semantic paths permitted in this rollout.
+# They either persist structural/mechanical records with explicit provenance or
+# append advisory candidates.  Canonical promotion, claim, and relationship
+# truth must arrive through an agent-authorized contract instead.
+SANCTIONED_DETERMINISTIC_WRITERS = [
+    {
+        "symbol": "core_memory.runtime.session.session_start_flow.process_session_start_impl",
+        "record_or_edge_class": "session_boundary_bead",
+        "rationale": "Session boundaries are mechanical lifecycle records.",
+        "provenance_requirement": "session_id and continuity snapshot",
+    },
+    {
+        "symbol": "core_memory.runtime.flush.flush_state.upsert_process_flush_checkpoint_bead",
+        "record_or_edge_class": "flush_checkpoint_bead",
+        "rationale": "Flush checkpoints record process progress, not semantic interpretation.",
+        "provenance_requirement": "flush transaction id",
+    },
+    {
+        "symbol": "core_memory.runtime.ingest.external_evidence.ingest_external_evidence",
+        "record_or_edge_class": "external_evidence_anchor",
+        "rationale": "External anchors preserve caller-owned source evidence.",
+        "provenance_requirement": "source id, source event id, and hydration ref",
+    },
+    {
+        "symbol": "core_memory.runtime.turn.semantic_state.mark_semantic_write_state",
+        "record_or_edge_class": "pending_semantic_state",
+        "rationale": "Pending/repair state is an operational receipt, never a canonical bead.",
+        "provenance_requirement": "session id, turn id, and status history",
+    },
+    {
+        "symbol": "core_memory.graph.core.sync_structural_pipeline",
+        "record_or_edge_class": "explicit_structural_field_projection",
+        "rationale": "Projects explicit persisted links and agent associations into structural edges.",
+        "provenance_requirement": "association or link source field",
+    },
+    {
+        "symbol": "core_memory.graph.core.backfill_structural_edges",
+        "record_or_edge_class": "explicit_structural_field_projection",
+        "rationale": "Repairs graph projections from already persisted structural fields.",
+        "provenance_requirement": "explicit link or association id",
+    },
+    {
+        "symbol": "core_memory.persistence.promotion_service.decide_session_promotion_states_for_store",
+        "record_or_edge_class": "promotion_shadow_recommendation",
+        "rationale": "Heuristic promotion signals are append-only advice only.",
+        "provenance_requirement": "heuristic version and visible bead id",
+    },
+    {
+        "symbol": "core_memory.persistence.promotion_service.evaluate_candidates_for_store",
+        "record_or_edge_class": "promotion_shadow_recommendation",
+        "rationale": "Candidate scoring is advisory rather than canonical promotion authority.",
+        "provenance_requirement": "score, threshold, and candidate bead id",
+    },
+    {
+        "symbol": "core_memory.persistence.promotion_service.rebalance_promotions_for_store",
+        "record_or_edge_class": "promotion_shadow_recommendation",
+        "rationale": "Rebalance results are demotion recommendations only.",
+        "provenance_requirement": "score, threshold, and candidate bead id",
+    },
+    {
+        "symbol": "core_memory.claim.turn_integration.extract_and_attach_claims",
+        "record_or_edge_class": "claim_advisory",
+        "rationale": "Heuristic or legacy claim extraction is review context only.",
+        "provenance_requirement": "extractor mode and turn id",
+    },
+    {
+        "symbol": "core_memory.claim.update_policy.emit_claim_updates",
+        "record_or_edge_class": "claim_update_advisory",
+        "rationale": "Automatic reconciliation is advice; explicit authored updates remain canonical.",
+        "provenance_requirement": "trigger bead id and authored review provenance",
+    },
+    {
+        "symbol": "core_memory.runtime.dreamer.candidates.decide_dreamer_candidate",
+        "record_or_edge_class": "governed_claim_resolution",
+        "rationale": "An explicit agent decision can apply a reviewed conflict resolution.",
+        "provenance_requirement": "candidate id, explicit_agent_action, and scoped-resolution receipt",
+    },
+    {
+        "symbol": "core_memory.graph.core.backfill_causal_links",
+        "record_or_edge_class": "causal_link_candidate",
+        "rationale": "Legacy causal backfill now emits candidates and deprecation telemetry only.",
+        "provenance_requirement": "candidate overlap and source/target ids",
+    },
+]
+
+
+_FORBIDDEN_DETERMINISTIC_CALLS: tuple[tuple[str, str, str], ...] = (
+    ("core_memory/association/crawler_contract.py", "infer_relationship", "preview classifier cannot author a canonical association"),
+    ("core_memory/claim/turn_integration.py", "write_claims_to_bead", "claim extraction cannot write canonical claims"),
+    ("core_memory/runtime/turn/turn_flow.py", "write_memory_outcome_to_bead", "memory-use classification cannot write canonical bead fields"),
+    ("core_memory/runtime/session/goal_lifecycle.py", "apply_crawler_updates", "goal overlap cannot append a canonical association"),
+    ("core_memory/runtime/session/goal_lifecycle.py", "resolve_goal_candidate_for_store", "goal overlap cannot resolve canonical promotion state"),
+    ("core_memory/soul/dreamer_bridge.py", "transition_goal_state_for_store", "Dreamer cannot auto-endorse a canonical goal"),
+)
+
+_FORBIDDEN_WRITER_CALLS: tuple[tuple[str, str, str, str], ...] = (
+    ("core_memory/persistence/promotion_service.py", "decide_session_promotion_states_for_store", "_write_json", "session promotion must be shadow-only"),
+    ("core_memory/persistence/promotion_service.py", "decide_session_promotion_states_for_store", "mark_semantic_dirty", "session promotion must be shadow-only"),
+    ("core_memory/graph/core.py", "backfill_causal_links", "add_structural_edge", "causal backfill must remain candidate-only"),
+    ("core_memory/graph/core.py", "infer_structural_edges", "add_structural_edge", "structural inference must remain candidate-only"),
+    ("core_memory/persistence/store_compaction_ops.py", "compact_for_store", "promotion_state", "compaction cannot auto-promote"),
+)
+
 LAYER_RANK: dict[str, int] = {
     "schema": 0,
     "temporal": 0,
@@ -651,6 +761,157 @@ def check_compat_surface_usage(root: Path) -> list[Violation]:
     return sorted(violations, key=lambda v: (v.detail.get("surface_key", ""), v.path, v.line))
 
 
+def _function_node(tree: ast.AST, name: str) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return node
+    return None
+
+
+def _call_name(node: ast.Call) -> str:
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return ""
+
+
+def _function_calls(node: ast.AST, target: str) -> bool:
+    return any(isinstance(child, ast.Call) and _call_name(child) == target for child in ast.walk(node))
+
+
+def _function_assigns_subscript_key(node: ast.AST, key: str) -> bool:
+    for child in ast.walk(node):
+        targets: list[ast.AST] = []
+        if isinstance(child, ast.Assign):
+            targets = list(child.targets)
+        elif isinstance(child, ast.AnnAssign):
+            targets = [child.target]
+        elif isinstance(child, ast.AugAssign):
+            targets = [child.target]
+        for target in targets:
+            if not isinstance(target, ast.Subscript):
+                continue
+            if isinstance(target.slice, ast.Constant) and target.slice.value == key:
+                return True
+    return False
+
+
+def check_deterministic_semantic_writers(root: Path) -> list[Violation]:
+    """Enforce the explicit allowlist around deterministic semantic authority."""
+    baseline_path = root / DEFAULT_BASELINE
+    if not baseline_path.exists():
+        return []
+    try:
+        baseline = load_baseline(baseline_path)
+    except (OSError, json.JSONDecodeError) as exc:
+        return [
+            Violation(
+                check="deterministic_writer",
+                id="deterministic_writer:baseline_unreadable",
+                path=_relative(baseline_path, root),
+                line=1,
+                message="Could not read sanctioned deterministic writer allowlist",
+                detail={"error": exc.__class__.__name__},
+            )
+        ]
+
+    violations: list[Violation] = []
+    rows = baseline.get("sanctioned_deterministic_writers")
+    if not isinstance(rows, list) or not rows:
+        return [
+            Violation(
+                check="deterministic_writer",
+                id="deterministic_writer:allowlist_missing",
+                path=_relative(baseline_path, root),
+                line=1,
+                message="Architecture baseline must enumerate sanctioned deterministic writers",
+                detail={},
+            )
+        ]
+
+    seen_symbols: set[str] = set()
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            violations.append(
+                Violation(
+                    check="deterministic_writer",
+                    id=f"deterministic_writer:allowlist_row_not_object:{index}",
+                    path=_relative(baseline_path, root),
+                    line=index + 1,
+                    message="Sanctioned deterministic writer rows must be objects",
+                    detail={},
+                )
+            )
+            continue
+        missing = sorted(key for key in SANCTIONED_DETERMINISTIC_WRITER_KEYS if not str(row.get(key) or "").strip())
+        symbol = str(row.get("symbol") or "").strip()
+        if missing or not symbol or symbol in seen_symbols:
+            violations.append(
+                Violation(
+                    check="deterministic_writer",
+                    id=f"deterministic_writer:invalid_allowlist_row:{index}",
+                    path=_relative(baseline_path, root),
+                    line=index + 1,
+                    message="Sanctioned deterministic writer row is missing required detail or duplicates a symbol",
+                    detail={"missing": ",".join(missing), "symbol": symbol},
+                )
+            )
+        seen_symbols.add(symbol)
+
+    def parse(path_text: str) -> tuple[Path, ast.AST | None]:
+        path = root / path_text
+        try:
+            return path, ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError):
+            return path, None
+
+    for path_text, forbidden, message in _FORBIDDEN_DETERMINISTIC_CALLS:
+        path, tree = parse(path_text)
+        if tree is None:
+            continue
+        call = next(
+            (node for node in ast.walk(tree) if isinstance(node, ast.Call) and _call_name(node) == forbidden),
+            None,
+        )
+        if call is not None:
+            violations.append(
+                Violation(
+                    check="deterministic_writer",
+                    id=f"deterministic_writer:{path_text}:{forbidden}",
+                    path=path_text,
+                    line=call.lineno,
+                    message=message,
+                    detail={"forbidden_call": forbidden},
+                )
+            )
+
+    for path_text, function_name, forbidden, message in _FORBIDDEN_WRITER_CALLS:
+        path, tree = parse(path_text)
+        if tree is None:
+            continue
+        function = _function_node(tree, function_name)
+        if function is None:
+            continue
+        violated = (
+            _function_assigns_subscript_key(function, forbidden)
+            if forbidden == "promotion_state"
+            else _function_calls(function, forbidden)
+        )
+        if violated:
+            violations.append(
+                Violation(
+                    check="deterministic_writer",
+                    id=f"deterministic_writer:{path_text}:{function_name}:{forbidden}",
+                    path=path_text,
+                    line=function.lineno,
+                    message=message,
+                    detail={"function": function_name, "forbidden": forbidden},
+                )
+            )
+    return sorted(violations, key=lambda violation: violation.id)
+
+
 def collect_violations(root: Path) -> list[Violation]:
     violations: list[Violation] = []
     violations.extend(check_upward_imports(root))
@@ -658,6 +919,7 @@ def collect_violations(root: Path) -> list[Violation]:
     violations.extend(check_markdown_links(root))
     violations.extend(check_cleanup_truth(root))
     violations.extend(check_prd_index(root))
+    violations.extend(check_deterministic_semantic_writers(root))
     return sorted(violations, key=lambda v: (v.check, v.id))
 
 
@@ -668,6 +930,7 @@ def make_baseline(root: Path, violations: list[Violation]) -> dict:
         "repo_root": ".",
         "violation_ids": [v.id for v in violations],
         "violations": [v.to_json() for v in violations],
+        "sanctioned_deterministic_writers": SANCTIONED_DETERMINISTIC_WRITERS,
     }
 
 
@@ -756,7 +1019,7 @@ def print_report(
 
     print("Architecture guard report")
     print("=========================")
-    for check in ["upward_import", "flat_file", "markdown_link", "cleanup_truth", "prd_index"]:
+    for check in ["upward_import", "flat_file", "markdown_link", "cleanup_truth", "prd_index", "deterministic_writer"]:
         print(f"{check}: {counts.get(check, 0)}")
     print(f"total: {len(violations)}")
 

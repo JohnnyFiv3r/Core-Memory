@@ -16,7 +16,7 @@ def add_structural_edge(
     src_id: str,
     dst_id: str,
     rel: str,
-    created_by: str = "system",
+    created_by: str = "structural_projection",
     evidence: list[dict] | None = None,
 ) -> dict[str, Any]:
     return _api_impl.add_structural_edge(
@@ -41,6 +41,23 @@ def backfill_causal_links(
     return _api_impl.backfill_causal_links(
         root,
         apply=apply,
+        max_per_target=max_per_target,
+        min_overlap=min_overlap,
+        require_shared_turn=require_shared_turn,
+        include_bead_ids=include_bead_ids,
+    )
+
+
+def causal_link_candidates(
+    root: Path,
+    *,
+    max_per_target: int = 3,
+    min_overlap: int = 2,
+    require_shared_turn: bool = True,
+    include_bead_ids: list[str] | None = None,
+) -> dict[str, Any]:
+    return _api_impl.causal_link_candidates(
+        root,
         max_per_target=max_per_target,
         min_overlap=min_overlap,
         require_shared_turn=require_shared_turn,
