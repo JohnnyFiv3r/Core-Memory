@@ -1,12 +1,33 @@
 # PRD: Documentation Consolidation
 
 **Phase:** 10
-**Status:** Not started
+**Status:** Complete — docs index/status/PRD navigation and archive cleanup shipped
 **Prerequisite:** Phase 9 complete (structural changes must be reflected in architecture docs)
 
 ---
 
-## Problem
+## Current implementation note
+
+Phase 10 is complete in the current tree. `docs/status.md` lists 10a–10g as
+done, `docs/index.md` is the canonical navigation entrypoint,
+`docs/PRD/README.md` indexes cleanup and capability PRDs, and
+`docs/architecture_overview.md` is the live architecture reference. The former
+`docs/ARCHITECTURE.md` now lives under `docs/archive/history/`, and the stray
+root-level `v2_p*` phase artifacts have been archived.
+
+The root docs classification work is represented by `docs/index.md`,
+`docs/status.md`, `docs/compatibility_ledger.md`, and the reports/archive
+directories. Some historically named root docs remain because they were
+classified as current or reference material; their presence is not open Phase 10
+debt by itself.
+
+The plan below is retained as historical rationale for the documentation
+consolidation. Statements about missing navigation, split TODO state, or
+root-level phase artifacts refer to the pre-implementation baseline.
+
+---
+
+## Historical problem
 
 The docs directory has accreted through 20+ numbered development phases and now contains
 four distinct problems:
@@ -35,7 +56,7 @@ four distinct problems:
 
 ---
 
-## Success criteria
+## Success criteria / outcome
 
 1. All `v2_p*` phase artifacts at `docs/` root have been moved to `docs/archive/history/`.
 2. `docs/ARCHITECTURE.md` is archived. `docs/architecture_overview.md` is updated to
@@ -54,7 +75,7 @@ four distinct problems:
 
 ---
 
-## Sub-task 10a — Archive phase artifacts from docs root
+## Historical sub-task 10a — Archive phase artifacts from docs root
 
 Move these 11 files to `docs/archive/history/`:
 
@@ -75,7 +96,7 @@ in `docs/index.md`, but confirm).
 
 ---
 
-## Sub-task 10b — Retire `docs/ARCHITECTURE.md`
+## Historical sub-task 10b — Retire `docs/ARCHITECTURE.md`
 
 `docs/ARCHITECTURE.md` references pre-v2 file names:
 - `event_ingress.py` (now `runtime/turn/ingress.py` after Phase 9)
@@ -96,7 +117,7 @@ It also defines "Five Canonical Centers" that may have shifted with v2 architect
 
 ---
 
-## Sub-task 10c — Update `architecture_overview.md` for post-Phase-9 layout
+## Historical sub-task 10c — Update `architecture_overview.md` for post-Phase-9 layout
 
 After Phases 4–9 ship, `architecture_overview.md` needs to reflect:
 
@@ -122,7 +143,7 @@ At minimum, the doc should answer:
 
 ---
 
-## Sub-task 10d — Audit and classify docs root files
+## Historical sub-task 10d — Audit and classify docs root files
 
 For each file at `docs/` root (excluding `index.md` itself and PRD/, archive/, reports/
 subdirectories), determine its status:
@@ -176,14 +197,14 @@ as appropriate. All **Current** files get verified and listed in `docs/index.md`
 
 ---
 
-## Sub-task 10e — Consolidate TODO tracking into `docs/status.md`
+## Historical sub-task 10e — Consolidate TODO tracking into `docs/status.md`
 
-Currently open-item tracking is split:
+Before Phase 10, open-item tracking was split:
 - `demo/TODO.md` — 7 engine-correctness items with cross-repo references
 - `docs/reports/todo-validation-2026-05-15.md` — status audit against those 7 items
 - `docs/cleanup-plan.md` — the new cleanup workstream (phases 0–8)
 
-**Create `docs/status.md`** as the single tracked-state document:
+Phase 10 created `docs/status.md` as the single tracked-state document:
 
 ```markdown
 # Core Memory — Open Work
@@ -218,9 +239,9 @@ becomes a historical snapshot referenced from `docs/status.md`.
 
 ---
 
-## Sub-task 10f — Add `docs/PRD/README.md`
+## Historical sub-task 10f — Add `docs/PRD/README.md`
 
-Index all PRD files with a one-line description and status:
+Phase 10 added an index of PRD files with one-line descriptions and status:
 
 ```markdown
 # PRDs
@@ -229,19 +250,19 @@ Index all PRD files with a one-line description and status:
 |------|-------|--------|
 | 03-mcp-protocol-server.md | MCP Protocol Server | ? |
 | 04-graph-module-cleanup.md | Classify graph/api.py compat facade | Retained public compatibility |
-| 05-persistence-delegation-flatten.md | Flatten persistence delegation | Not started |
-| 06-storage-adapter-boundary.md | Storage adapter capability tiers | Not started |
-| 07-neo4j-query-backend.md | Neo4j as query backend | Not started |
-| 08-init-wizard.md | core-memory init wizard | Not started |
-| 09-structural-consolidation.md | Runtime/CLI/OpenClaw restructure | Not started |
-| 10-documentation-consolidation.md | Docs cleanup and consolidation | Not started |
+| 05-persistence-delegation-flatten.md | Flatten persistence delegation | MRO flat; legacy mixin artifacts retired |
+| 06-storage-adapter-boundary.md | Storage adapter capability tiers | Done |
+| 07-neo4j-query-backend.md | Neo4j as query backend | Done |
+| 08-init-wizard.md | core-memory init wizard | Done |
+| 09-structural-consolidation.md | Runtime/CLI/OpenClaw restructure | Done at architecture layer |
+| 10-documentation-consolidation.md | Docs cleanup and consolidation | Done |
 ```
 
 ---
 
-## Sub-task 10g — Update `docs/index.md`
+## Historical sub-task 10g — Update `docs/index.md`
 
-After all prior sub-tasks complete, `docs/index.md` needs:
+When 10g ran, `docs/index.md` needed:
 
 1. **Architecture section** — remove `ARCHITECTURE.md` link; verify
    `architecture_overview.md` link is current.
