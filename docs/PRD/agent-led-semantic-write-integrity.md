@@ -1,6 +1,6 @@
 # PRD: Agent-Led Semantic Write Integrity
 
-**Status:** Draft v1
+**Status:** Partially implemented — Slice 1 shipped in #404; Slices 2–7 remain planned
 
 **Date:** 2026-07-10
 
@@ -776,6 +776,11 @@ This is the first and highest-leverage slice.
 **Exit condition:** a valid rich agent-authored bead reaches storage without
 known field loss or unexplained value mutation, and a decision plus derived
 lesson can be committed in one typed turn write.
+
+**Implementation:** Shipped in #404. Canonical writes now use schema-derived
+field ownership and a runtime overlay, preserve authored eligibility and
+normalized state changes, persist the current-turn bead before up to two derived
+companions, and report independent derived-write failures.
 
 ### Slice 2 — Typed ingress and delegated semantic authorship
 
