@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
@@ -58,12 +58,31 @@ const plugin = {
       }
     };
 
+    const loadAgentAuthoringSpec = () => {
+      const script = "from core_memory.schema.agent_authoring_spec import BEAD_AUTHORING_SPEC; print(BEAD_AUTHORING_SPEC)";
+      const result = spawnSync(cfg.pythonBin, ["-c", script], {
+        cwd: cfg.coreMemoryRepo,
+        encoding: "utf8",
+        maxBuffer: 1024 * 1024,
+        env: { ...process.env, PYTHONPATH: `${cfg.coreMemoryRepo}:${process.env.PYTHONPATH || ""}` },
+      });
+      if (result.status === 0 && String(result.stdout || "").trim()) {
+        return String(result.stdout).trim();
+      }
+      api.logger?.warn?.(`core-memory-bridge: failed to load generated authoring spec: ${String(result.stderr || "")}`);
+      return "";
+    };
+
     if (typeof api.registerMemoryPromptSupplement === "function") {
       const instructions = loadSkillInstructions();
-      if (instructions) {
+      const authoringSpec = loadAgentAuthoringSpec();
+      if (instructions || authoringSpec) {
         api.registerMemoryPromptSupplement(() => [
           "## Core Memory Bridge Instructions",
           instructions,
+          "",
+          "## Agent-Authored Turn Memory Contract",
+          authoringSpec,
           "",
         ]);
       }

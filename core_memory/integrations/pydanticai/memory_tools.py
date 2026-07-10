@@ -26,28 +26,38 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any, Callable, Optional
 
 from core_memory.integrations.api import (
     _resolve_root,
+    get_adjacent_turns,
     get_turn,
     get_turn_tools,
-    get_adjacent_turns,
     hydrate_bead_sources,
 )
-from core_memory.runtime.engine import process_session_start
-from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 from core_memory.retrieval.tools.memory import (
     execute as memory_execute,
+)
+from core_memory.retrieval.tools.memory import (
     search as memory_search,
+)
+from core_memory.retrieval.tools.memory import (
     trace as memory_trace,
 )
+from core_memory.runtime.engine import process_session_start
+from core_memory.schema.agent_authoring_spec import BEAD_AUTHORING_SPEC
+from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 
 logger = logging.getLogger(__name__)
 
 CONTINUITY_HEADER = "## Memory Context (auto-injected)\n"
 CONTINUITY_EMPTY = ""
+
+
+def authoring_prompt() -> str:
+    """Return the full contract for an inline primary-agent authoring step."""
+
+    return BEAD_AUTHORING_SPEC
 
 
 # ── Continuity injection ──────────────────────────────────────────────
@@ -131,6 +141,7 @@ def continuity_prompt(
     soul_text = ""
     try:
         from core_memory.soul.injection import soul_injection_text
+
         soul_text = soul_injection_text(root_final, subject="self")
     except Exception:
         logger.debug("soul injection load failed", exc_info=True)
@@ -358,14 +369,18 @@ def memory_approval_tools(root: Optional[str] = None) -> list[Callable[..., str]
     def request_memory_approval(bead_id: str, requested_by: str = "", note: str = "") -> str:
         """Flag a bead as awaiting human review (approval_status=pending)."""
         from core_memory import request_approval
+
         try:
-            return json.dumps(request_approval(root=root_final, bead_id=bead_id, requested_by=requested_by, note=note), default=str)
+            return json.dumps(
+                request_approval(root=root_final, bead_id=bead_id, requested_by=requested_by, note=note), default=str
+            )
         except Exception as exc:
             return json.dumps({"error": str(exc)})
 
     def approve_memory(bead_id: str, approver: str = "", note: str = "") -> str:
         """Approve a bead under review: grants confidence class A, records the approver."""
         from core_memory import approve_bead
+
         try:
             return json.dumps(approve_bead(root=root_final, bead_id=bead_id, approver=approver, note=note), default=str)
         except Exception as exc:
@@ -374,14 +389,18 @@ def memory_approval_tools(root: Optional[str] = None) -> list[Callable[..., str]
     def reject_memory(bead_id: str, approver: str = "", reason: str = "") -> str:
         """Reject a bead under review: excluded from retrieval, retained for audit."""
         from core_memory import reject_bead
+
         try:
-            return json.dumps(reject_bead(root=root_final, bead_id=bead_id, approver=approver, reason=reason), default=str)
+            return json.dumps(
+                reject_bead(root=root_final, bead_id=bead_id, approver=approver, reason=reason), default=str
+            )
         except Exception as exc:
             return json.dumps({"error": str(exc)})
 
     def list_pending_approvals(limit: int = 100) -> str:
         """List beads awaiting human review (approval_status=pending)."""
         from core_memory import list_pending_approvals as _list_pending
+
         try:
             return json.dumps(_list_pending(root=root_final, limit=limit), default=str)
         except Exception as exc:

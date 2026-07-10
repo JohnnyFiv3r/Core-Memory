@@ -6,7 +6,9 @@ Read first: [`contract.md`](contract.md).
 
 ## Mental model
 
-Your adapter owns host-system translation. Core Memory owns memory semantics.
+Your adapter owns host-system translation. The agent owns memory semantics. Core
+Memory owns the typed contract, validation, persistence, and structural
+guardrails.
 
 The adapter detects:
 
@@ -56,6 +58,7 @@ class MyRuntimeAdapter:
             ],
             origin="USER_TURN",
             tools_trace=tools or [],
+            authoring_mode="delegated",
             metadata={"framework": "my_runtime", "source": "adapter"},
         )
 
@@ -77,6 +80,10 @@ Line-by-line responsibilities:
 - `transaction_id`/`trace_id`: caller-side observability. Generate if the host lacks them.
 - `metadata`: free-form adapter context; populate high-value keys when available.
 - `tools_trace`: pass host tool calls if exposed.
+- `authoring_mode`: this example is a passive post-hoc adapter, so it explicitly
+  requests the full-schema delegated semantic author. A live primary-agent
+  integration should pass `authoring_mode="inline"` plus its typed
+  `crawler_updates` output instead.
 - `process_flush`: may run at actual session end, threshold, idle timer, or scheduled interval.
 
 ## Hook timing reference
@@ -91,9 +98,9 @@ Line-by-line responsibilities:
 2. **Reusing `turn_id`.** Undefined behavior. Generate stable unique ids per session.
 3. **Concurrent turn writes for one session.** Serialize adapter-side. Runtime locking is only a safety net.
 4. **Swallowing runtime errors.** Fail open if your host must keep serving, but log/surface the Core Memory error.
-5. **Bypassing the runtime.** Direct `MemoryStore.add_bead()` calls skip the canonical write path, field judging, claims, associations, and side effects.
+5. **Bypassing the runtime.** Direct `MemoryStore.add_bead()` calls skip the canonical typed write path, validation, claims, associations, and side effects.
 6. **Skipping flush forever.** You lose compaction, promotion review, and long-session hygiene.
-7. **Overfilling semantic metadata.** Pass what the host knows; do not invent `crawler_updates`, claims, or associations in the adapter.
+7. **Overfilling semantic metadata.** Pass what the host knows; do not invent `crawler_updates`, claims, or associations in the adapter. Forward primary-agent output or explicitly request delegated authorship.
 
 ## Verify-your-adapter checklist
 
@@ -104,6 +111,9 @@ Line-by-line responsibilities:
 - [ ] Post-PRD #1 `Turn.speaker` values are non-empty when using the `Turn` shape.
 - [ ] `metadata.retrieved_beads` is populated when the host retrieved Core Memory context.
 - [ ] `tools_trace` is populated when the host exposes tool events.
+- [ ] A live author passes typed top-level `crawler_updates` with
+  `authoring_mode="inline"`, or a passive adapter explicitly uses
+  `authoring_mode="delegated"`.
 - [ ] `on_session_end` runs at least once per session or from a scheduler.
 - [ ] Same-session `on_turn_end` calls are serialized adapter-side.
 - [ ] Runtime errors are visible to operators.

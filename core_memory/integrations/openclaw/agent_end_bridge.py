@@ -10,9 +10,10 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.integrations.api import IntegrationContext
+from core_memory.integrations.openclaw.flags import core_memory_enabled, runtime_flags_snapshot
 from core_memory.integrations.openclaw.runtime import finalize_and_process_turn
-from core_memory.integrations.openclaw.flags import runtime_flags_snapshot, core_memory_enabled
 from core_memory.persistence.store import DEFAULT_ROOT
+from core_memory.schema.agent_authored_updates import validate_agent_authored_updates_v1_transport
 from core_memory.schema.turn import Turn
 
 ADAPTER_KIND = "bridge"
@@ -223,12 +224,7 @@ def process_agent_end_event(
     session_id = _extract_session_id(event, ctx)
     result_obj = event.get("result") if isinstance(event.get("result"), dict) else {}
     run_id = str(
-        event.get("runId")
-        or event.get("id")
-        or result_obj.get("runId")
-        or ctx.get("runId")
-        or ctx.get("turnId")
-        or ""
+        event.get("runId") or event.get("id") or result_obj.get("runId") or ctx.get("runId") or ctx.get("turnId") or ""
     )
     turn_id = _stable_turn_id(session_id, user_query, assistant_final, seed=run_id)
     dedupe_key = f"{session_id}:{turn_id}"
@@ -254,17 +250,31 @@ def process_agent_end_event(
         adapter_status=ADAPTER_STATUS,
     )
     md = ictx.to_metadata()
-    md.update({
-        "sessionKey": ctx.get("sessionKey"),
-        "agentId": ctx.get("agentId"),
-        "success": bool(event.get("success")),
-        "error": event.get("error"),
-        "durationMs": event.get("durationMs"),
-        "core_memory_flags": runtime_flags_snapshot(),
-    })
+    md.update(
+        {
+            "sessionKey": ctx.get("sessionKey"),
+            "agentId": ctx.get("agentId"),
+            "success": bool(event.get("success")),
+            "error": event.get("error"),
+            "durationMs": event.get("durationMs"),
+            "core_memory_flags": runtime_flags_snapshot(),
+        }
+    )
 
     tools_trace = _extract_trace_list(event, ("tools_trace", "toolsTrace", "tool_trace", "toolTrace", "tools"))
     mesh_trace = _extract_trace_list(event, ("mesh_trace", "meshTrace"))
+    inline_updates = event.get("crawler_updates")
+    if not isinstance(inline_updates, dict):
+        inline_updates = result_obj.get("crawler_updates")
+    if not isinstance(inline_updates, dict):
+        inline_updates = None
+    inline_validation_errors: list[dict[str, Any]] = []
+    if inline_updates is not None:
+        inline_valid, inline_validation_errors = validate_agent_authored_updates_v1_transport(inline_updates)
+        if not inline_valid:
+            inline_updates = None
+    if inline_validation_errors:
+        md["inline_authorship_validation_errors"] = inline_validation_errors
 
     out = finalize_and_process_turn(
         root=root_final,
@@ -272,10 +282,15 @@ def process_agent_end_event(
         turn_id=turn_id,
         transaction_id=transaction_id,
         trace_id=trace_id,
-        turns=[Turn(speaker="user", role="user", content=user_query), Turn(speaker="assistant", role="assistant", content=assistant_final)],
+        turns=[
+            Turn(speaker="user", role="user", content=user_query),
+            Turn(speaker="assistant", role="assistant", content=assistant_final),
+        ],
         origin="USER_TURN",
         tools_trace=tools_trace,
         mesh_trace=mesh_trace,
+        crawler_updates=inline_updates,
+        authoring_mode="inline" if inline_updates is not None else "delegated",
         metadata=md,
     )
 

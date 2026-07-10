@@ -8,21 +8,34 @@ from pathlib import Path
 from typing import Any, Optional
 
 from core_memory.claim.resolver import resolve_all_current_state
+from core_memory.config.feature_flags import transcript_hydration_enabled
 from core_memory.entity.merge_flow import list_entity_merge_proposals
 from core_memory.entity.registry import load_entity_registry
-from core_memory.runtime.turn.ingress import maybe_emit_finalize_memory_event
-from core_memory.runtime.queue.jobs import async_jobs_status
+from core_memory.persistence.source_hydration import hydrate_bead_sources_for_root
+from core_memory.persistence.store import DEFAULT_ROOT
 from core_memory.persistence.turn_archive import (
     find_turn_record,
+)
+from core_memory.persistence.turn_archive import (
     get_adjacent_turns as _get_adjacent_turns,
+)
+from core_memory.persistence.turn_archive import (
     get_turn_tools as _get_turn_tools,
 )
-from core_memory.persistence.source_hydration import hydrate_bead_sources_for_root
 from core_memory.retrieval.semantic_index import semantic_doctor
+from core_memory.runtime.queue.jobs import async_jobs_status
+from core_memory.runtime.turn.ingress import maybe_emit_finalize_memory_event
+from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
+from core_memory.schema.turn import (
+    Turn,
+    assistant_content,
+    normalize_turns,
+    reject_legacy_turn_kwargs,
+    serialize_turns,
+    turn_speakers,
+    user_content,
+)
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
-from core_memory.config.feature_flags import transcript_hydration_enabled
-from core_memory.persistence.store import DEFAULT_ROOT
-from core_memory.schema.turn import Turn, normalize_turns, serialize_turns, user_content, assistant_content, turn_speakers, reject_legacy_turn_kwargs
 
 
 @dataclass
@@ -59,6 +72,8 @@ def emit_turn_finalized(
     mesh_trace: Optional[list[dict]] = None,
     window_turn_ids: Optional[list[str]] = None,
     window_bead_ids: Optional[list[str]] = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     metadata: Optional[dict[str, Any]] = None,
     strict: bool = False,
     **legacy_kwargs: Any,
@@ -89,6 +104,8 @@ def emit_turn_finalized(
         mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         metadata=metadata,
     )
     if not result.get("emitted"):
@@ -103,7 +120,9 @@ def emit_turn_finalized(
     return str(event_id)
 
 
-def emit_turn_finalized_from_envelope(*, root: Optional[str] = None, envelope: dict[str, Any], strict: bool = False) -> Optional[str]:
+def emit_turn_finalized_from_envelope(
+    *, root: Optional[str] = None, envelope: dict[str, Any], strict: bool = False
+) -> Optional[str]:
     return emit_turn_finalized(
         root=root,
         session_id=str(envelope.get("session_id") or "main"),
@@ -117,6 +136,8 @@ def emit_turn_finalized_from_envelope(*, root: Optional[str] = None, envelope: d
         mesh_trace=envelope.get("mesh_trace") or [],
         window_turn_ids=envelope.get("window_turn_ids") or [],
         window_bead_ids=envelope.get("window_bead_ids") or [],
+        crawler_updates=envelope.get("crawler_updates"),
+        authoring_mode=envelope.get("authoring_mode"),
         metadata=envelope.get("metadata") or {},
         strict=strict,
     )
@@ -296,7 +317,9 @@ def inspect_state(
     beads_map = dict(index.get("beads") or {})
 
     beads_rows: list[dict[str, Any]] = []
-    for b in sorted(beads_map.values(), key=lambda x: str((x or {}).get("created_at") or ""), reverse=True)[: max(1, int(limit_beads))]:
+    for b in sorted(beads_map.values(), key=lambda x: str((x or {}).get("created_at") or ""), reverse=True)[
+        : max(1, int(limit_beads))
+    ]:
         row = dict(b or {})
         beads_rows.append(
             {
@@ -321,7 +344,7 @@ def inspect_state(
         row = dict(a or {})
         associations_rows.append(
             {
-                "id": str(row.get("id") or f"assoc-{i+1}"),
+                "id": str(row.get("id") or f"assoc-{i + 1}"),
                 "source_bead": str(row.get("source_bead") or ""),
                 "target_bead": str(row.get("target_bead") or ""),
                 "relationship": str(row.get("relationship") or ""),
@@ -333,7 +356,10 @@ def inspect_state(
     rolling_rows: list[dict[str, Any]] = []
     try:
         ctx = load_continuity_injection(root_final)
-        rolling_rows = [{"title": str(r.get("title") or ""), "type": str(r.get("type") or "")} for r in list((ctx or {}).get("records") or [])]
+        rolling_rows = [
+            {"title": str(r.get("title") or ""), "type": str(r.get("type") or "")}
+            for r in list((ctx or {}).get("records") or [])
+        ]
     except Exception:
         rolling_rows = []
 
@@ -370,7 +396,9 @@ def inspect_state(
     try:
         reg = load_entity_registry(root_final)
         entities_map = dict((reg or {}).get("entities") or {})
-        for entity_id, row in sorted(entities_map.items(), key=lambda kv: str((kv[1] or {}).get("updated_at") or ""), reverse=True):
+        for entity_id, row in sorted(
+            entities_map.items(), key=lambda kv: str((kv[1] or {}).get("updated_at") or ""), reverse=True
+        ):
             rr = dict(row or {})
             status = str(rr.get("status") or "active")
             entity_rows.append(
@@ -446,6 +474,7 @@ def inspect_bead(*, root: Optional[str] = None, bead_id: str) -> dict[str, Any] 
     out = dict(hit)
     try:
         from core_memory.runtime.associations.coverage import latest_association_coverage
+
         out["association_coverage"] = latest_association_coverage(root_path, str(bead_id).strip())
     except Exception:
         out["association_coverage"] = {"state": "unknown", "bead_id": str(bead_id).strip()}

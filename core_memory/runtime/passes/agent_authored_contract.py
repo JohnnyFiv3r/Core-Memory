@@ -10,7 +10,15 @@ from __future__ import annotations
 
 from typing import Any
 
-from core_memory.schema.agent_authored_updates import AUTHORED_CREATION_ROW_FIELDS
+from core_memory.schema.agent_authored_updates import (
+    AGENT_AUTHORED_REQUIRED_ASSOCIATION_FIELDS,
+    AGENT_AUTHORED_UPDATES_V1,
+    AUTHORED_CREATION_ROW_FIELDS,
+    validate_agent_authored_updates_v1_transport,
+)
+from core_memory.schema.agent_authored_updates import (
+    AGENT_AUTHORED_REQUIRED_BEAD_FIELDS as V1_REQUIRED_BEAD_FIELDS,
+)
 
 ERROR_AGENT_UPDATES_MISSING = "agent_updates_missing"
 ERROR_AGENT_UPDATES_INVALID = "agent_updates_invalid"
@@ -39,20 +47,12 @@ SEMANTIC_BEAD_FIELDS = (
     "observed_at",
 )
 
-AGENT_AUTHORED_REQUIRED_BEAD_FIELDS = (
+LEGACY_REQUIRED_BEAD_FIELDS = (
     "type",
     "title",
     "summary",
     "entities",
     "retrieval_eligible",
-)
-
-AGENT_AUTHORED_REQUIRED_ASSOC_FIELDS = (
-    "source_bead_id",
-    "target_bead_id",
-    "relationship",
-    "reason_text",
-    "confidence",
 )
 
 
@@ -102,18 +102,39 @@ def validate_agent_authored_updates(
     if not isinstance(updates, dict):
         return False, ERROR_AGENT_UPDATES_INVALID, {"reason": "updates_not_dict"}
 
+    is_v1 = str(updates.get("schema_version") or "") == AGENT_AUTHORED_UPDATES_V1
+    if is_v1:
+        transport_ok, transport_errors = validate_agent_authored_updates_v1_transport(updates)
+        if not transport_ok:
+            return (
+                False,
+                ERROR_AGENT_UPDATES_INVALID,
+                {
+                    "reason": "agent_authored_updates_v1_transport_invalid",
+                    "transport_errors": transport_errors,
+                },
+            )
+
     rows = updates.get("beads_create")
     if not isinstance(rows, list) or len(rows) < 1:
-        return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {
-            "reason": "beads_create_must_have_at_least_one_row",
-            "row_count": len(rows) if isinstance(rows, list) else None,
-        }
+        return (
+            False,
+            ERROR_AGENT_BEAD_FIELDS_MISSING,
+            {
+                "reason": "beads_create_must_have_at_least_one_row",
+                "row_count": len(rows) if isinstance(rows, list) else None,
+            },
+        )
     if max_create_per_turn is not None and int(max_create_per_turn) > 0 and len(rows) > int(max_create_per_turn):
-        return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {
-            "reason": "beads_create_exceeds_policy_max",
-            "row_count": len(rows),
-            "max_create_per_turn": int(max_create_per_turn),
-        }
+        return (
+            False,
+            ERROR_AGENT_BEAD_FIELDS_MISSING,
+            {
+                "reason": "beads_create_exceeds_policy_max",
+                "row_count": len(rows),
+                "max_create_per_turn": int(max_create_per_turn),
+            },
+        )
 
     for row_index, row in enumerate(rows):
         if not isinstance(row, dict):
@@ -121,18 +142,26 @@ def validate_agent_authored_updates(
 
         unknown_fields = sorted(str(key) for key in row if key not in AUTHORED_CREATION_ROW_FIELDS)
         if unknown_fields:
-            return False, ERROR_AGENT_UPDATES_INVALID, {
-                "reason": "unknown_authored_bead_fields",
-                "row_index": row_index,
-                "unknown_fields": unknown_fields,
-            }
+            return (
+                False,
+                ERROR_AGENT_UPDATES_INVALID,
+                {
+                    "reason": "unknown_authored_bead_fields",
+                    "row_index": row_index,
+                    "unknown_fields": unknown_fields,
+                },
+            )
 
         missing_bead = []
-        for key in AGENT_AUTHORED_REQUIRED_BEAD_FIELDS:
+        required_bead_fields = V1_REQUIRED_BEAD_FIELDS if is_v1 else LEGACY_REQUIRED_BEAD_FIELDS
+        for key in required_bead_fields:
             if key == "summary":
                 if not _list_text_present(row.get(key)):
                     missing_bead.append(key)
             elif key == "entities":
+                if (not isinstance(row.get(key), list)) if is_v1 else (not _list_text_present(row.get(key))):
+                    missing_bead.append(key)
+            elif key == "source_turn_ids":
                 if not _list_text_present(row.get(key)):
                     missing_bead.append(key)
             else:
@@ -143,21 +172,29 @@ def validate_agent_authored_updates(
 
         bead_type = str(row.get("type") or "").strip().lower()
         if bead_type in CAUSAL_BEAD_TYPES and not _list_text_present(row.get("because")):
-            return False, ERROR_AGENT_CAUSAL_RATIONALE_MISSING, {
-                "row_index": row_index,
-                "type": bead_type,
-                "missing_bead_fields": ["because"],
-                "causal_types_require_because": sorted(CAUSAL_BEAD_TYPES),
-            }
+            return (
+                False,
+                ERROR_AGENT_CAUSAL_RATIONALE_MISSING,
+                {
+                    "row_index": row_index,
+                    "type": bead_type,
+                    "missing_bead_fields": ["because"],
+                    "causal_types_require_because": sorted(CAUSAL_BEAD_TYPES),
+                },
+            )
 
     assocs = updates.get("associations")
     if assocs is None:
         assocs = []
     if not isinstance(assocs, list):
-        return False, ERROR_AGENT_ASSOCIATIONS_MISSING, {
-            "reason": "associations_must_be_list_when_present",
-            "assoc_count": None,
-        }
+        return (
+            False,
+            ERROR_AGENT_ASSOCIATIONS_MISSING,
+            {
+                "reason": "associations_must_be_list_when_present",
+                "assoc_count": None,
+            },
+        )
 
     bad_rows = []
     for i, a in enumerate(assocs or []):
@@ -185,10 +222,14 @@ def validate_agent_authored_updates(
     if bad_rows:
         return False, ERROR_AGENT_UPDATES_INVALID, {"bad_association_rows": bad_rows[:10]}
 
-    return True, None, {
-        "beads_create_count": len(rows),
-        "associations_count": len(assocs),
-    }
+    return (
+        True,
+        None,
+        {
+            "beads_create_count": len(rows),
+            "associations_count": len(assocs),
+        },
+    )
 
 
 def contract_snapshot() -> dict[str, object]:
@@ -205,8 +246,9 @@ def contract_snapshot() -> dict[str, object]:
             ERROR_AGENT_CAUSAL_RATIONALE_MISSING,
         ],
         "semantic_bead_fields": list(SEMANTIC_BEAD_FIELDS),
-        "required_bead_fields": list(AGENT_AUTHORED_REQUIRED_BEAD_FIELDS),
-        "required_association_fields": list(AGENT_AUTHORED_REQUIRED_ASSOC_FIELDS),
+        "required_bead_fields": list(LEGACY_REQUIRED_BEAD_FIELDS),
+        "v1_required_bead_fields": list(V1_REQUIRED_BEAD_FIELDS),
+        "required_association_fields": list(AGENT_AUTHORED_REQUIRED_ASSOCIATION_FIELDS),
         "causal_types_require_because": sorted(CAUSAL_BEAD_TYPES),
         "summary_shape": "list[str]",
         "beads_create_exactly_one": False,

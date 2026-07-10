@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import Any, Optional
 
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event, get_memory_pass, mark_memory_pass, sha256_hex
-from core_memory.schema.turn import normalize_turns, serialize_turns, user_content, assistant_content, turn_speakers
+from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
+from core_memory.schema.turn import assistant_content, normalize_turns, serialize_turns, turn_speakers, user_content
 
 
 def should_emit_memory_event(trace_depth: int, origin: str) -> bool:
@@ -92,6 +93,8 @@ def maybe_emit_finalize_memory_event(
     mesh_trace: Optional[list[dict]] = None,
     window_turn_ids: Optional[list[str]] = None,
     window_bead_ids: Optional[list[str]] = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     metadata: Optional[dict[str, Any]] = None,
 ) -> dict:
     if not should_emit_memory_event(trace_depth=trace_depth, origin=origin):
@@ -141,6 +144,8 @@ def maybe_emit_finalize_memory_event(
         mesh_trace=_normalize_mesh_trace(mesh_trace),
         window_turn_ids=window_turn_ids or [],
         window_bead_ids=window_bead_ids or [],
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         metadata=md,
     )
     envelope.finalize_hashes(full_text_override=full_text if not store_full_text else None)

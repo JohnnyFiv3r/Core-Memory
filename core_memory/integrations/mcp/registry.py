@@ -39,6 +39,7 @@ from core_memory.integrations.mcp.typed_write import (
     submit_entity_merge_proposal,
     write_turn_finalized,
 )
+from core_memory.schema.agent_authored_updates import agent_authored_updates_json_schema
 
 MCPHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
@@ -137,6 +138,8 @@ TOOLS: dict[str, MCPToolDefinition] = {
                 "as_assistant": {"type": "string"},
                 "session_id": {"type": "string"},
                 "turn_id": {"type": "string"},
+                "crawler_updates": agent_authored_updates_json_schema(),
+                "authoring_mode": {"type": "string", "enum": ["inline", "delegated"]},
                 "root": {"type": "string"},
             },
             "additionalProperties": False,
@@ -349,7 +352,10 @@ TOOLS: dict[str, MCPToolDefinition] = {
                 "previous_snapshot_hash": {"type": "string"},
                 "idempotency_key": {
                     "type": "string",
-                    "description": "Optional replay key for this exact snapshot. Reusing the same key with the same content returns duplicate=true instead of writing again.",
+                    "description": (
+                        "Optional replay key for this exact snapshot. Reusing the same key with the same "
+                        "content returns duplicate=true instead of writing again."
+                    ),
                 },
                 "user_opted_in": {"type": "boolean"},
                 "metadata": {"type": "object"},

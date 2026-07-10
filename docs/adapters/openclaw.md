@@ -29,8 +29,8 @@ The plugin also declares the `core-memory` skill and injects `docs/integrations/
 | OpenClaw event | Canonical hook | Runtime function | Notes |
 |---|---|---|---|
 | Gateway/plugin registration | prompt/context setup | `registerMemoryPromptSupplement` | Loads Core Memory skill instructions into the agent path. |
-| `agent_end` | `on_turn_end` | `process_turn_finalized` via `finalize_and_process_turn` | Extracts last user/assistant messages, creates stable ids, dedupes, then writes through canonical runtime. |
-| `message_received` + `message_sent` | `on_turn_end` fallback | `process_turn_finalized` via `finalize_and_process_turn` | Pairs inbound user text with delivered outbound text when streaming runtimes do not dispatch `agent_end`. |
+| `agent_end` | `on_turn_end` | `process_turn_finalized` via `finalize_and_process_turn` | Extracts last user/assistant messages, creates stable ids, dedupes, then explicitly requests delegated full-schema authorship unless the event contains valid inline authored updates. |
+| `message_received` + `message_sent` | `on_turn_end` fallback | `process_turn_finalized` via `finalize_and_process_turn` | Pairs inbound user text with delivered outbound text and explicitly requests delegated authorship when streaming runtimes do not dispatch `agent_end`. |
 | `memory_search` | retrieval surface | `memory.execute` via `openclaw.read_bridge` | Read path, not one of the three write lifecycle hooks. |
 | `after_compaction` when enabled | `on_session_end` enqueue | `openclaw.compaction_queue` | Queues flush work; drain happens asynchronously from `agent_end`. |
 | Compaction queue drain | `on_session_end` | `process_flush` | Thin Python bridge owns queue mechanics; runtime owns compaction semantics. |
@@ -58,7 +58,7 @@ Important operational toggles:
 ## Common pitfalls
 
 1. **Assuming hook list introspection proves runtime activity.** Prefer log and event-file movement.
-2. **Moving semantics into plugin JS.** The bridge must remain thin; Core Memory runtime owns bead authoring and lifecycle semantics.
+2. **Moving semantics into plugin JS.** The bridge remains thin. It forwards valid primary-agent authored updates when present or explicitly requests Core Memory's full-schema delegated semantic agent; it never invents semantics itself.
 3. **Missing skill instructions.** Enabled plugin installs should provide the `core-memory` skill and prompt supplement.
 4. **Compaction disabled by default.** `enableCompactionFlush` must be explicitly true for the `after_compaction` enqueue path.
 5. **Memory-origin recursion.** The Python bridge skips memory-triggered runs to avoid recursive writes.

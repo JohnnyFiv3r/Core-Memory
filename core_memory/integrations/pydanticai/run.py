@@ -12,7 +12,8 @@ except ImportError:
 
 from core_memory.integrations.api import IntegrationContext, _resolve_root
 from core_memory.integrations.openclaw.flags import core_memory_enabled, runtime_flags_snapshot
-from core_memory.runtime.engine import process_turn_finalized, process_flush
+from core_memory.runtime.engine import process_flush, process_turn_finalized
+from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
 from core_memory.schema.turn import Turn
 
 logger = logging.getLogger(__name__)
@@ -58,6 +59,8 @@ def _run_turn_pipeline(
     mesh_trace: list[dict],
     window_turn_ids: list[str],
     window_bead_ids: list[str],
+    crawler_updates: AgentAuthoredUpdatesV1 | None,
+    authoring_mode: AuthoringMode | None,
 ) -> dict:
     """Run the full canonical turn pipeline: emit → bead write → association → promotion."""
     return process_turn_finalized(
@@ -70,6 +73,8 @@ def _run_turn_pipeline(
         mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
     )
 
 
@@ -85,6 +90,8 @@ async def run_with_memory(
     mesh_trace: Optional[list[dict]] = None,
     window_turn_ids: Optional[list[str]] = None,
     window_bead_ids: Optional[list[str]] = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
 ) -> Any:
     root_final = _resolve_root(root)
     turn_id_final = (turn_id or uuid.uuid4().hex[:12]).strip()
@@ -108,12 +115,17 @@ async def run_with_memory(
                 root=root_final,
                 session_id=session_id,
                 turn_id=turn_id_final,
-                turns=[Turn(speaker="user", role="user", content=user_query), Turn(speaker="assistant", role="assistant", content=assistant_final)],
+                turns=[
+                    Turn(speaker="user", role="user", content=user_query),
+                    Turn(speaker="assistant", role="assistant", content=assistant_final),
+                ],
                 metadata=md,
                 tools_trace=tools_trace or [],
                 mesh_trace=mesh_trace or [],
                 window_turn_ids=window_turn_ids or [],
                 window_bead_ids=window_bead_ids or [],
+                crawler_updates=crawler_updates,
+                authoring_mode=authoring_mode,
             ),
         )
     except Exception:
@@ -162,6 +174,8 @@ def run_with_memory_sync(
     mesh_trace: Optional[list[dict]] = None,
     window_turn_ids: Optional[list[str]] = None,
     window_bead_ids: Optional[list[str]] = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
 ) -> Any:
     root_final = _resolve_root(root)
     turn_id_final = (turn_id or uuid.uuid4().hex[:12]).strip()
@@ -179,9 +193,18 @@ def run_with_memory_sync(
             pass
         return asyncio.run(
             run_with_memory(
-                agent, user_query, root=root, session_id=session_id, turn_id=turn_id,
-                metadata=metadata, tools_trace=tools_trace, mesh_trace=mesh_trace,
-                window_turn_ids=window_turn_ids, window_bead_ids=window_bead_ids,
+                agent,
+                user_query,
+                root=root,
+                session_id=session_id,
+                turn_id=turn_id,
+                metadata=metadata,
+                tools_trace=tools_trace,
+                mesh_trace=mesh_trace,
+                window_turn_ids=window_turn_ids,
+                window_bead_ids=window_bead_ids,
+                crawler_updates=crawler_updates,
+                authoring_mode=authoring_mode,
             )
         )
 
@@ -197,12 +220,17 @@ def run_with_memory_sync(
             root=root_final,
             session_id=session_id,
             turn_id=turn_id_final,
-            turns=[{"speaker": "user", "role": "user", "content": user_query}, {"speaker": "assistant", "role": "assistant", "content": assistant_final}],
+            turns=[
+                {"speaker": "user", "role": "user", "content": user_query},
+                {"speaker": "assistant", "role": "assistant", "content": assistant_final},
+            ],
             metadata=md,
             tools_trace=tools_trace or [],
             mesh_trace=mesh_trace or [],
             window_turn_ids=window_turn_ids or [],
             window_bead_ids=window_bead_ids or [],
+            crawler_updates=crawler_updates,
+            authoring_mode=authoring_mode,
         )
     except Exception:
         logger.debug("turn pipeline failed; fail-open", exc_info=True)

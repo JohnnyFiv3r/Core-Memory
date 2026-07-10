@@ -26,8 +26,9 @@ If this document conflicts with the system prompt or canonical docs, treat canon
 
 ## Core Rule
 
-OpenClaw is not the memory authority.
-Core Memory is the memory authority.
+OpenClaw's bridge is not the semantic authority. The primary agent, or an
+explicitly delegated semantic agent, authors memory meaning. Core Memory is the
+typed-schema, validation, persistence, and structural authority.
 
 The skill must:
 - route finalized-turn writes through canonical ingestion
@@ -59,9 +60,13 @@ The skill should assume:
 
 The skill's job is to provide a semantically faithful finalized turn payload.
 
-### 2. Write exactly one current-turn bead payload
+### 2. Write one canonical current-turn bead plus bounded derived companions
 
 Per finalized turn, the semantic current-turn write should describe exactly one current-turn bead.
+
+When the same turn also yields a distinct durable memory, the author may add at
+most two `creation_role=derived` rows with
+`derived_from_bead_ids=["$current_turn"]`.
 
 That bead may be:
 - thin

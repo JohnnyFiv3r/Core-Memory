@@ -7,32 +7,61 @@ import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from core_memory.config.feature_flags import agent_authored_mode
 from core_memory.identifiers import validate_archive_id
 from core_memory.integrations.api import (
     IntegrationContext,
-    inspect_state,
     inspect_bead,
     inspect_bead_hydration,
     inspect_claim_slot,
+    inspect_state,
     list_turn_summaries,
 )
-from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
-from core_memory.runtime.ingest.external_evidence import (
-    ingest_document_reference,
-    ingest_external_evidence,
-    ingest_operational_event,
-    ingest_state_assertion,
-    ingest_structured_observation,
+from core_memory.integrations.mcp.constants import MCP_HTTP_PATH
+from core_memory.integrations.mcp.protocol_server import (
+    build_mcp_app,
+    reset_mcp_request_root,
+    set_mcp_request_root,
 )
-from core_memory.runtime.ingest.chunk_turns import ingest_chunk_turns, list_chunk_turns
-from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
-from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.integrations.mcp.typed_read import (
+    query_causal_chain as mcp_query_causal_chain,
+)
+from core_memory.integrations.mcp.typed_read import (
+    query_contradictions as mcp_query_contradictions,
+)
+from core_memory.integrations.mcp.typed_read import (
+    query_current_state as mcp_query_current_state,
+)
+from core_memory.integrations.mcp.typed_read import (
+    query_temporal_window as mcp_query_temporal_window,
+)
+from core_memory.integrations.mcp.typed_write import (
+    apply_reviewed_proposal as mcp_apply_reviewed_proposal,
+)
+from core_memory.integrations.mcp.typed_write import (
+    submit_entity_merge_proposal as mcp_submit_entity_merge_proposal,
+)
+from core_memory.integrations.mcp.typed_write import (
+    write_turn_finalized as mcp_write_turn_finalized,
+)
+from core_memory.management import (
+    maintain as maintain_memory,
+)
+from core_memory.management import (
+    remove_beads as remove_memory_beads,
+)
+from core_memory.management import (
+    remove_source as remove_memory_source,
+)
+from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs, summarize_semantic_task_runs
+from core_memory.retrieval.query_norm import classify_intent
+from core_memory.retrieval.tools import memory as memory_tools
 from core_memory.runtime.associations.coverage import (
     apply_association_proposals,
     association_coverage_summary,
@@ -41,32 +70,22 @@ from core_memory.runtime.associations.coverage import (
     get_association_run,
     list_association_candidates,
 )
-from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs, summarize_semantic_task_runs
-from core_memory.management import (
-    maintain as maintain_memory,
-    remove_beads as remove_memory_beads,
-    remove_source as remove_memory_source,
+from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, list_dreamer_candidates
+from core_memory.runtime.engine import process_flush, process_session_start, process_turn_finalized
+from core_memory.runtime.ingest.chunk_turns import ingest_chunk_turns, list_chunk_turns
+from core_memory.runtime.ingest.external_evidence import (
+    ingest_document_reference,
+    ingest_external_evidence,
+    ingest_operational_event,
+    ingest_state_assertion,
+    ingest_structured_observation,
 )
-from core_memory.retrieval.tools import memory as memory_tools
-from core_memory.retrieval.query_norm import classify_intent
+from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.schema.agent_authored_updates import (
+    agent_authored_updates_json_schema,
+    validate_agent_authored_updates_v1_transport,
+)
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
-from core_memory.integrations.mcp.typed_read import (
-    query_current_state as mcp_query_current_state,
-    query_temporal_window as mcp_query_temporal_window,
-    query_causal_chain as mcp_query_causal_chain,
-    query_contradictions as mcp_query_contradictions,
-)
-from core_memory.integrations.mcp.typed_write import (
-    write_turn_finalized as mcp_write_turn_finalized,
-    apply_reviewed_proposal as mcp_apply_reviewed_proposal,
-    submit_entity_merge_proposal as mcp_submit_entity_merge_proposal,
-)
-from core_memory.integrations.mcp.constants import MCP_HTTP_PATH
-from core_memory.integrations.mcp.protocol_server import (
-    build_mcp_app,
-    reset_mcp_request_root,
-    set_mcp_request_root,
-)
 
 MAX_BODY_BYTES = 256_000
 HTTP_TOKEN_ENV = "CORE_MEMORY_HTTP_TOKEN"
@@ -97,6 +116,30 @@ def _resolve_tenant(x_tenant_id: Optional[str]) -> Optional[str]:
     return raw
 
 
+class AgentAuthoredUpdatesRequest(BaseModel):
+    """HTTP representation of the schema-owned authored-update contract."""
+
+    model_config = ConfigDict(extra="allow")
+
+    schema_version: Literal["agent_authored_updates.v1"]
+    beads_create: list[dict[str, Any]]
+    associations: list[dict[str, Any]]
+    reviewed_beads: list[dict[str, Any]]
+
+    @model_validator(mode="after")
+    def validate_contract(self) -> "AgentAuthoredUpdatesRequest":
+        ok, errors = validate_agent_authored_updates_v1_transport(self.model_dump())
+        if not ok and agent_authored_mode() == "hard":
+            raise ValueError(json.dumps(errors, ensure_ascii=False, sort_keys=True))
+        return self
+
+    @classmethod
+    def __get_pydantic_json_schema__(cls, core_schema: Any, handler: Any) -> dict[str, Any]:
+        """Expose the schema-owned contract in HTTP/OpenAPI without duplication."""
+
+        return agent_authored_updates_json_schema()
+
+
 class TurnFinalizedRequest(BaseModel):
     root: Optional[str] = None
     session_id: str
@@ -106,11 +149,19 @@ class TurnFinalizedRequest(BaseModel):
     turns: list[dict[str, Any]] = Field(default_factory=list)
     user_query: Optional[str] = None
     assistant_final: Optional[str] = None
+    crawler_updates: Optional[AgentAuthoredUpdatesRequest] = None
+    authoring_mode: Optional[Literal["inline", "delegated"]] = None
     metadata: dict[str, Any] = Field(default_factory=dict)
     traces: dict[str, list[dict]] = Field(default_factory=dict)
     window_turn_ids: list[str] = Field(default_factory=list)
     window_bead_ids: list[str] = Field(default_factory=list)
     origin: str = "USER_TURN"
+
+
+def _turn_finalized_openapi_schema() -> dict[str, Any]:
+    schema = TurnFinalizedRequest.model_json_schema(ref_template="#/components/schemas/{model}")
+    schema.pop("$defs", None)
+    return schema
 
 
 class MemorySearchRequest(BaseModel):
@@ -430,6 +481,8 @@ class MCPWriteTurnFinalizedRequest(BaseModel):
     turns: list[dict[str, Any]] = Field(default_factory=list)
     user_query: Optional[str] = None
     assistant_final: Optional[str] = None
+    crawler_updates: Optional[AgentAuthoredUpdatesRequest] = None
+    authoring_mode: Optional[Literal["inline", "delegated"]] = None
     transaction_id: str = ""
     trace_id: str = ""
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -533,10 +586,16 @@ class _MCPAuthMiddleware:
                 presented = (x_token or bearer or "").strip()
                 if presented != tok:
                     if scope["type"] == "http":
-                        await send({"type": "http.response.start", "status": 401,
-                                    "headers": [[b"content-type", b"application/json"]]})
-                        await send({"type": "http.response.body",
-                                    "body": b'{"detail":"unauthorized"}', "more_body": False})
+                        await send(
+                            {
+                                "type": "http.response.start",
+                                "status": 401,
+                                "headers": [[b"content-type", b"application/json"]],
+                            }
+                        )
+                        await send(
+                            {"type": "http.response.body", "body": b'{"detail":"unauthorized"}', "more_body": False}
+                        )
                     return
             if _is_hosted_mode():
                 x_tenant_id = headers.get(b"x-tenant-id", b"").decode()
@@ -547,10 +606,14 @@ class _MCPAuthMiddleware:
                         status = int(exc.status_code or 400)
                         detail = str(exc.detail or "invalid_tenant_id")
                         body = json.dumps({"detail": detail}).encode()
-                        await send({"type": "http.response.start", "status": status,
-                                    "headers": [[b"content-type", b"application/json"]]})
-                        await send({"type": "http.response.body",
-                                    "body": body, "more_body": False})
+                        await send(
+                            {
+                                "type": "http.response.start",
+                                "status": status,
+                                "headers": [[b"content-type", b"application/json"]],
+                            }
+                        )
+                        await send({"type": "http.response.body", "body": body, "more_body": False})
                     return
                 request_root_token = set_mcp_request_root(request_root)
         try:
@@ -624,6 +687,7 @@ def _resolve_root(root: Optional[str], tenant_id: Optional[str] = None) -> str:
 async def healthz(root: Optional[str] = None):
     import json as _json
     from pathlib import Path
+
     from core_memory._version import VERSION
 
     info: dict[str, Any] = {"ok": True, "version": VERSION}
@@ -664,7 +728,15 @@ async def healthz(root: Optional[str] = None):
     return info
 
 
-@app.post("/v1/memory/turn-finalized")
+@app.post(
+    "/v1/memory/turn-finalized",
+    openapi_extra={
+        "requestBody": {
+            "required": True,
+            "content": {"application/json": {"schema": _turn_finalized_openapi_schema()}},
+        }
+    },
+)
 async def turn_finalized(
     req: Request,
     authorization: Optional[str] = Header(default=None),
@@ -691,7 +763,17 @@ async def turn_finalized(
         raise HTTPException(status_code=400, detail=f"invalid_payload: {exc}")
 
     if payload.user_query is not None or payload.assistant_final is not None:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "legacy_turn_fields_removed", "message": "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] instead. See docs/concepts/turn_schema.md."})
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "legacy_turn_fields_removed",
+                "message": (
+                    "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] "
+                    "instead. See docs/concepts/turn_schema.md."
+                ),
+            },
+        )
     try:
         session_id = validate_archive_id(payload.session_id, field="session_id")
         turn_id = validate_archive_id(payload.turn_id, field="turn_id")
@@ -723,15 +805,25 @@ async def turn_finalized(
         mesh_trace=list((payload.traces or {}).get("mesh") or []),
         window_turn_ids=payload.window_turn_ids,
         window_bead_ids=payload.window_bead_ids,
+        crawler_updates=payload.crawler_updates.model_dump() if payload.crawler_updates else None,
+        authoring_mode=payload.authoring_mode,
         metadata=merged_metadata,
     )
     event_id = str(((((out.get("emitted") or {}).get("payload") or {}).get("event") or {}).get("event_id") or ""))
+    gate = dict(((out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}))
     return {
         "accepted": True,
         "ok": bool(out.get("ok", True)),
         "event_id": event_id,
         "processed": int(out.get("processed") or 0),
         "authority_path": str(out.get("authority_path") or "canonical_in_process"),
+        "authoring_mode": str(
+            (((out.get("emitted") or {}).get("payload") or {}).get("envelope") or {}).get("authoring_mode")
+            or payload.authoring_mode
+            or ""
+        ),
+        "authorship": dict(gate.get("authorship") or {}),
+        "authorship_warnings": list(gate.get("warnings") or []),
     }
 
 
@@ -770,7 +862,9 @@ async def memory_external_evidence(
             session_id=payload.session_id,
         )
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.external_evidence.v1"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.external_evidence.v1"}
+        )
 
 
 @app.post("/v1/memory/chunk-turns")
@@ -1340,7 +1434,9 @@ async def soul_dreamer_propose_updates(
     _check_auth(authorization, x_memory_token)
     from core_memory import propose_soul_from_dreamer
 
-    return propose_soul_from_dreamer(_resolve_root(payload.root, x_tenant_id), subject=payload.subject, limit=payload.limit)
+    return propose_soul_from_dreamer(
+        _resolve_root(payload.root, x_tenant_id), subject=payload.subject, limit=payload.limit
+    )
 
 
 @app.post("/v1/soul/dreamer/run-review")
@@ -1565,7 +1661,9 @@ async def ingest_github_webhook(
     try:
         body = await request.json()
     except Exception:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "invalid_json_body", "contract": "ingest.github.v1"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": "invalid_json_body", "contract": "ingest.github.v1"}
+        )
     try:
         return ingest_github_event(
             root=_resolve_root(root, x_tenant_id),
@@ -1592,7 +1690,9 @@ async def memory_structured_observation(
             session_id=payload.session_id,
         )
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.structured_observation.v1"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.structured_observation.v1"}
+        )
 
 
 @app.post("/v1/memory/document-reference")
@@ -1610,7 +1710,9 @@ async def memory_document_reference(
             session_id=payload.session_id,
         )
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.document_reference.v1"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.document_reference.v1"}
+        )
 
 
 @app.post("/v1/memory/state-assertion")
@@ -1628,7 +1730,9 @@ async def memory_state_assertion(
             session_id=payload.session_id,
         )
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.state_assertion.v1"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.state_assertion.v1"}
+        )
 
 
 @app.post("/v1/memory/operational-event")
@@ -1647,7 +1751,9 @@ async def memory_operational_event(
             session_id=payload.session_id,
         )
     except ValueError as exc:
-        return JSONResponse(status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.operational_event.v1"})
+        return JSONResponse(
+            status_code=400, content={"ok": False, "error": str(exc), "contract": "memory.operational_event.v1"}
+        )
 
 
 @app.post("/v1/memory/search")
@@ -1719,6 +1825,7 @@ async def memory_recall(
     """
     _check_auth(authorization, x_memory_token)
     from core_memory.integrations.recall_payload import run_recall_payload
+
     body = payload.model_dump()
     body["root"] = _resolve_root(payload.root, x_tenant_id)
     out = run_recall_payload(body, surface="http.recall")
@@ -1987,7 +2094,17 @@ async def mcp_write_turn_finalized_endpoint(
 ):
     _check_auth(authorization, x_memory_token)
     if payload.user_query is not None or payload.assistant_final is not None:
-        return JSONResponse(status_code=400, content={"ok": False, "error": "legacy_turn_fields_removed", "message": "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] instead. See docs/concepts/turn_schema.md."})
+        return JSONResponse(
+            status_code=400,
+            content={
+                "ok": False,
+                "error": "legacy_turn_fields_removed",
+                "message": (
+                    "user_query/assistant_final were removed; pass turns=[{speaker, role, content}] "
+                    "instead. See docs/concepts/turn_schema.md."
+                ),
+            },
+        )
     try:
         session_id = validate_archive_id(payload.session_id, field="session_id")
         turn_id = validate_archive_id(payload.turn_id, field="turn_id")
@@ -2005,6 +2122,8 @@ async def mcp_write_turn_finalized_endpoint(
         mesh_trace=list(payload.mesh_trace or []),
         window_turn_ids=list(payload.window_turn_ids or []),
         window_bead_ids=list(payload.window_bead_ids or []),
+        crawler_updates=payload.crawler_updates.model_dump() if payload.crawler_updates else None,
+        authoring_mode=payload.authoring_mode,
         origin=str(payload.origin or "USER_TURN"),
     )
     if not out.get("ok"):
@@ -2078,6 +2197,7 @@ async def memory_projection_worldlines(
     """
     _check_auth(authorization, x_memory_token)
     from core_memory.graph.worldlines import derive_worldlines, worldline_membership
+
     resolved = _resolve_root(root, x_tenant_id)
     kind_list = [k.strip() for k in str(kinds or "").split(",") if k.strip()] or None
     out = derive_worldlines(resolved, kinds=kind_list, min_length=int(min_length))
@@ -2105,6 +2225,7 @@ async def memory_projection_storylines(
     """
     _check_auth(authorization, x_memory_token)
     from core_memory.graph.storylines import derive_storylines
+
     resolved = _resolve_root(root, x_tenant_id)
     kind_list = [k.strip() for k in str(kinds or "").split(",") if k.strip()] or None
     return derive_storylines(
@@ -2141,7 +2262,9 @@ async def memory_continuity(
         for r in records:
             typ = r.get("type", "")
             title = r.get("title", "")
-            summary = " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", ""))
+            summary = (
+                " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", ""))
+            )
             lines.append(f"[{typ}] {title}: {summary}")
         return {"ok": True, "format": "text", "text": "\n".join(lines), "count": len(records)}
     return {"ok": True, "format": "json", **result}
@@ -2290,6 +2413,7 @@ async def metrics(
 ):
     _check_auth(authorization, x_memory_token)
     from core_memory.runtime.observability.observability import get_metrics
+
     return get_metrics()
 
 

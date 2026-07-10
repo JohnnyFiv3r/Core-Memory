@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from core_memory.association.quarantine import write_quarantine
+from core_memory.persistence.bead_hygiene_contract import retrieval_eligibility_downgrade_reasons
 from core_memory.persistence.io_utils import append_jsonl, store_lock
 from core_memory.persistence.session_surface import read_session_surface
 from core_memory.persistence.store import MemoryStore
@@ -18,13 +19,15 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
-from core_memory.policy.hygiene import is_generic_title
 from core_memory.schema.agent_authored_updates import (
+    AGENT_AUTHORED_UPDATES_V1,
+    AGENT_AUTHORED_V1_BEAD_FIELDS,
     AGENT_OWNED_BEAD_FIELDS,
-    AUTHORED_CREATION_ROW_FIELDS,
     CREATION_STRUCTURAL_INPUT_FIELDS,
     NORMALIZABLE_CREATION_ROW_FIELDS,
+    agent_authored_updates_json_schema,
 )
+from core_memory.schema.agent_authoring_spec import BEAD_AUTHORING_SPEC
 from core_memory.schema.event_schemas import CRAWLER_UPDATE
 from core_memory.schema.normalization import normalize_state_change
 
@@ -41,7 +44,7 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
         state = str(row.get("promotion_state") or "").strip().lower()
         if bid and state in {"promote", "promoted", "preserve_full_in_rolling", "mark_promoted"}:
             promotions.append(bid)
-        for a in (row.get("associations") or []):
+        for a in row.get("associations") or []:
             if isinstance(a, dict):
                 associations.append(
                     {
@@ -66,7 +69,7 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                     }
                 )
 
-        for act in (row.get("association_actions") or []):
+        for act in row.get("association_actions") or []:
             if isinstance(act, dict):
                 lifecycle_rows.append(
                     {
@@ -75,9 +78,7 @@ def _normalize_review_rows(updates: dict[str, Any]) -> tuple[list[str], list[dic
                         "replacement_association_id": str(act.get("replacement_association_id") or "").strip(),
                         "reason_text": str(act.get("reason_text") or act.get("reason") or "").strip(),
                         "confidence": act.get("confidence"),
-                        "provenance": str(
-                            act.get("provenance") or "model_inferred"
-                        ).strip().lower()
+                        "provenance": str(act.get("provenance") or "model_inferred").strip().lower()
                         or "model_inferred",
                     }
                 )
@@ -158,6 +159,7 @@ def _normalize_creation_rows_with_diagnostics(
     """Copy schema-known fields and return every compatibility loss explicitly."""
 
     raw_rows = list((updates or {}).get("beads_create") or [])
+    full_retrieval_contract = str((updates or {}).get("schema_version") or "") == AGENT_AUTHORED_UPDATES_V1
     candidates: list[tuple[int, dict[str, Any]]] = []
     diagnostics: list[dict[str, Any]] = []
 
@@ -176,11 +178,7 @@ def _normalize_creation_rows_with_diagnostics(
                 }
             )
 
-        row = {
-            key: deepcopy(value)
-            for key, value in raw.items()
-            if key in NORMALIZABLE_CREATION_ROW_FIELDS
-        }
+        row = {key: deepcopy(value) for key, value in raw.items() if key in NORMALIZABLE_CREATION_ROW_FIELDS}
         row["type"] = str(row.get("type") or "context").strip() or "context"
         row["title"] = (str(row.get("title") or "").strip() or "assistant turn")[:200]
 
@@ -194,18 +192,13 @@ def _normalize_creation_rows_with_diagnostics(
         source_turn_ids = row.get("source_turn_ids")
         if isinstance(source_turn_ids, str):
             source_turn_ids = [source_turn_ids]
-        row["source_turn_ids"] = [
-            str(item) for item in (source_turn_ids or []) if str(item).strip()
-        ][:5]
+        row["source_turn_ids"] = [str(item) for item in (source_turn_ids or []) if str(item).strip()][:5]
         retrieval_eligibility_missing = "retrieval_eligible" not in row
         row["retrieval_eligible"] = _as_bool(row.get("retrieval_eligible"), default=False)
         if "state_change" in row:
             row["state_change"] = normalize_state_change(row.get("state_change"))
 
-        warnings = [
-            f"unknown_authored_field:dropped:{field_name}"
-            for field_name in unknown
-        ]
+        warnings = [f"unknown_authored_field:dropped:{field_name}" for field_name in unknown]
         if retrieval_eligibility_missing:
             warnings.append("retrieval_eligible:missing_defaulted_false")
             diagnostics.append(
@@ -216,17 +209,32 @@ def _normalize_creation_rows_with_diagnostics(
                     "value": False,
                 }
             )
-        if row["retrieval_eligible"] and is_generic_title(row["title"]):
+        eligibility_reasons = (
+            retrieval_eligibility_downgrade_reasons(row, full_contract=full_retrieval_contract)
+            if row["retrieval_eligible"]
+            else []
+        )
+        if eligibility_reasons:
             row["retrieval_eligible"] = False
-            reason = "retrieval_eligible:downgraded_generic_title"
-            warnings.append(reason)
-            diagnostics.append(
-                {
-                    "row_index": row_index,
-                    "code": "retrieval_eligibility_downgraded",
-                    "reason": "generic_title",
-                }
-            )
+            if full_retrieval_contract:
+                warnings.extend(f"retrieval_eligible:downgraded:{reason}" for reason in eligibility_reasons)
+                diagnostics.append(
+                    {
+                        "row_index": row_index,
+                        "code": "retrieval_eligibility_downgraded",
+                        "reasons": eligibility_reasons,
+                        "quality_contract": AGENT_AUTHORED_UPDATES_V1,
+                    }
+                )
+            else:
+                warnings.append("retrieval_eligible:downgraded_generic_title")
+                diagnostics.append(
+                    {
+                        "row_index": row_index,
+                        "code": "retrieval_eligibility_downgraded",
+                        "reason": "generic_title",
+                    }
+                )
         if warnings:
             row["validation_warnings"] = warnings
         candidates.append((row_index, row))
@@ -245,9 +253,7 @@ def _normalize_creation_rows_with_diagnostics(
         if candidate_index == primary_index:
             row["creation_role"] = "current_turn"
             if role != "current_turn":
-                row.setdefault("validation_warnings", []).append(
-                    "creation_role:missing_defaulted_to_current_turn"
-                )
+                row.setdefault("validation_warnings", []).append("creation_role:missing_defaulted_to_current_turn")
             primary.append((row_index, row))
             continue
 
@@ -262,19 +268,11 @@ def _normalize_creation_rows_with_diagnostics(
 
         row["creation_role"] = "derived"
         if role != "derived":
-            row.setdefault("validation_warnings", []).append(
-                "creation_role:missing_defaulted_to_derived"
-            )
-        derived_from = [
-            str(item)
-            for item in (row.get("derived_from_bead_ids") or [])
-            if str(item).strip()
-        ]
+            row.setdefault("validation_warnings", []).append("creation_role:missing_defaulted_to_derived")
+        derived_from = [str(item) for item in (row.get("derived_from_bead_ids") or []) if str(item).strip()]
         if "$current_turn" not in derived_from:
             derived_from.append("$current_turn")
-            row.setdefault("validation_warnings", []).append(
-                "derived_from_bead_ids:current_turn_sentinel_added"
-            )
+            row.setdefault("validation_warnings", []).append("derived_from_bead_ids:current_turn_sentinel_added")
         row["derived_from_bead_ids"] = derived_from
         derived.append((row_index, row))
 
@@ -309,11 +307,7 @@ def _normalize_creation_rows(updates: dict[str, Any]) -> list[dict[str, Any]]:
 def _creation_store_payload(row: dict[str, Any], *, session_id: str) -> dict[str, Any]:
     """Project one normalized row onto Bead fields plus runtime overlay."""
 
-    payload = {
-        key: deepcopy(value)
-        for key, value in row.items()
-        if key in AGENT_OWNED_BEAD_FIELDS
-    }
+    payload = {key: deepcopy(value) for key, value in row.items() if key in AGENT_OWNED_BEAD_FIELDS}
     for key in CREATION_STRUCTURAL_INPUT_FIELDS | {"validity"}:
         if key in row:
             payload[key] = deepcopy(row[key])
@@ -343,6 +337,8 @@ def build_crawler_context(
         "session_id": session_id,
         "beads": rows,
         "visible_bead_ids": visible_set,
+        "authoring_spec": BEAD_AUTHORING_SPEC,
+        "agent_authored_updates_schema": agent_authored_updates_json_schema(),
         "writing_contract": [
             "Every turn has exactly one canonical creation_role=current_turn bead.",
             (
@@ -388,12 +384,16 @@ def build_crawler_context(
         ],
         "retrieval_contract": [
             "retrieval_eligible is authored; a missing compatibility value defaults to false.",
-            "Core Memory preserves false and may only downgrade true when the title is generic in this rollout slice.",
+            (
+                "For agent_authored_updates.v1, true requires a non-generic title, useful retrieval_title, "
+                "at least one retrieval_fact, and at least one grounded quality signal."
+            ),
+            "Legacy unversioned compatibility writes retain the prior generic-title-only downgrade.",
         ],
         "allowed_updates": {
             "beads_create": {
                 "shape": "list[AgentAuthoredBeadCreation]",
-                "fields": sorted(AUTHORED_CREATION_ROW_FIELDS),
+                "fields": sorted(AGENT_AUTHORED_V1_BEAD_FIELDS),
                 "primary_role": "exactly one current_turn",
                 "derived_role": "zero to two derived rows",
             },
@@ -508,8 +508,7 @@ def merge_crawler_updates(root: str, session_id: str) -> dict[str, Any]:
 
                 if (
                     rel == "precedes"
-                    and str(row.get("provenance") or "model_inferred").strip().lower()
-                    == "model_inferred"
+                    and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred"
                 ):
                     write_quarantine(
                         Path(root),
@@ -730,6 +729,7 @@ def _maybe_upgrade_context_to_reflection(
         import json as _json
         from datetime import datetime
         from datetime import timezone as _tz
+
         try:
             index = _json.loads(index_file.read_text(encoding="utf-8"))
         except Exception:
@@ -748,12 +748,14 @@ def _maybe_upgrade_context_to_reflection(
             if not bead.get("reflection_type"):
                 bead["reflection_type"] = "meta_analysis"
             tlog = list(bead.get("type_log") or [])
-            tlog.append({
-                "type": "reflection",
-                "set_at": now_iso,
-                "reason": "causal_crawler",
-                "edge_count": edge_count,
-            })
+            tlog.append(
+                {
+                    "type": "reflection",
+                    "set_at": now_iso,
+                    "reason": "causal_crawler",
+                    "edge_count": edge_count,
+                }
+            )
             bead["type_log"] = tlog
             beads[bead_id] = bead
             changed = True
@@ -803,9 +805,7 @@ def apply_crawler_updates(
                 ]
 
             try:
-                bead_id = store.add_bead(
-                    **_creation_store_payload(row_for_store, session_id=str(session_id))
-                )
+                bead_id = store.add_bead(**_creation_store_payload(row_for_store, session_id=str(session_id)))
             except Exception as exc:
                 if role != "derived":
                     raise
@@ -870,7 +870,7 @@ def apply_crawler_updates(
 
         existing_assoc_keys: set[tuple[str, str, str]] = set()
         existing_assoc_by_id: dict[str, dict[str, Any]] = {}
-        for a in (index.get("associations") or []):
+        for a in index.get("associations") or []:
             if not isinstance(a, dict):
                 continue
             src0 = str(a.get("source_bead") or a.get("source_bead_id") or "")
@@ -920,6 +920,7 @@ def apply_crawler_updates(
                 tb0 = beads.get(tgt0)
                 if sb0 and tb0:
                     from core_memory.association.preview import infer_relationship
+
                     row = dict(row)
                     row["relationship"], _rc = infer_relationship(sb0, tb0)
                     if not str(row.get("reason_code") or "").strip():
@@ -927,8 +928,7 @@ def apply_crawler_updates(
                     row["provenance"] = "preview_classifier"
             if (
                 str(row.get("relationship") or "").strip().lower() == "precedes"
-                and str(row.get("provenance") or "model_inferred").strip().lower()
-                == "model_inferred"
+                and str(row.get("provenance") or "model_inferred").strip().lower() == "model_inferred"
             ):
                 write_quarantine(
                     Path(root),
@@ -1052,9 +1052,8 @@ def apply_crawler_updates(
                 if not rb_s or not rb_t:
                     lifecycle_rejected += 1
                     continue
-                if (
-                    str(rb_s.get("session_id") or "") != str(session_id)
-                    or str(rb_t.get("session_id") or "") != str(session_id)
+                if str(rb_s.get("session_id") or "") != str(session_id) or str(rb_t.get("session_id") or "") != str(
+                    session_id
                 ):
                     lifecycle_rejected += 1
                     continue

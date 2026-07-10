@@ -9,6 +9,7 @@ from core_memory.config.feature_flags import (
     agent_crawler_invoke_enabled,
     agent_crawler_max_attempts,
 )
+from core_memory.policy.turn_memory_authoring import author_turn_memory
 from core_memory.runtime.passes.agent_authored_contract import (
     ERROR_AGENT_CALLABLE_MISSING,
     ERROR_AGENT_INVOCATION_EXHAUSTED,
@@ -33,15 +34,21 @@ def invoke_turn_crawler_agent(
     """
 
     md = req.get("metadata") if isinstance(req, dict) else None
-    existing = (md or {}).get("crawler_updates") if isinstance(md, dict) else None
+    existing = req.get("crawler_updates") if isinstance(req, dict) else None
+    if not isinstance(existing, dict):
+        existing = (md or {}).get("crawler_updates") if isinstance(md, dict) else None
     if isinstance(existing, dict) and existing:
         return dict(existing), {
             "attempted": False,
             "ok": True,
-            "source": "metadata.crawler_updates",
+            "source": str(req.get("_crawler_updates_source") or "crawler_updates"),
             "attempts": 0,
             "error_code": None,
+            "authorship": dict(req.get("authorship_provenance") or {}),
         }
+
+    if str(req.get("authoring_mode") or "").strip().lower() == "delegated":
+        return author_turn_memory(root=root, req=req, crawler_context=crawler_context)
 
     callable_path = str(os.environ.get("CORE_MEMORY_AGENT_CRAWLER_CALLABLE") or "").strip()
     should_invoke = bool(agent_authored_required_enabled() or agent_crawler_invoke_enabled() or callable_path)

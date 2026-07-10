@@ -57,8 +57,23 @@ def extract_entities(text: str) -> list[str]:
     txt = text or ""
     cands = set(re.findall(r"\b[A-Za-z][A-Za-z0-9_.:/-]{2,}\b", txt))
     stop = {
-        "the", "and", "with", "from", "this", "that", "these", "those", "there", "here",
-        "what", "when", "where", "which", "who", "why", "how",
+        "the",
+        "and",
+        "with",
+        "from",
+        "this",
+        "that",
+        "these",
+        "those",
+        "there",
+        "here",
+        "what",
+        "when",
+        "where",
+        "which",
+        "who",
+        "why",
+        "how",
     }
     out = []
     for c in sorted(cands):
@@ -137,9 +152,42 @@ def classify_bead_richness(bead: dict) -> str:
 def can_be_retrieval_eligible(bead: dict) -> bool:
     """Bead is eligible when it has a meaningful title and a recognized canonical type."""
     from core_memory.schema.normalization import CANONICAL_BEAD_TYPES, normalize_bead_type
+
     title_ok = not is_generic_title(str(bead.get("title") or ""))
     type_ok = normalize_bead_type(str(bead.get("type") or "")) in CANONICAL_BEAD_TYPES
     return title_ok and type_ok
+
+
+def retrieval_eligibility_downgrade_reasons(bead: dict, *, full_contract: bool) -> list[str]:
+    """Return machine-readable authored-eligibility quality failures."""
+
+    reasons: list[str] = []
+    if is_generic_title(str(bead.get("title") or "")):
+        reasons.append("generic_title")
+    if not full_contract:
+        return reasons
+
+    retrieval_title = str(bead.get("retrieval_title") or "").strip()
+    if not retrieval_title or is_generic_title(retrieval_title):
+        reasons.append("retrieval_title_missing_or_generic")
+    retrieval_facts = [str(item).strip() for item in (bead.get("retrieval_facts") or []) if str(item).strip()]
+    if not retrieval_facts:
+        reasons.append("retrieval_facts_missing")
+    grounded_signal = any(
+        bool(bead.get(field_name))
+        for field_name in (
+            "because",
+            "supporting_facts",
+            "evidence_refs",
+            "state_change",
+            "supersedes",
+            "superseded_by",
+            "revises_bead_id",
+        )
+    )
+    if not grounded_signal:
+        reasons.append("grounded_quality_signal_missing")
+    return reasons
 
 
 def enforce_bead_hygiene_contract(bead: dict) -> dict:
@@ -179,5 +227,6 @@ __all__ = [
     "extract_validity",
     "is_generic_title",
     "is_runtime_meta_chatter",
+    "retrieval_eligibility_downgrade_reasons",
     "rewrite_generic_title",
 ]

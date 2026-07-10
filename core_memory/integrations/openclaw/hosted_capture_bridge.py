@@ -23,6 +23,7 @@ from core_memory.integrations.openclaw.agent_end_bridge import (
     _save_state,
     _stable_turn_id,
 )
+from core_memory.schema.agent_authored_updates import validate_agent_authored_updates_v1_transport
 
 DEFAULT_STATE_PATH = "/tmp/core-memory-openclaw-hosted-state.json"
 
@@ -95,12 +96,7 @@ def _extract_turn(event: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
     session_id = _extract_session_id(event, ctx)
     result_obj = event.get("result") if isinstance(event.get("result"), dict) else {}
     run_id = str(
-        event.get("runId")
-        or event.get("id")
-        or result_obj.get("runId")
-        or ctx.get("runId")
-        or ctx.get("turnId")
-        or ""
+        event.get("runId") or event.get("id") or result_obj.get("runId") or ctx.get("runId") or ctx.get("turnId") or ""
     )
     turn_id = _stable_turn_id(session_id, user_query, assistant_final, seed=run_id)
     transaction_id = str(run_id or f"tx-{turn_id}")
@@ -119,6 +115,17 @@ def _extract_turn(event: dict[str, Any], ctx: dict[str, Any]) -> dict[str, Any]:
 
 def _build_http_payload(event: dict[str, Any], ctx: dict[str, Any], turn: dict[str, Any]) -> dict[str, Any]:
     metadata = event.get("metadata") if isinstance(event.get("metadata"), dict) else {}
+    result_obj = event.get("result") if isinstance(event.get("result"), dict) else {}
+    inline_updates = event.get("crawler_updates")
+    if not isinstance(inline_updates, dict):
+        inline_updates = result_obj.get("crawler_updates")
+    if not isinstance(inline_updates, dict):
+        inline_updates = None
+    inline_validation_errors: list[dict[str, Any]] = []
+    if inline_updates is not None:
+        inline_valid, inline_validation_errors = validate_agent_authored_updates_v1_transport(inline_updates)
+        if not inline_valid:
+            inline_updates = None
     tools_trace = _extract_trace_list(event, ("tools_trace", "toolsTrace", "tool_trace", "toolTrace", "tools"))
     mesh_trace = _extract_trace_list(event, ("mesh_trace", "meshTrace"))
     return {
@@ -131,6 +138,8 @@ def _build_http_payload(event: dict[str, Any], ctx: dict[str, Any], turn: dict[s
             {"speaker": "assistant", "role": "assistant", "content": turn["assistant_final"]},
         ],
         "origin": "OPENCLAW_HOSTED_CLONE",
+        "crawler_updates": inline_updates,
+        "authoring_mode": "inline" if inline_updates is not None else "delegated",
         "metadata": {
             **metadata,
             "framework": ADAPTER_RUNTIME,
@@ -145,7 +154,7 @@ def _build_http_payload(event: dict[str, Any], ctx: dict[str, Any], turn: dict[s
             "openclaw_session_key": turn["session_id"],
             "openclaw_run_id": turn["run_id"],
             "local_core_memory_bypassed": True,
-            "bead_judge": "llm",
+            **({"inline_authorship_validation_errors": inline_validation_errors} if inline_validation_errors else {}),
         },
         "traces": {
             "tools": tools_trace,
@@ -154,7 +163,9 @@ def _build_http_payload(event: dict[str, Any], ctx: dict[str, Any], turn: dict[s
     }
 
 
-def _post_json(url: str, payload: dict[str, Any], *, token: str = "", tenant_id: str = "", timeout: float = 12) -> dict[str, Any]:
+def _post_json(
+    url: str, payload: dict[str, Any], *, token: str = "", tenant_id: str = "", timeout: float = 12
+) -> dict[str, Any]:
     data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
     headers = {"Content-Type": "application/json"}
     if token:
