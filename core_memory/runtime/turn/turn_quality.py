@@ -44,6 +44,7 @@ def emit_agent_turn_quality_metric(
 ) -> None:
     gate = dict(gate or {})
     mix = association_mix_stats(updates)
+    authorship = dict(gate.get("authorship") or {})
     rec = {
         "run_id": f"turn:{req.get('session_id')}:{req.get('turn_id')}",
         "task_id": "agent_turn_quality",
@@ -56,6 +57,13 @@ def emit_agent_turn_quality_metric(
         "agent_source": str(gate.get("source") or ""),
         "agent_used_fallback": bool(gate.get("used_fallback")),
         "agent_blocked": bool(gate.get("blocked")),
+        "authorship_source": str(authorship.get("source") or ""),
+        "authorship_schema_version": str(authorship.get("schema_version") or ""),
+        "authorship_prompt_version": str(authorship.get("prompt_version") or ""),
+        "authorship_grounding_hash": str(authorship.get("grounding_hash") or ""),
+        "authorship_task_receipt_id": str(authorship.get("task_receipt_id") or ""),
+        "authorship_model_profile": dict(authorship.get("model_profile") or {}),
+        "authorship_warnings": list(gate.get("warnings") or []),
         "error_code": str(error_code or gate.get("error_code") or "") or None,
         "preview_association_queued": int(preview_association_queued or 0),
         "merge_associations_appended": int(merge_associations_appended or 0),

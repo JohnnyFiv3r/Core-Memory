@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass, asdict, field
-from datetime import datetime, timezone, timedelta
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Optional
 
-from ..persistence.io_utils import append_jsonl, store_lock
-from ..config.feature_flags import transcript_archive_enabled
 from core_memory.persistence.turn_archive import append_turn_record
-from core_memory.schema.event_schemas import TURN_ENVELOPE, MEMORY_EVENT
+from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
+from core_memory.schema.event_schemas import MEMORY_EVENT, TURN_ENVELOPE
+
+from ..config.feature_flags import transcript_archive_enabled
+from ..persistence.io_utils import append_jsonl, store_lock
 
 
 def _iso_now() -> str:
@@ -70,6 +72,8 @@ class TurnEnvelope:
     mesh_trace: list[dict] = field(default_factory=list)
     window_turn_ids: list[str] = field(default_factory=list)
     window_bead_ids: list[str] = field(default_factory=list)
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None
+    authoring_mode: AuthoringMode | None = None
     metadata: dict = field(default_factory=dict)
 
     def finalize_hashes(self, full_text_override: Optional[str] = None) -> None:
@@ -93,6 +97,8 @@ class TurnEnvelope:
             "assistant_final_hash": self.assistant_final_hash,
             "tools_trace": self.tools_trace,
             "mesh_trace": self.mesh_trace,
+            "crawler_updates": self.crawler_updates,
+            "authoring_mode": self.authoring_mode,
             "metadata": self.metadata,
         }
         self.envelope_hash = sha256_hex(_canon_json(envelope_basis))
@@ -311,7 +317,11 @@ def emit_memory_event(root: Path, envelope: TurnEnvelope) -> MemoryEvent:
                 assistant_final_hash=envelope.assistant_final_hash,
                 tools_trace=envelope.tools_trace,
                 mesh_trace=envelope.mesh_trace,
-                metadata={**dict(envelope.metadata or {}), "turns": list(envelope.turns or []), "speakers": list(envelope.speakers or [])},
+                metadata={
+                    **dict(envelope.metadata or {}),
+                    "turns": list(envelope.turns or []),
+                    "speakers": list(envelope.speakers or []),
+                },
             )
         append_jsonl(_events_file(root), payload)
 

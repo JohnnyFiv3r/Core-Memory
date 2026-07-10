@@ -37,7 +37,9 @@ Fields are documented in three tiers:
 | Required | `session_id` | `str` | Must match the session opened through `on_session_start`. |
 | Required | `turn_id` | `str` | Unique within the session. Reuse is undefined behavior. |
 | Required | `turns` | `list[Turn]` | Canonical multi-speaker shape: each item has `speaker`, `role`, and `content`. |
-| Optional context | `metadata` | `dict[str, Any]` | Free-form per-turn context. Reserved/high-value keys include `retrieved_beads`, `used_memory`, `correction_triggered`, `reflection_triggered`, and `crawler_updates`. |
+| Optional authorship | `crawler_updates` | `AgentAuthoredUpdatesV1 | None` | Typed top-level `agent_authored_updates.v1` payload. The primary agent authors it in `inline` mode. `metadata.crawler_updates` is a deprecated one-release alias; top-level wins and records a warning. |
+| Optional authorship | `authoring_mode` | `inline | delegated | None` | Use `inline` when the live primary agent supplies `crawler_updates`. A passive adapter may explicitly request `delegated`; Core Memory never silently invokes a model. |
+| Optional context | `metadata` | `dict[str, Any]` | Free-form per-turn context. Reserved/high-value keys include `retrieved_beads`, `used_memory`, `correction_triggered`, and `reflection_triggered`. |
 | Optional context | `tools_trace` | `list[dict]` | Tool calls made during the turn. Populate when the host exposes tool events. |
 | Optional context | `reasoning_trace` | `list[dict]` | Post-PRD #10 field for reasoning/thinking blocks. Not yet a runtime parameter. |
 | Optional context | `origin` | `str` | What triggered this write. Default is `"USER_TURN"`. |
@@ -87,24 +89,30 @@ The operational kwargs on `process_flush` are required by the function signature
 - Re-firing on already compacted state is safe; it should be a no-op or incremental flush.
 - This is the only schedulable hook. `on_session_start` and `on_turn_end` are strictly event-driven.
 
-## Adapter/runtime responsibility split
+## Adapter/agent/runtime responsibility split
 
-| Responsibility | Adapter | Runtime |
-|---|:---:|:---:|
-| Detect lifecycle events in the host system | ✓ | |
-| Map host events to canonical hook calls | ✓ | |
-| Construct `Turn` objects / `{speaker, role, content}` turn dictionaries | ✓ | |
-| Populate `metadata`, `tools_trace`, and reasoning trace when available | ✓ | |
-| Surface adapter-side errors to the host | ✓ | |
-| Persistence: beads, archive records, indexes, side logs | | ✓ |
-| Bead authoring, classification, causal rationale, field judging | | ✓ |
-| Association inference and validation | | ✓ |
-| Claims, compaction, promotion, myelination | | ✓ |
-| Retrieval: search, trace, execute, recall orchestration | | ✓ |
-| Canonical write-boundary error handling | | ✓ |
+| Responsibility | Adapter | Agent | Runtime |
+|---|:---:|:---:|:---:|
+| Detect lifecycle events in the host system | ✓ | | |
+| Map host events to canonical hook calls | ✓ | | |
+| Construct `Turn` objects / `{speaker, role, content}` turn dictionaries | ✓ | | |
+| Choose explicit `inline` or `delegated` authorship | ✓ | | |
+| Populate `metadata`, `tools_trace`, and reasoning trace when available | ✓ | | |
+| Author bead meaning, retrieval framing, claims, associations, and promotion reviews | | ✓ | |
+| Surface adapter-side errors to the host | ✓ | | |
+| Validate typed authored updates and enforce structural guardrails | | | ✓ |
+| Persistence: beads, archive records, indexes, side logs | | | ✓ |
+| Claims, compaction, promotion locking, and myelination mechanics | | | ✓ |
+| Retrieval: search, trace, execute, recall orchestration | | | ✓ |
+| Canonical write-boundary error handling | | | ✓ |
 
 Adapters must not reach past the contract into `MemoryStore` or low-level files for performance or convenience. Doing so creates adapter-specific memory semantics and breaks ecosystem parity.
 
 ## Migration note
 
 `user_query` / `assistant_final` are no longer accepted by `process_turn_finalized(...)`. Adapters must pass `turns=[...]`. The runtime derives legacy read-only compatibility fields internally for older downstream policy code.
+
+`crawler_updates` and `authoring_mode` are now part of the turn-envelope hash. An
+in-flight retry produced by an older adapter can therefore appear as a changed or
+superseded envelope hash after upgrade. Memory-pass identity is unchanged and
+remains `(session_id, turn_id)`.

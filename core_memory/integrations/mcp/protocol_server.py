@@ -10,6 +10,7 @@ from typing import Any
 from core_memory.integrations.mcp.agent_guide import PROMPT_NAME, load_agent_guide
 from core_memory.integrations.mcp.constants import MCP_HEALTH_PATH, MCP_SPEC_VERSION
 from core_memory.integrations.mcp.registry import TOOLS, call_tool
+from core_memory.schema.agent_authored_updates import AuthoringMode
 
 
 def _tool_description(name: str) -> str:
@@ -444,6 +445,8 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
         transaction_id: str = "",
         trace_id: str = "",
         metadata: dict[str, Any] | None = None,
+        crawler_updates: dict[str, Any] | None = None,
+        authoring_mode: AuthoringMode | None = None,
         tools_trace: list[dict[str, Any]] | None = None,
         mesh_trace: list[dict[str, Any]] | None = None,
         window_turn_ids: list[str] | None = None,
@@ -461,6 +464,8 @@ def build_mcp_app(*, root: str | None = None, lock_root: bool = False, **kwargs:
                 "transaction_id": transaction_id,
                 "trace_id": trace_id,
                 "metadata": metadata or {},
+                "crawler_updates": crawler_updates,
+                "authoring_mode": authoring_mode,
                 "tools_trace": tools_trace or [],
                 "mesh_trace": mesh_trace or [],
                 "window_turn_ids": window_turn_ids or [],

@@ -4,6 +4,7 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
+from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
 from core_memory.schema.turn import Turn, normalize_turns, turns_from_shortcut
 
 
@@ -43,6 +44,8 @@ class Memory:
         as_assistant: str | None = None,
         session_id: str | None = None,
         turn_id: str | None = None,
+        crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+        authoring_mode: AuthoringMode | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
         from core_memory.runtime.engine import process_turn_finalized
@@ -64,7 +67,15 @@ class Memory:
 
         sid = str(session_id or kwargs.pop("session_id", "") or "default")
         tid = str(turn_id or kwargs.pop("turn_id", "") or f"turn-{uuid.uuid4().hex[:12]}")
-        return process_turn_finalized(root=self.root, session_id=sid, turn_id=tid, turns=normalized, **kwargs)
+        return process_turn_finalized(
+            root=self.root,
+            session_id=sid,
+            turn_id=tid,
+            turns=normalized,
+            crawler_updates=crawler_updates,
+            authoring_mode=authoring_mode,
+            **kwargs,
+        )
 
     def maintain(self, action: str, **kwargs: Any) -> dict[str, Any]:
         from core_memory.management import maintain
@@ -170,6 +181,8 @@ def capture(
     as_assistant: str | None = None,
     session_id: str | None = None,
     turn_id: str | None = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
     """Top-level convenience wrapper for `Memory(root).capture(...)`."""
@@ -181,5 +194,7 @@ def capture(
         as_assistant=as_assistant,
         session_id=session_id,
         turn_id=turn_id,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         **kwargs,
     )

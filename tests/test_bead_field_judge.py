@@ -3,14 +3,13 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core_memory.policy.bead_judge import judge_bead_fields
 from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs
 from core_memory.persistence.store import MemoryStore
+from core_memory.policy.bead_judge import judge_bead_fields
 from core_memory.provider_config import ProviderConfig
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.queue.worker import SidecarPolicy
 from core_memory.schema.semantic_tasks import SemanticTaskResult
-
 
 JUDGED = {
     "type": "decision",
@@ -66,8 +65,9 @@ class FakeSemanticTaskRuntime:
 class TestBeadFieldJudge(unittest.TestCase):
     def test_llm_judge_authors_every_semantic_field(self):
         runtime = FakeSemanticTaskRuntime(JUDGED)
-        with patch("core_memory.policy.bead_judge.get_semantic_task_runtime", return_value=runtime), patch.dict(
-            "os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto"}, clear=False
+        with (
+            patch("core_memory.policy.bead_judge.get_semantic_task_runtime", return_value=runtime),
+            patch.dict("os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto"}, clear=False),
         ):
             out = judge_bead_fields("Use Redis for cache invalidation.", "Recorded.")
 
@@ -80,7 +80,7 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual(["The user stated Redis should be used for cache invalidation."], out["supporting_facts"])
         self.assertEqual(["Redis"], out["entities"])
         self.assertEqual(["cache invalidation"], out["topics"])
-        self.assertEqual("decision_recorded", out["state_change"])
+        self.assertEqual({"description": "decision_recorded"}, out["state_change"])
         self.assertEqual("current", out["validity"])
         self.assertTrue(out["retrieval_eligible"])
         self.assertEqual({"mode": "llm"}, out["judge"])
@@ -95,21 +95,26 @@ class TestBeadFieldJudge(unittest.TestCase):
             source="unit",
             explicit=True,
         )
-        with tempfile.TemporaryDirectory() as td, patch.dict(
-            "os.environ",
-            {
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
-                "CORE_MEMORY_AGENT_MODEL_CHEAP": "cheap-judge-model",
-                "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider",
-            },
-            clear=False,
-        ), patch(
-            "core_memory.policy.semantic_task_runtime.resolve_chat_config",
-            return_value=cfg,
-        ), patch(
-            "core_memory.policy.semantic_task_runtime.chat_complete",
-            return_value=json.dumps(JUDGED),
-        ) as complete:
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch.dict(
+                "os.environ",
+                {
+                    "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
+                    "CORE_MEMORY_AGENT_MODEL_CHEAP": "cheap-judge-model",
+                    "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider",
+                },
+                clear=False,
+            ),
+            patch(
+                "core_memory.policy.semantic_task_runtime.resolve_chat_config",
+                return_value=cfg,
+            ),
+            patch(
+                "core_memory.policy.semantic_task_runtime.chat_complete",
+                return_value=json.dumps(JUDGED),
+            ) as complete,
+        ):
             out = judge_bead_fields("Use Redis for cache invalidation.", "Recorded.", root=td)
             rows = list_semantic_task_runs(td, task_type="bead_field_judge")
 
@@ -121,15 +126,13 @@ class TestBeadFieldJudge(unittest.TestCase):
         self.assertEqual("bead_field_judge", row.get("task_type"))
         self.assertEqual("succeeded", row.get("status"))
         self.assertEqual("cheap", row.get("model_tier"))
-        self.assertEqual("bead_field_judge.v1", row.get("prompt_version"))
-        self.assertEqual("memory.bead_field_judge.v1", row.get("output_schema"))
+        self.assertEqual("turn_memory_authoring.v1", row.get("prompt_version"))
+        self.assertEqual("agent_authored_updates.v1", row.get("output_schema"))
         self.assertEqual("heuristic", row.get("fallback_mode"))
         self.assertEqual("advisory", row.get("authority_boundary"))
 
     def test_heuristic_fallback_authors_retrievable_durable_fields(self):
-        with patch.dict(
-            "os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "heuristic"}, clear=False
-        ):
+        with patch.dict("os.environ", {"CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "heuristic"}, clear=False):
             out = judge_bead_fields("Remember Alice adopted Pixel.", "Recorded Alice adopted Pixel.")
         self.assertTrue(out.get("retrieval_eligible"))
         self.assertTrue(out.get("title"))
@@ -139,16 +142,19 @@ class TestBeadFieldJudge(unittest.TestCase):
 
     def test_llm_mode_keeps_legacy_fallback_by_default_when_runtime_unavailable(self):
         runtime = FakeSemanticTaskRuntime(ok=False, status="unavailable")
-        with patch(
-            "core_memory.policy.bead_judge.get_semantic_task_runtime",
-            return_value=runtime,
-        ), patch.dict(
-            "os.environ",
-            {
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_FAIL_CLOSED": "0",
-            },
-            clear=False,
+        with (
+            patch(
+                "core_memory.policy.bead_judge.get_semantic_task_runtime",
+                return_value=runtime,
+            ),
+            patch.dict(
+                "os.environ",
+                {
+                    "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
+                    "CORE_MEMORY_BEAD_FIELD_JUDGE_FAIL_CLOSED": "0",
+                },
+                clear=False,
+            ),
         ):
             out = judge_bead_fields("Remember Alice adopted Pixel.", "Recorded.")
 
@@ -158,16 +164,19 @@ class TestBeadFieldJudge(unittest.TestCase):
 
     def test_fail_closed_rejects_heuristic_fields_when_runtime_unavailable(self):
         runtime = FakeSemanticTaskRuntime(ok=False, status="unavailable")
-        with patch(
-            "core_memory.policy.bead_judge.get_semantic_task_runtime",
-            return_value=runtime,
-        ), patch.dict(
-            "os.environ",
-            {
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_FAIL_CLOSED": "true",
-            },
-            clear=False,
+        with (
+            patch(
+                "core_memory.policy.bead_judge.get_semantic_task_runtime",
+                return_value=runtime,
+            ),
+            patch.dict(
+                "os.environ",
+                {
+                    "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
+                    "CORE_MEMORY_BEAD_FIELD_JUDGE_FAIL_CLOSED": "true",
+                },
+                clear=False,
+            ),
         ):
             with self.assertRaisesRegex(RuntimeError, "bead_field_judge_unavailable"):
                 judge_bead_fields("Remember Alice adopted Pixel.", "Recorded.")
@@ -189,7 +198,6 @@ class TestBeadFieldJudge(unittest.TestCase):
                     "because": ["Use Redis for cache invalidation."],
                     "source_turn_ids": ["t1"],
                     "detail": "Recorded.",
-                    "entities": [],
                     "tags": ["crawler_reviewed", "turn_finalized"],
                 }
             ],
@@ -204,19 +212,21 @@ class TestBeadFieldJudge(unittest.TestCase):
             ],
         }
         runtime = FakeSemanticTaskRuntime(JUDGED)
-        with tempfile.TemporaryDirectory() as td, patch(
-            "core_memory.policy.bead_judge.get_semantic_task_runtime", return_value=runtime
-        ), patch.dict(
-            "os.environ",
-            {
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
-                "CORE_MEMORY_BEAD_JUDGE_FALLBACK": "1",
-                "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
-                "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "1",
-                "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
-                "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
-            },
-            clear=False,
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch("core_memory.policy.bead_judge.get_semantic_task_runtime", return_value=runtime),
+            patch.dict(
+                "os.environ",
+                {
+                    "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
+                    "CORE_MEMORY_BEAD_JUDGE_FALLBACK": "1",
+                    "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
+                    "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "1",
+                    "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
+                    "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
+                },
+                clear=False,
+            ),
         ):
             out = process_turn_finalized(
                 root=td,
@@ -274,16 +284,18 @@ class TestBeadFieldJudge(unittest.TestCase):
                 }
             ],
         }
-        with tempfile.TemporaryDirectory() as td, patch(
-            "core_memory.runtime.engine.judge_bead_fields", side_effect=AssertionError("judge should not run")
-        ), patch.dict(
-            "os.environ",
-            {
-                "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
-                "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
-                "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
-            },
-            clear=False,
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch("core_memory.runtime.engine.judge_bead_fields", side_effect=AssertionError("judge should not run")),
+            patch.dict(
+                "os.environ",
+                {
+                    "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
+                    "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
+                    "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
+                },
+                clear=False,
+            ),
         ):
             out = process_turn_finalized(
                 root=td,
@@ -331,17 +343,19 @@ class TestBeadFieldJudge(unittest.TestCase):
             ],
         }
         runtime = FakeSemanticTaskRuntime(JUDGED)
-        with tempfile.TemporaryDirectory() as td, patch(
-            "core_memory.policy.bead_judge.get_semantic_task_runtime", return_value=runtime
-        ), patch.dict(
-            "os.environ",
-            {
-                "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
-                "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
-                "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
-                "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
-            },
-            clear=False,
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch("core_memory.policy.bead_judge.get_semantic_task_runtime", return_value=runtime),
+            patch.dict(
+                "os.environ",
+                {
+                    "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "auto",
+                    "CORE_MEMORY_AGENT_AUTHORED_MODE": "warn",
+                    "CORE_MEMORY_AGENT_AUTHORED_SEMANTIC_GATE": "off",
+                    "CORE_MEMORY_ENRICHMENT_QUEUE": "off",
+                },
+                clear=False,
+            ),
         ):
             out = process_turn_finalized(
                 root=td,

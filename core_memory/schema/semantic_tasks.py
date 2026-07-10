@@ -1,6 +1,6 @@
-from __future__ import annotations
-
 """Dependency-light contracts for Core Memory semantic task execution."""
+
+from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Any, Protocol
@@ -10,6 +10,7 @@ SEMANTIC_TASK_RUNS_CONTRACT = "memory.semantic_task_runs.v1"
 SEMANTIC_TASK_SUMMARY_CONTRACT = "memory.semantic_task_summary.v1"
 
 TASK_BEAD_FIELD_JUDGE = "bead_field_judge"
+TASK_TURN_MEMORY_AUTHORING = "turn_memory_authoring"
 TASK_BEAD_TYPE_CLASSIFIER = "bead_type_classifier"
 TASK_RATIONALE_EXTRACTOR = "rationale_extractor"
 TASK_ASSOCIATION_DECISION = "association_decision"
@@ -20,6 +21,7 @@ TASK_VERIFIER = "verifier"
 
 SEMANTIC_TASK_TYPES = {
     TASK_BEAD_FIELD_JUDGE,
+    TASK_TURN_MEMORY_AUTHORING,
     TASK_BEAD_TYPE_CLASSIFIER,
     TASK_RATIONALE_EXTRACTOR,
     TASK_ASSOCIATION_DECISION,
@@ -37,6 +39,7 @@ MODEL_TIERS = {MODEL_TIER_CHEAP, MODEL_TIER_STANDARD, MODEL_TIER_FRONTIER}
 
 DEFAULT_TASK_MODEL_TIERS = {
     TASK_BEAD_FIELD_JUDGE: MODEL_TIER_CHEAP,
+    TASK_TURN_MEMORY_AUTHORING: MODEL_TIER_STANDARD,
     TASK_BEAD_TYPE_CLASSIFIER: MODEL_TIER_CHEAP,
     TASK_RATIONALE_EXTRACTOR: MODEL_TIER_CHEAP,
     TASK_ASSOCIATION_DECISION: MODEL_TIER_STANDARD,
@@ -174,5 +177,4 @@ class SemanticTaskResult:
 class SemanticTaskRuntime(Protocol):
     """Runtime capable of executing a semantic task."""
 
-    def run(self, request: SemanticTaskRequest) -> SemanticTaskResult:
-        ...
+    def run(self, request: SemanticTaskRequest) -> SemanticTaskResult: ...

@@ -5,12 +5,14 @@ They keep integration explicit and non-invasive while enforcing one-pass-per-tur
 
 For bridge-hook runtime wiring, use core_memory.integrations.openclaw.agent_end_bridge.
 """
+
 from __future__ import annotations
 
 from typing import Any
 
+from core_memory.runtime.engine import emit_turn_finalized, process_turn_finalized
 from core_memory.runtime.queue.worker import SidecarPolicy
-from core_memory.runtime.engine import process_turn_finalized, emit_turn_finalized
+from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
 from core_memory.schema.turn import Turn
 
 
@@ -41,6 +43,8 @@ def coordinator_finalize_hook(
     mesh_trace: list[dict] | None = None,
     window_turn_ids: list[str] | None = None,
     window_bead_ids: list[str] | None = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Call this at coordinator finalize to emit memory event once per top-level turn."""
@@ -57,6 +61,8 @@ def coordinator_finalize_hook(
         mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         metadata=metadata,
     )
 
@@ -75,6 +81,8 @@ def finalize_and_process_turn(
     mesh_trace: list[dict] | None = None,
     window_turn_ids: list[str] | None = None,
     window_bead_ids: list[str] | None = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     metadata: dict[str, Any] | None = None,
     policy: SidecarPolicy | None = None,
 ) -> dict[str, Any]:
@@ -92,6 +100,8 @@ def finalize_and_process_turn(
         mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         metadata=metadata,
         policy=policy,
     )

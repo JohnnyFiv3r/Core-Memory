@@ -39,8 +39,19 @@ def test_openclaw_plugin_loads_skill_instructions_from_core_memory_repo():
     text = plugin_path.read_text(encoding="utf-8")
 
     assert "cfg.coreMemoryRepo" in text
-    assert "docs\", \"integrations\", \"openclaw\", \"core-memory-skill-instructions.md\"" in text
+    assert 'docs", "integrations", "openclaw", "core-memory-skill-instructions.md"' in text
     assert "../../docs/integrations/openclaw/core-memory-skill-instructions.md" not in text
+
+
+def test_openclaw_plugin_injects_generated_agent_authoring_contract():
+    repo_root = Path(__file__).resolve().parents[1]
+    plugin_path = repo_root / "plugins" / "openclaw-core-memory-bridge" / "index.js"
+    text = plugin_path.read_text(encoding="utf-8")
+
+    assert "spawnSync" in text
+    assert "core_memory.schema.agent_authoring_spec" in text
+    assert "BEAD_AUTHORING_SPEC" in text
+    assert "Agent-Authored Turn Memory Contract" in text
 
 
 def test_openclaw_plugin_manifest_allows_message_fallback_config():

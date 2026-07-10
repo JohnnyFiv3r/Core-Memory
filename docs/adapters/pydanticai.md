@@ -16,6 +16,11 @@ Install Core Memory with the PydanticAI extra when applicable, then call one of:
 - `run_with_memory_sync(agent, user_query, root=..., session_id=...)`
 - `flush_session(...)` / `flush_session_async(...)` at app-defined flush boundaries
 
+For inline agent-led writes, add `authoring_prompt()` to the primary agent's
+instructions, collect its `agent_authored_updates.v1` result in the host's
+structured authoring step, and pass that object as `crawler_updates` with
+`authoring_mode="inline"`. The wrapper never silently makes a second model call.
+
 ## Hook mapping
 
 | PydanticAI action | Canonical hook | Runtime function | Notes |
@@ -33,6 +38,9 @@ Key call arguments:
 - `session_id`: session grouping key.
 - `turn_id`: optional; generated if omitted.
 - `metadata`: merged into adapter metadata.
+- `crawler_updates`: optional typed primary-agent output for the finalized turn.
+- `authoring_mode`: `inline` for supplied primary-agent output or `delegated`
+  only when the host explicitly wants the full-schema semantic task.
 - `tools_trace`, `mesh_trace`, `window_turn_ids`, `window_bead_ids`: optional runtime context.
 
 Flush defaults currently used by this adapter:
@@ -57,8 +65,10 @@ A minimal smoke is:
 1. **No explicit session start.** Current helper APIs do not call `process_session_start`; add one in host code if rolling-window injection needs a clean open event.
 2. **Fail-open write errors.** The adapter logs debug exceptions and returns the agent result; operators need logging enabled to see write failures.
 3. **Missing tool traces.** PydanticAI tools are not automatically harvested unless the caller passes `tools_trace`.
-4. **Confusing tools with memory tools.** `memory_tools.py` exposes read/write tools; `run.py` is the lifecycle wrapper.
-5. **Flush not automatic.** Apps must decide when `flush_session` fires.
+4. **Skipping the authoring contract.** Import `authoring_prompt()` into the
+   host's structured final-turn authoring step before submitting inline updates.
+5. **Confusing tools with memory tools.** `memory_tools.py` exposes read/write tools; `run.py` is the lifecycle wrapper.
+6. **Flush not automatic.** Apps must decide when `flush_session` fires.
 
 ## Audit notes
 

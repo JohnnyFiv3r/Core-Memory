@@ -3,6 +3,7 @@
 Maps Core Memory's bead promotion lifecycle to CrewAI's memory abstractions.
 These classes can be used directly or passed to CrewAI's Crew configuration.
 """
+
 from __future__ import annotations
 
 import uuid
@@ -26,11 +27,14 @@ class CoreMemoryShortTerm:
     def save(self, value: str, metadata: dict[str, Any] | None = None, agent: str = "") -> None:
         """Save a short-term memory via the canonical write path."""
         meta = metadata or {}
+        authored_updates = meta.get("crawler_updates") if isinstance(meta.get("crawler_updates"), dict) else None
         process_turn_finalized(
             root=self.root,
             session_id=self.session_id or "crewai-default",
             turn_id=str(uuid.uuid4()),
             turns=[{"speaker": agent or "crewai", "role": "assistant", "content": value}],
+            crawler_updates=authored_updates,
+            authoring_mode="inline" if authored_updates is not None else "delegated",
             metadata={
                 "type": meta.get("type", "context"),
                 "tags": meta.get("tags", []),
@@ -86,11 +90,14 @@ class CoreMemoryLongTerm:
         promotion lifecycle rather than being forced immediately.
         """
         meta = metadata or {}
+        authored_updates = meta.get("crawler_updates") if isinstance(meta.get("crawler_updates"), dict) else None
         process_turn_finalized(
             root=self.root,
             session_id="crewai-long-term",
             turn_id=str(uuid.uuid4()),
             turns=[{"speaker": agent or "crewai", "role": "assistant", "content": value}],
+            crawler_updates=authored_updates,
+            authoring_mode="inline" if authored_updates is not None else "delegated",
             metadata={
                 "type": meta.get("type", "lesson"),
                 "tags": meta.get("tags", []),
@@ -142,11 +149,14 @@ class CoreMemoryEntity:
     def save(self, value: str, metadata: dict[str, Any] | None = None, agent: str = "") -> None:
         """Save an entity memory via the canonical write path."""
         meta = metadata or {}
+        authored_updates = meta.get("crawler_updates") if isinstance(meta.get("crawler_updates"), dict) else None
         process_turn_finalized(
             root=self.root,
             session_id="crewai-entity",
             turn_id=str(uuid.uuid4()),
             turns=[{"speaker": agent or "crewai", "role": "assistant", "content": value}],
+            crawler_updates=authored_updates,
+            authoring_mode="inline" if authored_updates is not None else "delegated",
             metadata={
                 "type": "context",
                 "tags": meta.get("tags", []),

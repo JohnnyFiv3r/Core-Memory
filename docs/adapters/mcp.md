@@ -35,7 +35,8 @@ them.
 
 | MCP tool/endpoint | Canonical hook | Runtime function | Notes |
 |---|---|---|---|
-| `write_turn_finalized` | `on_turn_end` | `process_turn_finalized` | Canonical typed write boundary for completed turns. |
+| `write_turn_finalized` | `on_turn_end` | `process_turn_finalized` | Canonical typed write boundary for completed turns; its schema includes the complete authored-update contract. |
+| `capture` | `on_turn_end` convenience | `Memory.capture` → `process_turn_finalized` | Declares the same `crawler_updates` and `authoring_mode` fields despite `additionalProperties: false`. |
 | HTTP `/v1/memory/session-start` | `on_session_start` | `process_session_start` | Present in HTTP server, not currently listed as an MCP typed-write tool. |
 | HTTP `/v1/memory/session-flush` | `on_session_end` | `process_flush` | Present in HTTP server, not currently listed as an MCP typed-write tool. |
 | `apply_reviewed_proposal` | review/adjudication | Dreamer candidate path | Not one of the three adapter lifecycle hooks. |
@@ -46,7 +47,11 @@ them.
 `write_turn_finalized` fields:
 
 - Required: `root`, `session_id`, `turn_id`, `turns`.
-- Optional: `transaction_id`, `trace_id`, `metadata`, `tools_trace`, `mesh_trace`, `window_turn_ids`, `window_bead_ids`, `origin`.
+- Optional: `transaction_id`, `trace_id`, `metadata`, `tools_trace`, `mesh_trace`, `window_turn_ids`, `window_bead_ids`, `origin`, typed `crawler_updates`, and `authoring_mode=inline|delegated`.
+
+The machine-readable schema for `crawler_updates` is generated from
+`AgentAuthoredUpdatesV1`; MCP agents therefore discover the same required bead,
+association, claim, key, and type-specific fields as Python and HTTP callers.
 
 The typed tool generates transaction/trace ids when omitted and returns a contract-tagged result with `event_id`, `processed`, and runtime result details.
 

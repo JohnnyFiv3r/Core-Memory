@@ -4,6 +4,8 @@ import json
 from pathlib import Path
 from typing import Any, Callable
 
+from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
+
 
 def flag_structural_coverage_missing(root: str, bead_id: str) -> bool:
     """Mark a persisted bead as lacking required non-temporal associations (F-W2).
@@ -38,6 +40,8 @@ def process_turn_finalized_impl(
     mesh_trace: list[dict] | None,
     window_turn_ids: list[str] | None,
     window_bead_ids: list[str] | None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None,
+    authoring_mode: AuthoringMode | None,
     metadata: dict[str, Any] | None,
     policy: Any,
     normalize_turn_request: Callable[..., dict[str, Any]],
@@ -79,6 +83,8 @@ def process_turn_finalized_impl(
         mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         metadata=metadata,
     )
 
@@ -106,6 +112,8 @@ def process_turn_finalized_impl(
         mesh_trace=req["mesh_trace"],
         window_turn_ids=req["window_turn_ids"],
         window_bead_ids=req["window_bead_ids"],
+        crawler_updates=req["crawler_updates"],
+        authoring_mode=req["authoring_mode"],
         metadata=req["metadata"],
     )
 
@@ -209,14 +217,14 @@ def process_turn_finalized_impl(
     )
 
     req_for_updates = dict(req)
-    md_for_updates = dict(req.get("metadata") or {})
     source_override = None
-    if isinstance(md_for_updates.get("crawler_updates"), dict) and md_for_updates.get("crawler_updates"):
-        source_override = str(md_for_updates.get("_crawler_updates_source") or "metadata.crawler_updates")
+    if isinstance(req.get("crawler_updates"), dict) and req.get("crawler_updates"):
+        source_override = str(req.get("_crawler_updates_source") or "crawler_updates")
     elif isinstance(invoked_updates, dict) and invoked_updates:
-        md_for_updates["crawler_updates"] = dict(invoked_updates)
-        source_override = "agent_callable"
-    req_for_updates["metadata"] = md_for_updates
+        req_for_updates["crawler_updates"] = dict(invoked_updates)
+        source_override = str(invocation_diag.get("source") or "agent_callable")
+    if isinstance(invocation_diag.get("authorship"), dict):
+        req_for_updates["authorship_provenance"] = dict(invocation_diag["authorship"])
 
     reviewed_updates, gate = resolve_reviewed_updates(
         req_for_updates,
@@ -233,7 +241,10 @@ def process_turn_finalized_impl(
             result="blocked",
             error_code=str(gate.get("error_code") or error_agent_updates_missing),
         )
-        contract_error = {"code": str(gate.get("error_code") or error_agent_updates_missing), "details": dict(gate.get("validation") or {})}
+        contract_error = {
+            "code": str(gate.get("error_code") or error_agent_updates_missing),
+            "details": dict(gate.get("validation") or {}),
+        }
         # Never-forget: rather than returning with no bead, fall through with a
         # minimal fallback bead so the turn is preserved in memory.  Callers see
         # ok=False + gate_blocked=True and can prompt the agent to fix the
@@ -272,7 +283,10 @@ def process_turn_finalized_impl(
             logger.warning(
                 "agent-authored gate: structural coverage missing, "
                 "session=%s turn=%s semantic_count=%d min_required=%d",
-                req.get("session_id"), req.get("turn_id"), semantic_count, min_required,
+                req.get("session_id"),
+                req.get("turn_id"),
+                semantic_count,
+                min_required,
             )
 
     # F-W2: the coverage flag is written after the association pass — the
@@ -281,7 +295,7 @@ def process_turn_finalized_impl(
     # `delta` here was dead code that never landed on any bead.
 
     # F-W1: enqueue enrichment stages instead of running them inline.
-    from core_memory.runtime.passes.enrichment import enqueue_turn_enrichment, _enrichment_queue_enabled
+    from core_memory.runtime.passes.enrichment import _enrichment_queue_enabled, enqueue_turn_enrichment
 
     # process_memory_event is mechanical-only and never returns a bead_id; the
     # canonical turn bead is created by the association pass (inline below, or
@@ -335,7 +349,13 @@ def process_turn_finalized_impl(
             bead_id = created_ids[0] if created_ids else ""
         if not bead_id:
             from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
-            bead_id = str(find_canonical_turn_bead_id(root, session_id=req["session_id"], turn_id=req["turn_id"], preferred_bead_ids=[]) or "")
+
+            bead_id = str(
+                find_canonical_turn_bead_id(
+                    root, session_id=req["session_id"], turn_id=req["turn_id"], preferred_bead_ids=[]
+                )
+                or ""
+            )
 
         # F-W2: flag the canonical bead now that it exists.
         if _structural_coverage_missing and bead_id:
@@ -346,16 +366,27 @@ def process_turn_finalized_impl(
 
         if extract_and_attach_claims_fn is not None:
             created_bead_ids = list(auto_apply.get("created_bead_ids") or [])
-            claim_telemetry = extract_and_attach_claims_fn(
-                root, req["session_id"], req["turn_id"], created_bead_ids, req,
-            ) or {}
+            claim_telemetry = (
+                extract_and_attach_claims_fn(
+                    root,
+                    req["session_id"],
+                    req["turn_id"],
+                    created_bead_ids,
+                    req,
+                )
+                or {}
+            )
 
-        preview_queued = queue_preview_associations(root=root, session_id=req["session_id"], visible_bead_ids=visible_ids)
+        preview_queued = queue_preview_associations(
+            root=root, session_id=req["session_id"], visible_bead_ids=visible_ids
+        )
         turn_merge = merge_crawler_updates(root=root, session_id=req["session_id"])
 
         decision_pass = run_session_decision_pass(
-            root=root, session_id=req["session_id"],
-            visible_bead_ids=visible_ids, turn_id=req["turn_id"],
+            root=root,
+            session_id=req["session_id"],
+            visible_bead_ids=visible_ids,
+            turn_id=req["turn_id"],
         )
 
         canonical_turn_bead_id = str(claim_telemetry.get("canonical_bead_id") or "")
@@ -364,16 +395,25 @@ def process_turn_finalized_impl(
             claim_visible_ids = sorted(
                 set(visible_ids + [str(x) for x in (req.get("window_bead_ids") or []) if str(x).strip()])
             )
-            claim_updates = emit_claim_updates_fn(
-                root, claims_batch, canonical_turn_bead_id,
-                session_id=req["session_id"], visible_bead_ids=claim_visible_ids,
-                reviewed_updates=reviewed_updates, decision_pass=decision_pass,
-            ) or []
+            claim_updates = (
+                emit_claim_updates_fn(
+                    root,
+                    claims_batch,
+                    canonical_turn_bead_id,
+                    session_id=req["session_id"],
+                    visible_bead_ids=claim_visible_ids,
+                    reviewed_updates=reviewed_updates,
+                    decision_pass=decision_pass,
+                )
+                or []
+            )
             claim_updates_emitted = len(claim_updates)
 
         if classify_memory_outcome_fn is not None and canonical_turn_bead_id:
             md = dict(req.get("metadata") or {})
-            context_beads = list(md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or [])
+            context_beads = list(
+                md.get("retrieved_beads") or md.get("context_beads") or req.get("window_bead_ids") or []
+            )
             turn_context = {
                 "retrieved_beads": context_beads,
                 "query": str(req.get("user_query") or ""),
@@ -384,7 +424,8 @@ def process_turn_finalized_impl(
             outcome = classify_memory_outcome_fn(turn_context)
             if isinstance(outcome, dict) and write_memory_outcome_to_bead_fn is not None:
                 write_memory_outcome_to_bead_fn(
-                    root, canonical_turn_bead_id,
+                    root,
+                    canonical_turn_bead_id,
                     interaction_role=outcome.get("interaction_role"),
                     memory_outcome=outcome.get("memory_outcome"),
                 )
@@ -392,6 +433,7 @@ def process_turn_finalized_impl(
 
         try:
             from core_memory.runtime.session.goal_lifecycle import resolve_goals_for_turn
+
             goal_visible_ids = sorted(
                 set(visible_ids + [str(x) for x in (req.get("window_bead_ids") or []) if str(x).strip()])
             )
@@ -406,7 +448,10 @@ def process_turn_finalized_impl(
             goal_lifecycle = {"ok": False, "error": "goal_lifecycle_failed"}
 
         emit_agent_turn_quality_metric(
-            root=root, req=req, gate=gate, updates=reviewed_updates,
+            root=root,
+            req=req,
+            gate=gate,
+            updates=reviewed_updates,
             result="success",
         )
 

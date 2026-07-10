@@ -4,10 +4,14 @@ import uuid
 from typing import Any
 
 from core_memory.identifiers import validate_archive_id
-from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, submit_entity_merge_candidate
+from core_memory.runtime.engine import process_turn_finalized
+from core_memory.schema.agent_authored_updates import (
+    AgentAuthoredUpdatesV1,
+    AuthoringMode,
+    agent_authored_updates_json_schema,
+)
 from core_memory.schema.turn import reject_legacy_turn_kwargs
-
 
 MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "write_turn_finalized": {
@@ -35,6 +39,8 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 "transaction_id": {"type": "string"},
                 "trace_id": {"type": "string"},
                 "metadata": {"type": "object"},
+                "crawler_updates": agent_authored_updates_json_schema(),
+                "authoring_mode": {"type": "string", "enum": ["inline", "delegated"]},
                 "tools_trace": {"type": "array", "items": {"type": "object"}},
                 "mesh_trace": {"type": "array", "items": {"type": "object"}},
                 "window_turn_ids": {"type": "array", "items": {"type": "string"}},
@@ -59,7 +65,9 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "approve_memory": {
-        "description": "Approve a bead under review: grants confidence class A and records the approver. Content is never edited.",
+        "description": (
+            "Approve a bead under review: grants confidence class A and records the approver. Content is never edited."
+        ),
         "input": {
             "type": "object",
             "properties": {
@@ -72,7 +80,9 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "reject_memory": {
-        "description": "Reject a bead under review: excluded from current-truth retrieval, retained in the index for audit.",
+        "description": (
+            "Reject a bead under review: excluded from current-truth retrieval, retained in the index for audit."
+        ),
         "input": {
             "type": "object",
             "properties": {
@@ -107,11 +117,17 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
                 },
                 "context_a": {
                     "type": "string",
-                    "description": "Scope label for value_a when resolution='both_valid'. Use empty string for 'default / everywhere else'.",
+                    "description": (
+                        "Scope label for value_a when resolution='both_valid'. Use empty string for "
+                        "'default / everywhere else'."
+                    ),
                 },
                 "context_b": {
                     "type": "string",
-                    "description": "Scope label for value_b when resolution='both_valid'. Use empty string for 'default / everywhere else'.",
+                    "description": (
+                        "Scope label for value_b when resolution='both_valid'. Use empty string for "
+                        "'default / everywhere else'."
+                    ),
                 },
             },
             "required": ["candidate_id", "decision"],
@@ -138,7 +154,11 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
         },
     },
     "maintain": {
-        "description": "Unified governed maintenance facade for approvals, cleanup, async ops, association review, Dreamer decisions, SOUL revisions, Myelination refresh, and correction actions. Dry-run previews report required_authority, authority_ok, and validation_errors.",
+        "description": (
+            "Unified governed maintenance facade for approvals, cleanup, async ops, association review, Dreamer "
+            "decisions, SOUL revisions, Myelination refresh, and correction actions. Dry-run previews report "
+            "required_authority, authority_ok, and validation_errors."
+        ),
         "input": {
             "type": "object",
             "properties": {
@@ -168,6 +188,8 @@ def write_turn_finalized(
     transaction_id: str = "",
     trace_id: str = "",
     metadata: dict[str, Any] | None = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     tools_trace: list[dict[str, Any]] | None = None,
     mesh_trace: list[dict[str, Any]] | None = None,
     window_turn_ids: list[str] | None = None,
@@ -178,7 +200,12 @@ def write_turn_finalized(
     try:
         reject_legacy_turn_kwargs(legacy_kwargs, surface="write_turn_finalized")
     except TypeError as exc:
-        return {"ok": False, "error": "legacy_turn_fields_removed", "message": str(exc), "contract": "mcp.write_turn_finalized.v1"}
+        return {
+            "ok": False,
+            "error": "legacy_turn_fields_removed",
+            "message": str(exc),
+            "contract": "mcp.write_turn_finalized.v1",
+        }
     try:
         sid = validate_archive_id(session_id, field="session_id")
         tid = validate_archive_id(turn_id, field="turn_id")
@@ -198,6 +225,8 @@ def write_turn_finalized(
         trace_id=tr,
         turns=list(turns or []),
         metadata=dict(metadata or {}),
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         tools_trace=list(tools_trace or []),
         mesh_trace=list(mesh_trace or []),
         window_turn_ids=list(window_turn_ids or []),
@@ -218,7 +247,11 @@ def write_turn_finalized(
 def request_memory_approval(*, root: str = ".", bead_id: str, requested_by: str = "", note: str = "") -> dict[str, Any]:
     from core_memory import request_approval
 
-    out = dict(request_approval(root=root, bead_id=str(bead_id or ""), requested_by=str(requested_by or ""), note=str(note or "")))
+    out = dict(
+        request_approval(
+            root=root, bead_id=str(bead_id or ""), requested_by=str(requested_by or ""), note=str(note or "")
+        )
+    )
     out.setdefault("contract", "mcp.request_memory_approval.v1")
     return out
 
@@ -234,7 +267,9 @@ def approve_memory(*, root: str = ".", bead_id: str, approver: str = "", note: s
 def reject_memory(*, root: str = ".", bead_id: str, approver: str = "", reason: str = "") -> dict[str, Any]:
     from core_memory import reject_bead
 
-    out = dict(reject_bead(root=root, bead_id=str(bead_id or ""), approver=str(approver or ""), reason=str(reason or "")))
+    out = dict(
+        reject_bead(root=root, bead_id=str(bead_id or ""), approver=str(approver or ""), reason=str(reason or ""))
+    )
     out.setdefault("contract", "mcp.reject_memory.v1")
     return out
 

@@ -5,6 +5,7 @@ Maps LangChain's memory protocol to Core Memory's causal memory system:
 - save_context() → process_turn_finalized (per-turn write boundary)
 - clear() → process_flush (session-end flush boundary)
 """
+
 from __future__ import annotations
 
 import uuid
@@ -13,13 +14,10 @@ from typing import Any
 try:
     from langchain_core.memory import BaseMemory
 except ImportError:
-    raise ImportError(
-        "LangChain integration requires langchain-core. "
-        "Install with: pip install core-memory[langchain]"
-    )
+    raise ImportError("LangChain integration requires langchain-core. Install with: pip install core-memory[langchain]")
 
 from core_memory.integrations.api import IntegrationContext
-from core_memory.runtime.engine import process_flush, process_turn_finalized, process_session_start
+from core_memory.runtime.engine import process_flush, process_session_start, process_turn_finalized
 from core_memory.write_pipeline.continuity_injection import load_continuity_injection
 
 
@@ -85,6 +83,7 @@ class CoreMemory(BaseMemory):
         soul_text = ""
         try:
             from core_memory.soul.injection import soul_injection_text
+
             soul_text = soul_injection_text(self.root, subject="self")
         except Exception:
             soul_text = ""
@@ -95,7 +94,11 @@ class CoreMemory(BaseMemory):
             for r in records:
                 typ = r.get("type", "")
                 title = r.get("title", "")
-                summary = " ".join(r.get("summary") or []) if isinstance(r.get("summary"), list) else str(r.get("summary", ""))
+                summary = (
+                    " ".join(r.get("summary") or [])
+                    if isinstance(r.get("summary"), list)
+                    else str(r.get("summary", ""))
+                )
                 lines.append(f"[{typ}] {title}: {summary}")
             continuity_block = "\n".join(lines)
 
@@ -119,13 +122,23 @@ class CoreMemory(BaseMemory):
             adapter_kind="memory",
             adapter_status="active",
         )
+        authored_updates = outputs.get("crawler_updates")
+        if not isinstance(authored_updates, dict):
+            authored_updates = inputs.get("crawler_updates")
+        if not isinstance(authored_updates, dict):
+            authored_updates = None
 
         process_turn_finalized(
             root=self.root,
             session_id=self.session_id,
             turn_id=turn_id,
             transaction_id=f"tx-{turn_id}",
-            turns=[{"speaker": "user", "role": "user", "content": user_query}, {"speaker": "assistant", "role": "assistant", "content": assistant_final}],
+            turns=[
+                {"speaker": "user", "role": "user", "content": user_query},
+                {"speaker": "assistant", "role": "assistant", "content": assistant_final},
+            ],
+            crawler_updates=authored_updates,
+            authoring_mode="inline" if authored_updates is not None else "delegated",
             metadata=ictx.to_metadata(),
         )
 

@@ -10,9 +10,8 @@ from importlib import import_module
 from typing import Any
 
 from core_memory.llm_client import chat_complete
-from core_memory.provider_config import ProviderConfig, resolve_chat_config
-
 from core_memory.persistence.semantic_task_receipts import record_semantic_task_run, stable_hash
+from core_memory.provider_config import ProviderConfig, resolve_chat_config
 from core_memory.schema.semantic_tasks import (
     DEFAULT_TASK_MODEL_TIERS,
     MODEL_TIER_CHEAP,
@@ -24,6 +23,7 @@ from core_memory.schema.semantic_tasks import (
     TASK_BEAD_TYPE_CLASSIFIER,
     TASK_CAUSAL_RECALL_EXECUTE,
     TASK_RATIONALE_EXTRACTOR,
+    TASK_TURN_MEMORY_AUTHORING,
     ModelProfile,
     SemanticTaskRequest,
     SemanticTaskResult,
@@ -41,11 +41,15 @@ def _env_first(*names: str) -> tuple[str, str]:
 
 
 def semantic_task_runtime_mode() -> str:
-    mode = str(
-        os.environ.get("CORE_MEMORY_SEMANTIC_TASK_RUNTIME")
-        or os.environ.get("CORE_MEMORY_SEMANTIC_RUNTIME")
-        or "auto"
-    ).strip().lower()
+    mode = (
+        str(
+            os.environ.get("CORE_MEMORY_SEMANTIC_TASK_RUNTIME")
+            or os.environ.get("CORE_MEMORY_SEMANTIC_RUNTIME")
+            or "auto"
+        )
+        .strip()
+        .lower()
+    )
     if mode in {
         "",
         "auto",
@@ -79,7 +83,13 @@ def task_profile(
         prompt_version=prompt_version,
         rubric_version=rubric_version,
         output_schema=output_schema,
-        authority_boundary="candidate_only" if normalized in {"dreamer_research", "soul_proposal"} else "advisory",
+        authority_boundary=(
+            "semantic_author"
+            if normalized == TASK_TURN_MEMORY_AUTHORING
+            else "candidate_only"
+            if normalized in {"dreamer_research", "soul_proposal"}
+            else "advisory"
+        ),
     )
 
 
@@ -112,6 +122,13 @@ def _model_for_task(task_type: str, tier: str) -> tuple[str, str]:
     if normalized == MODEL_TIER_FRONTIER:
         return _env_first("CORE_MEMORY_AGENT_MODEL_FRONTIER", "CORE_MEMORY_DREAMER_MODEL")
     task = str(task_type or "").strip()
+    if task == TASK_TURN_MEMORY_AUTHORING:
+        return _env_first(
+            "CORE_MEMORY_TURN_MEMORY_AUTHOR_MODEL",
+            "CORE_MEMORY_AGENT_MODEL_STANDARD",
+            "CORE_MEMORY_BEAD_FIELD_MODEL",
+            "CORE_MEMORY_CHAT_MODEL",
+        )
     if task == TASK_CAUSAL_RECALL_EXECUTE:
         return _env_first(
             "CORE_MEMORY_AGENT_MODEL_STANDARD",

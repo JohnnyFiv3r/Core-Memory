@@ -4,6 +4,7 @@ import logging
 import os
 import re
 import uuid
+from copy import deepcopy
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,6 +27,14 @@ from ..persistence.store import MemoryStore
 from ..policy.bead_judge import judge_bead_fields
 from ..policy.bead_typing import CLASSIFIABLE_TYPES, is_retrieval_turn
 from ..retrieval.lifecycle import mark_turn_checkpoint
+from ..schema.agent_authored_updates import (
+    AGENT_AUTHORED_UPDATES_V1,
+    AGENT_AUTHORED_V1_BEAD_FIELDS,
+    AgentAuthoredUpdatesV1,
+    AuthoringMode,
+    drop_unknown_agent_authored_updates_v1,
+    validate_agent_authored_updates_v1_transport,
+)
 from ..schema.turn import Turn, reject_legacy_turn_kwargs
 from ..write_pipeline.continuity_injection import load_continuity_injection
 from .flush.flush_flow import process_flush_impl
@@ -52,28 +61,17 @@ from .turn.turn_quality import emit_agent_turn_quality_metric as _emit_agent_tur
 
 logger = logging.getLogger(__name__)
 
-SEMANTIC_FIELDS = (
-    "title",
-    "summary",
-    "detail",
-    "because",
-    "retrieval_eligible",
-    "entities",
-    "topics",
-    "supporting_facts",
-    "evidence_refs",
-    "state_change",
-    "validity",
-    "effective_from",
-    "effective_to",
-    "observed_at",
-)
+SEMANTIC_FIELDS = tuple(sorted(AGENT_AUTHORED_V1_BEAD_FIELDS - {"creation_role", "source_turn_ids"}))
 
 _ALLOWED_BEAD_TYPES = set(CLASSIFIABLE_TYPES)
 
 
 def _req_judge_directive(req: dict[str, Any] | None) -> str | None:
     """Return per-request judge directive, or None to fall back to env."""
+    if str((req or {}).get("authoring_mode") or "").strip().lower() == "delegated":
+        # The legacy bead_judge=llm directive is normalized to the full-schema
+        # delegated author. Do not run the narrow field filler a second time.
+        return "off"
     md = dict((req or {}).get("metadata") or {})
     val = str((req or {}).get("_bead_judge") or md.get("bead_judge") or "").strip().lower()
     return val or None  # "llm" | "heuristic" | "off" | None
@@ -145,9 +143,6 @@ def _session_visible_bead_ids(root: str, session_id: str) -> list[str]:
     return out
 
 
-
-
-
 def _turn_judge_inputs(req: dict[str, Any]) -> tuple[str, str]:
     """Return text inputs for semantic judging, including N-speaker turns.
 
@@ -211,30 +206,34 @@ def _judged_turn_bead(req: dict[str, Any], *, root: str | None = None) -> dict[s
         root=root,
     )
     req["_judged_claims"] = list(judged.get("claims") or [])
-    return {
-        "type": str(judged.get("type") or "context"),
-        "title": str(judged.get("title") or "Turn memory"),
-        "summary": list(judged.get("summary") or ["turn memory"]),
-        "because": list(judged.get("because") or []),
-        "source_turn_ids": [str(req.get("turn_id") or "")],
-        "source_turn_ref": dict(req.get("source_turn_ref") or {}),
-        "entities": list(judged.get("entities") or []),
-        "topics": list(judged.get("topics") or []),
-        "supporting_facts": list(judged.get("supporting_facts") or []),
-        "evidence_refs": list(judged.get("evidence_refs") or []),
-        "state_change": judged.get("state_change"),
-        "validity": judged.get("validity"),
-        "effective_from": judged.get("effective_from"),
-        "effective_to": judged.get("effective_to"),
-        "observed_at": judged.get("observed_at"),
-        "tags": [
-            "crawler_reviewed",
-            "turn_finalized",
-            "bead_judge_fallback",
-            "llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged",
-        ],
-        "detail": str(judged.get("detail") or "")[:1200],
+    bead = {
+        key: deepcopy(value)
+        for key, value in judged.items()
+        if key in AGENT_AUTHORED_V1_BEAD_FIELDS and key not in {"creation_role", "source_turn_ids"}
     }
+    bead.update(
+        {
+            "creation_role": "current_turn",
+            "type": str(judged.get("type") or "context"),
+            "title": str(judged.get("title") or "Turn memory"),
+            "summary": list(judged.get("summary") or ["turn memory"]),
+            "source_turn_ids": [str(req.get("turn_id") or "")],
+            "source_turn_ref": dict(req.get("source_turn_ref") or {}),
+            "tags": list(
+                dict.fromkeys(
+                    list(judged.get("tags") or [])
+                    + [
+                        "crawler_reviewed",
+                        "turn_finalized",
+                        "bead_judge_fallback",
+                        ("llm_judged" if (judged.get("judge") or {}).get("mode") == "llm" else "heuristic_judged"),
+                    ]
+                )
+            ),
+            "detail": str(judged.get("detail") or "")[:1200],
+        }
+    )
+    return bead
 
 
 def _default_crawler_updates(req: dict[str, Any], *, root: str | None = None) -> dict[str, Any]:
@@ -246,16 +245,79 @@ def _default_entities_from_text(*texts: str, limit: int = 16) -> list[str]:
     seen: set[str] = set()
     out: list[str] = []
     stop = {
-        "Before", "After", "Turn", "Act", "Show", "Open", "Record", "Add", "Explain",
-        "What", "When", "Where", "Which", "Why", "How", "Claims", "Graph", "Entities",
-        "Runtime", "Benchmark", "Send", "Point", "Say", "The", "These", "This", "Those",
+        "Before",
+        "After",
+        "Turn",
+        "Act",
+        "Show",
+        "Open",
+        "Record",
+        "Add",
+        "Explain",
+        "What",
+        "When",
+        "Where",
+        "Which",
+        "Why",
+        "How",
+        "Claims",
+        "Graph",
+        "Entities",
+        "Runtime",
+        "Benchmark",
+        "Send",
+        "Point",
+        "Say",
+        "The",
+        "These",
+        "This",
+        "Those",
     }
     low_stop = {
-        "the", "and", "for", "with", "that", "this", "from", "into", "your", "our", "their",
-        "were", "was", "have", "has", "had", "will", "would", "should", "could", "can", "cant",
-        "about", "after", "before", "then", "than", "because", "there", "here", "when", "where",
-        "what", "which", "who", "whom", "whose", "why", "how", "turn", "main", "session",
-        "these", "those",
+        "the",
+        "and",
+        "for",
+        "with",
+        "that",
+        "this",
+        "from",
+        "into",
+        "your",
+        "our",
+        "their",
+        "were",
+        "was",
+        "have",
+        "has",
+        "had",
+        "will",
+        "would",
+        "should",
+        "could",
+        "can",
+        "cant",
+        "about",
+        "after",
+        "before",
+        "then",
+        "than",
+        "because",
+        "there",
+        "here",
+        "when",
+        "where",
+        "what",
+        "which",
+        "who",
+        "whom",
+        "whose",
+        "why",
+        "how",
+        "turn",
+        "main",
+        "session",
+        "these",
+        "those",
     }
     for raw in texts:
         text = str(raw or "")
@@ -305,7 +367,9 @@ def _resolve_reviewed_updates(
     max_create_per_turn: int | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     md = req.get("metadata") or {}
-    reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
+    reviewed = req.get("crawler_updates")
+    if not isinstance(reviewed, dict):
+        reviewed = md.get("crawler_updates") if isinstance(md, dict) else None
     resolved_gate = resolved_agent_authored_gate()
     required = bool(resolved_gate.get("required"))
     fail_open = bool(resolved_gate.get("fail_open"))
@@ -318,7 +382,7 @@ def _resolve_reviewed_updates(
         "source": str(
             source_override
             or (
-                "metadata.crawler_updates"
+                str(req.get("_crawler_updates_source") or "metadata.crawler_updates")
                 if isinstance(reviewed, dict) and reviewed
                 else "default_fallback"
             )
@@ -327,7 +391,31 @@ def _resolve_reviewed_updates(
         "blocked": False,
         "error_code": None,
         "agent_invocation": dict(invocation_diag or {}),
+        "authorship": dict(req.get("authorship_provenance") or {}),
+        "warnings": list(req.get("authorship_warnings") or []),
     }
+    if isinstance((invocation_diag or {}).get("authorship"), dict):
+        gate["authorship"] = dict((invocation_diag or {})["authorship"])
+
+    if isinstance(reviewed, dict) and reviewed.get("schema_version") == AGENT_AUTHORED_UPDATES_V1:
+        transport_ok, transport_errors = validate_agent_authored_updates_v1_transport(reviewed)
+        gate["transport_validation"] = {"ok": transport_ok, "errors": transport_errors}
+        if not transport_ok and not required:
+            reviewed, dropped_fields = drop_unknown_agent_authored_updates_v1(reviewed)
+            gate["warnings"].append(
+                {
+                    "code": "agent_authored_updates_v1_compatibility_validation",
+                    "errors": transport_errors,
+                }
+            )
+            gate["warnings"].extend(
+                {
+                    "code": "unknown_authored_field_dropped",
+                    "path": dropped["path"],
+                    "field": dropped["field"],
+                }
+                for dropped in dropped_fields
+            )
 
     if isinstance(reviewed, dict) and reviewed:
         if required:
@@ -356,7 +444,7 @@ def _resolve_reviewed_updates(
         else:
             gate["error_code"] = (
                 ERROR_AGENT_UPDATES_INVALID
-                if isinstance(md, dict) and "crawler_updates" in md
+                if req.get("_crawler_updates_source") or (isinstance(md, dict) and "crawler_updates" in md)
                 else ERROR_AGENT_UPDATES_MISSING
             )
         if not fail_open:
@@ -396,11 +484,7 @@ def _enforce_structural_invariants(root: str, req: dict[str, Any], row: dict[str
             src = [source_id for source_id in src if source_id != turn_id]
         out["source_turn_ids"] = src
     if role == "derived":
-        derived_from = [
-            str(item)
-            for item in (out.get("derived_from_bead_ids") or [])
-            if str(item).strip()
-        ]
+        derived_from = [str(item) for item in (out.get("derived_from_bead_ids") or []) if str(item).strip()]
         if "$current_turn" not in derived_from:
             derived_from.append("$current_turn")
         out["derived_from_bead_ids"] = derived_from
@@ -426,18 +510,13 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
     explicit_primary_indices = [
         index
         for index, row in enumerate(rows)
-        if isinstance(row, dict)
-        and str(row.get("creation_role") or "").strip().lower() == "current_turn"
+        if isinstance(row, dict) and str(row.get("creation_role") or "").strip().lower() == "current_turn"
     ]
     first_object_index = next(
         (index for index, row in enumerate(rows) if isinstance(row, dict)),
         None,
     )
-    primary_index = (
-        explicit_primary_indices[0]
-        if explicit_primary_indices
-        else first_object_index
-    )
+    primary_index = explicit_primary_indices[0] if explicit_primary_indices else first_object_index
 
     has_turn = False
     for i, row in enumerate(rows):
@@ -454,18 +533,12 @@ def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[s
         if str(rows[i].get("creation_role") or "") == "current_turn":
             rows[i] = _maybe_apply_judge_fallback(rows[i], user_query, assistant_final, req=req, root=root)
         src = [str(x) for x in (rows[i].get("source_turn_ids") or []) if str(x)]
-        if (
-            str(rows[i].get("creation_role") or "") == "current_turn"
-            and turn_id
-            and turn_id in src
-        ):
+        if str(rows[i].get("creation_role") or "") == "current_turn" and turn_id and turn_id in src:
             has_turn = True
 
     if not has_turn:
         bead = (
-            _judged_turn_bead(req, root=root)
-            if _judge_fallback_enabled(req)
-            else _structural_turn_bead(req, root=root)
+            _judged_turn_bead(req, root=root) if _judge_fallback_enabled(req) else _structural_turn_bead(req, root=root)
         )
         bead["creation_role"] = "current_turn"
         bead["source_turn_ids"] = [turn_id]
@@ -521,6 +594,8 @@ def process_turn_finalized(
     mesh_trace: list[dict] | None = None,
     window_turn_ids: list[str] | None = None,
     window_bead_ids: list[str] | None = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     metadata: dict[str, Any] | None = None,
     policy: SidecarPolicy | None = None,
     **legacy_kwargs: Any,
@@ -545,6 +620,8 @@ def process_turn_finalized(
         mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         metadata=metadata,
         policy=policy,
         normalize_turn_request=_normalize_turn_request,
@@ -579,6 +656,7 @@ def process_turn_finalized(
     if result.get("ok") and result.get("enrichment_queued"):
         try:
             from core_memory.runtime.queue.side_effect_queue import drain_side_effect_queue
+
             # Automatic bead-commit hooks can enqueue association-pass work
             # before this turn-enrichment item. Drain a small bounded batch so
             # the post-turn enrichment job is not starved by earlier hook jobs.
@@ -608,6 +686,7 @@ def process_turn_finalized(
             if not result.get("bead_id"):
                 try:
                     from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id as _find_bid
+
                     result["bead_id"] = str(
                         _find_bid(
                             root,
@@ -622,6 +701,7 @@ def process_turn_finalized(
             if claim_layer_enabled():
                 try:
                     from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
+
                     store = MemoryStore(root)
                     bid = find_canonical_turn_bead_id(
                         root,
@@ -685,6 +765,8 @@ def emit_turn_finalized(
     mesh_trace: list[dict] | None = None,
     window_turn_ids: list[str] | None = None,
     window_bead_ids: list[str] | None = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
     metadata: dict[str, Any] | None = None,
     **legacy_kwargs: Any,
 ) -> dict[str, Any]:
@@ -701,6 +783,8 @@ def emit_turn_finalized(
         mesh_trace=mesh_trace,
         window_turn_ids=window_turn_ids,
         window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
         metadata=metadata,
     )
     out = maybe_emit_finalize_memory_event(
@@ -719,6 +803,8 @@ def emit_turn_finalized(
         mesh_trace=req["mesh_trace"],
         window_turn_ids=req["window_turn_ids"],
         window_bead_ids=req["window_bead_ids"],
+        crawler_updates=req["crawler_updates"],
+        authoring_mode=req["authoring_mode"],
         metadata=req["metadata"],
     )
     out.setdefault("engine", {})

@@ -54,7 +54,13 @@ def capture_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
     try:
         memory = Memory(root=root)
         if turns is not None:
-            result = memory.capture(turns=turns, session_id=session_id, turn_id=turn_id)
+            result = memory.capture(
+                turns=turns,
+                session_id=session_id,
+                turn_id=turn_id,
+                crawler_updates=payload.get("crawler_updates"),
+                authoring_mode=payload.get("authoring_mode"),
+            )
         else:
             result = memory.capture(
                 user=payload.get("user"),
@@ -63,6 +69,8 @@ def capture_handler(payload: dict[str, Any] | None = None) -> dict[str, Any]:
                 as_assistant=payload.get("as_assistant"),
                 session_id=session_id,
                 turn_id=turn_id,
+                crawler_updates=payload.get("crawler_updates"),
+                authoring_mode=payload.get("authoring_mode"),
             )
     except ValueError as exc:
         return _error("cm.invalid_turn", str(exc))
