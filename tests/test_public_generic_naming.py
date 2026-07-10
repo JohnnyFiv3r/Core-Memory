@@ -1,29 +1,36 @@
+import subprocess
 from pathlib import Path
+
+
+def _tracked_text_files(repo_root: Path) -> list[Path]:
+    completed = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=repo_root,
+        check=True,
+        stdout=subprocess.PIPE,
+    )
+    paths = []
+    for raw_path in completed.stdout.split(b"\0"):
+        if not raw_path:
+            continue
+        path = repo_root / raw_path.decode("utf-8")
+        if path.suffix in {".pyc", ".png", ".jpg", ".jpeg", ".gif", ".pdf"}:
+            continue
+        paths.append(path)
+    return paths
 
 
 def test_public_repo_has_no_deployment_specific_memory_runtime_name():
     banned = "Sato" + "rid"
-    roots = [
-        Path("core_memory"),
-        Path("docs"),
-        Path("tests"),
-        Path("demo"),
-        Path("plugins"),
-        Path("scripts"),
-    ]
+    repo_root = Path(__file__).resolve().parents[1]
     hits = []
-    for root in roots:
-        if not root.exists():
+    for path in _tracked_text_files(repo_root):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
             continue
-        for path in root.rglob("*"):
-            if path.is_dir() or path.suffix in {".pyc", ".png", ".jpg", ".jpeg", ".gif", ".pdf"}:
-                continue
-            try:
-                text = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                continue
-            if banned.lower() in text.lower():
-                hits.append(str(path))
+        if banned.lower() in text.lower():
+            hits.append(str(path.relative_to(repo_root)))
     assert hits == []
 
 
