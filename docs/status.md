@@ -164,7 +164,7 @@ retained.
 |---|---|---|
 | 1 | Replace echo-based `because` with LLM extraction | **Closed** |
 | 2 | Goal lifecycle — resolution mechanism | **Closed** |
-| 3 | Association relationship types | **Done** — preview classifier fills missing relationship in `apply_crawler_updates` |
+| 3 | Association relationship types | **Reopened** — the preview classifier currently fills missing relationships deterministically; `docs/PRD/agent-led-semantic-write-integrity.md` replaces that canonical mutation with agent-judged repair |
 | 4 | Bead type classifier — questions misclassified as precedent | **Closed** |
 | 5 | Grounding hashes for judged association/claim validation | **Done** — grounding-hash per-slot dedup in `_append_claim_update_rows` + WARNING telemetry |
 | 6 | Monotonic sequencing for claim supersede chains | **Closed** — fully covered by `chain_seq` (verified) |
@@ -213,9 +213,25 @@ scope until a new PRD promotes them.
 
 ### Demo TODO alignment
 The paired adoption/API roadmap lives in `JohnnyFiv3r/Core-Memory-Demo` repo.
-Engine-correctness items #3, #5, #7, #9 are all **Done**.
+Engine-correctness items #5, #7, and #9 are **Done**. Item #3 is reopened under
+the agent-led semantic write integrity PRD because its current deterministic
+relationship fill violates the canonical authorship boundary.
 Capability items #10–#14, #16–#17 are all closed. #15 is now **Done**.
 See `docs/PRD/execution-plan-search-quality-and-enrichment.md` for the full plan.
+
+### Agent-led semantic write integrity
+The canonical contract requires agents to author semantic meaning while Core
+Memory supplies typed validation, persistence, queueing, and lifecycle
+guardrails. The current write path still permits deterministic fallback
+authorship, drops known fields during creation normalization, and can report
+semantic success before canonical bead existence is confirmed. The approved
+plan preserves one canonical current-turn bead plus up to two explicitly
+derived companion beads and uses full-schema delegated authorship for the
+passive hosted OpenClaw/Satorid capture path.
+
+**Status:** Draft v1 / approved implementation sequence — documentation gate in
+progress; code slices not yet shipped. See
+`docs/PRD/agent-led-semantic-write-integrity.md`.
 
 ---
 

@@ -64,6 +64,7 @@ against code and `docs/status.md`.
 | File | Topic | Status |
 |---|---|---|
 | `graph-geometry-dynamics.md` | Graph Geometry Dynamics — health, energy, and cone-bounded retrieval | **Draft v1** |
+| `agent-led-semantic-write-integrity.md` | Agent-led semantic authorship, lossless multi-memory turn writes, delegated hosted authorship, truthful receipts, and causal judgment | **Draft v1 — approved execution plan; implementation pending** |
 | `recall-effort-tiers-and-traversal.md` | Recall effort tiers and relevance-aware causal traversal | **Draft v1** |
 | `recoverability.md` | Recoverability — no single point of knowledge failure | **Draft v1** |
 | `relational-constraint-rules.md` | Relational constraint rules for memory-graph writes | **Draft v1** |
