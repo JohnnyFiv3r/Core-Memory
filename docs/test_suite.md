@@ -23,15 +23,16 @@ skip-free while preserving optional backend coverage in the all-extras lane.
 
 ## Closeout Snapshot
 
-Snapshot date: 2026-07-09, taken from `origin/master` after store delegation
-test pruning.
+Snapshot date: 2026-07-10, taken from `origin/master` after the cleanup
+closeout truth sweep. Counts below are reproducible collection counts; execution
+results depend on the installed optional packages and live-service availability.
 
 | Lane | Collection / execution result | Meaning |
 |---|---|---|
-| Total suite collection | 2,283 tests | Broad local pytest collection with optional/live tests included |
-| Core deps CI/local | 2,241 selected; `2241 passed, 42 deselected` | Core lane has 0 skips; optional backend and live tests are marker-deselected |
-| All extras CI | 2,278 selected by `-m "not neo4j_live"` | Optional backend tests run when `[all,dev]` deps are installed; live Neo4j stays out of this lane |
-| Broad local sweep | `2241 passed, 42 skipped` in a core-deps environment | Remaining skips are intentional optional backend or live-service skips |
+| Total suite collection | 2,286 tests | Broad local pytest collection with optional/live tests included |
+| Core deps CI/local | 2,244 selected; 42 deselected by the marker expression | Core lane excludes optional backend and live Neo4j tests, so it has no expected environment-driven skips |
+| All extras CI | 2,281 selected by `-m "not neo4j_live"` | Optional backend tests run when `[all,dev]` deps are installed; live Neo4j stays out of this lane |
+| Broad local sweep | 2,286 collected | In a core-deps environment, the 42 optional/live tests may skip intentionally when their packages or service are unavailable |
 | Optional backend bucket | 37 tests | Qdrant, Kuzu, Neo4j package, and combined retrieval backend coverage |
 | Live Neo4j bucket | 5 tests | Requires `NEO4J_URI` and credentials; run only in the live backend lane |
 

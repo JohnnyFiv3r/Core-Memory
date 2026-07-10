@@ -123,13 +123,13 @@ still performs the durable write, then calls the runtime post-write boundary for
 Qdrant/graph/sync mirroring and association coverage enqueueing. This resolved
 the final two architecture guard rows; the checked-in guard baseline is now 0.
 
-The test-suite cleanup closeout is complete. The core deps lane now runs
-skip-free by selecting 2,241 tests and deselecting the 42 optional backend/live
-tests; a broad local core-deps sweep still reports those 42 intentional skips.
-The all-extras lane selects the 37 optional backend tests and continues to
-deselect the 5 live Neo4j tests. Remaining `facade`, `mixin_assembly`, and
-ledgered compatibility tests are maintained public-surface coverage, not cleanup
-debt. See `docs/test_suite.md` for the dated audit snapshot.
+The test-suite cleanup closeout is complete. The 2026-07-10 collection snapshot
+selects 2,244 core-lane tests and deselects 42 optional backend/live tests; the
+all-extras lane selects 2,281 tests, including the 37 optional backend tests,
+while deselecting the 5 live Neo4j tests. Remaining `facade`,
+`mixin_assembly`, and ledgered compatibility tests are maintained public-surface
+coverage, not cleanup debt. See `docs/test_suite.md` for the dated audit
+snapshot and environment-specific execution expectations.
 
 The legacy persistence mixin artifacts
 `core_memory/persistence/store_core_delegates_mixin.py` and
