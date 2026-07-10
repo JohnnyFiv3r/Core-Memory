@@ -45,10 +45,11 @@ class TestStructuralInferenceHardening(unittest.TestCase):
             dry = infer_structural_edges(Path(td), min_confidence=0.9, apply=False)
             self.assertGreaterEqual(dry.get("candidates", 0), 1)
             app = infer_structural_edges(Path(td), min_confidence=0.9, apply=True)
-            self.assertGreaterEqual(app.get("applied", 0), 1)
+            self.assertEqual(0, app.get("applied", 0))
+            self.assertTrue(app.get("candidate_only"))
 
             g = build_graph(Path(td), write_snapshot=False)
-            self.assertGreaterEqual(int(g.get("structural_edges", 0)), 1)
+            self.assertEqual(0, int(g.get("structural_edges", 0)))
 
 
 if __name__ == "__main__":

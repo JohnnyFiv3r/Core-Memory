@@ -49,7 +49,7 @@ class TestClaimTurnIntegration(unittest.TestCase):
             result = extract_and_attach_claims(td, "s1", "t1", [], {})
         self.assertEqual(0, result["claims_written"])
 
-    def test_writes_claims_only_to_canonical_turn_bead(self):
+    def test_heuristic_claims_are_advisory_for_the_canonical_turn_bead(self):
         from core_memory.claim.turn_integration import extract_and_attach_claims
         from core_memory.persistence.store_claim_ops import read_claims_for_bead
 
@@ -89,7 +89,8 @@ class TestClaimTurnIntegration(unittest.TestCase):
                 )
 
             self.assertEqual("bead-canon", out.get("canonical_bead_id"))
-            self.assertGreaterEqual(len(read_claims_for_bead(td, "bead-canon")), 1)
+            self.assertEqual([], read_claims_for_bead(td, "bead-canon"))
+            self.assertGreaterEqual(len(out.get("advisory_claims") or []), 1)
             self.assertEqual([], read_claims_for_bead(td, "bead-other"))
 
 

@@ -9,12 +9,16 @@ Governance intent:
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+from core_memory.persistence.io_utils import append_jsonl
 from core_memory.persistence.store_claim_ops import compute_claim_grounding_hash, resolve_current_state, write_claim_updates_to_bead
 
 
 _INVALIDATING_DECISIONS = {"supersede", "retract", "conflict"}
+_AGENT_CLAIM_SOURCES = {"inline_agent", "delegated_semantic_agent", "repair_agent", "explicit_agent_action"}
 
 
 def _as_text(x: Any) -> str:
@@ -125,21 +129,24 @@ def emit_claim_updates(
     visible_bead_ids: list[str] | None = None,
     reviewed_updates: dict[str, Any] | None = None,
     decision_pass: dict[str, Any] | None = None,
+    authorship: dict[str, Any] | None = None,
 ) -> list[dict]:
     """
     Emit ClaimUpdates in decision phase.
 
     Sources:
-    1) Explicit decision-pass/crawler claim_updates rows, when provided.
-    2) Session-window state reconciliation against newly authored claims:
-       - same value -> reaffirm
-       - changed value -> supersede
+    1) Explicit agent-authored claim_updates rows, when provided.
+    2) Session-window reconciliation, emitted only as an advisory candidate.
+
+    A lexical/slot comparison is useful review context but cannot silently
+    supersede or reaffirm canonical claim truth.
     """
     trig = _as_text(trigger_bead_id)
     if not trig:
         return []
 
     emitted: list[dict] = []
+    advisory: list[dict] = []
     dedupe: set[tuple[str, str, str, str, str]] = set()
 
     explicit_rows: list[dict] = []
@@ -148,14 +155,21 @@ def emit_claim_updates(
     if isinstance(decision_pass, dict):
         explicit_rows.extend(list(decision_pass.get("claim_updates") or []))
 
+    source = _as_text((authorship or {}).get("source"))
     for update in _normalize_explicit_updates(explicit_rows, trigger_bead_id=trig):
         key = _update_dedupe_key(update)
         if key in dedupe:
             continue
         dedupe.add(key)
-        emitted.append(update)
+        if source in _AGENT_CLAIM_SOURCES:
+            update["authorship"] = {"source": source}
+            emitted.append(update)
+        else:
+            update["provenance"] = "missing_agent_authorship"
+            update["canonical"] = False
+            advisory.append(update)
 
-    # Auto reconciliation over session-window current state for new claims.
+    # Auto reconciliation over session-window current state is advisory-only.
     for claim in new_claims or []:
         if not isinstance(claim, dict):
             continue
@@ -211,9 +225,23 @@ def emit_claim_updates(
         if key in dedupe:
             continue
         dedupe.add(key)
-        emitted.append(update)
+        update["provenance"] = "heuristic_claim_reconciliation"
+        update["canonical"] = False
+        advisory.append(update)
 
     if emitted:
         write_claim_updates_to_bead(root, trig, emitted)
+
+    if advisory:
+        append_jsonl(
+            Path(root) / ".beads" / "events" / "claim-update-advisories.jsonl",
+            {
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "kind": "claim_update_advisory",
+                "trigger_bead_id": trig,
+                "updates": advisory,
+                "canonical": False,
+            },
+        )
 
     return emitted

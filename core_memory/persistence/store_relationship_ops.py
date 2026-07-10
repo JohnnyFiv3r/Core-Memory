@@ -15,8 +15,27 @@ from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty, mark
 from core_memory.schema.normalization import resolve_confidence_class
 
 
-def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] = None) -> bool:
-    """Promote a bead to long-term memory with quality gates."""
+def promote_for_store(
+    store: Any,
+    bead_id: str,
+    promotion_reason: Optional[str] = None,
+    *,
+    authorship_source: str = "explicit_agent_action",
+    authorship: dict[str, Any] | None = None,
+) -> bool:
+    """Apply an explicit promotion decision with structural quality gates.
+
+    This compatibility surface remains for callers that intentionally request a
+    promotion.  It is not used by heuristic passes, and records its explicit
+    decision provenance on the bead.
+    """
+    if str(authorship_source or "").strip() not in {
+        "inline_agent",
+        "delegated_semantic_agent",
+        "repair_agent",
+        "explicit_agent_action",
+    }:
+        return False
     with store_lock(store.root):
         index = store._read_json(store.beads_dir / "index.json")
 
@@ -50,6 +69,17 @@ def promote_for_store(store: Any, bead_id: str, promotion_reason: Optional[str] 
         bead["promotion_locked"] = True
         bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
         bead["promotion_reason"] = (promotion_reason or bead.get("promotion_reason") or "policy_auto_promote").strip()
+        bead["promotion_decision"] = "promote"
+        bead["promotion_decided_at"] = datetime.now(timezone.utc).isoformat()
+        bead["promotion_authorship"] = {
+            "source": str(authorship_source),
+            **{
+                key: value
+                for key, value in dict(authorship or {}).items()
+                if key in {"task_receipt_id", "task_id", "grounding_hash", "prompt_version", "rubric_version", "model_profile"}
+                and value not in (None, "", {}, [])
+            },
+        }
         # Route through the resolver rather than forcing A: a still-speculative
         # bead (e.g. a pending hypothesis) is capped at B by the grounding
         # ceiling. Unlike confirm/approve, automatic promotion does not ground

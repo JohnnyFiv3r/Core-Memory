@@ -1,5 +1,7 @@
 import tempfile
 import unittest
+import json
+from pathlib import Path
 
 
 class TestClaimUpdatePolicy(unittest.TestCase):
@@ -48,10 +50,11 @@ class TestClaimUpdatePolicy(unittest.TestCase):
             }
             updates = emit_claim_updates(td, [new_claim], "bead1")
 
-        self.assertEqual(1, len(updates))
-        self.assertEqual("supersede", updates[0]["decision"])
-        self.assertEqual("old1", updates[0]["target_claim_id"])
-        self.assertEqual("bead1", updates[0]["trigger_bead_id"])
+            self.assertEqual([], updates)
+            advisory_path = Path(td) / ".beads" / "events" / "claim-update-advisories.jsonl"
+            advisory = json.loads(advisory_path.read_text(encoding="utf-8").strip())
+            self.assertEqual("supersede", advisory["updates"][0]["decision"])
+            self.assertFalse(advisory["updates"][0]["canonical"])
 
     def test_emit_updates_require_trigger_bead_id(self):
         from core_memory.claim.update_policy import emit_claim_updates
@@ -127,6 +130,7 @@ class TestClaimUpdatePolicy(unittest.TestCase):
                         },
                     ]
                 },
+                authorship={"source": "inline_agent"},
             )
 
             self.assertGreaterEqual(len(updates), 2)
@@ -172,7 +176,10 @@ class TestClaimUpdatePolicy(unittest.TestCase):
                 ],
                 "bead1",
             )
-            self.assertTrue(any(u.get("decision") == "reaffirm" for u in updates))
+            self.assertEqual([], updates)
+            advisory_path = Path(td) / ".beads" / "events" / "claim-update-advisories.jsonl"
+            advisory = json.loads(advisory_path.read_text(encoding="utf-8").strip())
+            self.assertEqual("reaffirm", advisory["updates"][0]["decision"])
 
     def test_emit_updates_includes_grounding_hash_and_dedupes_same_grounding(self):
         from core_memory.claim.update_policy import emit_claim_updates
@@ -211,6 +218,7 @@ class TestClaimUpdatePolicy(unittest.TestCase):
                         },
                     ]
                 },
+                authorship={"source": "delegated_semantic_agent"},
             )
             stored = read_claim_updates_for_bead(td, "bead1")
 
@@ -256,6 +264,7 @@ class TestClaimUpdatePolicy(unittest.TestCase):
                         },
                     ]
                 },
+                authorship={"source": "inline_agent"},
             )
             stored = read_claim_updates_for_bead(td, "bead1")
 

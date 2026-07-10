@@ -18,7 +18,6 @@ from core_memory.config.feature_flags import (
     claim_layer_enabled,
     resolved_agent_authored_gate,
 )
-from core_memory.persistence.store_claim_ops import write_memory_outcome_to_bead
 
 from ..association.crawler_contract import (
     build_crawler_context,
@@ -401,6 +400,16 @@ def _resolve_reviewed_updates(
         gate["authorship"] = dict((invocation_diag or {})["authorship"])
 
     is_v1 = isinstance(reviewed, dict) and reviewed.get("schema_version") == AGENT_AUTHORED_UPDATES_V1
+    if is_v1 and not str((gate.get("authorship") or {}).get("source") or "").strip():
+        # A typed inline payload is itself primary-agent authorship.  Delegated
+        # calls receive richer task provenance above; this fallback preserves a
+        # source for direct Python/HTTP/MCP inline submissions.
+        gate["authorship"] = {
+            "source": "delegated_semantic_agent"
+            if str(req.get("authoring_mode") or "").strip().lower() == "delegated"
+            else "inline_agent",
+            "schema_version": AGENT_AUTHORED_UPDATES_V1,
+        }
     if is_v1:
         transport_ok, transport_errors = validate_agent_authored_updates_v1_transport(reviewed)
         gate["transport_validation"] = {"ok": transport_ok, "errors": transport_errors}
@@ -696,7 +705,6 @@ def process_turn_finalized(
         extract_and_attach_claims_fn=extract_and_attach_claims if claim_layer_enabled() else None,
         emit_claim_updates_fn=emit_claim_updates if claim_layer_enabled() else None,
         classify_memory_outcome_fn=classify_memory_outcome if claim_layer_enabled() else None,
-        write_memory_outcome_to_bead_fn=write_memory_outcome_to_bead if claim_layer_enabled() else None,
     )
 
     # F-W1: drain enrichment queue after critical path returns

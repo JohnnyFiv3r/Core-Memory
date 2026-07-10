@@ -38,7 +38,7 @@ class TestMemoryEngine(unittest.TestCase):
             self.assertEqual("canonical_in_process", out.get("authority_path"))
             self.assertEqual("process_flush", (out.get("engine") or {}).get("entry"))
 
-    def test_claim_layer_persists_memory_outcome_on_turn_bead(self):
+    def test_claim_layer_keeps_memory_outcome_as_advisory(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             "os.environ",
             {
@@ -56,7 +56,7 @@ class TestMemoryEngine(unittest.TestCase):
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out.get("ok"))
-            self.assertTrue(out.get("memory_outcome_written"))
+            self.assertFalse(out.get("memory_outcome_written"))
 
             s = MemoryStore(td)
             idx = s._read_json(s.beads_dir / "index.json")
@@ -68,8 +68,8 @@ class TestMemoryEngine(unittest.TestCase):
                     hit = row
                     break
             self.assertIsNotNone(hit)
-            self.assertEqual("memory_resolution", str((hit or {}).get("interaction_role") or ""))
-            self.assertIsInstance((hit or {}).get("memory_outcome"), dict)
+            self.assertNotIn("interaction_role", hit or {})
+            self.assertNotIn("memory_outcome", hit or {})
 
 
 if __name__ == "__main__":

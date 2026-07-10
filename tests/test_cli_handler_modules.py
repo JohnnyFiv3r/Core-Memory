@@ -7,6 +7,8 @@ import tempfile
 from pathlib import Path
 
 from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
+from core_memory.graph.core import build_graph
+from core_memory.persistence.store import MemoryStore
 
 from core_memory.cli.handlers.store import handle_store_commands
 from core_memory.cli.handlers.graph import handle_graph_command
@@ -50,6 +52,32 @@ class TestCliHandlerModulesSlice51A(unittest.TestCase):
         handled = handle_graph_command(args=args, memory=memory, graph_parser=parser)
         self.assertTrue(handled)
         parser.print_help.assert_called_once()
+
+    def test_graph_handler_legacy_causal_apply_is_candidate_only(self):
+        with tempfile.TemporaryDirectory(prefix="cm-cli-handler-") as td:
+            root = Path(td)
+            store = MemoryStore(root)
+            store.add_bead(type="decision", title="Candidate promotion policy", summary=["candidate only promotion"], session_id="main", source_turn_ids=["t1"])
+            store.add_bead(type="evidence", title="Promotion inflation evidence", summary=["candidate promotion issue"], session_id="main", source_turn_ids=["t1"])
+            memory = SimpleNamespace(root=root)
+            args = SimpleNamespace(
+                command="graph",
+                graph_cmd="backfill-causal-links",
+                apply=True,
+                bead_id=[],
+                bead_ids_file=None,
+                max_per_target=3,
+                min_overlap=1,
+                no_require_shared_turn=False,
+            )
+
+            with self.assertWarns(DeprecationWarning), patch("builtins.print") as printed:
+                handled = handle_graph_command(args=args, memory=memory, graph_parser=Mock())
+
+            self.assertTrue(handled)
+            payload = printed.call_args.args[0]
+            self.assertIn('"candidate_only": true', payload)
+            self.assertEqual(0, int(build_graph(root, write_snapshot=False).get("structural_edges", 0)))
 
     def test_metrics_handler_report(self):
         memory = Mock()

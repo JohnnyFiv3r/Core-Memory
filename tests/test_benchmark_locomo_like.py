@@ -208,8 +208,12 @@ class TestBenchmarkLocomoLike(unittest.TestCase):
                     continue
                 claims_total += int(len(list(bead.get("claims") or [])))
 
-            self.assertGreater(claims_total, 0, "expected preload to emit claims")
-            self.assertGreater(associations_total, 0, "expected preload to append associations")
+            self.assertEqual(0, claims_total, "heuristic preload must not emit canonical claims")
+            self.assertEqual(0, associations_total, "preload order must not emit canonical associations")
+            advisory_path = Path(td) / "bench-root" / ".beads" / "events" / "claim-advisories.jsonl"
+            self.assertTrue(advisory_path.exists(), "expected heuristic preload claims to remain observable advice")
+            advisory_rows = [json.loads(line) for line in advisory_path.read_text().splitlines() if line.strip()]
+            self.assertGreater(len(advisory_rows), 0)
             self.assertGreater(entities_total, 0, "expected preload to populate entity registry")
 
 

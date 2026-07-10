@@ -10,6 +10,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import warnings
 from collections import defaultdict
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,15 @@ from typing import Any
 from ..persistence.io_utils import append_jsonl, atomic_write_json
 
 STRUCTURAL_RELS = {"caused_by", "supports", "derived_from", "supersedes", "superseded_by", "contradicts", "resolves"}
+STRUCTURAL_EDGE_PROVENANCE = {
+    "agent_authored",
+    "delegated_semantic_agent",
+    "structural_projection",
+    "source_attributed_external_evidence",
+    "session_boundary",
+    "flush_checkpoint",
+}
+SEMANTIC_EDGE_PROVENANCE = {"agent_authored", "delegated_semantic_agent", "repair_agent"}
 
 
 def _paths(root: Path) -> tuple[Path, Path, Path]:
@@ -39,7 +49,11 @@ def _edge_id(src_id: str, dst_id: str, rel: str, klass: str) -> str:
     return f"edge-{_edge_identity(src_id, dst_id, rel, klass)}"
 
 
-def add_structural_edge(root: Path, *, src_id: str, dst_id: str, rel: str, created_by: str = "system", evidence: list[dict] | None = None) -> dict:
+def add_structural_edge(root: Path, *, src_id: str, dst_id: str, rel: str, created_by: str = "structural_projection", evidence: list[dict] | None = None) -> dict:
+    """Append an explicit structural projection with constrained provenance."""
+    provenance = str(created_by or "").strip().lower()
+    if provenance not in STRUCTURAL_EDGE_PROVENANCE:
+        raise ValueError(f"structural_edge_provenance_not_allowed:{provenance or 'missing'}")
     event = {
         "event": "edge_add",
         "edge_id": _edge_id(src_id, dst_id, rel, "structural"),
@@ -49,7 +63,7 @@ def add_structural_edge(root: Path, *, src_id: str, dst_id: str, rel: str, creat
         "class": "structural",
         "immutable": True,
         "created_at": _now(),
-        "created_by": created_by,
+        "created_by": provenance,
         "evidence": evidence or [],
     }
     edges_file, _, _ = _paths(root)
@@ -57,7 +71,11 @@ def add_structural_edge(root: Path, *, src_id: str, dst_id: str, rel: str, creat
     return event
 
 
-def add_semantic_edge(root: Path, *, src_id: str, dst_id: str, rel: str, w: float, created_by: str = "system", evidence: list[dict] | None = None) -> dict:
+def add_semantic_edge(root: Path, *, src_id: str, dst_id: str, rel: str, w: float, created_by: str = "agent_authored", evidence: list[dict] | None = None) -> dict:
+    """Append an agent-authored semantic edge; heuristics cannot use this sink."""
+    provenance = str(created_by or "").strip().lower()
+    if provenance not in SEMANTIC_EDGE_PROVENANCE:
+        raise ValueError(f"semantic_edge_provenance_not_allowed:{provenance or 'missing'}")
     w = max(0.0, min(1.0, float(w)))
     now = _now()
     event = {
@@ -69,7 +87,7 @@ def add_semantic_edge(root: Path, *, src_id: str, dst_id: str, rel: str, w: floa
         "class": "semantic",
         "immutable": False,
         "created_at": now,
-        "created_by": created_by,
+        "created_by": provenance,
         "evidence": evidence or [],
         "w": w,
         "last_reinforced_at": now,
@@ -237,7 +255,7 @@ def _text_tokens(bead: dict) -> set[str]:
 
 
 def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: int = 3, min_overlap: int = 2, require_shared_turn: bool = True, include_bead_ids: list[str] | None = None) -> dict:
-    """Deterministic causal backfill for existing content.
+    """Generate relationship-neutral causal-link candidates for agent judgment.
 
     Rule set (conservative):
     - source type in {evidence, lesson}
@@ -317,41 +335,57 @@ def backfill_causal_links(root: Path, *, apply: bool = False, max_per_target: in
         seen.add(key)
         final.append(p)
 
-    links_added = 0
-    edges_added = 0
+    legacy_apply_requested = bool(apply)
     if apply:
-        for p in final:
-            src = str(p.get("src_id") or "")
-            dst = str(p.get("dst_id") or "")
-            rel = str(p.get("rel") or "")
-            b = beads.get(src) or {}
-            cur_links = b.get("links")
-            if not isinstance(cur_links, list):
-                cur_links = _normalize_links(cur_links)
-                cur_links = [{"type": str(x.get("rel") or ""), "bead_id": str(x.get("dst_id") or "")} for x in cur_links]
-                b["links"] = cur_links
-            links = b.setdefault("links", [])
-            if not any(isinstance(l, dict) and str(l.get("type") or "") == rel and str(l.get("bead_id") or "") == dst for l in links):
-                links.append({"type": rel, "bead_id": dst, "source": "causal_backfill", "overlap": int(p.get("overlap") or 0)})
-                links_added += 1
-            if (src, dst, rel) not in existing_edge:
-                add_structural_edge(root, src_id=src, dst_id=dst, rel=rel, created_by="system", evidence=[{"reason": "causal_backfill", "overlap": int(p.get("overlap") or 0)}])
-                edges_added += 1
-                existing_edge.add((src, dst, rel))
-        atomic_write_json(index_file, index)
-        build_graph(root, write_snapshot=True)
+        message = (
+            "graph backfill-causal-links --apply is deprecated and now candidate-only; "
+            "send the returned pairs through the association agent judge/apply flow"
+        )
+        warnings.warn(message, DeprecationWarning, stacklevel=2)
+        append_jsonl(
+            root / ".beads" / "events" / "semantic-deprecation.jsonl",
+            {
+                "ts": _now(),
+                "kind": "deprecated_causal_backfill_apply_requested",
+                "migration": "association_agent_judge_apply",
+                "proposed": len(final),
+                "canonical_mutations": 0,
+            },
+        )
 
     return {
         "ok": True,
-        "apply": bool(apply),
+        "apply": False,
+        "legacy_apply_requested": legacy_apply_requested,
+        "candidate_only": True,
         "require_shared_turn": bool(require_shared_turn),
         "targeted": bool(include_set),
         "target_bead_count": len(include_set),
         "proposed": len(final),
-        "links_added": links_added,
-        "edges_added": edges_added,
+        "links_added": 0,
+        "edges_added": 0,
+        "migration": "association_agent_judge_apply",
         "sample": final[:50],
     }
+
+
+def causal_link_candidates(
+    root: Path,
+    *,
+    max_per_target: int = 3,
+    min_overlap: int = 2,
+    require_shared_turn: bool = True,
+    include_bead_ids: list[str] | None = None,
+) -> dict:
+    """Explicit candidate-only replacement for legacy causal backfill."""
+    return backfill_causal_links(
+        root,
+        apply=False,
+        max_per_target=max_per_target,
+        min_overlap=min_overlap,
+        require_shared_turn=require_shared_turn,
+        include_bead_ids=include_bead_ids,
+    )
 
 
 def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = False) -> dict:
@@ -394,7 +428,7 @@ def sync_structural_pipeline(root: Path, *, apply: bool = False, strict: bool = 
     applied_edges = 0
     if apply:
         for m in missing_edges:
-            add_structural_edge(root, src_id=m["src_id"], dst_id=m["dst_id"], rel=m["rel"], created_by="system", evidence=[{"reason": "sync_structural_pipeline"}])
+            add_structural_edge(root, src_id=m["src_id"], dst_id=m["dst_id"], rel=m["rel"], created_by="structural_projection", evidence=[{"reason": "sync_structural_pipeline", "provenance": "explicit_structural_field_projection"}])
             applied_edges += 1
 
     g = build_graph(root, write_snapshot=apply)
@@ -494,8 +528,8 @@ def backfill_structural_edges(root: Path) -> dict:
                     "class": "structural",
                     "immutable": True,
                     "created_at": _now(),
-                    "created_by": "system",
-                    "evidence": [],
+                    "created_by": "structural_projection",
+                    "evidence": [{"reason": "explicit_link_projection", "provenance": "explicit_structural_field_projection"}],
                 },
             )
             existing_keys.add(key)
@@ -535,8 +569,8 @@ def backfill_structural_edges(root: Path) -> dict:
                 "class": "structural",
                 "immutable": True,
                 "created_at": _now(),
-                "created_by": "system",
-                "evidence": [{"reason": "association_backfill", "association_id": assoc.get("id")}],
+                "created_by": "structural_projection",
+                "evidence": [{"reason": "association_backfill", "association_id": assoc.get("id"), "provenance": "explicit_structural_field_projection"}],
             },
         )
         existing_keys.add(key)
@@ -546,7 +580,7 @@ def backfill_structural_edges(root: Path) -> dict:
 
 
 def infer_structural_edges(root: Path, *, min_confidence: float = 0.9, apply: bool = False) -> dict:
-    """Deterministic structural inference with strict safety gates.
+    """Generate structural-edge candidates for agent/projection review.
 
     Rules:
     - only rel in {supports, derived_from}
@@ -618,20 +652,22 @@ def infer_structural_edges(root: Path, *, min_confidence: float = 0.9, apply: bo
         seen.add(k)
         uniq.append(c)
 
-    applied = 0
+    legacy_apply_requested = bool(apply)
     if apply:
-        for c in uniq:
-            add_structural_edge(
-                root,
-                src_id=c["src_id"],
-                dst_id=c["dst_id"],
-                rel=c["rel"],
-                created_by="system",
-                evidence=[{"turn_id": c.get("turn_id"), "confidence": c.get("confidence"), "reason": "deterministic_inference"}],
-            )
-            applied += 1
+        warnings.warn(
+            "graph infer-structural --apply is deprecated and now candidate-only; apply only agent-authored or explicit structural projections",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
-    return {"ok": True, "candidates": len(uniq), "applied": applied, "sample": uniq[:50]}
+    return {
+        "ok": True,
+        "candidates": len(uniq),
+        "applied": 0,
+        "legacy_apply_requested": legacy_apply_requested,
+        "candidate_only": True,
+        "sample": uniq[:50],
+    }
 
 
 def build_graph(root: Path, *, write_snapshot: bool = True, semantic_active_k: int = 50) -> dict:

@@ -275,12 +275,11 @@ def _classify_confidence(
 
 
 def _maybe_auto_endorse_goal(root: str | Path, finding: dict[str, Any], *, subject: str) -> dict[str, Any]:
-    """Flag-gated Goal Bead ``candidate → endorsed`` escalation (PRD-D §4.4).
+    """Return a possible goal endorsement without advancing canonical state.
 
-    The riskiest auto-action in PRD-D, so it is OFF by default
-    (``SOUL_GOAL_AUTO_ENDORSE``). Even when enabled it only fires for a
-    ``goal_candidate`` that reached the ``auto_write`` tier with no contradiction
-    flag. Best-effort: never breaks the proposal flow.
+    ``SOUL_GOAL_AUTO_ENDORSE`` is retained as a compatibility input, but even
+    when enabled it can only surface a review candidate.  A deterministic
+    Dreamer bridge may not endorse a goal by itself.
     """
     if finding.get("hypothesis_type") != "goal_candidate":
         return {"goal_auto_endorse": "not_applicable"}
@@ -289,8 +288,6 @@ def _maybe_auto_endorse_goal(root: str | Path, finding: dict[str, Any], *, subje
     if finding.get("authority_tier") != "auto_write" or finding.get("contradiction_present"):
         return {"goal_auto_endorse": "ineligible"}
     try:
-        from core_memory.persistence.goal_lifecycle_v2 import transition_goal_state_for_store
-        from core_memory.persistence.store import MemoryStore
         from core_memory.soul.goals import list_goals
 
         theme = str((finding.get("candidate") or {}).get("goal_theme") or "").strip().lower()
@@ -310,14 +307,12 @@ def _maybe_auto_endorse_goal(root: str | Path, finding: dict[str, Any], *, subje
         goal_bead_id = str(match.get("goal_bead_id") or match.get("bead_id") or match.get("id") or "")
         if not goal_bead_id:
             return {"goal_auto_endorse": "no_goal_bead_id"}
-        res = transition_goal_state_for_store(
-            MemoryStore(root=str(root)),
-            goal_bead_id=goal_bead_id,
-            to_state="endorsed",
-            reason="auto_write_soul_authoring",
-            actor="soul_dreamer_bridge",
-        )
-        return {"goal_auto_endorse": "endorsed" if res.get("ok") else "transition_failed", "goal_bead_id": goal_bead_id}
+        return {
+            "goal_auto_endorse": "advisory_candidate",
+            "goal_bead_id": goal_bead_id,
+            "recommended_status": "endorsed",
+            "canonical": False,
+        }
     except Exception as exc:  # never break authoring on a goal-tie failure
         return {"goal_auto_endorse": "error", "goal_auto_endorse_error": exc.__class__.__name__}
 

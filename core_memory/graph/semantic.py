@@ -17,7 +17,7 @@ def add_semantic_edge(
     dst_id: str,
     rel: str,
     w: float,
-    created_by: str = "system",
+    created_by: str = "agent_authored",
     evidence: list[dict] | None = None,
 ) -> dict[str, Any]:
     return _api_impl.add_semantic_edge(

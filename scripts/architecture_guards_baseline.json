@@ -1,6 +1,86 @@
 {
-  "generated_at": "2026-07-07T19:04:49.786973+00:00",
+  "generated_at": "2026-07-10T19:15:59.310506+00:00",
   "repo_root": ".",
+  "sanctioned_deterministic_writers": [
+    {
+      "provenance_requirement": "session_id and continuity snapshot",
+      "rationale": "Session boundaries are mechanical lifecycle records.",
+      "record_or_edge_class": "session_boundary_bead",
+      "symbol": "core_memory.runtime.session.session_start_flow.process_session_start_impl"
+    },
+    {
+      "provenance_requirement": "flush transaction id",
+      "rationale": "Flush checkpoints record process progress, not semantic interpretation.",
+      "record_or_edge_class": "flush_checkpoint_bead",
+      "symbol": "core_memory.runtime.flush.flush_state.upsert_process_flush_checkpoint_bead"
+    },
+    {
+      "provenance_requirement": "source id, source event id, and hydration ref",
+      "rationale": "External anchors preserve caller-owned source evidence.",
+      "record_or_edge_class": "external_evidence_anchor",
+      "symbol": "core_memory.runtime.ingest.external_evidence.ingest_external_evidence"
+    },
+    {
+      "provenance_requirement": "session id, turn id, and status history",
+      "rationale": "Pending/repair state is an operational receipt, never a canonical bead.",
+      "record_or_edge_class": "pending_semantic_state",
+      "symbol": "core_memory.runtime.turn.semantic_state.mark_semantic_write_state"
+    },
+    {
+      "provenance_requirement": "association or link source field",
+      "rationale": "Projects explicit persisted links and agent associations into structural edges.",
+      "record_or_edge_class": "explicit_structural_field_projection",
+      "symbol": "core_memory.graph.core.sync_structural_pipeline"
+    },
+    {
+      "provenance_requirement": "explicit link or association id",
+      "rationale": "Repairs graph projections from already persisted structural fields.",
+      "record_or_edge_class": "explicit_structural_field_projection",
+      "symbol": "core_memory.graph.core.backfill_structural_edges"
+    },
+    {
+      "provenance_requirement": "heuristic version and visible bead id",
+      "rationale": "Heuristic promotion signals are append-only advice only.",
+      "record_or_edge_class": "promotion_shadow_recommendation",
+      "symbol": "core_memory.persistence.promotion_service.decide_session_promotion_states_for_store"
+    },
+    {
+      "provenance_requirement": "score, threshold, and candidate bead id",
+      "rationale": "Candidate scoring is advisory rather than canonical promotion authority.",
+      "record_or_edge_class": "promotion_shadow_recommendation",
+      "symbol": "core_memory.persistence.promotion_service.evaluate_candidates_for_store"
+    },
+    {
+      "provenance_requirement": "score, threshold, and candidate bead id",
+      "rationale": "Rebalance results are demotion recommendations only.",
+      "record_or_edge_class": "promotion_shadow_recommendation",
+      "symbol": "core_memory.persistence.promotion_service.rebalance_promotions_for_store"
+    },
+    {
+      "provenance_requirement": "extractor mode and turn id",
+      "rationale": "Heuristic or legacy claim extraction is review context only.",
+      "record_or_edge_class": "claim_advisory",
+      "symbol": "core_memory.claim.turn_integration.extract_and_attach_claims"
+    },
+    {
+      "provenance_requirement": "trigger bead id and authored review provenance",
+      "rationale": "Automatic reconciliation is advice; explicit authored updates remain canonical.",
+      "record_or_edge_class": "claim_update_advisory",
+      "symbol": "core_memory.claim.update_policy.emit_claim_updates"
+    },
+    {
+      "provenance_requirement": "candidate id, explicit_agent_action, and scoped-resolution receipt",
+      "rationale": "An explicit agent decision can apply a reviewed conflict resolution.",
+      "record_or_edge_class": "governed_claim_resolution",
+      "symbol": "core_memory.runtime.dreamer.candidates.decide_dreamer_candidate"
+    },
+    {
+      "provenance_requirement": "candidate overlap and source/target ids",
+      "rationale": "Legacy causal backfill now emits candidates and deprecation telemetry only.",
+      "record_or_edge_class": "causal_link_candidate",
+      "symbol": "core_memory.graph.core.backfill_causal_links"
+    }
+  ],
   "schema_version": "core_memory.architecture_guards.v1",
   "violation_ids": [],
   "violations": []

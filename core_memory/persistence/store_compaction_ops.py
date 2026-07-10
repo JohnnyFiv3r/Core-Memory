@@ -36,53 +36,6 @@ def compact_for_store(
             if bead_id in skip:
                 continue
 
-            bead_status = str(bead.get("status") or "").lower()
-            bead_pstate = str(bead.get("promotion_state") or "").lower()
-            is_promoted = bool(bead.get("promoted")) or bead_pstate == "promoted" or bead_status == "promoted"
-
-            if promote and store.auto_promote_on_compact and not is_promoted:
-                btype = str(bead.get("type") or "").lower()
-                because = bead.get("because") or []
-                has_evidence = store._has_evidence(bead)
-                detail_now = (bead.get("detail") or "").strip()
-                has_link = bool(str(bead.get("linked_bead_id") or "").strip()) or bool(bead.get("links"))
-                allow_promote = False
-                score_meta = None
-                if bead_pstate == "candidate" or bead_status == "candidate" or bool(bead.get("promotion_candidate")):
-                    quality_gate = False
-                    if btype == "decision":
-                        quality_gate = bool(because and (has_evidence or detail_now or has_link))
-                    elif btype == "lesson":
-                        quality_gate = bool(because and (has_evidence or detail_now or has_link))
-                    elif btype == "outcome":
-                        result = str(bead.get("result") or "").strip().lower()
-                        quality_gate = result in {"resolved", "failed", "partial", "confirmed"} and (
-                            has_link or has_evidence or detail_now
-                        )
-                    elif btype == "precedent":
-                        quality_gate = bool(str(bead.get("condition") or "").strip() and str(bead.get("action") or "").strip())
-                    elif btype in {"evidence", "design_principle", "hypothesis", "data_insight"}:
-                        quality_gate = bool(has_evidence or detail_now or has_link)
-
-                    if quality_gate:
-                        allow_promote, score_meta = store._candidate_promotable(index, bead)
-
-                if allow_promote:
-                    bead["promoted"] = True
-                    bead["promotion_candidate"] = True  # was candidate before
-                    bead["status"] = "open"  # status no longer encodes promotion
-                    bead["promotion_state"] = "promoted"
-                    bead["promotion_locked"] = True
-                    bead["promoted_at"] = datetime.now(timezone.utc).isoformat()
-                    if score_meta:
-                        bead["promotion_score"] = score_meta.get("score")
-                        bead["promotion_threshold"] = score_meta.get("threshold")
-                        bead["promotion_reason"] = str(
-                            bead.get("promotion_reason") or f"{score_meta.get('reason')}:{score_meta.get('score')}"
-                        )
-                    else:
-                        bead["promotion_reason"] = str(bead.get("promotion_reason") or "policy_auto_promote")
-
             bead_type = str(bead.get("type", "")).lower()
             bead_status = str(bead.get("status", "")).lower()
             bead_pstate = str(bead.get("promotion_state") or "").lower()
@@ -126,6 +79,7 @@ def compact_for_store(
             "only_bead_ids": len(only),
             "skip_bead_ids": len(skip),
             "force_archive_all": bool(force_archive_all),
+            "promotion_apply_ignored": bool(promote and getattr(store, "auto_promote_on_compact", False)),
         }
 
 

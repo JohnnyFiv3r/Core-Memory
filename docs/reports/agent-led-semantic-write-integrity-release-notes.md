@@ -31,10 +31,11 @@ delegated agent authorship.
   `emit_turn_finalized(...)` facade remains event-only for one compatibility
   window; new processed Python callers should use `write_turn_finalized(...)`.
 - `core-memory graph backfill-causal-links --apply` is deprecated because it
-  applies deterministic semantic relationships. The first rollout release
-  keeps the flag with a warning and telemetry while shipping the
-  candidate-plus-agent-judge replacement. The following documented release
-  rejects `--apply` with migration guidance.
+  formerly applied deterministic semantic relationships. It is candidate-only
+  immediately: during one compatibility window the flag emits a warning and
+  telemetry but writes no causal links. Use `core-memory graph causal-candidates`
+  followed by the agent judge/apply flow; a following documented release rejects
+  `--apply` with migration guidance.
 
 These notices are prospective. Shipped version numbers and exact removal dates
 must be filled in by the implementation PR that activates each behavior.

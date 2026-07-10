@@ -56,6 +56,7 @@ def enqueue_turn_enrichment(
     req: dict[str, Any],
     reviewed_updates: dict[str, Any] | None = None,
     crawler_ctx: dict[str, Any] | None = None,
+    authorship: dict[str, Any] | None = None,
     structural_coverage_missing: bool = False,
 ) -> dict[str, Any] | None:
     """Enqueue semantic-write and post-write enrichment stages for a turn.
@@ -103,6 +104,7 @@ def enqueue_turn_enrichment(
             "delta_quarantine": quarantine_result,
             "crawler_visible_bead_ids": list((crawler_ctx or {}).get("visible_bead_ids") or []),
             "metadata": dict(req.get("metadata") or {}),
+            "authorship": dict(authorship or req.get("authorship_provenance") or {}),
             "window_bead_ids": list(req.get("window_bead_ids") or []),
             "structural_coverage_missing": bool(structural_coverage_missing),
         },
@@ -247,6 +249,7 @@ def run_turn_enrichment(
                 "turn_id": turn_id,
                 "user_query": payload.get("user_query", ""),
                 "_judged_claims": list(payload.get("judged_claims") or []),
+                "authorship": dict(payload.get("authorship") or {}),
             }
             claim_telemetry = extract_and_attach_claims(root, session_id, turn_id, created_bead_ids, req_stub) or {}
             results["stages_completed"].append("claims")
@@ -284,6 +287,8 @@ def run_turn_enrichment(
             session_id=session_id,
             visible_bead_ids=visible_ids,
             turn_id=turn_id,
+            updates=reviewed_updates,
+            authorship=dict(payload.get("authorship") or {}),
         )
         results["decision_pass"] = decision_pass
         results["stages_completed"].append("decision_pass")
@@ -317,6 +322,7 @@ def run_turn_enrichment(
                         visible_bead_ids=claim_visible_ids,
                         reviewed_updates=reviewed_updates,
                         decision_pass=decision_pass,
+                        authorship=dict(payload.get("authorship") or {}),
                     )
                     or []
                 )
@@ -329,10 +335,10 @@ def run_turn_enrichment(
     # Stage 7: memory outcome
     if claim_layer_enabled():
         try:
-            from core_memory.runtime.engine import classify_memory_outcome, write_memory_outcome_to_bead
+            from core_memory.runtime.engine import classify_memory_outcome
 
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
-            memory_outcome_written = False
+            memory_outcome_advisory: dict[str, Any] | None = None
             if canonical_bead_id:
                 md = dict(payload.get("metadata") or {})
                 context_beads = list(
@@ -347,15 +353,11 @@ def run_turn_enrichment(
                 }
                 outcome = classify_memory_outcome(turn_context)
                 if isinstance(outcome, dict):
-                    write_memory_outcome_to_bead(
-                        root,
-                        canonical_bead_id,
-                        interaction_role=outcome.get("interaction_role"),
-                        memory_outcome=outcome.get("memory_outcome"),
-                    )
-                    memory_outcome_written = True
+                    memory_outcome_advisory = dict(outcome)
+            results["memory_outcome_advisory"] = memory_outcome_advisory
             results["stages_completed"].append("memory_outcome")
-            stage_results["memory_outcome"]["written"] = memory_outcome_written
+            stage_results["memory_outcome"]["written"] = False
+            stage_results["memory_outcome"]["advisory"] = bool(memory_outcome_advisory)
         except Exception as exc:
             logger.warning("enrichment: memory outcome failed for turn %s: %s", turn_id, exc)
             results["stages_failed"].append("memory_outcome")

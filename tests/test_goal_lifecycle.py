@@ -19,7 +19,7 @@ class TestGoalLifecycleResolution(unittest.TestCase):
         p.parent.mkdir(parents=True, exist_ok=True)
         p.write_text(json.dumps(row) + "\n", encoding="utf-8")
 
-    def test_outcome_resolves_explicitly_visible_candidate_goal(self):
+    def test_outcome_recommends_explicitly_visible_candidate_goal_for_agent_review(self):
         with tempfile.TemporaryDirectory(prefix="cm-goal-lifecycle-") as td:
             root = Path(td)
             self._write_index(
@@ -60,20 +60,21 @@ class TestGoalLifecycleResolution(unittest.TestCase):
             )
 
             self.assertTrue(out["ok"])
-            self.assertEqual(1, out["resolved"])
+            self.assertTrue(out["candidate_only"])
+            self.assertEqual(1, out["evaluated"])
+            self.assertEqual(0, out["resolved"])
             idx = json.loads((root / ".beads" / "index.json").read_text(encoding="utf-8"))
             goal = idx["beads"]["goal-1"]
-            self.assertEqual("resolved", goal["status"])
-            self.assertEqual("resolved", goal["promotion_state"])
-            self.assertEqual("outcome-1", goal["resolved_by_bead_id"])
-            assoc = idx["associations"][0]
-            self.assertEqual("outcome-1", assoc["source_bead"])
-            self.assertEqual("goal-1", assoc["target_bead"])
-            self.assertEqual("resolves", assoc["relationship"])
-            self.assertEqual("t1", assoc["turn_id"])
-            self.assertEqual(["goal-1", "outcome-1"], assoc["evidence_bead_ids"])
-            self.assertIn("grounding_hash", assoc)
-            self.assertEqual(["goal-1", "outcome-1"], assoc["visible_bead_ids"])
+            self.assertEqual("open", goal["status"])
+            self.assertEqual("candidate", goal["promotion_state"])
+            self.assertEqual([], idx["associations"])
+            candidate = out["candidates"][0]
+            self.assertEqual("outcome-1", candidate["source_bead"])
+            self.assertEqual("goal-1", candidate["target_bead"])
+            self.assertEqual("resolves", candidate["relationship_candidate"])
+            self.assertEqual("t1", candidate["turn_id"])
+            self.assertEqual(["goal-1", "outcome-1"], sorted(candidate["evidence_bead_ids"]))
+            self.assertFalse(candidate["canonical"])
 
     def test_cross_session_goal_must_be_explicitly_visible(self):
         with tempfile.TemporaryDirectory(prefix="cm-goal-lifecycle-") as td:

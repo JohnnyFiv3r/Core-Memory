@@ -1,4 +1,4 @@
-"""Tests for preview-classifier fallback in apply_crawler_updates (TODO #3)."""
+"""Preview classification may propose pairs but cannot author canonical relations."""
 from __future__ import annotations
 
 import json
@@ -38,8 +38,8 @@ class TestClassifierFallback(unittest.TestCase):
         )
         return s, b1, b2
 
-    def test_empty_relationship_gets_filled_by_classifier(self):
-        """An association with empty relationship should receive a classifier-inferred type."""
+    def test_empty_relationship_is_quarantined_for_agent_judge(self):
+        """An association without an agent relation is never queued as canonical."""
         with tempfile.TemporaryDirectory() as td:
             s, b1, b2 = self._setup_store_with_two_beads(td)
 
@@ -60,12 +60,11 @@ class TestClassifierFallback(unittest.TestCase):
                 },
                 visible_bead_ids=[b1, b2],
             )
-            # Classifier fills the relationship, so the association should be queued (not quarantined)
-            self.assertEqual(result.get("associations_appended"), 1, result)
-            self.assertEqual(result.get("associations_quarantined"), 0, result)
+            self.assertEqual(result.get("associations_appended"), 0, result)
+            self.assertEqual(result.get("associations_quarantined"), 1, result)
 
-    def test_none_relationship_gets_filled_by_classifier(self):
-        """An association with None relationship should receive a classifier-inferred type."""
+    def test_none_relationship_is_quarantined_for_agent_judge(self):
+        """A null relation also requires a full-schema agent repair/judge."""
         with tempfile.TemporaryDirectory() as td:
             s, b1, b2 = self._setup_store_with_two_beads(td)
 
@@ -86,7 +85,8 @@ class TestClassifierFallback(unittest.TestCase):
                 },
                 visible_bead_ids=[b1, b2],
             )
-            self.assertEqual(result.get("associations_appended"), 1, result)
+            self.assertEqual(result.get("associations_appended"), 0, result)
+            self.assertEqual(result.get("associations_quarantined"), 1, result)
 
     def test_explicit_relationship_is_not_overridden(self):
         """Agent-supplied relationships must be preserved; classifier must not fire."""
@@ -147,8 +147,8 @@ class TestClassifierFallback(unittest.TestCase):
         canonical = {"supports", "led_to", "caused_by", "associated_with", "precedes", "follows"}
         self.assertIn(rel, canonical)
 
-    def test_classifier_fills_provenance(self):
-        """When classifier fills the relationship, provenance should be preview_classifier."""
+    def test_missing_relationship_quarantine_has_repair_provenance(self):
+        """A preview classifier cannot silently create a canonical association."""
         with tempfile.TemporaryDirectory() as td:
             s, b1, b2 = self._setup_store_with_two_beads(td)
 
@@ -174,9 +174,17 @@ class TestClassifierFallback(unittest.TestCase):
             idx = json.loads(idx_path.read_text())
             assocs = [a for a in idx.get("associations", [])
                       if a.get("source_bead") == b1 and a.get("target_bead") == b2]
-            self.assertTrue(len(assocs) > 0)
-            # All classifier-filled associations should record preview_classifier provenance
-            self.assertTrue(any(a.get("provenance") == "preview_classifier" for a in assocs), assocs)
+            self.assertEqual([], assocs)
+            quarantine_path = Path(td) / ".beads" / "events" / "association-quarantine.jsonl"
+            quarantine_rows = [json.loads(line) for line in quarantine_path.read_text().splitlines() if line.strip()]
+            self.assertTrue(
+                any(
+                    "missing_relationship_requires_agent_judge" in row.get("reasons", [])
+                    and "preview_classifier_cannot_author_canonical_relation" in row.get("warnings", [])
+                    for row in quarantine_rows
+                ),
+                quarantine_rows,
+            )
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ from core_memory.graph.semantic import (
 from core_memory.graph.structural import (
     add_structural_edge,
     backfill_causal_links,
+    causal_link_candidates,
     backfill_structural_edges,
     infer_structural_edges,
     sync_structural_pipeline,

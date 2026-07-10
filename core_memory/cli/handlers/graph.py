@@ -8,6 +8,7 @@ from core_memory.graph.core import build_graph, graph_stats
 from core_memory.graph.structural import (
     backfill_causal_links,
     backfill_structural_edges,
+    causal_link_candidates,
     infer_structural_edges,
     sync_structural_pipeline,
 )
@@ -47,26 +48,24 @@ def handle_graph_command(*, args: Any, memory: Any, graph_parser: Any) -> bool:
         print(json.dumps(out, indent=2))
         if args.strict and not out.get("ok"):
             raise SystemExit(2)
-    elif args.graph_cmd == "backfill-causal-links":
+    elif args.graph_cmd in {"backfill-causal-links", "causal-candidates"}:
         target_ids = list(args.bead_id or [])
         if args.bead_ids_file:
             payload = json.loads(Path(args.bead_ids_file).read_text(encoding="utf-8"))
             if not isinstance(payload, list):
                 raise SystemExit("--bead-ids-file must contain a JSON array")
             target_ids.extend([str(x) for x in payload])
-        print(
-            json.dumps(
-                backfill_causal_links(
-                    memory.root,
-                    apply=args.apply,
-                    max_per_target=args.max_per_target,
-                    min_overlap=args.min_overlap,
-                    require_shared_turn=not bool(args.no_require_shared_turn),
-                    include_bead_ids=target_ids,
-                ),
-                indent=2,
-            )
-        )
+        kwargs = {
+            "max_per_target": args.max_per_target,
+            "min_overlap": args.min_overlap,
+            "require_shared_turn": not bool(args.no_require_shared_turn),
+            "include_bead_ids": target_ids,
+        }
+        if args.graph_cmd == "backfill-causal-links":
+            out = backfill_causal_links(memory.root, apply=args.apply, **kwargs)
+        else:
+            out = causal_link_candidates(memory.root, **kwargs)
+        print(json.dumps(out, indent=2))
     elif args.graph_cmd == "association-health":
         from core_memory.association.health import association_health_report
 

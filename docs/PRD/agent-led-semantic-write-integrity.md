@@ -866,8 +866,9 @@ semantics when the authored contract is missing or invalid.
    boundaries, flush checkpoints, source-attributed external evidence anchors,
    pending-semantic state, and explicit structural-field projections.
 7. Make the architecture guard fail on unlisted deterministic semantic writers.
-8. Add a candidate-only replacement for `backfill-causal-links`; retain legacy
-   `--apply` for its documented deprecation release with warnings and telemetry.
+8. Add a candidate-only replacement for `backfill-causal-links`. During one
+   documented compatibility window, accept legacy `--apply` only to emit a
+   deprecation warning and telemetry; it must not write semantic links.
 
 **Exit condition:** canonical promotion, claims, and semantic relationships have
 agent-issued provenance, and all deterministic writers are explicitly
@@ -881,9 +882,9 @@ classified.
 3. Let the agent judge relation, direction, or `no_link`.
 4. Add association-judge readiness checks and pending-age metrics.
 5. Separate structural continuity from semantic causal graph metrics.
-6. After the compatibility-ledger deprecation window, reject
-   `backfill-causal-links --apply` with migration guidance to the candidate and
-   judge flow.
+6. During the compatibility-ledger deprecation window, treat
+   `backfill-causal-links --apply` as candidate-only and emit migration
+   guidance. Reject the argument after that window.
 
 **Exit condition:** causal fixtures can produce justified non-temporal
 relationships, and the judge is never asked to infer them without the evidence
@@ -1113,9 +1114,10 @@ An emergency legacy mode may remain temporarily, but every use must:
 - existing stored beads retain their historical retrieval eligibility until
   explicitly reauthored. Quality comparisons must segment legacy
   pre-contract, `agent_authored_updates.v1`, and backfilled cohorts.
-- `graph backfill-causal-links --apply` follows the deprecation and removal
-  schedule recorded in `docs/compatibility_ledger.md`; its replacement is the
-  candidate-plus-agent-judge flow.
+- `graph backfill-causal-links --apply` is candidate-only immediately. It
+  follows the warning-and-removal schedule recorded in
+  `docs/compatibility_ledger.md`; its replacement is the candidate-plus-agent-
+  judge flow.
 
 ### 15.3 Hosted-deployment migration
 
@@ -1189,7 +1191,7 @@ secondary operational number.
 | Existing clients depend on fallback context beads | Provide a deprecation window and a visible legacy-emergency mode |
 | Promotion behavior changes retention | Run agent and heuristic decisions side-by-side for at least 20 completed sessions and 100 promotion-eligible beads; require 99% agent-decision coverage, review every divergence, and leave zero unresolved high-severity heuristic-only promotions before disabling writes |
 | Hosted capture has no live authoring agent | Request the full `turn_memory_authoring` delegated task and land backend support with the bridge switch |
-| Compatibility break in causal backfill CLI | Ledger the surface, ship candidate-only replacement and warnings first, then reject legacy `--apply` after the documented deprecation window |
+| Compatibility break in causal backfill CLI | Ledger the surface, make `--apply` candidate-only immediately with warnings and telemetry, then reject the legacy argument after the documented deprecation window |
 
 ---
 
