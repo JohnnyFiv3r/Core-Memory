@@ -7,13 +7,16 @@ import os
 import random
 import sys
 import time
-from core_memory.provider_config import resolve_embedding_config, normalize_provider, default_embedding_model as provider_default_embedding_model
 import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from core_memory.provider_config import default_embedding_model as provider_default_embedding_model
+from core_memory.provider_config import normalize_provider, resolve_embedding_config
+
+from .chunk_evidence import build_chunk_evidence_corpus, resolve_semantic_hits
 from .lifecycle import enqueue_semantic_rebuild
 from .normalize import tokenize
 from .vector_backend import create_vector_backend
@@ -713,11 +716,27 @@ def _row_metadata(row: dict[str, Any]) -> dict[str, Any]:
         # keep this flag present so filtered Qdrant vector search can return
         # newly added/re-embedded points before the next full rebuild.
         "retrieval_eligible": bool(row.get("retrieval_eligible", True)),
+        "unit": str(row.get("unit") or "bead"),
+        "parent_bead_id": str(row.get("parent_bead_id") or ""),
+        "evidence_turn_id": str(row.get("evidence_turn_id") or ""),
+        "incident_id": str(row.get("incident_id") or ""),
+        "topics": list(row.get("topics") or []),
     }
 
 
 def _row_metadata_changed(prev: dict[str, Any], nxt: dict[str, Any]) -> bool:
-    keys = ("status", "session_id", "source_surface", "created_at", "retrieval_eligible")
+    keys = (
+        "status",
+        "session_id",
+        "source_surface",
+        "created_at",
+        "retrieval_eligible",
+        "unit",
+        "parent_bead_id",
+        "evidence_turn_id",
+        "incident_id",
+        "topics",
+    )
     for k in keys:
         if str(prev.get(k) or "") != str(nxt.get(k) or ""):
             return True
@@ -869,11 +888,22 @@ def _rows_from_corpus(corpus: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "source_surface": str(r.get("source_surface") or ""),
                 "created_at": str(r.get("created_at") or ""),
                 "retrieval_eligible": bool(r.get("retrieval_eligible", True)),
+                "unit": str(r.get("unit") or "bead"),
+                "parent_bead_id": str(r.get("parent_bead_id") or ""),
+                "evidence_turn_id": str(r.get("evidence_turn_id") or ""),
+                "incident_id": str(r.get("incident_id") or ""),
+                "topics": list(r.get("tags") or r.get("topics") or []),
                 "semantic_text": txt,
                 "semantic_text_hash": hashlib.sha256(txt.encode("utf-8")).hexdigest(),
             }
         )
     return rows
+
+
+def _build_semantic_corpus(root: Path) -> list[dict[str, Any]]:
+    visible_beads = build_visible_corpus(root)
+    evidence_rows = build_chunk_evidence_corpus(root, visible_bead_rows=visible_beads)
+    return visible_beads + evidence_rows
 
 
 def _fingerprint(rows: list[dict[str, Any]]) -> str:
@@ -1013,7 +1043,7 @@ def build_semantic_index(root: Path) -> dict:
         }
 
     try:
-        corpus = build_visible_corpus(root)
+        corpus = _build_semantic_corpus(root)
         rows = _rows_from_corpus(corpus)
         texts = [str(r.get("semantic_text") or "") for r in rows]
 
@@ -1036,17 +1066,7 @@ def build_semantic_index(root: Path) -> dict:
                     # Pre-creating with VectorParams(size=1536) would produce incompatible params.
                     vb = _create_external_backend(root=root, backend=vector_backend, dimension=0)
                     bead_ids = [str(r.get("bead_id") or "") for r in rows]
-                    metadatas = [
-                        {
-                            "status": c.get("status"),
-                            "session_id": c.get("session_id"),
-                            "source_surface": c.get("source_surface"),
-                            "created_at": c.get("created_at"),
-                            "retrieval_eligible": True,
-                            "topics": list(c.get("tags") or []),
-                        }
-                        for c in corpus
-                    ]
+                    metadatas = [_row_metadata(row) for row in rows]
                     vb.upsert_texts(bead_ids=bead_ids, texts=texts, metadatas=metadatas)
                     # dim is managed by FastEmbed; use sentinel to skip external-dim validation
                     dim = 1
@@ -1060,18 +1080,11 @@ def build_semantic_index(root: Path) -> dict:
                     vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
                     dim = _vector_dim(vecs, fallback=256 if texts else 0)
                     vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
-                    for row, c, emb in zip(rows, corpus, _vector_rows(vecs)):
+                    for row, emb in zip(rows, _vector_rows(vecs)):
                         vb.upsert(
                             bead_id=str(row.get("bead_id") or ""),
                             embedding=emb,
-                            metadata={
-                                "status": c.get("status"),
-                                "session_id": c.get("session_id"),
-                                "source_surface": c.get("source_surface"),
-                                "created_at": c.get("created_at"),
-                                "retrieval_eligible": True,
-                                "topics": list(c.get("tags") or []),
-                            },
+                            metadata=_row_metadata(row),
                         )
                 else:
                     vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=256)
@@ -1081,12 +1094,7 @@ def build_semantic_index(root: Path) -> dict:
                         vb.upsert(
                             bead_id=str(row.get("bead_id") or ""),
                             embedding=emb,
-                            metadata={
-                                "status": row.get("status"),
-                                "session_id": row.get("session_id"),
-                                "source_surface": row.get("source_surface"),
-                                "created_at": row.get("created_at"),
-                            },
+                            metadata=_row_metadata(row),
                         )
                 backend = vector_backend
                 semantic_ready = True
@@ -1179,6 +1187,7 @@ def build_semantic_index(root: Path) -> dict:
                 "corpus_fingerprint": fp,
                 "built_at": _now(),
                 "row_count": len(rows),
+                "evidence_row_count": sum(1 for row in rows if row.get("unit") == "chunk_evidence"),
                 "dirty": False,
                 "last_dirty_at": prev.get("last_dirty_at"),
                 "last_dirty_reason": prev.get("last_dirty_reason"),
@@ -1228,6 +1237,7 @@ def build_semantic_index(root: Path) -> dict:
             "corpus_fingerprint": fp,
             "built_at": _now(),
             "row_count": len(rows),
+            "evidence_row_count": sum(1 for row in rows if row.get("unit") == "chunk_evidence"),
             "dirty": False,
             "last_dirty_at": prev.get("last_dirty_at"),
             "last_dirty_reason": prev.get("last_dirty_reason"),
@@ -1307,13 +1317,21 @@ def apply_semantic_delta(root: Path) -> dict[str, Any]:
             }
 
         manifest = _read_manifest(manifest_file)
-        provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
-        model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(provider)).strip()
+        fastembed_mode = (
+            vector_backend == VECTOR_BACKEND_QDRANT
+            and str(manifest.get("provider") or "").strip().lower() == "fastembed"
+        )
+        if fastembed_mode:
+            provider = "fastembed"
+            model = str(manifest.get("model") or "").strip()
+        else:
+            provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
+            model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(provider)).strip()
 
         prev_rows = _read_rows(rows_file)
         prev_by_id = {str(r.get("bead_id") or ""): dict(r) for r in prev_rows if str(r.get("bead_id") or "")}
 
-        visible_rows = _rows_from_corpus(build_visible_corpus(root))
+        visible_rows = _rows_from_corpus(_build_semantic_corpus(root))
         next_by_id = {str(r.get("bead_id") or ""): dict(r) for r in visible_rows if str(r.get("bead_id") or "")}
 
         prev_ids = set(prev_by_id.keys())
@@ -1348,19 +1366,31 @@ def apply_semantic_delta(root: Path) -> dict[str, Any]:
 
         if embed_ids:
             texts = [str((next_by_id.get(bid) or {}).get("semantic_text") or "") for bid in embed_ids]
-            vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=dim)
-            dim = max(1, _vector_dim(vecs, fallback=dim))
-            vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
-            vec_rows = _vector_rows(vecs)
-            if len(vec_rows) != len(embed_ids):
-                raise RuntimeError("semantic_delta_embedding_count_mismatch")
-            for bid, emb in zip(embed_ids, vec_rows):
-                row = next_by_id.get(bid) or {}
-                vb.upsert(bead_id=bid, embedding=emb, metadata=_row_metadata(row))
-                embedded += 1
+            if fastembed_mode:
+                vb = _create_external_backend(root=root, backend=vector_backend, dimension=0)
+                if not hasattr(vb, "upsert_texts"):
+                    raise RuntimeError("semantic_delta_fastembed_text_upsert_unsupported")
+                metadatas = [_row_metadata(next_by_id.get(bid) or {}) for bid in embed_ids]
+                vb.upsert_texts(bead_ids=embed_ids, texts=texts, metadatas=metadatas)  # type: ignore[attr-defined]
+                embedded = len(embed_ids)
+            else:
+                vecs = _embed_vectors(texts=texts, provider=provider, model=model, hash_dim=dim)
+                dim = max(1, _vector_dim(vecs, fallback=dim))
+                vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+                vec_rows = _vector_rows(vecs)
+                if len(vec_rows) != len(embed_ids):
+                    raise RuntimeError("semantic_delta_embedding_count_mismatch")
+                for bid, emb in zip(embed_ids, vec_rows):
+                    row = next_by_id.get(bid) or {}
+                    vb.upsert(bead_id=bid, embedding=emb, metadata=_row_metadata(row))
+                    embedded += 1
 
         if vb is None:
-            vb = _create_external_backend(root=root, backend=vector_backend, dimension=dim)
+            vb = _create_external_backend(
+                root=root,
+                backend=vector_backend,
+                dimension=0 if fastembed_mode else dim,
+            )
 
         for bid in metadata_only_ids:
             row = next_by_id.get(bid) or {}
@@ -1390,11 +1420,13 @@ def apply_semantic_delta(root: Path) -> dict[str, Any]:
             "dimension": int(dim),
             "backend": vector_backend,
             "vector_backend": vector_backend,
+            "semantic_ready": True,
             "backend_version": "v10-delta",
             "corpus_fingerprint": fp,
             "built_at": str(manifest.get("built_at") or _now()),
             "last_delta_at": _now(),
             "row_count": len(next_rows),
+            "evidence_row_count": sum(1 for row in next_rows if row.get("unit") == "chunk_evidence"),
             "dirty": False,
             "last_dirty_at": manifest.get("last_dirty_at"),
             "last_dirty_reason": manifest.get("last_dirty_reason"),
@@ -1486,7 +1518,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
             warn_once("semantic_build_on_read_disabled")
 
     # Dirty/fingerprint mismatch -> serve stale + enqueue rebuild when possible.
-    current_fp = _fingerprint(_rows_from_corpus(build_visible_corpus(root)))
+    current_fp = _fingerprint(_rows_from_corpus(_build_semantic_corpus(root)))
     dirty = bool(manifest.get("dirty")) or (str(manifest.get("corpus_fingerprint") or "") != current_fp)
     stale_age_ms: int | None = None
     if dirty:
@@ -1529,11 +1561,13 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
                     "bead_id": r.get("bead_id"),
                     "score": float(ov),
                     "status": r.get("status"),
+                    "metadata": _row_metadata(r),
                     "anchor_reason": "retrieved",
                 }
             )
         scored = sorted(scored, key=lambda x: (x.get("score", 0.0), str(x.get("bead_id") or "")), reverse=True)
-        return scored[: max(1, int(k))]
+        row_by_id = {str(r.get("bead_id") or ""): r for r in rows}
+        return resolve_semantic_hits(scored, row_by_id=row_by_id, k=max(1, int(k)))
 
     # If no usable rows yet, do sync build then lexical fallback response.
     if not rows:
@@ -1558,7 +1592,7 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
                 # dimension=0 preserves the FastEmbed sentinel so QdrantBackend skips VectorParams
                 # and does not recreate (or wipe) the existing FastEmbed collection.
                 vb = _create_external_backend(root=root, backend=backend_n, dimension=0)
-                raw = vb.hybrid_search(query, k=max(1, int(k)))
+                raw = vb.hybrid_search(query, k=max(1, int(k) * 3))
             else:
                 qv = _embed_vectors(
                     texts=[query],
@@ -1574,24 +1608,26 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
                     backend=backend_n,
                     dimension=max(1, _vector_dim(qv, fallback=int(manifest.get("dimension") or 256))),
                 )
-                raw = vb.search(q_rows[0], k=max(1, int(k)))
+                raw = vb.search(q_rows[0], k=max(1, int(k) * 3))
 
             row_by_id = {str(r.get("bead_id") or ""): r for r in rows}
-            out = []
+            unresolved = []
             for item in raw:
                 bead_id = str((item or {}).get("bead_id") or "")
                 if not bead_id:
                     continue
                 row = row_by_id.get(bead_id, {})
                 meta = (item or {}).get("metadata") or {}
-                out.append(
+                unresolved.append(
                     {
                         "bead_id": bead_id,
                         "score": float((item or {}).get("score") or 0.0),
                         "status": (meta.get("status") if isinstance(meta, dict) else None) or row.get("status"),
+                        "metadata": dict(meta) if isinstance(meta, dict) else {},
                         "anchor_reason": "retrieved",
                     }
                 )
+            out = resolve_semantic_hits(unresolved, row_by_id=row_by_id, k=max(1, int(k)))
 
             return {
                 "ok": True,
@@ -1624,13 +1660,13 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
             else:
                 raise RuntimeError(f"unsupported_backend:{backend}")
 
-            D, I = idx.search(qv, max(1, int(k)))
-            out = []
+            D, I = idx.search(qv, max(1, int(k) * 3))
+            unresolved = []
             for dist, row_idx in zip(D[0].tolist(), I[0].tolist()):
                 if row_idx < 0 or row_idx >= len(rows):
                     continue
                 r = rows[row_idx]
-                out.append(
+                unresolved.append(
                     {
                         "bead_id": r.get("bead_id"),
                         "score": float(dist),
@@ -1638,6 +1674,8 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
                         "anchor_reason": "retrieved",
                     }
                 )
+            row_by_id = {str(r.get("bead_id") or ""): r for r in rows}
+            out = resolve_semantic_hits(unresolved, row_by_id=row_by_id, k=max(1, int(k)))
             return {
                 "ok": True,
                 "degraded": False,

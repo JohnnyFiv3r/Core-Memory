@@ -13,12 +13,13 @@ descriptions.
 | Slice | Status |
 |---|---|
 | Versioned `chunk_turn_record.v1` HTTP ingest, idempotency, native hydration/adjacency, and version-filtered GC planning read | **Done in `memory.chunk_turns.v1`** |
-| Chunk evidence-vector indexing plus resolve-up to parent section beads | **Pending** |
+| Chunk evidence-vector indexing plus resolve-up to parent section beads | **Done in the semantic retrieval corpus** |
 | Recall Contract v2 (`hydration`, legacy effort aliases, opaque `expand`) | **Pending** |
 
 The chunk-turn boundary stores L2 source text in the engine's authoritative turn
-archive. It does not make chunks causal retrieval units and does not imply that
-the vector resolve-up or Recall v2 slices are complete.
+archive. Cited chunks now participate in semantic retrieval as evidence-only
+vector rows and resolve to their visible parent section bead before reranking or
+graph traversal. Chunk IDs never become causal bead IDs. Recall v2 remains open.
 
 ---
 

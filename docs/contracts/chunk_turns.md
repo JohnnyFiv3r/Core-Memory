@@ -58,9 +58,27 @@ The read surface returns matching chunk IDs and version metadata without chunk
 text. It supports version-aware inspection and GC planning; destructive GC is a
 separate governed operation.
 
+## Semantic indexing and resolve-up
+
+An accepted chunk queues semantic index maintenance. Core Memory projects a
+chunk into the semantic corpus only when a visible document-section bead:
+
+- cites the exact `chunk_id` in `source_turn_ids`;
+- carries the same `core_memory_unifying_id`; and
+- identifies the same `section_id` through `section_refs` or
+  `hydration_ref.target.section_id`.
+
+Orphan chunks, cross-document citations, and section mismatches fail closed and
+are not indexed. Each admitted chunk receives a namespaced, semantic-only vector
+ID. Semantic, hybrid, and degraded lexical results resolve that ID to the parent
+section bead before reranking, filtering, or graph traversal. Multiple chunk
+hits for one section deduplicate to the highest-scoring parent result while
+retaining `evidence_turn_ids` for diagnostics.
+
 ## Boundaries
 
 - `hydration_ref.v2` and `target.core_memory_unifying_id` are required.
 - Chunk records are hydration/evidence units, not causal bead units.
-- Chunk evidence-vector indexing and resolve-up into the parent section bead
-  are a separate retrieval slice.
+- Chunk IDs and semantic-only vector IDs are never returned as causal bead IDs.
+- Parent section-bead publication remains the caller's responsibility; chunks
+  are not indexable evidence until that visible parent exists.

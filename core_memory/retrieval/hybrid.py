@@ -4,12 +4,14 @@ import json
 from pathlib import Path
 from typing import Any
 
-from .types import Candidate
-from .lexical import lexical_lookup
-from core_memory.retrieval.semantic_index import semantic_lookup, _configured_vector_backend, VECTOR_BACKEND_QDRANT
-from core_memory.policy.incidents import matched_incident_ids, incident_match_strength
+from core_memory.policy.incidents import incident_match_strength, matched_incident_ids
+from core_memory.retrieval.chunk_evidence import resolve_semantic_hits
+from core_memory.retrieval.semantic_index import VECTOR_BACKEND_QDRANT, _configured_vector_backend, semantic_lookup
+
 from .config import INCIDENT_FLOOR, NORM_EPS
+from .lexical import lexical_lookup
 from .query_norm import resolve_query_anchors
+from .types import Candidate
 
 
 def _normalize(scores: list[float]) -> tuple[list[float], str]:
@@ -38,8 +40,8 @@ def _qdrant_hybrid_rows(root: Path, retrieval_query: str, k: int) -> list[dict[s
     """
     from core_memory.retrieval.semantic_index import (
         _create_external_backend,
-        _paths,
         _embed_vectors,
+        _paths,
         _vector_rows,
     )
     try:
@@ -85,6 +87,17 @@ def _qdrant_hybrid_rows(root: Path, retrieval_query: str, k: int) -> list[dict[s
         return []
 
 
+def _semantic_row_map(root: Path) -> dict[str, dict[str, Any]]:
+    from core_memory.retrieval.semantic_index import _paths, _read_rows
+
+    rows_file = _paths(root)[2]
+    return {
+        str(row.get("bead_id") or ""): row
+        for row in _read_rows(rows_file)
+        if str(row.get("bead_id") or "")
+    }
+
+
 def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex: float = 0.45) -> dict:
     anchor_meta = resolve_query_anchors(query, root)
     retrieval_query = str(anchor_meta.get("expanded_query") or query or "").strip()
@@ -96,6 +109,14 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
     _qdrant_fell_back = False
     if _configured_vector_backend() == VECTOR_BACKEND_QDRANT:
         qdrant_rows = _qdrant_hybrid_rows(root, retrieval_query, k=max(10, int(k) * 3))
+        if qdrant_rows:
+            row_by_id = _semantic_row_map(root)
+            qdrant_rows = resolve_semantic_hits(
+                qdrant_rows,
+                row_by_id=row_by_id,
+                k=max(1, int(k)),
+                include_metadata=True,
+            )
         if qdrant_rows:
             incident_matches = matched_incident_ids(query, root)
             topic_matches = {str(x.get("topic_key") or "") for x in (anchor_meta.get("matched_topics") or []) if x.get("topic_key")}
@@ -117,6 +138,9 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
                     "fused_score": fused_score,
                     "rank": rank,
                     "tie_break_policy": "qdrant_native",
+                    "anchor_reason": str(r.get("anchor_reason") or "retrieved"),
+                    "evidence_turn_ids": list(r.get("evidence_turn_ids") or []),
+                    "resolved_from_vector_ids": list(r.get("resolved_from_vector_ids") or []),
                 })
             return {
                 "ok": True,
@@ -146,6 +170,7 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
     lex_norm, lex_mode = _normalize([float(r.get("score") or 0.0) for r in lex_rows])
 
     by_id: dict[str, Candidate] = {}
+    semantic_provenance: dict[str, dict[str, Any]] = {}
 
     for i, r in enumerate(sem_rows):
         bid = str(r.get("bead_id") or "")
@@ -155,6 +180,12 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
         c.sem_score = float(sem_norm[i]) if i < len(sem_norm) else 0.0
         c.sem_rank = i + 1
         by_id[bid] = c
+        if r.get("evidence_turn_ids") or r.get("resolved_from_vector_ids"):
+            semantic_provenance[bid] = {
+                "anchor_reason": str(r.get("anchor_reason") or "retrieved"),
+                "evidence_turn_ids": list(r.get("evidence_turn_ids") or []),
+                "resolved_from_vector_ids": list(r.get("resolved_from_vector_ids") or []),
+            }
 
     for i, r in enumerate(lex_rows):
         bid = str(r.get("bead_id") or "")
@@ -205,6 +236,7 @@ def hybrid_lookup(root: Path, query: str, k: int = 8, w_sem: float = 0.55, w_lex
     ranked = []
     for rank, c in enumerate(out[: max(1, int(k))], start=1):
         row = c.to_dict()
+        row.update(semantic_provenance.get(c.bead_id) or {})
         row["rank"] = rank
         row["tie_break_policy"] = "fused>sem>lex>bead_id"
         ranked.append(row)
