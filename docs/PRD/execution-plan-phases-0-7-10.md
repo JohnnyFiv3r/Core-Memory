@@ -1,12 +1,28 @@
 # Execution Plan: Phases 0, 7 (remaining), 10
 
-**Branch:** `claude/validate-demo-todos-SCRSz` (or a new branch cut from it)
+**Status:** Complete — Graphiti/Zep, Obsidian, live Neo4j gating, and Phase 10 docs shipped
+**Historical branch:** `claude/validate-demo-todos-SCRSz` (or a new branch cut from it)
 **Prerequisite:** Phases 1–9 complete (confirmed). Phase 6 `BackendCapabilities` in place.
 **Scope:** Phase 0 cleanup, Phase 7 sub-phases 7e–7i + 7b live tests, Phase 10 10a–10g.
 
 ---
 
-## Dependency order
+## Current implementation note
+
+This one-pass execution plan is complete in the current tree. `docs/status.md`
+marks Phase 7e–7i and Phase 10a–10g done, and `docs/PRD/README.md` indexes this
+plan as done. The shipped surface includes `GraphitiGraphBackend`, the Zep alias,
+LLM-client injection guidance in `docs/graph_backend_plugin.md`,
+`ObsidianSyncTarget`, the graph backend plugin docs, and the workflow-dispatched
+Neo4j live test job.
+
+The sections below are retained as historical implementation context. Embedded
+code snippets and "new file" labels describe what the original plan proposed,
+not open work remaining today.
+
+---
+
+## Historical dependency order
 
 ```
 Step A  — side_effect_queue: add graphiti-episode-add job kind
@@ -912,12 +928,12 @@ Source: demo/TODO.md + docs/reports/todo-validation-2026-05-15.md
 [copy phase table from cleanup-plan.md with accurate [x]/[ ] state]
 
 ## Deferred items
-- Phase 7e–7i: Graphiti, Zep, Obsidian, plugin docs — now tracked in this plan
+- Phase 7e–7i: Graphiti, Zep, Obsidian, plugin docs — shipped; see `docs/status.md`
 - Phase 7b live tests: workflow_dispatch only; not a PR blocker
 - Phase 7 GraphitiLLM injection: user-facing; documented in graph_backend_plugin.md
 ```
 
-**`CLAUDE.md` phase table** — replace the "Not started" entries with accurate status
+**`CLAUDE.md` phase table** — replace stale phase entries with accurate status
 (cross-referenced from `docs/cleanup-plan.md`) and add a note:
 ```
 Authoritative completion state: `docs/status.md`
@@ -948,13 +964,13 @@ Authoritative completion state: `docs/status.md`
 | 04-graph-module-cleanup.md | 4 | Classify graph/api.py compat facade | Retained public compatibility |
 | 05-persistence-delegation-flatten.md | 5 | Flatten persistence delegation chain | Complete |
 | 06-storage-adapter-boundary.md | 6 | Unify StorageBackend capability tiers | Complete |
-| 07-neo4j-query-backend.md | 7 | Graph backend abstraction | 7a–7d complete; 7e–7i in progress |
+| 07-neo4j-query-backend.md | 7 | Graph backend abstraction | Complete through 7i; live provider tests env-gated |
 | 07b-execution-plan.md | 7b | Neo4j execution plan | Complete |
 | 07b-qdrant-kuzu-migration.md | 7b | Qdrant/Kuzu migration | Complete |
 | 08-init-wizard.md | 8 | core-memory init wizard + doctor | Complete |
 | 09-structural-consolidation.md | 9 | Structural consolidation | Complete (9a–9h) |
-| 10-documentation-consolidation.md | 10 | Documentation consolidation | In progress |
-| execution-plan-phases-0-7-10.md | 0,7,10 | One-pass execution plan | This document |
+| 10-documentation-consolidation.md | 10 | Documentation consolidation | Complete |
+| execution-plan-phases-0-7-10.md | 0,7,10 | One-pass execution plan | Complete |
 ```
 
 ---
