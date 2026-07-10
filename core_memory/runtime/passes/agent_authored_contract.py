@@ -94,6 +94,8 @@ def validate_agent_authored_updates(
     updates: dict[str, Any],
     *,
     max_create_per_turn: int | None = None,
+    turn_id: str = "",
+    require_v1: bool = False,
 ) -> tuple[bool, str | None, dict[str, Any]]:
     """Strict shape gate for agent-authored crawler updates.
 
@@ -103,6 +105,15 @@ def validate_agent_authored_updates(
         return False, ERROR_AGENT_UPDATES_INVALID, {"reason": "updates_not_dict"}
 
     is_v1 = str(updates.get("schema_version") or "") == AGENT_AUTHORED_UPDATES_V1
+    if require_v1 and not is_v1:
+        return (
+            False,
+            ERROR_AGENT_UPDATES_INVALID,
+            {
+                "reason": "agent_authored_updates_v1_required",
+                "expected_schema_version": AGENT_AUTHORED_UPDATES_V1,
+            },
+        )
     if is_v1:
         transport_ok, transport_errors = validate_agent_authored_updates_v1_transport(updates)
         if not transport_ok:
@@ -125,16 +136,42 @@ def validate_agent_authored_updates(
                 "row_count": len(rows) if isinstance(rows, list) else None,
             },
         )
-    if max_create_per_turn is not None and int(max_create_per_turn) > 0 and len(rows) > int(max_create_per_turn):
-        return (
-            False,
-            ERROR_AGENT_BEAD_FIELDS_MISSING,
-            {
-                "reason": "beads_create_exceeds_policy_max",
-                "row_count": len(rows),
-                "max_create_per_turn": int(max_create_per_turn),
-            },
-        )
+    # ``max_create_per_turn`` remains accepted for source compatibility, but
+    # semantic cardinality is a property of agent_authored_updates.v1 rather
+    # than an optional SidecarPolicy instance.
+    _ = max_create_per_turn
+
+    if is_v1:
+        current_rows = [
+            index
+            for index, row in enumerate(rows)
+            if isinstance(row, dict) and str(row.get("creation_role") or "").strip().lower() == "current_turn"
+        ]
+        derived_rows = [
+            index
+            for index, row in enumerate(rows)
+            if isinstance(row, dict) and str(row.get("creation_role") or "").strip().lower() == "derived"
+        ]
+        if len(current_rows) != 1:
+            return (
+                False,
+                ERROR_AGENT_BEAD_FIELDS_MISSING,
+                {
+                    "reason": "current_turn_cardinality_invalid",
+                    "current_turn_count": len(current_rows),
+                    "required": 1,
+                },
+            )
+        if len(derived_rows) > 2 or len(rows) != len(current_rows) + len(derived_rows):
+            return (
+                False,
+                ERROR_AGENT_BEAD_FIELDS_MISSING,
+                {
+                    "reason": "derived_cardinality_invalid",
+                    "derived_count": len(derived_rows),
+                    "max_derived_rows": 2,
+                },
+            )
 
     for row_index, row in enumerate(rows):
         if not isinstance(row, dict):
@@ -162,13 +199,51 @@ def validate_agent_authored_updates(
                 if (not isinstance(row.get(key), list)) if is_v1 else (not _list_text_present(row.get(key))):
                     missing_bead.append(key)
             elif key == "source_turn_ids":
-                if not _list_text_present(row.get(key)):
+                if (not isinstance(row.get(key), list)) if is_v1 else (not _list_text_present(row.get(key))):
                     missing_bead.append(key)
             else:
                 if not _field_present(row.get(key)):
                     missing_bead.append(key)
         if missing_bead:
             return False, ERROR_AGENT_BEAD_FIELDS_MISSING, {"row_index": row_index, "missing_bead_fields": missing_bead}
+
+        if is_v1:
+            role = str(row.get("creation_role") or "").strip().lower()
+            source_turn_ids = [str(item) for item in (row.get("source_turn_ids") or []) if str(item).strip()]
+            expected_turn_id = str(turn_id or "").strip()
+            if role == "current_turn" and expected_turn_id and expected_turn_id not in source_turn_ids:
+                return (
+                    False,
+                    ERROR_AGENT_BEAD_FIELDS_MISSING,
+                    {
+                        "reason": "current_turn_source_turn_missing",
+                        "row_index": row_index,
+                        "turn_id": expected_turn_id,
+                    },
+                )
+            if role == "derived":
+                derived_from = [str(item) for item in (row.get("derived_from_bead_ids") or []) if str(item).strip()]
+                if derived_from != ["$current_turn"]:
+                    return (
+                        False,
+                        ERROR_AGENT_BEAD_FIELDS_MISSING,
+                        {
+                            "reason": "derived_current_turn_link_invalid",
+                            "row_index": row_index,
+                            "expected": ["$current_turn"],
+                            "actual": derived_from,
+                        },
+                    )
+                if expected_turn_id and expected_turn_id in source_turn_ids:
+                    return (
+                        False,
+                        ERROR_AGENT_BEAD_FIELDS_MISSING,
+                        {
+                            "reason": "derived_row_claims_current_turn_source",
+                            "row_index": row_index,
+                            "turn_id": expected_turn_id,
+                        },
+                    )
 
         bead_type = str(row.get("type") or "").strip().lower()
         if bead_type in CAUSAL_BEAD_TYPES and not _list_text_present(row.get("because")):
@@ -253,7 +328,11 @@ def contract_snapshot() -> dict[str, object]:
         "summary_shape": "list[str]",
         "beads_create_exactly_one": False,
         "beads_create_min": 1,
-        "beads_create_max_policy": "SidecarPolicy.max_create_per_turn",
+        "beads_create_max": 3,
+        "current_turn_exactly_one": True,
+        "current_turn_rows": 1,
+        "max_derived_rows": 2,
+        "beads_create_max_policy": "contract_owned_not_sidecar_policy",
         "unknown_bead_fields": "reject",
         "associations_required": False,
     }

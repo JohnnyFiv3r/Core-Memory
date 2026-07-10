@@ -13,6 +13,7 @@ from core_memory.claim.outcomes import classify_memory_outcome
 from core_memory.claim.turn_integration import extract_and_attach_claims
 from core_memory.claim.update_policy import emit_claim_updates
 from core_memory.config.feature_flags import (
+    agent_authored_repair_enabled,
     agent_min_semantic_associations_after_first,
     claim_layer_enabled,
     resolved_agent_authored_gate,
@@ -26,6 +27,7 @@ from ..association.crawler_contract import (
 from ..persistence.store import MemoryStore
 from ..policy.bead_judge import judge_bead_fields
 from ..policy.bead_typing import CLASSIFIABLE_TYPES, is_retrieval_turn
+from ..policy.turn_memory_authoring import repair_turn_memory
 from ..retrieval.lifecycle import mark_turn_checkpoint
 from ..schema.agent_authored_updates import (
     AGENT_AUTHORED_UPDATES_V1,
@@ -398,7 +400,8 @@ def _resolve_reviewed_updates(
     if isinstance((invocation_diag or {}).get("authorship"), dict):
         gate["authorship"] = dict((invocation_diag or {})["authorship"])
 
-    if isinstance(reviewed, dict) and reviewed.get("schema_version") == AGENT_AUTHORED_UPDATES_V1:
+    is_v1 = isinstance(reviewed, dict) and reviewed.get("schema_version") == AGENT_AUTHORED_UPDATES_V1
+    if is_v1:
         transport_ok, transport_errors = validate_agent_authored_updates_v1_transport(reviewed)
         gate["transport_validation"] = {"ok": transport_ok, "errors": transport_errors}
         if not transport_ok and not required:
@@ -419,21 +422,29 @@ def _resolve_reviewed_updates(
             )
 
     if isinstance(reviewed, dict) and reviewed:
-        if required:
-            ok, code, details = validate_agent_authored_updates(reviewed, max_create_per_turn=max_create_per_turn)
+        if required or is_v1:
+            ok, code, details = validate_agent_authored_updates(
+                reviewed,
+                max_create_per_turn=max_create_per_turn,
+                turn_id=str(req.get("turn_id") or ""),
+                require_v1=required,
+            )
             gate["validation"] = details
             if not ok:
                 gate["error_code"] = code
-                if fail_open:
-                    gate["source"] = "default_fallback"
-                    gate["used_fallback"] = True
-                    fallback = _default_crawler_updates(req, root=root)
-                    for key in ("beads_create", "creations", "associations"):
-                        if isinstance(reviewed.get(key), list):
-                            fallback[key] = list(reviewed.get(key) or [])
-                    return fallback, gate
-                gate["blocked"] = True
-                return None, gate
+                if required:
+                    gate["blocked"] = True
+                    return None, gate
+                gate["source"] = "default_fallback"
+                gate["used_fallback"] = True
+                gate["warnings"].append(
+                    {
+                        "code": "invalid_v1_authorship_fell_back_in_warn_mode",
+                        "error_code": code,
+                        "details": details,
+                    }
+                )
+                return _default_crawler_updates(req, root=root), gate
         return dict(reviewed), gate
 
     if required:
@@ -448,9 +459,8 @@ def _resolve_reviewed_updates(
                 if req.get("_crawler_updates_source") or (isinstance(md, dict) and "crawler_updates" in md)
                 else ERROR_AGENT_UPDATES_MISSING
             )
-        if not fail_open:
-            gate["blocked"] = True
-            return None, gate
+        gate["blocked"] = True
+        return None, gate
 
     gate["source"] = "default_fallback"
     gate["used_fallback"] = True
@@ -501,12 +511,46 @@ def _enforce_structural_invariants(root: str, req: dict[str, Any], row: dict[str
     return out
 
 
-def _ensure_turn_creation_update(root: str, req: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+def _attach_runtime_creation_fields(req: dict[str, Any], row: dict[str, Any]) -> dict[str, Any]:
+    """Attach identifiers and source metadata without changing authored meaning."""
+
+    out = dict(row)
+    if not str(out.get("bead_id") or "").strip():
+        out["bead_id"] = f"bead-{uuid.uuid4().hex[:12].upper()}"
+    if not str(out.get("created_at") or "").strip():
+        out["created_at"] = datetime.now(timezone.utc).isoformat()
+    out["session_id"] = str(req.get("session_id") or "")
+    out["turn_id"] = str(req.get("turn_id") or "")
+    out["source_turn_ref"] = dict(
+        req.get("source_turn_ref")
+        or {
+            "turn_id": str(req.get("turn_id") or ""),
+            "session_id": str(req.get("session_id") or ""),
+            "speakers": list(req.get("speakers") or []),
+        }
+    )
+    return out
+
+
+def _ensure_turn_creation_update(
+    root: str,
+    req: dict[str, Any],
+    updates: dict[str, Any],
+    *,
+    strict_contract: bool = False,
+) -> dict[str, Any]:
     """Guarantee and structurally attach one canonical current-turn candidate."""
     out = dict(updates or {})
     key = "beads_create"
     rows = list(out.get(key) or [])
     turn_id = str(req.get("turn_id") or "")
+
+    if strict_contract or str(out.get("schema_version") or "") == AGENT_AUTHORED_UPDATES_V1:
+        # Validation already proved cardinality, roles, and grounding. The
+        # runtime may attach only its owned identifiers here; it must not fill,
+        # coerce, or pass a primary-agent row through the bead judge.
+        out[key] = [_attach_runtime_creation_fields(req, row) for row in rows if isinstance(row, dict)]
+        return out
 
     explicit_primary_indices = [
         index
@@ -631,6 +675,8 @@ def process_turn_finalized(
         build_crawler_context=build_crawler_context,
         invoke_turn_crawler_agent=invoke_turn_crawler_agent,
         resolve_reviewed_updates=lambda req, **kwargs: _resolve_reviewed_updates(req, root=root, **kwargs),
+        repair_enabled=bool(agent_authored_repair_enabled() or getattr(policy, "semantic_repair_enabled", False)),
+        repair_turn_memory_fn=repair_turn_memory,
         emit_agent_turn_quality_metric=_emit_agent_turn_quality_metric,
         session_visible_bead_ids=_session_visible_bead_ids,
         non_temporal_semantic_association_count=_non_temporal_semantic_association_count,

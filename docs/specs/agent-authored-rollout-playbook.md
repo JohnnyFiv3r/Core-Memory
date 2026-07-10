@@ -1,29 +1,30 @@
 # Agent-Authored Turn Memory Rollout Playbook
 
-Status: Slice 7 operational guidance
+Status: Hard-authorship cutover guidance
 
 ## Purpose
 Provide a safe progression from deterministic fallback behavior to strict agent-authored enforcement.
 
 ## Control knob
 - `CORE_MEMORY_AGENT_AUTHORED_MODE`
-  - `observe`
-  - `warn`
-  - `enforce`
+  - `hard` (shipping default)
+  - `warn` (temporary compatibility mode)
+  - `off` (legacy diagnostics only)
 
 Resolved gate behavior:
-- `observe` => `required=false`, `fail_open=true`
-- `warn` => `required=true`, `fail_open=true`
-- `enforce` => `required=true`, `fail_open=false`
+- `hard` / legacy `enforce` => `required=true`, `fail_open=false`
+- `warn` => `required=false`, `fail_open=true`
+- `off` / legacy `observe` => `required=false`, `fail_open=true`
 
-If mode is not set, legacy flags are used to derive equivalent behavior.
+If mode is not set, hard mode is used. `CORE_MEMORY_AGENT_AUTHORED_REQUIRED=1`
+remains a legacy way to force hard mode.
 
 ## Recommended rollout
 
-### Phase A: Observe
+### Compatibility diagnostics: Off
 Set:
 ```bash
-CORE_MEMORY_AGENT_AUTHORED_MODE=observe
+CORE_MEMORY_AGENT_AUTHORED_MODE=off
 ```
 Use this phase to baseline:
 - agent source rate
@@ -50,13 +51,23 @@ Command:
 core-memory --root <root> graph association-slo-check --strict
 ```
 
-### Phase C: Enforce
+### Production: Hard
 Set:
 ```bash
-CORE_MEMORY_AGENT_AUTHORED_MODE=enforce
+CORE_MEMORY_AGENT_AUTHORED_MODE=hard
 ```
-Missing/invalid agent-authored payloads fail closed.
-Use only after warn-phase SLOs are stable.
+Missing/invalid agent-authored payloads write a durable pending-semantic record
+and no canonical context bead.
+
+Explicit full-contract repair is off by default. Enable it only when attributed
+repair is intended:
+
+```bash
+CORE_MEMORY_AGENT_AUTHORED_REPAIR=1
+```
+
+Repair uses `turn_memory_authoring`, records primary and repair authorship
+separately, and returns field-level provenance for changed fields.
 
 ## Suggested SLO thresholds (starter)
 - min agent-authored rate: `0.80`
@@ -77,10 +88,11 @@ core-memory --root <root> graph association-slo-check \
 ```
 
 ## Incident response
-If enforce mode produces a high gate-blocked rate (`ok=False` +
-`gate_blocked=True`; turns persist as stub beads, so no memory is lost):
+If hard mode produces a high pending-semantic rate (`ok=False` +
+`semantic_status=pending|repair_required`; raw turn events remain durable):
 1. Temporarily switch to `warn`
 2. Inspect `agent_turn_quality` metrics + `error_code`
 3. Fix callable/payload formatting
 4. Re-run SLO check and return to enforce
-5. Backfill enrichment for stub beads written during the incident
+5. Retry pending semantics with valid inline/delegated authorship; do not create
+   deterministic stub beads

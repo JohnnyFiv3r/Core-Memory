@@ -3,7 +3,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 from core_memory.policy.bead_judge import judge_bead_fields
-from core_memory.policy.turn_memory_authoring import author_turn_memory
+from core_memory.policy.turn_memory_authoring import author_turn_memory, repair_turn_memory
 from core_memory.schema.agent_authored_updates import AGENT_AUTHORED_UPDATES_V1
 from core_memory.schema.semantic_tasks import (
     TASK_TURN_MEMORY_AUTHORING,
@@ -124,6 +124,38 @@ def test_delegated_author_rejects_narrow_legacy_judge_output() -> None:
     assert diag["ok"] is False
     assert diag["error_code"] == "delegated_semantic_author_invalid"
     assert diag["authorship"]["validation"]["ok"] is False
+
+
+def test_explicit_repair_uses_same_task_and_attributes_changed_fields() -> None:
+    runtime = FakeSemanticTaskRuntime(_delegated_output())
+    invalid = _delegated_output()
+    invalid["beads_create"][0].pop("because")
+    updates, diag = repair_turn_memory(
+        root="/tmp/core-memory-test",
+        req={
+            "session_id": "s1",
+            "turn_id": "t1",
+            "turns": [],
+            "speakers": [],
+            "authorship_provenance": {"source": "primary_agent"},
+        },
+        crawler_context={"session_id": "s1", "visible_bead_ids": [], "beads": []},
+        invalid_updates=invalid,
+        validation={"error_code": "agent_causal_rationale_missing"},
+        task_runtime=runtime,
+    )
+
+    assert updates == _delegated_output()
+    assert runtime.requests[0].task_type == TASK_TURN_MEMORY_AUTHORING
+    assert runtime.requests[0].authority_boundary == "semantic_repair_agent"
+    assert runtime.requests[0].metadata["authoring_operation"] == "repair"
+    assert "EXPLICIT REPAIR MODE" in runtime.requests[0].prompt
+    authorship = diag["authorship"]
+    assert authorship["source"] == "repair_agent"
+    assert authorship["repair_used"] is True
+    assert authorship["repaired_fields"] == ["$.beads_create[0].because[0]"]
+    assert authorship["primary_authorship"] == {"source": "primary_agent"}
+    assert authorship["field_provenance"]["$.beads_create[0].because[0]"]["task_receipt_id"] == "receipt-1"
 
 
 def test_bead_judge_task_name_is_a_compatibility_alias_for_full_v1_output() -> None:

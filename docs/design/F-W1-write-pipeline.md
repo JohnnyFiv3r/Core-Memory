@@ -117,7 +117,9 @@ If the SQLite backend is not active (user is on `JsonFileBackend`), fall back to
 | Claim extraction fails | Bead exists without claims | Next turn's claim pass may pick it up |
 | Queue file corrupted | Side effects skipped, turn already persisted | Rebuild queue from event log |
 
-**Key invariant:** A queued-stage failure never fails the turn. The bead is already persisted at the point any queued stage runs.
+**Key invariant:** A queued-stage failure never loses the finalized turn. When
+the canonical bead has not committed, the semantic receipt remains pending and
+the durable queue item is retryable.
 
 ### At-least-once semantics
 
@@ -142,11 +144,11 @@ flag is written after the association pass creates the canonical bead — on the
 inline path by `turn_flow`, on the queued path by `run_turn_enrichment`).
 
 A blocked agent-authored contract (missing/invalid `crawler_updates`,
-exhausted agent invocation) never drops the turn: a stub bead is written from
-the default creation update, the result carries `ok=False` +
-`gate_blocked=True` + the contract `error_code`, and gate-blocked turns run
-enrichment inline (the engine only drains the queue for `ok=True` results, so
-queueing would defer the stub indefinitely).
+exhausted agent invocation) never drops the raw turn event. Hard mode writes a
+pending-semantic record, creates no canonical fallback bead, returns
+`ok=False` plus the contract error, and skips enrichment until valid authorship
+commits. An explicitly enabled repair uses the full typed semantic task and
+records field-level repair provenance.
 
 In `off` mode, no gate check runs and the bead is persisted directly.
 
@@ -155,8 +157,11 @@ In `off` mode, no gate check runs and the bead is persisted directly.
 If the enrichment queue causes unexpected issues after deployment:
 
 1. **Disable the queue:** Set `CORE_MEMORY_ENRICHMENT_QUEUE=off` to run all stages synchronously on the critical path, restoring pre-F-W1 behavior.
-2. **Clear the queue:** Delete `.beads/events/side-effects-queue.json` — all pending enrichments are lost, but beads are already persisted.
-3. **Revert the PR:** Since beads are persisted on the critical path, reverting enrichment to synchronous loses no data.
+2. **Do not delete the queue:** it may contain a pending canonical semantic
+   write. Drain or retry it through the governed queue surface.
+3. **Revert queue execution only:** switching back to synchronous execution is
+   safe when the raw turn event remains durable and receipts are rechecked for
+   canonical commitment.
 
 ## Implementation Sequence
 

@@ -6,6 +6,7 @@ any other Core Memory module — safe to import from any layer.
 Moved here from integrations/openclaw_flags.py (Phase 9a). The openclaw-specific
 flag (supersede_openclaw_summary_enabled) remains in integrations/openclaw_flags.py.
 """
+
 from __future__ import annotations
 
 import os
@@ -81,6 +82,17 @@ def bead_judge_fallback_enabled() -> bool:
     return _env_bool("CORE_MEMORY_BEAD_JUDGE_FALLBACK", False)
 
 
+def agent_authored_repair_enabled() -> bool:
+    """Allow an explicit full-contract delegated repair attempt.
+
+    Repair is off by default and never uses the narrow bead-field judge. The
+    normal hard-authorship path remains pending until an operator or runtime
+    policy explicitly enables this attributed repair flow.
+    """
+
+    return _env_bool("CORE_MEMORY_AGENT_AUTHORED_REPAIR", False)
+
+
 def agent_min_semantic_associations_after_first() -> int:
     raw = os.environ.get("CORE_MEMORY_AGENT_MIN_SEMANTIC_ASSOC_AFTER_FIRST")
     try:
@@ -114,7 +126,7 @@ def agent_authored_mode() -> str:
         # REQUIRED=1 always means hard gate; FAIL_OPEN is a legacy hint that has
         # no effect when REQUIRED is set (agent-authored updates are mandatory).
         return "hard"
-    return "warn"
+    return "hard"
 
 
 def resolved_agent_authored_gate() -> dict[str, object]:
@@ -180,6 +192,7 @@ def runtime_flags_snapshot() -> dict[str, object]:
         "agent_crawler_invoke_enabled": agent_crawler_invoke_enabled(),
         "agent_crawler_max_attempts": agent_crawler_max_attempts(),
         "bead_judge_fallback_enabled": bead_judge_fallback_enabled(),
+        "agent_authored_repair_enabled": agent_authored_repair_enabled(),
         "agent_min_semantic_associations_after_first": agent_min_semantic_associations_after_first(),
         "preview_association_promotion_enabled": preview_association_promotion_enabled(),
         "preview_association_allow_shared_tag": preview_association_allow_shared_tag(),

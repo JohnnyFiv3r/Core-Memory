@@ -8,6 +8,16 @@ from unittest.mock import patch
 
 from core_memory.persistence.store import MemoryStore
 from core_memory.runtime.engine import process_turn_finalized
+from core_memory.schema.agent_authored_updates import AGENT_AUTHORED_UPDATES_V1
+
+
+def _v1(rows, associations=None):
+    return {
+        "schema_version": AGENT_AUTHORED_UPDATES_V1,
+        "beads_create": list(rows),
+        "associations": list(associations or []),
+        "reviewed_beads": [],
+    }
 
 
 class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
@@ -15,6 +25,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
             },
@@ -34,17 +45,18 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             self.assertTrue(gate.get("required"))
             self.assertTrue(gate.get("blocked"))
 
-            # Never-forget: the blocked gate surfaces the contract error but a
-            # stub bead is still persisted so the turn is recoverable.
+            # Never-forget is the raw turn event plus pending semantic state;
+            # hard mode must not fabricate a context bead.
             self.assertTrue(out.get("gate_blocked"))
-            self.assertTrue(out.get("bead_id"), "blocked gate must write a stub bead")
+            self.assertFalse(out.get("bead_id"))
             idx = MemoryStore(td)._read_json(Path(td) / ".beads" / "index.json")
-            self.assertIn(str(out.get("bead_id")), (idx.get("beads") or {}))
+            self.assertEqual({}, idx.get("beads") or {})
 
     def test_strict_mode_blocks_when_updates_invalid(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
             },
@@ -55,16 +67,17 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 session_id="s1",
                 turn_id="t1",
                 turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
-                metadata={"crawler_updates": {"beads_create": [{"title": "only title"}]}} ,
+                metadata={"crawler_updates": _v1([{"title": "only title"}])},
             )
             self.assertFalse(out.get("ok"))
-            self.assertEqual("agent_bead_fields_missing", out.get("error_code"))
-            self.assertEqual("agent_bead_fields_missing", (out.get("agent_contract_error") or {}).get("code"))
+            self.assertEqual("agent_updates_invalid", out.get("error_code"))
+            self.assertEqual("agent_updates_invalid", (out.get("agent_contract_error") or {}).get("code"))
 
     def test_required_flag_rejects_even_when_legacy_fail_open_is_set(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "1",
             },
@@ -87,6 +100,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
             },
@@ -102,9 +116,10 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 turn_id="t1",
                 turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
-                    "crawler_updates": {
-                        "beads_create": [
+                    "crawler_updates": _v1(
+                        [
                             {
+                                "creation_role": "current_turn",
                                 "type": "decision",
                                 "title": "Agent decided",
                                 "summary": ["summary"],
@@ -117,7 +132,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "source_turn_ids": ["t1"],
                             }
                         ],
-                        "associations": [
+                        [
                             {
                                 "source_bead_id": src_id,
                                 "target_bead_id": target_id,
@@ -126,7 +141,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "confidence": 0.6,
                             }
                         ],
-                    }
+                    )
                 },
             )
             self.assertTrue(out.get("ok"))
@@ -139,6 +154,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
             },
@@ -150,19 +166,24 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 turn_id="t1",
                 turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
-                    "crawler_updates": {
-                        # Missing required "title" field
-                        "beads_create": [{"type": "decision", "summary": ["summary"]}]
-                    }
+                    "crawler_updates": _v1([{
+                        "creation_role": "current_turn",
+                        "type": "decision",
+                        "summary": ["summary"],
+                        "entities": [],
+                        "retrieval_eligible": False,
+                        "source_turn_ids": ["t1"],
+                    }])
                 },
             )
             self.assertFalse(out.get("ok"))
-            self.assertEqual("agent_bead_fields_missing", out.get("error_code"))
+            self.assertEqual("agent_updates_invalid", out.get("error_code"))
 
     def test_strict_mode_allows_missing_associations_on_first_turn(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
             },
@@ -174,9 +195,10 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 turn_id="t1",
                 turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
-                    "crawler_updates": {
-                        "beads_create": [
+                    "crawler_updates": _v1(
+                        [
                             {
+                                "creation_role": "current_turn",
                                 "type": "decision",
                                 "title": "Agent decided",
                                 "summary": ["summary"],
@@ -186,9 +208,10 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "retrieval_eligible": True,
                                 "entities": ["Agent"],
                                 "topics": ["decision"],
+                                "source_turn_ids": ["t1"],
                             }
                         ]
-                    }
+                    )
                 },
             )
             self.assertTrue(out.get("ok"))
@@ -199,6 +222,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
             },
@@ -208,9 +232,10 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             src_id = s.add_bead(type="context", title="src", summary=["s"], session_id="s1", source_turn_ids=["seed-1"])
             target_id = s.add_bead(type="context", title="target", summary=["t"], session_id="s1", source_turn_ids=["seed-2"])
 
-            invoked = {
-                "beads_create": [
+            invoked = _v1(
+                [
                     {
+                        "creation_role": "current_turn",
                         "type": "decision",
                         "title": "Agent callable row",
                         "summary": ["summary"],
@@ -223,7 +248,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                         "source_turn_ids": ["t1"],
                     }
                 ],
-                "associations": [
+                [
                     {
                         "source_bead_id": src_id,
                         "target_bead_id": target_id,
@@ -232,7 +257,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                         "confidence": 0.8,
                     }
                 ],
-            }
+            )
 
             with patch(
                 "core_memory.runtime.engine.invoke_turn_crawler_agent",
@@ -255,6 +280,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
             },
@@ -272,19 +298,20 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
             )
             self.assertFalse(out.get("ok"))
             self.assertEqual("agent_invocation_exhausted", out.get("error_code"))
-            # Never-forget: a blocked gate must still persist a stub bead — the
-            # turn is preserved for later enrichment, never dropped.
+            # The raw turn remains durable while semantics wait for a valid
+            # authored retry.
             self.assertTrue(out.get("gate_blocked"))
-            self.assertTrue(out.get("bead_id"), "blocked gate must write a stub bead")
+            self.assertFalse(out.get("bead_id"))
             idx = MemoryStore(td)._read_json(Path(td) / ".beads" / "index.json")
-            self.assertIn(str(out.get("bead_id")), (idx.get("beads") or {}))
+            self.assertEqual({}, idx.get("beads") or {})
 
-    def test_temporal_only_associations_warn_and_write_stub_with_coverage_flag(self):
+    def test_temporal_only_associations_warn_and_flag_committed_authored_bead(self):
         # Never-forget: semantic coverage violations no longer hard-block.
         # The bead is written, gate warns, and the coverage gap is flagged.
         with tempfile.TemporaryDirectory() as td, patch.dict(
             os.environ,
             {
+                "CORE_MEMORY_AGENT_AUTHORED_MODE": "hard",
                 "CORE_MEMORY_AGENT_AUTHORED_REQUIRED": "1",
                 "CORE_MEMORY_AGENT_AUTHORED_FAIL_OPEN": "0",
                 "CORE_MEMORY_AGENT_MIN_SEMANTIC_ASSOC_AFTER_FIRST": "1",
@@ -301,9 +328,10 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                 turn_id="t1",
                 turns=[{"speaker": "user", "role": "user", "content": "q"}, {"speaker": "assistant", "role": "assistant", "content": "a"}],
                 metadata={
-                    "crawler_updates": {
-                        "beads_create": [
+                    "crawler_updates": _v1(
+                        [
                             {
+                                "creation_role": "current_turn",
                                 "type": "decision",
                                 "title": "Agent decided",
                                 "summary": ["summary"],
@@ -316,7 +344,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "source_turn_ids": ["t1"],
                             }
                         ],
-                        "associations": [
+                        [
                             {
                                 "source_bead_id": src_id,
                                 "target_bead_id": target_id,
@@ -325,7 +353,7 @@ class TestAgentAuthoredRuntimeGateSlice1(unittest.TestCase):
                                 "confidence": 0.7,
                             }
                         ],
-                    }
+                    )
                 },
             )
             # Bead is written despite coverage gap (never-forget)

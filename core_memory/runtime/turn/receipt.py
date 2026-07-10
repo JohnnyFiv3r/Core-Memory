@@ -74,6 +74,8 @@ def _association_receipt(root: str, bead_id: str) -> dict[str, Any]:
 
 
 def _queue_receipt(result: dict[str, Any]) -> dict[str, Any]:
+    if bool(result.get("gate_blocked")):
+        return {"status": "skipped", "item_id": ""}
     queue_item = dict(result.get("enrichment_queue") or {})
     item_id = str(queue_item.get("id") or "")
     if not bool(result.get("enrichment_queued")):
@@ -153,14 +155,21 @@ def build_turn_finalized_receipt(
     gate_blocked = bool(result.get("gate_blocked"))
     accepted = bool(event_id or str((result.get("emitted") or {}).get("reason") or "") == "idempotent_done")
 
-    if bead_id and gate_blocked:
-        semantic_status: SemanticStatus = "repair_required"
+    gate_error_code = str(result.get("error_code") or "")
+    unavailable_codes = {
+        "agent_updates_missing",
+        "agent_callable_missing",
+        "agent_invocation_exhausted",
+    }
+    if gate_blocked and accepted:
+        semantic_status: SemanticStatus = "pending" if gate_error_code in unavailable_codes else "repair_required"
     elif bead_id:
         semantic_status = "committed"
     elif str(prior.get("status") or "") == "waived" and get_semantic_flush_waiver(root, session_id, turn_id):
         semantic_status = "waived"
     elif accepted:
-        semantic_status = "pending"
+        prior_unresolved = str(prior.get("status") or "")
+        semantic_status = prior_unresolved if prior_unresolved in {"pending", "repair_required"} else "pending"
     else:
         semantic_status = "failed"
 

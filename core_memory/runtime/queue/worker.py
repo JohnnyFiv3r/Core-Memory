@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from core_memory.runtime.state import mark_memory_pass
 from core_memory.persistence.store import MemoryStore
+from core_memory.runtime.state import mark_memory_pass
 
 
 @dataclass
@@ -20,6 +20,7 @@ class SidecarPolicy:
     promote_threshold: float = 0.85
     max_create_per_turn: int = 1
     max_promote_per_turn: int = 1
+    semantic_repair_enabled: bool = False
 
 
 def process_memory_event(root: str, payload: dict[str, Any], policy: SidecarPolicy | None = None) -> dict[str, Any]:

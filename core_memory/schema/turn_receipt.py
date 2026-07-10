@@ -27,6 +27,9 @@ class AuthorshipReceipt(TypedDict, total=False):
     grounding_hash: str
     task_id: str
     task_receipt_id: str
+    field_provenance: dict[str, dict[str, Any]]
+    primary_authorship: dict[str, Any]
+    repair_authorship: dict[str, Any]
 
 
 class ValidationReceipt(TypedDict):
