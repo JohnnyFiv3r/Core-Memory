@@ -112,16 +112,13 @@ if not config.get("coreMemoryRepo"):
 if "core-memory-bridge" not in allow:
     raise SystemExit(4)
 hosted_url = (
-    os.environ.get("SATORID_OPENCLAW_CORE_MEMORY_URL")
-    or os.environ.get("CORE_MEMORY_HOSTED_TURN_FINALIZED_URL")
+    os.environ.get("CORE_MEMORY_HOSTED_TURN_FINALIZED_URL")
     or os.environ.get("CORE_MEMORY_HOSTED_API_BASE_URL")
     or config.get("hostedCoreMemoryUrl")
     or ""
 )
 hosted_token = (
-    os.environ.get("SATORID_GATEWAY_KEY")
-    or os.environ.get("SATORID_CORE_MEMORY_HTTP_TOKEN")
-    or os.environ.get("CORE_MEMORY_HOSTED_HTTP_TOKEN")
+    os.environ.get("CORE_MEMORY_HOSTED_HTTP_TOKEN")
     or config.get("hostedCoreMemoryToken")
     or ""
 )

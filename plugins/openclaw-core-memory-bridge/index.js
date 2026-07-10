@@ -20,8 +20,8 @@ const plugin = {
     const entryCfg = api?.config?.plugins?.entries?.[api.id];
     const cfgIn = api?.pluginConfig ?? entryCfg?.config ?? {};
     const fallbackDelayRaw = Number(cfgIn?.messageTurnFallbackDelayMs ?? process.env.CORE_MEMORY_MESSAGE_TURN_FALLBACK_DELAY_MS ?? DEFAULT_MESSAGE_TURN_FALLBACK_DELAY_MS);
-    const hostedCoreMemoryUrl = cfgIn?.hostedCoreMemoryUrl || process.env.SATORID_OPENCLAW_CORE_MEMORY_URL || process.env.CORE_MEMORY_HOSTED_TURN_FINALIZED_URL || process.env.CORE_MEMORY_HOSTED_API_BASE_URL || "";
-    const hostedCoreMemoryToken = cfgIn?.hostedCoreMemoryToken || process.env.SATORID_GATEWAY_KEY || process.env.SATORID_CORE_MEMORY_HTTP_TOKEN || process.env.CORE_MEMORY_HOSTED_HTTP_TOKEN || "";
+    const hostedCoreMemoryUrl = cfgIn?.hostedCoreMemoryUrl || process.env.CORE_MEMORY_HOSTED_TURN_FINALIZED_URL || process.env.CORE_MEMORY_HOSTED_API_BASE_URL || "";
+    const hostedCoreMemoryToken = cfgIn?.hostedCoreMemoryToken || process.env.CORE_MEMORY_HOSTED_HTTP_TOKEN || "";
     const hostedTimeoutRaw = Number(cfgIn?.hostedCoreMemoryTimeoutMs ?? process.env.CORE_MEMORY_HOSTED_HTTP_TIMEOUT_MS ?? 12000);
     const localWriteEnv = String(process.env.CORE_MEMORY_BRIDGE_ENABLE_LOCAL_WRITE ?? "").trim().toLowerCase();
     const cfg = {
@@ -32,7 +32,7 @@ const plugin = {
       enableHostedCoreMemoryClone: cfgIn?.enableHostedCoreMemoryClone === false ? false : (cfgIn?.enableHostedCoreMemoryClone === true || Boolean(hostedCoreMemoryUrl)),
       hostedCoreMemoryUrl,
       hostedCoreMemoryToken,
-      hostedCoreMemoryTenantId: cfgIn?.hostedCoreMemoryTenantId || process.env.SATORID_CORE_MEMORY_TENANT_ID || process.env.CORE_MEMORY_HOSTED_TENANT_ID || "",
+      hostedCoreMemoryTenantId: cfgIn?.hostedCoreMemoryTenantId || process.env.CORE_MEMORY_HOSTED_TENANT_ID || "",
       hostedCoreMemoryTimeoutMs: Math.max(1000, Number.isFinite(hostedTimeoutRaw) ? hostedTimeoutRaw : 12000),
       enableLocalCoreMemoryWrite: cfgIn?.enableLocalCoreMemoryWrite !== false && !["0", "false", "no", "off"].includes(localWriteEnv),
       enableMemorySearch: cfgIn?.enableMemorySearch !== false,

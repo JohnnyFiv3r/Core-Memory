@@ -97,7 +97,7 @@ authorship is explicit. A heuristic classifier is not an agent judgment.
 
 ## 3. Problem statement
 
-Weak beads and missing causal edges in the reference hosted tenant are expected under the current
+Weak beads and missing causal edges in a hosted deployment are expected under the current
 defaults. The live write path currently permits this sequence:
 
 ```text
@@ -166,7 +166,7 @@ The problem is not merely sparse records. It damages four product properties:
    candidate selection subsequently.
 10. Make degraded, pending, repaired, and fully agent-authored writes visibly
     distinct in storage, receipts, metrics, and operator tooling.
-11. Provide a safe append-only reference-tenant backfill path that preserves source
+11. Provide a safe append-only hosted-deployment backfill path that preserves source
     anchors and provenance.
 
 ---
@@ -802,7 +802,7 @@ lesson can be committed in one typed turn write.
 
 **Exit condition:** an authoring agent can discover, populate, submit, and
 receive validation for the same typed contract on every canonical ingress, and
-the hosted passive-capture path receives full-schema delegated authorship.
+the hosted capture path receives full-schema delegated authorship.
 
 ### Slice 3 — Semantic state, truthful receipts, and flush barrier
 
@@ -884,7 +884,7 @@ classified.
 relationships, and the judge is never asked to infer them without the evidence
 fields required to do so.
 
-### Slice 7 — Governed reauthoring and reference-tenant backfill
+### Slice 7 — Governed reauthoring and hosted-deployment backfill
 
 1. Add dry-run-first `reauthor_memory` and `retry_pending_semantic` governed
    maintenance actions using the full delegated authoring task.
@@ -898,7 +898,7 @@ fields required to do so.
 7. Compare separately cohort-ed legacy, v1-authored, and backfilled bead
    richness, retrieval, claims/keys, and causal-edge metrics.
 
-**Exit condition:** the reference tenant no longer depends on legacy deterministic semantics,
+**Exit condition:** the hosted deployment no longer depends on legacy deterministic semantics,
 and provenance remains append-only.
 
 ---
@@ -1112,9 +1112,9 @@ An emergency legacy mode may remain temporarily, but every use must:
   schedule recorded in `docs/compatibility_ledger.md`; its replacement is the
   candidate-plus-agent-judge flow.
 
-### 15.3 Reference-tenant migration
+### 15.3 Hosted-deployment migration
 
-The current reference-tenant evidence-anchor beads remain immutable provenance records.
+The current hosted-deployment evidence-anchor beads remain immutable provenance records.
 Backfill creates new derived semantic beads with explicit source references.
 
 Backfill must not:
@@ -1238,7 +1238,7 @@ consistent with `CLAUDE.md`.
    do not author bead meaning, promotion, claims, or relationships.
 8. **Sparse is acceptable:** an honest `no_link` or thin bead is better than a
    dense but weak memory graph.
-9. **Append-only migration:** reference-tenant source anchors remain intact; improved
+9. **Append-only migration:** hosted-deployment source anchors remain intact; improved
    semantics are new attributed records.
 
 ---
@@ -1260,6 +1260,6 @@ This PRD is complete when:
    provenance;
 10. association agents receive causal evidence and can discover justified
     non-temporal relations;
-11. reference-tenant backfill completes without mutating original provenance;
+11. hosted-deployment backfill completes without mutating original provenance;
 12. `docs/status.md`, this PRD, architecture guidance, adapter contracts, and
     operator documentation describe the same shipped behavior.
