@@ -1,10 +1,16 @@
 # PRD 03: MCP protocol server
 
-**Status:** Locked
+**Status:** Locked historical PRD — MCP server and agent-guide prompt shipped
 **Owner:** John Inniger
 **Reviewer:** Chris
-**Last updated:** 2026-05-11
+**Last updated:** 2026-07-10
 **Related TODO:** [Core-Memory-Demo TODO #1](https://github.com/JohnnyFiv3r/Core-Memory-Demo/blob/main/TODO.md) (originating tracking item)
+
+> Current implementation note: this PRD is retained as locked historical design
+> context. The streamable-HTTP MCP server, `core-memory mcp` CLI surface, and
+> canonical `core-memory.agent-guide` prompt have shipped. Current setup lives in
+> `docs/integrations/mcp/quickstart.md`; the public surface is tracked in
+> `docs/public_surface.md`.
 
 ## 1. Summary
 
@@ -270,11 +276,17 @@ The injection has two layers:
 1. **Tool descriptions.** Each of the four v1 tools (`capture`, `recall`, `ingest`, `status`) carries a 100–300 word description extracted from the canonical agent guide. The MCP tool schema embeds these so clients see them at tool enumeration time.
 2. **Server-exposed prompt.** The MCP server registers a `core-memory.agent-guide` prompt that returns the consolidated agent guide. Clients that surface MCP prompts to the LLM (Claude Code does) auto-deliver the full guide.
 
-The canonical agent guide is owned by **TODO #7a** (consolidate scattered agent instructions into a single canonical source). The injection mechanism is owned by **TODO #7b** (build-time markdown-to-prompt loader + MCP registration). PRD #3 ships the MCP server scaffold; the agent-guide content and the loader land paired with this PRD.
+The canonical agent-guide work that was originally tracked as TODO #7a/#7b has
+landed. The runtime source is packaged at
+`core_memory/integrations/mcp/core-memory-agent-guide.md`, loaded through
+`core_memory/integrations/mcp/agent_guide.py`, and exposed by
+`core_memory/integrations/mcp/protocol_server.py` as the
+`core-memory.agent-guide` prompt. The docs copy at
+`docs/agent-guide/core-memory-agent-guide.md` is a pointer to that packaged
+runtime source, not a second source of truth.
 
-**Dependency order:** #7a must land first (canonical doc exists), then #7b builds the loader and wires it into the MCP server. PRD #3's MCP server boots WITHOUT instruction injection until #7b lands (instructions degrade gracefully to minimal default tool descriptions), but the server is NOT considered shipped-for-real until #7a + #7b are complete.
-
-Build-time tests (per #7b) catch silent drift between the canonical doc and the rendered prompt.
+Guide/prompt tests cover the prompt name, packaged-guide loading, and MCP
+prompt enumeration so silent drift is caught in the current test suite.
 
 ## 6. Migration & rollout
 
@@ -305,9 +317,14 @@ pip install core-memory[mcp,http]      # both
 
 ### 6.3 Agent-instruction injection sequencing
 
-The MCP server boots WITHOUT canonical-instruction injection if TODO #7a / #7b haven't landed yet. Tools carry their minimal default descriptions; the `core-memory.agent-guide` prompt is unregistered. This degrades gracefully — clients still get a working MCP integration, just without the rich instructions.
+The canonical-instruction path is now active. The MCP server registers
+`core-memory.agent-guide` and returns the rendered packaged guide to clients
+that surface MCP prompts.
 
-For PRD #3 to be considered shipped-for-real, both #7a (canonical agent guide) and #7b (build-time injection loader) must be merged. The PRD-#3 codebase ships first; the instruction injection lights up when #7b's loader is wired in.
+Clients that do not expose MCP prompts should still use the operating-protocol
+block shown by `core-memory mcp install` and documented in
+`docs/integrations/mcp/quickstart.md`. That is a client-capability fallback, not
+a remaining Core Memory PRD blocker.
 
 ### 6.4 Existing REST API
 
@@ -322,7 +339,7 @@ The launchd/systemd survival pattern from §5.5 lands as part of this PRD. TODO 
 ### 7.1 Protocol-level acceptance
 - The four v1 tools (`capture`, `recall`, `ingest`, `status`) are enumerable through the MCP protocol from a real Claude Code client. Tool schemas are valid per the pinned MCP spec version.
 - Tool invocations round-trip successfully end-to-end: Claude Code calls `recall(query="why X")` → MCP server → Core Memory recall orchestrator → `RecallResult` → MCP response → Claude Code. Verified manually with a real Claude Code installation; unit-tested with a stub client.
-- The `core-memory.agent-guide` prompt is registered and returns the rendered canonical agent guide (post-#7b).
+- The `core-memory.agent-guide` prompt is registered and returns the rendered canonical agent guide.
 - An MCP client speaking an older spec version receives a clean `cm.unsupported_mcp_version` error.
 
 ### 7.2 Install command acceptance
@@ -354,7 +371,7 @@ The launchd/systemd survival pattern from §5.5 lands as part of this PRD. TODO 
 ### 7.5 Done definition
 The PRD is shipped when:
 - All §7.1–§7.4 tests pass on master.
-- TODO #7a (canonical agent guide) and #7b (instruction loader) are merged — without them, the MCP server boots but doesn't inject canonical guidance.
+- The canonical agent guide and instruction loader/prompt registration are merged.
 - Pinned release published to PyPI with `[mcp]` extras group.
 - README quickstart documents the `core-memory mcp install` command alongside `pip install core-memory[mcp]`.
 - An adopter installing fresh on a clean macOS or Linux machine can run a single `core-memory mcp install --client claude-code` and see Core Memory tools in their Claude Code session within 30 seconds (per §4.1).
@@ -365,7 +382,7 @@ Decisions Chris's developer should escalate rather than guess. None block the te
 
 1. **Tool-description authoring source of truth.** Tool descriptions are 100–300 words each, embedded in the MCP tool schema. Where are they authored? Three options:
    - (a) In the wrapper function's docstring, extracted at registry-load time.
-   - (b) As named sections in the canonical agent guide (#7a), extracted by the loader (#7b).
+   - (b) As named sections in the canonical agent guide, extracted by the loader.
    - (c) As separate `.md` files under `docs/agent_guide/tools/` that the loader concatenates.
    **Lean (b):** single source of truth in the canonical doc, extracted programmatically. But (a) and (c) are defensible; raise for owner call.
 
@@ -393,14 +410,14 @@ Decisions Chris's developer should escalate rather than guess. None block the te
 ### Related TODO items (main Core-Memory)
 - **#5** (recall orchestrator) — surfaced as the MCP `recall` tool.
 - **#7** (shared CLI/demo output contract) — `RecallResult` shape returned by the MCP `recall` tool.
-- **#7a** (consolidate agent instructions) — **blocks PRD #3's full release.**
-- **#7b** (inject agent instructions into MCP) — **blocks PRD #3's full release.**
+- **#7a** (consolidate agent instructions) — shipped as the packaged canonical MCP agent guide.
+- **#7b** (inject agent instructions into MCP) — shipped as the agent-guide loader and MCP prompt registration.
 - **#11/#12** (transcript parser + ingest CLI) — surfaced as the MCP `ingest` tool.
 - **#21** (plugin connectors) — future, not v1; explicitly out of scope per §3.
 - **#27** (OpenClaw install survival upgrade) — uses the shared `scripts/_service_helpers.sh` built here.
 
-### Agent-instruction sources (consolidation targets for #7a)
-- [AGENT_INSTRUCTIONS.md](../../AGENT_INSTRUCTIONS.md) — top-level canonical contract
+### Historical agent-instruction sources consolidated by #7a
+- [AGENT_INSTRUCTIONS.md](../../AGENT_INSTRUCTIONS.md) — original top-level agent contract
 - [docs/canonical_contract.md](../../docs/canonical_contract.md)
 - [docs/integrations/openclaw/core-memory-skill-instructions.md](../../docs/integrations/openclaw/core-memory-skill-instructions.md)
 - [docs/specs/agent-authored-turn-memory-v1.md](../../docs/specs/agent-authored-turn-memory-v1.md)
