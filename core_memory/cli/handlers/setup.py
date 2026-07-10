@@ -88,17 +88,18 @@ _PRESETS: dict[str, dict[str, Any]] = {
 }
 
 _MODE_CHOICES = [
-    ("local",      "Local dev / trying it out   — no extra dependencies [default]"),
-    ("mcp",        "MCP server                  — Claude Desktop, Cursor, etc."),
-    ("app",        "App integration             — PydanticAI, OpenClaw, custom agents"),
+    ("local", "Local dev / trying it out   — no extra dependencies [default]"),
+    ("mcp", "MCP server                  — Claude Desktop, Cursor, etc."),
+    ("app", "App integration             — PydanticAI, OpenClaw, custom agents"),
     ("production", "Production service          — Postgres + Neo4j + pgvector"),
-    ("custom",     "Custom / advanced           — configure manually"),
+    ("custom", "Custom / advanced           — configure manually"),
 ]
 
 
 # ---------------------------------------------------------------------------
 # Wizard helpers
 # ---------------------------------------------------------------------------
+
 
 def _prompt(prompt_text: str, default: str = "") -> str:
     suffix = f" [{default}]" if default else ""
@@ -139,6 +140,7 @@ def _interactive_wizard() -> dict[str, Any]:
     mode = _prompt_choice("What are you setting up Core Memory for?", _MODE_CHOICES)
 
     import copy
+
     if mode == "custom":
         cfg: dict[str, Any] = {
             "mode": "custom",
@@ -186,11 +188,12 @@ def _interactive_wizard() -> dict[str, Any]:
 # init command  (8b-1)
 # ---------------------------------------------------------------------------
 
+
 def init_command(args: Any) -> None:
     """Handle `core-memory setup init`."""
     use_global = bool(getattr(args, "global_config", False))
     mode = getattr(args, "mode", None)
-    preset = getattr(args, "preset", None)   # deprecated alias
+    preset = getattr(args, "preset", None)  # deprecated alias
     force = bool(getattr(args, "force", False))
     root = getattr(args, "root", ".")
 
@@ -225,19 +228,31 @@ def init_command(args: Any) -> None:
             print(json.dumps({"ok": False, "error": f"unknown mode {mode!r}; valid: {', '.join(_MODES)}"}, indent=2))
             sys.exit(1)
         import copy
-        cfg = copy.deepcopy(_MODES[mode]) if mode != "custom" else {
-            "mode": "custom", "backend": "json", "vector_backend": "auto",
-            "graph_backend": "kuzu", "integration": "none",
-        }
+
+        cfg = (
+            copy.deepcopy(_MODES[mode])
+            if mode != "custom"
+            else {
+                "mode": "custom",
+                "backend": "json",
+                "vector_backend": "auto",
+                "graph_backend": "kuzu",
+                "integration": "none",
+            }
+        )
     elif preset:
         if preset not in _PRESETS:
-            print(json.dumps({"ok": False, "error": f"unknown preset {preset!r}; valid: {', '.join(_PRESETS)}"}, indent=2))
+            print(
+                json.dumps({"ok": False, "error": f"unknown preset {preset!r}; valid: {', '.join(_PRESETS)}"}, indent=2)
+            )
             sys.exit(1)
         import copy
+
         cfg = copy.deepcopy(_PRESETS[preset])
     else:
         if not sys.stdin.isatty():
             import copy
+
             cfg = copy.deepcopy(_MODES["local"])
         else:
             cfg = _interactive_wizard()
@@ -267,6 +282,7 @@ def init_command(args: Any) -> None:
 # ---------------------------------------------------------------------------
 # Doctor probes
 # ---------------------------------------------------------------------------
+
 
 def _storage_probe(root: str) -> dict[str, Any]:
     beads_dir = Path(root) / ".beads"
@@ -304,6 +320,7 @@ def _storage_probe(root: str) -> dict[str, Any]:
                 }
             try:
                 import psycopg2  # type: ignore[import-untyped]
+
                 conn = psycopg2.connect(dsn, connect_timeout=3)
                 conn.close()
                 return {"status": "ok", "summary": "postgres reachable"}
@@ -338,6 +355,7 @@ def _storage_probe(root: str) -> dict[str, Any]:
 def _vector_probe(root: str) -> dict[str, Any]:
     try:
         from core_memory.retrieval.semantic_index import semantic_doctor
+
         diag = semantic_doctor(Path(root))
         if diag.get("usable_backend"):
             result: dict[str, Any] = {
@@ -352,7 +370,9 @@ def _vector_probe(root: str) -> dict[str, Any]:
                 "status": "warning",
                 "summary": "not configured — no embedding provider detected",
                 "impact": "semantic recall will use BM25 keyword fallback",
-                "fix": 'Set OPENAI_API_KEY (or CORE_MEMORY_EMBEDDINGS_PROVIDER) then run: core-memory graph semantic-build',
+                "fix": (
+                    "Set OPENAI_API_KEY (or CORE_MEMORY_EMBEDDINGS_PROVIDER) then run: core-memory graph semantic-build"
+                ),
             }
         return {
             "status": "warning",
@@ -376,7 +396,8 @@ def _graph_probe(profile: str) -> dict[str, Any]:
     For production profiles, Neo4j is required.
     """
     try:
-        from core_memory.persistence.graph import create_graph_backend, NullGraphBackend
+        from core_memory.persistence.graph import NullGraphBackend, create_graph_backend
+
         gb = create_graph_backend()
         caps = gb.capabilities()
         backend_name = type(gb).__name__
@@ -384,6 +405,7 @@ def _graph_probe(profile: str) -> dict[str, Any]:
         if profile == "production":
             # Production requires Neo4j
             from core_memory.persistence.graph.neo4j_backend import Neo4jGraphBackend
+
             if not isinstance(gb, Neo4jGraphBackend):
                 return {
                     "status": "error",
@@ -486,13 +508,49 @@ def _dreamer_probe(root: str) -> dict[str, Any]:
 def _rolling_window_probe(root: str) -> dict[str, Any]:
     try:
         from core_memory.persistence.rolling_record_store import read_rolling_records
+
         t0 = time.monotonic()
         rr = read_rolling_records(root)
         elapsed_ms = round((time.monotonic() - t0) * 1000)
         records = rr.get("records") or []
         return {"status": "ok", "summary": f"{len(records)} records", "last_read_ms": elapsed_ms}
     except Exception as exc:
-        return {"status": "error", "summary": str(exc), "impact": "rolling window unavailable", "fix": "check store integrity"}
+        return {
+            "status": "error",
+            "summary": str(exc),
+            "impact": "rolling window unavailable",
+            "fix": "check store integrity",
+        }
+
+
+def _pending_semantic_probe(root: str) -> dict[str, Any]:
+    from core_memory.runtime.turn.semantic_state import semantic_write_health
+
+    health = semantic_write_health(root)
+    count = int(health.get("pending_count") or 0)
+    oldest = int(float(health.get("oldest_pending_age_seconds") or 0))
+    severity = str(health.get("severity") or "ok")
+    if severity == "critical":
+        return {
+            "status": "error",
+            "summary": f"{count} pending semantic turn(s); oldest {oldest}s (critical)",
+            "impact": "semantic writes require operator attention; only the latest pending turn blocks flush",
+            "fix": "retry pending semantic writes or inspect their validation receipts",
+            "health": health,
+        }
+    if severity == "warning":
+        return {
+            "status": "warning",
+            "summary": f"{count} pending semantic turn(s); oldest {oldest}s",
+            "impact": "older pending turns remain unresolved even when later turns can flush",
+            "fix": "inspect and retry pending semantic writes",
+            "health": health,
+        }
+    return {
+        "status": "ok",
+        "summary": f"{count} pending semantic turn(s)",
+        "health": health,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -501,14 +559,23 @@ def _rolling_window_probe(root: str) -> dict[str, Any]:
 
 # Values: "error" | "warning" | "info" | "ok" | None (don't show)
 _SEVERITY: dict[str, dict[str, str | None]] = {
-    #              storage   vector      graph     mcp      transcript  dreamer   rolling_window
-    "local":      ("error",  "info",     "ok",     None,    "info",     "info",   "ok"),
-    "mcp":        ("error",  "info",     "ok",     "error", "info",     "info",   "ok"),
-    "app":        ("error",  "warning",  "ok",     None,    "info",     "info",   "ok"),
-    "production": ("error",  "error",    "error",  None,    "ok",       "warning","error"),
-    "custom":     ("error",  "warning",  "warning",None,    "info",     "info",   "ok"),
+    #              storage   vector      graph     mcp      transcript  dreamer   rolling_window pending_semantic
+    "local": ("error", "info", "ok", None, "info", "info", "ok", "error"),
+    "mcp": ("error", "info", "ok", "error", "info", "info", "ok", "error"),
+    "app": ("error", "warning", "ok", None, "info", "info", "ok", "error"),
+    "production": ("error", "error", "error", None, "ok", "warning", "error", "error"),
+    "custom": ("error", "warning", "warning", None, "info", "info", "ok", "error"),
 }
-_SEVERITY_KEYS = ("storage", "vector_search", "graph_traversal", "mcp", "transcript_hydration", "dreamer", "rolling_window")
+_SEVERITY_KEYS = (
+    "storage",
+    "vector_search",
+    "graph_traversal",
+    "mcp",
+    "transcript_hydration",
+    "dreamer",
+    "rolling_window",
+    "pending_semantic",
+)
 
 
 def _profile_from_config(root: str) -> str:
@@ -525,12 +592,13 @@ def expanded_doctor(root: str, profile: str | None = None) -> dict[str, Any]:
     severity_map = dict(zip(_SEVERITY_KEYS, severity_row))
 
     raw: dict[str, Any] = {
-        "storage":              _storage_probe(root),
-        "vector_search":        _vector_probe(root),
-        "graph_traversal":      _graph_probe(profile),
+        "storage": _storage_probe(root),
+        "vector_search": _vector_probe(root),
+        "graph_traversal": _graph_probe(profile),
         "transcript_hydration": _transcript_probe(root),
-        "dreamer":              _dreamer_probe(root),
-        "rolling_window":       _rolling_window_probe(root),
+        "dreamer": _dreamer_probe(root),
+        "rolling_window": _rolling_window_probe(root),
+        "pending_semantic": _pending_semantic_probe(root),
     }
     # MCP probe does filesystem I/O across multiple client config paths; only run when visible.
     if severity_map.get("mcp") is not None:
@@ -583,13 +651,14 @@ def _format_doctor_human(report: dict[str, Any]) -> str:
     lines = [f"Core Memory Doctor  [profile: {profile}]", ""]
 
     label_map = {
-        "storage":              "Storage",
-        "vector_search":        "Embeddings",
-        "graph_traversal":      "Graph",
-        "mcp":                  "MCP server",
+        "storage": "Storage",
+        "vector_search": "Embeddings",
+        "graph_traversal": "Graph",
+        "mcp": "MCP server",
         "transcript_hydration": "Transcripts",
-        "dreamer":              "Dreamer",
-        "rolling_window":       "Rolling window",
+        "dreamer": "Dreamer",
+        "rolling_window": "Rolling window",
+        "pending_semantic": "Pending semantics",
     }
 
     for key in _SEVERITY_KEYS:
@@ -614,7 +683,11 @@ def _format_doctor_human(report: dict[str, Any]) -> str:
         lines.append("Status: ready")
     else:
         first_fix = next(
-            (report[k].get("fix") for k in _SEVERITY_KEYS if k in report and report[k].get("status") == "error" and report[k].get("fix")),
+            (
+                report[k].get("fix")
+                for k in _SEVERITY_KEYS
+                if k in report and report[k].get("status") == "error" and report[k].get("fix")
+            ),
             None,
         )
         lines.append("Status: action required")
@@ -647,6 +720,7 @@ def doctor_command(args: Any) -> None:
 # ---------------------------------------------------------------------------
 # Config commands  (8b-3)
 # ---------------------------------------------------------------------------
+
 
 def config_show_command(args: Any) -> None:
     root = getattr(args, "root", ".")
@@ -717,7 +791,9 @@ def config_validate_command(args: Any) -> None:
 
     if mode == "production":
         if graph_backend != "neo4j":
-            warnings.append(f"mode=production but graph_backend={graph_backend!r}; recommend neo4j for durable traversal")
+            warnings.append(
+                f"mode=production but graph_backend={graph_backend!r}; recommend neo4j for durable traversal"
+            )
         if backend not in {"postgres"}:
             warnings.append(f"mode=production but backend={backend!r}; recommend postgres for durability")
 
@@ -784,11 +860,11 @@ def demo_command(args: Any) -> None:
             session_id=_DEMO_SESSION,
         )
         written_ids.append(bead_id)
-        print(f"  ✓ {bead['type']}: \"{bead['title']}\"")
+        print(f'  ✓ {bead["type"]}: "{bead["title"]}"')
 
     print()
     query = "why did we choose Python?"
-    print(f"Recall: \"{query}\"")
+    print(f'Recall: "{query}"')
     print()
 
     t0 = time.monotonic()
@@ -799,7 +875,7 @@ def demo_command(args: Any) -> None:
     if results:
         top = results[0]
         print(f"  Result ({elapsed}ms):")
-        print(f"  {top.get('type', 'bead')}: \"{top.get('title', '')}\"")
+        print(f'  {top.get("type", "bead")}: "{top.get("title", "")}"')
         summary = top.get("summary") or []
         if summary:
             print(f"  → {summary[0]}")
@@ -810,6 +886,7 @@ def demo_command(args: Any) -> None:
     print()
     try:
         from core_memory.persistence.graph import create_graph_backend
+
         gb = create_graph_backend()
         caps = gb.capabilities()
         gname = type(gb).__name__.replace("GraphBackend", "")

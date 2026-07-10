@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from core_memory.runtime.state import TurnEnvelope, emit_memory_event, get_memory_pass, mark_memory_pass, sha256_hex
+from core_memory.runtime.turn.semantic_state import mark_semantic_write_state
 from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
 from core_memory.schema.turn import assistant_content, normalize_turns, serialize_turns, turn_speakers, user_content
 
@@ -168,6 +169,16 @@ def maybe_emit_finalize_memory_event(
             supersedes_envelope_hash=previous_envelope_hash,
         )
         event = emit_memory_event(root_path, envelope)
+        mark_semantic_write_state(
+            root_path,
+            session_id=session_id,
+            turn_id=turn_id,
+            status="pending",
+            event_id=event.event_id,
+            retryable=True,
+            error_code="semantic_write_pending",
+            reason="turn_mutation_emitted",
+        )
         payload = {"event": event.to_dict(), "envelope": envelope.to_dict()}
         return {
             "emitted": True,
@@ -180,6 +191,16 @@ def maybe_emit_finalize_memory_event(
 
     mark_memory_pass(root_path, session_id, turn_id, "pending", envelope.envelope_hash)
     event = emit_memory_event(root_path, envelope)
+    mark_semantic_write_state(
+        root_path,
+        session_id=session_id,
+        turn_id=turn_id,
+        status="pending",
+        event_id=event.event_id,
+        retryable=True,
+        error_code="semantic_write_pending",
+        reason="turn_finalized_emitted",
+    )
     payload = {"event": event.to_dict(), "envelope": envelope.to_dict()}
     return {
         "emitted": True,

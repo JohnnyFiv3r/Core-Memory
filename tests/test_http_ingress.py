@@ -11,6 +11,7 @@ class TestHttpIngress(unittest.TestCase):
         os.environ["CORE_MEMORY_CANONICAL_SEMANTIC_MODE"] = "degraded_allowed"
         try:
             from fastapi.testclient import TestClient  # noqa: F401
+
             from core_memory.integrations.http.server import app  # noqa: F401
         except Exception as exc:  # noqa: BLE001
             self.skipTest(f"fastapi stack unavailable: {exc}")
@@ -23,6 +24,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_turn_finalized_emits_event(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -44,11 +46,12 @@ class TestHttpIngress(unittest.TestCase):
             data = r.json()
             self.assertTrue(data.get("accepted"))
             self.assertTrue(str(data.get("event_id", "")).startswith("mev-"))
-            self.assertEqual("canonical_in_process", data.get("authority_path"))
-            self.assertEqual(1, int(data.get("processed") or 0))
+            self.assertEqual("memory.turn_finalized_receipt.v2", data.get("contract"))
+            self.assertEqual("committed", data.get("semantic_status"))
+            self.assertTrue(data.get("bead_id"))
 
             events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
-            rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+            rows = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(1, len(rows))
 
             idx_file = Path(root) / ".beads" / "index.json"
@@ -57,6 +60,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_turn_finalized_rejects_path_traversal_ids(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -78,13 +82,21 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_runtime_execute_endpoint(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
         from core_memory.persistence.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")
             s = MemoryStore(root)
-            s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+            s.add_bead(
+                type="decision",
+                title="Candidate-first promotion",
+                summary=["promotion workflow"],
+                tags=["promotion_workflow"],
+                session_id="main",
+                source_turn_ids=["t1"],
+            )
 
             c = TestClient(app)
             r = c.post(
@@ -109,6 +121,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_external_evidence_writes_structured_observation(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -148,6 +161,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_state_assertion_writes_derived_bead(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -183,13 +197,21 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_trace_endpoint(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
         from core_memory.persistence.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")
             s = MemoryStore(root)
-            s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+            s.add_bead(
+                type="decision",
+                title="Candidate-first promotion",
+                summary=["promotion workflow"],
+                tags=["promotion_workflow"],
+                session_id="main",
+                source_turn_ids=["t1"],
+            )
             c = TestClient(app)
             r = c.post("/v1/memory/trace", json={"root": root, "query": "why candidate-first promotion", "k": 5})
             self.assertEqual(200, r.status_code)
@@ -212,6 +234,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_session_flush_endpoint(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -236,24 +259,33 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_classify_intent_endpoint(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         c = TestClient(app)
-        r = c.post('/v1/memory/classify-intent', json={'query': 'why did promotion inflation happen'})
+        r = c.post("/v1/memory/classify-intent", json={"query": "why did promotion inflation happen"})
         self.assertEqual(200, r.status_code)
         data = r.json()
-        self.assertEqual('causal', data.get('intent_class'))
-        self.assertTrue(bool(data.get('causal_intent')))
+        self.assertEqual("causal", data.get("intent_class"))
+        self.assertTrue(bool(data.get("causal_intent")))
 
     def test_http_execute_deterministic_response(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
         from core_memory.persistence.store import MemoryStore
 
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "memory")
             s = MemoryStore(root)
-            s.add_bead(type="decision", title="Candidate-first promotion", summary=["promotion workflow"], tags=["promotion_workflow"], session_id="main", source_turn_ids=["t1"])
+            s.add_bead(
+                type="decision",
+                title="Candidate-first promotion",
+                summary=["promotion workflow"],
+                tags=["promotion_workflow"],
+                session_id="main",
+                source_turn_ids=["t1"],
+            )
             c = TestClient(app)
             body = {
                 "root": root,
@@ -266,23 +298,24 @@ class TestHttpIngress(unittest.TestCase):
                 },
                 "explain": True,
             }
-            r1 = c.post('/v1/memory/execute', json=body)
-            r2 = c.post('/v1/memory/execute', json=body)
+            r1 = c.post("/v1/memory/execute", json=body)
+            r2 = c.post("/v1/memory/execute", json=body)
             self.assertEqual(200, r1.status_code)
             self.assertEqual(200, r2.status_code)
             d1 = r1.json()
             d2 = r2.json()
-            self.assertEqual(d1.get('snapped'), d2.get('snapped'))
-            self.assertEqual(d1.get('confidence'), d2.get('confidence'))
-            stable_warnings_1 = [w for w in (d1.get('warnings') or []) if w != 'semantic_index_missing_artifacts']
-            stable_warnings_2 = [w for w in (d2.get('warnings') or []) if w != 'semantic_index_missing_artifacts']
+            self.assertEqual(d1.get("snapped"), d2.get("snapped"))
+            self.assertEqual(d1.get("confidence"), d2.get("confidence"))
+            stable_warnings_1 = [w for w in (d1.get("warnings") or []) if w != "semantic_index_missing_artifacts"]
+            stable_warnings_2 = [w for w in (d2.get("warnings") or []) if w != "semantic_index_missing_artifacts"]
             self.assertEqual(stable_warnings_1, stable_warnings_2)
-            self.assertEqual(d1.get('next_action'), d2.get('next_action'))
-            self.assertEqual(d1.get('results'), d2.get('results'))
-            self.assertEqual(d1.get('chains'), d2.get('chains'))
+            self.assertEqual(d1.get("next_action"), d2.get("next_action"))
+            self.assertEqual(d1.get("results"), d2.get("results"))
+            self.assertEqual(d1.get("chains"), d2.get("chains"))
 
     def test_http_auth_token_protection(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http import server as srv
 
         old = os.environ.get("CORE_MEMORY_HTTP_TOKEN")
@@ -309,6 +342,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_removed_http_surfaces_return_not_found(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         c = TestClient(app)
@@ -320,6 +354,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_idempotent_same_turn_id(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -340,18 +375,21 @@ class TestHttpIngress(unittest.TestCase):
             self.assertEqual(200, r2.status_code)
 
             events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
-            rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+            rows = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(1, len(rows))
 
     def test_http_tenant_isolation_for_stateful_read_endpoints(self):
         from unittest.mock import patch
-        from fastapi.testclient import TestClient
-        from core_memory.integrations.http.server import app, _resolve_root
-        from core_memory.persistence.store import MemoryStore
-        from core_memory.persistence.rolling_record_store import write_rolling_records
 
-        with tempfile.TemporaryDirectory() as td, patch.dict(
-            os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False
+        from fastapi.testclient import TestClient
+
+        from core_memory.integrations.http.server import _resolve_root, app
+        from core_memory.persistence.rolling_record_store import write_rolling_records
+        from core_memory.persistence.store import MemoryStore
+
+        with (
+            tempfile.TemporaryDirectory() as td,
+            patch.dict(os.environ, {"CORE_MEMORY_CANONICAL_SEMANTIC_MODE": "degraded_allowed"}, clear=False),
         ):
             base_root = str(Path(td) / "memory")
             tenant_a = "tenant-a"
@@ -430,7 +468,11 @@ class TestHttpIngress(unittest.TestCase):
             # execute isolation
             ex_a = c.post(
                 "/v1/memory/execute",
-                json={"root": base_root, "request": {"raw_query": "alpha_tenant_only", "intent": "remember", "k": 5}, "explain": True},
+                json={
+                    "root": base_root,
+                    "request": {"raw_query": "alpha_tenant_only", "intent": "remember", "k": 5},
+                    "explain": True,
+                },
                 headers={"X-Tenant-Id": tenant_a},
             )
             self.assertEqual(200, ex_a.status_code)
@@ -438,7 +480,11 @@ class TestHttpIngress(unittest.TestCase):
 
             ex_default = c.post(
                 "/v1/memory/execute",
-                json={"root": base_root, "request": {"raw_query": "alpha_tenant_only", "intent": "remember", "k": 5}, "explain": True},
+                json={
+                    "root": base_root,
+                    "request": {"raw_query": "alpha_tenant_only", "intent": "remember", "k": 5},
+                    "explain": True,
+                },
             )
             self.assertEqual(200, ex_default.status_code)
             ex_default_titles = {str(r.get("title") or "") for r in ((ex_default.json() or {}).get("results") or [])}
@@ -475,7 +521,8 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_tenant_scopes_turn_finalized_and_session_flush_paths(self):
         from fastapi.testclient import TestClient
-        from core_memory.integrations.http.server import app, _resolve_root
+
+        from core_memory.integrations.http.server import _resolve_root, app
 
         with tempfile.TemporaryDirectory() as td:
             base_root = str(Path(td) / "memory")
@@ -519,6 +566,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_rejects_invalid_tenant_id_header(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -538,6 +586,7 @@ class TestHttpIngress(unittest.TestCase):
 
     def test_http_form_submission_alias_returns_503_for_required_semantic_unavailable(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http import server as srv
         from core_memory.persistence.store import MemoryStore
 

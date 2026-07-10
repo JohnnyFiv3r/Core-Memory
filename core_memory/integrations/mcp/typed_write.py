@@ -6,6 +6,7 @@ from typing import Any
 from core_memory.identifiers import validate_archive_id
 from core_memory.runtime.dreamer.candidates import decide_dreamer_candidate, submit_entity_merge_candidate
 from core_memory.runtime.engine import process_turn_finalized
+from core_memory.runtime.turn.receipt import receipt_view, rejected_turn_receipt
 from core_memory.schema.agent_authored_updates import (
     AgentAuthoredUpdatesV1,
     AuthoringMode,
@@ -199,20 +200,21 @@ def write_turn_finalized(
 ) -> dict[str, Any]:
     try:
         reject_legacy_turn_kwargs(legacy_kwargs, surface="write_turn_finalized")
-    except TypeError as exc:
-        return {
-            "ok": False,
-            "error": "legacy_turn_fields_removed",
-            "message": str(exc),
-            "contract": "mcp.write_turn_finalized.v1",
-        }
+    except TypeError:
+        return dict(
+            rejected_turn_receipt(
+                session_id=session_id,
+                turn_id=turn_id,
+                error_code="legacy_turn_fields_removed",
+            )
+        )
     try:
         sid = validate_archive_id(session_id, field="session_id")
         tid = validate_archive_id(turn_id, field="turn_id")
     except ValueError as exc:
-        return {"ok": False, "error": str(exc), "contract": "mcp.write_turn_finalized.v1"}
+        return dict(rejected_turn_receipt(session_id=session_id, turn_id=turn_id, error_code=str(exc)))
     if not turns:
-        return {"ok": False, "error": "missing_required_fields", "contract": "mcp.write_turn_finalized.v1"}
+        return dict(rejected_turn_receipt(session_id=session_id, turn_id=turn_id, error_code="missing_required_fields"))
 
     tx = str(transaction_id or "").strip() or f"tx-{tid}-{uuid.uuid4().hex[:8]}"
     tr = str(trace_id or "").strip() or f"tr-{tid}-{uuid.uuid4().hex[:8]}"
@@ -233,15 +235,7 @@ def write_turn_finalized(
         window_bead_ids=list(window_bead_ids or []),
         origin=str(origin or "USER_TURN"),
     )
-    event_id = str(((((out.get("emitted") or {}).get("payload") or {}).get("event") or {}).get("event_id") or ""))
-    return {
-        "ok": bool(out.get("ok", True)),
-        "contract": "mcp.write_turn_finalized.v1",
-        "authority_path": str(out.get("authority_path") or "canonical_in_process"),
-        "event_id": event_id,
-        "processed": int(out.get("processed") or 0),
-        "result": out,
-    }
+    return dict(receipt_view(out))
 
 
 def request_memory_approval(*, root: str = ".", bead_id: str, requested_by: str = "", note: str = "") -> dict[str, Any]:

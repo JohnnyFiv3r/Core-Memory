@@ -16,6 +16,10 @@ delegated agent authorship.
 - Adding `crawler_updates` and `authoring_mode` to the turn-envelope hash may
   produce superseded-envelope diagnostics during upgraded retries. Memory-pass
   identity remains `(session_id, turn_id)`.
+- Processed Python, HTTP, and MCP turn writes converge on
+  `memory.turn_finalized_receipt.v2`. The Python
+  `emit_turn_finalized(...)` facade remains event-only for one compatibility
+  window; new processed Python callers should use `write_turn_finalized(...)`.
 - `core-memory graph backfill-causal-links --apply` is deprecated because it
   applies deterministic semantic relationships. The first rollout release
   keeps the flag with a warning and telemetry while shipping the

@@ -1,7 +1,7 @@
 import tempfile
 import unittest
 
-from core_memory.runtime.engine import process_turn_finalized, process_flush, emit_turn_finalized
+from core_memory.runtime.engine import emit_turn_finalized, process_flush, process_turn_finalized
 
 
 class TestFlushCycleGuard(unittest.TestCase):
@@ -11,7 +11,10 @@ class TestFlushCycleGuard(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "we decided this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision recorded with context"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "we decided this"},
+                    {"speaker": "assistant", "role": "assistant", "content": "Decision recorded with context"},
+                ],
             )
             self.assertTrue(out.get("ok"))
 
@@ -24,13 +27,16 @@ class TestFlushCycleGuard(unittest.TestCase):
             self.assertTrue(second.get("skipped"))
             self.assertEqual("already_flushed_for_latest_done_turn", second.get("reason"))
 
-    def test_flush_anchors_to_latest_done_turn_when_newest_is_pending(self):
+    def test_flush_blocks_when_latest_finalized_turn_has_no_canonical_bead(self):
         with tempfile.TemporaryDirectory() as td:
             done = process_turn_finalized(
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "we decided this"}, {"speaker": "assistant", "role": "assistant", "content": "Decision recorded with context"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "we decided this"},
+                    {"speaker": "assistant", "role": "assistant", "content": "Decision recorded with context"},
+                ],
             )
             self.assertTrue(done.get("ok"))
 
@@ -39,14 +45,18 @@ class TestFlushCycleGuard(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t2",
-                turns=[{"speaker": "user", "role": "user", "content": "new unfinished turn"}, {"speaker": "assistant", "role": "assistant", "content": "pending processing"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "new unfinished turn"},
+                    {"speaker": "assistant", "role": "assistant", "content": "pending processing"},
+                ],
             )
             self.assertTrue(emitted.get("emitted"))
 
             out = process_flush(root=td, session_id="s1", promote=True, token_budget=1200, max_beads=12)
-            self.assertTrue(out.get("ok"))
-            self.assertEqual("t2", out.get("latest_turn_id"))
-            self.assertEqual("t1", out.get("latest_done_turn_id"))
+            self.assertFalse(out.get("ok"))
+            self.assertEqual("semantic_write_barrier_not_satisfied", out.get("error"))
+            self.assertEqual("t2", (out.get("barrier") or {}).get("latest_turn_id"))
+            self.assertEqual("pending", (out.get("barrier") or {}).get("semantic_status"))
 
 
 if __name__ == "__main__":

@@ -294,7 +294,9 @@ def process_turn_finalized_impl(
     # apply_crawler_updates, not process_memory_event), so flagging from
     # `delta` here was dead code that never landed on any bead.
 
-    # F-W1: enqueue enrichment stages instead of running them inline.
+    # F-W1: enqueue semantic-write and enrichment stages instead of running
+    # them inline. The canonical current-turn bead does not exist until the
+    # queued association stage succeeds.
     from core_memory.runtime.passes.enrichment import _enrichment_queue_enabled, enqueue_turn_enrichment
 
     # process_memory_event is mechanical-only and never returns a bead_id; the
@@ -303,6 +305,7 @@ def process_turn_finalized_impl(
     # in after draining).
     bead_id = ""
     enrichment_queued = False
+    enrichment_queue: dict[str, Any] = {}
 
     # Gate-blocked turns must persist their stub bead synchronously: the engine
     # only drains the enrichment queue for ok=True results, so queueing here
@@ -319,6 +322,7 @@ def process_turn_finalized_impl(
             crawler_ctx=crawler_ctx,
             structural_coverage_missing=_structural_coverage_missing,
         )
+        enrichment_queue = dict(enqueue_result or {})
         enrichment_queued = bool(enqueue_result and enqueue_result.get("ok"))
 
     auto_apply: dict[str, Any] = {}
@@ -467,6 +471,7 @@ def process_turn_finalized_impl(
         "delta": delta,
         "emitted": emitted,
         "enrichment_queued": enrichment_queued,
+        "enrichment_queue": enrichment_queue,
         "crawler_handoff": {
             "required": True,
             "agent_authored_gate": gate,

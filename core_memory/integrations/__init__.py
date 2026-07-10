@@ -9,6 +9,7 @@ __all__ = [
     "IntegrationContext",
     "emit_turn_finalized",
     "emit_turn_finalized_from_envelope",
+    "write_turn_finalized",
     "get_turn",
     "get_turn_tools",
     "get_adjacent_turns",
@@ -25,20 +26,24 @@ def __getattr__(name: str):
         "IntegrationContext",
         "emit_turn_finalized",
         "emit_turn_finalized_from_envelope",
+        "write_turn_finalized",
         "get_turn",
         "get_turn_tools",
         "get_adjacent_turns",
         "hydrate_bead_sources",
     }:
         from . import api as _api
+
         return getattr(_api, name)
 
     if name in {"rebuild_turn_indexes", "backfill_bead_session_ids"}:
         from . import migration as _migration
+
         return getattr(_migration, name)
 
     if name in {"neo4j_status", "sync_to_neo4j"}:
         from .neo4j import sync as _neo4j_sync
+
         return getattr(_neo4j_sync, name)
 
     raise AttributeError(name)
