@@ -129,6 +129,36 @@ class MCPIngestHandlerTests(unittest.TestCase):
         self.assertEqual(out["transcript_hash"], metadata["transcript_hash"])
         self.assertTrue(metadata["user_opted_in"])
 
+    def test_sync_transcript_snapshot_does_not_complete_pending_semantic_write(self):
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",
+            return_value={
+                "ok": False,
+                "session_id": "s",
+                "turns_ingested": 0,
+                "bead_ids": [],
+                "error": {
+                    "code": "semantic_write_pending",
+                    "message": "Finalized turn is accepted but not committed.",
+                },
+            },
+        ):
+            out = call_tool(
+                "sync_transcript_snapshot",
+                {
+                    "root": str(Path(td) / "store"),
+                    "messages": [{"role": "user", "content": "Remember this."}],
+                    "user_opted_in": True,
+                    "conversation_id": "pending-write",
+                    "source_client": "claude_desktop",
+                },
+            )
+
+        self.assertFalse(out["ok"])
+        self.assertFalse(out["accepted"])
+        self.assertFalse(out["created"])
+        self.assertEqual("failed", out["idempotency_status"])
+
     def test_sync_transcript_snapshot_runs_periodic_association_coverage_for_beads(self):
         with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.integrations.mcp.tools.sync_transcript_snapshot.ingest_handler",

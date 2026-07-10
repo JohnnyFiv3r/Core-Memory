@@ -126,6 +126,61 @@ class TranscriptIngestSurfaceTests(unittest.TestCase):
         self.assertIn(prior, second_window)
         self.assertIn(out["ingested"][0]["bead_ids"][0], second_window)
 
+    def test_turn_envelope_ingest_preserves_singular_receipt_bead_id(self):
+        envelopes = [
+            {
+                "session_id": "s1",
+                "turn_id": "t1",
+                "turns": [{"role": "user", "content": "remember this"}],
+                "metadata": {},
+            }
+        ]
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.transcript_ingest.process_turn_finalized",
+            return_value={
+                "ok": True,
+                "bead_id": "bead-committed",
+                "semantic_status": "committed",
+            },
+        ):
+            out = ingest_turn_envelopes(
+                root=str(Path(td) / "store"),
+                envelopes=envelopes,
+            )
+
+        self.assertTrue(out["ok"])
+        self.assertEqual(["bead-committed"], out["ingested"][0]["bead_ids"])
+
+    def test_turn_envelope_ingest_reports_pending_semantic_write_as_failure(self):
+        envelopes = [
+            {
+                "session_id": "s1",
+                "turn_id": "t1",
+                "turns": [{"role": "user", "content": "remember this"}],
+                "metadata": {},
+            }
+        ]
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.transcript_ingest.process_turn_finalized",
+            return_value={
+                "ok": False,
+                "accepted": True,
+                "retryable": True,
+                "semantic_status": "pending",
+                "error_code": "semantic_write_pending",
+            },
+        ):
+            out = ingest_turn_envelopes(
+                root=str(Path(td) / "store"),
+                envelopes=envelopes,
+            )
+
+        self.assertFalse(out["ok"])
+        self.assertEqual(0, out["turns_ingested"])
+        self.assertEqual("failed", out["ingested"][0]["status"])
+        self.assertEqual("semantic_write_pending", out["errors"][0]["error"])
+        self.assertTrue(out["errors"][0]["retryable"])
+
     def test_transcript_result_summarizes_created_associations(self):
         with tempfile.TemporaryDirectory() as td:
             root = str(Path(td) / "store")
