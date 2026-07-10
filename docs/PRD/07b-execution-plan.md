@@ -197,11 +197,11 @@ must = [
 
 **Change**
 
-The branch added in Phase 6 currently looks like:
+The historical Phase 6 placeholder looked like:
 
 ```python
 if _caps.vector_search:
-    raise NotImplementedError("vector_search capability not yet wired")
+    raise NotImplementedError("vector_search capability placeholder")
 else:
     sem = semantic_lookup(...)
 ```
@@ -351,11 +351,11 @@ empty traversal results, canonical falls back to Python walker.
 
 **Change**
 
-The branch added in Phase 6 currently looks like:
+The historical Phase 6 placeholder looked like:
 
 ```python
 if _caps.graph_traversal:
-    raise NotImplementedError("graph_traversal capability not yet wired")
+    raise NotImplementedError("graph_traversal capability placeholder")
 else:
     trav = causal_traverse(...)
 ```
@@ -640,17 +640,19 @@ Total install size delta: ~80 MB (FastEmbed model is the largest single piece).
 
 ## Sequencing checklist
 
+Current closeout state:
+
 ```
-[ ] 7b-1   Embedded Qdrant + default flip
-[ ] 7b-2   hybrid_lookup Qdrant path
-[ ] 7b-3   canonical.py _caps.vector_search branch
-[ ] 7b-4   KuzuGraphBackend (schema, traverse, write hooks)
-[ ] 7b-5   canonical.py _caps.graph_traversal branch
-[ ] 7b-6   Write-path mirror hooks
-[ ] 7b-7   core-memory migrate command
-[ ] 7b-8   E2E test suite (8 cases)
-[ ] 7b-9   Neo4j alternative backend
-[ ] Regression suite green
-[ ] Update CLAUDE.md "Active subsystems" — Qdrant + Kuzu as defaults
-[ ] Update docs/architecture_overview.md retrieval section
+[x] 7b-1   Embedded Qdrant + default flip
+[x] 7b-2   hybrid_lookup Qdrant path
+[x] 7b-3   canonical.py _caps.vector_search branch
+[x] 7b-4   KuzuGraphBackend (schema, traverse, write hooks)
+[x] 7b-5   canonical.py _caps.graph_traversal branch
+[x] 7b-6   Write-path mirror hooks
+[x] 7b-7   core-memory migrate command
+[x] 7b-8   E2E test suite (8 cases)
+[x] 7b-9   Neo4j alternative backend
+[x] Regression suite green
+[x] Update CLAUDE.md "Active subsystems" — Qdrant + Kuzu as defaults
+[x] Update docs/architecture_overview.md retrieval section
 ```

@@ -643,20 +643,20 @@ is the same pattern as the rest of the codebase (Anthropic / OpenAI / FAISS impo
 
 ## Retrieval pipeline wiring
 
-In `retrieval/pipeline/canonical.py`, replace the Phase 6 placeholder branch:
+In `retrieval/pipeline/canonical.py`, the historical Phase 6 placeholder branch was:
 
 ```python
-# Phase 6 (current):
+# Historical Phase 6 placeholder:
 _caps = get_backend_capabilities(rp / ".beads")
 ...
 if _caps.graph_traversal:
-    trav = {"ok": True, "chains": []}  # backend.traverse not yet wired
+    trav = {"ok": True, "chains": []}  # backend traversal placeholder
 else:
     trav = causal_traverse(Path(root), anchor_ids=a_ids, max_depth=3, max_chains=5) ...
 ```
 
 ```python
-# Phase 7:
+# Shipped Phase 7+ shape:
 from core_memory.persistence.graph import create_graph_backend
 graph_backend = create_graph_backend()  # process-scope cached; see below
 caps = graph_backend.capabilities()
