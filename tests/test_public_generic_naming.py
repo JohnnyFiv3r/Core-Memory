@@ -3,7 +3,14 @@ from pathlib import Path
 
 def test_public_repo_has_no_deployment_specific_memory_runtime_name():
     banned = "Sato" + "rid"
-    roots = [Path("core_memory"), Path("docs"), Path("tests"), Path("demo")]
+    roots = [
+        Path("core_memory"),
+        Path("docs"),
+        Path("tests"),
+        Path("demo"),
+        Path("plugins"),
+        Path("scripts"),
+    ]
     hits = []
     for root in roots:
         if not root.exists():

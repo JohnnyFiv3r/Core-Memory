@@ -98,16 +98,13 @@ if not isinstance(entries, dict):
 existing = entries.get(plugin_id) if isinstance(entries.get(plugin_id), dict) else {}
 existing_config = existing.get('config') if isinstance(existing.get('config'), dict) else {}
 hosted_url = (
-    os.environ.get('SATORID_OPENCLAW_CORE_MEMORY_URL')
-    or os.environ.get('CORE_MEMORY_HOSTED_TURN_FINALIZED_URL')
+    os.environ.get('CORE_MEMORY_HOSTED_TURN_FINALIZED_URL')
     or os.environ.get('CORE_MEMORY_HOSTED_API_BASE_URL')
     or existing_config.get('hostedCoreMemoryUrl')
     or ''
 )
 hosted_token = (
-    os.environ.get('SATORID_GATEWAY_KEY')
-    or os.environ.get('SATORID_CORE_MEMORY_HTTP_TOKEN')
-    or os.environ.get('CORE_MEMORY_HOSTED_HTTP_TOKEN')
+    os.environ.get('CORE_MEMORY_HOSTED_HTTP_TOKEN')
     or existing_config.get('hostedCoreMemoryToken')
     or ''
 )
@@ -124,8 +121,7 @@ entry_config = {
     'hostedCoreMemoryUrl': hosted_url,
     'hostedCoreMemoryToken': hosted_token,
     'hostedCoreMemoryTenantId': (
-        os.environ.get('SATORID_CORE_MEMORY_TENANT_ID')
-        or os.environ.get('CORE_MEMORY_HOSTED_TENANT_ID')
+        os.environ.get('CORE_MEMORY_HOSTED_TENANT_ID')
         or existing_config.get('hostedCoreMemoryTenantId')
         or ''
     ),
