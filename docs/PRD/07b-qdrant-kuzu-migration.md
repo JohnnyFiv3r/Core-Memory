@@ -1,21 +1,48 @@
 # PRD: Qdrant + Kuzu Retrieval Infrastructure Migration
 
 **Phase:** 7b
-**Status:** Not started
+**Status:** Implemented — Qdrant/Kuzu defaults, hybrid retrieval, migration, and optional backend E2E coverage shipped
 **Prerequisite:** Phase 6 complete (BackendCapabilities, `_caps` branches in canonical.py)
 **Related:** Phase 7 (GraphBackend protocol) — this PRD is the concrete implementation,
 7 is the abstract protocol design. Both ship together.
 
 ---
 
-## Problem
+## Current implementation note
+
+Phase 7b has shipped in the current tree. Embedded Qdrant is the default vector
+backend in `core_memory.retrieval.semantic_index`; embedded Kuzu is the default
+graph backend in `core_memory.persistence.graph.factory`; Qdrant hybrid lookup is
+wired through `core_memory.retrieval.hybrid` and
+`core_memory.retrieval.vector_backend`; and the canonical recall pipeline has
+capability-gated vector and graph traversal branches in
+`core_memory.retrieval.pipeline.canonical`.
+
+The write side mirrors committed beads into Qdrant and the configured graph
+backend from `core_memory.runtime.post_write.bead_commit`, and
+`core-memory migrate` can populate Qdrant plus Kuzu/Neo4j from existing local
+storage via `core_memory.cli.handlers.migrate`. Coverage lives in
+`tests/test_qdrant_embedded_backend.py`, `tests/test_kuzu_graph_backend.py`, and
+the 8-test `tests/test_retrieval_e2e_qdrant_kuzu.py` optional-backend suite.
+
+Neo4j remains an alternative graph backend through the same `GraphBackend`
+factory path. Live Neo4j execution is intentionally environment-gated; that is
+not open Phase 7b implementation debt.
+
+The design notes below are retained as historical rationale. Statements that
+describe FAISS, `lexical.py`, or Python graph traversal as defaults refer to the
+pre-implementation baseline.
+
+---
+
+## Historical problem
 
 Core Memory produces high-quality bead data per turn — structured causal types,
 authored retrieval_facts, entity and topic tagging, because-chains. The retrieval
 infrastructure does not match this data quality. The bottleneck is finding the right
 beads, not generating them.
 
-**FAISS** (current default vector store):
+**FAISS** (pre-implementation default vector store):
 - No filtering at query time. `semantic_lookup` fetches top-k by cosine similarity,
   then Python filters out non-retrieval-eligible and retracted beads. If 10 of k=24
   candidates are ineligible, only 14 useful slots remain. The effective retrieval pool
@@ -42,7 +69,7 @@ beads, not generating them.
 
 ---
 
-## What already exists
+## Pre-implementation baseline
 
 | Component | Status | Notes |
 |-----------|--------|-------|
@@ -56,7 +83,7 @@ beads, not generating them.
 
 ---
 
-## What changes
+## Implemented changes
 
 ### Vector tier: Qdrant replaces FAISS + lexical.py
 
