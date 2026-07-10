@@ -204,34 +204,10 @@ Before Phase 10, open-item tracking was split:
 - `docs/reports/todo-validation-2026-05-15.md` — status audit against those 7 items
 - `docs/cleanup-plan.md` — the new cleanup workstream (phases 0–8)
 
-Phase 10 created `docs/status.md` as the single tracked-state document:
-
-```markdown
-# Core Memory — Open Work
-
-## Correctness items (engine behavior)
-*Source: demo/TODO.md + todo-validation-2026-05-15.md*
-
-| # | Item | Status | Notes |
-|---|------|--------|-------|
-| 1 | Extracted `because` reasoning | Closed | |
-| 2 | Goal lifecycle resolution | Open | ... |
-| 3 | Association relationship types | Partial | ... |
-...
-
-## Cleanup workstream
-*Source: docs/cleanup-plan.md — phases 0–8*
-
-Phase 0 (CI baseline): [ ]
-Phase 1 (dead files): [ ]
-...
-
-## Structural consolidation workstream
-*Source: docs/PRD/09-structural-consolidation.md — sub-tasks 9a–9g*
-
-9a (feature flags extraction): [ ]
-...
-```
+Phase 10 created `docs/status.md` as the single tracked-state document. The
+current file is authoritative and should not be duplicated here; it now contains
+the cleanup workstream closeout table, engine-correctness status, capability
+items, open workstreams, and references.
 
 `demo/TODO.md` retains its cross-repo references and notes but links to `docs/status.md`
 for the authoritative completion state. `docs/reports/todo-validation-2026-05-15.md`
@@ -241,22 +217,9 @@ becomes a historical snapshot referenced from `docs/status.md`.
 
 ## Historical sub-task 10f — Add `docs/PRD/README.md`
 
-Phase 10 added an index of PRD files with one-line descriptions and status:
-
-```markdown
-# PRDs
-
-| File | Title | Status |
-|------|-------|--------|
-| 03-mcp-protocol-server.md | MCP Protocol Server | ? |
-| 04-graph-module-cleanup.md | Classify graph/api.py compat facade | Retained public compatibility |
-| 05-persistence-delegation-flatten.md | Flatten persistence delegation | MRO flat; legacy mixin artifacts retired |
-| 06-storage-adapter-boundary.md | Storage adapter capability tiers | Done |
-| 07-neo4j-query-backend.md | Neo4j as query backend | Done |
-| 08-init-wizard.md | core-memory init wizard | Done |
-| 09-structural-consolidation.md | Runtime/CLI/OpenClaw restructure | Done at architecture layer |
-| 10-documentation-consolidation.md | Docs cleanup and consolidation | Done |
-```
+Phase 10 added `docs/PRD/README.md` as the PRD index with one-line descriptions
+and status. The current index is authoritative and covers cleanup PRDs,
+capability PRDs, agency/self-model PRDs, active drafts, and deferred work.
 
 ---
 

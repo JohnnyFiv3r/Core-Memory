@@ -913,25 +913,16 @@ When `CORE_MEMORY_VECTOR_BACKEND=qdrant` (or unset, since qdrant is the default)
 
 **New file:** `docs/status.md`
 
-Structure:
-```markdown
-# Core Memory — Open Work
+Delivered structure:
 
-> This is the single authoritative source for completion state.
-> `docs/cleanup-plan.md` and `CLAUDE.md` link here; do not duplicate phase state in those files.
+- Cleanup workstream table with complete/current phase state.
+- Engine-correctness and capability status tables.
+- Open workstream notes with explicit product/runtime boundaries.
+- References to the cleanup plan, compatibility ledger, PRDs, TODO context, and
+  architecture overview.
 
-## Engine correctness items
-Source: demo/TODO.md + docs/reports/todo-validation-2026-05-15.md
-[table of 7 items with current Open/Closed/Partial status]
-
-## Cleanup workstream
-[copy phase table from cleanup-plan.md with accurate [x]/[ ] state]
-
-## Deferred items
-- Phase 7e–7i: Graphiti, Zep, Obsidian, plugin docs — shipped; see `docs/status.md`
-- Phase 7b live tests: workflow_dispatch only; not a PR blocker
-- Phase 7 GraphitiLLM injection: user-facing; documented in graph_backend_plugin.md
-```
+The current `docs/status.md` file is authoritative; this historical plan no
+longer duplicates the table contents.
 
 **`CLAUDE.md` phase table** — replace stale phase entries with accurate status
 (cross-referenced from `docs/cleanup-plan.md`) and add a note:
@@ -1011,9 +1002,10 @@ Six targeted edits:
 
 **File:** `docs/cleanup-plan.md`
 
-Change all `[ ]` checkboxes in Phase 0 to `[x]`. Every item was implemented before
-this branch existed — test.yml with three jobs, markers in pyproject.toml, facade/
-mixin/pydanticai marks on all target test files. The checkboxes were never updated.
+Change the stale Phase 0 checklist entries to complete. Every item was
+implemented before this branch existed — test.yml with three jobs, markers in
+pyproject.toml, facade/mixin/pydanticai marks on all target test files. The
+checklist state was never updated.
 
 ---
 
