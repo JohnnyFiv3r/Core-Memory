@@ -11,7 +11,6 @@ from typing import Any
 from core_memory.association.quarantine import write_quarantine
 from core_memory.persistence import events
 from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.persistence.store import MemoryStore
 from core_memory.persistence.store_relationship_ops import _mirror_association_to_graph
 from core_memory.policy.association_contract import assoc_dedupe_key
 from core_memory.policy.association_inference_v21 import (
@@ -19,15 +18,14 @@ from core_memory.policy.association_inference_v21 import (
     validate_and_normalize_inference_payload,
 )
 from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
+from core_memory.retrieval.lifecycle import mark_trace_dirty
 from core_memory.runtime.ingest.source_envelope import (
     merge_source_ingest_envelope_refs,
     source_ingest_batch_ids,
     source_ingest_envelope_ref,
     source_microbatch_key,
 )
-from core_memory.schema.semantic_tasks import SemanticTaskRequest, TASK_ASSOCIATION_DECISION
-from core_memory.retrieval.lifecycle import mark_trace_dirty
-
+from core_memory.schema.semantic_tasks import TASK_ASSOCIATION_DECISION, SemanticTaskRequest
 
 ASSOCIATION_RUNS_SCHEMA = "core_memory.association_runs.v1"
 ASSOCIATION_CANDIDATES_SCHEMA = "core_memory.association_candidates.v1"
@@ -344,7 +342,11 @@ def _source_envelope_refs_for_candidates(candidates: list[dict[str, Any]]) -> li
     return merge_source_ingest_envelope_refs(refs, limit=100)
 
 
-def _source_envelope_context_for_judge(index: dict[str, Any], refs: list[dict[str, Any]], bead_ids: set[str]) -> dict[str, Any]:
+def _source_envelope_context_for_judge(
+    index: dict[str, Any],
+    refs: list[dict[str, Any]],
+    bead_ids: set[str],
+) -> dict[str, Any]:
     wanted = {_clean_str(ref.get("envelope_id")) for ref in refs if isinstance(ref, dict)}
     wanted = {x for x in wanted if x}
     envelopes: dict[str, dict[str, Any]] = {}
@@ -432,7 +434,9 @@ def _candidate_observations(root: str | Path) -> list[dict[str, Any]]:
             if refs:
                 row["source_ingest_envelope_refs"] = refs
                 row["source_ingest_batch_ids"] = source_ingest_batch_ids(refs)
-                row["source_microbatch_key"] = _clean_str(candidate.get("source_microbatch_key")) or source_microbatch_key(refs)
+                row["source_microbatch_key"] = _clean_str(
+                    candidate.get("source_microbatch_key")
+                ) or source_microbatch_key(refs)
             row.setdefault("status", "pending_judge")
             observations.append(row)
         if _clean_str(record.get("candidate_id")):
@@ -515,7 +519,10 @@ def _normalized_candidate_rows(root: str | Path) -> tuple[list[dict[str, Any]], 
                 row.get("source_ingest_envelope_refs") or []
             )
         for key, value in observation.items():
-            if value not in (None, "", [], {}) and key not in {"rediscovery_observations", "source_ingest_envelope_refs"}:
+            if value not in (None, "", [], {}) and key not in {
+                "rediscovery_observations",
+                "source_ingest_envelope_refs",
+            }:
                 row[key] = value
         run_id = _clean_str(observation.get("run_id"))
         if run_id and run_id not in row["run_ids"]:
@@ -654,8 +661,6 @@ def _resolve_session_bead_ids(index: dict[str, Any], session_id: str | None) -> 
     rows = []
     for bid, bead in (index.get("beads") or {}).items():
         if _clean_str((bead or {}).get("session_id")) != sid:
-            continue
-        if not _coverage_eligible(bead):
             continue
         rows.append((_clean_str((bead or {}).get("created_at")), _clean_str(bid)))
     rows.sort()
@@ -1166,8 +1171,20 @@ def _env_int(name: str, default: int) -> int:
 def _association_judge_max_tokens(context: dict[str, Any]) -> int:
     candidates = len([x for x in (context.get("candidates") or []) if isinstance(x, dict)])
     source_beads = len([x for x in (context.get("source_bead_ids") or []) if _clean_str(x)])
-    minimum = max(1, _env_int("CORE_MEMORY_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS", DEFAULT_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS))
-    maximum = max(minimum, _env_int("CORE_MEMORY_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS", DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS))
+    minimum = max(
+        1,
+        _env_int(
+            "CORE_MEMORY_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS",
+            DEFAULT_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS,
+        ),
+    )
+    maximum = max(
+        minimum,
+        _env_int(
+            "CORE_MEMORY_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS",
+            DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS,
+        ),
+    )
     per_candidate = max(
         1,
         _env_int(
@@ -1410,7 +1427,15 @@ def _decision_state(value: Any) -> str:
     state = _clean_str(value).lower()
     if state in {"no_link", "none"}:
         return "no_supported_links"
-    if state in {"linked", "no_supported_links", "quarantined", "judge_failed", "failed", "pending_judge", "skipped_ineligible"}:
+    if state in {
+        "linked",
+        "no_supported_links",
+        "quarantined",
+        "judge_failed",
+        "failed",
+        "pending_judge",
+        "skipped_ineligible",
+    }:
         return state
     return ""
 
@@ -1812,7 +1837,13 @@ def enqueue_association_coverage(
     graph_rev = _clean_str(graph_revision) or _graph_revision(index)
     prompt_v = _clean_str(prompt_version) or JUDGE_PROMPT_VERSION
     rubric_v = _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION
-    candidate_sig = _bead_set_signature([_clean_str(x) for x in (candidate_bead_ids or []) if _clean_str(x)]) if candidate_bead_ids else "auto"
+    candidate_sig = (
+        _bead_set_signature(
+            [_clean_str(x) for x in (candidate_bead_ids or []) if _clean_str(x)]
+        )
+        if candidate_bead_ids
+        else "auto"
+    )
 
     if not eligible_ids:
         out = {
@@ -1987,7 +2018,13 @@ def on_bead_committed(
             "source_ingest_batch_ids": source_ingest_batch_ids(run_envelope_refs),
             "association_queued": False,
             "bead_commit_source": _clean_str(source) or "memory_store",
-            "counts": {"appended": 0, "deduped": 0, "quarantined": 0, "failed": 0, "skipped": 1 if state == "skipped_ineligible" else 0},
+            "counts": {
+                "appended": 0,
+                "deduped": 0,
+                "quarantined": 0,
+                "failed": 0,
+                "skipped": 1 if state == "skipped_ineligible" else 0,
+            },
         }
         _append_run_record(root, out)
         return out

@@ -6,17 +6,11 @@ from importlib import import_module
 from typing import Any, Optional
 
 from core_memory.persistence import events
-from core_memory.persistence.bead_hygiene_contract import enforce_bead_hygiene_contract, is_generic_title
+from core_memory.persistence.bead_hygiene_contract import enforce_bead_hygiene_contract
 from core_memory.persistence.entity_registry import sync_bead_entities_for_index
 from core_memory.persistence.io_utils import append_jsonl, store_lock
-from core_memory.persistence.session_surface import read_session_surface
 from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty
-from core_memory.schema.normalization import (
-    CANONICAL_BEAD_TYPES,
-    normalize_bead_type,
-    resolve_confidence_class,
-    resolve_grounding,
-)
+from core_memory.schema.normalization import normalize_state_change, resolve_confidence_class, resolve_grounding
 
 
 def _bead_commit_side_effects_provider():
@@ -71,40 +65,6 @@ def add_bead_for_store(
     if bad_override:
         raise ValueError(f"reserved_overrides_not_allowed:{','.join(bad_override)}")
 
-    # Known extra fields — all others are accepted but logged
-    _KNOWN_EXTRA_FIELDS = {
-        "confidence", "linked_bead_id", "result", "goal_id", "success_criteria",
-        "condition", "action", "tested_by", "hypothesis_status", "reflection_type",
-        "tool", "capability", "tool_result_status", "tool_output_id", "tool_output_ids",
-        "supports_bead_ids", "blocked_by_description", "blocking_bead_id",
-        "incident_id", "severity", "resolved_at", "constraints", "state_change",
-        "observed_at", "recorded_at", "effective_from", "effective_to",
-        "supersedes", "superseded_by", "claims", "claim_updates", "interaction_role",
-        "memory_outcome", "context_tags", "revises_bead_id", "revision_type",
-        "entity_ids", "evidence_refs", "speaker_attribution",
-        "attributed_entity_id", "resolution_confidence", "prev_bead_id",
-        "next_bead_id", "turn_index", "session_id", "promoted", "promotion_candidate",
-        "promotion_locked", "promoted_at", "promotion_score", "promotion_threshold",
-        "promotion_reason", "failure_signature", "decision_conflict_with",
-        "unjustified_flip", "validation_warnings", "type_log", "type_coerced_from",
-        "anchor_reason", "semantic_score", "retrieval_score",
-        "data_type_flag", "source_id", "source_event_id", "source_system",
-        "source_kind", "source_ref", "source_refs", "source_attribution",
-        "core_memory_unifying_id", "hydration_ref", "transcript_id",
-        "conversation_id", "source_thread_id", "source_session_id",
-        "message_refs", "speaker_refs", "document_id", "raw_source_object_id",
-        "document_name", "mime_type", "document_kind",
-        "document_date", "author_or_owner", "section_refs", "source_table",
-        "source_record_id", "record_action", "record_grain",
-        "business_object_type", "business_object_id", "metric_name",
-        "metric_value", "metric_unit", "change_pct", "currency",
-        "as_of_timestamp", "entity_refs", "attribute_tags",
-        "derived_from", "derived_from_bead_ids", "assertion_kind",
-        "assertion_subject", "assertion_predicate", "assertion_value",
-        "confidence_class", "grounding", "actor",
-        "approval_status", "approved_by", "approved_at", "approval_note",
-    }
-
     bead_id = store._generate_id()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -152,13 +112,12 @@ def add_bead_for_store(
     if not bead.get("type_log"):
         bead["type_log"] = [{"type": bead.get("type", ""), "set_at": now_iso, "reason": "initial_write"}]
 
-    # Global rule: beads are records, eligible unless type is unrecognized.
-    # normalize_bead_type resolves legacy aliases (e.g. promoted_lesson → lesson)
-    # before the canonical membership check so legacy callers aren't penalized.
-    bead["retrieval_eligible"] = (
-        normalize_bead_type(str(bead.get("type") or "")) in CANONICAL_BEAD_TYPES
-        and not is_generic_title(str(bead.get("title") or ""))
-    )
+    # Eligibility is authored and monotonic-downgrade only. Missing values take
+    # the compatibility default of false; hygiene may downgrade true for a
+    # generic title but never upgrades false.
+    bead["retrieval_eligible"] = bool(bead.get("retrieval_eligible", False))
+    if "state_change" in bead:
+        bead["state_change"] = normalize_state_change(bead.get("state_change"))
 
     bead = store._sanitize_bead_content(bead)
     bead = enforce_bead_hygiene_contract(bead)

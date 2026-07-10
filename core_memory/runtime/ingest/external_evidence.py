@@ -12,19 +12,29 @@ from typing import Any
 
 from core_memory.persistence import events
 from core_memory.persistence.store import MemoryStore
-from core_memory.schema.normalization import (
-    EXTERNAL_BEAD_TYPES,
-    EXTERNAL_DOCUMENT_FLAGS as DOCUMENT_FLAGS,
-    EXTERNAL_OPERATIONAL_FLAGS as OPERATIONAL_FLAGS,
-    EXTERNAL_RELATIONAL_FLAGS as RELATIONAL_FLAGS,
-    EXTERNAL_STATE_ASSERTION_FLAGS as STATE_ASSERTION_FLAGS,
-    EXTERNAL_TRANSCRIPT_FLAGS as TRANSCRIPT_FLAGS,
-    normalize_assertion_kind,
-)
 from core_memory.runtime.associations.coverage import on_bead_committed
 from core_memory.runtime.ingest.source_envelope import (
     normalize_source_ingest_envelope,
     source_ingest_envelope_ref,
+)
+from core_memory.schema.normalization import (
+    EXTERNAL_BEAD_TYPES,
+    normalize_assertion_kind,
+)
+from core_memory.schema.normalization import (
+    EXTERNAL_DOCUMENT_FLAGS as DOCUMENT_FLAGS,
+)
+from core_memory.schema.normalization import (
+    EXTERNAL_OPERATIONAL_FLAGS as OPERATIONAL_FLAGS,
+)
+from core_memory.schema.normalization import (
+    EXTERNAL_RELATIONAL_FLAGS as RELATIONAL_FLAGS,
+)
+from core_memory.schema.normalization import (
+    EXTERNAL_STATE_ASSERTION_FLAGS as STATE_ASSERTION_FLAGS,
+)
+from core_memory.schema.normalization import (
+    EXTERNAL_TRANSCRIPT_FLAGS as TRANSCRIPT_FLAGS,
 )
 
 
@@ -83,6 +93,20 @@ def _coerce_float(value: Any) -> float | None:
         return float(value)
     except Exception:
         return None
+
+
+def _coerce_bool(value: Any, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+    return default
 
 
 def _hydration_ref(payload: dict[str, Any]) -> dict[str, Any]:
@@ -169,7 +193,12 @@ def _default_source_kind(bead_type: str, payload: dict[str, Any]) -> str:
     return "external"
 
 
-def _source_ref_payload(payload: dict[str, Any], *, source_kind: str, hydration_ref: dict[str, Any]) -> list[dict[str, Any]]:
+def _source_ref_payload(
+    payload: dict[str, Any],
+    *,
+    source_kind: str,
+    hydration_ref: dict[str, Any],
+) -> list[dict[str, Any]]:
     provided = payload.get("source_refs")
     if isinstance(provided, list) and provided:
         return [x for x in provided if isinstance(x, dict) or str(x).strip()]
@@ -250,7 +279,10 @@ def _find_existing_external_bead(store: MemoryStore, payload: dict[str, Any], be
                     return dict(bead)
             continue
         if source_id and source_record_id:
-            if _clean_str(bead.get("source_id")) == source_id and _clean_str(bead.get("source_record_id")) == source_record_id:
+            if (
+                _clean_str(bead.get("source_id")) == source_id
+                and _clean_str(bead.get("source_record_id")) == source_record_id
+            ):
                 return dict(bead)
         if source_id and document_id:
             if _clean_str(bead.get("source_id")) == source_id and document_id in {
@@ -346,7 +378,10 @@ def _validate_external_payload(bead_type: str, payload: dict[str, Any], hydratio
         if not _clean_str(payload.get("business_object_id") or payload.get("source_record_id")):
             raise ValueError("external_evidence: operational_event requires business_object_id or source_record_id")
         if not _clean_str(payload.get("as_of_timestamp") or payload.get("occurred_at") or payload.get("observed_at")):
-            raise ValueError("external_evidence: operational_event requires as_of_timestamp, occurred_at, or observed_at")
+            raise ValueError(
+                "external_evidence: operational_event requires as_of_timestamp, "
+                "occurred_at, or observed_at"
+            )
         if not (_coerce_str_list(payload.get("entities")) or _coerce_str_list(payload.get("entity_refs"))):
             raise ValueError("external_evidence: operational_event requires entities or entity_refs")
     elif bead_type in {"structured_observation", "data_insight"}:
@@ -359,8 +394,15 @@ def _validate_external_payload(bead_type: str, payload: dict[str, Any], hydratio
         if not (_coerce_list(payload.get("message_refs")) or _coerce_str_list(payload.get("source_turn_ids"))):
             raise ValueError("external_evidence: transcript requires message_refs or source_turn_ids")
     elif bead_type == "state_assertion":
-        if not (_coerce_str_list(payload.get("derived_from")) or _coerce_str_list(payload.get("derived_from_bead_ids")) or _coerce_list(payload.get("evidence_refs"))):
-            raise ValueError("external_evidence: state_assertion requires derived_from, derived_from_bead_ids, or evidence_refs")
+        if not (
+            _coerce_str_list(payload.get("derived_from"))
+            or _coerce_str_list(payload.get("derived_from_bead_ids"))
+            or _coerce_list(payload.get("evidence_refs"))
+        ):
+            raise ValueError(
+                "external_evidence: state_assertion requires derived_from, "
+                "derived_from_bead_ids, or evidence_refs"
+            )
         if not _clean_str(payload.get("effective_from") or payload.get("observed_at")):
             raise ValueError("external_evidence: state_assertion requires effective_from or observed_at")
 
@@ -396,8 +438,10 @@ def _bead_payload(
         "detail": _clean_str(payload.get("detail") or payload.get("content"))[:1200],
         "session_id": _clean_str(payload.get("session_id")) or None,
         "source_turn_ids": _coerce_str_list(payload.get("source_turn_ids")),
-        "authority": _clean_str(payload.get("authority")) or ("derived_analysis" if bead_type == "state_assertion" else "source_attributed"),
+        "authority": _clean_str(payload.get("authority"))
+        or ("derived_analysis" if bead_type == "state_assertion" else "source_attributed"),
         "confidence": _coerce_float(payload.get("confidence")) if payload.get("confidence") is not None else 0.8,
+        "retrieval_eligible": _coerce_bool(payload.get("retrieval_eligible"), default=False),
         "tags": tags[:32],
         "entities": entities[:32],
         "topics": topics[:32],
@@ -576,13 +620,21 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         coverage = {"ok": False, "error": str(exc), "association_state_by_bead": {bead_id: "failed"}}
     receipt["association_run_id"] = _clean_str(coverage.get("run_id"))
     receipt["association_trigger"] = coverage_trigger
-    receipt["association_state"] = _clean_str((coverage.get("association_state_by_bead") or {}).get(bead_id)) or "failed"
+    receipt["association_state"] = (
+        _clean_str((coverage.get("association_state_by_bead") or {}).get(bead_id))
+        or "failed"
+    )
     receipt["association_queued"] = False
     receipt["association_coverage"] = coverage
     return receipt
 
 
-def ingest_structured_observation(root: str, payload: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
+def ingest_structured_observation(
+    root: str,
+    payload: dict[str, Any],
+    *,
+    session_id: str | None = None,
+) -> dict[str, Any]:
     merged = dict(payload or {})
     merged.setdefault("type", "structured_observation")
     merged.setdefault("data_type_flag", "relational")

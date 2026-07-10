@@ -1,11 +1,25 @@
-from __future__ import annotations
-
 """Canonical schema vocabulary + normalization helpers.
 
 Phase T1 intent:
 - Separate bead types, edge relationships, and operational states/statuses.
 - Preserve legacy input compatibility via explicit normalization.
 """
+
+from __future__ import annotations
+
+from copy import deepcopy
+from typing import Any
+
+
+def normalize_state_change(value: Any) -> dict | None:
+    """Normalize legacy state-change text without discarding its meaning."""
+
+    if isinstance(value, dict):
+        return deepcopy(value) or None
+    if isinstance(value, str):
+        text = value.strip()
+        return {"description": text} if text else None
+    return None
 
 # Association type policy (P7 confirmed decision)
 # edge_primary_no_association_bead:
@@ -557,7 +571,10 @@ def derive_confidence_class(bead: dict | None) -> str:
 
     if bool(b.get("promoted")) or authority == "user_confirmed":
         base = "A"
-    elif str(b.get("status") or "").strip().lower() == "promoted" or str(b.get("promotion_state") or "").strip().lower() == "promoted":
+    elif (
+        str(b.get("status") or "").strip().lower() == "promoted"
+        or str(b.get("promotion_state") or "").strip().lower() == "promoted"
+    ):
         base = "A"
     elif (
         bool(b.get("promotion_candidate"))

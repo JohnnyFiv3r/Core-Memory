@@ -26,6 +26,7 @@ def _event_rows(root: str) -> list[dict]:
 
 def _add(store: MemoryStore, **kwargs):
     kwargs.setdefault("_association_coverage", False)
+    kwargs.setdefault("retrieval_eligible", True)
     return store.add_bead(**kwargs)
 
 

@@ -12,12 +12,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import Any, Optional
 
-logger = logging.getLogger(__name__)
-
 from .normalization import (
-    CANONICAL_BEAD_TYPES,
-    CANONICAL_CLAIM_KINDS,
-    CLAIM_UPDATE_DECISIONS,
     HYPOTHESIS_STATUSES,
     INCIDENT_SEVERITIES,
     LEGACY_BEAD_TYPE_MIGRATIONS,
@@ -26,22 +21,18 @@ from .normalization import (
     REVISION_TYPES,
     TESTED_BY_VALUES,
     TOOL_RESULT_STATUSES,
-    confidence_class_rank,
-    derive_confidence_class,
     is_allowed_bead_type,
     normalize_approval_status,
     normalize_assertion_kind,
     normalize_bead_type,
     normalize_claim_kind,
     normalize_claim_update_decision,
-    normalize_confidence_class,
-    normalize_grounding,
     normalize_relation_type,
+    normalize_state_change,
     relation_kind,
     resolve_confidence_class,
     resolve_grounding,
 )
-
 
 _LOG = logging.getLogger(__name__)
 _UNKNOWN_FIELD_COUNTS: dict[str, Counter[str]] = {}
@@ -269,6 +260,20 @@ def _coerce_float(value: Any, *, default: float) -> float:
         return float(default)
 
 
+def _coerce_bool(value: Any, *, default: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off", ""}:
+            return False
+    return bool(default)
+
+
 def _coerce_float_01(value: Any, *, default: float) -> float:
     f = _coerce_float(value, default=default)
     if f < 0.0:
@@ -375,7 +380,7 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     out["confidence"] = _coerce_float_01(out.get("confidence"), default=0.8)
     out["uncertainty"] = _coerce_float_01(out.get("uncertainty"), default=0.5)
     out["recall_count"] = max(0, _coerce_int(out.get("recall_count"), default=0))
-    out["retrieval_eligible"] = str(out.get("type") or "").strip().lower() in CANONICAL_BEAD_TYPES
+    out["retrieval_eligible"] = _coerce_bool(out.get("retrieval_eligible"), default=False)
 
     list_fields = [
         "summary",
@@ -420,7 +425,7 @@ def _normalize_bead_payload(data: dict[str, Any]) -> dict[str, Any]:
     if "hydration_ref" in out and out.get("hydration_ref") is not None:
         out["hydration_ref"] = _coerce_dict(out.get("hydration_ref"))
     if "state_change" in out and out.get("state_change") is not None:
-        out["state_change"] = _coerce_dict(out.get("state_change"))
+        out["state_change"] = normalize_state_change(out.get("state_change"))
 
     # Claim layer fields
     out["claims"] = _coerce_list(out.get("claims"))
@@ -834,16 +839,15 @@ class Bead:
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return _dataclass_to_dict(self)
-    
+
     def is_retrieval_rich(self) -> bool:
         """True when structured retrieval payload is meaningfully populated."""
         return bool((self.retrieval_title or "").strip()) and bool(self.retrieval_facts)
 
     def validate_retrieval_eligibility(self) -> bool:
-        """Normalize eligibility: eligible iff the bead type is recognized."""
-        eligible = str(self.type or "").strip().lower() in CANONICAL_BEAD_TYPES
-        self.retrieval_eligible = eligible
-        return eligible
+        """Preserve authored eligibility; policy enforcement is downgrade-only."""
+        self.retrieval_eligible = bool(self.retrieval_eligible)
+        return self.retrieval_eligible
 
     @classmethod
     def from_dict(cls, data: dict) -> "Bead":
@@ -866,11 +870,11 @@ class Association:
     confidence: float = 0.5
     reinforced_count: int = 0
     decay_score: float = 1.0
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return _dataclass_to_dict(self)
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "Association":
         """Create from dictionary, ignoring unknown keys."""
@@ -885,11 +889,11 @@ class Event:
     session_id: Optional[str]
     payload: dict
     created_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
-    
+
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return _dataclass_to_dict(self)
-    
+
     @classmethod
     def from_dict(cls, data: dict) -> "Event":
         """Create from dictionary, ignoring unknown keys."""

@@ -4,7 +4,12 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from core_memory.runtime.engine import _enforce_structural_invariants, _maybe_apply_judge_fallback
+from core_memory.runtime.engine import (
+    _enforce_structural_invariants,
+    _ensure_turn_creation_update,
+    _maybe_apply_judge_fallback,
+    _structural_turn_bead,
+)
 
 
 class TestEngineStructuralInvariantsPhase3B(unittest.TestCase):
@@ -47,6 +52,36 @@ class TestEngineStructuralInvariantsPhase3B(unittest.TestCase):
         ):
             out = _enforce_structural_invariants(td, req, {"type": "invalid", "title": "T", "summary": ["S"]})
         self.assertEqual("context", out.get("type"))
+
+    def test_structural_fallback_never_upgrades_retrieval_eligibility(self):
+        row = _structural_turn_bead(
+            {
+                "session_id": "s1",
+                "turn_id": "t1",
+                "user_query": "Record the durable decision to use SQLite.",
+            }
+        )
+        self.assertFalse(row["retrieval_eligible"])
+
+    def test_one_primary_keeps_turn_attachment_and_derived_uses_sentinel(self):
+        req = {"session_id": "s1", "turn_id": "t1"}
+        updates = {
+            "beads_create": [
+                {"creation_role": "derived", "type": "lesson", "title": "L", "source_turn_ids": ["t1"]},
+                {"creation_role": "current_turn", "type": "decision", "title": "D"},
+            ]
+        }
+        with tempfile.TemporaryDirectory() as td:
+            out = _ensure_turn_creation_update(td, req, updates)
+
+        rows = out["beads_create"]
+        primary = [row for row in rows if row.get("creation_role") == "current_turn"]
+        derived = [row for row in rows if row.get("creation_role") == "derived"]
+        self.assertEqual(1, len(primary))
+        self.assertIn("t1", primary[0]["source_turn_ids"])
+        self.assertEqual(1, len(derived))
+        self.assertNotIn("t1", derived[0]["source_turn_ids"])
+        self.assertIn("$current_turn", derived[0]["derived_from_bead_ids"])
 
     def test_judge_fallback_fills_missing_only_when_enabled(self):
         row = {

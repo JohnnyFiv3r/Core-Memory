@@ -2,11 +2,11 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
-from core_memory.policy.bead_typing import classify_bead_type, is_retrieval_turn
-from core_memory.policy.bead_judge import judge_bead_fields
-from core_memory.policy.rationale import extract_causal_because, sanitize_because_for_turn
 from core_memory.persistence.semantic_task_receipts import list_semantic_task_runs
 from core_memory.persistence.store import MemoryStore
+from core_memory.policy.bead_judge import judge_bead_fields
+from core_memory.policy.bead_typing import classify_bead_type, is_retrieval_turn
+from core_memory.policy.rationale import extract_causal_because, sanitize_because_for_turn
 from core_memory.provider_config import ProviderConfig
 from core_memory.runtime.engine import process_turn_finalized
 from core_memory.runtime.queue.worker import SidecarPolicy
@@ -176,7 +176,10 @@ class TestRationaleExtraction(unittest.TestCase):
         )
         self.assertEqual(
             ["lower operational risk"],
-            sanitize_because_for_turn(["lower operational risk"], user_query="We chose SQLite because lower operational risk"),
+            sanitize_because_for_turn(
+                ["lower operational risk"],
+                user_query="We chose SQLite because lower operational risk",
+            ),
         )
 
     def test_sanitize_keeps_short_user_text_when_it_is_support(self):
@@ -192,10 +195,15 @@ class TestRationaleExtraction(unittest.TestCase):
     def test_sanitize_drops_obvious_long_whole_turn_dump(self):
         long_turn = (
             "We chose PostgreSQL over MySQL because JSONB support and 2x better performance made it the clear winner "
-            "for the benchmark workload, and this should be retained as the database decision for the demo architecture."
+            "for the benchmark workload, and this should be retained as the database decision "
+            "for the demo architecture."
         )
         self.assertEqual(
-            ["JSONB support and 2x better performance made it the clear winner for the benchmark workload, and this should be retained as the database decision for the demo architecture"],
+            [
+                "JSONB support and 2x better performance made it the clear winner for the "
+                "benchmark workload, and this should be retained as the database decision for "
+                "the demo architecture"
+            ],
             sanitize_because_for_turn([long_turn], user_query=long_turn),
         )
 
@@ -217,8 +225,16 @@ class TestRationaleExtraction(unittest.TestCase):
                 session_id="s-question",
                 turn_id="t-question",
                 turns=[
-                    {"speaker": "user", "role": "user", "content": "Why did we decide to always benchmark representative workloads?"},
-                    {"speaker": "assistant", "role": "assistant", "content": "Because synthetic benchmarks missed important gaps."},
+                    {
+                        "speaker": "user",
+                        "role": "user",
+                        "content": "Why did we decide to always benchmark representative workloads?",
+                    },
+                    {
+                        "speaker": "assistant",
+                        "role": "assistant",
+                        "content": "Because synthetic benchmarks missed important gaps.",
+                    },
                 ],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
@@ -229,7 +245,9 @@ class TestRationaleExtraction(unittest.TestCase):
             self.assertEqual("context", bead.get("type"))
             self.assertNotEqual("precedent", bead.get("type"))
             self.assertEqual([], bead.get("because"))
-            self.assertTrue(bool(bead.get("retrieval_eligible")))
+            # Retrieval questions are explicitly authored as ineligible; the
+            # store must not promote that false value back to true.
+            self.assertFalse(bool(bead.get("retrieval_eligible")))
 
     def test_default_turn_write_keeps_empty_because_without_causal_reason(self):
         with tempfile.TemporaryDirectory() as td, patch.dict(
@@ -247,7 +265,18 @@ class TestRationaleExtraction(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "maybe we should use Redis"}, {"speaker": "assistant", "role": "assistant", "content": "Noted as a tentative idea."}],
+                turns=[
+                    {
+                        "speaker": "user",
+                        "role": "user",
+                        "content": "maybe we should use Redis",
+                    },
+                    {
+                        "speaker": "assistant",
+                        "role": "assistant",
+                        "content": "Noted as a tentative idea.",
+                    },
+                ],
                 policy=SidecarPolicy(create_threshold=0.6),
             )
             self.assertTrue(out.get("ok"))
