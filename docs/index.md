@@ -51,6 +51,7 @@ Use this page as the authoritative map of current docs.
 
 ## Contracts
 - [`contracts/http_api.v1.json`](contracts/http_api.v1.json)
+- [`contracts/chunk_turns.md`](contracts/chunk_turns.md)
 - [`contracts/canonical_phase_function_map.md`](contracts/canonical_phase_function_map.md)
 - [`contracts/entity_registry_contract.md`](contracts/entity_registry_contract.md)
 - [`contracts/entity_merge_review_contract.md`](contracts/entity_merge_review_contract.md)

@@ -10,6 +10,7 @@ from typing import Any
 
 from core_memory.identifiers import validate_archive_id
 from core_memory.persistence.io_utils import store_lock
+from core_memory.persistence.semantic_lifecycle import mark_semantic_dirty
 from core_memory.persistence.turn_archive import append_turn_record, find_turn_record
 
 CHUNK_TURN_SCHEMA = "chunk_turn_record.v1"
@@ -245,11 +246,15 @@ def ingest_chunk_turns(root: str | Path, records: list[dict[str, Any]]) -> dict[
     with store_lock(root_path):
         receipts = _persist_chunk_turns(root_path, normalized)
 
+    created_count = sum(1 for row in receipts if row["status"] == "accepted")
+    if created_count:
+        mark_semantic_dirty(root_path, reason="ingest_chunk_turns")
+
     return {
         "ok": True,
         "accepted": True,
         "contract": CHUNK_TURN_CONTRACT,
-        "created_count": sum(1 for row in receipts if row["status"] == "accepted"),
+        "created_count": created_count,
         "existing_count": sum(1 for row in receipts if row["status"] == "already_exists"),
         "receipts": receipts,
     }

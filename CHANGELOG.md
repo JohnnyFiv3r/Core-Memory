@@ -3,6 +3,10 @@
 ## [Unreleased]
 
 ### Changed
+- Added evidence-only semantic indexing for owned-ingestion chunk turns. Cited
+  chunk hits now resolve and deduplicate to their visible parent document-section
+  beads before reranking or graph traversal; orphan and cross-document chunks
+  fail closed, and chunks remain non-causal hydration units.
 - Moved source-ingest envelope helpers from root flat file
   `core_memory/runtime/source_envelope.py` to
   `core_memory/runtime/ingest/source_envelope.py`, with no compatibility shim.
