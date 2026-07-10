@@ -7,12 +7,14 @@ class TestHttpMCPTypedWrites(unittest.TestCase):
     def setUp(self):
         try:
             from fastapi.testclient import TestClient  # noqa: F401
+
             from core_memory.integrations.http.server import app  # noqa: F401
         except Exception as exc:  # noqa: BLE001
             self.skipTest(f"fastapi stack unavailable: {exc}")
 
     def test_http_mcp_write_turn_finalized(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -33,11 +35,12 @@ class TestHttpMCPTypedWrites(unittest.TestCase):
             self.assertEqual(200, r.status_code)
             data = r.json()
             self.assertTrue(data.get("ok"))
-            self.assertEqual("mcp.write_turn_finalized.v1", data.get("contract"))
-            self.assertEqual("canonical_in_process", data.get("authority_path"))
+            self.assertEqual("memory.turn_finalized_receipt.v2", data.get("contract"))
+            self.assertEqual("committed", data.get("semantic_status"))
 
     def test_http_mcp_write_turn_finalized_rejects_path_traversal_ids(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:
@@ -59,6 +62,7 @@ class TestHttpMCPTypedWrites(unittest.TestCase):
 
     def test_http_mcp_apply_reviewed_proposal(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
         from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates
 
@@ -102,6 +106,7 @@ class TestHttpMCPTypedWrites(unittest.TestCase):
 
     def test_http_mcp_submit_entity_merge_proposal(self):
         from fastapi.testclient import TestClient
+
         from core_memory.integrations.http.server import app
 
         with tempfile.TemporaryDirectory() as td:

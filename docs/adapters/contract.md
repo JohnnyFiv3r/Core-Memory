@@ -62,6 +62,9 @@ Fields are documented in three tiers:
 | Required | `max_beads` | `int` | Convention: `10` for lightweight adapters; adapters may use higher measured defaults. |
 | Optional context | `source` | `str` | Trigger source, e.g. `"session_end"`, `"scheduled"`, or adapter name. |
 | Optional context | `flush_tx_id` | `str | None` | Caller-side flush transaction id. |
+| Operator override | `semantic_override` | `bool` | Default `false`. Set only to waive a latest pending semantic turn. |
+| Operator override | `override_operator` | `str` | Required with `semantic_override=true`; written to append-only waiver audit. |
+| Operator override | `override_reason` | `str` | Required with `semantic_override=true`; written to append-only waiver audit. |
 
 The operational kwargs on `process_flush` are required by the function signature. Adapter docs should lead with the conventions above unless an adapter has measured defaults already in production.
 
@@ -107,6 +110,38 @@ The operational kwargs on `process_flush` are required by the function signature
 | Canonical write-boundary error handling | | | ✓ |
 
 Adapters must not reach past the contract into `MemoryStore` or low-level files for performance or convenience. Doing so creates adapter-specific memory semantics and breaks ecosystem parity.
+
+## Processed turn receipt
+
+Processed Python callers should use
+`core_memory.integrations.api.write_turn_finalized(...)` (also exported as
+`core_memory.write_turn_finalized`). The existing
+`core_memory.integrations.api.emit_turn_finalized(...)` remains event-only for
+one compatibility window and returns an event id rather than semantic outcome.
+
+Processed Python, HTTP `/v1/memory/turn-finalized`, MCP
+`write_turn_finalized`, and `/v1/mcp/write-turn-finalized` return the same
+`memory.turn_finalized_receipt.v2` fields:
+
+- `semantic_status`: `committed`, `pending`, `repair_required`, `waived`, or
+  `failed`;
+- `bead_id`: populated only from canonical current-turn bead lookup;
+- independent `authorship` and `validation` evidence;
+- `derived.failures`, which never erases an already committed primary bead;
+- `associations.status`: exactly `complete`, `pending`, `pending_judge`,
+  `failed`, or `skipped`;
+- `queue.status` and durable queue item id.
+
+`accepted=true` means the finalized turn was durably accepted. It does not by
+itself mean a semantic bead committed. Hosts should gate semantic success on
+`semantic_status=committed|waived` and use `retryable` plus the stable error
+code for unresolved writes.
+
+Flush checks the canonical bead for only the latest finalized turn. An older
+pending turn does not wedge a later committed turn, but remains visible through
+`inspect_state(...).runtime.semantic_writes` and `core-memory doctor`. Pending
+age warns after five minutes and is critical after sixty minutes. A latest
+pending turn requires an append-only operator waiver before flush can proceed.
 
 ## Migration note
 

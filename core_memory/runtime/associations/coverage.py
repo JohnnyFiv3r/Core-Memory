@@ -245,6 +245,7 @@ def latest_association_coverage(root: str | Path, bead_id: str) -> dict[str, Any
         latest_state = _clean_str(states.get(target))
     if latest is None:
         return {"state": "unknown", "bead_id": target}
+    counts = dict(latest.get("counts") or {})
     return {
         "state": latest_state or "unknown",
         "bead_id": target,
@@ -255,6 +256,8 @@ def latest_association_coverage(root: str | Path, bead_id: str) -> dict[str, Any
         "appended": int((latest.get("counts") or {}).get("appended") or 0),
         "deduped": int((latest.get("counts") or {}).get("deduped") or 0),
         "quarantined": int((latest.get("counts") or {}).get("quarantined") or 0),
+        "candidate_count": int(latest.get("candidate_count") or counts.get("candidates") or 0),
+        "counts": counts,
     }
 
 
@@ -533,11 +536,13 @@ def _normalized_candidate_rows(root: str | Path) -> tuple[list[dict[str, Any]], 
         if trigger:
             counts = row["trigger_counts"]
             counts[trigger] = int(counts.get(trigger) or 0) + 1
-        row["rediscovery_observations"].append({
-            "run_id": run_id,
-            "trigger": trigger,
-            "recorded_at": _clean_str(observation.get("recorded_at")),
-        })
+        row["rediscovery_observations"].append(
+            {
+                "run_id": run_id,
+                "trigger": trigger,
+                "recorded_at": _clean_str(observation.get("recorded_at")),
+            }
+        )
         by_id[candidate_id] = row
 
     for candidate_id, update in status_updates.items():
@@ -1038,19 +1043,23 @@ def _dedupe_candidate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
 
 def _association_exists(index: dict[str, Any], source: str, target: str, relationship: str) -> bool:
-    key = assoc_dedupe_key({
-        "source_bead_id": source,
-        "target_bead_id": target,
-        "relationship": relationship,
-    })
+    key = assoc_dedupe_key(
+        {
+            "source_bead_id": source,
+            "target_bead_id": target,
+            "relationship": relationship,
+        }
+    )
     for assoc in index.get("associations") or []:
         if not isinstance(assoc, dict):
             continue
-        other = assoc_dedupe_key({
-            "source_bead_id": assoc.get("source_bead") or assoc.get("source_bead_id"),
-            "target_bead_id": assoc.get("target_bead") or assoc.get("target_bead_id"),
-            "relationship": assoc.get("relationship"),
-        })
+        other = assoc_dedupe_key(
+            {
+                "source_bead_id": assoc.get("source_bead") or assoc.get("source_bead_id"),
+                "target_bead_id": assoc.get("target_bead") or assoc.get("target_bead_id"),
+                "relationship": assoc.get("relationship"),
+            }
+        )
         if other == key:
             return True
     return False
@@ -1324,14 +1333,39 @@ def _judge_action(decision: dict[str, Any]) -> str:
 
 def _bead_context(bead: dict[str, Any]) -> dict[str, Any]:
     keys = [
-        "id", "type", "title", "summary", "detail", "session_id", "source_turn_ids",
-        "tags", "entities", "topics", "created_at", "prev_bead_id", "next_bead_id",
-        "source_id", "source_event_id", "source_system", "source_kind",
-        "source_ingest_envelope_ref", "source_ingest_envelope_id", "source_ingest_batch_id",
-        "core_memory_unifying_id", "document_id", "ragie_document_id",
-        "raw_source_object_id", "section_refs", "source_record_id",
-        "business_object_id", "transcript_id", "conversation_id", "supersedes",
-        "derived_from", "derived_from_bead_ids", "evidence_refs",
+        "id",
+        "type",
+        "title",
+        "summary",
+        "detail",
+        "session_id",
+        "source_turn_ids",
+        "tags",
+        "entities",
+        "topics",
+        "created_at",
+        "prev_bead_id",
+        "next_bead_id",
+        "source_id",
+        "source_event_id",
+        "source_system",
+        "source_kind",
+        "source_ingest_envelope_ref",
+        "source_ingest_envelope_id",
+        "source_ingest_batch_id",
+        "core_memory_unifying_id",
+        "document_id",
+        "ragie_document_id",
+        "raw_source_object_id",
+        "section_refs",
+        "source_record_id",
+        "business_object_id",
+        "transcript_id",
+        "conversation_id",
+        "supersedes",
+        "derived_from",
+        "derived_from_bead_ids",
+        "evidence_refs",
     ]
     out: dict[str, Any] = {}
     for key in keys:
@@ -1418,9 +1452,12 @@ def _grounding_hash_for_judge(context: dict[str, Any], result: dict[str, Any]) -
         "source_bead_ids": list(context.get("source_bead_ids") or []),
         "judge_model": _clean_str(result.get("judge_model")) or "configured-association-judge",
     }
-    return "sha256:" + hashlib.sha256(
-        json.dumps(basis, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
-    ).hexdigest()
+    return (
+        "sha256:"
+        + hashlib.sha256(
+            json.dumps(basis, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+    )
 
 
 def _decision_state(value: Any) -> str:
@@ -1838,9 +1875,7 @@ def enqueue_association_coverage(
     prompt_v = _clean_str(prompt_version) or JUDGE_PROMPT_VERSION
     rubric_v = _clean_str(rubric_version) or JUDGE_RUBRIC_VERSION
     candidate_sig = (
-        _bead_set_signature(
-            [_clean_str(x) for x in (candidate_bead_ids or []) if _clean_str(x)]
-        )
+        _bead_set_signature([_clean_str(x) for x in (candidate_bead_ids or []) if _clean_str(x)])
         if candidate_bead_ids
         else "auto"
     )
@@ -2243,10 +2278,7 @@ def run_association_coverage(
                 "status": "completed",
                 "candidate_ids": [],
                 "source_bead_ids": eligible_ids,
-                "reviewed_beads": [
-                    {"bead_id": bid, "association_state": "no_supported_links"}
-                    for bid in eligible_ids
-                ],
+                "reviewed_beads": [{"bead_id": bid, "association_state": "no_supported_links"} for bid in eligible_ids],
                 "source_ingest_envelope_refs": run_envelope_refs,
                 "source_ingest_batch_ids": source_ingest_batch_ids(run_envelope_refs),
                 "counts": {"no_supported_links": len(eligible_ids)},

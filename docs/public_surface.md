@@ -28,10 +28,11 @@ A surface is canonical only if it is both:
 2. documented as forward-supported in current docs.
 
 ## Write ingress
-- `core_memory.runtime.engine.process_turn_finalized(...)` — canonical per-turn write boundary
+- `core_memory.write_turn_finalized(...)` / `core_memory.integrations.api.write_turn_finalized(...)` — canonical processed per-turn facade returning `memory.turn_finalized_receipt.v2`
+- `core_memory.runtime.engine.process_turn_finalized(...)` — canonical per-turn engine boundary; returns the v2 receipt fields plus internal execution diagnostics
 - `core_memory.runtime.engine.process_session_start(...)` — canonical session-start lifecycle boundary
 - `core_memory.runtime.engine.process_flush(...)` — canonical session-end flush boundary
-- `core_memory.integrations.api.emit_turn_finalized(...)` — ingress helper used by adapters that defer in-process turn handling
+- `core_memory.integrations.api.emit_turn_finalized(...)` — event-only compatibility ingress used by adapters that defer processing; returns an event id and opens pending semantic-write state
 - `core_memory.ingest_external_evidence(...)` — experimental typed external source write boundary for transcript/document/media/relational anchors
 - `core_memory.ingest_structured_observation(...)` — experimental relational/metric observation write helper
 - `core_memory.ingest_document_reference(...)` — experimental document/media artifact anchor write helper

@@ -25,6 +25,8 @@ from core_memory.persistence.turn_archive import (
 from core_memory.retrieval.semantic_index import semantic_doctor
 from core_memory.runtime.queue.jobs import async_jobs_status
 from core_memory.runtime.turn.ingress import maybe_emit_finalize_memory_event
+from core_memory.runtime.turn.receipt import receipt_view
+from core_memory.runtime.turn.semantic_state import semantic_write_health
 from core_memory.schema.agent_authored_updates import AgentAuthoredUpdatesV1, AuthoringMode
 from core_memory.schema.turn import (
     Turn,
@@ -141,6 +143,53 @@ def emit_turn_finalized_from_envelope(
         metadata=envelope.get("metadata") or {},
         strict=strict,
     )
+
+
+def write_turn_finalized(
+    *,
+    root: Optional[str] = None,
+    session_id: str,
+    turn_id: str,
+    transaction_id: str = "",
+    turns: list[Turn | dict[str, Any]] | None = None,
+    trace_id: Optional[str] = None,
+    trace_depth: int = 0,
+    origin: str = "USER_TURN",
+    tools_trace: Optional[list[dict]] = None,
+    mesh_trace: Optional[list[dict]] = None,
+    window_turn_ids: Optional[list[str]] = None,
+    window_bead_ids: Optional[list[str]] = None,
+    crawler_updates: AgentAuthoredUpdatesV1 | None = None,
+    authoring_mode: AuthoringMode | None = None,
+    metadata: Optional[dict[str, Any]] = None,
+    **legacy_kwargs: Any,
+) -> dict[str, Any]:
+    """Canonical processed Python turn write returning the v2 receipt."""
+
+    from core_memory.runtime.engine import process_turn_finalized
+
+    reject_legacy_turn_kwargs(legacy_kwargs, surface="write_turn_finalized")
+    tid = str(turn_id or "").strip()
+    tx = str(transaction_id or "").strip() or f"tx-{tid}-{uuid.uuid4().hex[:8]}"
+    trace = str(trace_id or "").strip() or f"tr-{tid}-{uuid.uuid4().hex[:8]}"
+    result = process_turn_finalized(
+        root=_resolve_root(root),
+        session_id=session_id,
+        turn_id=tid,
+        transaction_id=tx,
+        trace_id=trace,
+        turns=turns,
+        trace_depth=trace_depth,
+        origin=origin,
+        tools_trace=tools_trace,
+        mesh_trace=mesh_trace,
+        window_turn_ids=window_turn_ids,
+        window_bead_ids=window_bead_ids,
+        crawler_updates=crawler_updates,
+        authoring_mode=authoring_mode,
+        metadata=metadata,
+    )
+    return dict(receipt_view(result))
 
 
 def get_turn(
@@ -452,6 +501,7 @@ def inspect_state(
             "queue": queue_status,
             "queue_breakdown": _queue_breakdown(queue_status if isinstance(queue_status, dict) else {}),
             "semantic_backend": _semantic_backend_summary(root_path),
+            "semantic_writes": semantic_write_health(root_path),
             "recent_flushes": _recent_flushes_from_beads(beads_map, limit=limit_flushes),
         },
         "stats": {

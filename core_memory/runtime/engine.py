@@ -54,6 +54,7 @@ from .session.live_session import read_live_session_beads
 from .session.session_start_flow import process_session_start_impl
 from .state import mark_memory_pass, try_claim_memory_pass
 from .turn.ingress import maybe_emit_finalize_memory_event
+from .turn.receipt import build_turn_finalized_receipt
 from .turn.turn_flow import process_turn_finalized_impl
 from .turn.turn_prep import infer_semantic_bead_type as _infer_semantic_bead_type
 from .turn.turn_prep import normalize_turn_request as _normalize_turn_request
@@ -665,7 +666,12 @@ def process_turn_finalized(
             for item in list(drain_out.get("results") or []):
                 if not isinstance(item, dict) or item.get("kind") != "turn-enrichment":
                     continue
-                enriched = item.get("result") if isinstance(item.get("result"), dict) else {}
+                processor_result = item.get("result") if isinstance(item.get("result"), dict) else {}
+                enriched = (
+                    processor_result.get("result")
+                    if isinstance(processor_result.get("result"), dict)
+                    else processor_result
+                )
                 handoff = result.setdefault("crawler_handoff", {})
                 if isinstance(enriched, dict):
                     if enriched.get("auto_apply") is not None:
@@ -715,7 +721,15 @@ def process_turn_finalized(
                 except Exception:
                     result["memory_outcome_written"] = False
         except Exception as exc:
-            logger.warning("engine: enrichment drain failed (bead already persisted): %s", exc)
+            logger.warning("engine: turn semantic-write queue drain failed; durable item remains retryable: %s", exc)
+
+    receipt = build_turn_finalized_receipt(
+        root=root,
+        session_id=session_id,
+        turn_id=turn_id,
+        result=result,
+    )
+    result.update(receipt)
 
     return result
 
@@ -729,6 +743,9 @@ def process_flush(
     max_beads: int,
     source: str = "flush_hook",
     flush_tx_id: str | None = None,
+    semantic_override: bool = False,
+    override_operator: str = "",
+    override_reason: str = "",
 ) -> dict[str, Any]:
     """Canonical adapter `on_session_end` boundary.
 
@@ -736,14 +753,25 @@ def process_flush(
     threshold-triggered compaction, idle maintenance, or scheduled flush. See
     `docs/adapters/contract.md` for the adapter lifecycle contract.
     """
+    flush_kwargs: dict[str, Any] = {
+        "root": root,
+        "session_id": session_id,
+        "promote": promote,
+        "token_budget": token_budget,
+        "max_beads": max_beads,
+        "source": source,
+        "flush_tx_id": flush_tx_id,
+    }
+    if semantic_override or override_operator or override_reason:
+        flush_kwargs.update(
+            {
+                "semantic_override": semantic_override,
+                "override_operator": override_operator,
+                "override_reason": override_reason,
+            }
+        )
     return process_flush_impl(
-        root=root,
-        session_id=session_id,
-        promote=promote,
-        token_budget=token_budget,
-        max_beads=max_beads,
-        source=source,
-        flush_tx_id=flush_tx_id,
+        **flush_kwargs,
     )
 
 

@@ -1,23 +1,29 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
-from core_memory.runtime.session.live_session import read_live_session_beads
 from core_memory.association.crawler_contract import merge_crawler_updates_for_flush
-from core_memory.runtime.state import get_memory_pass
-from core_memory.write_pipeline.orchestrate import run_consolidate_pipeline
 from core_memory.persistence.io_utils import append_jsonl
+from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
 from core_memory.retrieval.lifecycle import mark_flush_checkpoint
+from core_memory.runtime.associations.coverage import enqueue_association_coverage
 from core_memory.runtime.flush.flush_state import (
     read_flush_state,
-    write_flush_state,
     upsert_process_flush_checkpoint_bead,
+    write_flush_state,
 )
 from core_memory.runtime.queue.side_effects import enqueue_post_write_side_effects
-from core_memory.schema.event_schemas import FLUSH_REPORT, FLUSH_CHECKPOINT
-from core_memory.runtime.associations.coverage import enqueue_association_coverage
+from core_memory.runtime.session.live_session import read_live_session_beads
+from core_memory.runtime.turn.semantic_state import (
+    get_semantic_flush_waiver,
+    get_semantic_write_state,
+    latest_finalized_turn,
+    mark_semantic_write_state,
+    record_semantic_flush_waiver,
+)
+from core_memory.schema.event_schemas import FLUSH_CHECKPOINT, FLUSH_REPORT
+from core_memory.write_pipeline.orchestrate import run_consolidate_pipeline
 
 
 def process_flush_impl(
@@ -29,57 +35,88 @@ def process_flush_impl(
     max_beads: int,
     source: str = "flush_hook",
     flush_tx_id: str | None = None,
+    semantic_override: bool = False,
+    override_operator: str = "",
+    override_reason: str = "",
 ) -> dict[str, Any]:
     live = read_live_session_beads(root, session_id)
 
-    # enrichment barrier check (flush anchored to latest DONE turn)
-    latest_turn = ""
-    latest_turn_status = "unknown"
-    latest_done_turn = ""
-    session_turns: list[tuple[int, str]] = []
-    events_file = Path(root) / ".beads" / "events" / "memory-events.jsonl"
-    if events_file.exists():
-        latest_ts = -1
-        for line in events_file.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
-                continue
-            try:
-                row = json.loads(line)
-            except Exception:
-                continue
-            env = row.get("envelope") or {}
-            if str(env.get("session_id") or "") != str(session_id):
-                continue
-            ts = int(env.get("ts_ms") or 0)
-            turn_id = str(env.get("turn_id") or "")
-            if not turn_id:
-                continue
-            session_turns.append((ts, turn_id))
-            if ts >= latest_ts:
-                latest_ts = ts
-                latest_turn = turn_id
-
+    # Semantic barrier: only the latest finalized turn participates. Mechanical
+    # memory-pass completion is not evidence that a canonical semantic bead was
+    # written. Older pending turns remain visible through semantic-write health.
+    latest_event = latest_finalized_turn(root, session_id) or {}
+    latest_turn = str(latest_event.get("turn_id") or "")
+    semantic_state = get_semantic_write_state(root, session_id, latest_turn) if latest_turn else None
+    latest_turn_status = str((semantic_state or {}).get("status") or "unknown")
+    canonical_bead_id = ""
+    waiver: dict[str, Any] | None = None
     if latest_turn:
-        st = get_memory_pass(Path(root), session_id, latest_turn) or {}
-        latest_turn_status = str(st.get("status") or "unknown")
+        canonical_bead_id = str(
+            find_canonical_turn_bead_id(
+                root,
+                session_id=session_id,
+                turn_id=latest_turn,
+                preferred_bead_ids=[],
+            )
+            or ""
+        )
+        waiver = get_semantic_flush_waiver(root, session_id, latest_turn)
+        if canonical_bead_id:
+            prior_semantic_status = str((semantic_state or {}).get("status") or "")
+            latest_turn_status = "repair_required" if prior_semantic_status == "repair_required" else "committed"
+            if prior_semantic_status not in {"committed", "repair_required"}:
+                mark_semantic_write_state(
+                    root,
+                    session_id=session_id,
+                    turn_id=latest_turn,
+                    status="committed",
+                    event_id=str(latest_event.get("event_id") or ""),
+                    bead_id=canonical_bead_id,
+                    retryable=False,
+                    reason="flush_barrier_reconciled_canonical_bead",
+                )
+        elif not waiver and semantic_override:
+            if not str(override_operator or "").strip() or not str(override_reason or "").strip():
+                return {
+                    "ok": False,
+                    "retryable": False,
+                    "authority_path": "canonical_in_process",
+                    "error": "invalid_semantic_flush_override",
+                    "barrier": {
+                        "latest_turn_id": latest_turn,
+                        "latest_turn_status": latest_turn_status,
+                        "semantic_status": latest_turn_status,
+                        "canonical_bead_id": "",
+                        "waiver_id": "",
+                    },
+                }
+            waiver = record_semantic_flush_waiver(
+                root,
+                session_id=session_id,
+                turn_id=latest_turn,
+                event_id=str(latest_event.get("event_id") or ""),
+                operator=override_operator,
+                reason=override_reason,
+            )
+            latest_turn_status = "waived"
+        elif waiver:
+            latest_turn_status = "waived"
 
-    for _ts, tid in sorted(session_turns, key=lambda x: x[0], reverse=True):
-        st = get_memory_pass(Path(root), session_id, tid) or {}
-        if str(st.get("status") or "") == "done":
-            latest_done_turn = tid
-            break
-
+    latest_done_turn = latest_turn if canonical_bead_id or waiver else ""
     if latest_turn and not latest_done_turn:
         return {
             "ok": False,
             "retryable": True,
             "retry_after_seconds": 2,
             "authority_path": "canonical_in_process",
-            "error": "enrichment_barrier_not_satisfied",
+            "error": "semantic_write_barrier_not_satisfied",
             "barrier": {
                 "latest_turn_id": latest_turn,
                 "latest_turn_status": latest_turn_status,
                 "latest_done_turn_id": "",
+                "semantic_status": latest_turn_status,
+                "canonical_bead_id": "",
+                "waiver_id": "",
             },
             "engine": {
                 "entry": "process_flush",
@@ -90,6 +127,12 @@ def process_flush_impl(
         }
 
     flush_anchor_turn = str(latest_done_turn or latest_turn or "")
+    semantic_barrier = {
+        "latest_turn_id": latest_turn,
+        "semantic_status": latest_turn_status,
+        "canonical_bead_id": canonical_bead_id,
+        "waiver_id": str((waiver or {}).get("waiver_id") or ""),
+    }
 
     checkpoints = Path(root) / ".beads" / "events" / "flush-checkpoints.jsonl"
 
@@ -103,6 +146,7 @@ def process_flush_impl(
         # store-locked and idempotent.
         try:
             from core_memory.association.edge_lifecycle import fold_edge_usage
+
             edge_lifecycle_out = fold_edge_usage(root)
         except Exception:
             edge_lifecycle_out = {"ok": False, "error": "edge_lifecycle_fold_failed"}
@@ -124,6 +168,7 @@ def process_flush_impl(
             "latest_turn_id": str(latest_turn or ""),
             "latest_done_turn_id": str(flush_anchor_turn),
             "latest_turn_status": str(latest_turn_status or "unknown"),
+            "semantic_barrier": semantic_barrier,
             "last_flush_tx_id": str(sess_state.get("last_flush_tx_id") or ""),
             "authority_path": "canonical_in_process",
             "engine": {
@@ -177,6 +222,7 @@ def process_flush_impl(
             "error": out.get("error") or "flush_failed",
             "result": out,
             "crawler_merge": merge_out,
+            "semantic_barrier": semantic_barrier,
             "engine": {
                 "entry": "process_flush",
                 "sequence_owner": "memory_engine",
@@ -277,6 +323,7 @@ def process_flush_impl(
     # read path only logs, the write side applies.
     try:
         from core_memory.association.edge_lifecycle import fold_edge_usage
+
         edge_lifecycle_out = fold_edge_usage(root)
     except Exception:
         edge_lifecycle_out = {"ok": False, "error": "edge_lifecycle_fold_failed"}
@@ -289,6 +336,7 @@ def process_flush_impl(
         "latest_turn_id": str(latest_turn or ""),
         "latest_done_turn_id": str(flush_anchor_turn or ""),
         "latest_turn_status": str(latest_turn_status or "unknown"),
+        "semantic_barrier": semantic_barrier,
         "checkpoint_bead_id": str(checkpoint_bead_id or ""),
         "checkpoint_bead_created": bool(checkpoint_created),
         "crawler_merge": merge_out,

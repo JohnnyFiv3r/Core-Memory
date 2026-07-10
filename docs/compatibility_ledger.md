@@ -71,6 +71,14 @@ baselines green.
 | `MemoryStore.dream(...)` | Public legacy convenience bridge | Lets older store-oriented callers invoke Dreamer association analysis without importing Dreamer directly; active first-party references are limited to 2 bridge compatibility test calls. | Runtime Dreamer surfaces such as `core_memory.runtime.dreamer.analysis.run_analysis(...)` and queued side effects | Future removal requires store-oriented Dreamer usage to be deprecated after CLI/runtime migration has held through a breaking-change window. The store method must not reintroduce static persistence-to-runtime imports. | `tests/test_cli_handler_modules.py`, `tests/test_store_dream_bootstrap_ops_delegation.py`, `tests/test_dreamer_analysis.py`, `scripts/check_architecture_guards.py --fail-on-new-compat` |
 ## Recently Retired Artifacts
 
+- The MCP-specific `mcp.write_turn_finalized.v1` response wrapper was replaced
+  by the cross-surface `memory.turn_finalized_receipt.v2` contract. Python,
+  HTTP, MCP protocol, and typed REST callers now receive the same semantic,
+  association, validation, and queue status fields. The event-only Python
+  `emit_turn_finalized(...)` facade remains available for one compatibility
+  window; processed callers use `write_turn_finalized(...)`. Proving coverage
+  lives in `tests/test_semantic_write_receipts.py`,
+  `tests/test_mcp_typed_writes.py`, and HTTP ingress tests.
 - `core_memory/persistence/store_core_delegates_mixin.py` and
   `core_memory/persistence/store_reporting_promotion_mixin.py` were retired after
   method inlining into `MemoryStore`. The proving gate was an active import scan

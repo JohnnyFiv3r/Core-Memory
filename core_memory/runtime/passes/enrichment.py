@@ -1,8 +1,9 @@
-"""Turn enrichment: post-persist stages that run outside the critical path.
+"""Turn semantic-write and enrichment stages outside the event critical path.
 
-F-W1: These stages were moved from the synchronous turn pipeline to the
-side effect queue. A queued-stage failure never fails the turn — the bead
-is already persisted.
+F-W1: These stages were moved from the synchronous event pipeline to the side
+effect queue. The finalized turn is durable before this job starts, but the
+canonical semantic bead is created by stage 1 and must not be reported as
+committed until that stage succeeds.
 """
 
 from __future__ import annotations
@@ -20,15 +21,15 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _STAGE_RESULTS_DEFAULTS: dict[str, dict[str, Any]] = {
-    "association_pass":     {"queued": 0, "skipped_existing": 0},
-    "claim_extraction":     {"extracted": 0, "skipped_duplicate": 0},
+    "association_pass": {"queued": 0, "skipped_existing": 0},
+    "claim_extraction": {"extracted": 0, "skipped_duplicate": 0},
     "preview_associations": {"queued": 0, "skipped_existing": 0},
-    "crawler_merge":        {"merged": 0, "quarantined": 0},
-    "decision_pass":        {"emitted": 0, "skipped_grounding": 0},
-    "claim_updates":        {"emitted": 0, "skipped_grounding": 0},
-    "memory_outcome":       {"written": False},
-    "goal_lifecycle":       {"transitioned": 0},
-    "quality_metric":       {"score": None},
+    "crawler_merge": {"merged": 0, "quarantined": 0},
+    "decision_pass": {"emitted": 0, "skipped_grounding": 0},
+    "claim_updates": {"emitted": 0, "skipped_grounding": 0},
+    "memory_outcome": {"written": False},
+    "goal_lifecycle": {"transitioned": 0},
+    "quality_metric": {"score": None},
 }
 
 
@@ -57,7 +58,7 @@ def enqueue_turn_enrichment(
     crawler_ctx: dict[str, Any] | None = None,
     structural_coverage_missing: bool = False,
 ) -> dict[str, Any] | None:
-    """Enqueue post-persist enrichment stages for a turn.
+    """Enqueue semantic-write and post-write enrichment stages for a turn.
 
     Returns the enqueue result, or None if the queue is disabled.
     """
@@ -115,7 +116,7 @@ def run_turn_enrichment(
     payload: dict[str, Any],
     enrichment_run_id: str | None = None,
 ) -> dict[str, Any]:
-    """Execute post-persist enrichment stages for a turn.
+    """Execute semantic-write and post-write enrichment stages for a turn.
 
     Stages: association pass, claim extraction, preview associations,
     crawler merge, decision pass, claim updates, memory outcome, goal lifecycle,
@@ -153,20 +154,21 @@ def run_turn_enrichment(
     reviewed_updates = dict(payload.get("reviewed_updates") or {})
     if isinstance(enrichment_delta, dict):
         from core_memory.runtime.session.session_enrichment_delta import delta_to_crawler_updates
+
         reviewed_updates = delta_to_crawler_updates(dict(enrichment_delta or {}))
     crawler_visible = list(payload.get("crawler_visible_bead_ids") or [])
 
-    from core_memory.runtime.engine import (
-        _session_visible_bead_ids,
-        _emit_agent_turn_quality_metric,
-        _queue_preview_associations,
-    )
-    from core_memory.runtime.passes.association_pass import run_association_pass
     from core_memory.association.crawler_contract import merge_crawler_updates
-    from core_memory.runtime.passes.decision_pass import run_session_decision_pass
     from core_memory.config.feature_flags import (
         claim_layer_enabled,
     )
+    from core_memory.runtime.engine import (
+        _emit_agent_turn_quality_metric,
+        _queue_preview_associations,
+        _session_visible_bead_ids,
+    )
+    from core_memory.runtime.passes.association_pass import run_association_pass
+    from core_memory.runtime.passes.decision_pass import run_session_decision_pass
 
     results: dict[str, Any] = {"stages_completed": [], "stages_failed": []}
     stage_results: dict[str, Any] = deepcopy(_STAGE_RESULTS_DEFAULTS)
@@ -210,13 +212,20 @@ def run_turn_enrichment(
     if bool(payload.get("structural_coverage_missing")):
         try:
             from core_memory.runtime.turn.turn_flow import flag_structural_coverage_missing
+
             _flag_bid = str((results.get("association") or {}).get("current_turn_bead_id") or "")
             if not _flag_bid:
-                _created = [str(x) for x in ((results.get("association") or {}).get("created_bead_ids") or []) if str(x)]
+                _created = [
+                    str(x) for x in ((results.get("association") or {}).get("created_bead_ids") or []) if str(x)
+                ]
                 _flag_bid = _created[0] if _created else ""
             if not _flag_bid:
                 from core_memory.persistence.store_claim_ops import find_canonical_turn_bead_id
-                _flag_bid = str(find_canonical_turn_bead_id(root, session_id=session_id, turn_id=turn_id, preferred_bead_ids=[]) or "")
+
+                _flag_bid = str(
+                    find_canonical_turn_bead_id(root, session_id=session_id, turn_id=turn_id, preferred_bead_ids=[])
+                    or ""
+                )
             if flag_structural_coverage_missing(root, _flag_bid):
                 results["structural_coverage_flagged"] = _flag_bid
         except Exception as exc:
@@ -231,8 +240,14 @@ def run_turn_enrichment(
     if claim_layer_enabled():
         try:
             from core_memory.runtime.engine import extract_and_attach_claims
+
             created_bead_ids = list((results.get("association") or {}).get("created_bead_ids") or [])
-            req_stub = {"session_id": session_id, "turn_id": turn_id, "user_query": payload.get("user_query", ""), "_judged_claims": list(payload.get("judged_claims") or [])}
+            req_stub = {
+                "session_id": session_id,
+                "turn_id": turn_id,
+                "user_query": payload.get("user_query", ""),
+                "_judged_claims": list(payload.get("judged_claims") or []),
+            }
             claim_telemetry = extract_and_attach_claims(root, session_id, turn_id, created_bead_ids, req_stub) or {}
             results["stages_completed"].append("claims")
             stage_results["claim_extraction"]["extracted"] = len(claim_telemetry.get("claims_batch") or [])
@@ -285,6 +300,7 @@ def run_turn_enrichment(
     if claim_layer_enabled():
         try:
             from core_memory.runtime.engine import emit_claim_updates
+
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             claims_batch = list(claim_telemetry.get("claims_batch") or [])
             emitted_updates: list[dict] = []
@@ -292,11 +308,18 @@ def run_turn_enrichment(
                 claim_visible_ids = sorted(
                     set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])
                 )
-                emitted_updates = emit_claim_updates(
-                    root, claims_batch, canonical_bead_id,
-                    session_id=session_id, visible_bead_ids=claim_visible_ids,
-                    reviewed_updates=reviewed_updates, decision_pass=decision_pass,
-                ) or []
+                emitted_updates = (
+                    emit_claim_updates(
+                        root,
+                        claims_batch,
+                        canonical_bead_id,
+                        session_id=session_id,
+                        visible_bead_ids=claim_visible_ids,
+                        reviewed_updates=reviewed_updates,
+                        decision_pass=decision_pass,
+                    )
+                    or []
+                )
             results["stages_completed"].append("claim_updates")
             stage_results["claim_updates"]["emitted"] = len(emitted_updates)
         except Exception as exc:
@@ -307,15 +330,13 @@ def run_turn_enrichment(
     if claim_layer_enabled():
         try:
             from core_memory.runtime.engine import classify_memory_outcome, write_memory_outcome_to_bead
+
             canonical_bead_id = str(claim_telemetry.get("canonical_bead_id") or bead_id)
             memory_outcome_written = False
             if canonical_bead_id:
                 md = dict(payload.get("metadata") or {})
                 context_beads = list(
-                    md.get("retrieved_beads")
-                    or md.get("context_beads")
-                    or payload.get("window_bead_ids")
-                    or []
+                    md.get("retrieved_beads") or md.get("context_beads") or payload.get("window_bead_ids") or []
                 )
                 turn_context = {
                     "retrieved_beads": context_beads,
@@ -327,7 +348,8 @@ def run_turn_enrichment(
                 outcome = classify_memory_outcome(turn_context)
                 if isinstance(outcome, dict):
                     write_memory_outcome_to_bead(
-                        root, canonical_bead_id,
+                        root,
+                        canonical_bead_id,
                         interaction_role=outcome.get("interaction_role"),
                         memory_outcome=outcome.get("memory_outcome"),
                     )
@@ -341,6 +363,7 @@ def run_turn_enrichment(
     # Stage 8: goal lifecycle resolution
     try:
         from core_memory.runtime.session.goal_lifecycle import resolve_goals_for_turn
+
         canonical_bead_id = str((claim_telemetry or {}).get("canonical_bead_id") or bead_id)
         goal_visible_ids = sorted(
             set(visible_ids + [str(x) for x in (payload.get("window_bead_ids") or []) if str(x).strip()])

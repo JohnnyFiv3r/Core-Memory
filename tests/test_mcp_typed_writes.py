@@ -5,9 +5,9 @@ from pathlib import Path
 
 from core_memory.integrations.mcp.typed_write import (
     MCP_TYPED_WRITE_TOOL_SCHEMAS,
-    write_turn_finalized,
     apply_reviewed_proposal,
     submit_entity_merge_proposal,
+    write_turn_finalized,
 )
 from core_memory.runtime.dreamer.candidates import enqueue_dreamer_candidates, list_dreamer_candidates
 
@@ -24,15 +24,18 @@ class TestMCPTypedWrites(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "remember this"}, {"speaker": "assistant", "role": "assistant", "content": "noted"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "remember this"},
+                    {"speaker": "assistant", "role": "assistant", "content": "noted"},
+                ],
             )
             self.assertTrue(out.get("ok"))
-            self.assertEqual("mcp.write_turn_finalized.v1", out.get("contract"))
-            self.assertEqual("canonical_in_process", out.get("authority_path"))
-            self.assertEqual(1, int(out.get("processed") or 0))
+            self.assertEqual("memory.turn_finalized_receipt.v2", out.get("contract"))
+            self.assertEqual("committed", out.get("semantic_status"))
+            self.assertTrue(out.get("bead_id"))
 
             events_file = Path(td) / ".beads" / "events" / "memory-events.jsonl"
-            rows = [json.loads(l) for l in events_file.read_text(encoding="utf-8").splitlines() if l.strip()]
+            rows = [json.loads(line) for line in events_file.read_text(encoding="utf-8").splitlines() if line.strip()]
             self.assertEqual(1, len(rows))
 
     def test_apply_reviewed_proposal_reject(self):
@@ -51,7 +54,12 @@ class TestMCPTypedWrites(unittest.TestCase):
                 ],
                 run_metadata={"run_id": "mcp2", "mode": "suggest", "source": "unit_test"},
             )
-            cid = str(((list_dreamer_candidates(root=td, status="pending", limit=5).get("results") or [{}])[0].get("id") or ""))
+            cid = str(
+                (
+                    (list_dreamer_candidates(root=td, status="pending", limit=5).get("results") or [{}])[0].get("id")
+                    or ""
+                )
+            )
             self.assertTrue(cid)
 
             out = apply_reviewed_proposal(
@@ -83,7 +91,7 @@ class TestMCPTypedWrites(unittest.TestCase):
             cid = str(out.get("candidate_id") or "")
             self.assertTrue(cid)
 
-            rows = (list_dreamer_candidates(root=td, status="pending", limit=50).get("results") or [])
+            rows = list_dreamer_candidates(root=td, status="pending", limit=50).get("results") or []
             hit = next((r for r in rows if str(r.get("id") or "") == cid), None)
             self.assertIsNotNone(hit)
             self.assertEqual("entity_merge_candidate", str((hit or {}).get("hypothesis_type") or ""))
@@ -95,8 +103,16 @@ class TestApplyReviewedProposalResolutionFields(unittest.TestCase):
     def _seed_candidate(self, td: str) -> str:
         enqueue_dreamer_candidates(
             root=td,
-            associations=[{"source": "b1", "target": "b2", "relationship": "contradicts",
-                           "novelty": 0.8, "grounding": 0.9, "confidence": 0.8}],
+            associations=[
+                {
+                    "source": "b1",
+                    "target": "b2",
+                    "relationship": "contradicts",
+                    "novelty": 0.8,
+                    "grounding": 0.9,
+                    "confidence": 0.8,
+                }
+            ],
             run_metadata={"run_id": "test-res", "mode": "suggest", "source": "unit_test"},
         )
         rows = list_dreamer_candidates(root=td, status="pending", limit=5).get("results") or []
@@ -107,8 +123,11 @@ class TestApplyReviewedProposalResolutionFields(unittest.TestCase):
             cid = self._seed_candidate(td)
             self.assertTrue(cid)
             out = apply_reviewed_proposal(
-                root=td, candidate_id=cid, decision="accept",
-                resolution="prefer_a", reviewer="qa",
+                root=td,
+                candidate_id=cid,
+                decision="accept",
+                resolution="prefer_a",
+                reviewer="qa",
             )
             # prefer_a on a non-contradiction_pressure candidate is a no-op but must not error
             self.assertIn("ok", out)
@@ -116,16 +135,20 @@ class TestApplyReviewedProposalResolutionFields(unittest.TestCase):
     def test_call_tool_registry_forwards_resolution(self):
         """call_tool must not drop resolution/context_a/context_b."""
         from core_memory.integrations.mcp.registry import call_tool
+
         with tempfile.TemporaryDirectory() as td:
             cid = self._seed_candidate(td)
-            out = call_tool("apply_reviewed_proposal", {
-                "root": td,
-                "candidate_id": cid,
-                "decision": "reject",
-                "resolution": "prefer_a",
-                "context_a": "production",
-                "context_b": "staging",
-            })
+            out = call_tool(
+                "apply_reviewed_proposal",
+                {
+                    "root": td,
+                    "candidate_id": cid,
+                    "decision": "reject",
+                    "resolution": "prefer_a",
+                    "context_a": "production",
+                    "context_b": "staging",
+                },
+            )
             self.assertIn("ok", out)
 
     def test_http_request_model_accepts_resolution_fields(self):
@@ -148,11 +171,13 @@ class TestApplyReviewedProposalResolutionFields(unittest.TestCase):
     def test_mcp_protocol_wrapper_accepts_resolution_fields(self):
         """apply_reviewed_proposal_tool signature must include resolution/context_a/context_b."""
         import inspect
+
         try:
             from core_memory.integrations.mcp.protocol_server import build_mcp_app  # noqa: F401
         except Exception as exc:
             self.skipTest(f"mcp server stack unavailable: {exc}")
         from core_memory.integrations.mcp.typed_write import apply_reviewed_proposal as arp
+
         sig = inspect.signature(arp)
         for field in ("resolution", "context_a", "context_b"):
             self.assertIn(field, sig.parameters, f"apply_reviewed_proposal missing param: {field}")

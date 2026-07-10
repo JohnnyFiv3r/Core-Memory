@@ -81,6 +81,7 @@ from core_memory.runtime.ingest.external_evidence import (
     ingest_structured_observation,
 )
 from core_memory.runtime.queue.jobs import async_jobs_status, enqueue_async_job, run_async_jobs
+from core_memory.runtime.turn.receipt import receipt_view
 from core_memory.schema.agent_authored_updates import (
     agent_authored_updates_json_schema,
     validate_agent_authored_updates_v1_transport,
@@ -190,6 +191,9 @@ class SessionFlushRequest(BaseModel):
     promote: bool = True
     token_budget: int = 1200
     max_beads: int = 12
+    semantic_override: bool = False
+    override_operator: str = ""
+    override_reason: str = ""
 
 
 class SessionStartRequest(BaseModel):
@@ -809,22 +813,7 @@ async def turn_finalized(
         authoring_mode=payload.authoring_mode,
         metadata=merged_metadata,
     )
-    event_id = str(((((out.get("emitted") or {}).get("payload") or {}).get("event") or {}).get("event_id") or ""))
-    gate = dict(((out.get("crawler_handoff") or {}).get("agent_authored_gate") or {}))
-    return {
-        "accepted": True,
-        "ok": bool(out.get("ok", True)),
-        "event_id": event_id,
-        "processed": int(out.get("processed") or 0),
-        "authority_path": str(out.get("authority_path") or "canonical_in_process"),
-        "authoring_mode": str(
-            (((out.get("emitted") or {}).get("payload") or {}).get("envelope") or {}).get("authoring_mode")
-            or payload.authoring_mode
-            or ""
-        ),
-        "authorship": dict(gate.get("authorship") or {}),
-        "authorship_warnings": list(gate.get("warnings") or []),
-    }
+    return dict(receipt_view(out))
 
 
 @app.post("/v1/memory/session-flush")
@@ -843,6 +832,9 @@ async def session_flush(
         promote=bool(payload.promote),
         token_budget=int(payload.token_budget),
         max_beads=int(payload.max_beads),
+        semantic_override=bool(payload.semantic_override),
+        override_operator=str(payload.override_operator or ""),
+        override_reason=str(payload.override_reason or ""),
     )
     return out
 

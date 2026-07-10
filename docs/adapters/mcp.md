@@ -53,14 +53,19 @@ The machine-readable schema for `crawler_updates` is generated from
 `AgentAuthoredUpdatesV1`; MCP agents therefore discover the same required bead,
 association, claim, key, and type-specific fields as Python and HTTP callers.
 
-The typed tool generates transaction/trace ids when omitted and returns a contract-tagged result with `event_id`, `processed`, and runtime result details.
+The typed tool generates transaction/trace ids when omitted and returns the
+same `memory.turn_finalized_receipt.v2` as processed Python and HTTP callers.
+The receipt separates canonical bead commitment, derived-write failures,
+association coverage, and durable queue state.
 
 ## Verification
 
 Call `write_turn_finalized(...)` with a unique `session_id` and `turn_id`, then verify:
 
 - result has `ok: true` or exposes the runtime error,
-- result contract is `mcp.write_turn_finalized.v1`,
+- result contract is `memory.turn_finalized_receipt.v2`,
+- `semantic_status` is `committed` only when canonical current-turn bead lookup
+  succeeds,
 - a turn/bead appears in the configured Core Memory root.
 
 For HTTP lifecycle endpoints, smoke:

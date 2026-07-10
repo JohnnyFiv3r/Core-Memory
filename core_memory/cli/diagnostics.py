@@ -5,10 +5,11 @@ import os
 import tempfile
 from pathlib import Path
 
-from ..persistence.store import MemoryStore
-from ..runtime.engine import process_turn_finalized, process_flush
-from ..retrieval.tools.memory import execute as memory_execute_tool
 from core_memory.schema.event_schemas import HEALTH_REPORT
+
+from ..persistence.store import MemoryStore
+from ..retrieval.tools.memory import execute as memory_execute_tool
+from ..runtime.engine import process_flush, process_turn_finalized
 
 
 def canonical_health_report(root: str, write_path: str | None = None) -> dict:
@@ -18,23 +19,39 @@ def canonical_health_report(root: str, write_path: str | None = None) -> dict:
             root=td,
             session_id="health",
             turn_id="t1",
-            turns=[{"speaker": "user", "role": "user", "content": "remember canonical decision"}, {"speaker": "assistant", "role": "assistant", "content": "Decision: keep canonical path and stable retrieval."}],
+            turns=[
+                {"speaker": "user", "role": "user", "content": "remember canonical decision"},
+                {
+                    "speaker": "assistant",
+                    "role": "assistant",
+                    "content": "Decision: keep canonical path and stable retrieval.",
+                },
+            ],
         )
-        f1 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
-        f2 = process_flush(root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health")
+        f1 = process_flush(
+            root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health"
+        )
+        f2 = process_flush(
+            root=td, session_id="health", promote=True, token_budget=800, max_beads=10, source="canonical_health"
+        )
 
-        phase_trace = ((f1.get("result") or {}).get("phase_trace") or [])
+        phase_trace = (f1.get("result") or {}).get("phase_trace") or []
         checks["turn_path"] = bool(t1.get("ok"))
         checks["flush_once_per_cycle"] = bool(
             f2.get("skipped")
-            and str(f2.get("reason") or "") in {"already_flushed_for_latest_turn", "already_flushed_for_latest_done_turn"}
+            and str(f2.get("reason") or "")
+            in {"already_flushed_for_latest_turn", "already_flushed_for_latest_done_turn"}
         )
         checks["rolling_window_maintenance"] = bool("rolling_window_write" in phase_trace)
-        checks["archive_ergonomics"] = bool("archive_compact_session" in phase_trace and "archive_compact_historical" in phase_trace)
+        checks["archive_ergonomics"] = bool(
+            "archive_compact_session" in phase_trace and "archive_compact_historical" in phase_trace
+        )
 
         req = {"raw_query": "canonical decision", "intent": "remember", "k": 5}
         ret = memory_execute_tool(req, root=td, explain=True)
-        checks["retrieval_path"] = bool((ret.get("ok") is True) or (ret.get("results") is not None) or (ret.get("items") is not None))
+        checks["retrieval_path"] = bool(
+            (ret.get("ok") is True) or (ret.get("results") is not None) or (ret.get("items") is not None)
+        )
 
     out = {
         "ok": True,
@@ -77,14 +94,22 @@ def doctor_report(root: str) -> dict:
         index_ok = True
     except Exception as e:
         index_error = str(e)
-    checks.append({"name": "index.json exists and valid JSON", "pass": bool(index_ok), "detail": {"path": str(idx_file), "error": index_error or None}})
+    checks.append(
+        {
+            "name": "index.json exists and valid JSON",
+            "pass": bool(index_ok),
+            "detail": {"path": str(idx_file), "error": index_error or None},
+        }
+    )
 
     beads = (index.get("beads") or {}) if isinstance(index, dict) else {}
     by_status: dict[str, int] = {}
     for b in beads.values():
         s = str((b or {}).get("status") or "unknown")
         by_status[s] = by_status.get(s, 0) + 1
-    checks.append({"name": "bead count", "pass": bool(index_ok), "detail": {"total": int(len(beads)), "by_status": by_status}})
+    checks.append(
+        {"name": "bead count", "pass": bool(index_ok), "detail": {"total": int(len(beads)), "by_status": by_status}}
+    )
 
     session_count = len(list(beads_dir.glob("session-*.jsonl"))) if exists else 0
     checks.append({"name": "session file count", "pass": bool(exists), "detail": {"count": int(session_count)}})
@@ -109,12 +134,29 @@ def doctor_report(root: str) -> dict:
     orphan_count = 0
     if index_ok:
         bead_ids = set(str(k) for k in beads.keys())
-        for a in (index.get("associations") or []):
+        for a in index.get("associations") or []:
             src = str((a or {}).get("source_bead") or (a or {}).get("source_bead_id") or "")
             dst = str((a or {}).get("target_bead") or (a or {}).get("target_bead_id") or "")
             if (src and src not in bead_ids) or (dst and dst not in bead_ids):
                 orphan_count += 1
-    checks.append({"name": "no orphaned association references", "pass": bool(index_ok and orphan_count == 0), "detail": {"orphaned_associations": int(orphan_count)}})
+    checks.append(
+        {
+            "name": "no orphaned association references",
+            "pass": bool(index_ok and orphan_count == 0),
+            "detail": {"orphaned_associations": int(orphan_count)},
+        }
+    )
+
+    from core_memory.runtime.turn.semantic_state import semantic_write_health
+
+    semantic_health = semantic_write_health(root_p)
+    checks.append(
+        {
+            "name": "pending semantic write age",
+            "pass": str(semantic_health.get("severity") or "ok") != "critical",
+            "detail": semantic_health,
+        }
+    )
 
     ok = all(bool(c.get("pass")) for c in checks)
     return {

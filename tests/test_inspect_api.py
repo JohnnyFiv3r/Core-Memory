@@ -3,10 +3,10 @@ import unittest
 from pathlib import Path
 
 from core_memory.integrations.api import (
-    inspect_state,
     inspect_bead,
     inspect_bead_hydration,
     inspect_claim_slot,
+    inspect_state,
     list_turn_summaries,
 )
 from core_memory.runtime.engine import process_turn_finalized
@@ -23,7 +23,10 @@ class TestInspectApi(unittest.TestCase):
                 turn_id="t1",
                 transaction_id="tx1",
                 trace_id="tr1",
-                turns=[{"speaker": "user", "role": "user", "content": "remember that postgres won benchmarks"}, {"speaker": "assistant", "role": "assistant", "content": "noted: postgres won benchmarks"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "remember that postgres won benchmarks"},
+                    {"speaker": "assistant", "role": "assistant", "content": "noted: postgres won benchmarks"},
+                ],
                 origin="TEST",
                 metadata={"source": "test"},
             )
@@ -34,6 +37,8 @@ class TestInspectApi(unittest.TestCase):
             self.assertIn("claims", state)
             self.assertIn("entities", state)
             self.assertIn("runtime", state)
+            self.assertIn("semantic_writes", state["runtime"])
+            self.assertEqual(0, state["runtime"]["semantic_writes"]["pending_count"])
 
             beads = list((state.get("memory") or {}).get("beads") or [])
             self.assertGreaterEqual(len(beads), 1)
