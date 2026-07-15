@@ -17,6 +17,85 @@ are first-party.
 
 ---
 
+## Guiding principle — engineering simplicity
+
+There is a real risk that Core Memory / Satorid becomes over-complex at the
+storage and retrieval layer. The danger is not that the project reduces to
+"a flat memory file plus semantic search" — it is that we solve several
+distinct problems at once and describe all of them as "memory."
+
+The distilled question every feature must answer:
+
+> **What must remain true across agents, sessions, and changing evidence that
+> ordinary retrieval cannot reliably preserve?**
+
+A flat file and semantic search already cover 80–90% of practical value:
+preserving facts, preferences, decisions, and conventions; retrieving relevant
+prior context; maintaining project summaries; sharing team knowledge through
+Git; providing provenance through links; superseding old information with
+simple status fields; generating a current "working memory" document. A
+well-maintained MEMORY.md, event log, embeddings index, and periodic synthesis
+pass outperforms many elaborate memory systems.
+
+That approach breaks — and Core Memory is justified — only where memory
+becomes **contested, temporal, distributed, and action-relevant**:
+
+- Is this statement observed, inferred, assumed, or merely repeated?
+- Was it true then, is it true now, and what caused it to change?
+- Which source should dominate when memories conflict?
+- Is this a user belief, an organizational policy, an agent conclusion, or an
+  external fact?
+- What did the system know at the moment a decision was made?
+- Which agent altered the shared understanding, and on what evidence?
+- Can a new agent inherit not just conclusions, but the constraints and
+  reasoning boundaries around them?
+- Can we safely revise a belief without silently rewriting history?
+
+Semantic search retrieves passages resembling a query; it does not solve any
+of those questions. The essential product is therefore not "better memory" —
+it is **a governed continuity layer for agents**: preserving claims, evidence,
+change, and identity across tools and time. Put most simply: *Satorid prevents
+shared agent context from becoming an unauditable pile of text.*
+
+### Boring primitives, rich views
+
+A good architecture has a small number of boring primitives from which richer
+interpretations are computed. Core Memory should need only:
+
+1. **Events** — something happened or was said
+2. **Claims** — a proposition extracted from an event
+3. **Evidence links** — what supports or contradicts a claim
+4. **Subjects / scopes** — who or what the claim concerns
+5. **Validity state** — current, superseded, disputed, provisional
+6. **Provenance** — source, actor, timestamp, confidence
+7. **Policies** — rules determining what may be promoted into working context
+
+Nearly everything else is a **projection**, not a primitive:
+
+- A *worldline* is the ordered history of claims about an entity
+- A *tension* is two simultaneously active incompatible claims
+- A *storyline* is a clustered event sequence
+- A *self-model* is a generated view over identity-relevant claims
+- A *causal surface* is a graph query or visualization
+- *Myelination* is retrieval weight derived from repetition, confirmation,
+  and use
+
+When adding features, implement rich semantics as **views computed over the
+primitives** — never as new first-class storage concepts.
+
+### The flat-file test
+
+Force every major feature through this test before building it:
+
+> **Could this be implemented adequately with Markdown, metadata, embeddings,
+> and a periodic summarizer?**
+
+If yes, it should probably begin life that way. Only promote it to a
+first-class subsystem when the flat-file version demonstrably fails one of the
+contested/temporal/distributed/action-relevant questions above.
+
+---
+
 ## Architectural invariants — never violate these
 
 ### 1. Layering law — dependencies flow downward only
