@@ -83,6 +83,25 @@ Nearly everything else is a **projection**, not a primitive:
 When adding features, implement rich semantics as **views computed over the
 primitives** — never as new first-class storage concepts.
 
+### Mapping to the current codebase
+
+The primitives above are a design target, not a description of current state.
+Today's storage concepts map approximately:
+
+| Primitive | Current concept |
+|---|---|
+| Events | **Beads** (per-turn records via `emit_turn_finalized`) |
+| Claims | **Claim extraction** (`claim/`) |
+| Evidence links | **Associations** (agent-judged causal links, `association/`) |
+| Subjects / scopes | **Entity registry** (`entity/`) |
+| Validity state | **Promotion / supersession** (partial — no unified `disputed`/`provisional` state) |
+| Provenance | Bead turn refs + transcript hydration (partial — no per-claim actor/confidence) |
+| Policies | Promotion rules + feature flags (implicit — not yet a first-class rule surface) |
+
+Where the mapping says *partial* or *implicit*, that is the gap — close it by
+evolving the existing concept toward the primitive, not by adding a new
+parallel subsystem.
+
 ### The flat-file test
 
 Force every major feature through this test before building it:
