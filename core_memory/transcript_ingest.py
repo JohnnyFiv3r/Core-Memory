@@ -351,16 +351,39 @@ def ingest_turn_envelopes(*, root: str, envelopes: list[dict[str, Any]], flush_p
                 )
             out = process_turn_finalized(root=root, **env)
             emitted_flag = bool(out.get("ok", True))
+            bead_ids = [
+                str(item)
+                for item in (out.get("bead_ids") or [])
+                if str(item).strip()
+            ]
+            bead_id = str(out.get("bead_id") or "").strip()
+            if bead_id and bead_id not in bead_ids:
+                bead_ids.append(bead_id)
             row = {
                 "turn_id": str(env.get("turn_id") or ""),
                 "session_id": session_id,
-                "status": "ingested" if emitted_flag else "skipped_existing",
-                "worker_ok": bool(out.get("ok", True)),
-                "bead_ids": list(out.get("bead_ids") or []),
+                "status": "ingested" if emitted_flag else "failed",
+                "worker_ok": emitted_flag,
+                "bead_ids": bead_ids,
+                "semantic_status": str(out.get("semantic_status") or ""),
+                "retryable": bool(out.get("retryable")),
             }
             emitted.append(row)
             if not emitted_flag:
-                skipped_existing += 1
+                errors.append(
+                    {
+                        "turn_id": row["turn_id"],
+                        "session_id": session_id,
+                        "error": str(
+                            out.get("error_code")
+                            or out.get("error")
+                            or out.get("semantic_status")
+                            or "turn_write_failed"
+                        ),
+                        "semantic_status": row["semantic_status"],
+                        "retryable": row["retryable"],
+                    }
+                )
         except Exception as exc:  # pragma: no cover - defensive integration boundary
             errors.append({"turn_id": str(env.get("turn_id") or ""), "session_id": session_id, "error": str(exc)})
 
