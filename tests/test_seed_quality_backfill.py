@@ -302,6 +302,57 @@ class TestApply(unittest.TestCase):
             self.assertEqual([], out["seeding"]["accepted_overlay_ids"])
 
 
+class TestRollbackSnapshots(unittest.TestCase):
+    def test_fresh_store_reports_no_overlay_snapshot(self):
+        runtime = FakeRuntime()
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.policy.semantic_task_runtime.get_semantic_task_runtime",
+            return_value=runtime,
+        ), patch(
+            "core_memory.runtime.dreamer.refinement.get_semantic_task_runtime",
+            return_value=runtime,
+        ):
+            root = Path(td)
+            _seed_store(root)
+            self.assertFalse((root / ".beads" / "overlays.jsonl").exists())
+
+            out = run_seed_quality_backfill(root, apply=True)
+
+            self.assertTrue(out["ok"], out)
+            # No pre-existing overlay log -> rollback deletes overlays.jsonl.
+            self.assertFalse(out["overlays_existed_before"])
+            self.assertIsNone(out["overlays_backup_path"])
+
+    def test_pre_existing_overlays_are_snapshotted_for_rollback(self):
+        runtime = FakeRuntime()
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.policy.semantic_task_runtime.get_semantic_task_runtime",
+            return_value=runtime,
+        ), patch(
+            "core_memory.runtime.dreamer.refinement.get_semantic_task_runtime",
+            return_value=runtime,
+        ):
+            root = Path(td)
+            _seed_store(root)
+            overlays_file = root / ".beads" / "overlays.jsonl"
+            overlays_file.write_text(
+                json.dumps({"schema": "storyline_overlay.v1", "id": "ovl-preexisting"}) + "\n",
+                encoding="utf-8",
+            )
+            original = overlays_file.read_text(encoding="utf-8")
+
+            out = run_seed_quality_backfill(root, apply=True)
+
+            self.assertTrue(out["ok"], out)
+            self.assertTrue(out["overlays_existed_before"])
+            snapshot_path = Path(out["overlays_backup_path"])
+            self.assertTrue(snapshot_path.exists())
+            # The snapshot captures the pre-seeding overlay log verbatim, so a
+            # rollback restores exactly the state before this run appended.
+            self.assertEqual(original, snapshot_path.read_text(encoding="utf-8"))
+            self.assertNotIn("seed-backfill", snapshot_path.read_text(encoding="utf-8"))
+
+
 class TestHttpSeedBackfillRoute(unittest.TestCase):
     def test_route_runs_dry_run(self):
         try:

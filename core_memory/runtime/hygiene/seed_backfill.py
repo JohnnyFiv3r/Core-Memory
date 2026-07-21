@@ -542,12 +542,27 @@ def run_seed_quality_backfill(
         # fresh, re-apply deterministic cleanup + collected enrichment, rebuild
         # the entity registry, and atomically write.
         with store_lock(root_path):
-            backup_path = (
-                root_path / ".beads"
-                / f"index.seed-backfill-{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}.bak.json"
-            )
+            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            backup_path = root_path / ".beads" / f"index.seed-backfill-{stamp}.bak.json"
             shutil.copyfile(index_path, backup_path)
             report["backup_path"] = str(backup_path)
+
+            # Stage 4 appends accepted storyline overlays to overlays.jsonl.
+            # Snapshot its pre-seeding state too so rollback is symmetric: a
+            # restore of only index.json would leave those overlays in place,
+            # and because worldline backbones re-derive deterministically from
+            # the restored beads, the overlays re-attach and stay visible
+            # instead of detaching. `overlays_existed_before=false` means a
+            # rollback deletes overlays.jsonl rather than restoring a snapshot.
+            overlays_file = root_path / ".beads" / "overlays.jsonl"
+            if overlays_file.exists():
+                overlays_backup_path = root_path / ".beads" / f"overlays.seed-backfill-{stamp}.bak.jsonl"
+                shutil.copyfile(overlays_file, overlays_backup_path)
+                report["overlays_backup_path"] = str(overlays_backup_path)
+                report["overlays_existed_before"] = True
+            else:
+                report["overlays_backup_path"] = None
+                report["overlays_existed_before"] = False
 
             index = json.loads(index_path.read_text(encoding="utf-8"))
             if not isinstance(index, dict):
