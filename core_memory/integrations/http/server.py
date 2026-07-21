@@ -361,6 +361,8 @@ class MaintainRequest(BaseModel):
     idempotency_key: str = ""
 
 
+# SEED_BACKFILL_ONESHOT BEGIN — remove this request model after the one-shot
+# store cleanup (docs/deployment/seed-quality-backfill-runbook.md#removal).
 class SeedBackfillRequest(BaseModel):
     root: Optional[str] = None
     apply: bool = False
@@ -368,6 +370,7 @@ class SeedBackfillRequest(BaseModel):
     max_storylines: int = 12
     max_goals: int = 5
     reviewer: str = "seed_backfill"
+# SEED_BACKFILL_ONESHOT END
 
 
 class MemoryTraceRequest(BaseModel):
@@ -1063,6 +1066,8 @@ async def memory_remove_source(
     return out
 
 
+# SEED_BACKFILL_ONESHOT BEGIN — remove this route after the one-shot store
+# cleanup (docs/deployment/seed-quality-backfill-runbook.md#removal).
 @app.post("/v1/memory/hygiene/seed-backfill")
 async def memory_seed_backfill(
     payload: SeedBackfillRequest,
@@ -1087,6 +1092,7 @@ async def memory_seed_backfill(
     if not out.get("ok"):
         return JSONResponse(status_code=400, content=out)
     return out
+# SEED_BACKFILL_ONESHOT END
 
 
 @app.post("/v1/memory/maintain")

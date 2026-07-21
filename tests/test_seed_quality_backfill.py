@@ -1,3 +1,5 @@
+# SEED_BACKFILL_ONESHOT — delete this test file when the seed-backfill pass is
+# removed after the one-shot store cleanup (see the runbook#removal).
 """Seed-quality backfill: the one-shot cleanup pass over pre-fix stores.
 
 Contract under test:

@@ -1,3 +1,14 @@
+# ============================================================================
+# SEED_BACKFILL_ONESHOT — TEMPORARY ONE-SHOT MIGRATION CODE. REMOVE AFTER RUN.
+#
+# Everything in core_memory/runtime/hygiene/ (this file + __init__.py), the
+# /v1/memory/hygiene/seed-backfill route in integrations/http/server.py, and
+# tests/test_seed_quality_backfill.py exist ONLY to clean a store populated
+# before the bead→storyline→goal quality fixes. Once the backfill has run
+# against every live store, delete all of it — leaving it in is tech debt.
+# Find every removal point with:  grep -rIl "SEED_BACKFILL_ONESHOT"
+# Removal checklist: docs/deployment/seed-quality-backfill-runbook.md#removal
+# ============================================================================
 """Seed-quality backfill — one-shot cleanup of a store written before the
 bead→storyline→goal quality fixes landed.
 
