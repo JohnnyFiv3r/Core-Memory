@@ -6,6 +6,11 @@ such as object storage, Snowflake, Supabase, or another hydration backend.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import logging
+import os
+import re
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -36,6 +41,8 @@ from core_memory.schema.normalization import (
 from core_memory.schema.normalization import (
     EXTERNAL_TRANSCRIPT_FLAGS as TRANSCRIPT_FLAGS,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _clean_str(value: Any) -> str:
@@ -461,6 +468,9 @@ def _bead_payload(
         "source_attribution": _source_attribution(payload, source_kind=source_kind, hydration_ref=hydration_ref),
         "core_memory_unifying_id": _clean_str(payload.get("core_memory_unifying_id")),
         "hydration_ref": hydration_ref,
+        "semantic_enrichment": (
+            dict(payload.get("semantic_enrichment")) if isinstance(payload.get("semantic_enrichment"), dict) else None
+        ),
     }
     envelope_ref = source_ingest_envelope_ref(source_ingest_envelope)
     if source_ingest_envelope:
@@ -482,6 +492,193 @@ def _content_signature(record: dict[str, Any], bead_type: str) -> tuple:
         _clean_str(record.get("detail") or record.get("content"))[:1200],
         tuple(sorted((str(k), str(v)) for k, v in typed.items() if v not in (None, "", [], {}))),
     )
+
+
+def _content_signature_hash(record: dict[str, Any], bead_type: str) -> str:
+    material = json.dumps(_content_signature(record, bead_type), ensure_ascii=False, default=str)
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()
+
+
+# ── Semantic enrichment (external-evidence bead judge) ──────────────────────
+#
+# Structural ingest preserves exactly what the caller sent: a heading or file
+# name as the title, a truncated content prefix as the summary, and usually no
+# entities or topics at all. Those fields are what the entity registry, the
+# worldline projection, goal discovery, and tier-2 retrieval all key on — so a
+# store fed mainly by documents ends up with anchor beads that thread into
+# nothing. When enabled, the judge authors the missing semantic fields from
+# the payload's own text. It never overwrites caller-authored values, only
+# fills structural gaps, and it fails open to the structural bead.
+
+_ENRICHMENT_MAX_ENTITIES = 16
+_ENRICHMENT_MAX_TOPICS = 8
+_STRUCTURAL_TITLE_RE = re.compile(r"^document section \d+", re.IGNORECASE)
+
+
+def _external_evidence_judge_mode() -> str:
+    mode = str(os.getenv("CORE_MEMORY_EXTERNAL_EVIDENCE_BEAD_JUDGE_MODE") or "off").strip().lower()
+    return mode if mode in {"off", "llm", "auto"} else "off"
+
+
+def _summary_is_structural(summary: list[str], *, title: str, document_name: str, detail: str) -> bool:
+    if not summary:
+        return True
+    if len(summary) != 1:
+        return False
+    only = " ".join(summary[0].split())
+    if not only:
+        return True
+    if only in {title, document_name}:
+        return True
+    normalized_detail = " ".join(detail.split())
+    # Host section pipelines commonly send the first N chars of the section
+    # body as the whole summary; a summary that is a strict prefix of the body
+    # is a truncation, not a summary.
+    return bool(normalized_detail) and len(only) >= 40 and normalized_detail.startswith(only[: len(only) - 1])
+
+
+def _title_is_structural(title: str, *, document_name: str) -> bool:
+    if not title:
+        return True
+    if document_name and (title == document_name or title.startswith(f"{document_name} (part")):
+        return True
+    return bool(_STRUCTURAL_TITLE_RE.match(title))
+
+
+def _enrichment_needed(merged: dict[str, Any]) -> dict[str, bool]:
+    title = _clean_str(merged.get("title"))
+    document_name = _clean_str(merged.get("document_name"))
+    detail = _clean_str(merged.get("detail") or merged.get("content"))
+    summary = _coerce_summary(merged.get("summary"))
+    entities = _coerce_str_list(merged.get("entities") or merged.get("entity_refs"))
+    topics = _coerce_str_list(merged.get("topics"))
+    return {
+        "title": _title_is_structural(title, document_name=document_name),
+        "summary": _summary_is_structural(summary, title=title, document_name=document_name, detail=detail),
+        "entities": not entities,
+        "topics": not topics,
+    }
+
+
+def _enrichment_prompt(merged: dict[str, Any], bead_type: str) -> str:
+    grounding = {
+        "bead_type": bead_type,
+        "title": _clean_str(merged.get("title"))[:200],
+        "document_name": _clean_str(merged.get("document_name"))[:200],
+        "summary": _coerce_summary(merged.get("summary")),
+        "detail": _clean_str(merged.get("detail") or merged.get("content"))[:4000],
+        "source_system": _clean_str(merged.get("source_system")),
+    }
+    return (
+        "You author semantic memory fields for one source-attributed evidence "
+        "bead in a causal memory graph. Work ONLY from the grounding text; "
+        "never invent names, numbers, dates, or events that are not present.\n\n"
+        "Return JSON only:\n"
+        "{\n"
+        '  "title": "specific name for what this evidence is about (<=120 chars)",\n'
+        '  "summary": ["1-3 bullets, <=220 chars each, stating what the content says"],\n'
+        '  "entities": ["canonical named things: people, companies, products, systems, projects"],\n'
+        '  "topics": ["short lowercase subject phrases"]\n'
+        "}\n\n"
+        "entities must be proper named things a person would track over time — "
+        "never generic words, verbs, or fragments. Use each entity's canonical "
+        "capitalized form and repeat the same form every time. Leave a list "
+        "empty when nothing grounded qualifies.\n\n"
+        "Grounding JSON:\n" + json.dumps(grounding, ensure_ascii=False, sort_keys=True)
+    )
+
+
+def _run_semantic_enrichment(merged: dict[str, Any], bead_type: str, *, root: str) -> dict[str, Any]:
+    """Fill structural gaps on ``merged`` in place. Returns a receipt fragment."""
+    mode = _external_evidence_judge_mode()
+    receipt: dict[str, Any] = {"attempted": False, "ok": False, "mode": mode, "fields": []}
+    if mode == "off":
+        return receipt
+    needed = _enrichment_needed(merged)
+    if not any(needed.values()):
+        receipt["reason"] = "payload_already_semantic"
+        return receipt
+    if not _clean_str(merged.get("title")) and not _clean_str(merged.get("detail") or merged.get("content")):
+        receipt["reason"] = "no_grounding_text"
+        return receipt
+
+    from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
+    from core_memory.schema.semantic_tasks import (
+        MODEL_TIER_STANDARD,
+        SemanticTaskRequest,
+        TASK_BEAD_FIELD_JUDGE,
+    )
+
+    receipt["attempted"] = True
+    try:
+        result = get_semantic_task_runtime().run(
+            SemanticTaskRequest(
+                root=root,
+                task_type=TASK_BEAD_FIELD_JUDGE,
+                prompt=_enrichment_prompt(merged, bead_type),
+                payload={},
+                idempotency_key=(
+                    "external-evidence-enrich:"
+                    f"{_clean_str(merged.get('source_event_id'))}:{_content_signature_hash(merged, bead_type)[:16]}"
+                ),
+                prompt_version="external_evidence_enrichment.v1",
+                rubric_version="external_evidence_semantic_fields.v1",
+                model_tier=MODEL_TIER_STANDARD,
+                max_tokens=700,
+                temperature=0,
+                json_mode=True,
+                fallback_mode="structural_fields",
+                authority_boundary="advisory",
+                evidence_refs=[_clean_str(merged.get("source_event_id"))],
+                metadata={"policy": "external_evidence_enrichment", "bead_type": bead_type},
+            )
+        )
+    except Exception as exc:  # noqa: BLE001 - enrichment is strictly fail-open
+        logger.debug("external evidence enrichment failed: %s", exc)
+        receipt["error"] = str(exc)
+        return receipt
+
+    receipt["task_id"] = str(result.task_id or "")
+    receipt["receipt_id"] = str(result.receipt_id or "")
+    if not result.ok or not isinstance(result.output_json, dict):
+        receipt["error"] = str(result.error or "enrichment_unavailable")
+        return receipt
+
+    judged = result.output_json
+    filled: list[str] = []
+    if needed["title"]:
+        judged_title = _clean_str(judged.get("title"))[:200]
+        if len(judged_title) >= 8:
+            merged["title"] = judged_title
+            filled.append("title")
+    if needed["summary"]:
+        judged_summary = _coerce_summary(judged.get("summary"))
+        if judged_summary:
+            merged["summary"] = judged_summary
+            filled.append("summary")
+    judged_entities = [x[:120] for x in _coerce_str_list(judged.get("entities"))[:_ENRICHMENT_MAX_ENTITIES]]
+    if needed["entities"] and judged_entities:
+        merged["entities"] = judged_entities
+        filled.append("entities")
+    judged_topics = [x[:80].lower() for x in _coerce_str_list(judged.get("topics"))[:_ENRICHMENT_MAX_TOPICS]]
+    if needed["topics"] and judged_topics:
+        merged["topics"] = judged_topics
+        filled.append("topics")
+
+    if filled:
+        tags = _coerce_str_list(merged.get("tags"))
+        if "semantic_enriched" not in tags:
+            tags.append("semantic_enriched")
+        merged["tags"] = tags
+        merged["semantic_enrichment"] = {
+            "source": "external_evidence_bead_judge",
+            "task_id": receipt["task_id"],
+            "receipt_id": receipt["receipt_id"],
+            "fields": list(filled),
+        }
+    receipt["ok"] = True
+    receipt["fields"] = filled
+    return receipt
 
 
 def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: str | None = None) -> dict[str, Any]:
@@ -512,12 +709,20 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
 
     store = MemoryStore(root=root)
     predecessor_id = ""
+    # Content identity is computed from the caller's raw payload before any
+    # semantic enrichment, and persisted on the bead — so a re-delivery of
+    # unchanged source content stays idempotent even though the stored bead's
+    # enriched fields differ from the raw payload.
+    incoming_signature = _content_signature_hash(merged, bead_type)
     existing = _find_existing_external_bead(store, merged, bead_type)
     if existing:
         bead_id = _clean_str(existing.get("id"))
         incoming_event = _clean_str(merged.get("source_event_id"))
         same_event = bool(incoming_event) and _clean_str(existing.get("source_event_id")) == incoming_event
-        same_content = _content_signature(existing, bead_type) == _content_signature(merged, bead_type)
+        existing_signature = _clean_str(existing.get("content_signature_raw")) or _content_signature_hash(
+            existing, bead_type
+        )
+        same_content = existing_signature == incoming_signature
         if same_event or same_content:
             return {
                 "ok": True,
@@ -539,6 +744,8 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         # adjusted. Write the new version; close the old one below.
         predecessor_id = bead_id
 
+    enrichment = _run_semantic_enrichment(merged, bead_type, root=root)
+
     bead = _bead_payload(
         merged,
         bead_type=bead_type,
@@ -546,6 +753,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         hydration_ref=hydration_ref,
         source_ingest_envelope=source_ingest_envelope,
     )
+    bead["content_signature_raw"] = incoming_signature
     if predecessor_id:
         supersedes = _coerce_str_list(bead.get("supersedes"))
         if predecessor_id not in supersedes:
@@ -596,6 +804,7 @@ def ingest_external_evidence(root: str, payload: dict[str, Any], *, session_id: 
         "created_count": 1,
         "event_id": event_id,
         "type": bead_type,
+        "enrichment": enrichment,
         "source_event_id": _clean_str(merged.get("source_event_id")),
         "core_memory_unifying_id": _clean_str(merged.get("core_memory_unifying_id")),
         "source_ingest_envelope_ref": source_envelope_ref,

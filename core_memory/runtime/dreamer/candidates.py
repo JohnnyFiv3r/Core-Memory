@@ -458,6 +458,7 @@ def decide_dreamer_candidate(
 
             overlay = build_storyline_overlay(
                 kind="narrative",
+                title=str(target.get("title") or ""),
                 statement=str(target.get("statement") or target.get("rationale") or ""),
                 supporting_worldline_ids=list(target.get("supporting_worldline_ids") or []),
                 supporting_bead_ids=list(target.get("supporting_bead_ids") or []),
@@ -486,6 +487,102 @@ def decide_dreamer_candidate(
                 "application_mode": "storyline_overlay_written",
                 "overlay_id": overlay["id"],
                 "supersedes_overlay_id": predecessor_id,
+            }
+            _write_candidates(root, rows)
+            return {
+                "ok": True,
+                "candidate_id": cid,
+                "status": target.get("status"),
+                "applied": applied,
+                "path": str(_candidates_path(root)),
+            }
+
+        if hypothesis_type == "goal_candidate":
+            # Latent-goal materialisation. The reviewer's accept IS the human
+            # endorsement Dreamer can never provide on its own (§9/§10): it
+            # mints a Goal Bead through the canonical SOUL goal lifecycle in
+            # ``candidate`` state, ready for approve → endorsed. Supporting
+            # behavior beads are linked so the goal worldline threads through
+            # the evidence that revealed it. Previously this hypothesis type
+            # fell through to the association-apply path and always failed
+            # with missing_source_or_target — an accepted goal went nowhere.
+            from core_memory.persistence.store import MemoryStore
+            from core_memory.soul.goals import propose_goal
+
+            existing_goal_bead = str(target.get("applied_goal_bead_id") or "").strip()
+            if existing_goal_bead:
+                _write_candidates(root, rows)
+                return {
+                    "ok": True,
+                    "candidate_id": cid,
+                    "status": target.get("status"),
+                    "applied": {
+                        "ok": True,
+                        "application_mode": "already_applied",
+                        "goal_bead_id": existing_goal_bead,
+                        "goal_id": str(target.get("applied_goal_id") or ""),
+                    },
+                    "path": str(_candidates_path(root)),
+                }
+
+            theme = str(target.get("goal_theme") or "").strip()
+            title = str(target.get("title") or "").strip() or (
+                f"Recurring focus: {theme}" if theme else "Latent goal from repeated behavior"
+            )
+            statement = str(target.get("statement") or target.get("rationale") or title).strip()
+            subject = str(
+                (((target.get("run_metadata") or {}) if isinstance(target.get("run_metadata"), dict) else {}).get("soul_subject") or "self")
+            ).strip() or "self"
+            goal_out = propose_goal(
+                str(root),
+                title=title,
+                statement=statement,
+                subject=subject,
+                actor=str(reviewer or ""),
+                reason=str(notes or "") or f"Accepted Dreamer goal discovery candidate {cid}",
+            )
+            if not bool(goal_out.get("ok")):
+                _write_candidates(root, rows)
+                return {
+                    "ok": False,
+                    "error": {"code": "goal_propose_failed", "detail": goal_out},
+                    "candidate_id": cid,
+                }
+
+            goal_bead_id = str(goal_out.get("bead_id") or "")
+            linked: list[str] = []
+            try:
+                store = MemoryStore(root=str(root))
+                for bid in [str(x) for x in list(target.get("supporting_bead_ids") or []) if str(x).strip()][:8]:
+                    if bid == goal_bead_id:
+                        continue
+                    store.link(
+                        bid,
+                        goal_bead_id,
+                        "supports",
+                        explanation=(
+                            f"Reviewer accepted latent-goal discovery {cid}: this behavior bead "
+                            f"is part of the recurring pattern behind the goal."
+                        ),
+                        confidence=0.75,
+                    )
+                    linked.append(bid)
+            except Exception:
+                # Goal bead creation is the contract; evidence links are
+                # best-effort and must not roll back an accepted goal.
+                pass
+
+            target["applied_goal_bead_id"] = goal_bead_id
+            target["applied_goal_id"] = str(goal_out.get("goal_id") or "")
+            applied = {
+                "ok": True,
+                "canonical_entry": "soul_goal_lifecycle",
+                "application_mode": "goal_bead_created",
+                "goal_bead_id": goal_bead_id,
+                "goal_id": str(goal_out.get("goal_id") or ""),
+                "goal_status": str(goal_out.get("status") or "candidate"),
+                "subject": subject,
+                "linked_bead_ids": linked,
             }
             _write_candidates(root, rows)
             return {

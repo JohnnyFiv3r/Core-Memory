@@ -101,6 +101,19 @@ def derive_storylines(
         overlays = by_worldline.get(w["id"], [])
         active_overlays = [o for o in overlays if o.get("status") == "active"]
 
+        # Display naming: an accepted overlay may carry a reviewed title — the
+        # storyline's name. Without one the storyline falls back to its
+        # backbone label (entity text / subject·slot / goal title). Reading
+        # overlay titles here is derivation-side-legal: storylines are the one
+        # place overlays are joined in (the one-way rule protects backbone
+        # derivation, not this projection).
+        overlay_title = ""
+        for o in sorted(active_overlays, key=lambda r: str(r.get("created_at") or ""), reverse=True):
+            candidate_title = str(o.get("title") or "").strip()
+            if candidate_title:
+                overlay_title = candidate_title
+                break
+
         tensions: list[dict[str, Any]] = []
         if len(active_overlays) > 1:
             tensions.append({
@@ -124,6 +137,8 @@ def derive_storylines(
 
         storylines.append({
             "id": w["id"],
+            "label": overlay_title or str(w.get("label") or w.get("key") or w["id"]),
+            "title": overlay_title,
             "backbone": w,
             "overlays": overlays,
             "overlay_history_count": history_count.get(w["id"], 0),

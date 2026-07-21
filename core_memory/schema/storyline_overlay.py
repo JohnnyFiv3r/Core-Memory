@@ -34,6 +34,8 @@ OVERLAY_KINDS = {"narrative", "value", "attractor", "tension_note"}
 ERROR_OVERLAY_UNTRACEABLE = "storyline_overlay_untraceable"
 ERROR_OVERLAY_INVALID = "storyline_overlay_invalid"
 
+MAX_OVERLAY_TITLE_CHARS = 160
+
 
 def validate_storyline_overlay(record: dict[str, Any]) -> tuple[bool, str, dict[str, Any]]:
     """Validate an overlay record. Returns (ok, error_code, details)."""
@@ -47,6 +49,9 @@ def validate_storyline_overlay(record: dict[str, Any]) -> tuple[bool, str, dict[
     statement = str(record.get("statement") or "").strip()
     if not statement:
         return False, ERROR_OVERLAY_INVALID, {"reason": "empty_statement"}
+    title = record.get("title")
+    if title is not None and (not isinstance(title, str) or len(title) > MAX_OVERLAY_TITLE_CHARS):
+        return False, ERROR_OVERLAY_INVALID, {"reason": "bad_title"}
     worldlines = [str(x) for x in (record.get("supporting_worldline_ids") or []) if str(x).strip()]
     beads = [str(x) for x in (record.get("supporting_bead_ids") or []) if str(x).strip()]
     if not worldlines or not beads:
@@ -72,6 +77,7 @@ def build_storyline_overlay(
     supporting_worldline_ids: list[str],
     supporting_bead_ids: list[str],
     confidence: float,
+    title: str = "",
     convergence_key: str = "",
     expected_revision_triggers: list[str] | None = None,
     supersedes_overlay_id: str | None = None,
@@ -82,6 +88,7 @@ def build_storyline_overlay(
         "schema": STORYLINE_OVERLAY_SCHEMA,
         "id": f"ovl-{uuid.uuid4().hex[:12]}",
         "kind": str(kind).strip().lower(),
+        "title": str(title or "").strip()[:MAX_OVERLAY_TITLE_CHARS] or None,
         "statement": str(statement).strip(),
         "supporting_worldline_ids": [str(x) for x in supporting_worldline_ids if str(x).strip()],
         "supporting_bead_ids": [str(x) for x in supporting_bead_ids if str(x).strip()],

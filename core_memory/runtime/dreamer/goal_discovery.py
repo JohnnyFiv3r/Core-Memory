@@ -164,6 +164,9 @@ def enqueue_latent_goal_candidates(
             "proposal_family": "goal",
             "benchmark_tags": ["goal", "discovery"],
             "goal_theme": det["theme"],
+            # Deterministic baseline name; the candidate-refinement pass may
+            # replace it with a reviewed, human-readable title before decide.
+            "title": f"Recurring focus: {det['theme']}",
             "statement": det["statement"],
             "rationale": det["statement"],
             "expected_decision_impact": (

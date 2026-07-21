@@ -275,52 +275,6 @@ def _default_entities_from_text(*texts: str, limit: int = 16) -> list[str]:
         "This",
         "Those",
     }
-    low_stop = {
-        "the",
-        "and",
-        "for",
-        "with",
-        "that",
-        "this",
-        "from",
-        "into",
-        "your",
-        "our",
-        "their",
-        "were",
-        "was",
-        "have",
-        "has",
-        "had",
-        "will",
-        "would",
-        "should",
-        "could",
-        "can",
-        "cant",
-        "about",
-        "after",
-        "before",
-        "then",
-        "than",
-        "because",
-        "there",
-        "here",
-        "when",
-        "where",
-        "what",
-        "which",
-        "who",
-        "whom",
-        "whose",
-        "why",
-        "how",
-        "turn",
-        "main",
-        "session",
-        "these",
-        "those",
-    }
     for raw in texts:
         text = str(raw or "")
         if not text:
@@ -339,24 +293,9 @@ def _default_entities_from_text(*texts: str, limit: int = 16) -> list[str]:
             if len(out) >= max(1, int(limit)):
                 return out
 
-    if out:
-        return out
-
-    for raw in texts:
-        text = str(raw or "")
-        if not text:
-            continue
-        for token in re.finditer(r"\b[a-zA-Z][a-zA-Z0-9_-]{2,}\b", text):
-            value = str(token.group(0) or "").strip().strip(".,:;!?()[]{}\"'")
-            key = value.lower()
-            if key in low_stop:
-                continue
-            if key in seen:
-                continue
-            seen.add(key)
-            out.append(value)
-            if len(out) >= max(1, int(limit)):
-                return out
+    # No all-words fallback: a structural bead with zero entities is honest;
+    # lowercase sentence fragments promoted to entities become junk entity
+    # worldlines and junk storyline backbones downstream.
     return out
 
 

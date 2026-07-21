@@ -101,6 +101,7 @@ class TestBeadFieldJudge(unittest.TestCase):
                 "os.environ",
                 {
                     "CORE_MEMORY_BEAD_FIELD_JUDGE_MODE": "llm",
+                    "CORE_MEMORY_BEAD_FIELD_MODEL": "bead-field-model",
                     "CORE_MEMORY_AGENT_MODEL_CHEAP": "cheap-judge-model",
                     "CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "provider",
                 },
@@ -120,12 +121,15 @@ class TestBeadFieldJudge(unittest.TestCase):
 
         self.assertEqual("decision", out.get("type"))
         complete.assert_called_once()
-        self.assertEqual("cheap-judge-model", complete.call_args.kwargs["config"].model)
+        # This compat path authors the entire bead, so it rides the standard
+        # tier — where the explicit bead-field model override still wins over
+        # the cheap-tier model.
+        self.assertEqual("bead-field-model", complete.call_args.kwargs["config"].model)
         self.assertEqual(1, rows.get("count"))
         row = (rows.get("results") or [{}])[0]
         self.assertEqual("bead_field_judge", row.get("task_type"))
         self.assertEqual("succeeded", row.get("status"))
-        self.assertEqual("cheap", row.get("model_tier"))
+        self.assertEqual("standard", row.get("model_tier"))
         self.assertEqual("turn_memory_authoring.v1", row.get("prompt_version"))
         self.assertEqual("agent_authored_updates.v1", row.get("output_schema"))
         self.assertEqual("heuristic", row.get("fallback_mode"))
