@@ -3,12 +3,15 @@
 """Seed-quality backfill: the one-shot cleanup pass over pre-fix stores.
 
 Contract under test:
-- dry-run reports junk entities / thin beads / detections and writes nothing
-- apply strips non-meaningful entities, re-authors thin beads through the
-  semantic runtime (fail-open per bead), rebuilds the entity registry, and
-  auto-accepts only refiner-named narrative/goal candidates
-- a backup snapshot of index.json is taken before any apply write
+- triage is deterministic (routes thin / entity-dirty beads to the model) and
+  writes nothing on dry-run
+- apply re-authors every eligible bead with the LLM, which authors the
+  definitive entities from content (regex only triages + guards output); a
+  model outage DEFERS a bead (leaves its junk) rather than pruning it
+- per-run + stable pristine baseline snapshots support single-batch and full
+  rollback across batched reruns
 - reruns skip already-backfilled beads (seed_backfilled tag)
+- narrative/goal candidates are LLM-refined and only refiner-named ones accept
 """
 from __future__ import annotations
 
@@ -174,7 +177,7 @@ class TestEntityValidator(unittest.TestCase):
 
 
 class TestDryRun(unittest.TestCase):
-    def test_dry_run_reports_without_writing(self):
+    def test_dry_run_triages_without_writing_or_calling_model(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
             _seed_store(root)
@@ -184,16 +187,22 @@ class TestDryRun(unittest.TestCase):
 
             self.assertTrue(out["ok"], out)
             self.assertFalse(out["applied"])
-            self.assertGreaterEqual(out["entities"]["beads_touched"], 2)
-            self.assertGreaterEqual(out["entities"]["entities_removed"], 5)
-            self.assertGreaterEqual(out["enrichment"]["eligible"], 1)
-            self.assertEqual(0, out["enrichment"].get("attempted", 0))
+            triage = out["triage"]
+            # Three of the four seed beads are eligible (two entity-dirty, one
+            # thin); the healthy bead is not routed to the model.
+            self.assertEqual(3, triage["eligible"])
+            self.assertEqual(2, triage["entity_dirty"])
+            self.assertGreaterEqual(triage["thin"], 1)
+            # Junk detected is reported for operator sanity-check, not removed.
+            self.assertTrue(set(triage["junk_entity_samples"]) & {"please", "tests/pipeline"})
+            # Dry run makes no model calls (no "attempted") and writes nothing.
+            self.assertNotIn("attempted", out["reauthoring"])
             self.assertNotIn("backup_path", out)
             self.assertEqual(before, (root / ".beads" / "index.json").read_text(encoding="utf-8"))
 
 
 class TestApply(unittest.TestCase):
-    def test_apply_cleans_enriches_rebuilds_and_seeds(self):
+    def test_apply_llm_authors_entities_rebuilds_and_seeds(self):
         runtime = FakeRuntime()
         with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.policy.semantic_task_runtime.get_semantic_task_runtime",
@@ -208,6 +217,13 @@ class TestApply(unittest.TestCase):
             out = run_seed_quality_backfill(root, apply=True, max_goals=3)
 
             self.assertTrue(out["ok"], out)
+            # The bead-field judge ran for every eligible bead (not just empties).
+            self.assertGreaterEqual(out["reauthoring"]["llm_authored"], 3)
+            self.assertEqual(0, out["reauthoring"]["llm_unavailable"])
+            bead_judge_calls = [r for r in runtime.requests if r.task_type == "bead_field_judge"]
+            self.assertGreaterEqual(len(bead_judge_calls), 3)
+            self.assertTrue(all(r.model_tier == "standard" for r in bead_judge_calls))
+
             self.assertTrue(Path(out["backup_path"]).exists())
             backup = json.loads(Path(out["backup_path"]).read_text(encoding="utf-8"))
             self.assertIn("please", backup["beads"]["bead-SEED0000001"]["entities"])
@@ -215,24 +231,25 @@ class TestApply(unittest.TestCase):
             index = json.loads((root / ".beads" / "index.json").read_text(encoding="utf-8"))
             beads = index["beads"]
 
-            # Junk entities stripped; real names normalized through the registry.
-            self.assertEqual(["Acme Corp"], beads["bead-SEED0000001"]["entities"])
-            self.assertEqual(["acme corp"], beads["bead-SEED0000002"]["entities"])
+            # Entity-dirty beads get the MODEL's entity set (read from content),
+            # not a regex-pruned survivor set. Junk fragments are gone.
+            self.assertEqual(["Acme Corp", "March Invoice"], beads["bead-SEED0000001"]["entities"])
+            self.assertEqual(["Acme Corp", "March Invoice"], beads["bead-SEED0000002"]["entities"])
+            for junk in ("please", "follow", "reissue", "tests/pipeline"):
+                self.assertNotIn(junk, beads["bead-SEED0000001"]["entities"] + beads["bead-SEED0000002"]["entities"])
 
             # Thin document bead re-authored and tagged for rerun-skip.
             doc = beads["bead-SEED0000003"]
             self.assertNotEqual("Q2 Vendor Review.pdf", doc["title"])
             self.assertIn("Acme Corp", doc["entities"])
             self.assertIn("seed_backfilled", doc["tags"])
-            self.assertGreaterEqual(out["enrichment"]["changed"], 1)
 
-            # Healthy bead untouched.
-            self.assertEqual(
-                "Renewal decision for Acme Corp", beads["bead-SEED0000004"]["title"]
-            )
+            # Healthy bead never sent to the model, untouched.
+            self.assertEqual("Renewal decision for Acme Corp", beads["bead-SEED0000004"]["title"])
+            self.assertEqual(["Acme Corp"], beads["bead-SEED0000004"]["entities"])
             self.assertNotIn("seed_backfilled", beads["bead-SEED0000004"]["tags"])
 
-            # Registry rebuilt: junk entities gone, Acme resolved to one entity.
+            # Registry rebuilt from the model-authored entities: junk gone.
             labels = {
                 str(row.get("normalized_label") or "")
                 for row in (index.get("entities") or {}).values()
@@ -240,24 +257,12 @@ class TestApply(unittest.TestCase):
             self.assertNotIn("please", labels)
             self.assertTrue(any("acme" in label for label in labels), labels)
 
-            # Seeding: refined goal candidates became Goal Beads; storylines named
-            # when convergence exists.
+            # Seeding still LLM-refined and human-endorsable.
             seeding = out["seeding"]
             self.assertGreaterEqual(len(seeding["accepted_goal_bead_ids"]), 1, seeding)
-            goal_beads = [
-                b for b in beads.values()
-                if str(b.get("type") or "") == "goal"
-            ] + [
-                b
-                for b in json.loads((root / ".beads" / "index.json").read_text(encoding="utf-8"))["beads"].values()
-                if str(b.get("type") or "") == "goal"
-            ]
-            self.assertTrue(goal_beads)
-
             projection = derive_storylines(root)
             self.assertTrue(projection["ok"])
-            named = [s for s in projection["storylines"] if s.get("title")]
-            for storyline in named:
+            for storyline in [s for s in projection["storylines"] if s.get("title")]:
                 self.assertIn("Refined thread", storyline["label"])
 
     def test_apply_rerun_skips_backfilled_beads(self):
@@ -272,13 +277,15 @@ class TestApply(unittest.TestCase):
             root = Path(td)
             _seed_store(root)
             first = run_seed_quality_backfill(root, apply=True)
-            self.assertGreaterEqual(first["enrichment"]["attempted"], 1)
+            self.assertGreaterEqual(first["reauthoring"]["attempted"], 1)
 
             second = run_seed_quality_backfill(root, apply=True)
             self.assertTrue(second["ok"], second)
-            self.assertEqual(0, second["enrichment"]["attempted"], second["enrichment"])
+            self.assertEqual(0, second["reauthoring"]["attempted"], second["reauthoring"])
 
-    def test_apply_survives_runtime_outage(self):
+    def test_apply_defers_when_model_unavailable(self):
+        # The user's contract: judging is the LLM's. A model outage must DEFER
+        # (leave junk for a later run), never let the deterministic layer prune.
         runtime = FakeRuntime(ok=False)
         with tempfile.TemporaryDirectory() as td, patch(
             "core_memory.policy.semantic_task_runtime.get_semantic_task_runtime",
@@ -293,10 +300,15 @@ class TestApply(unittest.TestCase):
             out = run_seed_quality_backfill(root, apply=True)
 
             self.assertTrue(out["ok"], out)
-            self.assertGreaterEqual(out["enrichment"]["failed"], 1)
+            self.assertGreaterEqual(out["reauthoring"]["llm_unavailable"], 1)
+            self.assertEqual(0, out["reauthoring"]["llm_authored"])
             index = json.loads((root / ".beads" / "index.json").read_text(encoding="utf-8"))
-            # Deterministic cleanup still landed even though the model was down.
-            self.assertEqual(["Acme Corp"], index["beads"]["bead-SEED0000001"]["entities"])
+            b1 = index["beads"]["bead-SEED0000001"]
+            # Deferred, NOT pruned: the junk entities are still there, untouched,
+            # and the bead is not tagged, so a later healthy run re-authors it.
+            self.assertIn("please", b1["entities"])
+            self.assertIn("Acme Corp", b1["entities"])
+            self.assertNotIn("seed_backfilled", b1.get("tags") or [])
             # No refined candidates -> nothing auto-accepted.
             self.assertEqual([], out["seeding"]["accepted_goal_bead_ids"])
             self.assertEqual([], out["seeding"]["accepted_overlay_ids"])
@@ -322,6 +334,10 @@ class TestRollbackSnapshots(unittest.TestCase):
             # No pre-existing overlay log -> rollback deletes overlays.jsonl.
             self.assertFalse(out["overlays_existed_before"])
             self.assertIsNone(out["overlays_backup_path"])
+            # Baseline: pristine store had no overlay log either.
+            self.assertFalse(out["baseline_overlays_existed_before"])
+            self.assertIsNone(out["baseline_overlays_backup_path"])
+            self.assertTrue(Path(out["baseline_backup_path"]).exists())
 
     def test_pre_existing_overlays_are_snapshotted_for_rollback(self):
         runtime = FakeRuntime()
@@ -351,6 +367,45 @@ class TestRollbackSnapshots(unittest.TestCase):
             # rollback restores exactly the state before this run appended.
             self.assertEqual(original, snapshot_path.read_text(encoding="utf-8"))
             self.assertNotIn("seed-backfill", snapshot_path.read_text(encoding="utf-8"))
+            # Baseline overlay snapshot also holds the pristine log.
+            self.assertTrue(out["baseline_overlays_existed_before"])
+            self.assertEqual(
+                original, Path(out["baseline_overlays_backup_path"]).read_text(encoding="utf-8")
+            )
+
+    def test_baseline_snapshot_survives_batched_reruns(self):
+        # A large store loops apply=true until it drains. Each run snapshots the
+        # already-mutated store, so restoring the latest per-run backup only
+        # reverses the final batch. The stable baseline must keep naming the
+        # pristine pre-first-run state across runs.
+        runtime = FakeRuntime()
+        with tempfile.TemporaryDirectory() as td, patch(
+            "core_memory.policy.semantic_task_runtime.get_semantic_task_runtime",
+            return_value=runtime,
+        ), patch(
+            "core_memory.runtime.dreamer.refinement.get_semantic_task_runtime",
+            return_value=runtime,
+        ):
+            root = Path(td)
+            _seed_store(root)
+            pristine_index = (root / ".beads" / "index.json").read_text(encoding="utf-8")
+            self.assertIn("please", pristine_index)  # junk present pre-backfill
+
+            first = run_seed_quality_backfill(root, apply=True)
+            second = run_seed_quality_backfill(root, apply=True)
+
+            # Same stable baseline file across both runs, still holding pristine
+            # (junk intact), even though the live store is now model-authored.
+            self.assertEqual(first["baseline_backup_path"], second["baseline_backup_path"])
+            baseline = Path(first["baseline_backup_path"]).read_text(encoding="utf-8")
+            self.assertEqual(pristine_index, baseline)
+            self.assertIn("please", baseline)
+            # Per-run backups are distinct files (unique suffix).
+            self.assertNotEqual(first["backup_path"], second["backup_path"])
+            # Restoring the baseline fully reverts to pristine (junk returns).
+            (root / ".beads" / "index.json").write_text(baseline, encoding="utf-8")
+            restored = json.loads((root / ".beads" / "index.json").read_text(encoding="utf-8"))
+            self.assertIn("please", restored["beads"]["bead-SEED0000001"]["entities"])
 
 
 class TestHttpSeedBackfillRoute(unittest.TestCase):
@@ -373,7 +428,8 @@ class TestHttpSeedBackfillRoute(unittest.TestCase):
             body = response.json()
             self.assertTrue(body["ok"])
             self.assertFalse(body["applied"])
-            self.assertGreaterEqual(body["entities"]["entities_removed"], 5)
+            self.assertGreaterEqual(body["triage"]["eligible"], 1)
+            self.assertGreaterEqual(body["triage"]["entity_dirty"], 1)
 
 
 if __name__ == "__main__":

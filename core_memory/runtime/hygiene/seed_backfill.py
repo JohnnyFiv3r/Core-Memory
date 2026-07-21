@@ -29,19 +29,30 @@ paths no longer produce:
 This pass is explicitly best-effort and operator-invoked ("reviewer" is the
 operator running it). It:
 
-- strips non-meaningful entities from every bead and rebuilds the entity
-  registry from the cleaned fields (orphaned junk entities disappear);
-- re-authors thin beads (bounded batch) through the standard-tier bead-field
-  judge, tagging each with ``seed_backfilled`` so reruns skip them;
+- **triages** each bead cheaply and deterministically — is it thin (structural
+  title / truncated summary / no entities) or entity-dirty (any entity that
+  looks like an extraction fragment, path, hash, or file name)? — then
+  **re-authors every flagged bead with the LLM** (standard-tier bead-field
+  judge), which reads the bead's own content and authors the definitive
+  title/summary/entities/topics. The regex rules only *route* beads to the
+  model and *guard the model's own output*; they never decide the survivors
+  of a bead's entity list. When the model is unavailable a bead is **deferred**
+  (left untouched, reported), not silently pruned by regex — judging is the
+  LLM's job, so a model outage means "try again later," not "let the script
+  decide";
+- rebuilds the entity registry from the re-authored fields (orphaned junk
+  entities disappear as beads are re-authored);
 - enqueues + refines narrative/goal candidates and auto-accepts the refined
   ones (capped), materialising named storyline overlays and real Goal Beads;
 - marks the semantic index dirty and rebuilds the geometry manifest so the
   manifold reflects the cleaned store immediately.
 
 Safety: ``apply=False`` (default) reports what would change without writing
-and without model calls. ``apply=True`` snapshots ``index.json`` to a
-timestamped backup first. Every stage is fail-open and individually counted
-in the report; a model outage degrades the pass, never corrupts the store.
+and without model calls. ``apply=True`` snapshots ``index.json`` (and the
+overlay log) to a timestamped per-run backup plus a stable pristine baseline
+for a full rollback across batched reruns. Every stage is fail-open and
+individually counted in the report; a model outage defers work, never
+corrupts the store and never lets the deterministic layer author meaning.
 """
 from __future__ import annotations
 
@@ -203,7 +214,23 @@ def _summary_is_truncation(bead: dict[str, Any]) -> bool:
     return bool(detail) and len(only) >= 40 and detail.startswith(only[: len(only) - 1])
 
 
-def _is_thin(bead: dict[str, Any]) -> bool:
+def _entity_dirty(bead: dict[str, Any]) -> bool:
+    """True when any of the bead's entities looks like extraction junk.
+
+    This is a cheap DETECTION signal used only to route a bead to the LLM —
+    it never decides which entities survive. The old all-words heuristic left
+    fragments, paths, hashes, and file names; if the bead carries any, the LLM
+    should re-author the whole entity set from the bead's content.
+    """
+    for raw in bead.get("entities") or []:
+        label = str(raw or "").strip()
+        if label and not is_meaningful_entity(label):
+            return True
+    return False
+
+
+def _reauthorable(bead: dict[str, Any]) -> bool:
+    """Structural gate shared by thinness and dirtiness triage."""
     if str(bead.get("status") or "").strip().lower() in _INACTIVE_STATUSES:
         return False
     # Goal / proposed-theme beads are authored by the goal lifecycle and the
@@ -218,12 +245,31 @@ def _is_thin(bead: dict[str, Any]) -> bool:
     grounding = " ".join(
         [str(bead.get("title") or ""), _summary_text(bead), str(bead.get("detail") or "")]
     ).strip()
-    if len(grounding) < 24:
+    return len(grounding) >= 24
+
+
+def _is_thin(bead: dict[str, Any]) -> bool:
+    if not _reauthorable(bead):
         return False
     return (
         not list(bead.get("entities") or [])
         or _title_is_structural(bead)
         or _summary_is_truncation(bead)
+    )
+
+
+def _needs_reauthoring(bead: dict[str, Any]) -> bool:
+    """Route a bead to the LLM when it is thin OR carries junk entities.
+
+    Triage is deterministic and cheap; the AUTHORING it triggers is the LLM's.
+    """
+    if not _reauthorable(bead):
+        return False
+    return (
+        not list(bead.get("entities") or [])
+        or _title_is_structural(bead)
+        or _summary_is_truncation(bead)
+        or _entity_dirty(bead)
     )
 
 
@@ -303,6 +349,18 @@ def _enrich_bead(bead: dict[str, Any], *, root: str) -> tuple[dict[str, Any], bo
         return {}, False, str(result.error or "enrichment_unavailable")
 
     judged = result.output_json
+    # A degenerate/empty model response must DEFER (leave the bead for a later
+    # run), never author. Otherwise an entity-dirty bead could be silently
+    # emptied by a model that returned nothing.
+    has_content = bool(
+        str(judged.get("title") or "").strip()
+        or [x for x in (judged.get("summary") or []) if str(x).strip()]
+        or [x for x in (judged.get("entities") or []) if str(x).strip()]
+        or [x for x in (judged.get("topics") or []) if str(x).strip()]
+    )
+    if not has_content:
+        return {}, False, "empty_model_output"
+
     fields: dict[str, Any] = {}
     changed = False
     judged_title = " ".join(str(judged.get("title") or "").split())[:200]
@@ -313,11 +371,16 @@ def _enrich_bead(bead: dict[str, Any], *, root: str) -> tuple[dict[str, Any], bo
     if _summary_is_truncation(bead) and judged_summary:
         fields["summary"] = judged_summary
         changed = True
-    if not list(bead.get("entities") or []):
-        judged_entities = clean_entity_list(list(judged.get("entities") or []))
-        if judged_entities:
-            fields["entities"] = judged_entities
-            changed = True
+    # The LLM is the entity judge. When the bead has no entities or carries junk
+    # ones, replace the whole set with the model's — read from the bead's own
+    # content. clean_entity_list here is a SAFETY NET on the model's output (drop
+    # a path/hash it might echo), not the source-data editor. `judged_entities`
+    # key is absent -> caller leaves entities alone; present (even []) -> caller
+    # replaces, so an entity-dirty bead the model judges to have no real entity
+    # is emptied rather than left holding junk.
+    if not list(bead.get("entities") or []) or _entity_dirty(bead):
+        fields["judged_entities"] = clean_entity_list(list(judged.get("entities") or []))
+        changed = True
     if not list(bead.get("topics") or []):
         judged_topics = [str(x).strip()[:80].lower() for x in (judged.get("topics") or []) if str(x).strip()][:8]
         if judged_topics:
@@ -334,10 +397,14 @@ def _enrich_bead(bead: dict[str, Any], *, root: str) -> tuple[dict[str, Any], bo
 
 
 def _apply_enrichment_fields(bead: dict[str, Any], fields: dict[str, Any]) -> None:
-    """Apply enrichment output plus the rerun-skip tag onto a live bead."""
-    for key in ("title", "summary", "entities", "topics", "seed_backfill"):
+    """Apply LLM-authored fields plus the rerun-skip tag onto a live bead."""
+    for key in ("title", "summary", "topics", "seed_backfill"):
         if key in fields:
             bead[key] = fields[key]
+    # judged_entities present (even []) means the model re-judged the entity set
+    # from content — replace wholesale so junk cannot survive.
+    if "judged_entities" in fields:
+        bead["entities"] = list(fields["judged_entities"])
     tags = [str(t) for t in (bead.get("tags") or [])]
     if SEED_BACKFILL_TAG not in tags:
         tags.append(SEED_BACKFILL_TAG)
@@ -485,36 +552,46 @@ def run_seed_quality_backfill(
         return {**report, "ok": False, "error": "index_not_object"}
     snapshot_beads: dict[str, Any] = snapshot.get("beads") or {}
 
-    beads_touched = 0
-    entities_removed = 0
-    removed_samples: list[str] = []
+    # Stage 1 — deterministic TRIAGE census (no mutation, no model calls). It
+    # only routes beads to the LLM; it never edits a bead's entities. A bead is
+    # eligible when it is thin or carries junk-looking entities.
+    thin_count = 0
+    entity_dirty_count = 0
+    junk_samples: list[str] = []
+    worklist: list[str] = []
     for bead_id, bead in snapshot_beads.items():
         if not isinstance(bead, dict):
             continue
         bead.setdefault("id", str(bead_id))
-        original = [str(x) for x in (bead.get("entities") or []) if str(x).strip()]
-        cleaned = clean_entity_list(original)
-        if cleaned != original:
-            dropped = [x for x in original if x not in cleaned]
-            entities_removed += len(dropped)
-            for item in dropped:
-                if len(removed_samples) < 12 and item not in removed_samples:
-                    removed_samples.append(item)
-            beads_touched += 1
-            bead["entities"] = cleaned  # snapshot-local: feeds thinness + enrichment
-    report["entities"] = {
+        if not _needs_reauthoring(bead):
+            continue
+        worklist.append(str(bead_id))
+        if _is_thin(bead):
+            thin_count += 1
+        if _entity_dirty(bead):
+            entity_dirty_count += 1
+            for raw in bead.get("entities") or []:
+                label = str(raw or "").strip()
+                if label and not is_meaningful_entity(label) and label not in junk_samples and len(junk_samples) < 12:
+                    junk_samples.append(label)
+    worklist.sort(key=lambda bid: str((snapshot_beads.get(bid) or {}).get("created_at") or ""), reverse=True)
+    report["triage"] = {
         "beads_scanned": len(snapshot_beads),
-        "beads_touched": beads_touched,
-        "entities_removed": entities_removed,
-        "removed_samples": removed_samples,
+        "eligible": len(worklist),
+        "thin": thin_count,
+        "entity_dirty": entity_dirty_count,
+        "junk_entity_samples": junk_samples,
     }
 
-    thin_ids = [bid for bid, b in snapshot_beads.items() if isinstance(b, dict) and _is_thin(b)]
-    thin_ids.sort(key=lambda bid: str((snapshot_beads.get(bid) or {}).get("created_at") or ""), reverse=True)
-    enrichment: dict[str, Any] = {"eligible": len(thin_ids), "attempted": 0, "changed": 0, "failed": 0}
-    report["enrichment"] = enrichment
-
     if not apply:
+        report["reauthoring"] = {
+            "eligible": len(worklist),
+            "note": (
+                "On apply the LLM authors title/summary/entities/topics for each "
+                "eligible bead from its content; the regex rules only triage and "
+                "guard model output, and a model outage defers a bead (never prunes)."
+            ),
+        }
         report["registry"] = {
             "entities_before": len(snapshot.get("entities") or {}),
             "entities_after": None,
@@ -523,29 +600,50 @@ def run_seed_quality_backfill(
     else:
         # Stage 2 — LLM re-authoring, NO store lock held (the semantic runtime
         # records receipts under its own lock; a re-entrant flock deadlocks).
-        # Results are collected per bead and applied under the final write lock.
+        # The LLM is the judge: it authors each eligible bead's fields from
+        # content. When the model is unavailable the bead is DEFERRED (left
+        # untouched, counted) — the deterministic layer never authors meaning.
+        reauthoring: dict[str, Any] = {"attempted": 0, "llm_authored": 0, "llm_unavailable": 0}
         enriched_fields: dict[str, dict[str, Any]] = {}
-        for bid in thin_ids[: max(0, int(max_enrich))]:
+        for bid in worklist[: max(0, int(max_enrich))]:
             bead = snapshot_beads.get(bid)
             if not isinstance(bead, dict):
                 continue
-            enrichment["attempted"] += 1
+            reauthoring["attempted"] += 1
             fields, changed, error = _enrich_bead(bead, root=root_str)
-            if error:
-                enrichment["failed"] += 1
+            if error or not changed:
+                reauthoring["llm_unavailable"] += 1
                 continue
-            if changed:
-                enrichment["changed"] += 1
+            reauthoring["llm_authored"] += 1
             enriched_fields[bid] = fields
+        report["reauthoring"] = reauthoring
 
-        # Stage 3 — authoritative write under a single lock: back up, re-read
-        # fresh, re-apply deterministic cleanup + collected enrichment, rebuild
-        # the entity registry, and atomically write.
+        # Stage 3 — authoritative write under a single lock: back up (per-run +
+        # stable pristine baseline), re-read fresh, apply ONLY the LLM-authored
+        # fields to their beads, rebuild the entity registry, and atomically
+        # write. No bead is edited except by the model.
         with store_lock(root_path):
-            stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            backup_path = root_path / ".beads" / f"index.seed-backfill-{stamp}.bak.json"
+            beads_dir = root_path / ".beads"
+            # Unique per-run suffix: the timestamp alone has one-second
+            # resolution, so a batched loop firing two apply calls within the
+            # same second would otherwise clobber the earlier per-run backup.
+            run_suffix = f"{datetime.now(timezone.utc).strftime('%Y%m%dT%H%M%SZ')}-{uuid.uuid4().hex[:6]}"
+            backup_path = beads_dir / f"index.seed-backfill-{run_suffix}.bak.json"
             shutil.copyfile(index_path, backup_path)
             report["backup_path"] = str(backup_path)
+
+            overlays_file = beads_dir / "overlays.jsonl"
+
+            # Stable pristine baseline for a FULL rollback across batched reruns.
+            # Each run's per-run backup snapshots the already-mutated store, so
+            # restoring the latest only reverses the final batch. The baseline is
+            # written once (first apply, pre-mutation), never overwritten, and
+            # reported every run — the true pre-first-run state.
+            baseline_index = beads_dir / "index.seed-backfill-baseline.bak.json"
+            first_run = not baseline_index.exists()
+            if first_run:
+                shutil.copyfile(index_path, baseline_index)
+            report["baseline_backup_path"] = str(baseline_index)
 
             # Stage 4 appends accepted storyline overlays to overlays.jsonl.
             # Snapshot its pre-seeding state too so rollback is symmetric: a
@@ -554,15 +652,22 @@ def run_seed_quality_backfill(
             # the restored beads, the overlays re-attach and stay visible
             # instead of detaching. `overlays_existed_before=false` means a
             # rollback deletes overlays.jsonl rather than restoring a snapshot.
-            overlays_file = root_path / ".beads" / "overlays.jsonl"
             if overlays_file.exists():
-                overlays_backup_path = root_path / ".beads" / f"overlays.seed-backfill-{stamp}.bak.jsonl"
+                overlays_backup_path = beads_dir / f"overlays.seed-backfill-{run_suffix}.bak.jsonl"
                 shutil.copyfile(overlays_file, overlays_backup_path)
                 report["overlays_backup_path"] = str(overlays_backup_path)
                 report["overlays_existed_before"] = True
             else:
                 report["overlays_backup_path"] = None
                 report["overlays_existed_before"] = False
+
+            baseline_overlays = beads_dir / "overlays.seed-backfill-baseline.bak.jsonl"
+            if first_run and overlays_file.exists():
+                shutil.copyfile(overlays_file, baseline_overlays)
+            report["baseline_overlays_backup_path"] = (
+                str(baseline_overlays) if baseline_overlays.exists() else None
+            )
+            report["baseline_overlays_existed_before"] = baseline_overlays.exists()
 
             index = json.loads(index_path.read_text(encoding="utf-8"))
             if not isinstance(index, dict):
@@ -572,9 +677,6 @@ def run_seed_quality_backfill(
                 if not isinstance(bead, dict):
                     continue
                 bead.setdefault("id", str(bead_id))
-                bead["entities"] = clean_entity_list(
-                    [str(x) for x in (bead.get("entities") or []) if str(x).strip()]
-                )
                 fields = enriched_fields.get(bead_id)
                 if fields:
                     _apply_enrichment_fields(bead, fields)
