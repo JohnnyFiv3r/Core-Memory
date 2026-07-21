@@ -19,7 +19,7 @@ are first-party.
 
 ## Guiding principle — engineering simplicity
 
-There is a real risk that Core Memory / Satorid becomes over-complex at the
+There is a real risk that Core Memory becomes over-complex at the
 storage and retrieval layer. The danger is not that the project reduces to
 "a flat memory file plus semantic search" — it is that we solve several
 distinct problems at once and describe all of them as "memory."
@@ -54,8 +54,8 @@ becomes **contested, temporal, distributed, and action-relevant**:
 Semantic search retrieves passages resembling a query; it does not solve any
 of those questions. The essential product is therefore not "better memory" —
 it is **a governed continuity layer for agents**: preserving claims, evidence,
-change, and identity across tools and time. Put most simply: *Satorid prevents
-shared agent context from becoming an unauditable pile of text.*
+change, and identity across tools and time. Put most simply: *Core Memory
+prevents shared agent context from becoming an unauditable pile of text.*
 
 ### Boring primitives, rich views
 
