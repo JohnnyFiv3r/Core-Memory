@@ -970,8 +970,8 @@ def maintain(
             run_inline=_truthy(targets_d.get("run_inline")),
             max_candidates=_int_or_default(targets_d.get("max_candidates"), 40),
             graph_revision=_clean_str(targets_d.get("graph_revision") or proposal_d.get("graph_revision")),
-            prompt_version=_clean_str(targets_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v1"),
-            rubric_version=_clean_str(targets_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v1"),
+            prompt_version=_clean_str(targets_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v2"),
+            rubric_version=_clean_str(targets_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v2"),
             sweep=_truthy(targets_d.get("sweep")),
             sweep_mode=_clean_str(targets_d.get("sweep_mode") or proposal_d.get("sweep_mode") or "incomplete"),
             sweep_cursor=_clean_str(targets_d.get("sweep_cursor") or proposal_d.get("sweep_cursor")),
@@ -995,13 +995,14 @@ def maintain(
             truth_basis=_clean_str(decision_d.get("truth_basis") or proposal_d.get("truth_basis")),
             confidence=decision_d.get("confidence"),
             relationship=_clean_str(decision_d.get("relationship") or targets_d.get("relationship")),
+            direction=_clean_str(decision_d.get("direction") or targets_d.get("direction")),
             source_bead=_clean_str(decision_d.get("source_bead") or targets_d.get("source_bead")),
             target_bead=_clean_str(decision_d.get("target_bead") or targets_d.get("target_bead")),
             evidence_refs=list(decision_d.get("evidence_refs") or proposal_d.get("evidence_refs") or []),
             evidence_bead_ids=list(decision_d.get("evidence_bead_ids") or proposal_d.get("evidence_bead_ids") or []),
             judge_model=_clean_str(decision_d.get("judge_model") or proposal_d.get("judge_model")),
-            prompt_version=_clean_str(decision_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v1"),
-            rubric_version=_clean_str(decision_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v1"),
+            prompt_version=_clean_str(decision_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v2"),
+            rubric_version=_clean_str(decision_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v2"),
         )
         return _augment(out, action=action_n, authority=authority_d)
 

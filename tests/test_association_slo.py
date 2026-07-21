@@ -25,12 +25,19 @@ class TestAssociationSLOSlice6(unittest.TestCase):
                 root=td,
                 session_id="s1",
                 turn_id="t1",
-                turns=[{"speaker": "user", "role": "user", "content": "hello"}, {"speaker": "assistant", "role": "assistant", "content": "world"}],
+                turns=[
+                    {"speaker": "user", "role": "user", "content": "hello"},
+                    {"speaker": "assistant", "role": "assistant", "content": "world"},
+                ],
                 metadata={},
             )
             self.assertTrue(out.get("ok"))
 
-            rows = [r for r in (events.iter_metrics(Path(td)) or []) if str(r.get("task_id") or "") == "agent_turn_quality"]
+            rows = [
+                row
+                for row in (events.iter_metrics(Path(td)) or [])
+                if str(row.get("task_id") or "") == "agent_turn_quality"
+            ]
             self.assertTrue(rows)
             row = rows[-1]
             self.assertIn(row.get("result"), {"success", "enrichment_complete"})
@@ -85,6 +92,10 @@ class TestAssociationSLOSlice6(unittest.TestCase):
             report = association_slo_report(td)
             self.assertTrue(report.get("ok"))
             self.assertGreaterEqual(float(report.get("agent_authored_rate") or 0.0), 0.0)
+            self.assertEqual(0, report.get("structural_continuity_active"))
+            self.assertEqual(2, report.get("semantic_relationships_active"))
+            self.assertEqual(1, report.get("semantic_causal_active"))
+            self.assertIn("pending_judge_count", report)
 
 
 if __name__ == "__main__":

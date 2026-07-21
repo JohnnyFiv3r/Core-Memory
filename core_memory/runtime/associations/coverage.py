@@ -17,7 +17,8 @@ from core_memory.policy.association_inference_v21 import (
     INFERENCE_MODE_STRICT,
     validate_and_normalize_inference_payload,
 )
-from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime
+from core_memory.policy.semantic_task_runtime import get_semantic_task_runtime, semantic_task_runtime_mode
+from core_memory.provider_config import resolve_chat_config
 from core_memory.retrieval.lifecycle import mark_trace_dirty
 from core_memory.runtime.ingest.source_envelope import (
     merge_source_ingest_envelope_refs,
@@ -28,16 +29,16 @@ from core_memory.runtime.ingest.source_envelope import (
 from core_memory.schema.semantic_tasks import TASK_ASSOCIATION_DECISION, SemanticTaskRequest
 
 ASSOCIATION_RUNS_SCHEMA = "core_memory.association_runs.v1"
-ASSOCIATION_CANDIDATES_SCHEMA = "core_memory.association_candidates.v1"
+ASSOCIATION_CANDIDATES_SCHEMA = "core_memory.association_candidates.v2"
 ASSOCIATION_JUDGE_DECISIONS_SCHEMA = "core_memory.association_judge_decisions.v1"
 ASSOCIATION_COVERAGE_SUMMARY_CONTRACT = "memory.association_coverage_summary.v1"
-ASSOCIATION_CANDIDATES_CONTRACT = "memory.association_candidates.v1"
-ASSOCIATION_CANDIDATE_DECISION_CONTRACT = "memory.association_candidate_decision.v1"
-ASSOCIATION_JUDGE_CONTRACT = "memory.association_judge.v1"
-POLICY_VERSION = "bead_association.v1"
-JUDGE_PROMPT_VERSION = "association_judge.v1"
-JUDGE_RUBRIC_VERSION = "association_truth.v1"
-CANDIDATE_GENERATION_VERSION = "association_candidates.v1"
+ASSOCIATION_CANDIDATES_CONTRACT = "memory.association_candidates.v2"
+ASSOCIATION_CANDIDATE_DECISION_CONTRACT = "memory.association_candidate_decision.v2"
+ASSOCIATION_JUDGE_CONTRACT = "memory.association_judge.v2"
+POLICY_VERSION = "bead_association.v2"
+JUDGE_PROMPT_VERSION = "association_judge.v2"
+JUDGE_RUBRIC_VERSION = "association_truth.v2"
+CANDIDATE_GENERATION_VERSION = "association_candidates.v2"
 DEFAULT_MAX_CANDIDATES = 40
 DEFAULT_ASSOCIATION_JUDGE_MIN_OUTPUT_TOKENS = 1800
 DEFAULT_ASSOCIATION_JUDGE_MAX_OUTPUT_TOKENS = 6000
@@ -628,6 +629,9 @@ def association_coverage_summary(
     )[: max(1, int(limit))]
     candidate_status_counts = _count_by(candidates, "status")
     pending_judge_count = int(candidate_status_counts.get("pending_judge") or 0)
+    from core_memory.association.health import association_pending_judge_health
+
+    pending_health = association_pending_judge_health(str(root))
     envelope_refs = merge_source_ingest_envelope_refs(
         _source_envelope_refs_for_bead_ids(index, eligible),
         _source_envelope_refs_for_candidates([row for row in candidates if isinstance(row, dict)]),
@@ -646,6 +650,12 @@ def association_coverage_summary(
         "candidate_observation_count": observation_count,
         "candidate_status_counts": candidate_status_counts,
         "pending_judge_count": pending_judge_count,
+        "pending_judge_run_count": int(pending_health.get("pending_judge_count") or 0),
+        "oldest_pending_judge_age_seconds": float(
+            pending_health.get("oldest_pending_judge_age_seconds") or 0.0
+        ),
+        "pending_judge_severity": str(pending_health.get("severity") or "ok"),
+        "association_judge_readiness": association_judge_readiness(root),
         "source_ingest_envelope_summary": _source_envelope_summary(envelope_refs),
         "source_ingest_envelope_refs": envelope_refs[: max(1, int(limit))],
         "runs_by_status": _count_by(runs, "status"),
@@ -730,27 +740,18 @@ def _reference_matches_bead(ref: str, bead: dict[str, Any]) -> bool:
     return text in suffixes
 
 
-def _resolve_reference_ids(index: dict[str, Any], refs: list[Any]) -> list[str]:
-    out: list[str] = []
-    for ref in refs:
-        text = _clean_str(ref)
-        if not text:
-            continue
-        for bid, bead in (index.get("beads") or {}).items():
-            if isinstance(bead, dict) and _reference_matches_bead(text, bead):
-                bid_s = _clean_str(bid)
-                if bid_s and bid_s not in out:
-                    out.append(bid_s)
-    return out
-
-
 def _candidate_id(row: dict[str, Any]) -> str:
+    pair = sorted(
+        {
+            _clean_str(row.get("source_bead")),
+            _clean_str(row.get("target_bead")),
+        }
+        - {""}
+    )
     material = json.dumps(
         {
-            "source": _clean_str(row.get("source_bead")),
-            "target": _clean_str(row.get("target_bead")),
-            "relationship": _clean_str(row.get("proposed_relationship")),
-            "reason_code": _clean_str(row.get("reason_code")),
+            "pair_bead_ids": pair,
+            "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
         },
         ensure_ascii=False,
         sort_keys=True,
@@ -762,23 +763,30 @@ def _candidate_id(row: dict[str, Any]) -> str:
 def _candidate(
     source: str,
     target: str,
-    relationship: str,
     *,
-    reason_text: str,
-    reason_code: str,
-    confidence: float = 0.95,
-    candidate_class: str = "system_structural_hint",
+    signals: list[dict[str, Any]],
+    shortlist_score: float,
+    coverage_bead_ids: list[str] | None = None,
     evidence_refs: list[Any] | None = None,
 ) -> dict[str, Any]:
+    reason_codes = list(
+        dict.fromkeys(
+            _clean_str(signal.get("kind"))
+            for signal in signals
+            if isinstance(signal, dict) and _clean_str(signal.get("kind"))
+        )
+    )
     row = {
         "source_bead": source,
         "target_bead": target,
-        "proposed_relationship": relationship,
-        "proposed_direction": "source_to_target",
-        "candidate_class": candidate_class,
-        "reason_code": reason_code,
-        "system_rationale": reason_text,
-        "confidence_prior": float(confidence),
+        "pair_bead_ids": sorted({source, target}),
+        "coverage_bead_ids": list(dict.fromkeys(coverage_bead_ids or [source])),
+        "candidate_class": "relationship_neutral_pair",
+        "candidate_generation_version": CANDIDATE_GENERATION_VERSION,
+        "reason_codes": reason_codes,
+        "shortlist_score": round(float(shortlist_score), 4),
+        "signals": list(signals),
+        "system_rationale": "This pair was shortlisted from relationship-neutral evidence signals.",
         "evidence_bead_ids": [source, target],
         "evidence_refs": list(evidence_refs or []),
         "requires_judge": True,
@@ -787,67 +795,261 @@ def _candidate(
     return row
 
 
-def _add_candidate(candidates: list[str], candidate_id: str, *, self_id: str, beads: dict[str, Any]) -> None:
-    value = _clean_str(candidate_id)
-    if not value or value == self_id or value not in beads or value in candidates:
-        return
-    candidates.append(value)
+def _normalized_string_set(value: Any) -> set[str]:
+    values: list[Any] = []
+    if isinstance(value, dict):
+        values.extend(value.keys())
+        values.extend(value.values())
+    else:
+        values.extend(_as_list(value))
+    out: set[str] = set()
+    for item in values:
+        if isinstance(item, dict):
+            for key in ("id", "name", "key", "value", "canonical_id", "entity_id", "text", "proposition"):
+                text = _clean_str(item.get(key)).lower()
+                if text:
+                    out.add(text)
+        else:
+            text = _clean_str(item).lower()
+            if text:
+                out.add(text)
+    return out
 
 
-def _candidate_ids_for_bead(
-    index: dict[str, Any],
+def _semantic_tokens(bead: dict[str, Any]) -> set[str]:
+    values: list[Any] = []
+    for key in (
+        "title",
+        "retrieval_title",
+        "summary",
+        "detail",
+        "because",
+        "rationale",
+        "supporting_facts",
+        "retrieval_facts",
+        "topics",
+    ):
+        values.extend(_as_list(bead.get(key)))
+    state_change = bead.get("state_change")
+    if isinstance(state_change, dict):
+        values.extend(state_change.values())
+    elif state_change:
+        values.append(state_change)
+    text = " ".join(_clean_str(value).lower() for value in values)
+    stop = {
+        "about",
+        "after",
+        "again",
+        "also",
+        "been",
+        "before",
+        "being",
+        "from",
+        "have",
+        "into",
+        "only",
+        "that",
+        "their",
+        "there",
+        "these",
+        "this",
+        "those",
+        "with",
+        "would",
+    }
+    return {
+        token
+        for token in "".join(ch if ch.isalnum() else " " for ch in text).split()
+        if len(token) >= 4 and token not in stop
+    }
+
+
+def _semantic_keys(bead: dict[str, Any]) -> set[str]:
+    out: set[str] = set()
+    for key in (
+        "semantic_keys",
+        "keys",
+        "retrieval_keys",
+        "lookup_keys",
+        "key",
+        "incident_keys",
+        "decision_keys",
+        "goal_keys",
+        "action_keys",
+        "outcome_keys",
+        "time_keys",
+    ):
+        out.update(_normalized_string_set(bead.get(key)))
+    return out
+
+
+def _claim_slots(bead: dict[str, Any]) -> tuple[set[str], set[str]]:
+    claim_ids: set[str] = set()
+    claim_texts: set[str] = set()
+    for key in ("claims", "claim_updates"):
+        for claim in _as_list(bead.get(key)):
+            if isinstance(claim, dict):
+                for id_key in ("claim_id", "id", "subject_id", "canonical_id"):
+                    value = _clean_str(claim.get(id_key)).lower()
+                    if value:
+                        claim_ids.add(value)
+                for text_key in ("proposition", "text", "claim", "value"):
+                    value = _clean_str(claim.get(text_key)).lower()
+                    if value:
+                        claim_texts.add(value)
+            else:
+                value = _clean_str(claim).lower()
+                if value:
+                    claim_texts.add(value)
+    return claim_ids, claim_texts
+
+
+def _parse_timestamp(value: Any) -> datetime | None:
+    text = _clean_str(value)
+    if not text:
+        return None
+    try:
+        parsed = datetime.fromisoformat(text.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
+def _explicit_reference_fields(bead: dict[str, Any], target: dict[str, Any]) -> list[str]:
+    target_id = _clean_str(target.get("id"))
+    fields: list[str] = []
+    for key in (
+        "supersedes",
+        "derived_from_bead_ids",
+        "derived_from",
+        "supports_bead_ids",
+        "prev_bead_id",
+        "next_bead_id",
+        "linked_bead_id",
+        "blocking_bead_id",
+        "revises_bead_id",
+    ):
+        if any(_reference_matches_bead(_clean_str(value), target) for value in _as_list(bead.get(key))):
+            fields.append(key)
+        elif target_id and target_id in {_clean_str(value) for value in _as_list(bead.get(key))}:
+            fields.append(key)
+    return fields
+
+
+def _pair_signals(
     bead: dict[str, Any],
+    other: dict[str, Any],
     *,
-    explicit_candidate_ids: list[str],
-    max_candidates: int,
-) -> list[str]:
-    beads = index.get("beads") or {}
-    bead_id = _clean_str(bead.get("id"))
-    candidates: list[str] = []
-    for cid in explicit_candidate_ids:
-        _add_candidate(candidates, cid, self_id=bead_id, beads=beads)
+    explicitly_requested: bool,
+) -> tuple[list[dict[str, Any]], list[Any], float]:
+    signals: list[dict[str, Any]] = []
+    evidence_refs: list[Any] = []
 
-    for cid in _as_list(bead.get("supersedes")):
-        _add_candidate(candidates, _clean_str(cid), self_id=bead_id, beads=beads)
-    for cid in _as_list(bead.get("derived_from_bead_ids")):
-        _add_candidate(candidates, _clean_str(cid), self_id=bead_id, beads=beads)
-    for cid in _resolve_reference_ids(index, _as_list(bead.get("derived_from"))):
-        _add_candidate(candidates, cid, self_id=bead_id, beads=beads)
-    for key in ("prev_bead_id", "linked_bead_id", "blocking_bead_id", "revises_bead_id"):
-        _add_candidate(candidates, _clean_str(bead.get(key)), self_id=bead_id, beads=beads)
-    for cid in _as_list(bead.get("supports_bead_ids")):
-        _add_candidate(candidates, _clean_str(cid), self_id=bead_id, beads=beads)
+    def add(kind: str, score: float, **details: Any) -> None:
+        signals.append({"kind": kind, "score": round(float(score), 4), **details})
+
+    if explicitly_requested:
+        add("explicit_candidate_request", 1.0)
+
+    forward_refs = _explicit_reference_fields(bead, other)
+    reverse_refs = _explicit_reference_fields(other, bead)
+    if forward_refs:
+        add("explicit_reference", 1.0, from_bead=_clean_str(bead.get("id")), fields=forward_refs)
+        evidence_refs.extend({"bead_id": _clean_str(bead.get("id")), "field": field} for field in forward_refs)
+    if reverse_refs:
+        add("explicit_reference", 1.0, from_bead=_clean_str(other.get("id")), fields=reverse_refs)
+        evidence_refs.extend({"bead_id": _clean_str(other.get("id")), "field": field} for field in reverse_refs)
+
+    left_entities = _normalized_string_set(bead.get("entities"))
+    right_entities = _normalized_string_set(other.get("entities"))
+    shared_entities = sorted(left_entities.intersection(right_entities))
+    if shared_entities:
+        add("entity_overlap", min(0.9, 0.55 + 0.1 * len(shared_entities)), values=shared_entities[:20])
+
+    shared_keys = sorted(_semantic_keys(bead).intersection(_semantic_keys(other)))
+    if shared_keys:
+        add("semantic_key_overlap", min(0.95, 0.65 + 0.1 * len(shared_keys)), values=shared_keys[:20])
+
+    left_claim_ids, left_claim_texts = _claim_slots(bead)
+    right_claim_ids, right_claim_texts = _claim_slots(other)
+    shared_claim_ids = sorted(left_claim_ids.intersection(right_claim_ids))
+    shared_claim_texts = sorted(left_claim_texts.intersection(right_claim_texts))
+    if shared_claim_ids or shared_claim_texts:
+        add(
+            "claim_interaction",
+            0.95,
+            claim_ids=shared_claim_ids[:20],
+            propositions=shared_claim_texts[:10],
+        )
+
+    left_tokens = _semantic_tokens(bead)
+    right_tokens = _semantic_tokens(other)
+    shared_tokens = sorted(left_tokens.intersection(right_tokens))
+    union = left_tokens.union(right_tokens)
+    similarity = len(shared_tokens) / len(union) if union else 0.0
+    if len(shared_tokens) >= 2 and similarity >= 0.08:
+        add(
+            "semantic_similarity",
+            min(0.85, 0.35 + similarity),
+            similarity=round(similarity, 4),
+            tokens=shared_tokens[:20],
+        )
 
     unifying_id = _clean_str(bead.get("core_memory_unifying_id"))
-    doc_ids = _doc_ids(bead)
-    source_record_id = _clean_str(bead.get("source_record_id") or bead.get("business_object_id"))
-    transcript_id = _clean_str(bead.get("transcript_id") or bead.get("conversation_id"))
-    same_session: list[tuple[str, str]] = []
-    for other_id, other in beads.items():
-        if not isinstance(other, dict):
-            continue
-        other_id_s = _clean_str(other_id)
-        if not other_id_s or other_id_s == bead_id:
-            continue
-        if unifying_id and _clean_str(other.get("core_memory_unifying_id")) == unifying_id:
-            _add_candidate(candidates, other_id_s, self_id=bead_id, beads=beads)
-        if doc_ids and doc_ids.intersection(_doc_ids(other)) and _same_source(bead, other):
-            _add_candidate(candidates, other_id_s, self_id=bead_id, beads=beads)
-        if source_record_id and _same_source(bead, other):
-            other_record = _clean_str(other.get("source_record_id") or other.get("business_object_id"))
-            if other_record == source_record_id:
-                _add_candidate(candidates, other_id_s, self_id=bead_id, beads=beads)
-        if transcript_id and _same_source(bead, other):
-            other_transcript = _clean_str(other.get("transcript_id") or other.get("conversation_id"))
-            if other_transcript == transcript_id:
-                _add_candidate(candidates, other_id_s, self_id=bead_id, beads=beads)
-        if _clean_str(other.get("session_id")) == _clean_str(bead.get("session_id")):
-            same_session.append((_clean_str(other.get("created_at")), other_id_s))
+    if unifying_id and unifying_id == _clean_str(other.get("core_memory_unifying_id")):
+        add("shared_core_memory_unifying_id", 0.95, value=unifying_id)
 
-    same_session.sort(reverse=True)
-    for _created, cid in same_session[:10]:
-        _add_candidate(candidates, cid, self_id=bead_id, beads=beads)
-    return candidates[: max(1, int(max_candidates))]
+    source_record_id = _clean_str(bead.get("source_record_id") or bead.get("business_object_id"))
+    other_record_id = _clean_str(other.get("source_record_id") or other.get("business_object_id"))
+    if source_record_id and source_record_id == other_record_id and _same_source(bead, other):
+        add("same_source_object", 0.9, value=source_record_id)
+
+    shared_documents = sorted(_doc_ids(bead).intersection(_doc_ids(other)))
+    if shared_documents and _same_source(bead, other):
+        add("same_document", 0.85, values=shared_documents)
+        if _has_section_scope(bead) != _has_section_scope(other):
+            add(
+                "document_section_scope",
+                0.95,
+                section_bead_id=_clean_str(bead.get("id") if _has_section_scope(bead) else other.get("id")),
+                document_bead_id=_clean_str(other.get("id") if _has_section_scope(bead) else bead.get("id")),
+            )
+
+    transcript_id = _clean_str(bead.get("transcript_id") or bead.get("conversation_id"))
+    other_transcript_id = _clean_str(other.get("transcript_id") or other.get("conversation_id"))
+    if transcript_id and transcript_id == other_transcript_id and _same_source(bead, other):
+        add("same_transcript", 0.85, value=transcript_id)
+
+    if _clean_str(bead.get("prev_bead_id")) == _clean_str(other.get("id")) or _clean_str(
+        other.get("prev_bead_id")
+    ) == _clean_str(bead.get("id")):
+        add("temporal_adjacency", 0.95)
+    elif _clean_str(bead.get("session_id")) and _clean_str(bead.get("session_id")) == _clean_str(
+        other.get("session_id")
+    ):
+        left_time = _parse_timestamp(bead.get("created_at"))
+        right_time = _parse_timestamp(other.get("created_at"))
+        if left_time is not None and right_time is not None:
+            seconds = abs((left_time - right_time).total_seconds())
+            if seconds <= 86400:
+                add("temporal_proximity", max(0.2, 0.6 - min(seconds, 86400) / 216000), seconds=int(seconds))
+        else:
+            add("same_session", 0.25)
+
+    continuity_types = {"goal", "decision", "outcome", "lesson", "blocked", "incident", "hypothesis"}
+    left_type = _clean_str(bead.get("type"))
+    right_type = _clean_str(other.get("type"))
+    if left_type in continuity_types and right_type in continuity_types:
+        continuity_overlap = shared_entities or shared_keys or shared_tokens
+        if continuity_overlap:
+            add("goal_decision_outcome_continuity", 0.8, bead_types=[left_type, right_type])
+
+    score = max((float(signal.get("score") or 0.0) for signal in signals), default=0.0)
+    if len(signals) > 1:
+        score = min(1.0, score + min(0.15, 0.03 * (len(signals) - 1)))
+    return signals, evidence_refs, score
 
 
 def _candidate_proposals_for_bead(
@@ -859,187 +1061,73 @@ def _candidate_proposals_for_bead(
 ) -> list[dict[str, Any]]:
     beads = index.get("beads") or {}
     bead_id = _clean_str(bead.get("id"))
-    candidates = _candidate_ids_for_bead(
-        index,
-        bead,
-        explicit_candidate_ids=explicit_candidate_ids,
-        max_candidates=max_candidates,
-    )
-    candidates_out: list[dict[str, Any]] = []
-
-    prev_id = _clean_str(bead.get("prev_bead_id"))
-    if prev_id in beads:
-        candidates_out.append(
-            _candidate(
-                bead_id,
-                prev_id,
-                "follows",
-                reason_text="Source bead follows the previous bead in the same session.",
-                reason_code="session_temporal_adjacency",
-                confidence=0.98,
-                evidence_refs=[
-                    {"bead_id": bead_id, "field": "prev_bead_id"},
-                    {"bead_id": prev_id, "field": "id"},
-                ],
-            )
+    explicit_set = {_clean_str(value) for value in explicit_candidate_ids if _clean_str(value)}
+    ranked: list[tuple[float, str, list[dict[str, Any]], list[Any]]] = []
+    for other_id, other in beads.items():
+        other_id_s = _clean_str(other_id)
+        if not isinstance(other, dict) or not other_id_s or other_id_s == bead_id:
+            continue
+        signals, evidence_refs, score = _pair_signals(
+            bead,
+            other,
+            explicitly_requested=other_id_s in explicit_set,
         )
+        if not signals:
+            continue
+        ranked.append((score, other_id_s, signals, evidence_refs))
 
-    for target in _as_list(bead.get("supersedes")):
-        target_id = _clean_str(target)
-        if target_id in beads:
-            candidates_out.append(
-                _candidate(
-                    bead_id,
-                    target_id,
-                    "supersedes",
-                    reason_text="Source bead explicitly supersedes the target bead.",
-                    reason_code="explicit_supersedes_field",
-                    confidence=0.98,
-                    evidence_refs=[
-                        {"bead_id": bead_id, "field": "supersedes"},
-                        {"bead_id": target_id, "field": "id"},
-                    ],
-                )
-            )
-
-    derived_ids = []
-    for target in _as_list(bead.get("derived_from_bead_ids")):
-        if _clean_str(target) in beads:
-            derived_ids.append(_clean_str(target))
-    derived_ids.extend(_resolve_reference_ids(index, _as_list(bead.get("derived_from"))))
-    for target_id in dict.fromkeys(derived_ids):
-        if target_id and target_id != bead_id:
-            candidates_out.append(
-                _candidate(
-                    bead_id,
-                    target_id,
-                    "derived_from",
-                    reason_text="Source bead declares the target bead as direct evidence.",
-                    reason_code="explicit_derived_from",
-                    confidence=0.95,
-                    evidence_refs=[
-                        {"bead_id": bead_id, "field": "derived_from"},
-                        {"bead_id": target_id, "field": "id"},
-                    ],
-                )
-            )
-
-    if _clean_str(bead.get("type")) == "document_reference" and _has_section_scope(bead):
-        for target_id in candidates:
-            other = beads.get(target_id)
-            if not isinstance(other, dict) or _clean_str(other.get("type")) != "document_reference":
-                continue
-            if _has_section_scope(other):
-                continue
-            if _doc_ids(bead).intersection(_doc_ids(other)) and _same_source(bead, other):
-                candidates_out.append(
-                    _candidate(
-                        bead_id,
-                        target_id,
-                        "part_of",
-                        reason_text="Section-scoped document bead belongs to the whole-document bead.",
-                        reason_code="document_section_part_of_document",
-                        confidence=0.98,
-                        evidence_refs=[
-                            {"bead_id": bead_id, "field": "document_id"},
-                            {"bead_id": target_id, "field": "document_id"},
-                        ],
-                    )
-                )
-                break
-
-    unifying_id = _clean_str(bead.get("core_memory_unifying_id"))
-    if unifying_id:
-        for target_id in candidates:
-            other = beads.get(target_id)
-            if not isinstance(other, dict):
-                continue
-            if _clean_str(other.get("core_memory_unifying_id")) != unifying_id:
-                continue
-            if target_id == bead_id:
-                continue
-            candidates_out.append(
-                _candidate(
-                    bead_id,
-                    target_id,
-                    "associated_with",
-                    reason_text="Both beads share a stable cross-source unifying id.",
-                    reason_code="shared_core_memory_unifying_id",
-                    confidence=0.9,
-                    evidence_refs=[
-                        {"bead_id": bead_id, "field": "core_memory_unifying_id"},
-                        {"bead_id": target_id, "field": "core_memory_unifying_id"},
-                    ],
-                )
-            )
-
-    source_record_id = _clean_str(bead.get("source_record_id") or bead.get("business_object_id"))
-    if source_record_id:
-        for target_id in candidates:
-            other = beads.get(target_id)
-            if not isinstance(other, dict):
-                continue
-            other_record = _clean_str(other.get("source_record_id") or other.get("business_object_id"))
-            if other_record == source_record_id and _same_source(bead, other):
-                candidates_out.append(
-                    _candidate(
-                        bead_id,
-                        target_id,
-                        "associated_with",
-                        reason_text="Both beads refer to the same source object.",
-                        reason_code="same_source_object",
-                        confidence=0.88,
-                        evidence_refs=[
-                            {"bead_id": bead_id, "field": "source_record_id"},
-                            {"bead_id": target_id, "field": "source_record_id"},
-                        ],
-                    )
-                )
-
-    transcript_id = _clean_str(bead.get("transcript_id") or bead.get("conversation_id"))
-    if transcript_id and _clean_str(bead.get("type")) == "transcript":
-        matches: list[tuple[str, str]] = []
-        for target_id in candidates:
-            other = beads.get(target_id)
-            if not isinstance(other, dict):
-                continue
-            other_transcript = _clean_str(other.get("transcript_id") or other.get("conversation_id"))
-            if other_transcript == transcript_id and _same_source(bead, other):
-                matches.append((_clean_str(other.get("created_at")), target_id))
-        matches.sort(reverse=True)
-        if matches:
-            candidates_out.append(
-                _candidate(
-                    bead_id,
-                    matches[0][1],
-                    "follows",
-                    reason_text="Periodic transcript bead follows the prior snapshot for the same transcript.",
-                    reason_code="periodic_transcript_snapshot_continuity",
-                    confidence=0.9,
-                    evidence_refs=[
-                        {"bead_id": bead_id, "field": "transcript_id"},
-                        {"bead_id": matches[0][1], "field": "transcript_id"},
-                    ],
-                )
-            )
-
-    return _dedupe_candidate_rows(candidates_out)
+    ranked.sort(key=lambda item: (-item[0], item[1]))
+    return [
+        _candidate(
+            bead_id,
+            target_id,
+            signals=signals,
+            shortlist_score=score,
+            coverage_bead_ids=[bead_id],
+            evidence_refs=evidence_refs,
+        )
+        for score, target_id, signals, evidence_refs in ranked[: max(1, int(max_candidates))]
+    ]
 
 
 def _dedupe_candidate_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    seen: set[tuple[str, str, str]] = set()
-    out: list[dict[str, Any]] = []
+    by_pair: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
-        key = (
-            _clean_str(row.get("source_bead")),
-            _clean_str(row.get("target_bead")),
-            _clean_str(row.get("proposed_relationship")).lower(),
-        )
-        if not all(key) or key in seen or key[0] == key[1]:
+        pair = sorted({_clean_str(row.get("source_bead")), _clean_str(row.get("target_bead"))} - {""})
+        if len(pair) != 2:
             continue
-        seen.add(key)
-        out.append(row)
-    return out
+        key = (pair[0], pair[1])
+        existing = by_pair.get(key)
+        if existing is None:
+            normalized = dict(row)
+            normalized["pair_bead_ids"] = pair
+            normalized["candidate_id"] = _candidate_id(normalized)
+            by_pair[key] = normalized
+            continue
+        existing["coverage_bead_ids"] = list(
+            dict.fromkeys([*(existing.get("coverage_bead_ids") or []), *(row.get("coverage_bead_ids") or [])])
+        )
+        existing["signals"] = list(
+            {
+                json.dumps(signal, ensure_ascii=False, sort_keys=True): signal
+                for signal in [*(existing.get("signals") or []), *(row.get("signals") or [])]
+                if isinstance(signal, dict)
+            }.values()
+        )
+        existing["reason_codes"] = list(
+            dict.fromkeys([*(existing.get("reason_codes") or []), *(row.get("reason_codes") or [])])
+        )
+        existing["evidence_refs"] = list(
+            {
+                json.dumps(ref, ensure_ascii=False, sort_keys=True, default=str): ref
+                for ref in [*(existing.get("evidence_refs") or []), *(row.get("evidence_refs") or [])]
+            }.values()
+        )
+        existing["shortlist_score"] = max(
+            float(existing.get("shortlist_score") or 0.0),
+            float(row.get("shortlist_score") or 0.0),
+        )
+    return list(by_pair.values())
 
 
 def _association_exists(index: dict[str, Any], source: str, target: str, relationship: str) -> bool:
@@ -1244,12 +1332,18 @@ class LLMAssociationJudge:
         return (
             "You are Core Memory's association judge. Review candidate bead associations "
             "against the supplied bead content, metadata, provenance, and evidence refs. "
-            "Return only JSON matching contract memory.association_judge.v1. "
-            "For every supported or unsupported candidate, emit one decisions[] object with "
-            "candidate_id, action, reason_text, and truth_basis. Allowed decision actions are "
-            "only: accept, reject, modify, invert, replace, add, no_link. Do not use linked or "
-            "no_supported_links as action values; those are reviewed_beads association_state "
-            "values only. Do not approve unsupported links.\n\n"
+            "Every supplied pair is relationship- and direction-neutral: shortlist signals are "
+            "evidence for review, never proposed graph truth. Return only JSON matching contract "
+            "memory.association_judge.v2. For every candidate emit one decisions[] object. A "
+            "supported link must include candidate_id, action, relationship, confidence, "
+            "reason_text, truth_basis, evidence_refs or evidence_bead_ids, and either direction "
+            "(source_to_target or target_to_source) or explicit source_bead and target_bead. "
+            "Unsupported pairs must use action no_link or reject with reason_text and truth_basis. "
+            "Allowed actions are accept, reject, modify, invert, replace, add, and no_link. You may "
+            "add a relationship for another pair only when both bead ids appear in "
+            "bounded_visible_bead_ids. Do not use linked or no_supported_links as action values; "
+            "those are reviewed_beads association_state values only. Do not approve unsupported "
+            "links and do not infer a relation from a shortlist signal alone.\n\n"
             f"{json.dumps(context, ensure_ascii=False, sort_keys=True)}"
         )
 
@@ -1268,7 +1362,7 @@ class LLMAssociationJudge:
                 temperature=0,
                 json_mode=bool(json_mode),
                 fallback_mode="pending_judge",
-                authority_boundary="advisory",
+                authority_boundary="semantic_author",
                 evidence_refs=list(context.get("source_ingest_envelope_refs") or []),
                 metadata={
                     "policy": "association_coverage",
@@ -1299,6 +1393,67 @@ def _configured_association_judge(*, root: str | Path | None = None) -> Any | No
     if mode in {"off", "disabled", "none", "false", "0", "deterministic"}:
         return None
     return LLMAssociationJudge(root=root)
+
+
+def association_judge_readiness(root: str | Path | None = None) -> dict[str, Any]:
+    del root  # Reserved for future tenant-scoped provider configuration.
+    judge_mode = _clean_str(os.environ.get("CORE_MEMORY_ASSOCIATION_JUDGE_MODE")).lower() or "agent"
+    runtime_mode = semantic_task_runtime_mode()
+    if judge_mode in {"off", "disabled", "none", "false", "0", "deterministic"}:
+        return {
+            "ready": False,
+            "judge_mode": judge_mode,
+            "runtime_mode": runtime_mode,
+            "reason": "association_judge_disabled",
+        }
+    if runtime_mode in {"disabled", "off"}:
+        return {
+            "ready": False,
+            "judge_mode": judge_mode,
+            "runtime_mode": runtime_mode,
+            "reason": "semantic_task_runtime_disabled",
+        }
+
+    provider = resolve_chat_config()
+    provider_ready = bool(provider.provider and provider.model)
+    remote_ready = bool(
+        _clean_str(os.environ.get("CORE_MEMORY_SEMANTIC_TASK_RUNTIME_URL"))
+        and _clean_str(os.environ.get("CORE_MEMORY_SEMANTIC_TASK_RUNTIME_TOKEN"))
+    )
+    remote_strict = _clean_str(os.environ.get("CORE_MEMORY_SEMANTIC_TASK_RUNTIME_STRICT")).lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    runtime = get_semantic_task_runtime(mode=runtime_mode)
+    runtime_class = runtime.__class__.__name__
+    if runtime_mode == "remote":
+        ready = remote_ready or (provider_ready and not remote_strict)
+        if remote_ready:
+            reason = "remote_runtime_configured"
+        elif ready:
+            reason = "provider_fallback_configured"
+        else:
+            reason = "remote_runtime_not_configured"
+    elif runtime_class == "DisabledSemanticTaskRuntime":
+        ready = False
+        reason = "semantic_task_runtime_unavailable"
+    else:
+        ready = provider_ready
+        reason = "provider_configured" if ready else "missing_chat_provider"
+    return {
+        "ready": ready,
+        "judge_mode": judge_mode,
+        "runtime_mode": runtime_mode,
+        "runtime_class": runtime_class,
+        "provider": provider.provider or None,
+        "model": provider.model or None,
+        "config_source": provider.source or None,
+        "remote_configured": remote_ready,
+        "provider_fallback_configured": provider_ready,
+        "reason": reason,
+    }
 
 
 def _invoke_association_judge(
@@ -1338,11 +1493,55 @@ def _bead_context(bead: dict[str, Any]) -> dict[str, Any]:
         "title",
         "summary",
         "detail",
+        "because",
+        "rationale",
+        "supporting_facts",
+        "state_change",
+        "mechanism",
+        "cause_candidates",
+        "effect_candidates",
         "session_id",
         "source_turn_ids",
+        "turn_index",
         "tags",
+        "context_tags",
         "entities",
+        "entity_ids",
         "topics",
+        "incident_keys",
+        "decision_keys",
+        "goal_keys",
+        "action_keys",
+        "outcome_keys",
+        "time_keys",
+        "retrieval_title",
+        "retrieval_facts",
+        "retrieval_eligible",
+        "claims",
+        "claim_updates",
+        "interaction_role",
+        "memory_outcome",
+        "goal_id",
+        "success_criteria",
+        "result",
+        "incident_id",
+        "revises_bead_id",
+        "revision_type",
+        "authority",
+        "confidence",
+        "confidence_class",
+        "grounding",
+        "uncertainty",
+        "source_attribution",
+        "speaker_attribution",
+        "attributed_entity_id",
+        "resolution_confidence",
+        "observed_at",
+        "recorded_at",
+        "effective_from",
+        "effective_to",
+        "validity",
+        "status",
         "created_at",
         "prev_bead_id",
         "next_bead_id",
@@ -1424,6 +1623,7 @@ def _build_judge_context(
         "prompt_version": prompt_version,
         "rubric_version": rubric_version,
         "source_bead_ids": source_bead_ids,
+        "bounded_visible_bead_ids": sorted(x for x in context_ids if x),
         "candidates": candidates,
         "source_ingest_envelope_refs": envelope_refs,
         "source_ingest_envelopes": _source_envelope_context_for_judge(index, envelope_refs, context_ids),
@@ -1433,10 +1633,11 @@ def _build_judge_context(
             for bid in sorted(x for x in context_ids if x and isinstance(beads.get(x), dict))
         },
         "rules": [
-            "Candidate proposals are not graph truth.",
+            "Candidate pairs and shortlist signals are not graph truth.",
             "Approve only evidence-grounded associations.",
-            "Use canonical relationships and explicit reason_text.",
+            "The judge alone authors relationship, direction, evidence, confidence, reason_text, and truth_basis.",
             "You may accept, reject, modify, invert, replace, add, or no_link.",
+            "Added pairs must remain inside bounded_visible_bead_ids.",
             "Return reviewed_beads with linked or no_supported_links where applicable.",
         ],
     }
@@ -1489,30 +1690,29 @@ def _candidate_association_payload(
     if action in {"reject", "no_link"}:
         return None, candidate_ids
 
-    if action == "accept" and candidate:
-        source = _clean_str(candidate.get("source_bead"))
-        target = _clean_str(candidate.get("target_bead"))
-        rel = _clean_str(candidate.get("proposed_relationship"))
-        confidence = decision.get("confidence", candidate.get("confidence_prior"))
-        reason_text = _clean_str(decision.get("reason_text")) or _clean_str(candidate.get("system_rationale"))
-        evidence_refs = list(decision.get("evidence_refs") or candidate.get("evidence_refs") or [])
-        evidence_bead_ids = list(decision.get("evidence_bead_ids") or candidate.get("evidence_bead_ids") or [])
+    candidate_source = _clean_str((candidate or {}).get("source_bead"))
+    candidate_target = _clean_str((candidate or {}).get("target_bead"))
+    direction = _clean_str(decision.get("direction")).lower()
+    explicit_source = _clean_str(decision.get("source_bead"))
+    explicit_target = _clean_str(decision.get("target_bead"))
+    if explicit_source and explicit_target:
+        source = explicit_source
+        target = explicit_target
+    elif direction == "source_to_target" and candidate:
+        source, target = candidate_source, candidate_target
+    elif direction == "target_to_source" and candidate:
+        source, target = candidate_target, candidate_source
     elif action == "invert" and candidate:
-        source = _clean_str(decision.get("source_bead") or candidate.get("target_bead"))
-        target = _clean_str(decision.get("target_bead") or candidate.get("source_bead"))
-        rel = _clean_str(decision.get("relationship") or candidate.get("proposed_relationship"))
-        confidence = decision.get("confidence", candidate.get("confidence_prior"))
-        reason_text = _clean_str(decision.get("reason_text")) or _clean_str(candidate.get("system_rationale"))
-        evidence_refs = list(decision.get("evidence_refs") or candidate.get("evidence_refs") or [])
-        evidence_bead_ids = list(decision.get("evidence_bead_ids") or candidate.get("evidence_bead_ids") or [])
+        source, target = candidate_target, candidate_source
     else:
-        source = _clean_str(decision.get("source_bead") or (candidate or {}).get("source_bead"))
-        target = _clean_str(decision.get("target_bead") or (candidate or {}).get("target_bead"))
-        rel = _clean_str(decision.get("relationship") or (candidate or {}).get("proposed_relationship"))
-        confidence = decision.get("confidence", (candidate or {}).get("confidence_prior"))
-        reason_text = _clean_str(decision.get("reason_text")) or _clean_str((candidate or {}).get("system_rationale"))
-        evidence_refs = list(decision.get("evidence_refs") or (candidate or {}).get("evidence_refs") or [])
-        evidence_bead_ids = list(decision.get("evidence_bead_ids") or (candidate or {}).get("evidence_bead_ids") or [])
+        source, target = "", ""
+
+    rel = _clean_str(decision.get("relationship"))
+    confidence = decision.get("confidence")
+    reason_text = _clean_str(decision.get("reason_text"))
+    truth_basis = _clean_str(decision.get("truth_basis"))
+    evidence_refs = list(decision.get("evidence_refs") or [])
+    evidence_bead_ids = list(decision.get("evidence_bead_ids") or [])
 
     return {
         "source_bead": source,
@@ -1521,10 +1721,10 @@ def _candidate_association_payload(
         "confidence": confidence,
         "reason_text": reason_text,
         "provenance": "model_inferred",
-        "reason_code": _clean_str(decision.get("reason_code") or (candidate or {}).get("reason_code")),
+        "reason_code": _clean_str(decision.get("reason_code")),
         "evidence_bead_ids": evidence_bead_ids,
         "evidence_refs": evidence_refs,
-        "truth_basis": _clean_str(decision.get("truth_basis")) or "association_judge_candidate_review",
+        "truth_basis": truth_basis,
         "source_ingest_envelope_refs": merge_source_ingest_envelope_refs(
             decision.get("source_ingest_envelope_refs") or [],
             (candidate or {}).get("source_ingest_envelope_refs") or [],
@@ -1562,6 +1762,11 @@ def _apply_judge_result(
     association_ids: list[str] = []
     errors: list[dict[str, Any]] = []
     state_by_bead: dict[str, str] = {bid: "pending_judge" for bid in source_bead_ids}
+    bounded_visible_ids = {
+        _clean_str(value)
+        for value in (judge_context.get("bounded_visible_bead_ids") or [])
+        if _clean_str(value)
+    }
 
     def mark(bead_id: str, state: str) -> None:
         bid = _clean_str(bead_id)
@@ -1608,10 +1813,44 @@ def _apply_judge_result(
                 session_id=_clean_str(session_id),
             )
             continue
+        decision_candidate_id = _clean_str(decision.get("candidate_id"))
+        candidate = candidate_by_id.get(decision_candidate_id) or {}
+        if decision_candidate_id and not candidate:
+            quarantined += 1
+            write_quarantine(
+                Path(root),
+                decision,
+                reasons=["unknown_candidate_id"],
+                warnings=[],
+                original_payload=decision,
+                session_id=_clean_str(session_id),
+            )
+            continue
         if action in {"reject", "no_link"}:
+            coverage_ids = candidate.get("coverage_bead_ids") or [
+                _clean_str(decision.get("source_bead") or candidate.get("source_bead"))
+            ]
+            no_link_reasons: list[str] = []
+            if not _clean_str(decision.get("reason_text")):
+                no_link_reasons.append("missing_reason_text")
+            if not _clean_str(decision.get("truth_basis")):
+                no_link_reasons.append("missing_truth_basis")
+            if no_link_reasons:
+                quarantined += 1
+                for bead_id in coverage_ids:
+                    mark(_clean_str(bead_id), "quarantined")
+                write_quarantine(
+                    Path(root),
+                    decision,
+                    reasons=no_link_reasons,
+                    warnings=[],
+                    original_payload=decision,
+                    session_id=_clean_str(session_id),
+                )
+                continue
             rejected += 1
-            candidate = candidate_by_id.get(_clean_str(decision.get("candidate_id"))) or {}
-            mark(_clean_str(decision.get("source_bead") or candidate.get("source_bead")), "no_supported_links")
+            for bead_id in coverage_ids:
+                mark(_clean_str(bead_id), "no_supported_links")
             continue
 
         assoc_payload, candidate_ids = _candidate_association_payload(decision, candidate_by_id)
@@ -1624,6 +1863,21 @@ def _apply_judge_result(
         quarantine_reasons: list[str] = []
         if not _clean_str(assoc_payload.get("truth_basis")):
             quarantine_reasons.append("missing_truth_basis")
+        if not _clean_str(decision.get("relationship")):
+            quarantine_reasons.append("missing_agent_relationship")
+        has_explicit_pair = bool(_clean_str(decision.get("source_bead")) and _clean_str(decision.get("target_bead")))
+        has_direction = _clean_str(decision.get("direction")).lower() in {
+            "source_to_target",
+            "target_to_source",
+        } or action == "invert"
+        if not has_explicit_pair and not has_direction:
+            quarantine_reasons.append("missing_agent_direction")
+        if decision.get("confidence") is None:
+            quarantine_reasons.append("missing_agent_confidence")
+        if not (
+            list(decision.get("evidence_refs") or []) or list(decision.get("evidence_bead_ids") or [])
+        ):
+            quarantine_reasons.append("missing_agent_evidence")
         validated = validate_and_normalize_inference_payload(assoc_payload, mode=INFERENCE_MODE_STRICT)
         if not validated.ok:
             quarantine_reasons.extend(list(validated.quarantine_reasons))
@@ -1632,6 +1886,14 @@ def _apply_judge_result(
         tgt = _clean_str(row.get("target_bead"))
         if src not in beads or tgt not in beads:
             quarantine_reasons.append("bead_not_found")
+        if src not in bounded_visible_ids or tgt not in bounded_visible_ids:
+            quarantine_reasons.append("pair_outside_bounded_context")
+        candidate_pair = {
+            _clean_str(candidate.get("source_bead")),
+            _clean_str(candidate.get("target_bead")),
+        } - {""}
+        if candidate_pair and {src, tgt} != candidate_pair:
+            quarantine_reasons.append("decision_pair_mismatch")
 
         if quarantine_reasons:
             quarantined += 1
@@ -2211,9 +2473,11 @@ def run_association_coverage(
         run_envelope_refs=run_envelope_refs,
     )
     candidate_source_ids = {
-        _clean_str(candidate.get("source_bead"))
+        _clean_str(bead_id)
         for candidate in candidates
-        if isinstance(candidate, dict) and _clean_str(candidate.get("source_bead"))
+        if isinstance(candidate, dict)
+        for bead_id in (candidate.get("coverage_bead_ids") or [candidate.get("source_bead")])
+        if _clean_str(bead_id)
     }
     no_candidate_ids = [bid for bid in eligible_ids if bid not in candidate_source_ids]
     judge_source_ids = [bid for bid in eligible_ids if bid in candidate_source_ids]
@@ -2531,6 +2795,7 @@ def decide_association_candidate(
     truth_basis: str | None = None,
     confidence: float | None = None,
     relationship: str | None = None,
+    direction: str | None = None,
     source_bead: str | None = None,
     target_bead: str | None = None,
     evidence_refs: list[Any] | None = None,
@@ -2565,9 +2830,48 @@ def decide_association_candidate(
     run_id_final = _clean_str(run_id) or _clean_str(candidate.get("run_id")) or f"arun-review-{uuid.uuid4().hex[:12]}"
     prompt_v = _clean_str(prompt_version) or _clean_str(candidate.get("prompt_version")) or JUDGE_PROMPT_VERSION
     rubric_v = _clean_str(rubric_version) or _clean_str(candidate.get("rubric_version")) or JUDGE_RUBRIC_VERSION
-    source = _clean_str(source_bead) or _clean_str(candidate.get("source_bead"))
-    target = _clean_str(target_bead) or _clean_str(candidate.get("target_bead"))
-    rel = _clean_str(relationship) or _clean_str(candidate.get("proposed_relationship"))
+    candidate_source = _clean_str(candidate.get("source_bead"))
+    candidate_target = _clean_str(candidate.get("target_bead"))
+    direction_n = _clean_str(direction).lower()
+    source = _clean_str(source_bead)
+    target = _clean_str(target_bead)
+    rel = _clean_str(relationship)
+    positive_action = action_n not in {"reject", "no_link"}
+    validation_errors: list[str] = []
+    if positive_action:
+        if not rel:
+            validation_errors.append("missing_agent_relationship")
+        if source and target:
+            if {source, target} != {candidate_source, candidate_target}:
+                validation_errors.append("decision_pair_mismatch")
+        elif direction_n == "source_to_target":
+            source, target = candidate_source, candidate_target
+        elif direction_n == "target_to_source" or action_n == "invert":
+            source, target = candidate_target, candidate_source
+        else:
+            validation_errors.append("missing_agent_direction")
+        if confidence is None:
+            validation_errors.append("missing_agent_confidence")
+        if not _clean_str(reason_text):
+            validation_errors.append("missing_reason_text")
+        if not _clean_str(truth_basis):
+            validation_errors.append("missing_truth_basis")
+        if not (list(evidence_refs or []) or list(evidence_bead_ids or [])):
+            validation_errors.append("missing_agent_evidence")
+    else:
+        source, target = candidate_source, candidate_target
+        if not _clean_str(reason_text):
+            validation_errors.append("missing_reason_text")
+        if not _clean_str(truth_basis):
+            validation_errors.append("missing_truth_basis")
+    if validation_errors:
+        return {
+            "ok": False,
+            "contract": ASSOCIATION_CANDIDATE_DECISION_CONTRACT,
+            "candidate_id": cid,
+            "error": "invalid_agent_authored_association_decision",
+            "validation_errors": validation_errors,
+        }
     candidate_envelope_refs = merge_source_ingest_envelope_refs(candidate.get("source_ingest_envelope_refs") or [])
     decision: dict[str, Any] = {
         "candidate_id": cid,
@@ -2575,8 +2879,9 @@ def decide_association_candidate(
         "source_bead": source,
         "target_bead": target,
         "relationship": rel,
-        "reason_text": _clean_str(reason_text) or _clean_str(candidate.get("system_rationale")),
-        "truth_basis": _clean_str(truth_basis) or "operator_review",
+        "direction": direction_n,
+        "reason_text": _clean_str(reason_text),
+        "truth_basis": _clean_str(truth_basis),
         "reviewer": _clean_str(reviewer),
         "evidence_refs": list(evidence_refs or candidate.get("evidence_refs") or []),
         "evidence_bead_ids": list(evidence_bead_ids or candidate.get("evidence_bead_ids") or []),
@@ -2584,8 +2889,6 @@ def decide_association_candidate(
     }
     if confidence is not None:
         decision["confidence"] = float(confidence)
-    elif candidate.get("confidence_prior") is not None:
-        decision["confidence"] = float(candidate.get("confidence_prior") or 0.0)
 
     state = "no_supported_links" if action_n in {"reject", "no_link"} else "linked"
     judge_context = _build_judge_context(
@@ -2663,7 +2966,7 @@ def decide_association_candidate(
             "graph_revision": run_record["graph_revision"],
             "source_bead": source,
             "target_bead": target,
-            "proposed_relationship": rel,
+            "relationship": rel,
             "decision": decision,
             "association_ids": list(applied.get("association_ids") or []),
             "source_ingest_envelope_refs": candidate_envelope_refs,
@@ -2834,6 +3137,7 @@ __all__ = [
     "POLICY_VERSION",
     "apply_association_proposals",
     "association_coverage_summary",
+    "association_judge_readiness",
     "decide_association_candidate",
     "enqueue_association_coverage",
     "get_association_run",

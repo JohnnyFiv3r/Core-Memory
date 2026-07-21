@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-07-10T19:15:59.310506+00:00",
+  "generated_at": "2026-07-21T20:49:40+00:00",
   "repo_root": ".",
   "sanctioned_deterministic_writers": [
     {
@@ -79,6 +79,12 @@
       "rationale": "Legacy causal backfill now emits candidates and deprecation telemetry only.",
       "record_or_edge_class": "causal_link_candidate",
       "symbol": "core_memory.graph.core.backfill_causal_links"
+    },
+    {
+      "provenance_requirement": "pair bead ids, signal kinds, and candidate generation version",
+      "rationale": "Deterministic shortlisting emits evidence signals but never relationship truth.",
+      "record_or_edge_class": "relationship_neutral_pair_candidate",
+      "symbol": "core_memory.runtime.associations.coverage._candidate_proposals_for_bead"
     }
   ],
   "schema_version": "core_memory.architecture_guards.v1",

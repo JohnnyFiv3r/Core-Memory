@@ -37,6 +37,7 @@ class TestSemanticTaskRuntimeFoundation(unittest.TestCase):
         self.assertEqual("cheap", task_profile("bead_field_judge").model_tier)
         self.assertEqual("cheap", task_profile(TASK_BEAD_TYPE_CLASSIFIER).model_tier)
         self.assertEqual("standard", task_profile("association_decision").model_tier)
+        self.assertEqual("semantic_author", task_profile("association_decision").authority_boundary)
         self.assertEqual("standard", task_profile(TASK_CAUSAL_RECALL_EXECUTE).model_tier)
         self.assertEqual("frontier", task_profile("dreamer_research").model_tier)
         self.assertEqual("candidate_only", task_profile("dreamer_research").authority_boundary)

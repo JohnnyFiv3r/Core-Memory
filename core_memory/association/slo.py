@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import json
+import re
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
-import json
-import re
 
+from core_memory.association.health import association_health_report
 from core_memory.persistence import events
 
 
@@ -63,6 +64,17 @@ def _active_shared_tag_ratio(root: str) -> float:
 
 def association_slo_report(root: str, *, since: str = "7d") -> dict[str, Any]:
     ws = _window_start(since)
+    graph_health = association_health_report(root)
+    graph_metrics = {
+        "structural_continuity_active": int(graph_health.get("structural_continuity_active") or 0),
+        "semantic_relationships_active": int(graph_health.get("semantic_relationships_active") or 0),
+        "semantic_causal_active": int(graph_health.get("semantic_causal_active") or 0),
+        "structural_relationship_top_active": list(graph_health.get("structural_relationship_top_active") or []),
+        "semantic_relationship_top_active": list(graph_health.get("semantic_relationship_top_active") or []),
+        "pending_judge_count": int(graph_health.get("pending_judge_count") or 0),
+        "oldest_pending_judge_age_seconds": float(graph_health.get("oldest_pending_judge_age_seconds") or 0.0),
+        "pending_judge_severity": str(graph_health.get("severity") or "ok"),
+    }
     rows = []
     for r in (events.iter_metrics(Path(root)) or []):
         if str(r.get("task_id") or "") != "agent_turn_quality":
@@ -83,6 +95,7 @@ def association_slo_report(root: str, *, since: str = "7d") -> dict[str, Any]:
             "avg_non_temporal_semantic": 0.0,
             "active_shared_tag_ratio": round(_active_shared_tag_ratio(root), 4),
             "agent_source_counts": {},
+            **graph_metrics,
         }
 
     source_counts = Counter(str(r.get("agent_source") or "") for r in rows)
@@ -110,6 +123,7 @@ def association_slo_report(root: str, *, since: str = "7d") -> dict[str, Any]:
         "avg_non_temporal_semantic": round(avg_sem, 4),
         "active_shared_tag_ratio": round(_active_shared_tag_ratio(root), 4),
         "agent_source_counts": dict(source_counts),
+        **graph_metrics,
     }
 
 
@@ -136,7 +150,11 @@ def association_slo_check(
 
     turns = int(report.get("turns") or 0)
     if turns > 0:
-        check_min("agent_authored_rate", float(report.get("agent_authored_rate") or 0.0), float(min_agent_authored_rate))
+        check_min(
+            "agent_authored_rate",
+            float(report.get("agent_authored_rate") or 0.0),
+            float(min_agent_authored_rate),
+        )
         check_max("fallback_rate", float(report.get("fallback_rate") or 0.0), float(max_fallback_rate))
         check_max("fail_closed_rate", float(report.get("fail_closed_rate") or 0.0), float(max_fail_closed_rate))
         check_min(

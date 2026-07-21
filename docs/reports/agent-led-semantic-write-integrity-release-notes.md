@@ -1,6 +1,6 @@
 # Agent-Led Semantic Write Integrity — Planned Release Notes
 
-**Status:** Slices 1–3 shipped; hard-authorship cutover proposed
+**Status:** Slices 1–5 shipped; association-quality cutover proposed
 
 The rollout defined by
 `docs/PRD/agent-led-semantic-write-integrity.md` changes the canonical semantic
@@ -36,6 +36,17 @@ delegated agent authorship.
   telemetry but writes no causal links. Use `core-memory graph causal-candidates`
   followed by the agent judge/apply flow; a following documented release rejects
   `--apply` with migration guidance.
+- New association candidate records use `memory.association_candidates.v2` and
+  contain relationship-neutral bead pairs plus shortlist signals. The
+  association judge uses `memory.association_judge.v2` and must author the
+  relationship, direction, evidence, confidence, reason, and truth basis—or
+  return `no_link`. Stored v1 candidates remain readable for one compatibility
+  window for inspection, but v1 proposed fields are diagnostic only and are
+  never copied into a new decision.
+- Association health and doctor output report judge readiness, pending-judge
+  count and age, and five-minute warning / sixty-minute critical thresholds.
+  Graph health reports structural continuity separately from semantic causal
+  relationships.
 
 These notices are prospective. Shipped version numbers and exact removal dates
 must be filled in by the implementation PR that activates each behavior.
