@@ -403,8 +403,8 @@ class AssociationRunRequest(BaseModel):
     run_inline: bool = False
     max_candidates: int = 40
     graph_revision: str = ""
-    prompt_version: str = "association_judge.v1"
-    rubric_version: str = "association_truth.v1"
+    prompt_version: str = "association_judge.v2"
+    rubric_version: str = "association_truth.v2"
     sweep: bool = False
     sweep_mode: str = "incomplete"
     sweep_cursor: str = ""
@@ -430,13 +430,14 @@ class AssociationCandidateDecisionRequest(BaseModel):
     truth_basis: str = ""
     confidence: Optional[float] = None
     relationship: str = ""
+    direction: str = ""
     source_bead: str = ""
     target_bead: str = ""
     evidence_refs: list[Any] = Field(default_factory=list)
     evidence_bead_ids: list[Any] = Field(default_factory=list)
     judge_model: str = ""
-    prompt_version: str = "association_judge.v1"
-    rubric_version: str = "association_truth.v1"
+    prompt_version: str = "association_judge.v2"
+    rubric_version: str = "association_truth.v2"
 
 
 class MyelinationRewardEventRequest(BaseModel):
@@ -1955,13 +1956,14 @@ async def memory_association_candidate_decide(
         truth_basis=str(payload.truth_basis or ""),
         confidence=payload.confidence,
         relationship=str(payload.relationship or ""),
+        direction=str(payload.direction or ""),
         source_bead=str(payload.source_bead or ""),
         target_bead=str(payload.target_bead or ""),
         evidence_refs=list(payload.evidence_refs or []),
         evidence_bead_ids=list(payload.evidence_bead_ids or []),
         judge_model=str(payload.judge_model or ""),
-        prompt_version=str(payload.prompt_version or "association_judge.v1"),
-        rubric_version=str(payload.rubric_version or "association_truth.v1"),
+        prompt_version=str(payload.prompt_version or "association_judge.v2"),
+        rubric_version=str(payload.rubric_version or "association_truth.v2"),
     )
     if not out.get("ok"):
         return JSONResponse(status_code=400, content=out)
@@ -1985,8 +1987,8 @@ async def memory_association_runs(
         run_inline=bool(payload.run_inline),
         max_candidates=max(1, int(payload.max_candidates)),
         graph_revision=str(payload.graph_revision or ""),
-        prompt_version=str(payload.prompt_version or "association_judge.v1"),
-        rubric_version=str(payload.rubric_version or "association_truth.v1"),
+        prompt_version=str(payload.prompt_version or "association_judge.v2"),
+        rubric_version=str(payload.rubric_version or "association_truth.v2"),
         sweep=bool(payload.sweep),
         sweep_mode=str(payload.sweep_mode or "incomplete"),
         sweep_cursor=str(payload.sweep_cursor or ""),

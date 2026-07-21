@@ -511,6 +511,7 @@ class TestMemoryManagement(unittest.TestCase):
             self.assertEqual("myelination-update", out.get("kind"))
             self.assertEqual("myelination-update", ((out.get("queue") or {}).get("kind")))
 
+    @patch.dict(os.environ, {"CORE_MEMORY_SEMANTIC_TASK_RUNTIME": "disabled"}, clear=False)
     def test_association_run_maintain_supports_sweep_without_client_bead_ids(self):
         with tempfile.TemporaryDirectory() as td:
             store = MemoryStore(td)
@@ -532,6 +533,7 @@ class TestMemoryManagement(unittest.TestCase):
                 dry_run=False,
             )
             self.assertTrue(out.get("ok"), out)
+            self.assertEqual("pending_judge", out.get("status"))
             self.assertTrue(out.get("sweep"), out)
             self.assertEqual("all", out.get("sweep_mode"))
             self.assertEqual(1, len(out.get("bead_ids") or []))
@@ -639,8 +641,12 @@ class TestMemoryManagement(unittest.TestCase):
                 targets={"candidate_id": candidate.get("candidate_id")},
                 decision={
                     "action": "linked",
+                    "relationship": "follows",
+                    "direction": "source_to_target",
+                    "confidence": 0.9,
                     "truth_basis": "manual_association_review",
                     "reason_text": "The two beads are related in this test fixture.",
+                    "evidence_bead_ids": [second, first],
                 },
                 authority={"actor": "qa", "user_confirmed": True},
                 apply=True,

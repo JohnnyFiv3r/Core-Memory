@@ -179,7 +179,7 @@ retained.
 |---|---|---|
 | 1 | Replace echo-based `because` with LLM extraction | **Closed** |
 | 2 | Goal lifecycle — resolution mechanism | **Closed** |
-| 3 | Association relationship types | **Reopened** — the preview classifier currently fills missing relationships deterministically; `docs/PRD/agent-led-semantic-write-integrity.md` replaces that canonical mutation with agent-judged repair |
+| 3 | Association relationship types | **Closed in agent-led Slice 6** — deterministic shortlisting emits relationship-neutral pairs only; the association agent authors relation, direction, evidence, confidence, or `no_link`, with pending-judge health visibility |
 | 4 | Bead type classifier — questions misclassified as precedent | **Closed** |
 | 5 | Grounding hashes for judged association/claim validation | **Done** — grounding-hash per-slot dedup in `_append_claim_update_rows` + WARNING telemetry |
 | 6 | Monotonic sequencing for claim supersede chains | **Closed** — fully covered by `chain_seq` (verified) |
@@ -237,16 +237,16 @@ See `docs/PRD/execution-plan-search-quality-and-enrichment.md` for the full plan
 ### Agent-led semantic write integrity
 The canonical contract requires agents to author semantic meaning while Core
 Memory supplies typed validation, persistence, queueing, and lifecycle
-guardrails. The current write path still permits deterministic fallback
-authorship, drops known fields during creation normalization, and can report
-semantic success before canonical bead existence is confirmed. The approved
-plan preserves one canonical current-turn bead plus up to two explicitly
-derived companion beads and uses full-schema delegated authorship for the
-passive hosted OpenClaw capture path.
+guardrails. The write path preserves the full authored contract, supports one
+canonical current-turn bead plus bounded derived companions, uses full-schema
+delegated authorship for passive hosted capture, reports durable semantic state,
+and fails hard-mode gaps into pending semantic work instead of canonical stubs.
+Promotion, claims, and associations no longer receive deterministic semantic
+authority. Association shortlisting is relationship-neutral and its judge
+authors relation, direction, evidence, confidence, or `no_link`.
 
-**Status:** Implementation in progress — documentation gate complete; Slice 1
-implements lossless persistence and bounded turn-time derivation. Slices 2–7
-remain. See
+**Status:** Implementation in progress — Slices 1–6 implemented. Governed
+reauthoring, pending-semantic repair, and hosted backfill remain in Slice 7. See
 `docs/PRD/agent-led-semantic-write-integrity.md`.
 
 ---

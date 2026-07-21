@@ -117,6 +117,12 @@ SANCTIONED_DETERMINISTIC_WRITERS = [
         "rationale": "Legacy causal backfill now emits candidates and deprecation telemetry only.",
         "provenance_requirement": "candidate overlap and source/target ids",
     },
+    {
+        "symbol": "core_memory.runtime.associations.coverage._candidate_proposals_for_bead",
+        "record_or_edge_class": "relationship_neutral_pair_candidate",
+        "rationale": "Deterministic shortlisting emits evidence signals but never relationship truth.",
+        "provenance_requirement": "pair bead ids, signal kinds, and candidate generation version",
+    },
 ]
 
 

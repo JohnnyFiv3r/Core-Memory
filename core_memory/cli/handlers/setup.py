@@ -553,18 +553,59 @@ def _pending_semantic_probe(root: str) -> dict[str, Any]:
     }
 
 
+def _association_judge_probe(root: str) -> dict[str, Any]:
+    from core_memory.association.health import association_pending_judge_health
+    from core_memory.runtime.associations.coverage import association_judge_readiness
+
+    pending = association_pending_judge_health(root)
+    readiness = association_judge_readiness(root)
+    count = int(pending.get("pending_judge_count") or 0)
+    oldest = int(float(pending.get("oldest_pending_judge_age_seconds") or 0))
+    severity = str(pending.get("severity") or "ok")
+    health = {"readiness": readiness, **pending}
+    if severity == "critical":
+        return {
+            "status": "error",
+            "summary": f"{count} pending association judge run(s); oldest {oldest}s (critical)",
+            "impact": "agent-judged causal coverage has been unresolved for at least sixty minutes",
+            "fix": "restore the semantic judge runtime and retry pending association coverage",
+            "health": health,
+        }
+    if severity == "warning" or (count > 0 and not readiness.get("ready")):
+        return {
+            "status": "warning",
+            "summary": f"{count} pending association judge run(s); oldest {oldest}s",
+            "impact": "beads remain committed, but their semantic causal coverage is incomplete",
+            "fix": "configure the association judge and retry pending coverage",
+            "health": health,
+        }
+    if not readiness.get("ready"):
+        return {
+            "status": "info",
+            "summary": f"association judge not ready ({readiness.get('reason') or 'unavailable'})",
+            "impact": "future relationship-neutral pairs will remain pending_judge",
+            "fix": "configure a semantic task runtime before causal coverage is required",
+            "health": health,
+        }
+    return {
+        "status": "ok",
+        "summary": f"ready; {count} pending association judge run(s)",
+        "health": health,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Doctor profile severity matrix  (8b-2)
 # ---------------------------------------------------------------------------
 
 # Values: "error" | "warning" | "info" | "ok" | None (don't show)
 _SEVERITY: dict[str, dict[str, str | None]] = {
-    #              storage   vector      graph     mcp      transcript  dreamer   rolling_window pending_semantic
-    "local": ("error", "info", "ok", None, "info", "info", "ok", "error"),
-    "mcp": ("error", "info", "ok", "error", "info", "info", "ok", "error"),
-    "app": ("error", "warning", "ok", None, "info", "info", "ok", "error"),
-    "production": ("error", "error", "error", None, "ok", "warning", "error", "error"),
-    "custom": ("error", "warning", "warning", None, "info", "info", "ok", "error"),
+    # Columns follow _SEVERITY_KEYS: storage through association_judge.
+    "local": ("error", "info", "ok", None, "info", "info", "ok", "error", "error"),
+    "mcp": ("error", "info", "ok", "error", "info", "info", "ok", "error", "error"),
+    "app": ("error", "warning", "ok", None, "info", "info", "ok", "error", "error"),
+    "production": ("error", "error", "error", None, "ok", "warning", "error", "error", "error"),
+    "custom": ("error", "warning", "warning", None, "info", "info", "ok", "error", "error"),
 }
 _SEVERITY_KEYS = (
     "storage",
@@ -575,6 +616,7 @@ _SEVERITY_KEYS = (
     "dreamer",
     "rolling_window",
     "pending_semantic",
+    "association_judge",
 )
 
 
@@ -599,6 +641,7 @@ def expanded_doctor(root: str, profile: str | None = None) -> dict[str, Any]:
         "dreamer": _dreamer_probe(root),
         "rolling_window": _rolling_window_probe(root),
         "pending_semantic": _pending_semantic_probe(root),
+        "association_judge": _association_judge_probe(root),
     }
     # MCP probe does filesystem I/O across multiple client config paths; only run when visible.
     if severity_map.get("mcp") is not None:
@@ -659,6 +702,7 @@ def _format_doctor_human(report: dict[str, Any]) -> str:
         "dreamer": "Dreamer",
         "rolling_window": "Rolling window",
         "pending_semantic": "Pending semantics",
+        "association_judge": "Association judge",
     }
 
     for key in _SEVERITY_KEYS:
