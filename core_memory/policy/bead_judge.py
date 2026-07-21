@@ -14,7 +14,7 @@ from core_memory.schema.agent_authored_updates import (
     AGENT_AUTHORED_V1_BEAD_FIELDS,
 )
 from core_memory.schema.normalization import normalize_state_change
-from core_memory.schema.semantic_tasks import TASK_BEAD_FIELD_JUDGE
+from core_memory.schema.semantic_tasks import MODEL_TIER_STANDARD, TASK_BEAD_FIELD_JUDGE
 
 from .bead_typing import CLASSIFIABLE_TYPES, classify_bead_type, is_retrieval_turn
 from .rationale import extract_causal_because, is_question_turn, sanitize_because_for_turn
@@ -81,65 +81,96 @@ def _clean_list(value: Any, *, limit: int = 6, item_limit: int = 240) -> list[st
     return out
 
 
-def _heuristic_entities(*texts: str, limit: int = 16) -> list[str]:
+_HEURISTIC_ENTITY_STOP = {
+    "the",
+    "and",
+    "for",
+    "with",
+    "that",
+    "this",
+    "from",
+    "into",
+    "your",
+    "our",
+    "their",
+    "were",
+    "was",
+    "have",
+    "has",
+    "had",
+    "will",
+    "would",
+    "should",
+    "could",
+    "can",
+    "cant",
+    "about",
+    "after",
+    "before",
+    "then",
+    "than",
+    "because",
+    "there",
+    "here",
+    "when",
+    "where",
+    "what",
+    "which",
+    "who",
+    "whom",
+    "whose",
+    "why",
+    "how",
+    "turn",
+    "main",
+    "session",
+    "these",
+    "those",
+    "decision",
+    "confirmed",
+    "logged",
+    "use",
+    "user",
+    "assistant",
+    "please",
+    "yes",
+    "okay",
+}
+
+# Proper-name-shaped runs: one or more Capitalized/ALLCAPS/identifier tokens.
+# Multi-word runs ("Acme Billing Portal") are captured as one entity.
+_HEURISTIC_ENTITY_RE = re.compile(
+    r"\b((?:[A-Z][A-Za-z0-9._-]{1,}|[A-Z]{2,}[A-Za-z0-9._-]*|[a-z]+[0-9._-][A-Za-z0-9._-]+)"
+    r"(?:\s+(?:[A-Z][A-Za-z0-9._-]{1,}|[A-Z]{2,}[A-Za-z0-9._-]*)){0,3})\b"
+)
+
+
+def _heuristic_entities(*texts: str, limit: int = 8) -> list[str]:
+    """Entity fallback for offline/test paths.
+
+    Only proper-name-shaped tokens qualify (Capitalized, ALLCAPS, or
+    identifier-shaped, including multi-word runs). Grabbing every ≥3-char word
+    — the previous behavior — flooded the entity registry with sentence
+    fragments, and those junk entities became junk entity worldlines, junk
+    storyline backbones, and junk goal themes downstream. An empty entity list
+    is better than an invented one.
+    """
     seen: set[str] = set()
     out: list[str] = []
-    stop = {
-        "the",
-        "and",
-        "for",
-        "with",
-        "that",
-        "this",
-        "from",
-        "into",
-        "your",
-        "our",
-        "their",
-        "were",
-        "was",
-        "have",
-        "has",
-        "had",
-        "will",
-        "would",
-        "should",
-        "could",
-        "can",
-        "cant",
-        "about",
-        "after",
-        "before",
-        "then",
-        "than",
-        "because",
-        "there",
-        "here",
-        "when",
-        "where",
-        "what",
-        "which",
-        "who",
-        "whom",
-        "whose",
-        "why",
-        "how",
-        "turn",
-        "main",
-        "session",
-        "these",
-        "those",
-        "decision",
-        "confirmed",
-        "logged",
-    }
     for raw in texts:
-        for token in re.findall(r"\b[A-Za-z][A-Za-z0-9._-]{2,}\b", str(raw or "")):
-            key = token.lower().strip(".,:;!?()[]{}\"'")
-            if key in stop or key in seen:
+        for match in _HEURISTIC_ENTITY_RE.finditer(str(raw or "")):
+            token = str(match.group(1) or "").strip().strip(".,:;!?()[]{}\"'")
+            words = token.split()
+            while words and words[0].lower() in _HEURISTIC_ENTITY_STOP:
+                words = words[1:]
+            token = " ".join(words)
+            if len(token) < 3:
+                continue
+            key = token.lower()
+            if key in _HEURISTIC_ENTITY_STOP or key in seen:
                 continue
             seen.add(key)
-            out.append(token.strip(".,:;!?()[]{}\"'"))
+            out.append(token)
             if len(out) >= max(1, int(limit)):
                 return out
     return out
@@ -308,6 +339,11 @@ def _llm_judge_semantic_task(
         ),
         fallback_mode="heuristic",
         authority_boundary="advisory",
+        # This compat alias authors the ENTIRE bead (full v1 envelope), not a
+        # narrow field check — the default cheap tier for bead_field_judge is
+        # what produced low-quality fallback beads on conductors that route
+        # tiers to models. Full-schema authoring rides the standard tier.
+        model_tier=MODEL_TIER_STANDARD,
     )
     try:
         result = get_semantic_task_runtime().run(request)

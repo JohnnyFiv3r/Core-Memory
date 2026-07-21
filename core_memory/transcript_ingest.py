@@ -89,6 +89,14 @@ def _make_envelope(
         "mesh_trace": [],
         "window_turn_ids": [],
         "window_bead_ids": [],
+        # Transcript rows arrive with no inline agent authorship, so ask the
+        # engine to run the delegated semantic author. Without this the hard
+        # authorship gate blocks every transcript turn before any author is
+        # even attempted (and warn-mode deployments silently fall back to
+        # structural first-line-title beads). Warn/off behavior is unchanged
+        # when no semantic runtime is configured — the author attempt fails
+        # closed into the same fallback as before.
+        "authoring_mode": "delegated",
         "metadata": metadata,
     }
 

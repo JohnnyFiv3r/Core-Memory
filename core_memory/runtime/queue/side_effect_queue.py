@@ -273,6 +273,17 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
         except Exception:
             goal_discovery_out = {"ok": False, "error": "goal_discovery_failed"}
 
+        # Candidate refinement: the clearly-marked LLM step over the
+        # deterministic detectors — retitles/restates pending narrative and
+        # goal candidates so review (and any accepted overlay/goal) carries a
+        # human-readable name instead of the structural template. Fail-open.
+        refinement_out: dict[str, Any] = {"ok": True, "status": "skipped", "refined": 0}
+        try:
+            from core_memory.runtime.dreamer.refinement import refine_pending_candidates
+            refinement_out = refine_pending_candidates(root, run_id=run_id, source="side_effect_queue")
+        except Exception:
+            refinement_out = {"ok": False, "error": "candidate_refinement_failed"}
+
         # Future projection: advisory storyline continuations (never creates goals).
         projection_out: dict[str, Any] = {"ok": True, "projection_count": 0}
         try:
@@ -348,6 +359,7 @@ def process_side_effect_event(*, root: str | Path, kind: str, payload: dict[str,
             "tension": tension_out,
             "goal_decay": goal_decay_out,
             "goal_discovery": goal_discovery_out,
+            "refinement": refinement_out,
             "projection": projection_out,
             "identity_value": identity_value_out,
             "dreamer_research": dreamer_research_out,

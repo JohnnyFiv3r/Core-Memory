@@ -129,6 +129,14 @@ def _model_for_task(task_type: str, tier: str) -> tuple[str, str]:
             "CORE_MEMORY_BEAD_FIELD_MODEL",
             "CORE_MEMORY_CHAT_MODEL",
         )
+    if task == TASK_BEAD_FIELD_JUDGE:
+        # The full-schema compat judge runs at standard tier (it authors an
+        # entire bead); the explicit bead-field model override still wins.
+        return _env_first(
+            "CORE_MEMORY_BEAD_FIELD_MODEL",
+            "CORE_MEMORY_AGENT_MODEL_STANDARD",
+            "CORE_MEMORY_CHAT_MODEL",
+        )
     if task == TASK_CAUSAL_RECALL_EXECUTE:
         return _env_first(
             "CORE_MEMORY_AGENT_MODEL_STANDARD",

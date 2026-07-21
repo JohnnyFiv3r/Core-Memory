@@ -107,6 +107,7 @@ def build_turn_memory_authoring_request(
     authority_boundary: str = "semantic_author",
     repair_context: dict[str, Any] | None = None,
     authorship_source: str = "delegated_semantic_agent",
+    model_tier: str = "",
 ) -> tuple[SemanticTaskRequest, str]:
     """Build one full-contract request for canonical or compatibility callers."""
 
@@ -116,6 +117,7 @@ def build_turn_memory_authoring_request(
     request = SemanticTaskRequest(
         task_type=task_type,
         root=root,
+        model_tier=str(model_tier or ""),
         prompt="\n\n".join(
             part
             for part in (
