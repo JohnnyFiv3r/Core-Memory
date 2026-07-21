@@ -361,6 +361,15 @@ class MaintainRequest(BaseModel):
     idempotency_key: str = ""
 
 
+class SeedBackfillRequest(BaseModel):
+    root: Optional[str] = None
+    apply: bool = False
+    max_enrich: int = 150
+    max_storylines: int = 12
+    max_goals: int = 5
+    reviewer: str = "seed_backfill"
+
+
 class MemoryTraceRequest(BaseModel):
     root: Optional[str] = None
     query: str = ""
@@ -1048,6 +1057,32 @@ async def memory_remove_source(
         apply=bool(payload.apply),
         idempotency_key=payload.idempotency_key,
         limit=max(1, int(payload.limit)),
+    )
+    if not out.get("ok"):
+        return JSONResponse(status_code=400, content=out)
+    return out
+
+
+@app.post("/v1/memory/hygiene/seed-backfill")
+async def memory_seed_backfill(
+    payload: SeedBackfillRequest,
+    authorization: Optional[str] = Header(default=None),
+    x_memory_token: Optional[str] = Header(default=None),
+    x_tenant_id: Optional[str] = Header(default=None),
+):
+    """One-shot operator pass: clean junk entities, re-author thin beads, and
+    seed named storylines/goals from the store's existing data. Dry-run by
+    default; ``apply=true`` snapshots index.json before writing."""
+    _check_auth(authorization, x_memory_token)
+    from core_memory.runtime.hygiene.seed_backfill import run_seed_quality_backfill
+
+    out = run_seed_quality_backfill(
+        _resolve_root(payload.root, x_tenant_id),
+        apply=bool(payload.apply),
+        max_enrich=int(payload.max_enrich),
+        max_storylines=int(payload.max_storylines),
+        max_goals=int(payload.max_goals),
+        reviewer=str(payload.reviewer or "seed_backfill"),
     )
     if not out.get("ok"):
         return JSONResponse(status_code=400, content=out)
