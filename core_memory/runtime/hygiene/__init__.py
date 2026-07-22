@@ -1,7 +1,4 @@
-# SEED_BACKFILL_ONESHOT — temporary one-shot migration package. Delete the
-# whole core_memory/runtime/hygiene/ directory after the seed backfill has run.
-# See docs/deployment/seed-quality-backfill-runbook.md#removal.
-"""Store hygiene passes: operator-invoked cleanup/backfill over existing data."""
+"""Read-only compatibility census for retired store-hygiene migration paths."""
 
 from core_memory.runtime.hygiene.seed_backfill import run_seed_quality_backfill
 

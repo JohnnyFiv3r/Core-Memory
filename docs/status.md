@@ -245,9 +245,14 @@ Promotion, claims, and associations no longer receive deterministic semantic
 authority. Association shortlisting is relationship-neutral and its judge
 authors relation, direction, evidence, confidence, or `no_link`.
 
-**Status:** Implementation in progress — Slices 1–6 implemented. Governed
-reauthoring, pending-semantic repair, and hosted backfill remain in Slice 7. See
-`docs/PRD/agent-led-semantic-write-integrity.md`.
+**Status:** Engine implementation complete — Slices 1–7 implemented; hosted
+copied/live tenant execution remains an operator rollout step. Governed
+reauthoring appends attributed derived/revision beads without rewriting sources;
+pending-semantic retry commits preserved finalized turns through the canonical
+write path; live apply requires a successful copied-tenant receipt; and
+cohort-separated reports cover legacy, v1-authored, and backfilled memory. See
+`docs/PRD/agent-led-semantic-write-integrity.md` and
+`docs/deployment/agent-led-semantic-backfill.md`.
 
 ---
 

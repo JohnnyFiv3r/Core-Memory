@@ -157,8 +157,9 @@ MCP_TYPED_WRITE_TOOL_SCHEMAS: dict[str, dict[str, Any]] = {
     "maintain": {
         "description": (
             "Unified governed maintenance facade for approvals, cleanup, async ops, association review, Dreamer "
-            "decisions, SOUL revisions, Myelination refresh, and correction actions. Dry-run previews report "
-            "required_authority, authority_ok, and validation_errors."
+            "decisions, SOUL revisions, Myelination refresh, corrections, append-only semantic reauthoring, and "
+            "pending-turn repair. Dry-run previews report required_authority, authority_ok, and validation_errors; "
+            "live semantic maintenance requires a successful copied-tenant receipt."
         ),
         "input": {
             "type": "object",

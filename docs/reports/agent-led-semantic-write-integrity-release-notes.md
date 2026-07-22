@@ -1,6 +1,6 @@
-# Agent-Led Semantic Write Integrity — Planned Release Notes
+# Agent-Led Semantic Write Integrity — Release Notes
 
-**Status:** Slices 1–5 shipped; association-quality cutover proposed
+**Status:** Slices 1–7 implemented; hosted copied/live backfill run pending
 
 The rollout defined by
 `docs/PRD/agent-led-semantic-write-integrity.md` changes the canonical semantic
@@ -47,6 +47,25 @@ delegated agent authorship.
   count and age, and five-minute warning / sixty-minute critical thresholds.
   Graph health reports structural continuity separately from semantic causal
   relationships.
+- Governed `reauthor_memory` and `retry_pending_semantic` maintenance actions
+  are dry-run-first, require operator authority and apply idempotency, and reuse
+  the complete delegated `turn_memory_authoring` contract. Reauthoring appends
+  derived or explicit revision beads while preserving the exact source bead;
+  pending retries commit through the canonical finalized-turn path.
+- Live semantic maintenance requires a successful copied-tenant apply receipt
+  for the exact same plan. Hosted stores bind their declared role through
+  `CORE_MEMORY_MAINTENANCE_ENVIRONMENT`, preventing a live root from being
+  submitted as a copied tenant. Receipts and the append-only maintenance audit record
+  sources examined, authorship/task provenance, contract version, timestamps,
+  primary/derived writes, validation failures, pending age, and post-commit
+  association coverage.
+- `semantic_backfill_report` keeps legacy pre-contract, v1-authored, and
+  governed-backfill cohorts separate for retrieval framing, claims, semantic
+  keys, relationships, and causal edges.
+- The temporary `/v1/memory/hygiene/seed-backfill` route is now read-only.
+  `apply=true` returns `seed_quality_backfill_apply_retired` and points callers
+  to the copied-tenant-first `reauthor_memory` workflow; direct bead rewrites
+  and automatic Dreamer acceptance are no longer available.
 
-These notices are prospective. Shipped version numbers and exact removal dates
-must be filled in by the implementation PR that activates each behavior.
+Version numbers and exact compatibility-removal dates remain release-management
+inputs and must be filled in when the next package release is cut.

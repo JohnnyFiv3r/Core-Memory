@@ -43,6 +43,7 @@ def process_turn_finalized_impl(
     crawler_updates: AgentAuthoredUpdatesV1 | None,
     authoring_mode: AuthoringMode | None,
     metadata: dict[str, Any] | None,
+    trusted_authorship_provenance: dict[str, Any] | None,
     policy: Any,
     normalize_turn_request: Callable[..., dict[str, Any]],
     mark_turn_checkpoint: Callable[..., Any],
@@ -88,6 +89,12 @@ def process_turn_finalized_impl(
         authoring_mode=authoring_mode,
         metadata=metadata,
     )
+    if isinstance(trusted_authorship_provenance, dict) and trusted_authorship_provenance:
+        # Internal governed maintenance may run the delegated author before it
+        # enters the canonical turn path so it can validate and attach source
+        # provenance. Preserve that task receipt without exposing a spoofable
+        # public adapter field.
+        req["authorship_provenance"] = dict(trusted_authorship_provenance)
 
     # Never-forget: contract enforcement happens after the canonical turn event
     # is written. A blocked semantic gate therefore preserves the raw turn as a
@@ -409,7 +416,13 @@ def process_turn_finalized_impl(
         # Fallback: run enrichment stages inline (pre-F-W1 behavior)
         crawler_visible = list(crawler_ctx.get("visible_bead_ids") or [])
         session_visible = session_visible_bead_ids(root=root, session_id=req["session_id"])
-        visible_ids = sorted(set(crawler_visible + session_visible))
+        visible_ids = sorted(
+            set(
+                crawler_visible
+                + session_visible
+                + [str(value) for value in (req.get("window_bead_ids") or []) if str(value).strip()]
+            )
+        )
 
         auto_apply = run_association_pass(
             root=root,
@@ -437,7 +450,13 @@ def process_turn_finalized_impl(
             flag_structural_coverage_missing(root, bead_id)
 
         session_visible_after = session_visible_bead_ids(root=root, session_id=req["session_id"])
-        visible_ids = sorted(set(crawler_visible + session_visible_after))
+        visible_ids = sorted(
+            set(
+                crawler_visible
+                + session_visible_after
+                + [str(value) for value in (req.get("window_bead_ids") or []) if str(value).strip()]
+            )
+        )
 
         if extract_and_attach_claims_fn is not None:
             created_bead_ids = list(auto_apply.get("created_bead_ids") or [])

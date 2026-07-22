@@ -123,7 +123,7 @@ def build_turn_memory_authoring_request(
             for part in (
                 _prompt(payload, repair_mode=repair_mode),
                 (
-                    "Compatibility operator guidance follows. It may refine semantic judgment but must not "
+                    "Scoped authoring instructions follow. They may refine semantic judgment but must not "
                     f"change the required {AGENT_AUTHORED_UPDATES_V1} output shape:\n{additional_instructions}"
                     if str(additional_instructions or "").strip()
                     else ""
@@ -159,6 +159,8 @@ def author_turn_memory(
     req: dict[str, Any],
     crawler_context: dict[str, Any],
     task_runtime: SemanticTaskRuntime | None = None,
+    additional_instructions: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Run the canonical delegated author and return updates plus provenance."""
 
@@ -168,6 +170,8 @@ def author_turn_memory(
         crawler_context=crawler_context,
         task_runtime=task_runtime,
         authorship_source="delegated_semantic_agent",
+        additional_instructions=additional_instructions,
+        metadata=metadata,
     )
 
 
@@ -302,6 +306,8 @@ def _run_turn_memory_authoring(
     task_runtime: SemanticTaskRuntime | None,
     authorship_source: str,
     repair_context: dict[str, Any] | None = None,
+    additional_instructions: str = "",
+    metadata: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
     """Execute one canonical full-contract authoring task."""
 
@@ -313,6 +319,8 @@ def _run_turn_memory_authoring(
         repair_context=repair_context,
         authorship_source=authorship_source,
         authority_boundary="semantic_repair_agent" if repair_context is not None else "semantic_author",
+        additional_instructions=additional_instructions,
+        metadata=metadata,
     )
     result = runtime.run(request)
 

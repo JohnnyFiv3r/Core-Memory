@@ -1,16 +1,16 @@
-from __future__ import annotations
-
 """Governed maintenance facade for agent control-plane operations.
 
 The public ``maintain()`` verb intentionally routes through existing Core
 Memory operations instead of exposing raw file/index mutation to agents.
 """
 
+from __future__ import annotations
+
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
-
 
 MAINTAIN_CONTRACT = "core_memory.maintain.v1"
 ASSOCIATION_CANDIDATE_ACTIONS = {
@@ -61,9 +61,13 @@ ACTION_POLICIES: dict[str, ActionPolicy] = {
     "enqueue_job": ActionPolicy(("queue_ops", "admin_repair"), True, True),
     "run_jobs": ActionPolicy(("queue_ops", "admin_repair"), True, True),
     "association_run": ActionPolicy(("run_association_judge", "queue_ops", "admin_repair"), True, True),
-    "decide_association_candidate": ActionPolicy(("append_judged_association", "user_confirmed", "admin_repair"), True, True),
+    "decide_association_candidate": ActionPolicy(
+        ("append_judged_association", "user_confirmed", "admin_repair"), True, True
+    ),
     "apply_association_proposals": ActionPolicy(("append_judged_association", "admin_repair"), True, True),
-    "decide_dreamer_candidate": ActionPolicy(("decide_dreamer_candidate", "user_confirmed", "admin_repair"), True, True),
+    "decide_dreamer_candidate": ActionPolicy(
+        ("decide_dreamer_candidate", "user_confirmed", "admin_repair"), True, True
+    ),
     "submit_entity_merge_proposal": ActionPolicy(("submit_entity_merge_proposal", "admin_repair"), True, True),
     "apply_reviewed_proposal": ActionPolicy(("apply_reviewed_proposal", "user_confirmed", "admin_repair"), True, True),
     "refresh_myelination": ActionPolicy(("refresh_myelination", "queue_ops", "admin_repair"), True, True),
@@ -82,6 +86,18 @@ ACTION_POLICIES: dict[str, ActionPolicy] = {
         mutating=True,
         idempotency_required=True,
     ),
+    "reauthor_memory": ActionPolicy(
+        ("reauthor_memory", "admin_repair"),
+        actor_required=True,
+        mutating=True,
+        idempotency_required=True,
+    ),
+    "retry_pending_semantic": ActionPolicy(
+        ("retry_pending_semantic", "admin_repair"),
+        actor_required=True,
+        mutating=True,
+        idempotency_required=True,
+    ),
     "remove_source": ActionPolicy(("remove_source", "event_hook", "admin_repair"), True, True, False, True),
 }
 
@@ -95,6 +111,7 @@ READ_ACTIONS = {
     "myelination_status",
     "inspect_soul",
     "soul_history",
+    "semantic_backfill_report",
 }
 
 
@@ -157,6 +174,11 @@ def _normalize_action(action: str) -> str:
         "retract_association": "deactivate_association",
         "rereview_association": "request_re_review",
         "request_association_re_review": "request_re_review",
+        "reauthor": "reauthor_memory",
+        "retry_semantic": "retry_pending_semantic",
+        "retry_pending_turn": "retry_pending_semantic",
+        "backfill_report": "semantic_backfill_report",
+        "semantic_maintenance_report": "semantic_backfill_report",
     }
     return aliases.get(a, a)
 
@@ -220,6 +242,66 @@ def _int_or_default(value: Any, default: int, minimum: int = 1) -> int:
         return max(minimum, int(value))
     except Exception:
         return max(minimum, int(default))
+
+
+def _maintenance_environment(scope: dict[str, Any], targets: dict[str, Any]) -> str:
+    return _clean_str(scope.get("environment") or targets.get("environment") or "local")
+
+
+def _copied_tenant_validation_valid(value: Any, *, action: str) -> bool:
+    if not isinstance(value, dict):
+        return False
+    return bool(
+        value.get("ok")
+        and value.get("applied")
+        and _clean_str(value.get("environment")) == "copied_tenant"
+        and _clean_str(value.get("action")) == action
+        and _clean_str(value.get("operation_contract")) == "memory.semantic_maintenance_receipt.v1"
+    )
+
+
+def _run_semantic_maintenance(
+    action: str,
+    *,
+    root: str,
+    scope: dict[str, Any],
+    targets: dict[str, Any],
+    decision: dict[str, Any],
+    authority: dict[str, Any],
+    apply: bool,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    from core_memory.runtime.turn.reauthoring import reauthor_memory, retry_pending_semantic
+
+    common = {
+        "root": root,
+        "actor": _clean_str(authority.get("actor")),
+        "environment": _maintenance_environment(scope, targets),
+        "apply": bool(apply),
+        "idempotency_key": idempotency_key,
+        "association_run_inline": _truthy(targets.get("association_run_inline")),
+        "copied_tenant_validation_receipt": dict(decision.get("copied_tenant_validation_receipt") or {}),
+    }
+    if action == "reauthor_memory":
+        out = reauthor_memory(
+            bead_ids=_bead_ids_from_targets(targets),
+            sweep=_truthy(targets.get("sweep")),
+            limit=_int_or_default(targets.get("limit"), 50),
+            include_v1=_truthy(targets.get("include_v1")),
+            thin_only=(True if "thin_only" not in targets else _truthy(targets.get("thin_only"))),
+            revision_type=_clean_str(decision.get("revision_type") or targets.get("revision_type")),
+            **common,
+        )
+    else:
+        out = retry_pending_semantic(
+            session_id=_clean_str(scope.get("session_id") or targets.get("session_id")),
+            turn_id=_clean_str(scope.get("turn_id") or targets.get("turn_id")),
+            sweep=_truthy(targets.get("sweep")),
+            limit=_int_or_default(targets.get("limit"), 50),
+            **common,
+        )
+    out["operation_contract"] = out.get("contract")
+    return out
 
 
 def _association_source_ingest_envelope(targets: dict[str, Any], proposal: dict[str, Any]) -> dict[str, Any]:
@@ -315,13 +397,14 @@ def _validate_action(
     decision: dict[str, Any],
     authority: dict[str, Any],
     idempotency_key: str,
+    apply_requested: bool = False,
 ) -> list[dict[str, str]]:
     errors: list[dict[str, str]] = []
     policy = ACTION_POLICIES.get(action)
     if policy and policy.actor_required and not _clean_str(authority.get("actor")):
         errors.append(_validation_error("authority.actor", "actor_required"))
-    if policy and policy.idempotency_required and not _clean_str(idempotency_key):
-        errors.append(_validation_error("idempotency_key", "idempotency_key_recommended_for_destructive_apply"))
+    if policy and policy.idempotency_required and apply_requested and not _clean_str(idempotency_key):
+        errors.append(_validation_error("idempotency_key", "idempotency_key_required_for_apply"))
 
     if action == "remove_beads":
         if not _bead_ids_from_targets(targets):
@@ -353,12 +436,21 @@ def _validate_action(
         if not _clean_str(targets.get("kind")):
             errors.append(_validation_error("targets.kind", "job_kind_required"))
     elif action == "association_run":
-        if not _bead_ids_from_targets(targets) and not _clean_str(scope.get("session_id") or targets.get("session_id")) and not _truthy(targets.get("sweep")):
+        if (
+            not _bead_ids_from_targets(targets)
+            and not _clean_str(scope.get("session_id") or targets.get("session_id"))
+            and not _truthy(targets.get("sweep"))
+        ):
             errors.append(_validation_error("targets.bead_ids", "bead_ids_session_id_or_sweep_required"))
     elif action == "decide_association_candidate":
         if not _clean_str(targets.get("candidate_id") or decision.get("candidate_id")):
             errors.append(_validation_error("targets.candidate_id", "candidate_id_required"))
-        if _clean_str(decision.get("action") or decision.get("decision") or targets.get("action") or targets.get("decision")).lower() not in ASSOCIATION_CANDIDATE_ACTIONS:
+        if (
+            _clean_str(
+                decision.get("action") or decision.get("decision") or targets.get("action") or targets.get("decision")
+            ).lower()
+            not in ASSOCIATION_CANDIDATE_ACTIONS
+        ):
             errors.append(_validation_error("decision.action", "association_candidate_action_required"))
     elif action == "apply_association_proposals":
         rows = _merge_association_provenance(
@@ -423,8 +515,54 @@ def _validate_action(
         if not _clean_str(decision.get("reason") or proposal.get("reason")):
             errors.append(_validation_error("decision.reason", "reason_required"))
     elif action == "request_re_review":
-        if not _bead_ids_from_targets(targets) and not _clean_str(targets.get("association_id")) and not _clean_str(scope.get("session_id") or targets.get("session_id")):
+        if (
+            not _bead_ids_from_targets(targets)
+            and not _clean_str(targets.get("association_id"))
+            and not _clean_str(scope.get("session_id") or targets.get("session_id"))
+        ):
             errors.append(_validation_error("targets", "bead_ids_association_id_or_session_id_required"))
+    elif action == "reauthor_memory":
+        if not _bead_ids_from_targets(targets) and not _truthy(targets.get("sweep")):
+            errors.append(_validation_error("targets", "bead_ids_or_sweep_required"))
+        revision_type = _clean_str(decision.get("revision_type") or targets.get("revision_type"))
+        if revision_type and revision_type not in {"correction", "reversal"}:
+            errors.append(_validation_error("decision.revision_type", "correction_or_reversal_required"))
+    elif action == "retry_pending_semantic":
+        session_id = _clean_str(scope.get("session_id") or targets.get("session_id"))
+        turn_id = _clean_str(scope.get("turn_id") or targets.get("turn_id"))
+        if not _truthy(targets.get("sweep")) and not (session_id and turn_id):
+            errors.append(_validation_error("targets", "session_and_turn_or_sweep_required"))
+
+    if action in {"reauthor_memory", "retry_pending_semantic"}:
+        environment = _clean_str(scope.get("environment") or targets.get("environment") or "local")
+        configured_environment = _clean_str(os.environ.get("CORE_MEMORY_MAINTENANCE_ENVIRONMENT"))
+        if environment not in {"local", "copied_tenant", "live_tenant"}:
+            errors.append(_validation_error("scope.environment", "maintenance_environment_invalid"))
+        if configured_environment and configured_environment not in {"local", "copied_tenant", "live_tenant"}:
+            errors.append(
+                _validation_error(
+                    "CORE_MEMORY_MAINTENANCE_ENVIRONMENT",
+                    "configured_maintenance_environment_invalid",
+                )
+            )
+        elif configured_environment and configured_environment != environment:
+            errors.append(
+                _validation_error(
+                    "scope.environment",
+                    "maintenance_environment_does_not_match_configured_store",
+                )
+            )
+        if (
+            apply_requested
+            and environment == "live_tenant"
+            and not _copied_tenant_validation_valid(decision.get("copied_tenant_validation_receipt"), action=action)
+        ):
+            errors.append(
+                _validation_error(
+                    "decision.copied_tenant_validation_receipt",
+                    "copied_tenant_validation_required_before_live_apply",
+                )
+            )
     return errors
 
 
@@ -484,7 +622,13 @@ def _validation_failed(action: str, *, authority: dict[str, Any], errors: list[d
     }
 
 
-def _augment(out: dict[str, Any], *, action: str, authority: dict[str, Any], validation_errors: list[dict[str, str]] | None = None) -> dict[str, Any]:
+def _augment(
+    out: dict[str, Any],
+    *,
+    action: str,
+    authority: dict[str, Any],
+    validation_errors: list[dict[str, str]] | None = None,
+) -> dict[str, Any]:
     policy = ACTION_POLICIES.get(action)
     result = dict(out)
     result["contract"] = MAINTAIN_CONTRACT
@@ -713,7 +857,13 @@ def maintain(
         bead_id = _clean_str(targets_d.get("bead_id") or _first(targets_d.get("bead_ids")))
         bead = inspect_bead(root=root_final, bead_id=bead_id)
         if bead is None:
-            return {"ok": False, "contract": MAINTAIN_CONTRACT, "action": action_n, "error": "bead_not_found", "bead_id": bead_id}
+            return {
+                "ok": False,
+                "contract": MAINTAIN_CONTRACT,
+                "action": action_n,
+                "error": "bead_not_found",
+                "bead_id": bead_id,
+            }
         return {"ok": True, "contract": MAINTAIN_CONTRACT, "action": action_n, "bead": bead}
 
     if action_n == "list_pending_approvals":
@@ -727,7 +877,11 @@ def maintain(
     if action_n == "list_dreamer_candidates":
         from core_memory.runtime.dreamer.candidates import list_dreamer_candidates
 
-        out = list_dreamer_candidates(root=root_final, status=_clean_str(targets_d.get("status")) or None, limit=int(targets_d.get("limit") or 100))
+        out = list_dreamer_candidates(
+            root=root_final,
+            status=_clean_str(targets_d.get("status")) or None,
+            limit=int(targets_d.get("limit") or 100),
+        )
         out["contract"] = MAINTAIN_CONTRACT
         out["action"] = action_n
         return out
@@ -782,6 +936,16 @@ def maintain(
         out["action"] = action_n
         return out
 
+    if action_n == "semantic_backfill_report":
+        from core_memory.runtime.turn.reauthoring import semantic_backfill_report
+
+        out = semantic_backfill_report(root_final)
+        out["operation_contract"] = out.get("contract")
+        out["contract"] = MAINTAIN_CONTRACT
+        out["action"] = action_n
+        out["ok"] = True
+        return out
+
     policy = ACTION_POLICIES.get(action_n)
     validation_errors = _validate_action(
         action_n,
@@ -791,8 +955,26 @@ def maintain(
         decision=decision_d,
         authority=authority_d,
         idempotency_key=idempotency_key,
+        apply_requested=apply_requested,
     )
     if policy and not apply_requested:
+        if not validation_errors and action_n in {"reauthor_memory", "retry_pending_semantic"}:
+            out = _run_semantic_maintenance(
+                action_n,
+                root=root_final,
+                scope=scope_d,
+                targets=targets_d,
+                decision=decision_d,
+                authority=authority_d,
+                apply=False,
+                idempotency_key=idempotency_key,
+            )
+            return _augment(
+                out,
+                action=action_n,
+                authority=authority_d,
+                validation_errors=validation_errors,
+            )
         if not validation_errors and action_n == "remove_beads":
             out = remove_beads(
                 root=root_final,
@@ -809,7 +991,9 @@ def maintain(
             out = remove_source(
                 root=root_final,
                 source=_source_payload(targets_d, proposal_d),
-                reason=_clean_str(decision_d.get("reason") or proposal_d.get("reason") or targets_d.get("reason") or "source removed"),
+                reason=_clean_str(
+                    decision_d.get("reason") or proposal_d.get("reason") or targets_d.get("reason") or "source removed"
+                ),
                 actor=_clean_str(authority_d.get("actor")),
                 authority=authority_d,
                 dry_run=True,
@@ -848,6 +1032,19 @@ def maintain(
     if policy and not _authority_ok(policy, authority_d):
         return _authority_denied(action_n, authority=authority_d)
 
+    if action_n in {"reauthor_memory", "retry_pending_semantic"}:
+        out = _run_semantic_maintenance(
+            action_n,
+            root=root_final,
+            scope=scope_d,
+            targets=targets_d,
+            decision=decision_d,
+            authority=authority_d,
+            apply=True,
+            idempotency_key=idempotency_key,
+        )
+        return _augment(out, action=action_n, authority=authority_d)
+
     if action_n == "remove_beads":
         out = remove_beads(
             root=root_final,
@@ -881,7 +1078,9 @@ def maintain(
         out = remove_source(
             root=root_final,
             source=_source_payload(targets_d, proposal_d),
-            reason=_clean_str(decision_d.get("reason") or proposal_d.get("reason") or targets_d.get("reason") or "source removed"),
+            reason=_clean_str(
+                decision_d.get("reason") or proposal_d.get("reason") or targets_d.get("reason") or "source removed"
+            ),
             actor=_clean_str(authority_d.get("actor")),
             authority=authority_d,
             dry_run=bool(dry_run),
@@ -895,7 +1094,12 @@ def maintain(
         from core_memory import request_approval
 
         return _augment(
-            request_approval(root=root_final, bead_id=_clean_str(targets_d.get("bead_id")), requested_by=_clean_str(authority_d.get("actor")), note=_clean_str(decision_d.get("note"))),
+            request_approval(
+                root=root_final,
+                bead_id=_clean_str(targets_d.get("bead_id")),
+                requested_by=_clean_str(authority_d.get("actor")),
+                note=_clean_str(decision_d.get("note")),
+            ),
             action=action_n,
             authority=authority_d,
         )
@@ -904,7 +1108,12 @@ def maintain(
         from core_memory import approve_bead
 
         return _augment(
-            approve_bead(root=root_final, bead_id=_clean_str(targets_d.get("bead_id")), approver=_clean_str(authority_d.get("actor")), note=_clean_str(decision_d.get("note"))),
+            approve_bead(
+                root=root_final,
+                bead_id=_clean_str(targets_d.get("bead_id")),
+                approver=_clean_str(authority_d.get("actor")),
+                note=_clean_str(decision_d.get("note")),
+            ),
             action=action_n,
             authority=authority_d,
         )
@@ -913,7 +1122,12 @@ def maintain(
         from core_memory import reject_bead
 
         return _augment(
-            reject_bead(root=root_final, bead_id=_clean_str(targets_d.get("bead_id")), approver=_clean_str(authority_d.get("actor")), reason=_clean_str(decision_d.get("reason"))),
+            reject_bead(
+                root=root_final,
+                bead_id=_clean_str(targets_d.get("bead_id")),
+                approver=_clean_str(authority_d.get("actor")),
+                reason=_clean_str(decision_d.get("reason")),
+            ),
             action=action_n,
             authority=authority_d,
         )
@@ -921,7 +1135,13 @@ def maintain(
     if action_n == "confirm_memory":
         from core_memory import confirm_bead
 
-        return _augment(confirm_bead(root=root_final, bead_id=_clean_str(targets_d.get("bead_id")), note=_clean_str(decision_d.get("note"))), action=action_n, authority=authority_d)
+        return _augment(
+            confirm_bead(
+                root=root_final, bead_id=_clean_str(targets_d.get("bead_id")), note=_clean_str(decision_d.get("note"))
+            ),
+            action=action_n,
+            authority=authority_d,
+        )
 
     if action_n == "flush_session":
         from core_memory.runtime.engine import process_flush
@@ -949,13 +1169,23 @@ def maintain(
     if action_n == "enqueue_job":
         from core_memory.runtime.queue.jobs import enqueue_async_job
 
-        out = enqueue_async_job(root=root_final, kind=_clean_str(targets_d.get("kind")), event=dict(proposal_d.get("event") or {}), ctx=dict(scope_d.get("ctx") or {}))
+        out = enqueue_async_job(
+            root=root_final,
+            kind=_clean_str(targets_d.get("kind")),
+            event=dict(proposal_d.get("event") or {}),
+            ctx=dict(scope_d.get("ctx") or {}),
+        )
         return _augment(out, action=action_n, authority=authority_d)
 
     if action_n == "run_jobs":
         from core_memory.runtime.queue.jobs import run_async_jobs
 
-        out = run_async_jobs(root=root_final, run_semantic=bool(targets_d.get("run_semantic", True)), max_compaction=int(targets_d.get("max_compaction") or 1), max_side_effects=int(targets_d.get("max_side_effects") or 2))
+        out = run_async_jobs(
+            root=root_final,
+            run_semantic=bool(targets_d.get("run_semantic", True)),
+            max_compaction=int(targets_d.get("max_compaction") or 1),
+            max_side_effects=int(targets_d.get("max_side_effects") or 2),
+        )
         return _augment(out, action=action_n, authority=authority_d)
 
     if action_n == "association_run":
@@ -970,12 +1200,18 @@ def maintain(
             run_inline=_truthy(targets_d.get("run_inline")),
             max_candidates=_int_or_default(targets_d.get("max_candidates"), 40),
             graph_revision=_clean_str(targets_d.get("graph_revision") or proposal_d.get("graph_revision")),
-            prompt_version=_clean_str(targets_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v2"),
-            rubric_version=_clean_str(targets_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v2"),
+            prompt_version=_clean_str(
+                targets_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v2"
+            ),
+            rubric_version=_clean_str(
+                targets_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v2"
+            ),
             sweep=_truthy(targets_d.get("sweep")),
             sweep_mode=_clean_str(targets_d.get("sweep_mode") or proposal_d.get("sweep_mode") or "incomplete"),
             sweep_cursor=_clean_str(targets_d.get("sweep_cursor") or proposal_d.get("sweep_cursor")),
-            sweep_limit=_int_or_default(targets_d.get("sweep_limit"), _int_or_default(targets_d.get("max_candidates"), 40)),
+            sweep_limit=_int_or_default(
+                targets_d.get("sweep_limit"), _int_or_default(targets_d.get("max_candidates"), 40)
+            ),
             source_ingest_envelope=_association_source_ingest_envelope(targets_d, proposal_d),
             source_ingest_envelope_refs=_association_source_ingest_envelope_refs(targets_d, proposal_d),
         )
@@ -987,11 +1223,18 @@ def maintain(
         out = decide_association_candidate(
             root=root_final,
             candidate_id=_clean_str(targets_d.get("candidate_id") or decision_d.get("candidate_id")),
-            action=_clean_str(decision_d.get("action") or decision_d.get("decision") or targets_d.get("action") or targets_d.get("decision")),
+            action=_clean_str(
+                decision_d.get("action")
+                or decision_d.get("decision")
+                or targets_d.get("action")
+                or targets_d.get("decision")
+            ),
             run_id=_clean_str(targets_d.get("run_id") or decision_d.get("run_id")),
             session_id=_clean_str(scope_d.get("session_id") or targets_d.get("session_id")) or None,
             reviewer=_clean_str(authority_d.get("actor") or decision_d.get("reviewer")),
-            reason_text=_clean_str(decision_d.get("reason_text") or decision_d.get("reason") or proposal_d.get("reason")),
+            reason_text=_clean_str(
+                decision_d.get("reason_text") or decision_d.get("reason") or proposal_d.get("reason")
+            ),
             truth_basis=_clean_str(decision_d.get("truth_basis") or proposal_d.get("truth_basis")),
             confidence=decision_d.get("confidence"),
             relationship=_clean_str(decision_d.get("relationship") or targets_d.get("relationship")),
@@ -1001,8 +1244,12 @@ def maintain(
             evidence_refs=list(decision_d.get("evidence_refs") or proposal_d.get("evidence_refs") or []),
             evidence_bead_ids=list(decision_d.get("evidence_bead_ids") or proposal_d.get("evidence_bead_ids") or []),
             judge_model=_clean_str(decision_d.get("judge_model") or proposal_d.get("judge_model")),
-            prompt_version=_clean_str(decision_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v2"),
-            rubric_version=_clean_str(decision_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v2"),
+            prompt_version=_clean_str(
+                decision_d.get("prompt_version") or proposal_d.get("prompt_version") or "association_judge.v2"
+            ),
+            rubric_version=_clean_str(
+                decision_d.get("rubric_version") or proposal_d.get("rubric_version") or "association_truth.v2"
+            ),
         )
         return _augment(out, action=action_n, authority=authority_d)
 
@@ -1078,7 +1325,8 @@ def maintain(
             entry_key=_clean_str(proposal_d.get("entry_key") or targets_d.get("entry_key")),
             content=_clean_str(proposal_d.get("content")),
             op=_clean_str(proposal_d.get("op") or "upsert"),
-            subject=_clean_str(proposal_d.get("subject") or targets_d.get("subject") or scope_d.get("soul_subject")) or "self",
+            subject=_clean_str(proposal_d.get("subject") or targets_d.get("subject") or scope_d.get("soul_subject"))
+            or "self",
             source=_clean_str(proposal_d.get("source") or "agent"),
             epistemic_status=_clean_str(proposal_d.get("epistemic_status") or "inferred"),
             reason=_clean_str(proposal_d.get("reason") or decision_d.get("reason")),
@@ -1125,7 +1373,9 @@ def maintain(
             out = correct_memory_for_store(
                 store,
                 bead_id=_clean_str(targets_d.get("bead_id") or _first(targets_d.get("bead_ids"))),
-                correction=_clean_str(proposal_d.get("correction") or proposal_d.get("content") or decision_d.get("correction")),
+                correction=_clean_str(
+                    proposal_d.get("correction") or proposal_d.get("content") or decision_d.get("correction")
+                ),
                 actor=_clean_str(authority_d.get("actor")),
                 reason=_clean_str(decision_d.get("reason") or proposal_d.get("reason")),
                 title=_clean_str(proposal_d.get("title")),

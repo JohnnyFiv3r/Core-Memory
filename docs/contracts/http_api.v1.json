@@ -240,11 +240,21 @@
     },
     {
       "method": "POST",
+      "path": "/v1/memory/hygiene/seed-backfill",
+      "authRequired": "conditional",
+      "requestSchema": "SeedBackfillRequest",
+      "requiredFields": [],
+      "notes": ["Deprecated read-only compatibility census for legacy entity/thin-bead quality.", "apply=true is rejected with seed_quality_backfill_apply_retired because the former direct rewrite and auto-apply behavior violated append-only agent-led semantic authority.", "Use maintain action reauthor_memory: preview locally, apply to a copied tenant, then pass that successful receipt for live-tenant apply."],
+      "response": {"ok": "bool", "applied": "false", "deprecated": "true", "replacement": "string", "entities": "object", "enrichment": "object"},
+      "errors": ["400 seed_quality_backfill_apply_retired", "400 index_missing", "401 unauthorized", "400 invalid_tenant_id"]
+    },
+    {
+      "method": "POST",
       "path": "/v1/memory/maintain",
       "authRequired": "conditional",
       "requestSchema": "MaintainRequest",
       "requiredFields": ["action"],
-      "notes": ["Unified governed facade for agent control-plane management. Supports remove_beads, tombstone_bead (single-bead semantic wrapper over remove_beads that retires one mistaken bead while preserving the bead_removed tombstone), remove_source, approval actions, queue ops, session lifecycle, association dispatch, Dreamer/entity proposal actions, SOUL revision actions, Myelination status/refresh, and correction actions.", "Destructive or mutating actions preview by default unless apply=true and dry_run=false. Dry-run previews run the same schema/authority preflight and return required_authority, authority_ok, and validation_errors.", "apply_association_proposals requires append_judged_association authority and judge provenance. Dreamer decisions route through candidate APIs; SOUL actions route through the structured revision store."],
+      "notes": ["Unified governed facade for agent control-plane management. Supports remove_beads, tombstone_bead (single-bead semantic wrapper over remove_beads that retires one mistaken bead while preserving the bead_removed tombstone), remove_source, approval actions, queue ops, session lifecycle, association dispatch, Dreamer/entity proposal actions, SOUL revision actions, Myelination status/refresh, correction actions, reauthor_memory, retry_pending_semantic, and semantic_backfill_report.", "Destructive or mutating actions preview by default unless apply=true and dry_run=false. Dry-run previews run the same schema/authority preflight and return required_authority, authority_ok, and validation_errors.", "reauthor_memory appends attributed interpretation/revision beads without mutating source beads. retry_pending_semantic authors the canonical bead from the preserved finalized turn. Both use the full delegated agent_authored_updates.v1 task, require authority.actor plus admin_repair or action-specific authority, and require idempotency_key on apply.", "Hosted stores configure CORE_MEMORY_MAINTENANCE_ENVIRONMENT as copied_tenant or live_tenant; request scope must match. Live semantic maintenance also requires a successful copied-tenant apply receipt for the exact same plan in decision.copied_tenant_validation_receipt. Association coverage begins only after semantic commitment. semantic_backfill_report separates legacy, v1-authored, and backfilled cohorts.", "apply_association_proposals requires append_judged_association authority and judge provenance. Dreamer decisions route through candidate APIs; SOUL actions route through the structured revision store."],
       "response": {"ok": "bool", "contract": "core_memory.maintain.v1", "action": "string", "status": "string?", "applied": "bool?", "required_authority": "array?", "authority_ok": "bool?", "validation_errors": "array?"},
       "errors": ["400 unsupported_maintain_action", "400 maintain_action_required", "400 maintain_authority_required", "400 maintain_validation_failed", "401 unauthorized", "400 invalid_tenant_id"]
     },

@@ -131,6 +131,28 @@ flat legacy source payloads treat only strong identifiers as selectors.
 Supplying an `idempotency_key` on destructive applies enables replay/conflict
 protection.
 
+Use `reauthor_memory` to append a richer interpretation of existing thin beads;
+the source bead is immutable, and the new canonical maintenance bead records
+its source reference, delegated task receipt, contract version, operator, and
+timestamp. Supply `targets.bead_ids` or an explicitly bounded
+`targets.sweep=true`. Use `retry_pending_semantic` with a session/turn pair or a
+bounded sweep to author the missing canonical bead from the preserved finalized
+turn. Both actions use the full `agent_authored_updates.v1` delegated author,
+require `admin_repair` (or their action-specific authority), and require an
+`idempotency_key` on apply. Association coverage is scheduled only after the
+canonical semantic write commits. `semantic_backfill_report` is read-only and
+keeps legacy, v1-authored, and backfilled richness/causal metrics separate.
+
+For hosted stores, first apply the exact action to a copied tenant with
+`scope.environment="copied_tenant"`. A live apply must use
+`scope.environment="live_tenant"` and pass the successful copied result as
+`decision.copied_tenant_validation_receipt`; Core Memory rejects live mutation
+without that proof. Configure each hosted store with
+`CORE_MEMORY_MAINTENANCE_ENVIRONMENT=copied_tenant|live_tenant`; request scope
+must match the configured value. The retired
+`/v1/memory/hygiene/seed-backfill` route remains a read-only census during its
+compatibility window and directs apply callers to `reauthor_memory`.
+
 Layer-aware actions are intentionally narrow: use `myelination_status` and
 `refresh_myelination` for Myelination; `list_dreamer_candidates` and
 `decide_dreamer_candidate` for Dreamer decisions; `propose_soul_update`,
