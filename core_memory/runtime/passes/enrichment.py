@@ -185,7 +185,8 @@ def run_turn_enrichment(
         }
 
     session_visible = _session_visible_bead_ids(root=root, session_id=session_id)
-    visible_ids = sorted(set(crawler_visible + session_visible))
+    window_visible = [str(value) for value in (payload.get("window_bead_ids") or []) if str(value).strip()]
+    visible_ids = sorted(set(crawler_visible + session_visible + window_visible))
 
     # Stage 1: association pass
     try:
@@ -235,7 +236,7 @@ def run_turn_enrichment(
 
     # Refresh visible IDs after association pass
     session_visible = _session_visible_bead_ids(root=root, session_id=session_id)
-    visible_ids = sorted(set(crawler_visible + session_visible))
+    visible_ids = sorted(set(crawler_visible + session_visible + window_visible))
 
     # Stage 2: claim extraction
     claim_telemetry: dict[str, Any] = {}

@@ -64,7 +64,7 @@ against code and `docs/status.md`.
 | File | Topic | Status |
 |---|---|---|
 | `graph-geometry-dynamics.md` | Graph Geometry Dynamics — health, energy, and cone-bounded retrieval | **Draft v1** |
-| `agent-led-semantic-write-integrity.md` | Agent-led semantic authorship, lossless multi-memory turn writes, delegated hosted authorship, truthful receipts, and causal judgment | **Partially implemented — Slices 1–6 implemented; governed reauthoring/backfill Slice 7 remains** |
+| `agent-led-semantic-write-integrity.md` | Agent-led semantic authorship, lossless multi-memory turn writes, delegated hosted authorship, truthful receipts, governed reauthoring, and causal judgment | **Engine implementation complete — hosted copied/live rollout pending** |
 | `recall-effort-tiers-and-traversal.md` | Recall effort tiers and relevance-aware causal traversal | **Draft v1** |
 | `recoverability.md` | Recoverability — no single point of knowledge failure | **Draft v1** |
 | `relational-constraint-rules.md` | Relational constraint rules for memory-graph writes | **Draft v1** |

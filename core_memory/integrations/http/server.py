@@ -361,8 +361,8 @@ class MaintainRequest(BaseModel):
     idempotency_key: str = ""
 
 
-# SEED_BACKFILL_ONESHOT BEGIN — remove this request model after the one-shot
-# store cleanup (docs/deployment/seed-quality-backfill-runbook.md#removal).
+# Deprecated read-only seed-quality census request. Historical apply knobs are
+# accepted only so the route can return explicit migration guidance.
 class SeedBackfillRequest(BaseModel):
     root: Optional[str] = None
     apply: bool = False
@@ -370,7 +370,6 @@ class SeedBackfillRequest(BaseModel):
     max_storylines: int = 12
     max_goals: int = 5
     reviewer: str = "seed_backfill"
-# SEED_BACKFILL_ONESHOT END
 
 
 class MemoryTraceRequest(BaseModel):
@@ -1067,8 +1066,7 @@ async def memory_remove_source(
     return out
 
 
-# SEED_BACKFILL_ONESHOT BEGIN — remove this route after the one-shot store
-# cleanup (docs/deployment/seed-quality-backfill-runbook.md#removal).
+# Compatibility census for the retired mutating seed-backfill operation.
 @app.post("/v1/memory/hygiene/seed-backfill")
 async def memory_seed_backfill(
     payload: SeedBackfillRequest,
@@ -1076,9 +1074,11 @@ async def memory_seed_backfill(
     x_memory_token: Optional[str] = Header(default=None),
     x_tenant_id: Optional[str] = Header(default=None),
 ):
-    """One-shot operator pass: clean junk entities, re-author thin beads, and
-    seed named storylines/goals from the store's existing data. Dry-run by
-    default; ``apply=true`` snapshots index.json before writing."""
+    """Read-only legacy quality census.
+
+    ``apply=true`` is rejected with migration guidance to the governed,
+    append-only ``reauthor_memory`` maintenance action.
+    """
     _check_auth(authorization, x_memory_token)
     from core_memory.runtime.hygiene.seed_backfill import run_seed_quality_backfill
 
@@ -1093,7 +1093,6 @@ async def memory_seed_backfill(
     if not out.get("ok"):
         return JSONResponse(status_code=400, content=out)
     return out
-# SEED_BACKFILL_ONESHOT END
 
 
 @app.post("/v1/memory/maintain")

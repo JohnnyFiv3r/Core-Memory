@@ -170,6 +170,34 @@ def get_semantic_write_state(root: str | Path, session_id: str, turn_id: str) ->
     return dict(row) if isinstance(row, dict) else None
 
 
+def list_semantic_write_states(
+    root: str | Path,
+    *,
+    statuses: set[str] | frozenset[str] | None = None,
+) -> list[dict[str, Any]]:
+    """Return current semantic-write rows without exposing the state file.
+
+    Maintenance and observability callers need the current row for every turn,
+    while append-only lifecycle history remains an implementation detail of
+    this module.  Results are ordered oldest-pending first so bounded repair
+    batches naturally address the longest-lived gaps.
+    """
+
+    allowed = {str(value).strip().lower() for value in (statuses or set()) if str(value).strip()}
+    payload = _read_state_unlocked(_state_file(root))
+    rows = [dict(row) for row in (payload.get("records") or {}).values() if isinstance(row, dict)]
+    if allowed:
+        rows = [row for row in rows if str(row.get("status") or "").strip().lower() in allowed]
+    rows.sort(
+        key=lambda row: (
+            str(row.get("pending_since") or row.get("status_since") or row.get("updated_at") or ""),
+            str(row.get("session_id") or ""),
+            str(row.get("turn_id") or ""),
+        )
+    )
+    return rows
+
+
 def semantic_write_health(root: str | Path, *, now: datetime | None = None) -> dict[str, Any]:
     """Return pending semantic count and age metrics for doctor and hosts."""
 
@@ -350,6 +378,7 @@ __all__ = [
     "get_semantic_flush_waiver",
     "get_semantic_write_state",
     "latest_finalized_turn",
+    "list_semantic_write_states",
     "mark_semantic_write_state",
     "record_semantic_flush_waiver",
     "semantic_write_health",

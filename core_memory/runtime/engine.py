@@ -591,6 +591,7 @@ def process_turn_finalized(
     authoring_mode: AuthoringMode | None = None,
     metadata: dict[str, Any] | None = None,
     policy: SidecarPolicy | None = None,
+    _authorship_provenance: dict[str, Any] | None = None,
     **legacy_kwargs: Any,
 ) -> dict[str, Any]:
     """Canonical adapter `on_turn_end` boundary.
@@ -616,6 +617,7 @@ def process_turn_finalized(
         crawler_updates=crawler_updates,
         authoring_mode=authoring_mode,
         metadata=metadata,
+        trusted_authorship_provenance=_authorship_provenance,
         policy=policy,
         normalize_turn_request=_normalize_turn_request,
         mark_turn_checkpoint=mark_turn_checkpoint,

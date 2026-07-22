@@ -1,6 +1,6 @@
 # PRD: Agent-Led Semantic Write Integrity
 
-**Status:** Partially implemented — Slice 1 shipped in #404; Slices 2–7 remain planned
+**Status:** Implementation complete — copied/live hosted rollout pending
 
 **Date:** 2026-07-10
 
@@ -891,6 +891,11 @@ relationships, and the judge is never asked to infer them without the evidence
 fields required to do so.
 
 ### Slice 7 — Governed reauthoring and hosted-deployment backfill
+
+**Implementation status:** Engine implementation complete; hosted copied-tenant
+and live-tenant execution remains an operator rollout step. The governed maintenance surface is
+dry-run-first, copied-tenant-gated for live apply, append-only for legacy source
+beads and evidence anchors, and cohort-aware in its receipts and report.
 
 1. Add dry-run-first `reauthor_memory` and `retry_pending_semantic` governed
    maintenance actions using the full delegated authoring task.
