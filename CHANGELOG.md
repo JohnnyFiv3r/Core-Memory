@@ -2,7 +2,17 @@
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-07-22
+
 ### Changed
+- Completed the agent-led semantic write integrity rollout: schema-owned full
+  authorship, bounded derived turn memories, truthful semantic receipts and
+  pending state, hard-mode degradation, advisory-only deterministic semantics,
+  relationship-neutral causal candidates, and governed append-only reauthoring.
+- Added copied-tenant-first `reauthor_memory`, `retry_pending_semantic`, and
+  cohort-separated `semantic_backfill_report` maintenance actions.
+- Assigned the narrow `1.1.1` compatibility window and `1.2.0`/`2.0.0`
+  removal versions in `docs/compatibility_ledger.md`.
 - Added Recall v2 wire compatibility for product-facing `instant` and `trace`
   effort aliases and explicit source hydration. Stable `RecallResult` responses
   now expose cited section-to-chunk records under `hydration.data` without

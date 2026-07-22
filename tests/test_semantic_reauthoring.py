@@ -303,7 +303,14 @@ def test_retry_pending_semantic_uses_preserved_turn_and_commits_canonical_bead()
 
 
 def test_live_apply_requires_successful_copied_tenant_receipt() -> None:
-    with tempfile.TemporaryDirectory() as root:
+    with (
+        tempfile.TemporaryDirectory() as root,
+        patch.dict(
+            "os.environ",
+            {"CORE_MEMORY_MAINTENANCE_ENVIRONMENT": "live_tenant"},
+            clear=False,
+        ),
+    ):
         source_id = MemoryStore(root=root).add_bead(
             type="context",
             title="Legacy source has enough grounding to inspect",
@@ -333,7 +340,14 @@ def test_live_apply_requires_successful_copied_tenant_receipt() -> None:
 
 
 def test_live_apply_rejects_a_copied_receipt_for_a_different_plan() -> None:
-    with tempfile.TemporaryDirectory() as root:
+    with (
+        tempfile.TemporaryDirectory() as root,
+        patch.dict(
+            "os.environ",
+            {"CORE_MEMORY_MAINTENANCE_ENVIRONMENT": "live_tenant"},
+            clear=False,
+        ),
+    ):
         source_id = MemoryStore(root=root).add_bead(
             type="context",
             title="Legacy source has enough grounding to inspect",
@@ -398,6 +412,37 @@ def test_hosted_environment_configuration_prevents_live_store_mislabeling() -> N
     assert {
         "field": "scope.environment",
         "code": "maintenance_environment_does_not_match_configured_store",
+    } in out["validation_errors"]
+
+
+def test_nonlocal_maintenance_requires_an_explicit_store_environment_binding() -> None:
+    with (
+        tempfile.TemporaryDirectory() as root,
+        patch.dict("os.environ", {}, clear=True),
+    ):
+        source_id = MemoryStore(root=root).add_bead(
+            type="context",
+            title="Legacy source has enough grounding to inspect",
+            summary=["A non-local store role must be configured before maintenance can run."],
+            session_id="legacy-session",
+            source_turn_ids=["legacy-turn"],
+        )
+        out = maintain(
+            root=root,
+            action="reauthor_memory",
+            scope={"environment": "copied_tenant"},
+            targets={"bead_ids": [source_id]},
+            authority=_authority(),
+            dry_run=False,
+            apply=True,
+            idempotency_key="unbound-copied-store",
+        )
+
+    assert out["ok"] is False
+    assert out["status"] == "validation_failed"
+    assert {
+        "field": "CORE_MEMORY_MAINTENANCE_ENVIRONMENT",
+        "code": "configured_maintenance_environment_required",
     } in out["validation_errors"]
 
 
