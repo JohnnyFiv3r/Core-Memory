@@ -10,8 +10,9 @@ never rewritten.
 - The tenant is backed up or copied using the host's normal storage procedure.
 - Hosted copied and live deployments set
   `CORE_MEMORY_MAINTENANCE_ENVIRONMENT=copied_tenant` or `live_tenant`
-  respectively. Core Memory rejects a request environment that does not match
-  the configured store, preventing a live root from being mislabeled as a copy.
+  respectively. Core Memory rejects non-local maintenance when this binding is
+  absent and rejects a request environment that does not match the configured
+  store, preventing a live root from being mislabeled as a copy.
 - A delegated `turn_memory_authoring` runtime is configured and can return the
   full `agent_authored_updates.v1` contract.
 - The operator has `admin_repair`, `reauthor_memory`, or

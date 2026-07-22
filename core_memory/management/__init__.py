@@ -545,6 +545,13 @@ def _validate_action(
                     "configured_maintenance_environment_invalid",
                 )
             )
+        elif environment in {"copied_tenant", "live_tenant"} and not configured_environment:
+            errors.append(
+                _validation_error(
+                    "CORE_MEMORY_MAINTENANCE_ENVIRONMENT",
+                    "configured_maintenance_environment_required",
+                )
+            )
         elif configured_environment and configured_environment != environment:
             errors.append(
                 _validation_error(

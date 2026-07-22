@@ -2,6 +2,28 @@
 
 **Status:** Slices 1–7 implemented; hosted copied/live backfill run pending
 
+**Release:** `1.1.1`
+
+## Compatibility schedule
+
+`1.1.1` is the single published compatibility window for the narrow rollout
+aliases below. The following cutovers are assigned to `1.2.0`, after their
+ledger gates pass:
+
+- reject `core-memory graph backfill-causal-links --apply` with migration
+  guidance;
+- remove the read-only `/v1/memory/hygiene/seed-backfill` route and its retired
+  implementation module;
+- stop accepting `metadata.crawler_updates` and `bead_judge=llm` as authoring
+  aliases;
+- stop reading association candidate/judge v1 records after the persisted-store
+  audit and migration/review gate are complete.
+
+The event-only `emit_turn_finalized(...)` facade and explicit
+`warn`/`off` plus legacy `enforce`/`observe` mode names have broader integration
+impact. They remain until `2.0.0`; callers must migrate to
+`write_turn_finalized(...)` and `hard` mode before that major release.
+
 The rollout defined by
 `docs/PRD/agent-led-semantic-write-integrity.md` changes the canonical semantic
 write path from deterministic-fallback-first behavior to typed inline or
@@ -67,5 +89,5 @@ delegated agent authorship.
   to the copied-tenant-first `reauthor_memory` workflow; direct bead rewrites
   and automatic Dreamer acceptance are no longer available.
 
-Version numbers and exact compatibility-removal dates remain release-management
-inputs and must be filled in when the next package release is cut.
+These version assignments are normative. A removal may move later if its ledger
+gate is incomplete, but it must not ship earlier than the assigned version.
