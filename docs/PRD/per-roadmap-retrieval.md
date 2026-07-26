@@ -6,16 +6,16 @@ Status: Draft v1
 
 Audience: Core Memory-native implementation agent
 
-Source: ported from [Satorid PR #320](https://github.com/JohnnyFiv3r/satorid-ai/pull/320),
-which grounds the PALMER paper against Satorid's goals, storylines, and causal
-retrieval work. This Core Memory copy is the engine-side contract.
+Source: adapted from host-application research grounding the PALMER paper
+against goals, storylines, and causal retrieval work. This document is the
+engine-side contract.
 
 Related docs:
 
-- [Causal root-cause retrieval PRD](https://github.com/JohnnyFiv3r/satorid-ai/blob/e648f23bf5f3fb29a65682b8f161e26b7ded3c21/docs/core-memory-causal-root-cause-retrieval-prd.md) — **supersedes nothing; this PRD reconciles with its Algorithm 1 and Algorithm 2**
-- [PALMER grounding and operationalization](https://github.com/JohnnyFiv3r/satorid-ai/blob/e648f23bf5f3fb29a65682b8f161e26b7ded3c21/docs/satorid-palmer-paper-grounding-and-operationalization.md) — source grounding, gap analysis, and completeness review
-- [Confidence, backpressure, and myelination PRD](https://github.com/JohnnyFiv3r/satorid-ai/blob/e648f23bf5f3fb29a65682b8f161e26b7ded3c21/docs/satorid-confidence-backpressure-myelination-prd.md) — `effective_confidence` and the two-tier reward
-- [Bead, storyline, goal, and root-cause PRD](https://github.com/JohnnyFiv3r/satorid-ai/blob/e648f23bf5f3fb29a65682b8f161e26b7ded3c21/docs/satorid-bead-storyline-goal-quality-root-cause.md) — bead → worldline → storyline → goal derivation and the Dreamer convergence detector
+- [Causal continuity evaluation framework](../eval/causal-continuity-eval-framework.md) — grounded causal retrieval acceptance
+- [Storyline narrative and projection](storyline-narrative-and-projection.md) — storyline construction and projections
+- [Confidence classes](../confidence_class.md) — governed confidence semantics
+- [Immutable causal edge contract](../archive/history/immutable_causal_edge_contract_and_plan.md) — causal edge provenance and mutation rules
 
 ## Executive Summary
 
@@ -111,8 +111,8 @@ applies:
   **temporally adjacent beads within a single worldline backbone**. That
   distribution defines what "one step" means in this corpus.
 - Entity-support and ubiquity bounds: derive from the observed support
-  distribution rather than the constants Satorid currently hard-codes
-  (`MIN_WORLDLINE_SUPPORT = 2`, ubiquity `> 0.6` — `apps/web/src/lib/manifold/entity-quality.ts:147-158`).
+  distribution rather than deployment-specific fixed thresholds such as a
+  minimum worldline support of 2 or ubiquity above 0.6.
 
 Record the derived values in response metadata. A corpus that grows should move
 its own thresholds.
@@ -241,10 +241,10 @@ query-time fallback rather than silently discarding a temporal or source-scope
 alternative.
 
 **Vertex sampling.** PALMER samples vertices by visitation count. Our analogue is
-junction support × label quality — the curation scores Satorid already computes
-in `storyline-curation.ts` / `entity-quality.ts`. Claim slots with recurring
-observations and curated entity worldlines are high-value vertices; ubiquitous
-background entities are not. Goal beads are always vertices.
+junction support × label quality, using curation scores supplied by the host
+application. Claim slots with recurring observations and curated entity
+worldlines are high-value vertices; ubiquitous background entities are not.
+Goal beads are always vertices.
 
 **Directionality — divergence from classic PRM.** Junction *membership* is
 symmetric (two beads either occupy the same identity or do not), but segments and
@@ -483,7 +483,7 @@ answer.**
 | 3 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
 | 4 | Query-time planning, source-scope filtering, dynamic cost hydration, stitching, seam marking, goal conditioning | Phase 3 |
 | 5 | Watershed attribution over the roadmap | Phase 3 |
-| 6 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 4 + Satorid feedback surface |
+| 6 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 4 + host feedback surface |
 
 **Gate before Phase 2.** Phase 1 produces a junction-density diagnostic:
 distribution of `|N(a)|` across the corpus, counted claims-first. If most
