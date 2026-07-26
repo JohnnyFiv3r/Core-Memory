@@ -146,20 +146,69 @@ def segment_between(
     ...
 ```
 
+Roadmap construction needs the plural form of this primitive; wrapping the
+single best result is not sufficient:
+
+```python
+def segment_frontier_between(
+    root: Path,
+    anchor_a: str,
+    anchor_b: str,
+    *,
+    max_len: int = 6,
+    direction: str = "upstream",
+    relation_families: list[str] | None = None,
+    max_expansions: int = 5_000,
+    max_partitions: int = 32,
+    max_results_per_partition: int = 2,
+) -> dict:
+    """
+    {
+      "segments": [...],             # bounded nondominated alternatives
+      "complete": bool,              # queue exhausted inside the declared bounds
+      "termination_reason": str,     # exhausted | expansion_cap | partition_cap
+                                     # | result_cap | memory_pressure
+      "expansions": int,
+      "partitions_seen": int,
+    }
+    """
+```
+
+This is a multi-result mode on the same parameterized best-first search, not a
+loop around `segment_between`. It continues after reaching a terminal, assigns
+each observed terminal chain to its dynamic-cost partition (claim refs,
+temporal coverage, source footprint, contradiction refs, and evidence refs), and
+maintains a bounded Pareto set inside each partition. Paths are simple (no
+repeated bead id) and `max_len` is finite, so exhausting the queue terminates and
+is complete over the declared direction, relation families, and length cap.
+
+`complete: true` is permitted only when the queue is exhausted. Hitting
+`max_expansions`, `max_partitions`, or memory pressure while unexpanded states
+remain returns `complete: false` with the corresponding termination reason. A
+result cap that discards a nondominated terminal also returns `complete: false`,
+even if the queue later exhausts. Roadmap construction must not cache that
+partial frontier: it records the omission and leaves the pair to query-time
+fallback. The public
+singular `segment_between` may still stop at the first optimal terminal for a
+fully specified temporal/source context; only
+`segment_frontier_between` satisfies the roadmap-build contract.
+
 #### Reconciliation with root-cause PRD Algorithm 1 — build once
 
 Algorithm 1 (`docs/core-memory-causal-root-cause-retrieval-prd.md:884-925`) is
 already this search minus a terminal condition. The deltas:
 
-| | Algorithm 1 today | `segment_between` |
-|---|---|---|
-| Termination | `max_depth` or no parents | **terminal set** `N(b)` reached |
-| Length | `max_depth` | `max_len` cap (segments are short) |
-| Semantic drag | per hop | **off** — segments are query-independent and cacheable |
-| Result | many ranked paths | single best chain, or null |
+| | Algorithm 1 today | `segment_between` | `segment_frontier_between` |
+|---|---|---|---|
+| Termination | `max_depth` or no parents | First optimal terminal in `N(b)` | Queue exhaustion or explicit incomplete cap |
+| Length | `max_depth` | `max_len` cap (segments are short) | Same `max_len` cap |
+| Semantic drag | per hop | **off** — segments are query-independent and cacheable | **off** |
+| Result | many ranked paths | Single best chain, or null | Nondominated partitioned frontier + completeness receipt |
 
 **Requirement: implement one parameterized best-first search** with
-`terminal_set`, `length_cap`, and `drag_enabled` parameters. With
+`terminal_set`, `length_cap`, `drag_enabled`, and `result_mode=best|frontier`
+parameters. Frontier mode must continue after a terminal and return the
+completeness receipt above. With
 `terminal_set=None, drag_enabled=True` it must reproduce Algorithm 1's current
 behaviour exactly; that equivalence is a test, not a hope. Root-cause PRD Phase 2
 and this section are one work item. Building them separately is the single
@@ -176,7 +225,9 @@ R(τ₁ ∘ τ₂) = R(τ₁) + R(τ₂)
 ```
 
 so use `confidence_penalty = −log(clamp(confidence, 0.001, 1.0))`. All other
-`edge_cost` components are already additive and non-negative; preserve that.
+`edge_cost` penalties and bonuses remain additive. After combining them, apply
+the inherited floor to each edge before summing the path; §5 makes this ordering
+explicit.
 
 Non-additive path diagnostics — minimum semantic relevance, cold-hop counts,
 claim-state summaries, `historical_confidence` / `current_truth_confidence` as
@@ -192,31 +243,43 @@ maintenance cadence, read at query time, never recomputed inline.
 Construction (PALMER R-PRM Algorithm 1 with our nouns):
 
 ```python
+def edge_cost_row(edge):
+    return {
+        "edge_id": edge["edge_id"],
+        "cached_components": {
+            "structural": edge["cost"]["structural"],
+            "confidence": edge["cost"]["confidence"],
+            "myelination": edge["cost"]["myelination"],
+            "evidence": edge["cost"]["evidence"],
+            "validation": edge["cost"]["validation"],
+        },
+        "dynamic_refs": {
+            "source_ids": edge["source_ids"],
+            "claim_refs": edge["claim_refs"],
+            "temporal_refs": edge["temporal_refs"],
+            "contradiction_refs": edge["contradiction_refs"],
+            "evidence_refs": edge["evidence_refs"],
+        },
+    }
+
 def build_junction_roadmap(root, *, max_vertices, radius):
     V = sample_junction_identities(root, max_vertices)   # see sampling below
     E = {}
     for a in V:
         for b in near(V, a, radius):
             alternatives = []
-            for seg in segments_between(root, a, b, max_len=CAP):
+            result = segment_frontier_between(root, a, b, max_len=CAP)
+            if not result["complete"]:
+                record_omitted_pair(a, b, result["termination_reason"])
+                continue
+            for seg in result["segments"]:
                 candidate = {
                     "segment_id": seg["segment_id"],
                     "segment": seg["bead_ids"],
                     "edges": seg["edges"],
-                    "cost_components": {
-                        "structural": seg["cost"]["structural"],
-                        "confidence": seg["cost"]["confidence"],
-                        "myelination": seg["cost"]["myelination"],
-                        "evidence": seg["cost"]["evidence"],
-                        "validation": seg["cost"]["validation"],
-                    },
-                    "dynamic_cost_refs": {
-                        "source_ids": seg["source_ids"],
-                        "claim_refs": seg["claim_refs"],
-                        "temporal_refs": seg["temporal_refs"],
-                        "contradiction_refs": seg["contradiction_refs"],
-                        "evidence_refs": seg["evidence_refs"],
-                    },
+                    "edge_cost_rows": [
+                        edge_cost_row(edge) for edge in seg["edges"]
+                    ],
                 }
                 alternatives = pareto_insert(alternatives, candidate)
             if alternatives:
@@ -226,10 +289,11 @@ def build_junction_roadmap(root, *, max_vertices, radius):
 
 `E[(a, b)]` is therefore an **alternative set**, not a single transition. The
 builder must enumerate observed chains and retain a bounded nondominated
-frontier. Partition candidates by claim-ref signature, temporal coverage, and
-source footprint before Pareto pruning; candidates from different partitions
-must not dominate one another. Within a partition, dominance compares the full
-cached component vector and evidence/validation quality. This preserves, for
+frontier. Partition candidates by the complete dynamic-cost signature: claim
+refs, temporal coverage, source footprint, contradiction refs, and evidence
+refs. Candidates from different partitions must not dominate one another.
+Within a partition, dominance compares the per-edge cached component rows and
+evidence/validation quality. This preserves, for
 example, both a superseded chain that is valid historically and an active chain
 that is valid for current truth until `temporal_frame` is known. It also
 preserves a path supported by a narrower source set when a cheaper alternative
@@ -255,14 +319,14 @@ cause→effect toward the anchor, per the root-cause PRD's direction table
 (`:547-561`). Splicing a downstream segment into an upstream path merely because
 the two share a junction bead is a defect class; test it explicitly.
 
-**Store a complete component ledger, not a partial scalar.** Claim state,
+**Store a complete per-edge component ledger, not a segment scalar.** Claim state,
 temporal interpretation, and source accessibility are time-, frame-, or
 caller-dependent. Baking them into `base_cost` at build time makes the cache
-wrong for historical or permission-scoped queries. Each alternative stores the
-full query-independent cost breakdown plus the refs and raw inputs needed to
-compute every dynamic component. A scalar `base_cost` may be stored as a
-convenience checksum, but it must equal the sum of the cached components and
-must never replace the ledger.
+wrong for historical or permission-scoped queries. Each `edge_cost_row` stores
+the edge id, its cached structural/confidence/myelination/evidence/validation
+components, and the source/claim/temporal/contradiction/evidence refs needed to
+compute dynamic components. A segment subtotal may be emitted as diagnostic
+metadata, but it is never canonical input to path ranking.
 
 ### 5. Query time: cached versus query-dependent cost
 
@@ -270,21 +334,36 @@ Query cost = two vertex insertions + shortest path. Not graph-wide traversal.
 
 | Component | When | Why |
 |---|---|---|
-| Structural cost | **Cached** per segment | Query-independent |
-| Confidence penalty | **Cached** per segment | Uses additive `−log(confidence)` |
-| Myelination cost | **Cached** per segment | Query-independent at roadmap build |
-| Evidence and validation cost | **Cached** per segment | Query-independent at roadmap build |
-| Temporal and contradiction cost | **Query time** | Hydrated from refs for the selected frame |
-| Permission/evidence-gap cost | **Query time, after source filtering** | Depends on caller-visible evidence |
+| Structural cost | **Cached** per edge | Query-independent |
+| Confidence penalty | **Cached** per edge | Uses additive `−log(confidence)` |
+| Myelination term | **Cached** per edge | Query-independent at roadmap build |
+| Evidence and validation terms | **Cached** per edge | Query-independent at roadmap build; may include bonuses |
+| Temporal and contradiction terms | **Query time, per edge** | Hydrated from refs for the selected frame |
+| Permission/evidence-gap terms | **Query time, per edge, after source filtering** | Depends on caller-visible evidence |
 | Semantic drag | **Query time**, per segment | Depends on the question; applied per segment, not per hop |
 | Junction-mismatch cost | **Query time**, per stitch | Depends on which junction tier joined the segments (§1) |
-| Claim-state cost | **Query time** | Selected by temporal frame (root-cause PRD `:1316-1329`) |
+| Claim-state term | **Query time, per edge** | Selected by temporal frame (root-cause PRD `:1316-1329`) |
 
 The component ledger must account for every term in the inherited `edge_cost`
-model exactly once. `apply_query_costs` starts with the cached structural,
-confidence, myelination, evidence, and validation subtotal, then adds temporal,
-contradiction, permission/evidence-gap, semantic, junction, and claim-state
-terms. It must neither omit a term nor apply a cached term again.
+model exactly once **and preserve its per-edge floor**:
+
+```python
+def score_segment(segment, query_context):
+    edge_total = 0.0
+    for row in segment["edge_cost_rows"]:
+        raw_edge_cost = (
+            sum(row["cached_components"].values())
+            + sum(dynamic_edge_terms(row, query_context).values())
+        )
+        edge_total += max(0.001, raw_edge_cost)
+    return edge_total + semantic_drag(segment, query_context)
+```
+
+`apply_query_costs` hydrates dynamic terms into each edge row, applies
+`max(0.001, raw_edge_cost)` to that edge, and only then sums the segment.
+Junction-mismatch cost is added once per stitch outside the segment loop.
+Clamping an aggregate segment subtotal is forbidden: bonuses on one edge must
+not cancel the inherited floor on another edge.
 
 **The same cached roadmap therefore carries two cost functions** —
 `historical_confidence`-weighted and `current_truth_confidence`-weighted —
@@ -480,7 +559,7 @@ answer.**
 | Phase | Content | Depends on |
 |---|---|---|
 | 1 | Junction identity resolver + threshold calibration + `\|N(a)\|` corroboration counts | — |
-| 2 | Parameterized best-first search; `segment_between` and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
+| 2 | Parameterized best-first search; `segment_between`, complete `segment_frontier_between`, and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
 | 3 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
 | 4 | Query-time planning, source-scope filtering, dynamic cost hydration, stitching, seam marking, goal conditioning | Phase 3 |
 | 5 | Watershed attribution over the roadmap | Phase 3 |
@@ -498,6 +577,12 @@ Beyond the root-cause PRD's existing scenarios, which must continue to pass:
 
 **Algorithm 1 equivalence.** The parameterized search with `terminal_set=None,
 drag_enabled=True` reproduces current Algorithm 1 output exactly.
+
+**Plural frontier completeness.** Two observed chains connect the same
+junctions through different temporal/source partitions. Expect both in the
+frontier and `complete: true` only after queue exhaustion. Repeat with an
+expansion cap reached first; expect `complete: false`, an explicit termination
+reason, and no cached roadmap pair.
 
 **Simple stitch.** History A: staffing decision → backlog → claim `X`.
 History B: claim `X` → pilot delay → outcome. Expect one stitched path across
@@ -520,7 +605,12 @@ path selection from the same cache.
 **Complete cost accounting.** A segment with non-zero structural, confidence,
 temporal, contradiction, permission/evidence-gap, myelination, evidence, and
 validation terms. Expect the final additive cost to include every term exactly
-once, with cached and query-time subtotals reconciling to `total_cost`.
+once in per-edge rows, with cached and query-time terms reconciling to
+`total_cost`.
+
+**Per-edge floor.** A two-edge segment has raw edge costs `-1` and `2` after
+bonuses and dynamic terms. Expect segment edge cost `2.001`, never aggregate
+clamping to `1` or `1.001`.
 
 **Source-scoped alternatives.** The unrestricted cheapest path uses a denied
 source while a higher-cost allowed alternative connects the same junctions.
@@ -546,8 +636,12 @@ id; an answer-level-only validation mints at reduced prior.
 - The same cached roadmap serves historical and current-truth queries with
   different path selection, including when the alternatives connect the same
   junction pair.
+- A roadmap pair is cached only from a complete multi-result frontier; bounded
+  early termination is explicit and falls back instead of masquerading as
+  complete.
 - Every inherited `edge_cost` term is represented exactly once in the cached plus
-  query-time component ledger.
+  query-time per-edge ledger, and the inherited floor is applied before segment
+  summation.
 - Allowed and denied source scope is enforced before insertion, ranking,
   attribution, and hydration; inaccessible alternatives cannot affect a plan.
 - Root-cause attribution accumulates on junction identities where histories
