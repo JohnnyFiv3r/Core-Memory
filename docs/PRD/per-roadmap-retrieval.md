@@ -376,8 +376,9 @@ Build a directed line graph (or an equivalent relaxation state) after source
 filtering and segment scoring:
 
 ```python
-def segment_transition_graph(scoped_roadmap):
+def segment_transition_graph(scoped_roadmap, anchors):
     L = Graph()
+    source = L.add_virtual_source()
     for segment in scoped_roadmap.segment_alternatives:
         L.add_state(
             segment.segment_id,
@@ -398,12 +399,19 @@ def segment_transition_graph(scoped_roadmap):
                 incoming.end_junction,
             ),
         )
-    return L
+    for first in first_segments_reachable_from(anchors, L):
+        L.add_transition(
+            source,
+            first.segment_id,
+            cost=first.segment_cost,
+        )
+    return L, source
 ```
 
-The initial relaxation charges the first segment's cost once. Every subsequent
-relaxation charges the outgoing segment plus the mismatch for that exact
-incoming/outgoing pair. Search state is at minimum
+The virtual source has no zero-cost path to a segment state: every outgoing
+transition charges that first segment's complete query cost once. Every
+subsequent relaxation charges the outgoing segment plus the mismatch for that
+exact incoming/outgoing pair. Search state is at minimum
 `(junction_id, incoming_segment_id)`; an ordinary shortest path over junction
 vertices is forbidden because it loses the previously selected endpoint.
 All transition weights remain non-negative after the per-edge floors and
@@ -426,11 +434,12 @@ def plan_over_roadmap(
     roadmap,
     temporal_frame,
     *,
+    root,
     allowed_source_ids=None,
     denied_source_ids=None,
 ):
     goal_terminal_set = resolve_goal_advancing_terminals(
-        roadmap,
+        root,
         goal_ids,
         temporal_frame=temporal_frame,
         allowed_source_ids=allowed_source_ids,
@@ -441,14 +450,16 @@ def plan_over_roadmap(
             query,
             anchors,
             goal_ids,
+            temporal_frame=temporal_frame,
             terminal_relationship="advances_goal",
             allowed_source_ids=allowed_source_ids,
             denied_source_ids=denied_source_ids,
         )
     G = insert_query_vertices(
+        root,
         roadmap,
         anchors,
-        goal_terminal_set,
+        exact_terminal_bead_ids=goal_terminal_set,
         allowed_source_ids=allowed_source_ids,
         denied_source_ids=denied_source_ids,
     )
@@ -459,11 +470,13 @@ def plan_over_roadmap(
     )
     hydrate_dynamic_costs(G, temporal_frame)                # time, claims, contradictions
     score_segment_alternatives(G, embed(query), temporal_frame)
-    L = segment_transition_graph(G)                         # mismatch during relaxation
+    L, source = segment_transition_graph(G, anchors)        # includes first-segment cost
     path = shortest_path(
         L,
-        start_states=states_reachable_from(anchors),
-        terminal_states=states_ending_at(goal_terminal_set),
+        start_state=source,
+        terminal_states=states_ending_at_exact_beads(
+            goal_terminal_set,
+        ),
     )
     if path is None:
         if goal_ids:
@@ -489,14 +502,60 @@ def plan_over_roadmap(
 `goal_ids` are identifiers for intention objects, **not terminal vertices**.
 `resolve_goal_advancing_terminals` follows only accepted/validated
 `advances_goal` associations in the correct direction, selects the evidence bead
-on the advancing side, applies temporal and source scope, and maps each surviving
-evidence bead into its roadmap junction neighbourhood. Goal mentions,
+on the advancing side, and applies temporal and source scope. It returns exact
+evidence bead IDs, never junction-neighbourhood aliases.
+`insert_query_vertices` must insert each exact evidence bead as a terminal and
+connect it to the scoped roadmap through a bounded observed segment whose full
+edge and stitch costs are charged. `states_ending_at_exact_beads` compares a
+state's `end_bead_id` directly with that scoped set. Sharing a claim-slot or
+entity junction with advancing evidence is not sufficient. Goal mentions,
 `supports` edges, and the Goal Bead itself do not satisfy the terminal
-predicate. `goal_satisfied` is emitted only when the selected path ends at one
-of these evidence terminals. If no advancing evidence is represented in the
-roadmap, fallback expansion uses the same `advances_goal` predicate and scope;
-if none exists in the graph, return `goal_unsatisfied` rather than terminating
-at the intention object.
+predicate. `goal_satisfied` is emitted only when the selected path's final bead
+is the reported evidence terminal. If the exact terminal cannot be connected to
+the roadmap, fallback expansion uses the same `advances_goal` predicate,
+temporal frame, and source scope; if none exists in the graph, return
+`goal_unsatisfied` rather than terminating at the intention object.
+
+#### Authoritative `advances_goal` production and backfill
+
+`advances_goal` is a canonical, directed association:
+
+```text
+evidence_bead --advances_goal--> goal_bead
+```
+
+It is durable graph truth only after the normal Core Memory association judge
+accepts it. The authoritative production path is:
+
+1. A Core Memory semantic goal-progress task runs when an eligible evidence bead
+   is written or revised, when a Goal Bead enters `candidate`, `endorsed`, or
+   `active`, and during the one-time backfill below.
+2. The model evaluates the evidence against scoped non-terminal Goal Beads and
+   emits an association proposal containing `source_bead_id`,
+   `target_goal_bead_id`, `relationship: "advances_goal"`, rationale,
+   evidence/provenance refs, temporal bounds, confidence, evaluator version, and
+   `idempotency_key =
+   "goal_advance:<goal_id>:<evidence_id>:<evaluator_version>"`.
+3. The proposal enters `pending_judge`. The existing model association judge
+   may accept, reject, quarantine, or request repair. Only its accepted writer
+   persists the canonical edge. Deterministic code may enqueue and deduplicate
+   work but may not infer or accept goal advancement.
+4. Satorid agents may submit the same model-authored proposal through
+   `/v1/memory/association-proposals`; this is another proposal producer, not an
+   alternate write path.
+
+Goal creation may continue to attach candidate evidence with `supports`.
+`supports` means relevant support, not observed progress, and remains
+non-terminal for planning. The migration/backfill enumerates existing
+non-terminal Goal Beads and their `supports` neighbours plus other temporally
+eligible evidence, then enqueues the semantic goal-progress task for each
+deduplicated pair. It never rewrites `supports` to `advances_goal`
+deterministically. Backfill progress is cursor-based and restartable; receipts
+record scanned, proposed, accepted, rejected, quarantined, and failed counts.
+Reruns use the same idempotency key, and query-time goal conditioning may be
+enabled for an existing workspace only after its backfill receipt is terminal
+and the live producer is active. A new workspace with no pre-existing Goal Beads
+requires the live producer but no empty backfill.
 
 Source scope is a **pre-ranking traversal constraint**, not a post-hoc evidence
 filter. Query insertion and roadmap traversal remove any alternative that
@@ -658,15 +717,16 @@ answer.**
 |---|---|---|
 | 1 | Junction identity resolver + threshold calibration + `\|N(a)\|` corroboration counts | — |
 | 2 | Parameterized best-first search; `segment_between`, complete `segment_frontier_between`, and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
-| 3 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
-| 4 | Query-time planning, source-scope filtering, dynamic cost hydration, segment-state transition search, `advances_goal` terminal resolution, stitching, seam marking | Phase 3 |
-| 5 | Watershed attribution over the roadmap | Phase 3 |
-| 6 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 4 + host-application feedback surface |
+| 3 | Register canonical `advances_goal`; semantic producer; normal judge/write path; cursor-based `supports`-seeded backfill | Existing Goal Bead lifecycle + association judge |
+| 4 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
+| 5 | Query-time planning, source-scope filtering, dynamic cost hydration, weighted virtual-source/segment-state search, exact `advances_goal` evidence terminals, stitching, seam marking | Phases 3-4 |
+| 6 | Watershed attribution over the roadmap | Phase 4 |
+| 7 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 5 + host-application feedback surface |
 
 **Gate before Phase 2.** Phase 1 produces a junction-density diagnostic:
 distribution of `|N(a)|` across the corpus, counted claims-first. If most
 identities have empty junction sets, the corpus cannot support stitching and
-Phases 2-6 should be deferred. This is a cheap query that gates expensive work;
+Phases 2-7 should be deferred. This is a cheap query that gates expensive work;
 run it first and report it.
 
 ## Test Scenarios
@@ -723,11 +783,34 @@ has zero mismatch. Expect line-graph relaxation to choose the globally cheaper
 combination after the pair-specific stitch cost; vertex-level preweighting must
 not reproduce the wrong path.
 
+**First-segment accounting.** Two segment alternatives leave the same anchor.
+The first is otherwise attractive but expensive; the second is cheaper. Expect
+the virtual-source transition to charge each first segment's complete cost and
+select the cheaper path. `total_cost` must include that initial segment exactly
+once.
+
 **Goal-advancing terminal.** A Goal Bead is reachable through a mere mention,
 while a different reachable evidence bead has an accepted `advances_goal`
 association to that goal. Expect the evidence bead to be the terminal and
 `goal_satisfied`; never terminate at the Goal Bead or mention. Repeat without
 scoped advancing evidence and expect same-scope fallback or `goal_unsatisfied`.
+
+**Exact goal terminal.** The accepted advancing evidence bead and another bead
+share the same claim-slot junction. Only the other bead is reachable through the
+cached segment. Expect no `goal_satisfied` until a fully costed final connector
+reaches the exact evidence bead; a shared junction neighbourhood is insufficient.
+
+**Goal-advancement producer and backfill.** Apply a Goal Bead whose candidate
+evidence has only a `supports` edge. Expect an idempotent semantic goal-progress
+task, a `pending_judge` `advances_goal` proposal, and no canonical edge before
+judge acceptance. Rerun the cursor-based backfill and expect no duplicate
+proposal. Reject the proposal and confirm goal-conditioned planning does not use
+the `supports` edge as a terminal.
+
+**Temporal fallback parity.** Remove an otherwise valid advancing terminal from
+the cached roadmap and query both `historical` and `current_truth`. Expect early
+fallback to receive the requested temporal frame and to choose only evidence
+valid for that frame.
 
 **Sparse corpus.** Empty roadmap. Expect fallback to expansion, `fallback_used:
 true`, a stated limitation, and a non-empty answer.
@@ -758,9 +841,14 @@ id; an answer-level-only validation mints at reduced prior.
 - Junction mismatch is charged during segment-to-segment relaxation using the
   selected endpoint pair; alternative combinations cannot evade or pre-bake the
   stitch cost.
+- Every first segment is charged exactly once through a weighted virtual-source
+  transition; multi-source zero initialization is forbidden.
 - Goal-conditioned planning terminates only on scoped evidence connected to the
   requested Goal Bead by accepted `advances_goal`, never on the intention object
-  or a mere mention.
+  or a mere mention, and the selected path must end at that exact evidence bead.
+- Canonical `advances_goal` edges have a live model-authored producer, normal
+  association-judge authority, and an idempotent reviewed backfill for existing
+  goals; `supports` is never deterministically promoted.
 - Root-cause attribution accumulates on junction identities where histories
   converge, rather than on arbitrary upstream beads.
 - Stitch rate and PER hit rate rise over time as validated paths become stored
