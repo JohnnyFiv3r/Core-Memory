@@ -26,11 +26,33 @@ TURN_MEMORY_AUTHORING_PROMPT_VERSION = "turn_memory_authoring.v1"
 TURN_MEMORY_AUTHORING_RUBRIC_VERSION = "agent_led_semantic_write.v1"
 
 _VISIBLE_BEAD_FIELDS = frozenset(AGENT_OWNED_BEAD_FIELDS | {"id", "created_at", "status", "source_turn_ids"})
+_SEMANTIC_ROUTING_METADATA_ALIASES: dict[str, tuple[str, ...]] = {
+    "workspace_id": ("workspace_id", "workspaceId"),
+    "model_provider": ("model_provider", "modelProvider"),
+    "preferred_profile_id": ("preferred_profile_id", "preferredProfileId"),
+    "agent_run_id": ("agent_run_id", "agentRunId"),
+}
 
 
 def _grounding_hash(payload: dict[str, Any]) -> str:
     encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(encoded.encode("utf-8")).hexdigest()
+
+
+def _semantic_routing_metadata(req: dict[str, Any]) -> dict[str, str]:
+    """Forward only non-secret model-routing context to delegated runtimes."""
+
+    raw = req.get("metadata")
+    if not isinstance(raw, dict):
+        return {}
+    routed: dict[str, str] = {}
+    for canonical, aliases in _SEMANTIC_ROUTING_METADATA_ALIASES.items():
+        for alias in aliases:
+            value = raw.get(alias)
+            if isinstance(value, str) and value.strip():
+                routed[canonical] = value.strip()
+                break
+    return routed
 
 
 def _bounded_visible_context(crawler_context: dict[str, Any]) -> dict[str, Any]:
@@ -147,6 +169,7 @@ def build_turn_memory_authoring_request(
             "authorship_source": str(authorship_source),
             "grounding_hash": grounding_hash,
             "authoring_operation": "repair" if repair_mode else "author",
+            **_semantic_routing_metadata(req),
             **dict(metadata or {}),
         },
     )
