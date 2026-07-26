@@ -197,16 +197,48 @@ def build_junction_roadmap(root, *, max_vertices, radius):
     E = {}
     for a in V:
         for b in near(V, a, radius):
-            seg = segment_between(root, a, b, max_len=CAP)
-            if seg is not None:
-                E[(a, b)] = {
+            alternatives = []
+            for seg in segments_between(root, a, b, max_len=CAP):
+                candidate = {
+                    "segment_id": seg["segment_id"],
                     "segment": seg["bead_ids"],
                     "edges": seg["edges"],
-                    "claim_refs": seg["claim_refs"],   # refs, NOT baked state
-                    "base_cost": seg["structural_cost"],
+                    "cost_components": {
+                        "structural": seg["cost"]["structural"],
+                        "confidence": seg["cost"]["confidence"],
+                        "myelination": seg["cost"]["myelination"],
+                        "evidence": seg["cost"]["evidence"],
+                        "validation": seg["cost"]["validation"],
+                    },
+                    "dynamic_cost_refs": {
+                        "source_ids": seg["source_ids"],
+                        "claim_refs": seg["claim_refs"],
+                        "temporal_refs": seg["temporal_refs"],
+                        "contradiction_refs": seg["contradiction_refs"],
+                        "evidence_refs": seg["evidence_refs"],
+                    },
                 }
+                alternatives = pareto_insert(alternatives, candidate)
+            if alternatives:
+                E[(a, b)] = alternatives
     return {"schema_version": "core_memory.junction_roadmap.v1", "V": V, "E": E}
 ```
+
+`E[(a, b)]` is therefore an **alternative set**, not a single transition. The
+builder must enumerate observed chains and retain a bounded nondominated
+frontier. Partition candidates by claim-ref signature, temporal coverage, and
+source footprint before Pareto pruning; candidates from different partitions
+must not dominate one another. Within a partition, dominance compares the full
+cached component vector and evidence/validation quality. This preserves, for
+example, both a superseded chain that is valid historically and an active chain
+that is valid for current truth until `temporal_frame` is known. It also
+preserves a path supported by a narrower source set when a cheaper alternative
+may be inaccessible to the caller. If a per-pair safety cap truncates the
+frontier, it is a soft cap applied only after retaining the best candidate from
+every partition. If mandatory partition representatives exceed a hard resource
+limit, omit that roadmap pair, record the omission in `roadmap_meta`, and use
+query-time fallback rather than silently discarding a temporal or source-scope
+alternative.
 
 **Vertex sampling.** PALMER samples vertices by visitation count. Our analogue is
 junction support × label quality — the curation scores Satorid already computes
@@ -222,9 +254,14 @@ cause→effect toward the anchor, per the root-cause PRD's direction table
 (`:547-561`). Splicing a downstream segment into an upstream path merely because
 the two share a junction bead is a defect class; test it explicitly.
 
-**Store claim refs, not claim state.** Claim state is time-varying and
-query-frame-dependent. Baking it into `base_cost` at build time makes the cache
-wrong for historical queries. Store refs; hydrate and score at query time.
+**Store a complete component ledger, not a partial scalar.** Claim state,
+temporal interpretation, and source accessibility are time-, frame-, or
+caller-dependent. Baking them into `base_cost` at build time makes the cache
+wrong for historical or permission-scoped queries. Each alternative stores the
+full query-independent cost breakdown plus the refs and raw inputs needed to
+compute every dynamic component. A scalar `base_cost` may be stored as a
+convenience checksum, but it must equal the sum of the cached components and
+must never replace the ledger.
 
 ### 5. Query time: cached versus query-dependent cost
 
@@ -232,10 +269,21 @@ Query cost = two vertex insertions + shortest path. Not graph-wide traversal.
 
 | Component | When | Why |
 |---|---|---|
-| Structural, confidence, myelination cost | **Cached** per segment | Query-independent |
+| Structural cost | **Cached** per segment | Query-independent |
+| Confidence penalty | **Cached** per segment | Uses additive `−log(confidence)` |
+| Myelination cost | **Cached** per segment | Query-independent at roadmap build |
+| Evidence and validation cost | **Cached** per segment | Query-independent at roadmap build |
+| Temporal and contradiction cost | **Query time** | Hydrated from refs for the selected frame |
+| Permission/evidence-gap cost | **Query time, after source filtering** | Depends on caller-visible evidence |
 | Semantic drag | **Query time**, per segment | Depends on the question; applied per segment, not per hop |
 | Junction-mismatch cost | **Query time**, per stitch | Depends on which junction tier joined the segments (§1) |
 | Claim-state cost | **Query time** | Selected by temporal frame (root-cause PRD `:1316-1329`) |
+
+The component ledger must account for every term in the inherited `edge_cost`
+model exactly once. `apply_query_costs` starts with the cached structural,
+confidence, myelination, evidence, and validation subtotal, then adds temporal,
+contradiction, permission/evidence-gap, semantic, junction, and claim-state
+terms. It must neither omit a term nor apply a cached term again.
 
 **The same cached roadmap therefore carries two cost functions** —
 `historical_confidence`-weighted and `current_truth_confidence`-weighted —
@@ -247,14 +295,45 @@ in the replay buffer remain valid?").
 Query procedure (R-PRM Algorithm 2 with our nouns):
 
 ```python
-def plan_over_roadmap(query, anchors, goal_ids, roadmap, temporal_frame):
-    G = insert_query_vertices(roadmap, anchors, goal_ids)
-    apply_query_costs(G, query_embedding, temporal_frame)   # drag, junction, claim
+def plan_over_roadmap(
+    query,
+    anchors,
+    goal_ids,
+    roadmap,
+    temporal_frame,
+    *,
+    allowed_source_ids=None,
+    denied_source_ids=None,
+):
+    G = insert_query_vertices(
+        roadmap,
+        anchors,
+        goal_ids,
+        allowed_source_ids=allowed_source_ids,
+        denied_source_ids=denied_source_ids,
+    )
+    apply_source_scope(
+        G,
+        allowed_source_ids=allowed_source_ids,
+        denied_source_ids=denied_source_ids,
+    )
+    hydrate_dynamic_costs(G, temporal_frame)                # time, claims, contradictions
+    apply_query_costs(G, embed(query), temporal_frame)      # drag, junction, evidence gaps
     path = shortest_path(G, anchors, goal_ids)              # DP under R
     if path is None:
         return None                                         # fall back to expansion
     return concatenate_segments(path)                       # τ_stitched
 ```
+
+Source scope is a **pre-ranking traversal constraint**, not a post-hoc evidence
+filter. Query insertion and roadmap traversal remove any alternative that
+contains a denied source or a source outside a non-null allowlist before shortest
+path runs. An `(a, b)` edge remains traversable only while at least one scoped
+alternative survives. Excluded alternatives cannot contribute confidence,
+cost, junction support, watershed mass, or returned evidence. The plan reports
+how many alternatives were excluded; it never exposes their bead, edge, claim,
+or source identifiers. If scoping disconnects the roadmap, fallback expansion
+must receive the same allow/deny scope.
 
 Emit `stitched: true` on composites, name the junction identities crossed, and
 mark which crossings are **seams** (junction-joined but not stored associations).
@@ -316,7 +395,9 @@ static planner over a frozen corpus.
   "anchor_b": "bead_or_claim_identity",
   "max_len": 6,
   "direction": "upstream",
-  "temporal_frame": "auto"
+  "temporal_frame": "auto",
+  "allowed_source_ids": ["source_a", "source_b"],
+  "denied_source_ids": ["source_private"]
 }
 ```
 
@@ -330,6 +411,8 @@ Returns a segment object or `{"segment": null, "reason": "no_observed_chain"}`.
   "anchor_ids": ["bead_a"],
   "goal_bead_ids": ["bead_goal_1"],
   "temporal_frame": "current_truth",
+  "allowed_source_ids": ["source_a", "source_b"],
+  "denied_source_ids": ["source_private"],
   "max_vertices": 200
 }
 ```
@@ -359,6 +442,8 @@ Response additions, alongside the existing `root_cause_attribution` object:
     "built_at": "2026-07-26T00:00:00Z",
     "vertex_count": 184,
     "edge_count": 902,
+    "alternative_count": 1174,
+    "scope_excluded_alternative_count": 12,
     "d_p": 0.41,
     "d_p_source": "calibrated_from_backbone_adjacency"
   }
@@ -395,8 +480,8 @@ answer.**
 |---|---|---|
 | 1 | Junction identity resolver + threshold calibration + `\|N(a)\|` corroboration counts | — |
 | 2 | Parameterized best-first search; `segment_between` and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
-| 3 | Roadmap build job on the maintenance cadence; `roadmap_meta` | Phase 2 |
-| 4 | Query-time planning, stitching, seam marking, goal conditioning | Phase 3 |
+| 3 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
+| 4 | Query-time planning, source-scope filtering, dynamic cost hydration, stitching, seam marking, goal conditioning | Phase 3 |
 | 5 | Watershed attribution over the roadmap | Phase 3 |
 | 6 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 4 + Satorid feedback surface |
 
@@ -427,8 +512,20 @@ causal directions. Expect no upstream path splicing them.
 junction, under the `−log` form.
 
 **Temporal frame divergence.** One cached roadmap, two queries — historical and
-current-truth — over a path containing a superseded claim. Expect different path
-selection from the same cache.
+current-truth — where the same junction pair has a superseded historical chain
+and an active current chain. Expect both alternatives in the cache and different
+path selection from the same cache.
+
+**Complete cost accounting.** A segment with non-zero structural, confidence,
+temporal, contradiction, permission/evidence-gap, myelination, evidence, and
+validation terms. Expect the final additive cost to include every term exactly
+once, with cached and query-time subtotals reconciling to `total_cost`.
+
+**Source-scoped alternatives.** The unrestricted cheapest path uses a denied
+source while a higher-cost allowed alternative connects the same junctions.
+Expect the denied alternative to be removed before ranking, the allowed path to
+win, and no denied identifier or score to influence the result. If no scoped
+alternative survives, expect same-scope fallback expansion.
 
 **Sparse corpus.** Empty roadmap. Expect fallback to expansion, `fallback_used:
 true`, a stated limitation, and a non-empty answer.
@@ -446,7 +543,12 @@ id; an answer-level-only validation mints at reduced prior.
 - Retrieval never invents a connection: every edge in a returned plan corresponds
   to an observed chain, and null is returned when none exists.
 - The same cached roadmap serves historical and current-truth queries with
-  different path selection.
+  different path selection, including when the alternatives connect the same
+  junction pair.
+- Every inherited `edge_cost` term is represented exactly once in the cached plus
+  query-time component ledger.
+- Allowed and denied source scope is enforced before insertion, ranking,
+  attribution, and hydration; inaccessible alternatives cannot affect a plan.
 - Root-cause attribution accumulates on junction identities where histories
   converge, rather than on arbitrary upstream beads.
 - Stitch rate and PER hit rate rise over time as validated paths become stored
