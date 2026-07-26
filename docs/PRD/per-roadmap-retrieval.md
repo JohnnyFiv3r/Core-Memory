@@ -365,6 +365,50 @@ Junction-mismatch cost is added once per stitch outside the segment loop.
 Clamping an aggregate segment subtotal is forbidden: bonuses on one edge must
 not cancel the inherited floor on another edge.
 
+#### Segment alternatives require transition-aware search
+
+Junction mismatch is not a property of either segment in isolation. It depends
+on the endpoint bead of the selected incoming segment, the start bead of the
+selected outgoing segment, and the junction identity that permits their stitch.
+Therefore it cannot be assigned in `apply_query_costs` before path selection.
+
+Build a directed line graph (or an equivalent relaxation state) after source
+filtering and segment scoring:
+
+```python
+def segment_transition_graph(scoped_roadmap):
+    L = Graph()
+    for segment in scoped_roadmap.segment_alternatives:
+        L.add_state(
+            segment.segment_id,
+            start_junction=segment.start_junction,
+            end_junction=segment.end_junction,
+            start_bead_id=segment.bead_ids[0],
+            end_bead_id=segment.bead_ids[-1],
+            segment_cost=segment.query_cost,
+        )
+    for incoming, outgoing in stitchable_pairs(L):
+        L.add_transition(
+            incoming.segment_id,
+            outgoing.segment_id,
+            cost=outgoing.segment_cost
+            + junction_mismatch(
+                incoming.end_bead_id,
+                outgoing.start_bead_id,
+                incoming.end_junction,
+            ),
+        )
+    return L
+```
+
+The initial relaxation charges the first segment's cost once. Every subsequent
+relaxation charges the outgoing segment plus the mismatch for that exact
+incoming/outgoing pair. Search state is at minimum
+`(junction_id, incoming_segment_id)`; an ordinary shortest path over junction
+vertices is forbidden because it loses the previously selected endpoint.
+All transition weights remain non-negative after the per-edge floors and
+non-negative junction cost, so Dijkstra/best-first optimality remains valid.
+
 **The same cached roadmap therefore carries two cost functions** —
 `historical_confidence`-weighted and `current_truth_confidence`-weighted —
 selected per query. This is a capability PALMER structurally cannot have: its
@@ -385,10 +429,26 @@ def plan_over_roadmap(
     allowed_source_ids=None,
     denied_source_ids=None,
 ):
+    goal_terminal_set = resolve_goal_advancing_terminals(
+        roadmap,
+        goal_ids,
+        temporal_frame=temporal_frame,
+        allowed_source_ids=allowed_source_ids,
+        denied_source_ids=denied_source_ids,
+    )
+    if goal_ids and not goal_terminal_set:
+        return fallback_goal_conditioned_expansion(
+            query,
+            anchors,
+            goal_ids,
+            terminal_relationship="advances_goal",
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
     G = insert_query_vertices(
         roadmap,
         anchors,
-        goal_ids,
+        goal_terminal_set,
         allowed_source_ids=allowed_source_ids,
         denied_source_ids=denied_source_ids,
     )
@@ -398,12 +458,45 @@ def plan_over_roadmap(
         denied_source_ids=denied_source_ids,
     )
     hydrate_dynamic_costs(G, temporal_frame)                # time, claims, contradictions
-    apply_query_costs(G, embed(query), temporal_frame)      # drag, junction, evidence gaps
-    path = shortest_path(G, anchors, goal_ids)              # DP under R
+    score_segment_alternatives(G, embed(query), temporal_frame)
+    L = segment_transition_graph(G)                         # mismatch during relaxation
+    path = shortest_path(
+        L,
+        start_states=states_reachable_from(anchors),
+        terminal_states=states_ending_at(goal_terminal_set),
+    )
     if path is None:
-        return None                                         # fall back to expansion
+        if goal_ids:
+            return fallback_goal_conditioned_expansion(
+                query,
+                anchors,
+                goal_ids,
+                temporal_frame=temporal_frame,
+                terminal_relationship="advances_goal",
+                allowed_source_ids=allowed_source_ids,
+                denied_source_ids=denied_source_ids,
+            )
+        return fallback_expansion(
+            query,
+            anchors,
+            temporal_frame=temporal_frame,
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
     return concatenate_segments(path)                       # τ_stitched
 ```
+
+`goal_ids` are identifiers for intention objects, **not terminal vertices**.
+`resolve_goal_advancing_terminals` follows only accepted/validated
+`advances_goal` associations in the correct direction, selects the evidence bead
+on the advancing side, applies temporal and source scope, and maps each surviving
+evidence bead into its roadmap junction neighbourhood. Goal mentions,
+`supports` edges, and the Goal Bead itself do not satisfy the terminal
+predicate. `goal_satisfied` is emitted only when the selected path ends at one
+of these evidence terminals. If no advancing evidence is represented in the
+roadmap, fallback expansion uses the same `advances_goal` predicate and scope;
+if none exists in the graph, return `goal_unsatisfied` rather than terminating
+at the intention object.
 
 Source scope is a **pre-ranking traversal constraint**, not a post-hoc evidence
 filter. Query insertion and roadmap traversal remove any alternative that
@@ -516,6 +609,11 @@ Response additions, alongside the existing `root_cause_attribution` object:
     "historical_confidence": 0.81,
     "current_truth_confidence": 0.44,
     "seam_count": 1,
+    "goal_conditioning": {
+      "goal_bead_ids": ["bead_goal_1"],
+      "terminal_evidence_ids": ["bead_outcome_7"],
+      "satisfied": true
+    },
     "fallback_used": false
   },
   "roadmap_meta": {
@@ -561,7 +659,7 @@ answer.**
 | 1 | Junction identity resolver + threshold calibration + `\|N(a)\|` corroboration counts | — |
 | 2 | Parameterized best-first search; `segment_between`, complete `segment_frontier_between`, and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
 | 3 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
-| 4 | Query-time planning, source-scope filtering, dynamic cost hydration, stitching, seam marking, goal conditioning | Phase 3 |
+| 4 | Query-time planning, source-scope filtering, dynamic cost hydration, segment-state transition search, `advances_goal` terminal resolution, stitching, seam marking | Phase 3 |
 | 5 | Watershed attribution over the roadmap | Phase 3 |
 | 6 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 4 + host-application feedback surface |
 
@@ -618,6 +716,19 @@ Expect the denied alternative to be removed before ranking, the allowed path to
 win, and no denied identifier or score to influence the result. If no scoped
 alternative survives, expect same-scope fallback expansion.
 
+**Transition-dependent stitch ranking.** Two incoming and two outgoing segment
+alternatives meet at one junction. The individually cheapest pair has a high
+embedding-only mismatch, while a slightly costlier pair shares an exact bead and
+has zero mismatch. Expect line-graph relaxation to choose the globally cheaper
+combination after the pair-specific stitch cost; vertex-level preweighting must
+not reproduce the wrong path.
+
+**Goal-advancing terminal.** A Goal Bead is reachable through a mere mention,
+while a different reachable evidence bead has an accepted `advances_goal`
+association to that goal. Expect the evidence bead to be the terminal and
+`goal_satisfied`; never terminate at the Goal Bead or mention. Repeat without
+scoped advancing evidence and expect same-scope fallback or `goal_unsatisfied`.
+
 **Sparse corpus.** Empty roadmap. Expect fallback to expansion, `fallback_used:
 true`, a stated limitation, and a non-empty answer.
 
@@ -644,6 +755,12 @@ id; an answer-level-only validation mints at reduced prior.
   summation.
 - Allowed and denied source scope is enforced before insertion, ranking,
   attribution, and hydration; inaccessible alternatives cannot affect a plan.
+- Junction mismatch is charged during segment-to-segment relaxation using the
+  selected endpoint pair; alternative combinations cannot evade or pre-bake the
+  stitch cost.
+- Goal-conditioned planning terminates only on scoped evidence connected to the
+  requested Goal Bead by accepted `advances_goal`, never on the intention object
+  or a mere mention.
 - Root-cause attribution accumulates on junction identities where histories
   converge, rather than on arbitrary upstream beads.
 - Stitch rate and PER hit rate rise over time as validated paths become stored
