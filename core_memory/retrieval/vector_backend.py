@@ -10,11 +10,61 @@ Implementations:
 """
 from __future__ import annotations
 
+import atexit
 import json
 import logging
+import os
+import threading
+from collections import OrderedDict
 from typing import Any, Protocol, runtime_checkable
 
 logger = logging.getLogger(__name__)
+_qdrant_client_cache: OrderedDict[tuple[int, str, str, Any], Any] = OrderedDict()
+_qdrant_client_cache_lock = threading.Lock()
+_QDRANT_CLIENT_CACHE_MAX = 8
+
+
+def _close_cached_qdrant_clients() -> None:
+    with _qdrant_client_cache_lock:
+        clients = list(_qdrant_client_cache.values())
+        _qdrant_client_cache.clear()
+    for client in clients:
+        try:
+            client.close()
+        except Exception:
+            pass
+
+
+atexit.register(_close_cached_qdrant_clients)
+
+
+def _shared_qdrant_client(*, client_type: Any, url: str | None, path: str | None) -> Any:
+    if url:
+        normalized_url = str(url).strip().rstrip("/")
+        cache_key = (os.getpid(), "url", normalized_url, client_type)
+    elif path and str(path).strip() != ":memory:":
+        normalized_path = os.path.abspath(os.path.expanduser(str(path)))
+        os.makedirs(normalized_path, exist_ok=True)
+        cache_key = (os.getpid(), "path", normalized_path, client_type)
+    else:
+        return client_type(":memory:")
+
+    with _qdrant_client_cache_lock:
+        cached = _qdrant_client_cache.get(cache_key)
+        if cached is not None:
+            _qdrant_client_cache.move_to_end(cache_key)
+            return cached
+        client = (
+            client_type(url=cache_key[2])
+            if cache_key[1] == "url"
+            else client_type(path=cache_key[2])
+        )
+        _qdrant_client_cache[cache_key] = client
+        while len(_qdrant_client_cache) > _QDRANT_CLIENT_CACHE_MAX:
+            # Relinquish cache ownership without closing a client that another
+            # QdrantBackend may still be using in a concurrent request.
+            _qdrant_client_cache.popitem(last=False)
+        return client
 
 
 @runtime_checkable
@@ -83,14 +133,11 @@ class QdrantBackend:
         except ImportError:
             raise ImportError("Qdrant backend requires: pip install core-memory[qdrant]")
 
-        if url:
-            self._client = QdrantClient(url=url)
-        elif path:
-            import os
-            os.makedirs(path, exist_ok=True)
-            self._client = QdrantClient(path=path)
-        else:
-            self._client = QdrantClient(":memory:")
+        self._client = _shared_qdrant_client(
+            client_type=QdrantClient,
+            url=url,
+            path=path,
+        )
 
         self._collection = collection_name
 
