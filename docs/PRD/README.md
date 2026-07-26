@@ -69,6 +69,7 @@ against code and `docs/status.md`.
 | `recoverability.md` | Recoverability — no single point of knowledge failure | **Draft v1** |
 | `relational-constraint-rules.md` | Relational constraint rules for memory-graph writes | **Draft v1** |
 | `storyline-narrative-and-projection.md` | Storyline narrative generation and multi-trajectory future projection | **Draft v1** |
+| `per-roadmap-retrieval.md` | PALMER-derived perceptual experience retrieval, claims-first junction roadmap, and grounded causal path stitching | **Draft v1** |
 
 ## Implementation status & deferred work
 
