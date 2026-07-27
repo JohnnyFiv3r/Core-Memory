@@ -119,10 +119,26 @@ its own thresholds.
 
 ### 3. PER: `segment_between`
 
+Returned segments always use normalized causal order (`cause -> effect`), even
+when search expands incoming edges from an outcome:
+
+```text
+downstream:
+  segment(a, b) := argmax R(τ)
+                   s.t. τ_0 ∈ N(a), τ_−1 ∈ N(b), len(τ) ≤ cap
+
+upstream:
+  segment(a, b) := argmax R(τ)
+                   s.t. τ_0 ∈ N(b), τ_−1 ∈ N(a), len(τ) ≤ cap
 ```
-segment(a, b) := argmax over observed chains τ of R(τ)
-                 s.t.  τ_0 ∈ N(a),  τ_−1 ∈ N(b),  len(τ) ≤ cap
-```
+
+For `direction="upstream"`, `a` is the downstream query anchor and `b` is the
+upstream cause/destination. The search walks reverse adjacency from `a`, but
+reverses the discovered chain before scoring and returning it, so
+`bead_ids[0]` is the causal start and `bead_ids[-1]` is the effect-side anchor.
+`direction="any"` evaluates both legal orientations, returns the winning
+normalized chain, and reports the chosen orientation. Endpoint constraints are
+applied after normalization.
 
 Return `null` when no real chain exists. **Never synthesize one.** A null result
 is a correct result; a plausible fabrication is a defect.
@@ -376,16 +392,21 @@ Build a directed line graph (or an equivalent relaxation state) after source
 filtering and segment scoring:
 
 ```python
-def segment_transition_graph(scoped_roadmap, anchors):
+def segment_transition_graph(scoped_roadmap, anchors, direction):
     L = Graph()
     source = L.add_virtual_source()
     for segment in scoped_roadmap.segment_alternatives:
+        entry, exit = traversal_endpoints(segment, direction)
         L.add_state(
             segment.segment_id,
             start_junction=segment.start_junction,
             end_junction=segment.end_junction,
-            start_bead_id=segment.bead_ids[0],
-            end_bead_id=segment.bead_ids[-1],
+            normalized_start_bead_id=segment.bead_ids[0],
+            normalized_end_bead_id=segment.bead_ids[-1],
+            entry_bead_id=entry.bead_id,
+            exit_bead_id=exit.bead_id,
+            entry_junction=entry.junction,
+            exit_junction=exit.junction,
             segment_cost=segment.query_cost,
         )
     for incoming, outgoing in stitchable_pairs(L):
@@ -394,26 +415,44 @@ def segment_transition_graph(scoped_roadmap, anchors):
             outgoing.segment_id,
             cost=outgoing.segment_cost
             + junction_mismatch(
-                incoming.end_bead_id,
-                outgoing.start_bead_id,
-                incoming.end_junction,
+                incoming.exit_bead_id,
+                outgoing.entry_bead_id,
+                incoming.exit_junction,
             ),
         )
-    for first in first_segments_reachable_from(anchors, L):
+    for match in first_segment_matches(anchors, L):
+        first = L.state(match.segment_id)
         L.add_transition(
             source,
             first.segment_id,
-            cost=first.segment_cost,
+            cost=first.segment_cost
+            + junction_mismatch(
+                match.anchor_bead_id,
+                first.entry_bead_id,
+                match.junction_id,
+            ),
+            junction_id=match.junction_id,
+            anchor_bead_id=match.anchor_bead_id,
         )
     return L, source
 ```
 
 The virtual source has no zero-cost path to a segment state: every outgoing
-transition charges that first segment's complete query cost once. Every
+transition charges that first segment's complete query cost once plus the
+junction mismatch for the exact anchor/traversal-entry match that made it
+reachable.
+An exact-bead match has zero mismatch; claim-slot, entity, and embedding matches
+pay their normal tiered seam cost and are reported in the stitched path. Every
 subsequent relaxation charges the outgoing segment plus the mismatch for that
 exact incoming/outgoing pair. Search state is at minimum
 `(junction_id, incoming_segment_id)`; an ordinary shortest path over junction
 vertices is forbidden because it loses the previously selected endpoint.
+For upstream traversal, `entry_bead_id` is the normalized effect-side end and
+`exit_bead_id` is the normalized cause-side start. Downstream traversal uses the
+opposite mapping. `direction="any"` uses the orientation selected and reported
+by `segment_between`. Search operates on entry/exit endpoints, while response
+assembly reverses upstream search order as needed and always emits each segment
+and the stitched `bead_ids` in normalized cause-to-effect order.
 All transition weights remain non-negative after the per-edge floors and
 non-negative junction cost, so Dijkstra/best-first optimality remains valid.
 
@@ -435,23 +474,46 @@ def plan_over_roadmap(
     temporal_frame,
     *,
     root,
+    direction="upstream",
+    destination_anchor_ids=None,
     allowed_source_ids=None,
     denied_source_ids=None,
 ):
-    goal_terminal_set = resolve_goal_advancing_terminals(
-        root,
-        goal_ids,
-        temporal_frame=temporal_frame,
-        allowed_source_ids=allowed_source_ids,
-        denied_source_ids=denied_source_ids,
-    )
-    if goal_ids and not goal_terminal_set:
-        return fallback_goal_conditioned_expansion(
-            query,
-            anchors,
+    if goal_ids:
+        terminal_bead_ids = resolve_goal_advancing_terminals(
+            root,
             goal_ids,
             temporal_frame=temporal_frame,
-            terminal_relationship="advances_goal",
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
+        terminal_mode = "goal_advancing_evidence"
+    else:
+        terminal_bead_ids, terminal_mode = resolve_unconditioned_terminals(
+            root,
+            query,
+            anchors,
+            temporal_frame=temporal_frame,
+            destination_anchor_ids=destination_anchor_ids,
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
+    if not terminal_bead_ids:
+        if goal_ids:
+            return fallback_goal_conditioned_expansion(
+                query,
+                anchors,
+                goal_ids,
+                temporal_frame=temporal_frame,
+                terminal_relationship="advances_goal",
+                allowed_source_ids=allowed_source_ids,
+                denied_source_ids=denied_source_ids,
+            )
+        return fallback_expansion(
+            query,
+            anchors,
+            temporal_frame=temporal_frame,
+            destination_anchor_ids=destination_anchor_ids,
             allowed_source_ids=allowed_source_ids,
             denied_source_ids=denied_source_ids,
         )
@@ -459,7 +521,8 @@ def plan_over_roadmap(
         root,
         roadmap,
         anchors,
-        exact_terminal_bead_ids=goal_terminal_set,
+        exact_terminal_bead_ids=terminal_bead_ids,
+        direction=direction,
         allowed_source_ids=allowed_source_ids,
         denied_source_ids=denied_source_ids,
     )
@@ -470,12 +533,16 @@ def plan_over_roadmap(
     )
     hydrate_dynamic_costs(G, temporal_frame)                # time, claims, contradictions
     score_segment_alternatives(G, embed(query), temporal_frame)
-    L, source = segment_transition_graph(G, anchors)        # includes first-segment cost
+    L, source = segment_transition_graph(
+        G,
+        anchors,
+        direction,
+    )                                                       # includes initial seam
     path = shortest_path(
         L,
         start_state=source,
-        terminal_states=states_ending_at_exact_beads(
-            goal_terminal_set,
+        terminal_states=states_exiting_at_exact_beads(
+            terminal_bead_ids,
         ),
     )
     if path is None:
@@ -493,11 +560,32 @@ def plan_over_roadmap(
             query,
             anchors,
             temporal_frame=temporal_frame,
+            destination_anchor_ids=destination_anchor_ids,
             allowed_source_ids=allowed_source_ids,
             denied_source_ids=denied_source_ids,
         )
-    return concatenate_segments(path)                       # τ_stitched
+    return concatenate_segments(
+        path,
+        traversal_direction=direction,
+        terminal_mode=terminal_mode,
+        terminal_bead_ids=terminal_bead_ids,
+    )                                                       # τ_stitched
 ```
+
+Without explicit goals, roadmap search still requires real terminal states:
+
+- If `destination_anchor_ids` is supplied, validate those exact beads against
+  temporal and source scope and use them as
+  `terminal_mode="explicit_destination"`.
+  This is the contract for “what connects A to B.”
+- Otherwise, run the existing bounded root-cause candidate stage (Algorithm 1)
+  from the query anchors under the same temporal and source scope. Its ranked,
+  non-anchor bead IDs become
+  `terminal_mode="root_cause_candidates"`. Active Goal Beads may influence
+  semantic ranking only as the already-defined weak prior; they are never
+  implicit terminals or filters.
+- If neither route yields a scoped exact terminal, use `fallback_expansion`.
+  Passing an empty terminal set to shortest path is forbidden.
 
 `goal_ids` are identifiers for intention objects, **not terminal vertices**.
 `resolve_goal_advancing_terminals` follows only accepted/validated
@@ -506,13 +594,16 @@ on the advancing side, and applies temporal and source scope. It returns exact
 evidence bead IDs, never junction-neighbourhood aliases.
 `insert_query_vertices` must insert each exact evidence bead as a terminal and
 connect it to the scoped roadmap through a bounded observed segment whose full
-edge and stitch costs are charged. `states_ending_at_exact_beads` compares a
-state's `end_bead_id` directly with that scoped set. Sharing a claim-slot or
+edge and stitch costs are charged. `states_exiting_at_exact_beads` compares a
+state's traversal `exit_bead_id` directly with that scoped set. Sharing a claim-slot or
 entity junction with advancing evidence is not sufficient. Goal mentions,
 `supports` edges, and the Goal Bead itself do not satisfy the terminal
 predicate. `goal_satisfied` is emitted only when the selected path's final bead
-is the reported evidence terminal. If the exact terminal cannot be connected to
-the roadmap, fallback expansion uses the same `advances_goal` predicate,
+in traversal order (`exit_bead_id`) is the reported evidence terminal. Response
+assembly may reverse upstream search order to preserve normalized causal
+storage; that presentation reversal does not change the terminal receipt. If the
+exact terminal cannot be connected to the roadmap, fallback expansion uses the
+same `advances_goal` predicate,
 temporal frame, and source scope; if none exists in the graph, return
 `goal_unsatisfied` rather than terminating at the intention object.
 
@@ -641,13 +732,19 @@ Returns a segment object or `{"segment": null, "reason": "no_observed_chain"}`.
 {
   "query": "What connects the Q3 staffing decision to the pilot outcome?",
   "anchor_ids": ["bead_a"],
-  "goal_bead_ids": ["bead_goal_1"],
+  "destination_anchor_ids": ["bead_b"],
+  "direction": "downstream",
   "temporal_frame": "current_truth",
   "allowed_source_ids": ["source_a", "source_b"],
   "denied_source_ids": ["source_private"],
   "max_vertices": 200
 }
 ```
+
+`destination_anchor_ids` and `goal_bead_ids` are optional and mutually
+exclusive. A request with neither uses bounded root-cause candidate terminals;
+a request with `destination_anchor_ids` performs exact A-to-B planning; a
+request with `goal_bead_ids` uses exact accepted goal-advancement evidence.
 
 Response additions, alongside the existing `root_cause_attribution` object:
 
@@ -668,10 +765,12 @@ Response additions, alongside the existing `root_cause_attribution` object:
     "historical_confidence": 0.81,
     "current_truth_confidence": 0.44,
     "seam_count": 1,
+    "terminal_mode": "explicit_destination",
+    "terminal_bead_ids": ["bead_b"],
     "goal_conditioning": {
-      "goal_bead_ids": ["bead_goal_1"],
-      "terminal_evidence_ids": ["bead_outcome_7"],
-      "satisfied": true
+      "goal_bead_ids": [],
+      "terminal_evidence_ids": [],
+      "satisfied": false
     },
     "fallback_used": false
   },
@@ -752,6 +851,12 @@ both, junction `X` named, `stitched: true`.
 **Direction respected.** Two segments share a junction bead but run in opposite
 causal directions. Expect no upstream path splicing them.
 
+**Upstream normalization.** Query `segment_between(outcome, cause,
+direction="upstream")`. Expect reverse-adjacency expansion from the outcome but
+the returned `bead_ids` in cause-to-effect order, with the cause neighbourhood
+at index `0` and outcome neighbourhood at index `-1`. Roadmap start/end states
+must preserve that returned order.
+
 **Additivity.** `R(τ₁ ∘ τ₂) == R(τ₁) + R(τ₂)` for any two segments sharing a
 junction, under the `−log` form.
 
@@ -788,6 +893,17 @@ The first is otherwise attractive but expensive; the second is cheaper. Expect
 the virtual-source transition to charge each first segment's complete cost and
 select the cheaper path. `total_cost` must include that initial segment exactly
 once.
+
+**Initial junction mismatch.** Two first segments are reachable from an anchor:
+one by exact bead and one only by a claim-slot match. Expect the virtual-source
+transition for the claim-slot path to include its junction mismatch and seam
+metadata; it must not rank as an exact connector.
+
+**Unconditioned roadmap terminals.** Run an A-to-B request with
+`destination_anchor_ids` and expect that exact scoped bead as the terminal.
+Repeat without destination or goal IDs and expect the bounded root-cause
+candidate stage to produce exact non-anchor terminals. Neither request may pass
+an empty terminal set or fall back solely because it lacks a Goal Bead.
 
 **Goal-advancing terminal.** A Goal Bead is reachable through a mere mention,
 while a different reachable evidence bead has an accepted `advances_goal`
@@ -842,10 +958,17 @@ id; an answer-level-only validation mints at reduced prior.
   selected endpoint pair; alternative combinations cannot evade or pre-bake the
   stitch cost.
 - Every first segment is charged exactly once through a weighted virtual-source
-  transition; multi-source zero initialization is forbidden.
+  transition, including the anchor-to-traversal-entry junction mismatch;
+  multi-source zero initialization and free initial seams are forbidden.
+- Upstream search may expand reverse adjacency, but every returned and cached
+  segment uses normalized cause-to-effect bead order with swapped endpoint
+  constraints.
+- Unconditioned A-to-B and root-cause requests derive exact destination or
+  root-cause-candidate terminals, so roadmap use never depends on `goal_ids`.
 - Goal-conditioned planning terminates only on scoped evidence connected to the
   requested Goal Bead by accepted `advances_goal`, never on the intention object
-  or a mere mention, and the selected path must end at that exact evidence bead.
+  or a mere mention, and the selected traversal must exit at that exact evidence
+  bead.
 - Canonical `advances_goal` edges have a live model-authored producer, normal
   association-judge authority, and an idempotent reviewed backfill for existing
   goals; `supports` is never deterministically promoted.
