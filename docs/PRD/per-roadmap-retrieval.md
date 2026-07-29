@@ -119,10 +119,26 @@ its own thresholds.
 
 ### 3. PER: `segment_between`
 
+Returned segments always use normalized causal order (`cause -> effect`), even
+when search expands incoming edges from an outcome:
+
+```text
+downstream:
+  segment(a, b) := argmax R(τ)
+                   s.t. τ_0 ∈ N(a), τ_−1 ∈ N(b), len(τ) ≤ cap
+
+upstream:
+  segment(a, b) := argmax R(τ)
+                   s.t. τ_0 ∈ N(b), τ_−1 ∈ N(a), len(τ) ≤ cap
 ```
-segment(a, b) := argmax over observed chains τ of R(τ)
-                 s.t.  τ_0 ∈ N(a),  τ_−1 ∈ N(b),  len(τ) ≤ cap
-```
+
+For `direction="upstream"`, `a` is the downstream query anchor and `b` is the
+upstream cause/destination. The search walks reverse adjacency from `a`, but
+reverses the discovered chain before scoring and returning it, so
+`bead_ids[0]` is the causal start and `bead_ids[-1]` is the effect-side anchor.
+`direction="any"` evaluates both legal orientations, returns the winning
+normalized chain, and reports the chosen orientation. Endpoint constraints are
+applied after normalization.
 
 Return `null` when no real chain exists. **Never synthesize one.** A null result
 is a correct result; a plausible fabrication is a defect.
@@ -146,20 +162,69 @@ def segment_between(
     ...
 ```
 
+Roadmap construction needs the plural form of this primitive; wrapping the
+single best result is not sufficient:
+
+```python
+def segment_frontier_between(
+    root: Path,
+    anchor_a: str,
+    anchor_b: str,
+    *,
+    max_len: int = 6,
+    direction: str = "upstream",
+    relation_families: list[str] | None = None,
+    max_expansions: int = 5_000,
+    max_partitions: int = 32,
+    max_results_per_partition: int = 2,
+) -> dict:
+    """
+    {
+      "segments": [...],             # bounded nondominated alternatives
+      "complete": bool,              # queue exhausted inside the declared bounds
+      "termination_reason": str,     # exhausted | expansion_cap | partition_cap
+                                     # | result_cap | memory_pressure
+      "expansions": int,
+      "partitions_seen": int,
+    }
+    """
+```
+
+This is a multi-result mode on the same parameterized best-first search, not a
+loop around `segment_between`. It continues after reaching a terminal, assigns
+each observed terminal chain to its dynamic-cost partition (claim refs,
+temporal coverage, source footprint, contradiction refs, and evidence refs), and
+maintains a bounded Pareto set inside each partition. Paths are simple (no
+repeated bead id) and `max_len` is finite, so exhausting the queue terminates and
+is complete over the declared direction, relation families, and length cap.
+
+`complete: true` is permitted only when the queue is exhausted. Hitting
+`max_expansions`, `max_partitions`, or memory pressure while unexpanded states
+remain returns `complete: false` with the corresponding termination reason. A
+result cap that discards a nondominated terminal also returns `complete: false`,
+even if the queue later exhausts. Roadmap construction must not cache that
+partial frontier: it records the omission and leaves the pair to query-time
+fallback. The public
+singular `segment_between` may still stop at the first optimal terminal for a
+fully specified temporal/source context; only
+`segment_frontier_between` satisfies the roadmap-build contract.
+
 #### Reconciliation with root-cause PRD Algorithm 1 — build once
 
 Algorithm 1 (`docs/core-memory-causal-root-cause-retrieval-prd.md:884-925`) is
 already this search minus a terminal condition. The deltas:
 
-| | Algorithm 1 today | `segment_between` |
-|---|---|---|
-| Termination | `max_depth` or no parents | **terminal set** `N(b)` reached |
-| Length | `max_depth` | `max_len` cap (segments are short) |
-| Semantic drag | per hop | **off** — segments are query-independent and cacheable |
-| Result | many ranked paths | single best chain, or null |
+| | Algorithm 1 today | `segment_between` | `segment_frontier_between` |
+|---|---|---|---|
+| Termination | `max_depth` or no parents | First optimal terminal in `N(b)` | Queue exhaustion or explicit incomplete cap |
+| Length | `max_depth` | `max_len` cap (segments are short) | Same `max_len` cap |
+| Semantic drag | per hop | **off** — segments are query-independent and cacheable | **off** |
+| Result | many ranked paths | Single best chain, or null | Nondominated partitioned frontier + completeness receipt |
 
 **Requirement: implement one parameterized best-first search** with
-`terminal_set`, `length_cap`, and `drag_enabled` parameters. With
+`terminal_set`, `length_cap`, `drag_enabled`, and `result_mode=best|frontier`
+parameters. Frontier mode must continue after a terminal and return the
+completeness receipt above. With
 `terminal_set=None, drag_enabled=True` it must reproduce Algorithm 1's current
 behaviour exactly; that equivalence is a test, not a hope. Root-cause PRD Phase 2
 and this section are one work item. Building them separately is the single
@@ -176,7 +241,9 @@ R(τ₁ ∘ τ₂) = R(τ₁) + R(τ₂)
 ```
 
 so use `confidence_penalty = −log(clamp(confidence, 0.001, 1.0))`. All other
-`edge_cost` components are already additive and non-negative; preserve that.
+`edge_cost` penalties and bonuses remain additive. After combining them, apply
+the inherited floor to each edge before summing the path; §5 makes this ordering
+explicit.
 
 Non-additive path diagnostics — minimum semantic relevance, cold-hop counts,
 claim-state summaries, `historical_confidence` / `current_truth_confidence` as
@@ -192,31 +259,43 @@ maintenance cadence, read at query time, never recomputed inline.
 Construction (PALMER R-PRM Algorithm 1 with our nouns):
 
 ```python
+def edge_cost_row(edge):
+    return {
+        "edge_id": edge["edge_id"],
+        "cached_components": {
+            "structural": edge["cost"]["structural"],
+            "confidence": edge["cost"]["confidence"],
+            "myelination": edge["cost"]["myelination"],
+            "evidence": edge["cost"]["evidence"],
+            "validation": edge["cost"]["validation"],
+        },
+        "dynamic_refs": {
+            "source_ids": edge["source_ids"],
+            "claim_refs": edge["claim_refs"],
+            "temporal_refs": edge["temporal_refs"],
+            "contradiction_refs": edge["contradiction_refs"],
+            "evidence_refs": edge["evidence_refs"],
+        },
+    }
+
 def build_junction_roadmap(root, *, max_vertices, radius):
     V = sample_junction_identities(root, max_vertices)   # see sampling below
     E = {}
     for a in V:
         for b in near(V, a, radius):
             alternatives = []
-            for seg in segments_between(root, a, b, max_len=CAP):
+            result = segment_frontier_between(root, a, b, max_len=CAP)
+            if not result["complete"]:
+                record_omitted_pair(a, b, result["termination_reason"])
+                continue
+            for seg in result["segments"]:
                 candidate = {
                     "segment_id": seg["segment_id"],
                     "segment": seg["bead_ids"],
                     "edges": seg["edges"],
-                    "cost_components": {
-                        "structural": seg["cost"]["structural"],
-                        "confidence": seg["cost"]["confidence"],
-                        "myelination": seg["cost"]["myelination"],
-                        "evidence": seg["cost"]["evidence"],
-                        "validation": seg["cost"]["validation"],
-                    },
-                    "dynamic_cost_refs": {
-                        "source_ids": seg["source_ids"],
-                        "claim_refs": seg["claim_refs"],
-                        "temporal_refs": seg["temporal_refs"],
-                        "contradiction_refs": seg["contradiction_refs"],
-                        "evidence_refs": seg["evidence_refs"],
-                    },
+                    "edge_cost_rows": [
+                        edge_cost_row(edge) for edge in seg["edges"]
+                    ],
                 }
                 alternatives = pareto_insert(alternatives, candidate)
             if alternatives:
@@ -226,10 +305,11 @@ def build_junction_roadmap(root, *, max_vertices, radius):
 
 `E[(a, b)]` is therefore an **alternative set**, not a single transition. The
 builder must enumerate observed chains and retain a bounded nondominated
-frontier. Partition candidates by claim-ref signature, temporal coverage, and
-source footprint before Pareto pruning; candidates from different partitions
-must not dominate one another. Within a partition, dominance compares the full
-cached component vector and evidence/validation quality. This preserves, for
+frontier. Partition candidates by the complete dynamic-cost signature: claim
+refs, temporal coverage, source footprint, contradiction refs, and evidence
+refs. Candidates from different partitions must not dominate one another.
+Within a partition, dominance compares the per-edge cached component rows and
+evidence/validation quality. This preserves, for
 example, both a superseded chain that is valid historically and an active chain
 that is valid for current truth until `temporal_frame` is known. It also
 preserves a path supported by a narrower source set when a cheaper alternative
@@ -255,14 +335,14 @@ cause→effect toward the anchor, per the root-cause PRD's direction table
 (`:547-561`). Splicing a downstream segment into an upstream path merely because
 the two share a junction bead is a defect class; test it explicitly.
 
-**Store a complete component ledger, not a partial scalar.** Claim state,
+**Store a complete per-edge component ledger, not a segment scalar.** Claim state,
 temporal interpretation, and source accessibility are time-, frame-, or
 caller-dependent. Baking them into `base_cost` at build time makes the cache
-wrong for historical or permission-scoped queries. Each alternative stores the
-full query-independent cost breakdown plus the refs and raw inputs needed to
-compute every dynamic component. A scalar `base_cost` may be stored as a
-convenience checksum, but it must equal the sum of the cached components and
-must never replace the ledger.
+wrong for historical or permission-scoped queries. Each `edge_cost_row` stores
+the edge id, its cached structural/confidence/myelination/evidence/validation
+components, and the source/claim/temporal/contradiction/evidence refs needed to
+compute dynamic components. A segment subtotal may be emitted as diagnostic
+metadata, but it is never canonical input to path ranking.
 
 ### 5. Query time: cached versus query-dependent cost
 
@@ -270,21 +350,111 @@ Query cost = two vertex insertions + shortest path. Not graph-wide traversal.
 
 | Component | When | Why |
 |---|---|---|
-| Structural cost | **Cached** per segment | Query-independent |
-| Confidence penalty | **Cached** per segment | Uses additive `−log(confidence)` |
-| Myelination cost | **Cached** per segment | Query-independent at roadmap build |
-| Evidence and validation cost | **Cached** per segment | Query-independent at roadmap build |
-| Temporal and contradiction cost | **Query time** | Hydrated from refs for the selected frame |
-| Permission/evidence-gap cost | **Query time, after source filtering** | Depends on caller-visible evidence |
+| Structural cost | **Cached** per edge | Query-independent |
+| Confidence penalty | **Cached** per edge | Uses additive `−log(confidence)` |
+| Myelination term | **Cached** per edge | Query-independent at roadmap build |
+| Evidence and validation terms | **Cached** per edge | Query-independent at roadmap build; may include bonuses |
+| Temporal and contradiction terms | **Query time, per edge** | Hydrated from refs for the selected frame |
+| Permission/evidence-gap terms | **Query time, per edge, after source filtering** | Depends on caller-visible evidence |
 | Semantic drag | **Query time**, per segment | Depends on the question; applied per segment, not per hop |
 | Junction-mismatch cost | **Query time**, per stitch | Depends on which junction tier joined the segments (§1) |
-| Claim-state cost | **Query time** | Selected by temporal frame (root-cause PRD `:1316-1329`) |
+| Claim-state term | **Query time, per edge** | Selected by temporal frame (root-cause PRD `:1316-1329`) |
 
 The component ledger must account for every term in the inherited `edge_cost`
-model exactly once. `apply_query_costs` starts with the cached structural,
-confidence, myelination, evidence, and validation subtotal, then adds temporal,
-contradiction, permission/evidence-gap, semantic, junction, and claim-state
-terms. It must neither omit a term nor apply a cached term again.
+model exactly once **and preserve its per-edge floor**:
+
+```python
+def score_segment(segment, query_context):
+    edge_total = 0.0
+    for row in segment["edge_cost_rows"]:
+        raw_edge_cost = (
+            sum(row["cached_components"].values())
+            + sum(dynamic_edge_terms(row, query_context).values())
+        )
+        edge_total += max(0.001, raw_edge_cost)
+    return edge_total + semantic_drag(segment, query_context)
+```
+
+`apply_query_costs` hydrates dynamic terms into each edge row, applies
+`max(0.001, raw_edge_cost)` to that edge, and only then sums the segment.
+Junction-mismatch cost is added once per stitch outside the segment loop.
+Clamping an aggregate segment subtotal is forbidden: bonuses on one edge must
+not cancel the inherited floor on another edge.
+
+#### Segment alternatives require transition-aware search
+
+Junction mismatch is not a property of either segment in isolation. It depends
+on the endpoint bead of the selected incoming segment, the start bead of the
+selected outgoing segment, and the junction identity that permits their stitch.
+Therefore it cannot be assigned in `apply_query_costs` before path selection.
+
+Build a directed line graph (or an equivalent relaxation state) after source
+filtering and segment scoring:
+
+```python
+def segment_transition_graph(scoped_roadmap, anchors, direction):
+    L = Graph()
+    source = L.add_virtual_source()
+    for segment in scoped_roadmap.segment_alternatives:
+        entry, exit = traversal_endpoints(segment, direction)
+        L.add_state(
+            segment.segment_id,
+            start_junction=segment.start_junction,
+            end_junction=segment.end_junction,
+            normalized_start_bead_id=segment.bead_ids[0],
+            normalized_end_bead_id=segment.bead_ids[-1],
+            entry_bead_id=entry.bead_id,
+            exit_bead_id=exit.bead_id,
+            entry_junction=entry.junction,
+            exit_junction=exit.junction,
+            segment_cost=segment.query_cost,
+        )
+    for incoming, outgoing in stitchable_pairs(L):
+        L.add_transition(
+            incoming.segment_id,
+            outgoing.segment_id,
+            cost=outgoing.segment_cost
+            + junction_mismatch(
+                incoming.exit_bead_id,
+                outgoing.entry_bead_id,
+                incoming.exit_junction,
+            ),
+        )
+    for match in first_segment_matches(anchors, L):
+        first = L.state(match.segment_id)
+        L.add_transition(
+            source,
+            first.segment_id,
+            cost=first.segment_cost
+            + junction_mismatch(
+                match.anchor_bead_id,
+                first.entry_bead_id,
+                match.junction_id,
+            ),
+            junction_id=match.junction_id,
+            anchor_bead_id=match.anchor_bead_id,
+        )
+    return L, source
+```
+
+The virtual source has no zero-cost path to a segment state: every outgoing
+transition charges that first segment's complete query cost once plus the
+junction mismatch for the exact anchor/traversal-entry match that made it
+reachable.
+An exact-bead match has zero mismatch; claim-slot, entity, and embedding matches
+pay their normal tiered seam cost and are reported in the stitched path. Every
+subsequent relaxation charges the outgoing segment plus the mismatch for that
+exact incoming/outgoing pair. Search state is at minimum
+`(junction_id, incoming_segment_id)`; an ordinary shortest path over junction
+vertices is forbidden because it loses the previously selected endpoint.
+For upstream traversal, `entry_bead_id` is the normalized effect-side end and
+`exit_bead_id` is the normalized cause-side start. Downstream traversal uses the
+opposite mapping. `direction="any"` uses the orientation selected and reported
+by `segment_between`. Search operates on entry/exit endpoints, while response
+assembly reverses upstream search order as needed and always emits each segment
+and the stitched `bead_ids` in normalized cause-to-effect order.
+All transition weights remain non-negative after the per-edge floors and
+non-negative junction cost, so Dijkstra/best-first optimality remains valid.
 
 **The same cached roadmap therefore carries two cost functions** —
 `historical_confidence`-weighted and `current_truth_confidence`-weighted —
@@ -303,13 +473,56 @@ def plan_over_roadmap(
     roadmap,
     temporal_frame,
     *,
+    root,
+    direction="upstream",
+    destination_anchor_ids=None,
     allowed_source_ids=None,
     denied_source_ids=None,
 ):
+    if goal_ids:
+        terminal_bead_ids = resolve_goal_advancing_terminals(
+            root,
+            goal_ids,
+            temporal_frame=temporal_frame,
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
+        terminal_mode = "goal_advancing_evidence"
+    else:
+        terminal_bead_ids, terminal_mode = resolve_unconditioned_terminals(
+            root,
+            query,
+            anchors,
+            temporal_frame=temporal_frame,
+            destination_anchor_ids=destination_anchor_ids,
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
+    if not terminal_bead_ids:
+        if goal_ids:
+            return fallback_goal_conditioned_expansion(
+                query,
+                anchors,
+                goal_ids,
+                temporal_frame=temporal_frame,
+                terminal_relationship="advances_goal",
+                allowed_source_ids=allowed_source_ids,
+                denied_source_ids=denied_source_ids,
+            )
+        return fallback_expansion(
+            query,
+            anchors,
+            temporal_frame=temporal_frame,
+            destination_anchor_ids=destination_anchor_ids,
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
     G = insert_query_vertices(
+        root,
         roadmap,
         anchors,
-        goal_ids,
+        exact_terminal_bead_ids=terminal_bead_ids,
+        direction=direction,
         allowed_source_ids=allowed_source_ids,
         denied_source_ids=denied_source_ids,
     )
@@ -319,12 +532,121 @@ def plan_over_roadmap(
         denied_source_ids=denied_source_ids,
     )
     hydrate_dynamic_costs(G, temporal_frame)                # time, claims, contradictions
-    apply_query_costs(G, embed(query), temporal_frame)      # drag, junction, evidence gaps
-    path = shortest_path(G, anchors, goal_ids)              # DP under R
+    score_segment_alternatives(G, embed(query), temporal_frame)
+    L, source = segment_transition_graph(
+        G,
+        anchors,
+        direction,
+    )                                                       # includes initial seam
+    path = shortest_path(
+        L,
+        start_state=source,
+        terminal_states=states_exiting_at_exact_beads(
+            terminal_bead_ids,
+        ),
+    )
     if path is None:
-        return None                                         # fall back to expansion
-    return concatenate_segments(path)                       # τ_stitched
+        if goal_ids:
+            return fallback_goal_conditioned_expansion(
+                query,
+                anchors,
+                goal_ids,
+                temporal_frame=temporal_frame,
+                terminal_relationship="advances_goal",
+                allowed_source_ids=allowed_source_ids,
+                denied_source_ids=denied_source_ids,
+            )
+        return fallback_expansion(
+            query,
+            anchors,
+            temporal_frame=temporal_frame,
+            destination_anchor_ids=destination_anchor_ids,
+            allowed_source_ids=allowed_source_ids,
+            denied_source_ids=denied_source_ids,
+        )
+    return concatenate_segments(
+        path,
+        traversal_direction=direction,
+        terminal_mode=terminal_mode,
+        terminal_bead_ids=terminal_bead_ids,
+    )                                                       # τ_stitched
 ```
+
+Without explicit goals, roadmap search still requires real terminal states:
+
+- If `destination_anchor_ids` is supplied, validate those exact beads against
+  temporal and source scope and use them as
+  `terminal_mode="explicit_destination"`.
+  This is the contract for “what connects A to B.”
+- Otherwise, run the existing bounded root-cause candidate stage (Algorithm 1)
+  from the query anchors under the same temporal and source scope. Its ranked,
+  non-anchor bead IDs become
+  `terminal_mode="root_cause_candidates"`. Active Goal Beads may influence
+  semantic ranking only as the already-defined weak prior; they are never
+  implicit terminals or filters.
+- If neither route yields a scoped exact terminal, use `fallback_expansion`.
+  Passing an empty terminal set to shortest path is forbidden.
+
+`goal_ids` are identifiers for intention objects, **not terminal vertices**.
+`resolve_goal_advancing_terminals` follows only accepted/validated
+`advances_goal` associations in the correct direction, selects the evidence bead
+on the advancing side, and applies temporal and source scope. It returns exact
+evidence bead IDs, never junction-neighbourhood aliases.
+`insert_query_vertices` must insert each exact evidence bead as a terminal and
+connect it to the scoped roadmap through a bounded observed segment whose full
+edge and stitch costs are charged. `states_exiting_at_exact_beads` compares a
+state's traversal `exit_bead_id` directly with that scoped set. Sharing a claim-slot or
+entity junction with advancing evidence is not sufficient. Goal mentions,
+`supports` edges, and the Goal Bead itself do not satisfy the terminal
+predicate. `goal_satisfied` is emitted only when the selected path's final bead
+in traversal order (`exit_bead_id`) is the reported evidence terminal. Response
+assembly may reverse upstream search order to preserve normalized causal
+storage; that presentation reversal does not change the terminal receipt. If the
+exact terminal cannot be connected to the roadmap, fallback expansion uses the
+same `advances_goal` predicate,
+temporal frame, and source scope; if none exists in the graph, return
+`goal_unsatisfied` rather than terminating at the intention object.
+
+#### Authoritative `advances_goal` production and backfill
+
+`advances_goal` is a canonical, directed association:
+
+```text
+evidence_bead --advances_goal--> goal_bead
+```
+
+It is durable graph truth only after the normal Core Memory association judge
+accepts it. The authoritative production path is:
+
+1. A Core Memory semantic goal-progress task runs when an eligible evidence bead
+   is written or revised, when a Goal Bead enters `candidate`, `endorsed`, or
+   `active`, and during the one-time backfill below.
+2. The model evaluates the evidence against scoped non-terminal Goal Beads and
+   emits an association proposal containing `source_bead_id`,
+   `target_goal_bead_id`, `relationship: "advances_goal"`, rationale,
+   evidence/provenance refs, temporal bounds, confidence, evaluator version, and
+   `idempotency_key =
+   "goal_advance:<goal_id>:<evidence_id>:<evaluator_version>"`.
+3. The proposal enters `pending_judge`. The existing model association judge
+   may accept, reject, quarantine, or request repair. Only its accepted writer
+   persists the canonical edge. Deterministic code may enqueue and deduplicate
+   work but may not infer or accept goal advancement.
+4. Satorid agents may submit the same model-authored proposal through
+   `/v1/memory/association-proposals`; this is another proposal producer, not an
+   alternate write path.
+
+Goal creation may continue to attach candidate evidence with `supports`.
+`supports` means relevant support, not observed progress, and remains
+non-terminal for planning. The migration/backfill enumerates existing
+non-terminal Goal Beads and their `supports` neighbours plus other temporally
+eligible evidence, then enqueues the semantic goal-progress task for each
+deduplicated pair. It never rewrites `supports` to `advances_goal`
+deterministically. Backfill progress is cursor-based and restartable; receipts
+record scanned, proposed, accepted, rejected, quarantined, and failed counts.
+Reruns use the same idempotency key, and query-time goal conditioning may be
+enabled for an existing workspace only after its backfill receipt is terminal
+and the live producer is active. A new workspace with no pre-existing Goal Beads
+requires the live producer but no empty backfill.
 
 Source scope is a **pre-ranking traversal constraint**, not a post-hoc evidence
 filter. Query insertion and roadmap traversal remove any alternative that
@@ -410,13 +732,19 @@ Returns a segment object or `{"segment": null, "reason": "no_observed_chain"}`.
 {
   "query": "What connects the Q3 staffing decision to the pilot outcome?",
   "anchor_ids": ["bead_a"],
-  "goal_bead_ids": ["bead_goal_1"],
+  "destination_anchor_ids": ["bead_b"],
+  "direction": "downstream",
   "temporal_frame": "current_truth",
   "allowed_source_ids": ["source_a", "source_b"],
   "denied_source_ids": ["source_private"],
   "max_vertices": 200
 }
 ```
+
+`destination_anchor_ids` and `goal_bead_ids` are optional and mutually
+exclusive. A request with neither uses bounded root-cause candidate terminals;
+a request with `destination_anchor_ids` performs exact A-to-B planning; a
+request with `goal_bead_ids` uses exact accepted goal-advancement evidence.
 
 Response additions, alongside the existing `root_cause_attribution` object:
 
@@ -437,6 +765,13 @@ Response additions, alongside the existing `root_cause_attribution` object:
     "historical_confidence": 0.81,
     "current_truth_confidence": 0.44,
     "seam_count": 1,
+    "terminal_mode": "explicit_destination",
+    "terminal_bead_ids": ["bead_b"],
+    "goal_conditioning": {
+      "goal_bead_ids": [],
+      "terminal_evidence_ids": [],
+      "satisfied": false
+    },
     "fallback_used": false
   },
   "roadmap_meta": {
@@ -480,16 +815,17 @@ answer.**
 | Phase | Content | Depends on |
 |---|---|---|
 | 1 | Junction identity resolver + threshold calibration + `\|N(a)\|` corroboration counts | — |
-| 2 | Parameterized best-first search; `segment_between` and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
-| 3 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
-| 4 | Query-time planning, source-scope filtering, dynamic cost hydration, stitching, seam marking, goal conditioning | Phase 3 |
-| 5 | Watershed attribution over the roadmap | Phase 3 |
-| 6 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 4 + host-application feedback surface |
+| 2 | Parameterized best-first search; `segment_between`, complete `segment_frontier_between`, and root-cause Algorithm 1 unified; `−log` cost form | Phase 1 |
+| 3 | Register canonical `advances_goal`; semantic producer; normal judge/write path; cursor-based `supports`-seeded backfill | Existing Goal Bead lifecycle + association judge |
+| 4 | Roadmap build job on the maintenance cadence; per-pair nondominated alternatives; complete component ledger; `roadmap_meta` | Phase 2 |
+| 5 | Query-time planning, source-scope filtering, dynamic cost hydration, weighted virtual-source/segment-state search, exact `advances_goal` evidence terminals, stitching, seam marking | Phases 3-4 |
+| 6 | Watershed attribution over the roadmap | Phase 4 |
+| 7 | Seam healing with all three guardrails; `validated_outcome` writeback; path promotion | Phase 5 + host-application feedback surface |
 
 **Gate before Phase 2.** Phase 1 produces a junction-density diagnostic:
 distribution of `|N(a)|` across the corpus, counted claims-first. If most
 identities have empty junction sets, the corpus cannot support stitching and
-Phases 2-6 should be deferred. This is a cheap query that gates expensive work;
+Phases 2-7 should be deferred. This is a cheap query that gates expensive work;
 run it first and report it.
 
 ## Test Scenarios
@@ -498,6 +834,12 @@ Beyond the root-cause PRD's existing scenarios, which must continue to pass:
 
 **Algorithm 1 equivalence.** The parameterized search with `terminal_set=None,
 drag_enabled=True` reproduces current Algorithm 1 output exactly.
+
+**Plural frontier completeness.** Two observed chains connect the same
+junctions through different temporal/source partitions. Expect both in the
+frontier and `complete: true` only after queue exhaustion. Repeat with an
+expansion cap reached first; expect `complete: false`, an explicit termination
+reason, and no cached roadmap pair.
 
 **Simple stitch.** History A: staffing decision → backlog → claim `X`.
 History B: claim `X` → pilot delay → outcome. Expect one stitched path across
@@ -508,6 +850,12 @@ both, junction `X` named, `stitched: true`.
 
 **Direction respected.** Two segments share a junction bead but run in opposite
 causal directions. Expect no upstream path splicing them.
+
+**Upstream normalization.** Query `segment_between(outcome, cause,
+direction="upstream")`. Expect reverse-adjacency expansion from the outcome but
+the returned `bead_ids` in cause-to-effect order, with the cause neighbourhood
+at index `0` and outcome neighbourhood at index `-1`. Roadmap start/end states
+must preserve that returned order.
 
 **Additivity.** `R(τ₁ ∘ τ₂) == R(τ₁) + R(τ₂)` for any two segments sharing a
 junction, under the `−log` form.
@@ -520,13 +868,65 @@ path selection from the same cache.
 **Complete cost accounting.** A segment with non-zero structural, confidence,
 temporal, contradiction, permission/evidence-gap, myelination, evidence, and
 validation terms. Expect the final additive cost to include every term exactly
-once, with cached and query-time subtotals reconciling to `total_cost`.
+once in per-edge rows, with cached and query-time terms reconciling to
+`total_cost`.
+
+**Per-edge floor.** A two-edge segment has raw edge costs `-1` and `2` after
+bonuses and dynamic terms. Expect segment edge cost `2.001`, never aggregate
+clamping to `1` or `1.001`.
 
 **Source-scoped alternatives.** The unrestricted cheapest path uses a denied
 source while a higher-cost allowed alternative connects the same junctions.
 Expect the denied alternative to be removed before ranking, the allowed path to
 win, and no denied identifier or score to influence the result. If no scoped
 alternative survives, expect same-scope fallback expansion.
+
+**Transition-dependent stitch ranking.** Two incoming and two outgoing segment
+alternatives meet at one junction. The individually cheapest pair has a high
+embedding-only mismatch, while a slightly costlier pair shares an exact bead and
+has zero mismatch. Expect line-graph relaxation to choose the globally cheaper
+combination after the pair-specific stitch cost; vertex-level preweighting must
+not reproduce the wrong path.
+
+**First-segment accounting.** Two segment alternatives leave the same anchor.
+The first is otherwise attractive but expensive; the second is cheaper. Expect
+the virtual-source transition to charge each first segment's complete cost and
+select the cheaper path. `total_cost` must include that initial segment exactly
+once.
+
+**Initial junction mismatch.** Two first segments are reachable from an anchor:
+one by exact bead and one only by a claim-slot match. Expect the virtual-source
+transition for the claim-slot path to include its junction mismatch and seam
+metadata; it must not rank as an exact connector.
+
+**Unconditioned roadmap terminals.** Run an A-to-B request with
+`destination_anchor_ids` and expect that exact scoped bead as the terminal.
+Repeat without destination or goal IDs and expect the bounded root-cause
+candidate stage to produce exact non-anchor terminals. Neither request may pass
+an empty terminal set or fall back solely because it lacks a Goal Bead.
+
+**Goal-advancing terminal.** A Goal Bead is reachable through a mere mention,
+while a different reachable evidence bead has an accepted `advances_goal`
+association to that goal. Expect the evidence bead to be the terminal and
+`goal_satisfied`; never terminate at the Goal Bead or mention. Repeat without
+scoped advancing evidence and expect same-scope fallback or `goal_unsatisfied`.
+
+**Exact goal terminal.** The accepted advancing evidence bead and another bead
+share the same claim-slot junction. Only the other bead is reachable through the
+cached segment. Expect no `goal_satisfied` until a fully costed final connector
+reaches the exact evidence bead; a shared junction neighbourhood is insufficient.
+
+**Goal-advancement producer and backfill.** Apply a Goal Bead whose candidate
+evidence has only a `supports` edge. Expect an idempotent semantic goal-progress
+task, a `pending_judge` `advances_goal` proposal, and no canonical edge before
+judge acceptance. Rerun the cursor-based backfill and expect no duplicate
+proposal. Reject the proposal and confirm goal-conditioned planning does not use
+the `supports` edge as a terminal.
+
+**Temporal fallback parity.** Remove an otherwise valid advancing terminal from
+the cached roadmap and query both `historical` and `current_truth`. Expect early
+fallback to receive the requested temporal frame and to choose only evidence
+valid for that frame.
 
 **Sparse corpus.** Empty roadmap. Expect fallback to expansion, `fallback_used:
 true`, a stated limitation, and a non-empty answer.
@@ -546,10 +946,32 @@ id; an answer-level-only validation mints at reduced prior.
 - The same cached roadmap serves historical and current-truth queries with
   different path selection, including when the alternatives connect the same
   junction pair.
+- A roadmap pair is cached only from a complete multi-result frontier; bounded
+  early termination is explicit and falls back instead of masquerading as
+  complete.
 - Every inherited `edge_cost` term is represented exactly once in the cached plus
-  query-time component ledger.
+  query-time per-edge ledger, and the inherited floor is applied before segment
+  summation.
 - Allowed and denied source scope is enforced before insertion, ranking,
   attribution, and hydration; inaccessible alternatives cannot affect a plan.
+- Junction mismatch is charged during segment-to-segment relaxation using the
+  selected endpoint pair; alternative combinations cannot evade or pre-bake the
+  stitch cost.
+- Every first segment is charged exactly once through a weighted virtual-source
+  transition, including the anchor-to-traversal-entry junction mismatch;
+  multi-source zero initialization and free initial seams are forbidden.
+- Upstream search may expand reverse adjacency, but every returned and cached
+  segment uses normalized cause-to-effect bead order with swapped endpoint
+  constraints.
+- Unconditioned A-to-B and root-cause requests derive exact destination or
+  root-cause-candidate terminals, so roadmap use never depends on `goal_ids`.
+- Goal-conditioned planning terminates only on scoped evidence connected to the
+  requested Goal Bead by accepted `advances_goal`, never on the intention object
+  or a mere mention, and the selected traversal must exit at that exact evidence
+  bead.
+- Canonical `advances_goal` edges have a live model-authored producer, normal
+  association-judge authority, and an idempotent reviewed backfill for existing
+  goals; `supports` is never deterministically promoted.
 - Root-cause attribution accumulates on junction identities where histories
   converge, rather than on arbitrary upstream beads.
 - Stitch rate and PER hit rate rise over time as validated paths become stored
