@@ -631,7 +631,7 @@ accepts it. The authoritative production path is:
    may accept, reject, quarantine, or request repair. Only its accepted writer
    persists the canonical edge. Deterministic code may enqueue and deduplicate
    work but may not infer or accept goal advancement.
-4. Satorid agents may submit the same model-authored proposal through
+4. Host-application agents may submit the same model-authored proposal through
    `/v1/memory/association-proposals`; this is another proposal producer, not an
    alternate write path.
 
