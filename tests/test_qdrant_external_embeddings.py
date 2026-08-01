@@ -88,6 +88,51 @@ def test_flag_default_off_and_env_on(monkeypatch):
     assert si._qdrant_external_embeddings_enabled() is False
 
 
+def test_fastembed_manifest_rebuilds_when_external_embeddings_are_enabled(monkeypatch):
+    monkeypatch.setenv("CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS", "1")
+
+    assert si._semantic_index_config_mismatch(
+        manifest={
+            "provider": "fastembed",
+            "model": "BAAI/bge-small-en-v1.5",
+            "vector_backend": "qdrant",
+        },
+        requested_provider="openai",
+        requested_model="text-embedding-3-large",
+        requested_vector_backend="qdrant",
+    )
+
+
+def test_external_manifest_rebuilds_when_fastembed_is_restored(monkeypatch):
+    monkeypatch.delenv("CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS", raising=False)
+
+    assert si._semantic_index_config_mismatch(
+        manifest={
+            "provider": "openai",
+            "model": "text-embedding-3-large",
+            "vector_backend": "qdrant",
+        },
+        requested_provider="openai",
+        requested_model="text-embedding-3-large",
+        requested_vector_backend="qdrant",
+    )
+
+
+def test_matching_fastembed_manifest_ignores_external_provider_defaults(monkeypatch):
+    monkeypatch.delenv("CORE_MEMORY_QDRANT_EXTERNAL_EMBEDDINGS", raising=False)
+
+    assert not si._semantic_index_config_mismatch(
+        manifest={
+            "provider": "fastembed",
+            "model": "BAAI/bge-small-en-v1.5",
+            "vector_backend": "qdrant",
+        },
+        requested_provider="openai",
+        requested_model="text-embedding-3-large",
+        requested_vector_backend="qdrant",
+    )
+
+
 def test_external_mode_uses_separate_collection(tmp_path: Path, monkeypatch):
     # FastEmbed and external-embedding modes must resolve to DIFFERENT Qdrant
     # collections so 3072-dim OpenAI vectors never collide with an existing
@@ -159,6 +204,68 @@ def test_qdrant_backend_recreates_incompatible_existing_collection(monkeypatch):
     client = instances[0]
     assert client.deleted == ["core_memory_beads"]
     assert client.created == [("core_memory_beads", 3072)]
+
+
+def test_qdrant_backend_reuses_client_for_same_storage_path(tmp_path: Path, monkeypatch):
+    instances = []
+
+    class FakeQdrantClient:
+        def __init__(self, *args, **kwargs):
+            instances.append(self)
+
+    fake_qdrant = types.ModuleType("qdrant_client")
+    fake_qdrant.QdrantClient = FakeQdrantClient
+    fake_models = types.ModuleType("qdrant_client.models")
+    fake_models.Distance = types.SimpleNamespace(COSINE="Cosine")
+    fake_models.VectorParams = object
+    monkeypatch.setitem(sys.modules, "qdrant_client", fake_qdrant)
+    monkeypatch.setitem(sys.modules, "qdrant_client.models", fake_models)
+
+    from core_memory.retrieval.vector_backend import QdrantBackend
+
+    first = QdrantBackend(
+        collection_name="core_memory_beads",
+        path=str(tmp_path / "qdrant"),
+        dimensions=0,
+    )
+    second = QdrantBackend(
+        collection_name="core_memory_beads",
+        path=str(tmp_path / "qdrant"),
+        dimensions=0,
+    )
+
+    assert len(instances) == 1
+    assert first._client is second._client
+
+
+def test_qdrant_client_cache_is_bounded_and_closes_on_shutdown(tmp_path: Path, monkeypatch):
+    from core_memory.retrieval import vector_backend as vb
+
+    clients = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.closed = False
+            clients.append(self)
+
+        def close(self):
+            self.closed = True
+
+    monkeypatch.setattr(vb, "_QDRANT_CLIENT_CACHE_MAX", 2)
+    vb._close_cached_qdrant_clients()
+
+    for index in range(3):
+        vb._shared_qdrant_client(
+            client_type=FakeClient,
+            url=None,
+            path=str(tmp_path / f"qdrant-{index}"),
+        )
+
+    assert len(vb._qdrant_client_cache) == 2
+    vb._close_cached_qdrant_clients()
+    assert not vb._qdrant_client_cache
+    assert clients[1].closed
+    assert clients[2].closed
 
 
 def test_query_path_fastembed_manifest_uses_hybrid_search(tmp_path: Path):

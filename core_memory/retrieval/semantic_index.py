@@ -80,6 +80,42 @@ def _qdrant_external_embeddings_enabled() -> bool:
     return val in {"1", "true", "yes", "on"}
 
 
+def _semantic_index_config_mismatch(
+    *,
+    manifest: dict[str, Any],
+    requested_provider: str,
+    requested_model: str,
+    requested_vector_backend: str,
+) -> bool:
+    manifest_provider = str(manifest.get("provider") or "").strip().lower()
+    manifest_model = str(manifest.get("model") or "")
+    manifest_backend = str(manifest.get("vector_backend") or "").strip()
+    requested_backend = _normalize_vector_backend(requested_vector_backend)
+
+    if manifest_backend and _normalize_vector_backend(manifest_backend) != requested_backend:
+        return True
+
+    requested_fastembed = (
+        requested_backend == VECTOR_BACKEND_QDRANT
+        and not _qdrant_external_embeddings_enabled()
+    )
+    manifest_fastembed = manifest_provider == "fastembed"
+
+    if requested_backend == VECTOR_BACKEND_QDRANT and manifest_provider:
+        if requested_fastembed != manifest_fastembed:
+            return True
+        if requested_fastembed:
+            return False
+
+    return bool(
+        manifest_provider
+        and (
+            manifest_provider != str(requested_provider or "").strip().lower()
+            or manifest_model != str(requested_model or "")
+        )
+    )
+
+
 def _vector_collection_name(root: Path) -> str:
     import hashlib as _hashlib
 
@@ -1497,12 +1533,11 @@ def semantic_lookup(root: Path, query: str, k: int = 8, mode: str | None = None)
     req_provider = (_auto_configure_embedding_provider_from_keys() or "gemini").strip().lower()
     req_model = (os.environ.get("CORE_MEMORY_EMBEDDINGS_MODEL") or _default_embedding_model(req_provider)).strip()
     req_vector_backend = _configured_vector_backend()
-    # Qdrant+FastEmbed manages its own embedding model — never rebuild due to external provider mismatch.
-    _manifest_is_fastembed = str(manifest.get("provider") or "").strip().lower() == "fastembed"
-    _req_is_qdrant_fastembed = req_vector_backend == VECTOR_BACKEND_QDRANT
-    if not (_manifest_is_fastembed and _req_is_qdrant_fastembed) and (
-        (manifest.get("provider") and (str(manifest.get("provider")) != req_provider or str(manifest.get("model")) != req_model))
-        or (manifest.get("vector_backend") and _normalize_vector_backend(str(manifest.get("vector_backend"))) != req_vector_backend)
+    if _semantic_index_config_mismatch(
+        manifest=manifest,
+        requested_provider=req_provider,
+        requested_model=req_model,
+        requested_vector_backend=req_vector_backend,
     ):
         warn_once("semantic_index_config_mismatch")
         enqueue_semantic_rebuild(root)
