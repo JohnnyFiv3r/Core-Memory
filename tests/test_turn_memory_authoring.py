@@ -105,6 +105,39 @@ def test_delegated_author_uses_full_schema_and_records_provenance() -> None:
     assert authorship["validation"] == {"ok": True, "errors": []}
 
 
+def test_delegated_author_forwards_only_safe_model_routing_metadata() -> None:
+    runtime = FakeSemanticTaskRuntime(_delegated_output())
+    updates, diag = author_turn_memory(
+        root="/tmp/core-memory-test",
+        req={
+            "session_id": "s1",
+            "turn_id": "t1",
+            "turns": [],
+            "speakers": [],
+            "metadata": {
+                "workspaceId": "workspace-1",
+                "model_provider": "openai",
+                "preferredProfileId": "profile-1",
+                "agentRunId": "run-1",
+                "authorization": "Bearer do-not-forward",
+                "crawler_updates": {"secret": "compat-alias"},
+            },
+        },
+        crawler_context={"session_id": "s1", "visible_bead_ids": [], "beads": []},
+        task_runtime=runtime,
+    )
+
+    assert updates == _delegated_output()
+    assert diag["ok"] is True
+    request_metadata = runtime.requests[0].metadata
+    assert request_metadata["workspace_id"] == "workspace-1"
+    assert request_metadata["model_provider"] == "openai"
+    assert request_metadata["preferred_profile_id"] == "profile-1"
+    assert request_metadata["agent_run_id"] == "run-1"
+    assert "authorization" not in request_metadata
+    assert "crawler_updates" not in request_metadata
+
+
 def test_delegated_author_rejects_narrow_legacy_judge_output() -> None:
     runtime = FakeSemanticTaskRuntime(
         {
