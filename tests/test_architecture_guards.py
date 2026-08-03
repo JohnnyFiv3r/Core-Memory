@@ -6,7 +6,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "check_architecture_guards.py"
 BASELINE = ROOT / "scripts" / "architecture_guards_baseline.json"
@@ -28,6 +27,37 @@ guards = _load_guard_module()
 def _write(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
+
+
+def _exception(**overrides) -> dict:
+    row = {
+        "id": "CMEX-TEST",
+        "invariant_ids": ["CM-SEM-001", "CM-SEM-002"],
+        "category": "semantic_fallback",
+        "path": "core_memory/policy/fallback.py",
+        "symbol": "core_memory.policy.fallback.semantic_memory_fallback",
+        "allowed_behavior": "Emit visible compatibility diagnostics.",
+        "forbidden_behavior": "Must not write canonical semantics.",
+        "justification": "Temporary test exception.",
+        "provenance_requirement": "source event and failure receipt",
+        "owner": "test-owner",
+        "delete_by_pr": "PR-02D",
+        "max_occurrences": 1,
+    }
+    row.update(overrides)
+    row["fingerprint"] = guards.architecture_exception_fingerprint(row)
+    return row
+
+
+def _architecture_baseline(exceptions: list[dict] | None = None) -> dict:
+    return {
+        "schema_version": guards.SCHEMA_VERSION,
+        "generated_from_commit": "0" * 40,
+        "invariants": guards.ARCHITECTURE_INVARIANTS,
+        "violation_ids": [],
+        "violations": [],
+        "exceptions": exceptions or [],
+    }
 
 
 def test_detects_upward_imports(tmp_path: Path):
@@ -146,14 +176,10 @@ def test_detects_compat_surface_usage(tmp_path: Path):
     assert surfaces == {"runtime_semantic_tasks", "typed_search_form_submission"}
 
 
-def test_deterministic_writer_guard_requires_allowlist_and_rejects_preview_authority(tmp_path: Path):
+def test_deterministic_writer_guard_rejects_preview_authority(tmp_path: Path):
     _write(
         tmp_path / "scripts" / "architecture_guards_baseline.json",
-        json.dumps(
-            {
-                "sanctioned_deterministic_writers": guards.SANCTIONED_DETERMINISTIC_WRITERS,
-            }
-        ),
+        json.dumps(_architecture_baseline()),
     )
     _write(
         tmp_path / "core_memory" / "association" / "crawler_contract.py",
@@ -163,6 +189,121 @@ def test_deterministic_writer_guard_requires_allowlist_and_rejects_preview_autho
     violations = guards.check_deterministic_semantic_writers(tmp_path)
 
     assert [violation.detail["forbidden_call"] for violation in violations] == ["infer_relationship"]
+
+
+def test_exception_registry_rejects_wildcards_stale_fingerprints_and_nonexpiring_prs(tmp_path: Path):
+    row = _exception(path="core_memory/**/*.py", delete_by_pr="PR-00A")
+    row["fingerprint"] = "stale"
+    _write(
+        tmp_path / "scripts" / "architecture_guards_baseline.json",
+        json.dumps(_architecture_baseline([row])),
+    )
+
+    violations = guards.check_architecture_exception_registry(tmp_path)
+
+    ids = {violation.id for violation in violations}
+    assert "architecture_exception:row:0:path" in ids
+    assert "architecture_exception:row:0:delete_by_pr" in ids
+    assert "architecture_exception:row:0:fingerprint" in ids
+
+
+def test_exception_registry_allows_reduction_but_rejects_occurrence_increase(tmp_path: Path):
+    path = tmp_path / "core_memory" / "policy" / "fallback.py"
+    _write(
+        path,
+        "def semantic_memory_fallback():\n    pass\n\ndef semantic_memory_fallback():\n    pass\n",
+    )
+    row = _exception()
+    _write(
+        tmp_path / "scripts" / "architecture_guards_baseline.json",
+        json.dumps(_architecture_baseline([row])),
+    )
+
+    violations = guards.check_architecture_exception_registry(tmp_path)
+
+    assert [violation.id for violation in violations] == [
+        "architecture_exception:CMEX-TEST:occurrence_increase"
+    ]
+
+    path.unlink()
+    assert guards.check_architecture_exception_registry(tmp_path) == []
+
+
+def test_semantic_fallback_must_be_an_exact_registered_exception(tmp_path: Path):
+    _write(
+        tmp_path / "scripts" / "architecture_guards_baseline.json",
+        json.dumps(_architecture_baseline()),
+    )
+    _write(
+        tmp_path / "core_memory" / "policy" / "fallback.py",
+        "def semantic_memory_fallback():\n    return {'summary': 'manufactured'}\n",
+    )
+
+    violations = guards.check_semantic_fallback_paths(tmp_path)
+
+    assert [violation.detail["category"] for violation in violations] == ["semantic_fallback"]
+
+    row = _exception()
+    _write(
+        tmp_path / "scripts" / "architecture_guards_baseline.json",
+        json.dumps(_architecture_baseline([row])),
+    )
+    assert guards.check_semantic_fallback_paths(tmp_path) == []
+
+
+def test_new_legacy_semantic_mutation_call_requires_exact_exception(tmp_path: Path):
+    _write(
+        tmp_path / "scripts" / "architecture_guards_baseline.json",
+        json.dumps(_architecture_baseline()),
+    )
+    _write(
+        tmp_path / "core_memory" / "new_authority.py",
+        "def author_claims():\n    write_claims_to_bead('root', 'bead', [])\n",
+    )
+
+    violations = guards.check_semantic_mutation_calls(tmp_path)
+
+    assert [violation.detail["mutation_call"] for violation in violations] == [
+        "write_claims_to_bead"
+    ]
+
+
+def test_target_boundary_activates_when_target_package_appears(tmp_path: Path):
+    _write(tmp_path / "core_memory" / "ledger" / "__init__.py", "")
+    _write(
+        tmp_path / "core_memory" / "ledger" / "store.py",
+        "from core_memory.persistence.store import MemoryStore\n",
+    )
+
+    violations = guards.check_target_boundaries(tmp_path)
+
+    assert [violation.detail["target_root"] for violation in violations] == [
+        "core_memory/ledger"
+    ]
+
+
+def test_baseline_candidate_cannot_overwrite_canonical_baseline(tmp_path: Path):
+    _write(
+        tmp_path / "scripts" / "architecture_guards_baseline.json",
+        json.dumps(_architecture_baseline()),
+    )
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--root",
+            str(tmp_path),
+            "--write-baseline-candidate",
+            "scripts/architecture_guards_baseline.json",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode == 2
+    assert "Refusing to overwrite" in result.stderr
 
 
 def test_compat_baseline_allows_reductions_but_fails_increases(tmp_path: Path):
