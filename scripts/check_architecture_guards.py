@@ -1,19 +1,24 @@
-"""Report architecture drift without forcing existing cleanup debt closed.
+"""Ratchet Core Memory architecture debt without manufacturing a clean slate.
 
-The guard has two modes:
+The guard has three modes:
 
 * report mode: print all currently detected violations and exit 0
 * baseline mode: compare against a checked-in baseline and fail only on new drift
+* candidate mode: write a review-only diff that cannot replace the baseline
 
-This keeps the cleanup train honest without turning known debt into a blocking
-mega-refactor.
+Known authority debt is exact, fingerprinted, owned, occurrence-bounded, and
+assigned to a deletion PR. Reductions are allowed; additions and increases are
+blocking.
 """
+
 from __future__ import annotations
 
 import argparse
 import ast
+import hashlib
 import json
 import re
+import subprocess
 import sys
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -21,133 +26,148 @@ from pathlib import Path
 from typing import Iterable
 from urllib.parse import unquote, urlsplit
 
-
-SCHEMA_VERSION = "core_memory.architecture_guards.v1"
+SCHEMA_VERSION = "core_memory.architecture_guards.v2"
 COMPAT_SCHEMA_VERSION = "core_memory.compat_surface_usage_baseline.v1"
 DEFAULT_BASELINE = Path("scripts/architecture_guards_baseline.json")
 DEFAULT_COMPAT_BASELINE = Path("scripts/compat_surface_usage_baseline.json")
 
-SANCTIONED_DETERMINISTIC_WRITER_KEYS = {
+ARCHITECTURE_EXCEPTION_KEYS = {
+    "id",
+    "invariant_ids",
+    "category",
+    "path",
     "symbol",
-    "record_or_edge_class",
-    "rationale",
+    "fingerprint",
+    "allowed_behavior",
+    "forbidden_behavior",
+    "justification",
     "provenance_requirement",
+    "owner",
+    "delete_by_pr",
+    "max_occurrences",
+    "governed_calls",
 }
 
-# These are the only deterministic semantic paths permitted in this rollout.
-# They either persist structural/mechanical records with explicit provenance or
-# append advisory candidates.  Canonical promotion, claim, and relationship
-# truth must arrive through an agent-authorized contract instead.
-SANCTIONED_DETERMINISTIC_WRITERS = [
-    {
-        "symbol": "core_memory.runtime.session.session_start_flow.process_session_start_impl",
-        "record_or_edge_class": "session_boundary_bead",
-        "rationale": "Session boundaries are mechanical lifecycle records.",
-        "provenance_requirement": "session_id and continuity snapshot",
-    },
-    {
-        "symbol": "core_memory.runtime.flush.flush_state.upsert_process_flush_checkpoint_bead",
-        "record_or_edge_class": "flush_checkpoint_bead",
-        "rationale": "Flush checkpoints record process progress, not semantic interpretation.",
-        "provenance_requirement": "flush transaction id",
-    },
-    {
-        "symbol": "core_memory.runtime.ingest.external_evidence.ingest_external_evidence",
-        "record_or_edge_class": "external_evidence_anchor",
-        "rationale": "External anchors preserve caller-owned source evidence.",
-        "provenance_requirement": "source id, source event id, and hydration ref",
-    },
-    {
-        "symbol": "core_memory.runtime.turn.semantic_state.mark_semantic_write_state",
-        "record_or_edge_class": "pending_semantic_state",
-        "rationale": "Pending/repair state is an operational receipt, never a canonical bead.",
-        "provenance_requirement": "session id, turn id, and status history",
-    },
-    {
-        "symbol": "core_memory.graph.core.sync_structural_pipeline",
-        "record_or_edge_class": "explicit_structural_field_projection",
-        "rationale": "Projects explicit persisted links and agent associations into structural edges.",
-        "provenance_requirement": "association or link source field",
-    },
-    {
-        "symbol": "core_memory.graph.core.backfill_structural_edges",
-        "record_or_edge_class": "explicit_structural_field_projection",
-        "rationale": "Repairs graph projections from already persisted structural fields.",
-        "provenance_requirement": "explicit link or association id",
-    },
-    {
-        "symbol": "core_memory.persistence.promotion_service.decide_session_promotion_states_for_store",
-        "record_or_edge_class": "promotion_shadow_recommendation",
-        "rationale": "Heuristic promotion signals are append-only advice only.",
-        "provenance_requirement": "heuristic version and visible bead id",
-    },
-    {
-        "symbol": "core_memory.persistence.promotion_service.evaluate_candidates_for_store",
-        "record_or_edge_class": "promotion_shadow_recommendation",
-        "rationale": "Candidate scoring is advisory rather than canonical promotion authority.",
-        "provenance_requirement": "score, threshold, and candidate bead id",
-    },
-    {
-        "symbol": "core_memory.persistence.promotion_service.rebalance_promotions_for_store",
-        "record_or_edge_class": "promotion_shadow_recommendation",
-        "rationale": "Rebalance results are demotion recommendations only.",
-        "provenance_requirement": "score, threshold, and candidate bead id",
-    },
-    {
-        "symbol": "core_memory.claim.turn_integration.extract_and_attach_claims",
-        "record_or_edge_class": "claim_advisory",
-        "rationale": "Heuristic or legacy claim extraction is review context only.",
-        "provenance_requirement": "extractor mode and turn id",
-    },
-    {
-        "symbol": "core_memory.claim.update_policy.emit_claim_updates",
-        "record_or_edge_class": "claim_update_advisory",
-        "rationale": "Automatic reconciliation is advice; explicit authored updates remain canonical.",
-        "provenance_requirement": "trigger bead id and authored review provenance",
-    },
-    {
-        "symbol": "core_memory.runtime.dreamer.candidates.decide_dreamer_candidate",
-        "record_or_edge_class": "governed_claim_resolution",
-        "rationale": "An explicit agent decision can apply a reviewed conflict resolution.",
-        "provenance_requirement": "candidate id, explicit_agent_action, and scoped-resolution receipt",
-    },
-    {
-        "symbol": "core_memory.graph.core.backfill_causal_links",
-        "record_or_edge_class": "causal_link_candidate",
-        "rationale": "Legacy causal backfill now emits candidates and deprecation telemetry only.",
-        "provenance_requirement": "candidate overlap and source/target ids",
-    },
-    {
-        "symbol": "core_memory.runtime.associations.coverage._candidate_proposals_for_bead",
-        "record_or_edge_class": "relationship_neutral_pair_candidate",
-        "rationale": "Deterministic shortlisting emits evidence signals but never relationship truth.",
-        "provenance_requirement": "pair bead ids, signal kinds, and candidate generation version",
-    },
-]
+ARCHITECTURE_EXCEPTION_CATEGORIES = {
+    "canonical_file_authority",
+    "deterministic_semantic_author",
+    "semantic_fallback",
+    "duplicate_resolver",
+    "feature_store",
+    "legacy_queue",
+    "boundary_import",
+    "benchmark_shortcut",
+}
+
+ARCHITECTURE_INVARIANTS = {
+    "CM-OBS-001": "Every bead is an evidence-bound annotation of an observed event.",
+    "CM-SEM-001": "Meaning-bearing fields and conditional decisions are LLM-authored.",
+    "CM-SEM-002": "Semantic failure writes no manufactured fallback meaning.",
+    "CM-CLAIM-001": "Current truth follows explicit revision chains; unresolved conflict is ambiguous.",
+    "CM-ASSOC-001": "Association predicate, direction, time, and causality are evidence-bound LLM decisions.",
+    "CM-ARTIFACT-001": "Derived artifacts share one evidence-bound append-only lifecycle.",
+    "CM-PROMOTION-001": "Promotion affects hot context only and cannot upgrade truth or delete archive evidence.",
+    "CM-RETRIEVAL-001": "Retrieval uses one evidence-hydrating pipeline and cites or abstains.",
+    "CM-LEDGER-001": "Canonical semantic state is append-only and has one authority.",
+    "CM-BOUNDARY-001": "Integrations translate observations and never invent semantic authority.",
+    "CM-BENCH-001": "Benchmark shortcuts and gold leakage disqualify quality evidence.",
+}
+
+_EXCEPTION_FINGERPRINT_KEYS = tuple(sorted(ARCHITECTURE_EXCEPTION_KEYS - {"fingerprint"}))
+_PR_PHASE_RE = re.compile(r"^PR-(?:0[1-9]|[1-9][0-9])[A-Z]$")
+_CURRENT_PHASE_RE = re.compile(r"^PR-(?:[0-9]{2})[A-Z]$")
+_GLOB_META_RE = re.compile(r"[*?\[\]{}]")
+_SEMANTIC_FALLBACK_NAME_RE = re.compile(
+    r"fallback.*(?:bead|claim|association|relationship|goal|story|soul|promotion|"
+    r"memory|semantic|causal)|(?:bead|claim|association|relationship|goal|story|"
+    r"soul|promotion|memory|semantic|causal).*fallback",
+    re.IGNORECASE,
+)
+_GOVERNED_SEMANTIC_MUTATION_CALLS = {
+    "_write_association_if_missing",
+    "add_structural_edge",
+    "apply_crawler_updates",
+    "resolve_goal_candidate_for_store",
+    "transition_goal_state_for_store",
+    "write_claim_updates_to_bead",
+    "write_claims_to_bead",
+    "write_memory_outcome_to_bead",
+}
 
 
 _FORBIDDEN_DETERMINISTIC_CALLS: tuple[tuple[str, str, str], ...] = (
-    ("core_memory/association/crawler_contract.py", "infer_relationship", "preview classifier cannot author a canonical association"),
-    ("core_memory/claim/turn_integration.py", "write_claims_to_bead", "claim extraction cannot write canonical claims"),
-    ("core_memory/runtime/turn/turn_flow.py", "write_memory_outcome_to_bead", "memory-use classification cannot write canonical bead fields"),
-    ("core_memory/runtime/session/goal_lifecycle.py", "apply_crawler_updates", "goal overlap cannot append a canonical association"),
-    ("core_memory/runtime/session/goal_lifecycle.py", "resolve_goal_candidate_for_store", "goal overlap cannot resolve canonical promotion state"),
-    ("core_memory/soul/dreamer_bridge.py", "transition_goal_state_for_store", "Dreamer cannot auto-endorse a canonical goal"),
+    (
+        "core_memory/association/crawler_contract.py",
+        "infer_relationship",
+        "preview classifier cannot author a canonical association",
+    ),
+    (
+        "core_memory/claim/turn_integration.py",
+        "write_claims_to_bead",
+        "claim extraction cannot write canonical claims",
+    ),
+    (
+        "core_memory/runtime/turn/turn_flow.py",
+        "write_memory_outcome_to_bead",
+        "memory-use classification cannot write canonical bead fields",
+    ),
+    (
+        "core_memory/runtime/session/goal_lifecycle.py",
+        "apply_crawler_updates",
+        "goal overlap cannot append a canonical association",
+    ),
+    (
+        "core_memory/runtime/session/goal_lifecycle.py",
+        "resolve_goal_candidate_for_store",
+        "goal overlap cannot resolve canonical promotion state",
+    ),
+    (
+        "core_memory/soul/dreamer_bridge.py",
+        "transition_goal_state_for_store",
+        "Dreamer cannot auto-endorse a canonical goal",
+    ),
 )
 
 _FORBIDDEN_WRITER_CALLS: tuple[tuple[str, str, str, str], ...] = (
-    ("core_memory/persistence/promotion_service.py", "decide_session_promotion_states_for_store", "_write_json", "session promotion must be shadow-only"),
-    ("core_memory/persistence/promotion_service.py", "decide_session_promotion_states_for_store", "mark_semantic_dirty", "session promotion must be shadow-only"),
-    ("core_memory/graph/core.py", "backfill_causal_links", "add_structural_edge", "causal backfill must remain candidate-only"),
-    ("core_memory/graph/core.py", "infer_structural_edges", "add_structural_edge", "structural inference must remain candidate-only"),
-    ("core_memory/persistence/store_compaction_ops.py", "compact_for_store", "promotion_state", "compaction cannot auto-promote"),
+    (
+        "core_memory/persistence/promotion_service.py",
+        "decide_session_promotion_states_for_store",
+        "_write_json",
+        "session promotion must be shadow-only",
+    ),
+    (
+        "core_memory/persistence/promotion_service.py",
+        "decide_session_promotion_states_for_store",
+        "mark_semantic_dirty",
+        "session promotion must be shadow-only",
+    ),
+    (
+        "core_memory/graph/core.py",
+        "backfill_causal_links",
+        "add_structural_edge",
+        "causal backfill must remain candidate-only",
+    ),
+    (
+        "core_memory/graph/core.py",
+        "infer_structural_edges",
+        "add_structural_edge",
+        "structural inference must remain candidate-only",
+    ),
+    (
+        "core_memory/persistence/store_compaction_ops.py",
+        "compact_for_store",
+        "promotion_state",
+        "compaction cannot auto-promote",
+    ),
 )
 
 LAYER_RANK: dict[str, int] = {
     "schema": 0,
     "temporal": 0,
     "config": 0,
+    "ledger": 0,
     "persistence": 1,
+    "semantic": 1,
     "association": 2,
     "claim": 2,
     "data": 2,
@@ -208,9 +228,7 @@ ACTIVE_LIVE_PATHS = {
 PUBLIC_COMPAT_TRUTH_SURFACES: dict[str, dict[str, object]] = {
     "graph_api_facade": {
         "label": "graph/api.py compatibility facade",
-        "pattern": re.compile(
-            r"core_memory/graph/api\.py|core_memory\.graph\.api|graph/api\.py"
-        ),
+        "pattern": re.compile(r"core_memory/graph/api\.py|core_memory\.graph\.api|graph/api\.py"),
     },
     "persistence_encryption_module": {
         "label": "persistence encryption compatibility module",
@@ -298,9 +316,7 @@ COMPAT_SCAN_SKIP_PREFIXES = {
 COMPAT_SURFACES: dict[str, dict[str, object]] = {
     "runtime_semantic_tasks": {
         "label": "runtime semantic-task compatibility facades",
-        "pattern": re.compile(
-            r"\bcore_memory\.runtime\.semantic_tasks\b|runtime/semantic_tasks"
-        ),
+        "pattern": re.compile(r"\bcore_memory\.runtime\.semantic_tasks\b|runtime/semantic_tasks"),
         "skip_prefixes": ("core_memory/runtime/semantic_tasks/",),
     },
     "typed_search_form_submission": {
@@ -344,6 +360,442 @@ class Violation:
 
     def to_json(self) -> dict:
         return asdict(self)
+
+
+def _git_commit(root: Path) -> str:
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=root,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+    commit = result.stdout.strip()
+    return commit if re.fullmatch(r"[0-9a-f]{40}", commit) else "unknown"
+
+
+def architecture_exception_fingerprint(row: dict) -> str:
+    """Return the stable review fingerprint for a governed exception."""
+
+    payload = {key: row.get(key) for key in _EXCEPTION_FINGERPRINT_KEYS}
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _symbol_nodes(root: Path, row: dict) -> list[ast.AST]:
+    path = root / str(row.get("path") or "")
+    symbol = str(row.get("symbol") or "")
+    if not path.is_file() or not symbol:
+        return []
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    except (OSError, SyntaxError, UnicodeDecodeError):
+        return []
+    name = symbol.rsplit(".", 1)[-1]
+    return [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)) and node.name == name
+    ]
+
+
+def _symbol_occurrences(root: Path, row: dict) -> int:
+    """Count the governed debt, not merely duplicate Python definitions."""
+
+    nodes = _symbol_nodes(root, row)
+    governed_calls = row.get("governed_calls")
+    if not isinstance(governed_calls, list) or not governed_calls:
+        return len(nodes)
+    call_names = {str(item) for item in governed_calls}
+    return sum(
+        1
+        for node in nodes
+        for child in ast.walk(node)
+        if isinstance(child, ast.Call) and _call_name(child) in call_names
+    )
+
+
+def _exception_registry(baseline: dict) -> list[dict]:
+    rows = baseline.get("exceptions")
+    return [row for row in rows if isinstance(row, dict)] if isinstance(rows, list) else []
+
+
+def _phase_order(value: str) -> tuple[int, int]:
+    match = re.fullmatch(r"PR-([0-9]{2})([A-Z])", value)
+    if match is None:
+        raise ValueError(value)
+    return int(match.group(1)), ord(match.group(2)) - ord("A")
+
+
+def _exception_line(baseline_text: str, exception_id: str, fallback: int) -> int:
+    match = re.search(rf'^\s*"id"\s*:\s*"{re.escape(exception_id)}"', baseline_text, re.MULTILINE)
+    return _line_for_offset(baseline_text, match.start()) if match else fallback
+
+
+def compare_exception_registries(current: dict, previous: dict) -> list[Violation]:
+    """Reject widening an already-committed v2 exception registry."""
+
+    if previous.get("schema_version") != SCHEMA_VERSION:
+        return []
+    violations: list[Violation] = []
+    try:
+        current_phase = _phase_order(str(current.get("current_phase") or ""))
+        previous_phase = _phase_order(str(previous.get("current_phase") or ""))
+    except ValueError:
+        pass
+    else:
+        if current_phase < previous_phase:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id="architecture_exception:current_phase_regression",
+                    path=DEFAULT_BASELINE.as_posix(),
+                    line=1,
+                    message="The architecture exception registry phase cannot move backward",
+                    detail={
+                        "previous": str(previous.get("current_phase")),
+                        "current": str(current.get("current_phase")),
+                    },
+                )
+            )
+    current_by_id = {str(row.get("id")): row for row in _exception_registry(current)}
+    previous_by_id = {str(row.get("id")): row for row in _exception_registry(previous)}
+    for exception_id, row in sorted(current_by_id.items()):
+        prior = previous_by_id.get(exception_id)
+        if prior is None:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"architecture_exception:{exception_id}:new_exception",
+                    path=str(row.get("path") or DEFAULT_BASELINE.as_posix()),
+                    line=1,
+                    message="New architecture exceptions cannot silently bless additional debt",
+                    detail={"exception_id": exception_id},
+                )
+            )
+            continue
+        metadata_keys = ARCHITECTURE_EXCEPTION_KEYS - {
+            "fingerprint",
+            "governed_calls",
+            "max_occurrences",
+        }
+        metadata_changed = any(row.get(key) != prior.get(key) for key in metadata_keys)
+        current_calls = set(row.get("governed_calls") or [])
+        previous_calls = set(prior.get("governed_calls") or [])
+        governed_calls_increased = not current_calls.issubset(previous_calls)
+        try:
+            ceiling_increased = int(row.get("max_occurrences")) > int(prior.get("max_occurrences"))
+        except (TypeError, ValueError):
+            ceiling_increased = True
+        if metadata_changed or governed_calls_increased or ceiling_increased:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"architecture_exception:{exception_id}:exception_widened",
+                    path=str(row.get("path") or DEFAULT_BASELINE.as_posix()),
+                    line=1,
+                    message="Committed architecture exceptions cannot widen governed behavior or debt",
+                    detail={
+                        "exception_id": exception_id,
+                        "previous_max": str(prior.get("max_occurrences")),
+                        "current_max": str(row.get("max_occurrences")),
+                    },
+                )
+            )
+    return violations
+
+
+def _load_baseline_at_ref(root: Path, ref: str) -> dict:
+    result = subprocess.run(
+        ["git", "show", f"{ref}:{DEFAULT_BASELINE.as_posix()}"],
+        cwd=root,
+        capture_output=True,
+        check=False,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise OSError(result.stderr.strip() or f"could not read baseline at {ref}")
+    return json.loads(result.stdout)
+
+
+def check_architecture_exception_registry(
+    root: Path,
+    *,
+    current_phase: str | None = None,
+) -> list[Violation]:
+    """Validate that every temporary authority exception is explicit and expiring."""
+
+    baseline_path = root / DEFAULT_BASELINE
+    try:
+        baseline_text = baseline_path.read_text(encoding="utf-8")
+        baseline = json.loads(baseline_text)
+    except (OSError, json.JSONDecodeError) as exc:
+        return [
+            Violation(
+                check="architecture_exception",
+                id="architecture_exception:baseline_unreadable",
+                path=_relative(baseline_path, root),
+                line=1,
+                message="Could not read the architecture exception registry",
+                detail={"error": exc.__class__.__name__},
+            )
+        ]
+
+    violations: list[Violation] = []
+    baseline_rel = _relative(baseline_path, root)
+    if baseline.get("schema_version") != SCHEMA_VERSION:
+        violations.append(
+            Violation(
+                check="architecture_exception",
+                id="architecture_exception:schema_version",
+                path=baseline_rel,
+                line=1,
+                message=f"Architecture baseline must use {SCHEMA_VERSION}",
+                detail={"actual": str(baseline.get("schema_version") or "missing")},
+            )
+        )
+    if not re.fullmatch(r"[0-9a-f]{40}", str(baseline.get("generated_from_commit") or "")):
+        violations.append(
+            Violation(
+                check="architecture_exception",
+                id="architecture_exception:generated_from_commit",
+                path=baseline_rel,
+                line=1,
+                message="Architecture baseline must record its 40-character source commit",
+                detail={},
+            )
+        )
+
+    effective_phase = current_phase or str(baseline.get("current_phase") or "")
+    if not _CURRENT_PHASE_RE.fullmatch(effective_phase):
+        violations.append(
+            Violation(
+                check="architecture_exception",
+                id="architecture_exception:current_phase",
+                path=baseline_rel,
+                line=1,
+                message="Architecture baseline must identify the current Observation Ledger PR phase",
+                detail={"actual": effective_phase or "missing"},
+            )
+        )
+
+    rows = baseline.get("exceptions")
+    if not isinstance(rows, list):
+        return violations + [
+            Violation(
+                check="architecture_exception",
+                id="architecture_exception:registry_missing",
+                path=baseline_rel,
+                line=1,
+                message="Architecture baseline must contain an exceptions array",
+                detail={},
+            )
+        ]
+
+    seen_ids: set[str] = set()
+    seen_fingerprints: set[str] = set()
+    for index, row in enumerate(rows):
+        if not isinstance(row, dict):
+            issue_prefix = f"architecture_exception:row:{index}"
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:not_object",
+                    path=baseline_rel,
+                    line=index + 1,
+                    message="Architecture exception rows must be objects",
+                    detail={},
+                )
+            )
+            continue
+
+        exception_id = str(row.get("id") or f"row-{index}")
+        issue_prefix = f"architecture_exception:{exception_id}"
+        row_line = _exception_line(baseline_text, exception_id, index + 1)
+        missing = sorted(
+            key
+            for key in ARCHITECTURE_EXCEPTION_KEYS
+            if key not in row or row.get(key) in (None, "") or (key == "invariant_ids" and row.get(key) == [])
+        )
+        if missing:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:missing_fields",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception is missing required fields",
+                    detail={"exception_id": exception_id, "missing": ",".join(missing)},
+                )
+            )
+            continue
+
+        if exception_id in seen_ids:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:duplicate_id",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception IDs must be unique",
+                    detail={"exception_id": exception_id},
+                )
+            )
+        seen_ids.add(exception_id)
+
+        category = str(row["category"])
+        if category not in ARCHITECTURE_EXCEPTION_CATEGORIES:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:category",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception uses an unknown category",
+                    detail={"exception_id": exception_id, "category": category},
+                )
+            )
+
+        invariant_ids = row.get("invariant_ids")
+        unknown_invariants = (
+            sorted(set(str(item) for item in invariant_ids) - set(ARCHITECTURE_INVARIANTS))
+            if isinstance(invariant_ids, list)
+            else ["not-a-list"]
+        )
+        if unknown_invariants:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:invariants",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception references unknown invariant IDs",
+                    detail={"exception_id": exception_id, "unknown": ",".join(unknown_invariants)},
+                )
+            )
+
+        path_text = str(row["path"])
+        if Path(path_text).is_absolute() or ".." in Path(path_text).parts or _GLOB_META_RE.search(path_text):
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:path",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception paths must be exact repo-relative paths without globs",
+                    detail={"exception_id": exception_id, "target_path": path_text},
+                )
+            )
+
+        if not _PR_PHASE_RE.fullmatch(str(row["delete_by_pr"])):
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:delete_by_pr",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exceptions must expire in a future PR phase",
+                    detail={"exception_id": exception_id, "delete_by_pr": str(row["delete_by_pr"])},
+                )
+            )
+        elif _CURRENT_PHASE_RE.fullmatch(effective_phase) and _phase_order(str(row["delete_by_pr"])) <= _phase_order(
+            effective_phase
+        ):
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:expired",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception reached its mandatory deletion phase",
+                    detail={
+                        "exception_id": exception_id,
+                        "delete_by_pr": str(row["delete_by_pr"]),
+                        "current_phase": effective_phase,
+                    },
+                )
+            )
+
+        governed_calls = row.get("governed_calls")
+        invalid_calls = (
+            sorted(str(item) for item in governed_calls if str(item) not in _GOVERNED_SEMANTIC_MUTATION_CALLS)
+            if isinstance(governed_calls, list)
+            else ["not-a-list"]
+        )
+        if invalid_calls:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:governed_calls",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception lists unknown governed mutation calls",
+                    detail={"exception_id": exception_id, "invalid": ",".join(invalid_calls)},
+                )
+            )
+
+        max_occurrences = row["max_occurrences"]
+        if isinstance(max_occurrences, bool) or not isinstance(max_occurrences, int) or max_occurrences < 1:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:max_occurrences",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="max_occurrences must be a positive integer",
+                    detail={"exception_id": exception_id},
+                )
+            )
+        else:
+            actual = _symbol_occurrences(root, row)
+            if actual == 0:
+                violations.append(
+                    Violation(
+                        check="architecture_exception",
+                        id=f"architecture_exception:{exception_id}:stale_target",
+                        path=path_text,
+                        line=row_line,
+                        message="Architecture exception target no longer exists; remove the stale row",
+                        detail={"exception_id": exception_id},
+                    )
+                )
+            elif actual > max_occurrences:
+                violations.append(
+                    Violation(
+                        check="architecture_exception",
+                        id=f"architecture_exception:{exception_id}:occurrence_increase",
+                        path=path_text,
+                        line=row_line,
+                        message="Governed architecture debt increased beyond its ratchet",
+                        detail={
+                            "exception_id": exception_id,
+                            "allowed": str(max_occurrences),
+                            "actual": str(actual),
+                        },
+                    )
+                )
+
+        expected_fingerprint = architecture_exception_fingerprint(row)
+        fingerprint = str(row["fingerprint"])
+        if fingerprint != expected_fingerprint or fingerprint in seen_fingerprints:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id=f"{issue_prefix}:fingerprint",
+                    path=baseline_rel,
+                    line=row_line,
+                    message="Architecture exception fingerprint is stale or duplicated",
+                    detail={"exception_id": exception_id, "expected": expected_fingerprint},
+                )
+            )
+        seen_fingerprints.add(fingerprint)
+
+    return sorted(violations, key=lambda violation: violation.id)
 
 
 def repo_root_from_script() -> Path:
@@ -449,10 +901,7 @@ def check_upward_imports(root: Path) -> list[Violation]:
                     id=violation_id,
                     path=rel,
                     line=line,
-                    message=(
-                        f"{source_part}/ imports upward into {target_part}/ "
-                        f"via {target_module}"
-                    ),
+                    message=(f"{source_part}/ imports upward into {target_part}/ via {target_module}"),
                     detail={
                         "source_layer": source_part,
                         "target_layer": target_part,
@@ -579,15 +1028,9 @@ def _line_is_false_dead_claim_for_live_path(line: str) -> bool:
 
 def check_cleanup_truth(root: Path) -> list[Violation]:
     violations: list[Violation] = []
-    existing_debt = {
-        path for path in ACTIVE_CLEANUP_DEBT_PATHS if (root / path).exists()
-    }
-    existing_live_paths = {
-        path for path in ACTIVE_LIVE_PATHS if (root / path).exists()
-    }
-    current_docs = {
-        Path(_relative(path, root)) for path in _iter_current_markdown_files(root)
-    }
+    existing_debt = {path for path in ACTIVE_CLEANUP_DEBT_PATHS if (root / path).exists()}
+    existing_live_paths = {path for path in ACTIVE_LIVE_PATHS if (root / path).exists()}
+    current_docs = {Path(_relative(path, root)) for path in _iter_current_markdown_files(root)}
     docs = sorted({*TRUTH_DOCS, *current_docs})
     for doc in docs:
         path = root / doc
@@ -609,8 +1052,7 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
                         path=doc.as_posix(),
                         line=lineno,
                         message=(
-                            f"{doc.as_posix()} appears to describe existing "
-                            f"{active_path} as deleted/removed/done"
+                            f"{doc.as_posix()} appears to describe existing {active_path} as deleted/removed/done"
                         ),
                         detail={"active_path": active_path, "line": line.strip()},
                     )
@@ -629,10 +1071,7 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
                         id=violation_id,
                         path=doc.as_posix(),
                         line=lineno,
-                        message=(
-                            f"{doc.as_posix()} appears to describe live "
-                            f"{active_path} as dead or unreferenced"
-                        ),
+                        message=(f"{doc.as_posix()} appears to describe live {active_path} as dead or unreferenced"),
                         detail={"active_path": active_path, "line": line.strip()},
                     )
                 )
@@ -651,8 +1090,7 @@ def check_cleanup_truth(root: Path) -> list[Violation]:
                         path=doc.as_posix(),
                         line=lineno,
                         message=(
-                            f"{doc.as_posix()} appears to describe retained "
-                            f"{surface['label']} as deleted/removed/done"
+                            f"{doc.as_posix()} appears to describe retained {surface['label']} as deleted/removed/done"
                         ),
                         detail={
                             "surface_key": surface_key,
@@ -803,67 +1241,179 @@ def _function_assigns_subscript_key(node: ast.AST, key: str) -> bool:
     return False
 
 
-def check_deterministic_semantic_writers(root: Path) -> list[Violation]:
-    """Enforce the explicit allowlist around deterministic semantic authority."""
-    baseline_path = root / DEFAULT_BASELINE
-    if not baseline_path.exists():
-        return []
+def _exception_lookup(baseline: dict) -> set[tuple[str, str, str]]:
+    return {
+        (str(row.get("category") or ""), str(row.get("path") or ""), str(row.get("symbol") or ""))
+        for row in _exception_registry(baseline)
+    }
+
+
+def _governed_mutation_lookup(baseline: dict) -> set[tuple[str, str, str]]:
+    allowed_categories = {
+        "deterministic_semantic_author",
+        "semantic_fallback",
+        "feature_store",
+        "boundary_import",
+    }
+    return {
+        (str(row.get("path") or ""), str(row.get("symbol") or ""), str(call))
+        for row in _exception_registry(baseline)
+        if row.get("category") in allowed_categories
+        for call in row.get("governed_calls", [])
+    }
+
+
+def check_semantic_fallback_paths(root: Path) -> list[Violation]:
+    """Reject newly named semantic fallback functions outside the exception registry."""
+
     try:
-        baseline = load_baseline(baseline_path)
-    except (OSError, json.JSONDecodeError) as exc:
-        return [
-            Violation(
-                check="deterministic_writer",
-                id="deterministic_writer:baseline_unreadable",
-                path=_relative(baseline_path, root),
-                line=1,
-                message="Could not read sanctioned deterministic writer allowlist",
-                detail={"error": exc.__class__.__name__},
+        baseline = load_baseline(root / DEFAULT_BASELINE)
+    except (OSError, json.JSONDecodeError):
+        return []
+    exceptions = _exception_lookup(baseline)
+    violations: list[Violation] = []
+    for path in sorted((root / "core_memory").rglob("*.py")):
+        rel = _relative(path, root)
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        module = _module_name_for_path(path, root)
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if not _SEMANTIC_FALLBACK_NAME_RE.search(node.name):
+                continue
+            symbol = f"{module}.{node.name}"
+            if ("semantic_fallback", rel, symbol) in exceptions:
+                continue
+            violation_id = f"semantic_fallback:{rel}:{symbol}"
+            violations.append(
+                Violation(
+                    check="semantic_fallback",
+                    id=violation_id,
+                    path=rel,
+                    line=node.lineno,
+                    message="Semantic fallback path is not registered as expiring architecture debt",
+                    detail={"category": "semantic_fallback", "symbol": symbol},
+                )
             )
-        ]
+    return sorted(violations, key=lambda violation: violation.id)
+
+
+def check_semantic_mutation_calls(root: Path) -> list[Violation]:
+    """Require every call into a legacy semantic mutator to be exact and governed."""
+
+    try:
+        baseline = load_baseline(root / DEFAULT_BASELINE)
+    except (OSError, json.JSONDecodeError):
+        return []
+    allowed = _governed_mutation_lookup(baseline)
+    violations: list[Violation] = []
+    for path in sorted((root / "core_memory").rglob("*.py")):
+        rel = _relative(path, root)
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        module = _module_name_for_path(path, root)
+        parents: dict[ast.AST, ast.AST] = {}
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                parents[child] = parent
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            call_name = _call_name(node)
+            if call_name not in _GOVERNED_SEMANTIC_MUTATION_CALLS:
+                continue
+            owner: ast.AST = node
+            while owner in parents and not isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                owner = parents[owner]
+            owner_name = owner.name if isinstance(owner, (ast.FunctionDef, ast.AsyncFunctionDef)) else "<module>"
+            symbol = f"{module}.{owner_name}"
+            if (rel, symbol, call_name) in allowed:
+                continue
+            violation_id = f"semantic_mutation:{rel}:{symbol}:{call_name}"
+            violations.append(
+                Violation(
+                    check="semantic_mutation",
+                    id=violation_id,
+                    path=rel,
+                    line=node.lineno,
+                    message="Legacy semantic mutation call is not governed by an exact exception",
+                    detail={
+                        "category": "deterministic_semantic_author",
+                        "symbol": symbol,
+                        "mutation_call": call_name,
+                    },
+                )
+            )
+    return sorted(violations, key=lambda violation: violation.id)
+
+
+TARGET_BOUNDARY_ALLOWLIST: dict[str, tuple[str, ...]] = {
+    "core_memory/ledger": (
+        "core_memory.config",
+        "core_memory.domain",
+        "core_memory.identifiers",
+        "core_memory.schema",
+        "core_memory.temporal",
+    ),
+    "core_memory/semantic": (
+        "core_memory.config",
+        "core_memory.domain",
+        "core_memory.identifiers",
+        "core_memory.ledger",
+        "core_memory.llm_client",
+        "core_memory.provider_config",
+        "core_memory.schema",
+        "core_memory.temporal",
+    ),
+}
+
+
+def check_target_boundaries(root: Path) -> list[Violation]:
+    """Activate target-package dependency rules as soon as target packages exist."""
 
     violations: list[Violation] = []
-    rows = baseline.get("sanctioned_deterministic_writers")
-    if not isinstance(rows, list) or not rows:
-        return [
-            Violation(
-                check="deterministic_writer",
-                id="deterministic_writer:allowlist_missing",
-                path=_relative(baseline_path, root),
-                line=1,
-                message="Architecture baseline must enumerate sanctioned deterministic writers",
-                detail={},
-            )
-        ]
-
-    seen_symbols: set[str] = set()
-    for index, row in enumerate(rows):
-        if not isinstance(row, dict):
-            violations.append(
-                Violation(
-                    check="deterministic_writer",
-                    id=f"deterministic_writer:allowlist_row_not_object:{index}",
-                    path=_relative(baseline_path, root),
-                    line=index + 1,
-                    message="Sanctioned deterministic writer rows must be objects",
-                    detail={},
-                )
-            )
+    for target_root, allowed_prefixes in TARGET_BOUNDARY_ALLOWLIST.items():
+        directory = root / target_root
+        if not directory.exists():
             continue
-        missing = sorted(key for key in SANCTIONED_DETERMINISTIC_WRITER_KEYS if not str(row.get(key) or "").strip())
-        symbol = str(row.get("symbol") or "").strip()
-        if missing or not symbol or symbol in seen_symbols:
-            violations.append(
-                Violation(
-                    check="deterministic_writer",
-                    id=f"deterministic_writer:invalid_allowlist_row:{index}",
-                    path=_relative(baseline_path, root),
-                    line=index + 1,
-                    message="Sanctioned deterministic writer row is missing required detail or duplicates a symbol",
-                    detail={"missing": ",".join(missing), "symbol": symbol},
+        for path in sorted(directory.rglob("*.py")):
+            rel = _relative(path, root)
+            try:
+                tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (OSError, SyntaxError, UnicodeDecodeError):
+                continue
+            current_module = _module_name_for_path(path, root)
+            for imported, line in _iter_import_targets(tree, current_module, path.name == "__init__.py"):
+                if imported != "core_memory" and not imported.startswith("core_memory."):
+                    continue
+                allowed = any(imported == prefix or imported.startswith(prefix + ".") for prefix in allowed_prefixes)
+                if allowed:
+                    continue
+                violation_id = f"target_boundary:{rel}:{imported}"
+                violations.append(
+                    Violation(
+                        check="target_boundary",
+                        id=violation_id,
+                        path=rel,
+                        line=line,
+                        message=f"Target package imports non-allowlisted Core Memory module {imported}",
+                        detail={
+                            "target_root": target_root,
+                            "allowed_prefixes": ",".join(allowed_prefixes),
+                        },
+                    )
                 )
-            )
-        seen_symbols.add(symbol)
+    return sorted(violations, key=lambda violation: violation.id)
+
+
+def check_deterministic_semantic_writers(root: Path) -> list[Violation]:
+    """Enforce the explicit allowlist around deterministic semantic authority."""
+    violations: list[Violation] = []
 
     def parse(path_text: str) -> tuple[Path, ast.AST | None]:
         path = root / path_text
@@ -918,26 +1468,76 @@ def check_deterministic_semantic_writers(root: Path) -> list[Violation]:
     return sorted(violations, key=lambda violation: violation.id)
 
 
-def collect_violations(root: Path) -> list[Violation]:
+def collect_violations(
+    root: Path,
+    *,
+    current_phase: str | None = None,
+    ratchet_ref: str | None = None,
+) -> list[Violation]:
     violations: list[Violation] = []
+    violations.extend(check_architecture_exception_registry(root, current_phase=current_phase))
+    if ratchet_ref:
+        try:
+            current = load_baseline(root / DEFAULT_BASELINE)
+            previous = _load_baseline_at_ref(root, ratchet_ref)
+        except (OSError, json.JSONDecodeError, subprocess.SubprocessError) as exc:
+            violations.append(
+                Violation(
+                    check="architecture_exception",
+                    id="architecture_exception:ratchet_ref_unreadable",
+                    path=DEFAULT_BASELINE.as_posix(),
+                    line=1,
+                    message="Could not compare the exception registry to the requested Git ref",
+                    detail={"ref": ratchet_ref, "error": exc.__class__.__name__},
+                )
+            )
+        else:
+            violations.extend(compare_exception_registries(current, previous))
     violations.extend(check_upward_imports(root))
     violations.extend(check_flat_files(root))
     violations.extend(check_markdown_links(root))
     violations.extend(check_cleanup_truth(root))
     violations.extend(check_prd_index(root))
+    violations.extend(check_semantic_fallback_paths(root))
+    violations.extend(check_semantic_mutation_calls(root))
     violations.extend(check_deterministic_semantic_writers(root))
+    violations.extend(check_target_boundaries(root))
     return sorted(violations, key=lambda v: (v.check, v.id))
 
 
 def make_baseline(root: Path, violations: list[Violation]) -> dict:
+    try:
+        current = load_baseline(root / DEFAULT_BASELINE)
+    except (OSError, json.JSONDecodeError):
+        current = {}
     return {
         "schema_version": SCHEMA_VERSION,
         "generated_at": datetime.now(timezone.utc).isoformat(),
+        "generated_from_commit": _git_commit(root),
+        "current_phase": current.get("current_phase"),
         "repo_root": ".",
+        "invariants": ARCHITECTURE_INVARIANTS,
         "violation_ids": [v.id for v in violations],
         "violations": [v.to_json() for v in violations],
-        "sanctioned_deterministic_writers": SANCTIONED_DETERMINISTIC_WRITERS,
+        "exceptions": _exception_registry(current),
     }
+
+
+def make_baseline_candidate(root: Path, violations: list[Violation]) -> dict:
+    current = load_baseline(root / DEFAULT_BASELINE)
+    new, resolved = compare_to_baseline(violations, current)
+    payload = make_baseline(root, violations)
+    payload["candidate_only"] = True
+    payload["candidate_diff"] = {
+        "new_violation_ids": [violation.id for violation in new],
+        "resolved_violation_ids": resolved,
+        "exception_ids": [row.get("id") for row in _exception_registry(current)],
+        "instruction": (
+            "Review this diff and edit the canonical baseline explicitly. "
+            "The guard never promotes a candidate automatically."
+        ),
+    }
+    return payload
 
 
 def _compat_counts(violations: list[Violation]) -> dict[str, dict[str, int]]:
@@ -946,10 +1546,7 @@ def _compat_counts(violations: list[Violation]) -> dict[str, dict[str, int]]:
         surface_key = violation.detail.get("surface_key", "unknown")
         surface_counts = counts.setdefault(surface_key, {})
         surface_counts[violation.path] = surface_counts.get(violation.path, 0) + 1
-    return {
-        surface: dict(sorted(path_counts.items()))
-        for surface, path_counts in sorted(counts.items())
-    }
+    return {surface: dict(sorted(path_counts.items())) for surface, path_counts in sorted(counts.items())}
 
 
 def make_compat_baseline(root: Path, violations: list[Violation]) -> dict:
@@ -964,9 +1561,7 @@ def make_compat_baseline(root: Path, violations: list[Violation]) -> dict:
             "increased counts are drift."
         ),
         "allowed_counts": counts,
-        "surface_totals": {
-            surface: sum(path_counts.values()) for surface, path_counts in counts.items()
-        },
+        "surface_totals": {surface: sum(path_counts.values()) for surface, path_counts in counts.items()},
     }
 
 
@@ -1025,7 +1620,18 @@ def print_report(
 
     print("Architecture guard report")
     print("=========================")
-    for check in ["upward_import", "flat_file", "markdown_link", "cleanup_truth", "prd_index", "deterministic_writer"]:
+    for check in [
+        "architecture_exception",
+        "upward_import",
+        "flat_file",
+        "markdown_link",
+        "cleanup_truth",
+        "prd_index",
+        "semantic_fallback",
+        "semantic_mutation",
+        "deterministic_writer",
+        "target_boundary",
+    ]:
         print(f"{check}: {counts.get(check, 0)}")
     print(f"total: {len(violations)}")
 
@@ -1077,18 +1683,22 @@ def print_compat_report(
         print()
         print("New compatibility drift:")
         for violation in new:
-            print(
-                f"- [{violation.detail.get('surface_key')}] "
-                f"{violation.path}:{violation.line} {violation.message}"
-            )
-
+            print(f"- [{violation.detail.get('surface_key')}] {violation.path}:{violation.line} {violation.message}")
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=repo_root_from_script())
     parser.add_argument("--baseline", type=Path, default=DEFAULT_BASELINE)
-    parser.add_argument("--write-baseline", type=Path)
+    parser.add_argument("--current-phase", help="Override the registry phase for expiry checks")
+    parser.add_argument("--ratchet-ref", help="Reject exception-registry widening from this Git ref")
+    parser.add_argument(
+        "--write-baseline-candidate",
+        "--write-baseline",
+        dest="write_baseline_candidate",
+        type=Path,
+        help="Write a review-only candidate diff; never updates the canonical baseline",
+    )
     parser.add_argument("--fail-on-new", action="store_true")
     parser.add_argument("--compat-baseline", type=Path, default=DEFAULT_COMPAT_BASELINE)
     parser.add_argument("--write-compat-baseline", type=Path)
@@ -1100,17 +1710,37 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(list(argv or sys.argv[1:]))
     root = args.root.resolve()
-    violations = collect_violations(root)
+    violations = collect_violations(
+        root,
+        current_phase=args.current_phase,
+        ratchet_ref=args.ratchet_ref,
+    )
     run_compat_guard = bool(args.write_compat_baseline or args.fail_on_new_compat)
     compat_violations = check_compat_surface_usage(root) if run_compat_guard else []
 
-    if args.write_baseline:
-        baseline_path = args.write_baseline
+    if args.write_baseline_candidate:
+        baseline_path = args.write_baseline_candidate
         if not baseline_path.is_absolute():
             baseline_path = root / baseline_path
+        if baseline_path.resolve() == (root / DEFAULT_BASELINE).resolve():
+            print(
+                "Refusing to overwrite the canonical architecture baseline; "
+                "write a candidate to a separate path for review",
+                file=sys.stderr,
+            )
+            return 2
+        try:
+            candidate = make_baseline_candidate(root, violations)
+        except (OSError, json.JSONDecodeError) as exc:
+            print(
+                "Cannot create architecture baseline candidate: "
+                f"canonical baseline is unavailable or malformed ({exc.__class__.__name__})",
+                file=sys.stderr,
+            )
+            return 2
         baseline_path.parent.mkdir(parents=True, exist_ok=True)
         baseline_path.write_text(
-            json.dumps(make_baseline(root, violations), indent=2, sort_keys=True) + "\n",
+            json.dumps(candidate, indent=2, sort_keys=True) + "\n",
             encoding="utf-8",
         )
 

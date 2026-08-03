@@ -1,93 +1,441 @@
 {
-  "generated_at": "2026-07-21T20:49:40+00:00",
-  "repo_root": ".",
-  "sanctioned_deterministic_writers": [
+  "current_phase": "PR-00A",
+  "description": "Observation Ledger architecture debt ratchet. Exceptions are exact, fingerprinted, owned, and expire in named PR phases. Reductions are allowed; new or increased debt is rejected.",
+  "exceptions": [
     {
+      "allowed_behavior": "May record a legacy session-boundary bead using explicit session lifecycle input.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10I",
+      "fingerprint": "8bff3d196f4099aef1070523182ba75687f671ebb1241971c2d3193a5a8785c1",
+      "forbidden_behavior": "Must not infer user meaning, claims, goals, or relationships.",
+      "governed_calls": [],
+      "id": "CMEX-001",
+      "invariant_ids": [
+        "CM-OBS-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy callers require a session boundary until SourceEvent capture replaces this writer.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/session/session_start_flow.py",
       "provenance_requirement": "session_id and continuity snapshot",
-      "rationale": "Session boundaries are mechanical lifecycle records.",
-      "record_or_edge_class": "session_boundary_bead",
       "symbol": "core_memory.runtime.session.session_start_flow.process_session_start_impl"
     },
     {
+      "allowed_behavior": "May record a legacy flush checkpoint from explicit process state.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10I",
+      "fingerprint": "dec3bd340261e96b6e869cc45bcdaae3d81d5264f540c45c65f81bd77a3feed8",
+      "forbidden_behavior": "Must not infer semantic completion or manufacture observation meaning.",
+      "governed_calls": [],
+      "id": "CMEX-002",
+      "invariant_ids": [
+        "CM-OBS-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Flush checkpoint beads remain a compatibility authority until the observation pipeline cutover.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/flush/flush_state.py",
       "provenance_requirement": "flush transaction id",
-      "rationale": "Flush checkpoints record process progress, not semantic interpretation.",
-      "record_or_edge_class": "flush_checkpoint_bead",
       "symbol": "core_memory.runtime.flush.flush_state.upsert_process_flush_checkpoint_bead"
     },
     {
+      "allowed_behavior": "May preserve caller-owned external evidence and source coordinates.",
+      "category": "boundary_import",
+      "delete_by_pr": "PR-10I",
+      "fingerprint": "acb4154db858f5384309105f5c2d040549db7e51c607f4692198c9354ccea6b6",
+      "forbidden_behavior": "Must not convert source evidence into unsupported semantic truth.",
+      "governed_calls": [],
+      "id": "CMEX-003",
+      "invariant_ids": [
+        "CM-OBS-001",
+        "CM-BOUNDARY-001"
+      ],
+      "justification": "External evidence currently enters through the legacy bead boundary.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/ingest/external_evidence.py",
       "provenance_requirement": "source id, source event id, and hydration ref",
-      "rationale": "External anchors preserve caller-owned source evidence.",
-      "record_or_edge_class": "external_evidence_anchor",
       "symbol": "core_memory.runtime.ingest.external_evidence.ingest_external_evidence"
     },
     {
+      "allowed_behavior": "May append operational pending, retry, and repair status.",
+      "category": "feature_store",
+      "delete_by_pr": "PR-10I",
+      "fingerprint": "6fd5658414026a4ce5224401fe5a866576e0f2c0408bf35d4b4f77031d9a0e7f",
+      "forbidden_behavior": "Must not represent an operational state as a canonical semantic bead.",
+      "governed_calls": [],
+      "id": "CMEX-004",
+      "invariant_ids": [
+        "CM-SEM-002",
+        "CM-LEDGER-001"
+      ],
+      "justification": "Legacy semantic status remains outside the target job and receipt ledger.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/turn/semantic_state.py",
       "provenance_requirement": "session id, turn id, and status history",
-      "rationale": "Pending/repair state is an operational receipt, never a canonical bead.",
-      "record_or_edge_class": "pending_semantic_state",
       "symbol": "core_memory.runtime.turn.semantic_state.mark_semantic_write_state"
     },
     {
+      "allowed_behavior": "May project explicit persisted associations and structural links.",
+      "category": "feature_store",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "e81e5d854435dd9fccdd75f6fcf8690347ec9bc097f1a1180a1d607e326ae824",
+      "forbidden_behavior": "Must not infer predicate, direction, time, causality, or truth.",
+      "governed_calls": [
+        "add_structural_edge"
+      ],
+      "id": "CMEX-005",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-LEDGER-001"
+      ],
+      "justification": "The legacy graph projection predates the unified projection registry.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/graph/core.py",
       "provenance_requirement": "association or link source field",
-      "rationale": "Projects explicit persisted links and agent associations into structural edges.",
-      "record_or_edge_class": "explicit_structural_field_projection",
       "symbol": "core_memory.graph.core.sync_structural_pipeline"
     },
     {
+      "allowed_behavior": "May rebuild edges from explicit persisted structural fields.",
+      "category": "feature_store",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "5b1a31a924d6f8f49f8efb582b808fcbae449f9510f61a64e5e9f82e08408c73",
+      "forbidden_behavior": "Must not invent or upgrade semantic relationships.",
+      "governed_calls": [],
+      "id": "CMEX-006",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-LEDGER-001"
+      ],
+      "justification": "The legacy graph backfill remains until SQL-ledger projection cutover.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/graph/core.py",
       "provenance_requirement": "explicit link or association id",
-      "rationale": "Repairs graph projections from already persisted structural fields.",
-      "record_or_edge_class": "explicit_structural_field_projection",
       "symbol": "core_memory.graph.core.backfill_structural_edges"
     },
     {
+      "allowed_behavior": "May emit explicitly marked legacy shadow recommendations.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10K",
+      "fingerprint": "31820949b9496637ebf58390ab5b7b10fb8ce4ac4f2d5e299520b92f1610f7a1",
+      "forbidden_behavior": "Must not make canonical promotion or truth decisions.",
+      "governed_calls": [],
+      "id": "CMEX-007",
+      "invariant_ids": [
+        "CM-PROMOTION-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy heuristic promotion remains visible debt until ContextViewRevision replaces it.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/persistence/promotion_service.py",
       "provenance_requirement": "heuristic version and visible bead id",
-      "rationale": "Heuristic promotion signals are append-only advice only.",
-      "record_or_edge_class": "promotion_shadow_recommendation",
       "symbol": "core_memory.persistence.promotion_service.decide_session_promotion_states_for_store"
     },
     {
+      "allowed_behavior": "May score legacy promotion candidates as noncanonical advice.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10K",
+      "fingerprint": "7252a516bc8b15b94888ac73ef5736d3efa8ffefd7206375e4eb71daa8b39360",
+      "forbidden_behavior": "Must not persist canonical promotion state or alter factual authority.",
+      "governed_calls": [],
+      "id": "CMEX-008",
+      "invariant_ids": [
+        "CM-PROMOTION-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy candidate scoring remains until LLM-authored context assembly is live.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/persistence/promotion_service.py",
       "provenance_requirement": "score, threshold, and candidate bead id",
-      "rationale": "Candidate scoring is advisory rather than canonical promotion authority.",
-      "record_or_edge_class": "promotion_shadow_recommendation",
       "symbol": "core_memory.persistence.promotion_service.evaluate_candidates_for_store"
     },
     {
+      "allowed_behavior": "May emit explicitly marked legacy demotion recommendations.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10K",
+      "fingerprint": "c96eb266c3063824b9a85aa9dfa0166d06cc21a84062cd96699ed0c83272a6fd",
+      "forbidden_behavior": "Must not mutate archive retention or canonical truth.",
+      "governed_calls": [],
+      "id": "CMEX-009",
+      "invariant_ids": [
+        "CM-PROMOTION-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy rebalance remains until the unified hot-context projection is live.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/persistence/promotion_service.py",
       "provenance_requirement": "score, threshold, and candidate bead id",
-      "rationale": "Rebalance results are demotion recommendations only.",
-      "record_or_edge_class": "promotion_shadow_recommendation",
       "symbol": "core_memory.persistence.promotion_service.rebalance_promotions_for_store"
     },
     {
+      "allowed_behavior": "May emit legacy advisory claim candidates with extractor provenance.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "f5742bc746551690c7777414d00a08143b7b79a0df1e60f73f64ed5f309500b1",
+      "forbidden_behavior": "Must not establish a canonical claim or current truth.",
+      "governed_calls": [],
+      "id": "CMEX-010",
+      "invariant_ids": [
+        "CM-CLAIM-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy heuristic extraction remains until annotate_event and revise_assertion replace it.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/claim/turn_integration.py",
       "provenance_requirement": "extractor mode and turn id",
-      "rationale": "Heuristic or legacy claim extraction is review context only.",
-      "record_or_edge_class": "claim_advisory",
       "symbol": "core_memory.claim.turn_integration.extract_and_attach_claims"
     },
     {
+      "allowed_behavior": "May emit legacy claim-update advice for explicit review.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "39922dc4be7e6ff4ffc12250634392e224770afbeb9008946ef9be97ed2798c1",
+      "forbidden_behavior": "Must not resolve, supersede, or retract canonical claims automatically.",
+      "governed_calls": [
+        "write_claim_updates_to_bead"
+      ],
+      "id": "CMEX-011",
+      "invariant_ids": [
+        "CM-CLAIM-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy update policy remains until the single revision resolver is authoritative.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/claim/update_policy.py",
       "provenance_requirement": "trigger bead id and authored review provenance",
-      "rationale": "Automatic reconciliation is advice; explicit authored updates remain canonical.",
-      "record_or_edge_class": "claim_update_advisory",
       "symbol": "core_memory.claim.update_policy.emit_claim_updates"
     },
     {
+      "allowed_behavior": "May apply an explicit agent decision to a scoped legacy candidate.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10K",
+      "fingerprint": "6a24e7a011bad69e8732df1a4c25292464e5e67df7a18b678bd1f2e7b235d2c2",
+      "forbidden_behavior": "Must not auto-resolve claims or endorse artifacts without an attributed decision.",
+      "governed_calls": [
+        "write_claims_to_bead"
+      ],
+      "id": "CMEX-012",
+      "invariant_ids": [
+        "CM-CLAIM-001",
+        "CM-ARTIFACT-001"
+      ],
+      "justification": "Dreamer candidate state remains a separate lifecycle until Artifact migration.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/dreamer/candidates.py",
       "provenance_requirement": "candidate id, explicit_agent_action, and scoped-resolution receipt",
-      "rationale": "An explicit agent decision can apply a reviewed conflict resolution.",
-      "record_or_edge_class": "governed_claim_resolution",
       "symbol": "core_memory.runtime.dreamer.candidates.decide_dreamer_candidate"
     },
     {
-      "provenance_requirement": "candidate overlap and source/target ids",
-      "rationale": "Legacy causal backfill now emits candidates and deprecation telemetry only.",
-      "record_or_edge_class": "causal_link_candidate",
+      "allowed_behavior": "May emit relationship-neutral legacy causal candidates.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "695cd7e7f2b5a9d9ccdef99baad64b2e92066c4fc4b0c7295ff50083950f1eb1",
+      "forbidden_behavior": "Must not persist causal truth or structural edges from lexical overlap.",
+      "governed_calls": [],
+      "id": "CMEX-013",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy causal backfill remains until governed association review replaces it.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/graph/core.py",
+      "provenance_requirement": "candidate overlap and source and target ids",
       "symbol": "core_memory.graph.core.backfill_causal_links"
     },
     {
+      "allowed_behavior": "May shortlist relationship-neutral bead pairs from mechanical signals.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "9ff0d534d17c058d25ebe248425fce03941ded0c314389ad3b4489e7b061e48b",
+      "forbidden_behavior": "Must not select a predicate, direction, time interval, or causal status.",
+      "governed_calls": [],
+      "id": "CMEX-014",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy association coverage remains until neutral collectors move to the ledger.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/associations/coverage.py",
       "provenance_requirement": "pair bead ids, signal kinds, and candidate generation version",
-      "rationale": "Deterministic shortlisting emits evidence signals but never relationship truth.",
-      "record_or_edge_class": "relationship_neutral_pair_candidate",
       "symbol": "core_memory.runtime.associations.coverage._candidate_proposals_for_bead"
+    },
+    {
+      "allowed_behavior": "May expose the legacy fallback flag for compatibility and visible diagnostics.",
+      "category": "semantic_fallback",
+      "delete_by_pr": "PR-09G",
+      "fingerprint": "c6e3d42d21cc47206ee822c5d5af673fabdcb74df9074711194e746266399f01",
+      "forbidden_behavior": "Must not silently enable deterministic semantic authorship.",
+      "governed_calls": [],
+      "id": "CMEX-015",
+      "invariant_ids": [
+        "CM-SEM-001",
+        "CM-SEM-002"
+      ],
+      "justification": "The invariant-changing legacy flag remains until typed configuration cleanup.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/config/feature_flags.py",
+      "provenance_requirement": "explicit configuration source and fallback telemetry",
+      "symbol": "core_memory.config.feature_flags.bead_judge_fallback_enabled"
+    },
+    {
+      "allowed_behavior": "May produce explicitly identified compatibility output while the legacy writer exists.",
+      "category": "semantic_fallback",
+      "delete_by_pr": "PR-02D",
+      "fingerprint": "72a18350f608c8dbeadfff8524237f966d67efa1721fb8772b6f6b3c4301a65a",
+      "forbidden_behavior": "Must not be treated as a valid Observation Ledger annotation or quality success.",
+      "governed_calls": [],
+      "id": "CMEX-016",
+      "invariant_ids": [
+        "CM-OBS-001",
+        "CM-SEM-001",
+        "CM-SEM-002"
+      ],
+      "justification": "Legacy bead-field fallback is removed by the no-fallback semantic runtime closure.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/policy/bead_judge.py",
+      "provenance_requirement": "fallback marker, source event, and failure receipt",
+      "symbol": "core_memory.policy.bead_judge._fallback_bead_fields"
+    },
+    {
+      "allowed_behavior": "May delegate an explicit structural projection write to the legacy graph implementation.",
+      "category": "feature_store",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "8a3772588be1a3e9d8a2b2b001754af954d0041130672348330f8bbcbcee3763",
+      "forbidden_behavior": "Must not infer relationship meaning or accept an unprovenanced edge.",
+      "governed_calls": [
+        "add_structural_edge"
+      ],
+      "id": "CMEX-017",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-LEDGER-001"
+      ],
+      "justification": "The legacy structural facade remains until graph projection registry cutover.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/graph/structural.py",
+      "provenance_requirement": "explicit canonical association or structural source field",
+      "symbol": "core_memory.graph.structural.add_structural_edge"
+    },
+    {
+      "allowed_behavior": "May apply an explicit caller-requested legacy goal lifecycle transition.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10K",
+      "fingerprint": "dd62b3fe7da5764d071700930b27ab640561e10b6db629616d1cb7d6c04fd726",
+      "forbidden_behavior": "Must not infer goal adoption, completion, abandonment, or decay.",
+      "governed_calls": [
+        "transition_goal_state_for_store"
+      ],
+      "id": "CMEX-018",
+      "invariant_ids": [
+        "CM-ARTIFACT-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy goal lifecycle remains separate until unified Artifact migration.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/soul/goals.py",
+      "provenance_requirement": "authenticated caller action and goal evidence",
+      "symbol": "core_memory.soul.goals._transition_goal"
+    },
+    {
+      "allowed_behavior": "May persist a validated, attributed association judge decision.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "3370b3e55c88aab56226d96d91eaf036c6e60433c53ee80142a4d98bcf7f3d79",
+      "forbidden_behavior": "Must not replace a missing or invalid judge result with relationship meaning.",
+      "governed_calls": [
+        "_write_association_if_missing"
+      ],
+      "id": "CMEX-019",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy association application remains until ledger-backed association review.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/associations/coverage.py",
+      "provenance_requirement": "judge attempt receipt, evidence refs, and validated decision",
+      "symbol": "core_memory.runtime.associations.coverage._apply_judge_result"
+    },
+    {
+      "allowed_behavior": "May apply validated, attributed association proposals through the legacy store.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "e7fa160fc42f845f03a000033eba14df4548f8d54aa65b14b62ce9b23f37391f",
+      "forbidden_behavior": "Must not infer or repair predicate, direction, time, or causality deterministically.",
+      "governed_calls": [
+        "_write_association_if_missing"
+      ],
+      "id": "CMEX-020",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy proposal application remains until the canonical association append path.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/associations/coverage.py",
+      "provenance_requirement": "proposal receipt, evidence refs, and explicit apply request",
+      "symbol": "core_memory.runtime.associations.coverage.apply_association_proposals"
+    },
+    {
+      "allowed_behavior": "May invoke the legacy candidate and governed association pass.",
+      "category": "deterministic_semantic_author",
+      "delete_by_pr": "PR-10J",
+      "fingerprint": "aefcfb25a50bc248b98691e4e245eb17c8d7134df9e04c0e3856fa48578f1a42",
+      "forbidden_behavior": "Must not convert deterministic overlap into canonical relationship truth.",
+      "governed_calls": [
+        "apply_crawler_updates"
+      ],
+      "id": "CMEX-021",
+      "invariant_ids": [
+        "CM-ASSOC-001",
+        "CM-SEM-001"
+      ],
+      "justification": "Legacy association pass remains until neutral collectors and LLM review replace it.",
+      "max_occurrences": 1,
+      "owner": "core-memory-observation-ledger",
+      "path": "core_memory/runtime/passes/association_pass.py",
+      "provenance_requirement": "run id, candidate provenance, and judge receipt",
+      "symbol": "core_memory.runtime.passes.association_pass.run_association_pass"
     }
   ],
-  "schema_version": "core_memory.architecture_guards.v1",
+  "generated_at": "2026-08-03T00:00:00+00:00",
+  "generated_from_commit": "0257cf11e23ce2ec7fd08590e10df00d67402d20",
+  "invariants": {
+    "CM-ARTIFACT-001": "Derived artifacts share one evidence-bound append-only lifecycle.",
+    "CM-ASSOC-001": "Association predicate, direction, time, and causality are evidence-bound LLM decisions.",
+    "CM-BENCH-001": "Benchmark shortcuts and gold leakage disqualify quality evidence.",
+    "CM-BOUNDARY-001": "Integrations translate observations and never invent semantic authority.",
+    "CM-CLAIM-001": "Current truth follows explicit revision chains; unresolved conflict is ambiguous.",
+    "CM-LEDGER-001": "Canonical semantic state is append-only and has one authority.",
+    "CM-OBS-001": "Every bead is an evidence-bound annotation of an observed event.",
+    "CM-PROMOTION-001": "Promotion affects hot context only and cannot upgrade truth or delete archive evidence.",
+    "CM-RETRIEVAL-001": "Retrieval uses one evidence-hydrating pipeline and cites or abstains.",
+    "CM-SEM-001": "Meaning-bearing fields and conditional decisions are LLM-authored.",
+    "CM-SEM-002": "Semantic failure writes no manufactured fallback meaning."
+  },
+  "repo_root": ".",
+  "schema_version": "core_memory.architecture_guards.v2",
   "violation_ids": [],
   "violations": []
 }
